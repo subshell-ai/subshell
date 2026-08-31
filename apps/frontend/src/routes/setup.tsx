@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useHarnessToggles } from "@/hooks/use-harness-toggles";
 import { useHarnesses, useRecheckHarnesses } from "@/hooks/use-harnesses";
 import { apiFetch } from "@/lib/api";
+import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -56,15 +57,9 @@ function SetupPage() {
     setBusy(true);
     setRegError(null);
     try {
-      const res = await fetch("/api/auth/sign-up/email", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        setRegError(body?.message ?? "Registration failed");
+      const { error: signUpError } = await authClient.signUp.email({ name, email, password });
+      if (signUpError) {
+        setRegError(signUpError.message ?? "Registration failed");
         return;
       }
       // Sign-up just created the session cookie, but the shell's guard still

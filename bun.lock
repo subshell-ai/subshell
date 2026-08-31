@@ -76,6 +76,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@base-ui/react": "1.7.0",
+        "@better-auth/passkey": "1.7.1",
         "@internal/backend-client": "workspace:*",
         "@internal/backend-errors": "workspace:*",
         "@internal/session-protocol": "workspace:*",
@@ -88,6 +89,7 @@
         "@xterm/addon-serialize": "0.14.0",
         "@xterm/addon-webgl": "0.19.0",
         "@xterm/xterm": "6.0.0",
+        "better-auth": "1.7.1",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
         "dockview-react": "8.2.0",

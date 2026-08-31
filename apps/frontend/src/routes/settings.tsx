@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { useHarnessToggles } from "@/hooks/use-harness-toggles";
 import { useHarnesses, useRecheckHarnesses } from "@/hooks/use-harnesses";
 import { apiFetch, errMessage } from "@/lib/api";
+import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -47,16 +48,16 @@ function SettingsPage() {
     setPwError(null);
     setPwSaved(false);
     try {
-      // better-auth's own change-password route (session cookie auth).
-      const res = await fetch("/api/auth/change-password", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword, revokeOtherSessions: true }),
+      // better-auth's own change-password route (session cookie auth), via
+      // the shared client. `pwError2` avoids shadowing the pwError state.
+      const { error: pwError2 } = await authClient.changePassword({
+        currentPassword,
+        newPassword,
+        revokeOtherSessions: true,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        const detail = Array.isArray(body?.details) ? body.details[0] : null;
+      if (pwError2) {
+        const details = (pwError2 as unknown as { body?: { details?: unknown[] } }).body?.details;
+        const detail = Array.isArray(details) && details.length > 0 ? String(details[0]) : null;
         setPwError(detail ?? "Password change failed — is the current password correct?");
         return;
       }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSessionsList } from "@/hooks/use-sessions";
 import { useWorkspaces } from "@/hooks/use-workspaces";
+import { authClient } from "@/lib/auth-client";
 import { recentSessionLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +43,7 @@ function recentClass(active: boolean): string {
 /** Logout: better-auth sign-out, clear the query cache, land on /login. */
 async function signOut() {
   try {
-    await fetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
+    await authClient.signOut();
   } catch {
     // expired session — still clear client state and redirect
   }

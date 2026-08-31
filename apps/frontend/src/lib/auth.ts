@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
+import { authClient } from "@/lib/auth-client";
 
 export interface SessionUser {
   id: string;
@@ -8,12 +8,17 @@ export interface SessionUser {
 }
 
 /**
- * Fetches the current session (better-auth get-session endpoint).
- * Returns null when unauthenticated.
+ * Fetches the current session through the better-auth client.
+ * Returns null when unauthenticated (401/403); other failures throw so the
+ * query surfaces a real error instead of silently rendering signed-out.
  */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const data = await apiFetch<{ user?: SessionUser } | null>("/api/auth/get-session");
-  return data?.user ?? null;
+  const { data, error } = await authClient.getSession();
+  if (error && error.status !== 401 && error.status !== 403) {
+    throw new Error(error.message ?? "Session check failed");
+  }
+  const user = data?.user;
+  return user ? { id: user.id, email: user.email, name: user.name ?? "" } : null;
 }
 
 /** React Query hook for the current user. */

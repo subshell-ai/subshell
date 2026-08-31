@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCurrentUser } from "@/lib/auth";
+import { authClient } from "@/lib/auth-client";
 import { safeRedirect } from "@/lib/redirect";
 
 export const Route = createFileRoute("/login")({
@@ -34,15 +35,9 @@ function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/sign-in/email", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(body?.message ?? "Sign-in failed");
+      const { error: signInError } = await authClient.signIn.email({ email, password });
+      if (signInError) {
+        setError(signInError.message ?? "Sign-in failed");
         return;
       }
       window.location.href = redirect ?? "/";
