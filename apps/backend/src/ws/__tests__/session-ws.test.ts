@@ -27,8 +27,8 @@ describe("stripSyncMarkers", () => {
   });
 });
 
-/** Records every tmux call the message handler makes. */
-function fakeSocket() {
+/** Records every tmux call the message handler makes. `canInput` defaults true (an edit/owner attach). */
+function fakeSocket(opts: { canInput?: boolean } = {}) {
   const inputs: string[] = [];
   const resizes: Array<{ cols: number; rows: number }> = [];
   const tmux = {
@@ -36,7 +36,15 @@ function fakeSocket() {
     resizeWindow: (_socket: string, _session: string, cols: number, rows: number) => resizes.push({ cols, rows }),
   } as unknown as TmuxRunner;
   const ws = {
-    data: { tmux, socket: "sock", sessionId: "s1", logFile: "/dev/null", lastSize: 0, lastOutputWriteAt: 0 },
+    data: {
+      tmux,
+      socket: "sock",
+      sessionId: "s1",
+      logFile: "/dev/null",
+      lastSize: 0,
+      lastOutputWriteAt: 0,
+      canInput: opts.canInput ?? true,
+    },
     send: () => undefined,
     close: () => undefined,
   } as unknown as WsSocket;
@@ -84,6 +92,14 @@ describe("handleSessionMessage", () => {
     handleSessionMessage(ws, JSON.stringify({ type: "resize", cols: 120, rows: 40 }));
     expect(resizes).toEqual([{ cols: 120, rows: 40 }]);
     expect(inputs).toEqual([]);
+  });
+
+  it("a read-only (view) attach: input frames are dropped, resize still applies", () => {
+    const { ws, inputs, resizes } = fakeSocket({ canInput: false });
+    handleSessionMessage(ws, JSON.stringify({ type: "input", data: "ls\r" }));
+    expect(inputs).toEqual([]); // keystrokes never reach the pane
+    handleSessionMessage(ws, JSON.stringify({ type: "resize", cols: 80, rows: 24 }));
+    expect(resizes).toEqual([{ cols: 80, rows: 24 }]); // watching/resizing is fine
   });
 
   it("ignores an empty input frame", () => {

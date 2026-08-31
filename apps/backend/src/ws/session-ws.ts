@@ -2,6 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/session-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
+import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { sessionLogPath } from "@/services/session-manager.service.js";
 import { TmuxRunner } from "@/services/tmux/tmux-runner.js";
@@ -14,7 +15,9 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  *
  * Auth: the `token` query param is the short-lived (30 s), single-use WS
  * attach token minted by `POST /api/auth/ws-token` — NOT the better-auth
- * session token; the session must belong to the owner.
+ * session token. Attaching requires at least `view` access to the session
+ * (spec 2026-08-31 §4): the owner, an admin, or anyone it is shared with. A
+ * viewer watches read-only; only `edit`/`owner` may send input (see `canInput`).
  *
  * Output is streamed by tailing the per-session log file (written by
  * pipe-pane) with an initial `capture-pane` replay for current scrollback.
@@ -47,9 +50,16 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
     return;
   }
 
-  const sessions = getRequestlessContext().repos.sessions;
-  const row = await sessions.findById(sessionId);
-  if (!row || row.userId !== userId) {
+  const { repos } = getRequestlessContext();
+  // Resolve the caller's access to THIS session (a human browser path: admin
+  // and shared grants both count). Invisible (absent or unshared) closes with
+  // the same 4004 an owner-mismatch used to, so a stranger learns nothing.
+  const { row, access } = await loadSessionAccess(
+    { sessions: repos.sessions, shares: repos.sessionShares, userMeta: repos.userMeta },
+    userId,
+    sessionId,
+  );
+  if (!row || !accessAtLeast(access, "view")) {
     ws.close(4004, "session not found");
     return;
   }
@@ -67,6 +77,8 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
     logFile: sessionLogPath(row.id),
     lastSize: 0,
     lastOutputWriteAt: 0,
+    // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
+    canInput: accessAtLeast(access, "edit"),
   };
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
@@ -106,6 +118,8 @@ interface WsData {
   logFile: string;
   lastSize: number;
   lastOutputWriteAt: number;
+  /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
+  canInput: boolean;
   cleanup?: () => void;
 }
 
@@ -254,10 +268,15 @@ export function handleSessionMessage(ws: WsSocket, message: string | object): vo
       data.tmux.resizeWindow(data.socket, data.sessionId, frame.cols, frame.rows);
       return;
     }
-    // Raw terminal input, forwarded verbatim. The client emits one frame per
-    // keystroke and already encodes Enter as "\r", so the bytes must not be
-    // split, filtered or terminated here.
-    if (frame.data) data.tmux.sendInput(data.socket, data.sessionId, frame.data);
+    // Raw terminal input, forwarded verbatim — but only for callers allowed to
+    // type (spec §4.1: input is an `edit` act). A `view` grantee's keystrokes
+    // are dropped here; the resize branch above still applies (a view is a
+    // legitimate layout action). The client emits one frame per keystroke and
+    // already encodes Enter as "\r", so bytes must not be split or terminated.
+    if (frame.data) {
+      if (!data.canInput) return;
+      data.tmux.sendInput(data.socket, data.sessionId, frame.data);
+    }
   } catch (err) {
     logger.withError(err).warn("ws input failed");
   }
