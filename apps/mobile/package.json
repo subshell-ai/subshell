@@ -19,6 +19,7 @@
     "harness:m1": "bun scripts/m1-transport-harness.ts"
   },
   "dependencies": {
+    "@expo/vector-icons": "15.1.1",
     "@internal/backend-errors": "workspace:*",
     "@internal/session-protocol": "workspace:*",
     "@react-native-async-storage/async-storage": "2.2.0",
