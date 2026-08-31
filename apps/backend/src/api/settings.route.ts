@@ -38,7 +38,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       detail: {
         operationId: "getPublicSettings",
         tags: ["settings"],
-        description: "Public settings (registration open/closed)",
+        description:
+          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state); anonymous callers get 401",
       },
     },
   )

@@ -50,14 +50,15 @@ function SettingsPage() {
     setPwSaved(false);
     try {
       // better-auth's own change-password route (session cookie auth), via
-      // the shared client. `pwError2` avoids shadowing the pwError state.
-      const { error: pwError2 } = await authClient.changePassword({
+      // the shared client. The destructured local is renamed because the
+      // component's own error state already owns the `pwError` name.
+      const { error: changeErr } = await authClient.changePassword({
         currentPassword,
         newPassword,
         revokeOtherSessions: true,
       });
-      if (pwError2) {
-        const details = (pwError2 as unknown as { body?: { details?: unknown[] } }).body?.details;
+      if (changeErr) {
+        const details = (changeErr as unknown as { body?: { details?: unknown[] } }).body?.details;
         const detail = Array.isArray(details) && details.length > 0 ? String(details[0]) : null;
         setPwError(detail ?? "Password change failed — is the current password correct?");
         return;
