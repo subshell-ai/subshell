@@ -1,12 +1,13 @@
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { KeyBar } from "@/components/key-bar";
 import type { MoteClient } from "@/lib/api";
 import { wrapPaste } from "@/lib/key-bar";
 import { type SocketStatus, useSessionSocket } from "@/lib/session-socket";
-import { colors } from "@/lib/tokens";
+import { colors, radius, touchTarget } from "@/lib/tokens";
+import { requireBiometric } from "@/native/biometric";
 
 /**
  * The Live tab (spec §Rendering): a renderer, not a client. Incoming frames
@@ -19,6 +20,23 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
   const ready = useRef(false);
   const queue = useRef<string[]>([]); // writes issued before the page reports ready
   const [status, setStatus] = useState<SocketStatus>({ state: "connecting" });
+  // The Face ID gate protects ATTACHMENT — the socket carries keystroke
+  // power (spec §Security notes). Denied → retry card, never silent.
+  const [unlocked, setUnlocked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!active) {
+      setUnlocked(false);
+      return;
+    }
+    void requireBiometric("Unlock the terminal").then((ok) => {
+      if (!cancelled) setUnlocked(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
 
   const inject = useCallback((expr: string) => {
     if (!ready.current) {
@@ -31,7 +49,7 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
   const { sendInput, sendResize } = useSessionSocket({
     client,
     sessionId,
-    active,
+    active: active && unlocked,
     handlers: {
       onReset: () => inject("window.N.reset()"),
       onBytes: (data) => inject(`window.N.write(${JSON.stringify(data)})`),
@@ -77,17 +95,38 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
   return (
     <View style={{ flex: 1, backgroundColor: colors.termCanvas }}>
       <RejectedBanner status={status} />
-      <WebView
-        ref={webview}
-        source={require("../../assets/terminal.html")}
-        onMessage={onMessage}
-        javaScriptEnabled
-        style={{ flex: 1, backgroundColor: colors.termCanvas }}
-        // The renderer owns no network: refuse every request beyond the bundle.
-        onShouldStartLoadWithRequest={(r) => r.url.startsWith("file://") || r.url === "about:blank"}
-        originWhitelist={["file://*"]}
-      />
-      <KeyBar disabled={status.state !== "open"} onBytes={sendInput} onPaste={() => void onPaste()} />
+      {!unlocked ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 }}>
+          <Text style={{ color: colors.mutedFg }}>The terminal is locked.</Text>
+          <Pressable
+            onPress={() => void requireBiometric("Unlock the terminal").then(setUnlocked)}
+            style={{
+              minHeight: touchTarget,
+              paddingHorizontal: 20,
+              borderRadius: radius,
+              backgroundColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.bg, fontWeight: "700" }}>Unlock</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <WebView
+            ref={webview}
+            source={require("../../assets/terminal.html")}
+            onMessage={onMessage}
+            javaScriptEnabled
+            style={{ flex: 1, backgroundColor: colors.termCanvas }}
+            // The renderer owns no network: refuse every request beyond the bundle.
+            onShouldStartLoadWithRequest={(r) => r.url.startsWith("file://") || r.url === "about:blank"}
+            originWhitelist={["file://*"]}
+          />
+          <KeyBar disabled={status.state !== "open"} onBytes={sendInput} onPaste={() => void onPaste()} />
+        </>
+      )}
     </View>
   );
 }

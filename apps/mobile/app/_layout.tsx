@@ -3,12 +3,14 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors } from "@/lib/tokens";
 import { MoteProvider } from "@/providers/mote-provider";
+import { PushBridge } from "@/providers/push-bridge";
 
 /** Root: dark chrome, providers once, every route below sees useMote()/queries. */
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <MoteProvider>
+        <PushBridge />
         <StatusBar style="light" />
         <Stack
           screenOptions={{

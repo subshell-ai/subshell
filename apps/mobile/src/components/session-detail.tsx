@@ -11,6 +11,7 @@ import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { isWaiting } from "@/lib/session-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
+import { requireBiometric } from "@/native/biometric";
 import { useMote } from "@/providers/mote-provider";
 
 /**
@@ -43,6 +44,9 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
   async function run(label: string, fn: () => Promise<unknown>) {
     if (!client) return;
+    // Same posture as the Live tab: actions that can type into a pane (or end
+    // one) require the biometric (spec §Security notes).
+    if (!(await requireBiometric(`Confirm: ${label}`))) return;
     try {
       await fn();
       await Promise.all([refetch(), qc.invalidateQueries({ queryKey: ["sessions"] })]);
