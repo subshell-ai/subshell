@@ -28,6 +28,14 @@ test("create a workspace, add a session pane, and the layout survives reload", a
   await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
   await page.fill("#picker-working-dir", "/tmp");
   await page.fill("#picker-session-name", "e2e-pane");
+  // The working-dir DirectoryPickerInput opened on focus and its fixed-height
+  // panel drops over the name field and "Start session" below it; it dismisses
+  // only on an outside click or Escape (blur/fill don't close it). Escape
+  // can't be used here — in a modal dialog it would close the whole dialog —
+  // so click the heading: inside the dialog (stays open) but outside the
+  // picker root (panel closes). Env-dependent: only bites when /tmp has
+  // directory entries to populate the panel (CI's own playwright-artifacts-*).
+  await page.getByRole("heading", { name: "Add a session" }).click();
   await page.getByRole("button", { name: "Start session" }).click();
 
   // The pane appears carrying the session's name as its panel title. Generous

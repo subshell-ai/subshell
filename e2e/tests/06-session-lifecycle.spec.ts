@@ -33,6 +33,12 @@ test("session: create -> attach -> terminate -> delete", async ({ page }) => {
   await page.getByRole("option", { name: "Default (pi)" }).click();
   await page.fill("#working-dir", "/tmp");
   await page.fill("#name", name);
+  // The working-dir DirectoryPickerInput opened on focus and its fixed-height
+  // panel drops over the fields/button below it, dismissing only on an outside
+  // click or Escape (blur/fill don't close it). No modal on this page, so
+  // Escape is the clean dismissal. Env-dependent: only bites when /tmp has
+  // directory entries to populate the panel (CI's own playwright-artifacts-*).
+  await page.keyboard.press("Escape");
 
   // The detail page mints a one-shot WS token (POST /api/auth/ws-token), then
   // opens /ws?session=… — both listeners must be armed BEFORE the click.
