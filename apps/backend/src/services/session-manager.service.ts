@@ -9,6 +9,8 @@ import {
   type McpRegistration,
   type ProfileDefinition,
   shellQuote,
+  TmuxRunner,
+  tmuxSocketFor,
 } from "@internal/harnesses";
 import { harnessUsable } from "@/api/harness-utils.js";
 import { SESSION_DATA_DIR } from "@/constants.js";
@@ -20,7 +22,6 @@ import { type AuditEventInput, audit } from "@/services/audit.js";
 import { registerSessionMcp, sessionMcpConfigPath, sessionMcpEnv } from "@/services/mcp-launch.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { issueSessionToken, revokeSessionToken } from "@/services/session-tokens.js";
-import { TmuxRunner, tmuxSocketFor } from "@/services/tmux/tmux-runner.js";
 import { logger } from "@/utils/logger.js";
 
 /** The session-token lifecycle operations the manager triggers. Injectable

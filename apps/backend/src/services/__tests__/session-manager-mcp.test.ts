@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TmuxRunner } from "@internal/harnesses";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import * as initMigration from "@/db/migrations/0001-init.js";
@@ -21,7 +22,6 @@ import type { SessionUpdate } from "@/db/types/sessions.db-types.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
 import { sessionMcpConfigPath } from "@/services/mcp-launch.js";
 import { SessionManagerService, type SessionTokenProvider } from "@/services/session-manager.service.js";
-import { TmuxRunner } from "@/services/tmux/tmux-runner.js";
 
 /**
  * The MCP-facing half of the session lifecycle, hermetically: a scripted

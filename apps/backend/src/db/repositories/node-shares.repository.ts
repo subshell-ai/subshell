@@ -56,7 +56,7 @@ export class NodeSharesRepository extends BaseRepository {
    */
   async replaceForNode(nodeId: string, entries: NodeShareEntry[], createdBy: string): Promise<NodeShareTable[]> {
     const collapsed = new Map<string, NodeShareEntry>();
-    for (const e of entries) collapsed.set(e.granteeUserId ?? " everyone", e);
+    for (const e of entries) collapsed.set(e.granteeUserId ?? "\0everyone", e);
     const now = new Date().toISOString();
     await this.db.transaction().execute(async (tx) => {
       await tx.deleteFrom("nodeShares").where("nodeId", "=", nodeId).execute();

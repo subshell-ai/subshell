@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCodePlugin } from "@internal/harnesses";
+import { ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
@@ -26,7 +26,6 @@ import {
   SessionManagerService,
   sessionLogPath,
 } from "@/services/session-manager.service.js";
-import { TmuxRunner, tmuxSocketFor } from "@/services/tmux/tmux-runner.js";
 
 let dbCleanup: (() => void) | undefined;
 let sessionManager: SessionManagerService;

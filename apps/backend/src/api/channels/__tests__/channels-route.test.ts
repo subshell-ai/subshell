@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { TmuxRunner } from "@internal/harnesses";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { channelRoutes } from "@/api/channels/index.js";
@@ -11,7 +12,6 @@ import { generateKeypair } from "@/mcp/crypto.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setNudgeTransportForTests } from "@/services/channels/nudge.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
-import { TmuxRunner } from "@/services/tmux/tmux-runner.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**

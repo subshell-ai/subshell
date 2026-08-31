@@ -1,5 +1,5 @@
+import { TmuxRunner } from "@internal/harnesses";
 import { IS_TEST } from "@/constants.js";
-import { TmuxRunner } from "@/services/tmux/tmux-runner.js";
 import { logger } from "@/utils/logger.js";
 
 /**

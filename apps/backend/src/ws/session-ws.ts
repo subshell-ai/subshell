@@ -1,11 +1,10 @@
 import { type FSWatcher, watch } from "node:fs";
-import { getHarness } from "@internal/harnesses";
+import { getHarness, TmuxRunner } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/session-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { sessionLogPath } from "@/services/session-manager.service.js";
-import { TmuxRunner } from "@/services/tmux/tmux-runner.js";
 import { logger } from "@/utils/logger.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 

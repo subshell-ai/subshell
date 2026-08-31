@@ -25,6 +25,7 @@ export { HermesPlugin } from "./hermes.js";
 export { OpencodePlugin } from "./opencode.js";
 export { PiPlugin } from "./pi.js";
 export { shellQuote } from "./shell.js";
+export { TmuxRunner, tmuxSocketFor } from "./tmux-runner.js";
 export type {
   BuildCommandInput,
   HarnessPlugin,

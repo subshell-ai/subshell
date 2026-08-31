@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { TmuxRunner } from "@/services/tmux/tmux-runner.js";
+import type { TmuxRunner } from "@internal/harnesses";
 import { handleSessionMessage, stripSyncMarkers, type WsSocket } from "@/ws/session-ws.js";
 
 describe("stripSyncMarkers", () => {

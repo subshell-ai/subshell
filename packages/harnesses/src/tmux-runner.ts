@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { shellQuote } from "@internal/harnesses";
 import { spawnSync } from "bun";
+import { shellQuote } from "./shell.js";
 
 /**
  * Thin wrapper around the `tmux` binary.
