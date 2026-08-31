@@ -58,6 +58,35 @@ describe("MoteClient.signIn", () => {
     expect(peek()).toBe("srv-token");
   });
 
+  it("stores the SIGNED cookie token, not the body token, when both are present", async () => {
+    // better-auth 1.7.x signs the session cookie ("<token>.<sig>") and accepts
+    // ONLY that value as a Cookie credential; the 32-char body token 401s on
+    // every guarded route (proven live by the M1 harness: body→401, Set-Cookie→200).
+    const { store, peek } = memoryStore();
+    const { fn } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ token: "raw32", user: {} }), {
+        setCookies: [`${SESSION_COOKIE}=raw32.signedsig; Path=/; HttpOnly`],
+      }),
+    );
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await client.signIn("a@b.c", "pw");
+
+    expect(peek()).toBe("raw32.signedsig");
+  });
+
+  it("falls back to the body token when the response sets no cookie", async () => {
+    const { store, peek } = memoryStore();
+    const { fn } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ token: "srv-token", user: {} }), { setCookies: [] }),
+    );
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await client.signIn("a@b.c", "pw");
+
+    expect(peek()).toBe("srv-token");
+  });
+
   it("sends an explicit Origin on better-auth routes, because RN sends none", async () => {
     const { store } = memoryStore();
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ token: "t" })));

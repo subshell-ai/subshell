@@ -115,10 +115,14 @@ export class MoteClient {
   }
 
   /**
-   * Signs in with email/password. The session token comes back in the JSON
-   * body (verified against better-auth 1.7.1: `signInEmail` returns
-   * `{redirect, token, url, user}`), which is what makes a header-based native
-   * client possible at all. Rate-limited per email by the backend.
+   * Signs in with email/password. better-auth 1.7.x SIGNS its session cookie
+   * (`"<token>.<sig>"` in Set-Cookie) and accepts only that value as a Cookie
+   * credential — the 32-char token in the JSON body is the unsigned one and
+   * 401s on every guarded route (proven live by the M1 harness: body→401,
+   * Set-Cookie→200). `request()`'s captureRotation has already persisted the
+   * Set-Cookie value by the time we get here, so the body token is kept only
+   * as the fallback for instances that set no cookie at all. Rate-limited per
+   * email by the backend.
    * @throws ApiError 401/403 bad credentials, 429 rate-limited
    */
   async signIn(email: string, password: string): Promise<SignInResponse> {
@@ -126,7 +130,7 @@ export class MoteClient {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    if (body?.token) await this.opts.store.set(body.token);
+    if (!(await this.opts.store.get()) && body?.token) await this.opts.store.set(body.token);
     return body;
   }
 
