@@ -212,12 +212,15 @@ describe("createSession MCP integration", () => {
     expect(tokens.revoked).toEqual([created.id]);
   });
 
-  it("restart issues a token for the NEW session row", async () => {
+  it("restart rotates the token on the SAME row", async () => {
     const first = await manager.createSession({ userId: "u1", profileId, workingDir: testDir });
     const restarted = await manager.restartSession("u1", first.id);
     if (!restarted) throw new Error("restart returned null");
-    expect(tokens.issued).toEqual([first.id, restarted.id]);
-    expect(restarted.id).not.toBe(first.id);
+    expect(restarted.id).toBe(first.id);
+    // Revocation of the dead process's key is the auto path's pattern:
+    // revoke-then-issue on the same id, apiKeyId rewritten by `issue`.
+    expect(tokens.issued).toEqual([first.id, first.id]);
+    expect(tokens.revoked).toContain(first.id);
   });
 });
 

@@ -63,6 +63,9 @@ export class SessionManagerService {
   readonly #audit: (event: AuditEventInput) => Promise<void>;
   readonly #tokens: SessionTokenProvider;
   readonly #notify: (sessionId: string, kind: NotifyKind) => Promise<void>;
+  /** In-flight manual restarts by session id: a double click JOINS the first
+   * revival instead of double-killing and double-spawning the pane. */
+  readonly #restarts = new Map<string, Promise<{ id: string; tmuxSocket: string } | null>>();
 
   constructor({
     sessions,
@@ -393,44 +396,66 @@ export class SessionManagerService {
   }
 
   /**
-   * Starts a new session with the same profile + working directory as an existing one.
-   * Returns the new session id/tmuxSocket, or null if the source is not found.
-   * The new session gets a fresh DB row (id + name = old name + " (2)") and a
-   * new tmux socket; the old session is left untouched (terminated stays).
+   * Restart the session IN PLACE: same row, same id, same name. Kills the
+   * pane (live or already dead), parks the row in the exact crashed shape
+   * (`running` / `alive: 0`) the auto path revives from, and runs the shared
+   * `#reviveRow` — token rotated, MCP re-registered, harness conversation
+   * RESUMED when its transcript survived (`planHarnessSession` decides; the
+   * pane is dead by the time we resume, so the clone-era "live source starts
+   * fresh" hazard is gone). The auto-restart ladder resets: operator intent
+   * supersedes backoff state.
    *
-   * Restart-resume: when the source's pane is not running and its harness
-   * conversation survived, the new session CONTINUES that conversation
-   * (`--resume`) rather than starting cold — "restart" means restart, not
-   * amnesia. A still-live source (or one from before this feature, or a
-   * lost transcript) means a fresh conversation instead, because resuming
-   * an id a live pane is still appending to would corrupt both.
+   * The parked window is sub-second and the sweep interval is far longer;
+   * as in the auto path, a sweep landing inside it could fire a spurious
+   * death push on a notify row — the conditional revival keeps the pane and
+   * the token honest either way. Concurrent calls for one id JOIN the
+   * in-flight restart (`#restarts`) instead of double-killing the pane.
+   * @returns the restarted id + tmuxSocket (unchanged by definition), or
+   *          null when the session is absent or not the caller's
+   * @throws Error when the relaunch cannot be composed (profile/harness/
+   *         binary gone, working dir unlinked, tmux refused the spawn); the
+   *         row stays parked — visible and restartable again.
    */
-  async restartSession(
-    userId: string,
-    sourceId: string,
-  ): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean } | null> {
-    const source = await this.#sessions.findById(sourceId);
-    if (!source || source.userId !== userId) return null;
-    const created = await this.createSession({
-      userId,
-      profileId: source.profileId,
-      workingDir: source.workingDir,
-      name: `${source.name} (2)`,
-      resumeFromId: source.alive === 1 ? null : (source.harnessSessionId ?? null),
-      // The operator asked to be rung for this session — a restart is the
-      // same session continuing, so the bell carries over to the clone.
-      notify: source.notify === 1,
-    });
-    // Restarts also carry the source session id so the audit trail can show
-    // the restart lineage (createSession above already logs session.create).
-    await this.#audit({
-      actorUserId: userId,
-      action: "session.restart",
-      targetType: "session",
-      targetId: created.id,
-      metadataJson: JSON.stringify({ sourceId, name: `${source.name} (2)` }),
-    });
-    return created;
+  async restartSession(userId: string, sourceId: string): Promise<{ id: string; tmuxSocket: string } | null> {
+    const inFlight = this.#restarts.get(sourceId);
+    if (inFlight) return inFlight;
+    const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
+      const source = await this.#sessions.findById(sourceId);
+      if (!source || source.userId !== userId) return null;
+      if (source.alive === 1 && source.tmuxSocket) {
+        // killSession swallows "already gone"; the tree dies with its baked
+        // key, which #reviveRow then rotates off the same row anyway.
+        this.#tmux.killSession(source.tmuxSocket, source.id);
+      }
+      await this.#sessions.update(source.id, {
+        status: "running",
+        alive: 0,
+        exitCode: null,
+        endedAt: null,
+      });
+      // Fresh re-read: the flip above is the only rewrite this path does by
+      // hand; everything after it obeys the auto path's guards.
+      const parked = await this.#sessions.findById(source.id);
+      if (!parked) return null; // deleted mid-flight
+      const revived = await this.#reviveRow(parked, { backoffCount: 0 });
+      // Audit trail: a restart is its own event on the SAME row (create
+      // already logged session.create; terminate logged its own death).
+      // `racedTerminate` marks the case where the operator killed the
+      // session mid-restart and we honored it (no pane, no token).
+      await this.#audit({
+        actorUserId: userId,
+        action: "session.restart",
+        targetType: "session",
+        targetId: parked.id,
+        metadataJson: JSON.stringify({ name: parked.name, racedTerminate: !revived }),
+      });
+      logger.info(
+        `session restarted in place: ${parked.id} (${parked.name})${revived ? "" : " [terminate raced, left dead]"}`,
+      );
+      return { id: parked.id, tmuxSocket: parked.tmuxSocket ?? tmuxSocketFor(parked.id) };
+    })().finally(() => this.#restarts.delete(sourceId));
+    this.#restarts.set(sourceId, run);
+    return run;
   }
 
   /** Terminates a session: kills the tmux tree and marks the DB row. */

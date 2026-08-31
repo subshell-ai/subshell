@@ -216,44 +216,92 @@ describe("SessionManagerService notes + restart", () => {
     expect(await sessionManager.updateNotes("u1", "does-not-exist", "x")).toBe(false);
   });
 
-  it("restartSession clones profile/working directory with a (2) name", async () => {
+  it("restartSession revives the SAME row (same id, name, profile; parked fields cleared)", async () => {
     const profileId = await seedProfileFor("u1");
     const id = await seedSession("u1", profileId);
-    const created = await sessionManager.restartSession("u1", id);
-    if (!created) {
-      throw new Error("expected a restarted session");
-    }
-    trackTmuxSocket(created.tmuxSocket);
-    expect(created.id).not.toBe(id);
-    // The source session stays untouched (terminated stays terminated).
-    expect((await sessionsRepo.findById(id))?.status).toBe("running");
-    const clone = await sessionsRepo.findById(created.id);
-    expect(clone?.profileId).toBe(profileId);
-    expect(clone?.workingDir).toBe(TMP_RESOLVED);
-    expect(clone?.name).toBe("Original (2)");
-    expect(clone?.status).toBe("running");
+    await sessionsRepo.update(id, {
+      status: "terminated",
+      alive: 0,
+      exitCode: 3,
+      endedAt: new Date().toISOString(),
+      backoffCount: 4,
+      nextRestartAt: new Date().toISOString(),
+    });
+    const restarted = await sessionManager.restartSession("u1", id);
+    if (!restarted) throw new Error("expected a restarted session");
+    trackTmuxSocket(restarted.tmuxSocket);
+    expect(restarted.id).toBe(id); // NOT a new id — in-place revival
+    const row = await sessionsRepo.findById(id);
+    expect(row?.name).toBe("Original"); // no " (2)" suffix ever
+    expect(row?.profileId).toBe(profileId);
+    expect(row?.status).toBe("running");
+    expect(row?.alive).toBe(1);
+    expect(row?.exitCode).toBeNull();
+    expect(row?.endedAt).toBeNull();
+    expect(row?.backoffCount).toBe(0); // operator intent resets the ladder
+    expect(row?.nextRestartAt).toBeNull();
+    expect(row?.tmuxSocket).toBe(restarted.tmuxSocket);
 
-    // The clone is a REAL tmux session — end it here or its server outlives
-    // the suite with the stub pane still attached (regression guard: this test
-    // used to leak exactly that).
-    await sessionManager.terminateSession("u1", created.id);
-    expect(sessionManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(false);
+    // A REAL tmux session was spawned — end it here or its server outlives
+    // the suite with the stub pane still attached (regression guard: the old
+    // clone test used to leak exactly that).
+    await sessionManager.terminateSession("u1", id);
+    expect(sessionManager.isAlive({ id, tmuxSocket: restarted.tmuxSocket })).toBe(false);
   });
 
-  it("restartSession inherits the bell (operator monitoring survives a restart)", async () => {
+  it("restartSession kills a live source before respawning it (same row, same socket)", async () => {
+    const profileId = await seedProfileFor("u1");
+    const created = await sessionManager.createSession({ userId: "u1", profileId, workingDir: "/tmp" });
+    trackTmuxSocket(created.tmuxSocket);
+    expect(sessionManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
+    const restarted = await sessionManager.restartSession("u1", created.id);
+    if (!restarted) throw new Error("expected a restarted session");
+    expect(restarted.id).toBe(created.id);
+    expect(restarted.tmuxSocket).toBe(created.tmuxSocket);
+    // A pane is running again under the SAME identity (the stub sleep re-spawned).
+    expect(sessionManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
+    await sessionManager.terminateSession("u1", created.id);
+  });
+
+  it("restartSession keeps the bell on the row (operator monitoring survives a restart)", async () => {
     const profileId = await seedProfileFor("u1");
     const id = await seedSession("u1", profileId);
     await sessionsRepo.update(id, { notify: 1 });
-    const created = await sessionManager.restartSession("u1", id);
-    if (!created) throw new Error("expected a restarted session");
-    trackTmuxSocket(created.tmuxSocket);
+    const restarted = await sessionManager.restartSession("u1", id);
+    if (!restarted) throw new Error("expected a restarted session");
+    trackTmuxSocket(restarted.tmuxSocket);
     try {
-      expect((await sessionsRepo.findById(created.id))?.notify).toBe(1);
-      // The clone is monitored; the (terminated) source keeps its own value.
+      // Same row now — the bell needs no "inheritance", it must simply survive.
       expect((await sessionsRepo.findById(id))?.notify).toBe(1);
     } finally {
-      await sessionManager.terminateSession("u1", created.id);
+      await sessionManager.terminateSession("u1", id);
     }
+  });
+
+  it("concurrent restartSession calls join one revival", async () => {
+    const profileId = await seedProfileFor("u1");
+    const id = await seedSession("u1", profileId);
+    // A token-stub manager so the revival count is observable: one issue per
+    // real restart, and a double click must issue exactly once.
+    let issues = 0;
+    const counting = new SessionManagerService({
+      sessions: sessionsRepo,
+      profiles: profilesRepo,
+      tmux: new TmuxRunner(),
+      tokens: {
+        issue: async () => {
+          issues += 1;
+          return "mote_stub";
+        },
+        revoke: async () => {},
+      },
+      audit: async () => {},
+    });
+    const [a, b] = await Promise.all([counting.restartSession("u1", id), counting.restartSession("u1", id)]);
+    expect(a?.id).toBe(id);
+    expect(b?.id).toBe(id);
+    expect(issues).toBe(1); // the second call JOINED the in-flight restart
+    await counting.terminateSession("u1", id);
   });
 
   it("restartSession rejects a foreign userId (404 path)", async () => {

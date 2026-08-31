@@ -216,11 +216,13 @@ export class SessionsService extends BaseService {
     userId: string,
     id: string,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
-    const created = await this.#manager.restartSession(userId, id);
-    if (!created) {
+    const revived = await this.#manager.restartSession(userId, id);
+    if (!revived) {
       throw new SessionError("not_found", "Session not found");
     }
-    return { id: created.id, tmuxSocket: created.tmuxSocket, promptDelivered: created.promptDelivered };
+    // No prompt is typed on a restart (matching auto-restart); the schema
+    // keeps the create-session shape, so the flag is a truthful false.
+    return { id: revived.id, tmuxSocket: revived.tmuxSocket, promptDelivered: false };
   }
 
   /**
