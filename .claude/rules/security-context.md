@@ -12,6 +12,13 @@ credential kinds:
 - **better-auth session cookie** (email/password, HttpOnly, `SameSite=Lax`) — the browser
   path and the only path allowed on admin surfaces. The first registered user becomes the
   admin; registration is gated by a settings toggle.
+  - *Passkeys* (WebAuthn, `@better-auth/passkey`) mint the SAME session cookie — an
+    additional browser credential per user/origin, never a second factor. Being
+    origin-bound, loopback and the NetBird domain each need their own registration.
+  - *Break-glass*: while `MOTE_EMERGENCY_PASSWORD` is set, an admin signing in with that
+    exact value has **their credential overwritten** by it and a real session is minted —
+    destructive by design, signalled by a warning banner to every signed-in user
+    (`GET /api/settings/public → emergencyLoginActive`). Clear the var after recovery.
 - **Bearer API keys** (`Authorization: Bearer mote_...`, via `@better-auth/api-key`) —
   machine credentials:
   - *Per-session tokens*: minted when a session starts (7-day TTL, self-extending for
