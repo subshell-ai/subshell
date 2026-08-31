@@ -193,3 +193,23 @@ describe("MoteClient device enrollment", () => {
     expect(err.status).toBe(404);
   });
 });
+
+describe("MoteClient session verbs", () => {
+  const cases: [string, (c: MoteClient) => Promise<unknown>, string, string][] = [
+    ["rename", (c) => c.rename("s 1", "New Name"), "PATCH", `${BASE}/api/sessions/s%201/name`],
+    ["setNotes", (c) => c.setNotes("s1", null), "PATCH", `${BASE}/api/sessions/s1/notes`],
+    ["restart", (c) => c.restart("s1"), "POST", `${BASE}/api/sessions/s1/restart`],
+    ["terminate", (c) => c.terminate("s1"), "POST", `${BASE}/api/sessions/s1/terminate`],
+    ["deleteSession", (c) => c.deleteSession("s1"), "DELETE", `${BASE}/api/sessions/s1`],
+  ];
+  for (const [name, call, method, url] of cases) {
+    it(`${name} hits ${method} ${url.replace(BASE, "")}`, async () => {
+      const { store } = memoryStore("tok");
+      const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ ok: true })));
+      const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+      await call(client);
+      expect(calls[0]?.url).toBe(url);
+      expect(calls[0]?.init.method).toBe(method);
+    });
+  }
+});
