@@ -1,6 +1,7 @@
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/app-sidebar";
+import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
@@ -99,6 +100,9 @@ function Shell() {
       style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
     >
       {!bare && <OfflineBanner />}
+      {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
+          the top bar so the warning spans the full width (spec §6 banner). */}
+      {user && <EmergencyLoginBanner />}
       {!wide && !bare && <MobileTopBar />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {wide && !bare && <AppSidebar />}
