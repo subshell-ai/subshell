@@ -1,4 +1,5 @@
 import { apiKey } from "@better-auth/api-key";
+import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { sql } from "kysely";
 import { authDatabase } from "@/auth/database.js";
@@ -58,6 +59,12 @@ export const AUTH_OPTIONS = {
       defaultPrefix: "mote_",
       rateLimit: { enabled: false },
     }),
+    // Passkeys (spec 2026-08-31): additional browser credential, never a
+    // second factor. rpID is deliberately unset — better-auth derives it from
+    // the request host, so loopback AND the NetBird domain each own their
+    // passkeys (a per-origin reality, stated in the UI copy). origin unset
+    // likewise: the client supplies it (1.7.1 documented default).
+    passkey({ rpName: "mote" }),
   ],
   databaseHooks: {
     user: {

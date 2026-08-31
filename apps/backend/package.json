@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.1",
+    "@better-auth/passkey": "1.7.1",
     "@dotenvx/dotenvx": "2.21.0",
     "@elysiajs/cors": "1.4.2",
     "@elysiajs/openapi": "1.4.15",
