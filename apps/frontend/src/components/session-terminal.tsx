@@ -12,6 +12,7 @@ import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { sendInput } from "@/lib/session-frames.js";
+import { attachTouchScroll } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
 import type { SessionView } from "@/types/session";
 import "@xterm/xterm/css/xterm.css";
@@ -234,6 +235,9 @@ export function SessionTerminal({
     term.open(containerRef.current);
     fit.fit();
     termRef.current = term;
+    // iPhone/iPad: xterm's own touchmove preventDefault kills the CSS pan
+    // (see lib/terminal-touch-scroll.ts); this drives line-scroll instead.
+    const detachTouchScroll = attachTouchScroll(term, containerRef.current);
 
     // Shift+Enter must insert a newline at the harness prompt (Claude Code
     // reads ESC+CR — the very sequence its /terminal-setup keybinding emits
@@ -265,6 +269,8 @@ export function SessionTerminal({
     });
 
     return () => {
+      detachTouchScroll();
+
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a
       // real unmount there is nothing left to render it into.
