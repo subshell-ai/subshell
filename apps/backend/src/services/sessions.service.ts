@@ -94,6 +94,10 @@ export class SessionsService extends BaseService {
       workingDir,
       name,
       prompt,
+      // Notifications default ON for new sessions (spec 2026-08-31); the
+      // per-user master switch still gates the actual send, and the operator
+      // can mute an individual session with its bell.
+      notify: true,
     });
     // Feed the picker's Recents (and the new-session form's pre-fill) from
     // real use. Best-effort: the session EXISTS at this point, and a book-

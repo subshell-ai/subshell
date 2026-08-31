@@ -6,6 +6,7 @@ import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as notificationsMigration from "@/db/migrations/0014-session-notifications.js";
+import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -23,6 +24,8 @@ async function freshDb() {
   });
   await initMigration.up(db as Kysely<any>);
   await notificationsMigration.up(db as Kysely<any>);
+  // user_meta.notify_enabled — read by the master-switch gate in notifySession.
+  await sharingMigration.up(db as Kysely<any>);
   return db;
 }
 
@@ -80,6 +83,40 @@ describe("notifySession", () => {
     await svc.notifySession("s1", "turn_complete");
     expect(hits.to).toEqual([]); // bell off → nothing sent
     await db.updateTable("sessions").set({ notify: 1 }).where("id", "=", "s1").execute();
+    await svc.notifySession("s1", "turn_complete");
+    expect(hits.to).toEqual(["https://push/a"]);
+    await db.destroy();
+  });
+
+  it("stays silent when the owner's per-user master switch is off, even with the bell on", async () => {
+    const db = await freshDb();
+    await (db as Kysely<any>).insertInto("userMeta").values({ userId: "u1", role: "user", notifyEnabled: 0 }).execute();
+    await (db as Kysely<any>)
+      .insertInto("sessions")
+      .values({
+        id: "s1",
+        userId: "u1",
+        profileId: "p",
+        harnessId: "h",
+        name: "n",
+        workingDir: "/tmp",
+        tmuxSocket: null,
+        notify: 1,
+      })
+      .execute();
+    const repo = new NotificationsRepository(db);
+    await repo.upsertForUser("u1", "https://push/a", "k", "a");
+    const hits: { to: string[] } = { to: [] };
+    const svc = createNotifyService({
+      sessions: db,
+      subs: repo,
+      sender: sender(hits),
+      vapid: { publicKey: "pk", privateKey: "sk", subject: "mailto:x@x" },
+    });
+    await svc.notifySession("s1", "turn_complete");
+    expect(hits.to).toEqual([]); // master off → total silence regardless of the bell
+    // Flipping the switch back on resumes the ring (no restart of the service).
+    await (db as Kysely<any>).updateTable("userMeta").set({ notifyEnabled: 1 }).where("userId", "=", "u1").execute();
     await svc.notifySession("s1", "turn_complete");
     expect(hits.to).toEqual(["https://push/a"]);
     await db.destroy();

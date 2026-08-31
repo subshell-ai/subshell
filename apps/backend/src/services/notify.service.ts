@@ -7,6 +7,7 @@ import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
 import type { SessionTable } from "@/db/types/sessions.db-types.js";
 import {
@@ -103,6 +104,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
   const expoSend: ExpoPushSender = deps.expoSender ?? expoSenderOverride ?? createExpoPushSender();
   // One repository per service — both transports read the same db handle.
   const sessionsRepo = new SessionsRepository(deps.sessions);
+  const userMetaRepo = new UserMetaRepository(deps.sessions);
 
   /**
    * Device fan-out (spec §Push): opaque messages built from ids and counts,
@@ -167,6 +169,10 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       try {
         const row = await sessionsRepo.findById(sessionId);
         if (row?.notify !== 1) return;
+        // Per-user master switch (spec 2026-08-31): off ⇒ total silence
+        // regardless of any session bells. Read of user_meta only; a missing
+        // row reads as enabled (getNotifyEnabled defaults to on).
+        if (!(await userMetaRepo.getNotifyEnabled(row.userId))) return;
         // The transports are independent. Start the device fan-out NOW, before
         // the sequential web-push loop, so a phone never waits behind N HTTPS
         // round-trips to browser push gateways (review, efficiency #6).
