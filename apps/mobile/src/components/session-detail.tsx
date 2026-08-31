@@ -161,7 +161,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         <Action
           label={session?.notify ? "Bell on" : "Bell off"}
           color={session?.notify ? colors.warning : colors.primary}
-          onPress={() => void run("Bell", () => client?.setNotify(sessionId, !(session?.notify ?? false)))}
+          onPress={() => void run("Bell", () => client!.setNotify(sessionId, !(session?.notify ?? false)))}
         />
         <Action
           label="Restart"
@@ -171,7 +171,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               "Revives the same session (same id), resuming the conversation when possible.",
               [
                 { text: "Cancel", style: "cancel" },
-                { text: "Restart", onPress: () => void run("Restart", () => client?.restart(sessionId)) },
+                { text: "Restart", onPress: () => void run("Restart", () => client!.restart(sessionId)) },
               ],
             )
           }
@@ -184,7 +184,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               {
                 text: "Terminate",
                 style: "destructive",
-                onPress: () => void run("Terminate", () => client?.terminate(sessionId)),
+                onPress: () => void run("Terminate", () => client!.terminate(sessionId)),
               },
             ])
           }
@@ -200,7 +200,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
                 style: "destructive",
                 onPress: () =>
                   void run("Delete", async () => {
-                    await client?.deleteSession(sessionId);
+                    await client!.deleteSession(sessionId);
                     if (onBack) onBack();
                     else router.back();
                   }),
