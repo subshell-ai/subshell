@@ -63,6 +63,31 @@ export class SessionsRepository extends BaseRepository {
     return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
   }
 
+  /**
+   * Conditional park for a manual restart: flip the row to the parked shape
+   * (`running` / `alive: 0`) ONLY while it still sits in the state the restart
+   * observed. A terminate that lands after that read moved `status`/`alive`,
+   * so this no-ops (0 rows) and the restart backs off instead of resurrecting
+   * a session the operator just killed — the invariant an unconditional write
+   * would silently drop.
+   * @returns rows updated (0 = the row changed under the restart)
+   */
+  async parkForRestart(
+    id: string,
+    expected: { status: SessionTable["status"]; alive: number },
+    patch: SessionUpdate,
+  ): Promise<number> {
+    const res = await this.db
+      .updateTable("sessions")
+      .set(patch)
+      .where("id", "=", id)
+      .where("status", "=", expected.status)
+      .where("alive", "=", expected.alive)
+      .executeTakeFirst();
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
+  }
+
   /** Lists all running sessions across users (reconciliation sweep). */
   async listRunning(): Promise<SessionTable[]> {
     return this.db.selectFrom("sessions").selectAll().where("status", "=", "running").execute();

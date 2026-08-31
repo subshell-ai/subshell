@@ -211,7 +211,8 @@ export class SessionsService extends BaseService {
    * Deliberately does NOT re-check harness usability — the gate lives on
    * creation and the auto path; a session whose harness was disabled later
    * can still be restarted.
-   * @throws SessionError 404 when the session is absent or not the caller's.
+   * @throws SessionError 404 when the session is absent/not the caller's, or
+   *         a terminate/delete won the restart race (converge on "gone").
    */
   async restartSession(
     userId: string,

@@ -162,7 +162,8 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     "mote_restart_session",
     {
       title: "Restart session",
-      description: "Start a fresh session from an existing one's profile + directory.",
+      description:
+        "Restart a session in place (same id): kills its process tree and respawns it from the same profile + directory. Calling it on your OWN session terminates you.",
       inputSchema: z.object({ id: z.string() }),
     },
     guard(({ id }: { id: string }) => restartSession(deps, id)),

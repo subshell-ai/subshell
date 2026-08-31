@@ -278,30 +278,67 @@ describe("SessionManagerService notes + restart", () => {
     }
   });
 
-  it("concurrent restartSession calls join one revival", async () => {
+  // Regression (review #1/#5): the in-flight lease is MODULE-level, not
+  // per-instance — the route, the sweep, and the MCP server each build their
+  // own manager. A gated token.issue lets us observe manager A mid-restart and
+  // assert a SECOND instance joins it (never spawns), and that a foreign
+  // caller is rejected on ownership BEFORE it can ride A's lease.
+  it("concurrent restartSession across two manager instances joins one revival", async () => {
     const profileId = await seedProfileFor("u1");
     const id = await seedSession("u1", profileId);
-    // A token-stub manager so the revival count is observable: one issue per
-    // real restart, and a double click must issue exactly once.
-    let issues = 0;
-    const counting = new SessionManagerService({
-      sessions: sessionsRepo,
-      profiles: profilesRepo,
-      tmux: new TmuxRunner(),
-      tokens: {
-        issue: async () => {
-          issues += 1;
-          return "mote_stub";
-        },
-        revoke: async () => {},
-      },
-      audit: async () => {},
+
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      releaseGate = r;
     });
-    const [a, b] = await Promise.all([counting.restartSession("u1", id), counting.restartSession("u1", id)]);
-    expect(a?.id).toBe(id);
-    expect(b?.id).toBe(id);
-    expect(issues).toBe(1); // the second call JOINED the in-flight restart
-    await counting.terminateSession("u1", id);
+    let aIssues = 0;
+    let bIssues = 0;
+    const mkManager = (tally: () => void, gateOnIssue = false) =>
+      new SessionManagerService({
+        sessions: sessionsRepo,
+        profiles: profilesRepo,
+        tmux: new TmuxRunner(),
+        tokens: {
+          issue: async () => {
+            tally();
+            if (gateOnIssue) await gate; // hold A inside #reviveRow, post-park
+            return "mote_stub";
+          },
+          revoke: async () => {},
+        },
+        audit: async () => {},
+      });
+    const a = mkManager(() => aIssues++, true);
+    const b = mkManager(() => bIssues++);
+
+    const pA = a.restartSession("u1", id); // starts, parks, reaches issue, waits
+    for (let i = 0; aIssues === 0 && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(aIssues).toBe(1); // A is now parked + mid-revival
+
+    // Same owner, DIFFERENT instance → must join A's lease (never spawn).
+    const pB = b.restartSession("u1", id);
+    // Foreign caller must be rejected on ownership, NOT handed A's result.
+    expect(await b.restartSession("u2", id)).toBeNull();
+
+    releaseGate();
+    const [ra, rb] = await Promise.all([pA, pB]);
+    expect(ra?.id).toBe(id);
+    expect(rb?.id).toBe(id);
+    expect(aIssues).toBe(1); // A did the one real revival…
+    expect(bIssues).toBe(0); // …B rode A's lease and issued nothing of its own.
+    await a.terminateSession("u1", id);
+  });
+
+  // Regression (review #4): a relaunch that can't be composed must roll the
+  // parked `running` row back to `terminated`, so the sweep neither sees a
+  // `running` zombie nor auto-revives it when the harness later reappears.
+  it("restartSession rolls the row back to terminated when the relaunch throws", async () => {
+    const id = await seedSession("u1", "no-such-profile"); // reviveRow throws: profile gone
+    await sessionsRepo.update(id, { status: "terminated", alive: 0, exitCode: 1 });
+    await expect(sessionManager.restartSession("u1", id)).rejects.toThrow(/profile/);
+    const row = await sessionsRepo.findById(id);
+    expect(row?.status).toBe("terminated"); // NOT left running
+    expect(row?.alive).toBe(0);
   });
 
   it("restartSession rejects a foreign userId (404 path)", async () => {

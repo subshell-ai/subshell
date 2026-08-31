@@ -43,6 +43,20 @@ const defaultTokens: SessionTokenProvider = {
   revoke: revokeSessionToken,
 };
 
+/**
+ * In-flight manual restarts, shared process-wide by SESSION ID.
+ *
+ * The HTTP request handler, the 60 s reconcile sweep (`index.ts`) and the
+ * `mote mcp` server each build their OWN `SessionManagerService`, so a
+ * per-instance map would be inert: two restart clicks (two tabs, list +
+ * detail, web + MCP) would each spawn, and the sweep would see the parked row
+ * and revoke the token the restart just minted. Living at module scope, every
+ * instance JOINS the one in-flight revival, and `reconcileRows` skips any id
+ * present here (its pane is deliberately absent mid-restart). The entry is
+ * added synchronously before the first await and removed in `finally`.
+ */
+const restartInFlight = new Map<string, Promise<{ id: string; tmuxSocket: string } | null>>();
+
 /** The app-wide push notifier, used when no sink is injected. */
 const defaultNotify: (sessionId: string, kind: NotifyKind) => Promise<void> = async (id, kind) => {
   // Static import (module-level) — dynamic imports break `bun build --compile`.
@@ -63,9 +77,6 @@ export class SessionManagerService {
   readonly #audit: (event: AuditEventInput) => Promise<void>;
   readonly #tokens: SessionTokenProvider;
   readonly #notify: (sessionId: string, kind: NotifyKind) => Promise<void>;
-  /** In-flight manual restarts by session id: a double click JOINS the first
-   * revival instead of double-killing and double-spawning the pane. */
-  readonly #restarts = new Map<string, Promise<{ id: string; tmuxSocket: string } | null>>();
 
   constructor({
     sessions,
@@ -405,39 +416,68 @@ export class SessionManagerService {
    * fresh" hazard is gone). The auto-restart ladder resets: operator intent
    * supersedes backoff state.
    *
-   * The parked window is sub-second and the sweep interval is far longer;
-   * as in the auto path, a sweep landing inside it could fire a spurious
-   * death push on a notify row — the conditional revival keeps the pane and
-   * the token honest either way. Concurrent calls for one id JOIN the
-   * in-flight restart (`#restarts`) instead of double-killing the pane.
-   * @returns the restarted id + tmuxSocket (unchanged by definition), or
-   *          null when the session is absent or not the caller's
+   * The whole kill→park→respawn runs under a process-wide lease (`restartInFlight`,
+   * keyed by id and shared across every manager instance), so the reconcile
+   * sweep skips the row while it is deliberately pane-less and concurrent
+   * restarts — from any tab, the MCP server, or a second route — JOIN this
+   * one revival instead of double-spawning. The park is CONDITIONAL
+   * (`parkForRestart`): a terminate that lands between the ownership read and
+   * the park is honored (the restart backs off) rather than resurrected.
+   * @returns the restarted id + tmuxSocket (unchanged by definition), or null
+   *          when the session is absent/not the caller's, was deleted, or a
+   *          terminate won the race (so the caller converges on "gone")
    * @throws Error when the relaunch cannot be composed (profile/harness/
-   *         binary gone, working dir unlinked, tmux refused the spawn); the
-   *         row stays parked — visible and restartable again.
+   *         binary gone, working dir unlinked, tmux refused the spawn). The
+   *         parked row is rolled back to `terminated` + token revoked on the
+   *         way out, so a failed restart leaves a dead-and-restartable row,
+   *         never a `running` zombie the sweep would auto-revive.
    */
   async restartSession(userId: string, sourceId: string): Promise<{ id: string; tmuxSocket: string } | null> {
-    const inFlight = this.#restarts.get(sourceId);
-    if (inFlight) return inFlight;
+    // Ownership is checked BEFORE consulting the lease, so a foreign caller
+    // can never ride another principal's in-flight restart for the id's info.
+    const source = await this.#sessions.findById(sourceId);
+    if (!source || source.userId !== userId) return null;
+    const existing = restartInFlight.get(sourceId);
+    if (existing) return existing; // same owner, already restarting — join it
     const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
-      const source = await this.#sessions.findById(sourceId);
-      if (!source || source.userId !== userId) return null;
       if (source.alive === 1 && source.tmuxSocket) {
         // killSession swallows "already gone"; the tree dies with its baked
         // key, which #reviveRow then rotates off the same row anyway.
         this.#tmux.killSession(source.tmuxSocket, source.id);
       }
-      await this.#sessions.update(source.id, {
-        status: "running",
-        alive: 0,
-        exitCode: null,
-        endedAt: null,
-      });
-      // Fresh re-read: the flip above is the only rewrite this path does by
-      // hand; everything after it obeys the auto path's guards.
+      // Conditional park: succeeds only if the row is still where we read it.
+      // A terminate/delete in the window flips status/alive, so this no-ops
+      // and we honor the kill rather than resurrecting it.
+      const parkedRows = await this.#sessions.parkForRestart(
+        source.id,
+        { status: source.status, alive: source.alive },
+        { status: "running", alive: 0, exitCode: null, endedAt: null },
+      );
+      if (parkedRows === 0) {
+        await this.#audit({
+          actorUserId: userId,
+          action: "session.restart",
+          targetType: "session",
+          targetId: source.id,
+          metadataJson: JSON.stringify({ name: source.name, racedTerminate: true }),
+        });
+        logger.info(`session restart abandoned (terminate/delete raced): ${source.id}`);
+        return null;
+      }
       const parked = await this.#sessions.findById(source.id);
-      if (!parked) return null; // deleted mid-flight
-      const revived = await this.#reviveRow(parked, { backoffCount: 0 });
+      if (!parked) return null; // deleted between park and re-read
+      let revived: boolean;
+      try {
+        revived = await this.#reviveRow(parked, { backoffCount: 0 });
+      } catch (err) {
+        // Roll the parked `running` row back to a truthful dead state and
+        // retire any token #reviveRow minted before failing, so the sweep
+        // (which lists only `running`) neither auto-revives nor leaves a
+        // zombie. Mirrors createSession's spawn-failure rollback.
+        await this.#sessions.markTerminated(parked.id, new Date().toISOString());
+        await this.#revokeTokenOrUnlink(parked.id);
+        throw err;
+      }
       // Audit trail: a restart is its own event on the SAME row (create
       // already logged session.create; terminate logged its own death).
       // `racedTerminate` marks the case where the operator killed the
@@ -449,12 +489,14 @@ export class SessionManagerService {
         targetId: parked.id,
         metadataJson: JSON.stringify({ name: parked.name, racedTerminate: !revived }),
       });
-      logger.info(
-        `session restarted in place: ${parked.id} (${parked.name})${revived ? "" : " [terminate raced, left dead]"}`,
-      );
+      if (!revived) {
+        logger.info(`session restart honored a mid-flight terminate: ${parked.id} left dead`);
+        return null; // finding: don't report success for a revival that spawned nothing
+      }
+      logger.info(`session restarted in place: ${parked.id} (${parked.name})`);
       return { id: parked.id, tmuxSocket: parked.tmuxSocket ?? tmuxSocketFor(parked.id) };
-    })().finally(() => this.#restarts.delete(sourceId));
-    this.#restarts.set(sourceId, run);
+    })().finally(() => restartInFlight.delete(sourceId));
+    restartInFlight.set(sourceId, run);
     return run;
   }
 
@@ -712,6 +754,11 @@ export class SessionManagerService {
   private async reconcileRows(rows: SessionTable[]): Promise<void> {
     const now = new Date().toISOString();
     for (const row of rows) {
+      // A manual restart owns this row right now: it is parked (alive:0, no
+      // pane) mid-kill→respawn and is about to come back on its own. Sweeping
+      // it here would revoke the token #reviveRow just issued, stamp a false
+      // death push, or race a second revival — so skip the whole row.
+      if (restartInFlight.has(row.id)) continue;
       if (!row.tmuxSocket) {
         // No socket → cannot be alive; mark crashed so reconcile converges.
         if (row.status === "running" && row.alive === 1) {

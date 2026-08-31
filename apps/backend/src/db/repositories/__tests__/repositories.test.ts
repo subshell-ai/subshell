@@ -220,6 +220,27 @@ describe("sessions repository", () => {
     expect(after?.backoffCount).toBe(3);
     expect(after?.status).toBe("terminated");
   });
+
+  it("parkForRestart matches the observed state and no-ops once it changed", async () => {
+    // The manual-restart park is optimistic: it flips the row to
+    // running/alive:0 only while the row is STILL as the restart read it.
+    // (Regression pin, review #3: a terminate that lands after the read must
+    // make this no-op so a killed session is never resurrected by the park.)
+    const created = await repos.sessions.create({
+      id: crypto.randomUUID(),
+      userId: "u-park",
+      profileId: "p1",
+      harnessId: "claude-code",
+      name: "Parked",
+      workingDir: "/tmp",
+      tmuxSocket: "mote-park",
+    });
+    // Expected state matches (running/alive 1) → parks.
+    expect(await repos.sessions.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(1);
+    expect((await repos.sessions.findById(created.id))?.alive).toBe(0);
+    // Replaying with the pre-park expectation now misses (alive moved 1→0).
+    expect(await repos.sessions.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(0);
+  });
 });
 
 describe("recent paths repository", () => {
