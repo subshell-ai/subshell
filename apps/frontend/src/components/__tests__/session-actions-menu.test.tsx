@@ -124,3 +124,32 @@ describe("SessionActionsMenu — notification bell", () => {
     }
   });
 });
+
+describe("SessionActionsMenu — access gating (spec §4.1)", () => {
+  afterEach(cleanup);
+
+  it("renders no actions menu at all for a view grantee", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSession({ access: "view" }));
+      expect(screen.queryByRole("button", { name: "Actions for session" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("an edit grantee can manage the session but not the bell, sharing, or deletion", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSession({ access: "edit", alive: true }));
+      await openMenu("session");
+      expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Add note" })).toBeDefined();
+      expect(screen.queryByRole("menuitem", { name: "Notify when done" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Delete session" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});

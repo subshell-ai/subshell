@@ -65,11 +65,14 @@ export interface RosterUser {
  * for any signed-in user (only writes are admin-gated), so this needs no extra
  * endpoint — which matters because the composed API type is at Elysia's
  * inference-depth limit and cannot afford a new route module.
+ * @param enabled - Gate the fetch (the sharing dialog passes `open` so a closed
+ *                  dialog fetches nothing).
  */
-export function useSharableUsers() {
+export function useSharableUsers(enabled = true) {
   return useQuery({
     queryKey: ["sharable-users"],
-    queryFn: async () => (await apiFetch<{ viewerIsAdmin: boolean; users: RosterUser[] }>("/api/users")).users,
+    queryFn: async () => (await apiFetch<{ viewerIsAdmin: boolean; users: RosterUser[] }>("/api/users")).users ?? [],
+    enabled,
     staleTime: 60_000,
   });
 }
