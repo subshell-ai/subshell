@@ -11,11 +11,12 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild",
     "clean": "rm -rf .turbo node_modules dist .expo",
-    "lint": "biome check --no-errors-on-unmatched --write --unsafe src app",
-    "lint:check": "biome check --no-errors-on-unmatched src app",
-    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src app",
+    "lint": "biome check --no-errors-on-unmatched --write --unsafe src app scripts",
+    "lint:check": "biome check --no-errors-on-unmatched src app scripts",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src app scripts",
     "test": "bun test --pass-with-no-tests",
-    "verify-types": "tsc --noEmit"
+    "verify-types": "tsc --noEmit",
+    "harness:m1": "bun scripts/m1-transport-harness.ts"
   },
   "dependencies": {
     "@internal/backend-errors": "workspace:*",

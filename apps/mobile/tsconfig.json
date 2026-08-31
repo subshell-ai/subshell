@@ -6,7 +6,8 @@
     "*.ts",
     "*.tsx",
     "expo-env.d.ts",
-    ".expo/types/**/*.ts"
+    ".expo/types/**/*.ts",
+    "scripts/**/*.ts"
   ],
   "compilerOptions": {
     "jsx": "react-jsx",
