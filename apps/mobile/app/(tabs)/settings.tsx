@@ -11,7 +11,7 @@ import { makeProbeDeps } from "@/lib/probe-real";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { biometricEnabled, requireBiometric, setBiometricEnabled } from "@/native/biometric";
 import { clientForOrigin } from "@/native/mote-client-factory";
-import { deregisterPush } from "@/native/push";
+import { deregisterPush, setIconBadge } from "@/native/push";
 import { secureTokenStore } from "@/native/secure-token-store";
 import { useMote } from "@/providers/mote-provider";
 
@@ -66,6 +66,9 @@ export default function Settings() {
     if (!client) return;
     await deregisterPush(client);
     await client.signOut(); // clears the Keychain token via the injected store
+    // Immediate, not left to converge via the next 401→clear() poll, which
+    // never arrives if the instance went unreachable (review, #5).
+    void setIconBadge(0);
     router.replace("/sign-in");
   }
 

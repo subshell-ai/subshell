@@ -20,7 +20,13 @@ export function configureNotifications(): void {
       shouldShowBanner: true,
       shouldShowList: true,
       shouldPlaySound: false,
-      shouldSetBadge: true, // badge rides the payload's waiting count (spec §Push)
+      // false ON PURPOSE (review, Important #2): this handler only runs while
+      // foregrounded, and while foregrounded `useIconBadge` owns the icon from
+      // the polled waiting count. A foreground push for a NON-active instance
+      // would otherwise stamp that instance's send-time count and nothing
+      // would ever correct it (the active instance's poll never changed).
+      // Background delivery applies aps.badge at the OS level regardless.
+      shouldSetBadge: false,
     }),
   });
   if (Platform.OS === "android") {
@@ -63,11 +69,13 @@ export async function enrollPush(client: MoteClient): Promise<string | null> {
     await AsyncStorage.setItem(PUSH_TOKEN_KEY, data);
     return data;
   } catch (err) {
-    // A plain `expo run:android` dev build has no google-services.json, so
-    // getExpoPushTokenAsync throws here ("Default FirebaseApp is not
-    // initialized") — enrollment then silently no-ops on every start.
-    // Deliverable builds get the FCM config from EAS (spec §Infra).
-    console.warn("push enrollment failed (no FCM config in a bare dev build?)", err);
+    // This catch also swallows an unreachable instance (enrollDevice) and
+    // AsyncStorage faults — keep the message generic (review, #4). The most
+    // common cause by far: a plain `expo run:android` dev build has no
+    // google-services.json, so getExpoPushTokenAsync throws ("Default
+    // FirebaseApp is not initialized") and enrollment no-ops on every start;
+    // deliverable builds get the FCM config from EAS (see AGENTS.md).
+    console.warn("push enrollment failed", err);
     return null;
   }
 }

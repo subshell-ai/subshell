@@ -173,10 +173,26 @@ a count:
   body:  KIND_COPY[kind],          // "A session needs you" — never row.name
   badge: waitingCount,             // integer for this user
   sound: "default",
-  threadId: sessionId,             // replaces the previous one, like web's `tag`
+  threadId: sessionId,             // groups the conversation only — NOT the replacer
+  tag: sessionId,                  // Android: expo-notifications uses the tag as the
+                                   // notification id, so a new event REPLACES the
+                                   // session's earlier push (web-`tag` parity)
+  collapseId: sessionId,           // iOS: apns-collapse-id, same replace semantics
+  channelId: "mote-sessions",      // + legacy `_channelId` twin while the relay's
+                                   // honoured name is unconfirmed on old lanes
+  categoryId: "session",           // required for the registered lock-screen actions
   data:  { sid: sessionId, kind, origin }
 }
 ```
+
+**Badge ownership, amended post-review (2026-08-31):** the payload badge is a
+SEND-time stamp for the firing user's count; while the app is foregrounded,
+the ACTIVE instance's polled waiting count is the single writer of the icon
+(the foreground presentation handler returns `shouldSetBadge: false` so a
+push for another instance cannot outlive correction). "Badge equals the
+waiting count" in the device gate therefore means *the active instance's*
+count — the multi-instance registry postdates this sentence and a device
+holding two instances shows one instance's truth on the icon.
 
 No session name, no working directory, no notes, no operator text. The kind enum is
 kept because "needs you" vs "crashed" is the difference between a glance and a

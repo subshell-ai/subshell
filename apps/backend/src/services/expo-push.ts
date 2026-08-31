@@ -27,10 +27,12 @@ export interface ExpoPushMessage {
   /** Groups the conversation (iOS thread); NOT the replace mechanism. */
   threadId: string;
   /**
-   * Android notification tag — the relay maps it to FCM `tag` and derives the
-   * notification id from it, so a second push for the same session REPLACES
-   * the first. This is the web-`tag` parity the spec asks for; `threadId`
-   * alone only groups.
+   * Android notification tag — the relay passes it through to the FCM data
+   * payload and it is the CLIENT (expo-notifications `FirebaseMessaging
+   * Delegate`/`ExpoPresentationDelegate`, checked at 57.0.15) that uses it as
+   * the notification identifier, so a second push for the same session
+   * REPLACES the first in the tray. This is the web-`tag` parity the spec
+   * asks for; `threadId` alone only groups.
    */
   tag: string;
   /** iOS APNs collapse id — the same replace semantics on the other platform. */
@@ -49,6 +51,8 @@ export interface ExpoPushMessage {
    * tolerated, bad types are rejected at ticket time), so it silently ignores
    * whichever one it no longer reads — and the two values are identical, so
    * whichever wins cannot contradict the other.
+   * TODO(cleanup): one release after the first device delivery is confirmed,
+   * drop `_channelId` — a hedge kept forever becomes folklore (review, #7).
    */
   channelId: string;
   /** @deprecated Legacy twin of `channelId` — see above; same value always. */

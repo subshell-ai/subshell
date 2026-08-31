@@ -15,7 +15,7 @@ import { useMote } from "@/providers/mote-provider";
  * `staleTime` would freeze the number for the whole foreground session;
  * review found exactly that, 2026-08-31).
  */
-export function useWaitingCount(): number {
+export function useWaitingState(): { waiting: number; loading: boolean } {
   const { client } = useMote();
   const sessions = useSessions();
   const foreground = useForeground();
@@ -28,5 +28,14 @@ export function useWaitingCount(): number {
     refetchInterval: () => polledInterval(foreground, () => sessions.data),
     refetchIntervalInBackground: false,
   });
-  return summary.data?.waiting ?? waitingCount(sessions.data ?? []);
+  // "loading" = signed in and NEITHER source has settled its first attempt;
+  // consumers that must not act on a not-yet-known count (the icon badge)
+  // gate on this instead of reading 0 out of the empty-array fallback
+  // (review, Important #1: cold start would flash the badge to 0).
+  const loading = Boolean(client) && sessions.isPending && summary.isPending;
+  return { waiting: summary.data?.waiting ?? waitingCount(sessions.data ?? []), loading };
+}
+
+export function useWaitingCount(): number {
+  return useWaitingState().waiting;
 }
