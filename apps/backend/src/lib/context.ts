@@ -7,7 +7,9 @@ import { IdentitiesRepository } from "@/db/repositories/identities.repository.js
 import type { Repositories } from "@/db/repositories/index.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
+import { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -49,6 +51,8 @@ export class ApiContext {
       channelPosts: new ChannelPostsRepository(params.db),
       identities: new IdentitiesRepository(params.db),
       recentPaths: new RecentPathsRepository(params.db),
+      sessionShares: new SessionSharesRepository(params.db),
+      userMeta: new UserMetaRepository(params.db),
     };
     this.services = {} as Services;
     this.init();

@@ -43,4 +43,11 @@ describe("toSessionView notification fields", () => {
     expect(idle.notify).toBe(false);
     expect(idle.waitingSince).toBeNull();
   });
+
+  it("defaults access to 'owner' and honours an explicit override (sharing, spec 2026-08-31)", () => {
+    // A returned view is always visible to someone, so it never carries "none".
+    expect(toSessionView(row(), "running").access).toBe("owner");
+    expect(toSessionView(row(), "running", [], "view").access).toBe("view");
+    expect(toSessionView(row(), "running", [], "edit").access).toBe("edit");
+  });
 });

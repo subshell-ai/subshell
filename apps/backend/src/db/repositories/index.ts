@@ -3,7 +3,9 @@ import type { ChannelsRepository } from "@/db/repositories/channels.repository.j
 import type { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
+import type { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import type { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import type { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 
@@ -22,4 +24,6 @@ export interface Repositories {
   readonly channelPosts: ChannelPostsRepository;
   readonly identities: IdentitiesRepository;
   readonly recentPaths: RecentPathsRepository;
+  readonly sessionShares: SessionSharesRepository;
+  readonly userMeta: UserMetaRepository;
 }

@@ -15,6 +15,7 @@ import { SESSION_DATA_DIR } from "@/constants.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
+import type { Access } from "@/lib/session-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { registerSessionMcp, sessionMcpConfigPath, sessionMcpEnv } from "@/services/mcp-launch.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
@@ -1136,6 +1137,13 @@ export function toSessionView(
   status: string,
   /** The session's current screen, bottom-first-trimmed; empty when not running. */
   preview: string[] = [],
+  /**
+   * Viewer-relative access to attach to the view. A returned row is always
+   * visible to *someone*, so this is never `"none"`. Defaults to `"owner"` so
+   * the many owner-keyed direct callers stay valid; the sharing service
+   * overrides it per-viewer.
+   */
+  access: Exclude<Access, "none"> = "owner",
 ) {
   return {
     id: row.id,
@@ -1164,5 +1172,6 @@ export function toSessionView(
     // ISO ts of the attention event that put this session in waiting-for-you
     // state (null = not waiting); cleared by the watcher on output-resume/death.
     waitingSince: row.waitingSince,
+    access,
   };
 }
