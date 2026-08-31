@@ -182,4 +182,32 @@ describe("settings routes (admin cookie only)", () => {
     const viaSessionKey = await app.fetch(bearerRequest("/api/settings/public", adminSessionKey));
     expect(viaSessionKey.status).toBe(200);
   });
+
+  it("GET /public reports emergencyLoginActive around the env var", async () => {
+    // /public answers behind authGuard (401 anonymous — pinned by the test
+    // above), so the flag reads go out with the admin cookie; the banner's
+    // real caller is always a signed-in user anyway.
+    type Public = { allowRegistrations: boolean; emergencyLoginActive: boolean };
+    const saved = process.env.MOTE_EMERGENCY_PASSWORD;
+    const get = async () =>
+      (await (
+        await app.fetch(
+          new Request("http://localhost:3080/api/settings/public", {
+            headers: { cookie: `better-auth.session_token=${adminCookie}` },
+          }),
+        )
+      ).json()) as Public;
+    try {
+      delete process.env.MOTE_EMERGENCY_PASSWORD;
+      const off = await get();
+      expect(off.emergencyLoginActive).toBe(false);
+      process.env.MOTE_EMERGENCY_PASSWORD = "armed-for-test";
+      const on = await get();
+      expect(on.emergencyLoginActive).toBe(true);
+      expect(on.allowRegistrations).toBe(off.allowRegistrations);
+    } finally {
+      if (saved === undefined) delete process.env.MOTE_EMERGENCY_PASSWORD;
+      else process.env.MOTE_EMERGENCY_PASSWORD = saved;
+    }
+  });
 });

@@ -1,11 +1,21 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { isAdmin } from "@/api/user-utils.js";
+import { emergencyPassword } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+});
+
+/** Public read gains the break-glass flag (spec 2026-08-31 §6) — it leaks
+ * only that the hatch is armed, which the banner itself broadcasts. */
+const PublicSettingsSchema = t.Object({
+  allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+  emergencyLoginActive: t.Boolean({
+    description: "True while MOTE_EMERGENCY_PASSWORD is set (break-glass admin login armed; drives the warning banner)",
+  }),
 });
 
 /**
@@ -21,10 +31,10 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     async () => {
       const repo = new SettingsRepository(db);
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow } as const;
+      return { allowRegistrations: allow, emergencyLoginActive: emergencyPassword() !== "" } as const;
     },
     {
-      response: SettingsSchema,
+      response: PublicSettingsSchema,
       detail: {
         operationId: "getPublicSettings",
         tags: ["settings"],
