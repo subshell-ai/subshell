@@ -1,31 +1,38 @@
-import { stripAnsi } from "@internal/backend-errors";
-import { MAX_UPLOAD_BYTES } from "@internal/session-protocol";
-import { Stack } from "expo-router";
-import { Text, useWindowDimensions, View } from "react-native";
-import { isWide } from "@/lib/breakpoints";
+import { Redirect } from "expo-router";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { useApp } from "@/lib/app-state";
+import { secureTokenStore } from "@/native/secure-token-store";
 
 /**
- * Scaffold probe: proves the two things every later screen depends on — that the
- * `@internal/*` workspace packages resolve through Metro, and that the `@/`
- * alias works at runtime and not just under `tsc`.
- *
- * Replaced by the session shell in M2.
+ * The guard (spec §Auth): routes to the right step from what exists —
+ * no instance → Connect; instance but no Keychain token → Sign-in; both →
+ * the tab shell. Sign-in mid-session (after a 401) is pushed over the stack
+ * by the provider, not routed through here.
  */
-export default function ScaffoldProbe() {
-  const { width } = useWindowDimensions();
-  const shell = isWide(width) ? "wide" : "compact";
+export default function Guard() {
+  const { hydrated, activeId } = useApp();
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
 
-  return (
-    <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0a0c0f" }}>
-      <Text style={{ color: "#e4e4e7", fontSize: 17 }}>mote mobile</Text>
-      <Text style={{ color: "#8b8b90" }}>
-        {Math.round(width)}px → {shell} shell
-      </Text>
-      <Text style={{ color: "#8b8b90" }}>
-        session-protocol: {MAX_UPLOAD_BYTES / 1024 / 1024} MB upload cap ·{" "}
-        {stripAnsi("\x1b[31mansi\x1b[0m") === "ansi" ? "stripAnsi ok" : "stripAnsi FAIL"}
-      </Text>
-      <Stack screenOptions={{ headerShown: false }} />
-    </View>
-  );
+  useEffect(() => {
+    if (!activeId) {
+      setHasToken(false);
+      return;
+    }
+    void secureTokenStore(activeId)
+      .get()
+      .then((t) => setHasToken(Boolean(t)))
+      .catch(() => setHasToken(false));
+  }, [activeId]);
+
+  if (!hydrated || hasToken === null) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+  if (!activeId) return <Redirect href="/connect" />;
+  if (!hasToken) return <Redirect href="/sign-in" />;
+  return <Redirect href="/(tabs)" />;
 }

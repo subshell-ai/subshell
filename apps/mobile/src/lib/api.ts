@@ -51,6 +51,11 @@ export class MoteClient {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
+  /** The instance origin every request goes to (WS URL construction needs it). */
+  get baseUrl(): string {
+    return this.opts.baseUrl;
+  }
+
   /**
    * One request: cookie injected, rotation captured, non-2xx thrown as
    * {@link ApiError} with the backend's structured fields.
@@ -178,6 +183,47 @@ export class MoteClient {
       method: "PATCH",
       body: JSON.stringify({ notify }),
     });
+  }
+
+  /**
+   * Renames a session (operator-owned name; flips `nameLocked` server-side).
+   * @param id - Session id @param name - New display name (1–120 chars)
+   */
+  rename(id: string, name: string): Promise<unknown> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/name`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /**
+   * Sets the operator note.
+   * @param id - Session id @param notes - Note text (null clears it)
+   */
+  setNotes(id: string, notes: string | null): Promise<unknown> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/notes`, {
+      method: "PATCH",
+      body: JSON.stringify({ notes }),
+    });
+  }
+
+  /**
+   * Revives the session IN PLACE — same id, rotated token (contract 53654a8).
+   * Deep links and notifications survive a restart because the id does.
+   * @param id - Session id
+   */
+  restart(id: string): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/restart`, { method: "POST" });
+  }
+
+  /** Kills the pane (resumable — restart can revive it). @param id - Session id */
+  terminate(id: string): Promise<unknown> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/terminate`, { method: "POST" });
+  }
+
+  /** Removes the row. Terminal. @param id - Session id */
+  deleteSession(id: string): Promise<unknown> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   /**

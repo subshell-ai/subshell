@@ -1,10 +1,22 @@
 import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { colors } from "@/lib/tokens";
+import { MoteProvider } from "@/providers/mote-provider";
 
-/**
- * Root layout. The adaptive phone/tablet shell (bottom tabs under 1024px,
- * sidebar + list + detail above it) lands with the session screens; until then
- * a bare stack keeps the router wiring honest.
- */
+/** Root: dark chrome, providers once, every route below sees useMote()/queries. */
 export default function RootLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <SafeAreaProvider>
+      <MoteProvider>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.bg },
+          }}
+        />
+      </MoteProvider>
+    </SafeAreaProvider>
+  );
 }
