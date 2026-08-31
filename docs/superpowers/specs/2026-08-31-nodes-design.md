@@ -28,7 +28,7 @@ over a websocket (NAT-friendly, no listeners on the node), accepts only commands
 | # | Question | Decision |
 |---|----------|----------|
 | 1 | Node ownership | **Per-user nodes.** Any user registers their own machines; sharing mirrors the session-sharing model (§4 of the session-sharing spec): private by default (404-not-403), `view`/`edit` grants to Everyone or specific users, admins hold instance-wide `edit` but never delete/re-share |
-| 2 | The control-plane host | Seeded as a real `nodes` row with id `local` — one code path for dropdown/config/pinning. **An admin setting disables `local` as a launch target** |
+| 2 | The control-plane host | Seeded as a real `nodes` row with id `local` — one code path for dropdown/config/pinning. Admins manage it as owner; **disabling it as a launch target = an admin deleting its seeded Everyone/edit share row** (no separate flag) |
 | 3 | Agent distribution | **The backend serves compiled `bun --compile` binaries**; the Nodes page renders a one-line install command embedding server URL + setup key |
 | 4 | Parity | Remote sessions must reach **full feature parity** with local ones; delivered in phases, each phase ships a usable system |
 
@@ -41,21 +41,34 @@ auto-update; multi-control-plane/federated setups; queueing commands for offline
 - `nodes` row: `{ id, ownerUserId, name, kind: "local" | "agent", os, arch, hostname,
   status, lastSeenAt, agentVersion, protocolVersion, publicKey, apiKeyId, capabilities,
   inventoryJson, inventoryAt, createdAt, updatedAt }`.
-- **`local`** (kind `local`): seeded at boot, owner = the `system` user, no socket ever
-  connects for it, `status` derived (online while the server runs), cannot be deleted,
-  renamed, or shared — its audience is governed by the same rule that governs the whole
-  instance: every signed-in user may launch there **unless** the admin flag
-  `nodes.local_launch_disabled` is set. Because owner = system user, only admins can
-  edit its config (harness enable/disable), matching today's settings card semantics.
+- **`local`** (kind `local`): seeded at boot, owner = the `system` user, **admins
+  manage it as if they were the owner** (its shares and harness config are
+  admin-cookie operations; rename and delete are disabled outright). No socket ever
+  connects for it; `status` is derived (online while the server runs). At boot it gets
+  an idempotently-seeded share row `(grantee = NULL "Everyone", permission = "edit")`,
+  so every signed-in user can launch there and toggle its harnesses — exactly today's
+  Settings-card behavior, expressed under one unified rule. **The admin's "disable
+  launching on this machine" switch is the deletion of that Everyone row**; the node
+  then vanishes from other users' views like any invisible node (404). There is no
+  separate settings flag.
 - **agent nodes**: owner = the user who consumed the setup key. Visibility/access is
   resolved exactly like sessions: owner > admin `edit` > grants; invisible otherwise
   (404). New pure resolver `lib/node-access.ts` clones `lib/session-access.ts`
   (`resolveNodeAccess`, `loadNodeAccess`; levels `"owner" | "edit" | "view" | "none"`).
+- **Share capabilities (product decision, 2026-08-31 — deliberately NOT the session
+  mapping):** **any live node share — `view` or `edit` — grants launch eligibility**
+  plus seeing the node (status, harness inventory). `edit` **additionally** grants
+  node config: harness enable/disable and the inventory Re-check. Owner-only (never
+  conferred by a share — and admins hold it only on `local`): rename, delete, share
+  management, key rotation. A session started on a node is the starter's own session;
+  it is invisible to the node's owner unless the *session* is also shared.
 - **Two-axis rule** (the security keystone): *node* shares gate who may **launch on /
   see the node**; *session* shares continue to gate who may **see/interact with a
-  session's panes**. A node `edit` grant does **not** expose sessions running on that
-  node to the grantee, and does not let the grantee read other users' sessions there.
+  session's panes**. A node grant does **not** expose sessions running on that node to
+  the grantee, and does not let the grantee read other users' sessions there.
   Conversely, a session shared to a user works on any node that user can launch on.
+  Consequence: the node-detail "sessions on this node" list is always filtered by the
+  **viewer's session visibility**, never by node access.
 - Node names are unique per owner (`idx_nodes_owner_name`).
 
 ## 3. Wire Protocol (`packages/session-protocol`)
@@ -84,7 +97,7 @@ export const NODE_PROTOCOL_VERSION = 1;
 /** Control plane → agent. This is the JWS `cmd` claim payload. */
 export type NodeCommandBody =
   | { type: "launch"; sessionId: string; socket: string; cwd: string; harnessId: string;
-      profile: ProfileDefinition;                  // decoded, from @internal/harnesses
+      profile: ProfileDefinitionWire;              // structural JSON mirror — see note below
       moteEnv: Record<string, string>;             // MOTE_* credentials (control supplies)
       mcp?: { path: string; fileContent: string }; // agent writes 0600 before spawn
       harnessSession?: { id: string; mode: "start" | "resume" };
@@ -104,8 +117,8 @@ export type NodeCommandBody =
   | { type: "tail_stop"; subId: string }
   | { type: "remove_paths"; paths: string[] }      // delete cleanup: log + mcp config
   | { type: "inventory" }
-  | { type: "write_file"; path: string; chunk_b64: string; seq: number;
-      eof: boolean }                               // uploads relay (see §3.4 chunking)
+  | { type: "write_file"; path: string; chunk_b64: string; chunk: number;
+      eof: boolean }                     // uploads relay (see §3.4); `chunk` = piece index
   | { type: "ping" };
 ```
 
@@ -113,6 +126,12 @@ Note `launch` carries **structured** data (cwd, env map, profile definition, MCP
 content), never the assembled shell string — see §6.3 for why. The agent assembles the
 pane command itself using the same `buildLaunchCommand()` helper the local path uses
 (§6.4).
+
+`ProfileDefinitionWire` is a **structural JSON mirror** of `@internal/harnesses`'
+`ProfileDefinition` (JSDoc cross-reference, same field names) — `session-protocol` must
+not import `@internal/harnesses` at runtime: the frontend bundles this package, and
+harnesses pulls in `node:fs`. The agent validates/decodes the blob against the real
+`ProfileDefinition` when executing `launch`.
 
 ### 3.3 Events (agent → control), unsigned
 
@@ -151,9 +170,13 @@ export type NodeEvent =
   socket lagging > 4 MiB is closed — the browser reconnects and replays (existing
   behavior).
 - **Uploads**: `MAX_UPLOAD_BYTES` (25 MiB) far exceeds the 1 MiB frame, so
-  `write_file` **chunks**: 768 KiB raw pieces, `seq`-numbered per `(path)`, `eof`
+  `write_file` **chunks**: 768 KiB raw pieces, `chunk`-numbered per `(path)`, `eof`
   closes; the agent appends and verifies total size before returning the final
   `result`. A mid-stream failure fails the upload cleanly (temp file discarded).
+  Backend-side path composition is already safe for local uploads
+  (`uploads.service.ts` `safeUploadName`: basename + sanitize + confine under
+  `<workingDir>/uploads`) — the remote path reuses that composition against the
+  node-side `workingDir`, and the agent still enforces §7's path allowlist.
 
 ## 4. Command Signing
 
@@ -175,8 +198,11 @@ node, freshly:
 
 - **Agent verification, per frame:** `compactVerify(jws, pinnedKey, { issuer,
   audience: "node:<own id>", maxTokenAge: 30s })`; then
-  - `seq` strictly increasing per connection (holes logged, tolerated only across a
-    reconnect); a regression drops the connection;
+  - `seq` is a **per-connection ordering hint only**: it restarts at 1 on every new
+    connection and the agent **resets its tracker on connect** — otherwise a control
+    -plane restart would lock the node out forever. Within a connection a regression
+    logs and drops the socket; holes across a reconnect are expected. **Replay
+    protection is carried by `exp` + the `jti` LRU alone**, never by `seq`.
   - `jti` checked against a ~2048-entry LRU (≥ 2× the exp window) so replays across a
     reconnect double-fire nothing;
   - **effectful** commands (`launch`, `terminate`, `write_file`, `remove_paths`) key
@@ -187,7 +213,7 @@ node, freshly:
   mid-flight drop fails the send (`NodeUnreachableError`) rather than queueing.
 
 **Guarantees:** authenticity to the enrolled keypair, single-target (`aud`), freshness
-(`exp`), ordering (`seq`), single-shot (`jti`). **Not guaranteed:** payload
+(`exp`), single-shot (`jti`), plus an in-connection ordering hint (`seq`). **Not guaranteed:** payload
 confidentiality (WSS/operator TLS's job — trusted-network posture), protection against
 control-plane compromise (the signing key rules all nodes), or agent→control integrity
 beyond the node key (§3.3).
@@ -196,7 +222,7 @@ beyond the node key (§3.3).
 
 ### 5.1 Setup keys
 
-Dedicated table `node_setup_keys` (§7) rather than better-auth apikey rows: these are
+Dedicated table `node_setup_keys` (§6.1) rather than better-auth apikey rows: these are
 **single-use activation codes, not credentials** — no per-request verify path, owner is
 a normal user (not `system`), consumption is transactional, and forcing them into the
 plugin-owned apikey table would mean raw-SQL lookups-by-hash against someone else's
@@ -226,17 +252,25 @@ The agent generates its own P-256 identity keypair at enroll (stored like
 
 ### 5.3 Connect / heartbeat / offline
 
-- Every `/ws/node` upgrade: verify key → `metadata.kind==="node"` → load node row →
-  `nodes.apiKeyId === keyRow.id` → node enabled → protocol version. Failures close
-  `4401` / `4403` (key↔node mismatch) / `4406` ("agent update required").
+- Every `/ws/node` upgrade: verify key (disabled keys — e.g. the old one after
+  rotation — fail verify like invalid ones) → `metadata.kind==="node"` → load node row
+  → `nodes.apiKeyId === keyRow.id` (stale-key mismatch). Header reading at upgrade
+  uses Elysia's `.ws` `upgrade()` hook (verified available on 1.4.29; it stashes the
+  derived node into `ws.data`). **Pre-upgrade failures are HTTP refusals of the
+  upgrade — 401 (invalid/disabled key) / 403 (key↔node mismatch)**; there is no socket
+  yet, so no close codes apply (nodes have no separate enabled flag — delete is the
+  revocation). Post-upgrade, `ready` carries `protocolVersion`; too old → close `4406`
+  ("agent update required").
 - `ready` event persists `os/arch/hostname/agentVersion/protocolVersion/capabilities`
   and triggers an immediate `inventory`.
 - `status='online'` while the socket is open; `lastSeenAt` stamped on every heartbeat
   (agent sends one every 15 s). Socket close or 45 s of silence (checked in the
   existing 60 s sweep in `src/index.ts`) → `status='offline'`.
-- Two backend restarts racing one node: registry keyed by nodeId, **newest connection
-  wins**, old socket closed `4409` (same module-scope-lease discipline as
-  `restartInFlight`).
+- Two live sockets for one node (backend-restart race, or `mote-agent run` started
+  twice on the box): registry keyed by nodeId, **newest connection wins**, the old
+  socket closed `4409` (same module-scope-lease discipline as `restartInFlight`). The
+  agent treats `4409` as **terminal** — it exits with "another mote-agent is already
+  registered for this node" rather than reconnect-looping (§7).
 
 ### 5.4 Rotate / revoke
 
@@ -247,6 +281,12 @@ The agent generates its own P-256 identity keypair at enroll (stored like
 - Delete node (owner-only; admins cannot, mirroring sessions): 409 while sessions
   still run there unless `?force=true` (terminates first). Disables the api key,
   cascade-deletes shares. `local` cannot be deleted.
+- **Referential effects:** `profiles.node_id` is cleared (`SET NULL`) inside the node
+  delete transaction — the confirm dialog must warn "N pinned profiles will become
+  any-node". `sessions.node_id` carries **no FK** and is never rewritten: historical
+  rows keep the id and render "deleted node". (SQLite cannot add a physical FK via
+  `ALTER TABLE`, so both rules are service-layer invariants, stated here so the
+  implementation doesn't drift.)
 
 ### 5.5 What a node key can do
 
@@ -311,8 +351,15 @@ CREATE TABLE node_harnesses (          -- per-agent-node enable/disable (lazy ro
 );
 
 ALTER TABLE sessions ADD COLUMN node_id TEXT NOT NULL DEFAULT 'local';
-ALTER TABLE profiles ADD COLUMN node_id TEXT;   -- NULL = "any node"
+  -- no FK: deleted nodes render "deleted node" for history rows (§5.4)
+ALTER TABLE profiles ADD COLUMN node_id TEXT;
+  -- NULL = "any node"; no physical FK (SQLite ALTER limit) — the node-delete
+  -- transaction SET NULLs pinned profiles (§5.4)
 ALTER TABLE recent_paths ADD COLUMN node_id TEXT NOT NULL DEFAULT 'local';
+DROP INDEX idx_recent_paths_user_path;      -- was UNIQUE (user_id, path)
+CREATE UNIQUE INDEX idx_recent_paths_user_node_path
+  ON recent_paths (user_id, node_id, path); -- RecentPathsRepository onConflict
+                                            -- columns must match (§9)
 CREATE INDEX idx_sessions_node_status ON sessions (node_id, status);
 ```
 
@@ -454,9 +501,10 @@ byte-identical. The frontend and mobile need **zero** changes for remote termina
 ### 6.6 Session creation resolution
 
 `POST /api/sessions` body gains optional `nodeId`. Resolution in
-`SessionsService.createSession`: explicit body `nodeId` (access-checked; 404 if
-invisible) → `profile.nodeId` when pinned → `local` (unless launch-disabled) → the
-user's single online accessible node → else `400 "pick a node"`. All validations are
+`SessionsService.createSession`: explicit body `nodeId` (launch-eligible access —
+**any share level**, §2; 404 if invisible) → `profile.nodeId` when pinned → `local`
+when launch-eligible there (i.e. its Everyone/edit share row still exists, §2) → the
+user's single online launch-eligible node → else `400 "pick a node"`. All validations are
 node-aware: profile harness usable **on that node**, node online (409), working dir and
 binary via the launcher. The row persists `nodeId`. Session views expose `nodeId` +
 `nodeOffline`.
@@ -491,7 +539,16 @@ A new app in the workspace (deployable binary, like backend/frontend/mobile;
   serial command executor (`src/commands/{launch,probe,tail,…}.ts`); every
   not-yet-implemented command answers `result{ok:false,error:"unsupported"}` (this
   skeleton lets backend/agent tracks integrate incrementally). Reconnect: full-jitter
-  exponential backoff 1 s → 60 s. Pane-exit watcher per launched session (2 s
+  exponential backoff 1 s → 60 s — **but close `4409` "duplicate connection" is
+  terminal: exit with a clear "another mote-agent is already registered" message**
+  (§5.3). Verification splits: `aud`/`exp`/`jti` enforce, `seq` hints (§4).
+- **Agent-side path policy (defense-in-depth, §3.4):** `write_file` and `remove_paths`
+  are accepted only when the target's `realpath` falls under `<dataDir>` or under the
+  recorded launch `cwd` of a currently tracked session; `..` and symlink escapes are
+  refused with `result{ok:false}`. (`stat_dir` stays unrestricted — probing a
+  user-typed working dir *is* the feature.) Frame size: Bun's `maxPayloadLength` is
+  global (default 16 MiB), so the 1 MiB node cap is enforced as a byte check in the
+  message handlers on both ends. Pane-exit watcher per launched session (2 s
   `has-session`/`pane_dead_status` loop → `exit` events). `sessions_report` on connect.
   Inventory every 5 min + on demand via `scanHarnesses()` — a new helper in
   `packages/harnesses` returning the inventory shape from `ALL_HARNESSES`
@@ -536,21 +593,22 @@ groups (e.g. move `filesRoutes` → `coreRoutes`) — grouping is behavior-neutr
 | `GET /api/nodes/:id` | access ≥ view | 404 when invisible |
 | `PATCH /api/nodes/:id` | access owner (rename) | local: admins only, name immutable |
 | `DELETE /api/nodes/:id` | owner only; `?force` kills running sessions | local undeletable; admins cannot delete others' nodes |
-| `GET/PUT /api/nodes/:id/shares` | owner only, cookie-only | mirrors session-shares contract `{shares:[{granteeUserId,permission}]}` |
+| `GET/PUT /api/nodes/:id/shares` | owner only, cookie-only | mirrors session-shares contract `{shares:[{granteeUserId,permission}]}`; **`local` special case: admins manage it** (its seeded Everyone/edit row is the machine's launch switch) |
 | `GET/POST/DELETE /api/nodes/setup-keys` | cookie (own user) | plaintext-once on create |
 | `POST /api/nodes/enroll` | public (setup key is the credential) | §5.2 |
 | `POST /api/nodes/:id/rotate-key` | owner, cookie-only | plaintext-once |
 | `POST /api/nodes/:id/recheck` | access ≥ edit | sends `inventory`; 409 offline |
-| `GET/POST/PATCH/DELETE /api/nodes/:id/harnesses` semantics via `PATCH /api/nodes/:id/harnesses/:harnessId` | access owner (config = owner+admins) | 409 not-installed, mirroring `PATCH /api/setup/harnesses/:id` |
-| `PATCH /api/settings/nodes-local-launch` | admin, cookie-only | on `settings.route.ts`; `GET /api/settings/public` gains `localNodeLaunchDisabled` |
+| `PATCH /api/nodes/:id/harnesses/:harnessId` | access **≥ edit** (owner, admins on `local`, or an `edit` grantee — §2; `local`'s seeded Everyone/edit row keeps every user able to toggle it, matching today) | 409 not-installed, mirroring `PATCH /api/setup/harnesses/:id` |
+| _(no settings route)_ | — | the old `nodes.local_launch_disabled` flag is **replaced** by `local`'s Everyone/edit share row (§2); `ensureLocalNode()` seeds it idempotently, admins delete it to disable |
 | `POST /api/sessions` | (modified) | optional `nodeId`; §6.6 |
 
 Schemas: every `t` property carries a `description`; `operationId`s
 (`listNodes`, `enrollNode`, …); `ApiErrorResponse` everywhere; new error codes in
 `@internal/backend-errors`. Audit events: `node.enroll`, `node.delete`,
-`node.key_rotate`, `setup_key.create`, `setup_key.consume`, `setup_key.revoke`,
-`nodes.local_launch_toggled`. `recentPaths` endpoints gain a `node` scope param
-(server-side key `(userId, nodeId)`).
+`node.key_rotate`, `node.local_share_changed`, `setup_key.create`,
+`setup_key.consume`, `setup_key.revoke`. `recentPaths` endpoints gain a `node` scope
+param; `RecentPathsRepository.touch`'s `onConflict` columns become
+`["userId","nodeId","path"]` to match the recreated unique index (§6.1).
 
 Enabling a harness on an agent node seeds Default profiles the same way
 `ensureDefaultProfilesForUser` does today — gated by the node's inventory.
@@ -561,12 +619,12 @@ Enabling a harness on an agent node seeds Default profiles the same way
 |---|---|---|
 | Nav | `components/app-sidebar.tsx` | `NAV_ITEMS += { to:"/nodes", label:"Nodes", icon: Cpu }` (per-user page) |
 | List | `routes/nodes.tsx` (new) | rows: name, OS/arch chips, `StatusPill` (online/offline/agent-too-old), harness chips, owner + share indicator, `ActionsMenu`; "Add node" → setup-key dialog (copy `system-api-keys-card.tsx`: plaintext-once + `CopyCommandRow` install command) → "waiting for enrollment" poll (refetch `NODES_QUERY_KEY` until the row appears) |
-| Detail | `routes/nodes_.$id.tsx` (new) | rename, rotate key (plaintext-once), Re-check harnesses, per-node harness switches (reuse `harness-row.tsx`; hooks gain a `nodeId` param, default `"local"` so the settings card is untouched), Shares dialog, delete, sessions-here list |
+| Detail | `routes/nodes_.$id.tsx` (new) | rename, rotate key (plaintext-once), Re-check harnesses, per-node harness switches (reuse `harness-row.tsx`; hooks gain a `nodeId` param, default `"local"` so the settings card is untouched), Shares dialog, delete, sessions-here list **filtered by the viewer's session visibility** (a node grant never lists others' private sessions — §2) |
 | Sharing | `components/sharing-dialog.tsx` (modify) | **generalize to a resource-parametrized dialog** (same `{shares}` PUT contract as sessions) — do not fork a second copy |
 | New session | `components/session-picker/new-session-form.tsx`, `routes/new.tsx`, workspace `add-session-dialog.tsx` | `NewSessionFormValue += nodeId`; Node `Select` (remember Base UI needs `items={[{value,label}]}`) listing launchable nodes; profile options filtered to `profile.nodeId == null \|\| === selected`; mismatch server-400 surfaces inline (no toasts — house style). When node ≠ local, `WorkingDirField` degrades to a plain input (no remote browse) |
 | Profiles | `components/profile-fields.tsx`, `lib/profile-form.ts` | Node Select: "Any node (default)" / Local / usable nodes; `ProfileRow` + payloads gain `nodeId` |
 | Session UI | `session-card.tsx`, `sessions_.$id.tsx`, types | node pill; `nodeOffline` → "node unreachable" copy, never "crashed" |
-| Settings | `routes/settings.tsx`, `routes/setup.tsx` | Harness card subtitle "(control-plane host)"; admin toggle "Allow launching sessions on this machine"; setup wizard copy adds "…or register a Node →" when local has no harnesses |
+| Settings | `routes/settings.tsx`, `routes/setup.tsx` | Harness card subtitle "(control-plane host)"; the admin "Allow launching sessions on this machine" toggle writes `local`'s Everyone/edit share row via the shares API (§2) — surface it on the local node's page and link it from Settings; setup wizard copy adds "…or register a Node →" when local has no harnesses |
 | Recents | `hooks/use-recent-paths.ts` | `useRecentPaths(nodeId = "local")` → `?node=` param |
 | Hooks/types | `hooks/use-nodes.ts`, `use-node-shares.ts` (new), `types/node.ts` | `NODES_QUERY_KEY = ["nodes"]`; `Node` interface mirrors the node view |
 | Mobile | `apps/mobile` | mirror `nodeId` on session types + pass-through on create; **node picker may lag one phase** — server default `'local'` keeps mobile correct meanwhile |
@@ -579,7 +637,9 @@ spec 2026-08-31)"** section:
 - Registering a node delegates **arbitrary command execution under the agent's OS
   user** to the control plane, and delegates pane I/O for sessions launched there to
   everyone those *sessions* are shared with. Node shares and session shares are two
-  independent axes (§2).
+  independent axes (§2): **any node share (view or edit) makes the grantee able to
+  launch their own sessions there** — those sessions remain invisible to the node's
+  owner unless separately shared.
 - A node API key can do nothing on REST (explicit guard rejection, §5.5); its blast
   radius is exactly "impersonate this node on `/ws/node`".
 - Command signing (§4) proves authenticity/freshness/target — **not** confidentiality
@@ -595,8 +655,9 @@ spec 2026-08-31)"** section:
 - Setup keys: single-use, 24 h, shown once, hash-at-rest, revocable, audited. The
   install command embeds one in a URL (server logs, shell history) — same posture as
   enrollment links everywhere; revoke = delete the key.
-- The admin flag `nodes.local_launch_disabled` forbids hosting sessions on the
-  control-plane machine; it does not remove the `local` row (visibility stays uniform).
+- Disabling the control-plane machine as a launch target = an admin deleting `local`'s
+  seeded Everyone/edit share row (§2); the row then vanishes from non-admin views like
+  any invisible node — no separate flag exists to drift out of sync with it.
 - Trusted-network posture unchanged: node→control traffic is expected to ride the same
   VPN/Tailscale; `wss://` termination is the operator's deployment. **Enroll time
   loopback trap:** if `APP_BASE_URL`/server URL is `localhost`-ish, a remote node will
