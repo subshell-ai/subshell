@@ -56,6 +56,8 @@ export interface SessionTable {
   harnessSessionId: string | null;
   /** better-auth api-key id backing this session's MCP token (null = none yet) */
   apiKeyId: string | null;
+  /** Node the session runs on ('local' = control-plane host) */
+  nodeId: string;
 }
 
 /**
@@ -80,7 +82,10 @@ export type NewSession = Omit<
   | "harnessSessionId"
   | "notify"
   | "waitingSince"
+  | "nodeId"
 > & {
+  /** Node to launch on; omitted = DB default 'local' */
+  nodeId?: string;
   harnessSessionId?: string | null;
   status?: SessionStatus;
   lastOutputAt?: string | null;

@@ -1,4 +1,5 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NewSession, SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
 
 /** The three fields {@link summarizeSessions} reads off a session row. */
@@ -45,6 +46,9 @@ export class SessionsRepository extends BaseRepository {
         notify: session.notify ?? 0,
         waitingSince: session.waitingSince ?? null,
         status: session.status ?? "running",
+        // Node pin defaults in the DB (migration 0017); mirror it so the typed
+        // insert is complete and the row reads back whole.
+        nodeId: session.nodeId ?? LOCAL_NODE_ID,
         createdAt: new Date().toISOString(),
       })
       .returningAll()

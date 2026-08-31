@@ -9,6 +9,7 @@ import * as profileDefaultFlagMigration from "@/db/migrations/0010-profile-defau
 import * as sessionNameLockedMigration from "@/db/migrations/0011-session-name-locked.js";
 import * as sessionHarnessIdMigration from "@/db/migrations/0013-session-harness-id.js";
 import * as sessionNotificationsMigration from "@/db/migrations/0014-session-notifications.js";
+import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
@@ -61,6 +62,7 @@ beforeAll(async () => {
   await sessionNameLockedMigration.up(db); // SessionsRepository defaults name_locked
   await sessionHarnessIdMigration.up(db); // sessions.harness_session_id
   await sessionNotificationsMigration.up(db); // sessions.notify / waiting_since + subscriptions
+  await nodesMigration.up(db); // sessions.node_id (SessionsRepository.create writes it)
 });
 
 beforeEach(async () => {

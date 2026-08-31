@@ -28,16 +28,20 @@ export interface ProfileTable {
   restartOnExit: number;
   /** 1 = auto-seeded default profile — editable, but DELETE refuses it */
   isDefault: number;
+  /** Node this profile is pinned to; null = any launch-eligible node */
+  nodeId: string | null;
   /** ISO 8601 timestamp when the profile was created */
   createdAt: string;
   /** ISO 8601 timestamp of the last update */
   updatedAt: string;
 }
 
-/** Insert shape: DB defaults fill createdAt/updatedAt/restartOnExit/isDefault when omitted. */
-export type NewProfile = Omit<ProfileTable, "createdAt" | "updatedAt" | "restartOnExit" | "isDefault"> & {
+/** Insert shape: DB defaults fill createdAt/updatedAt/restartOnExit/isDefault (and node pin) when omitted. */
+export type NewProfile = Omit<ProfileTable, "createdAt" | "updatedAt" | "restartOnExit" | "isDefault" | "nodeId"> & {
   restartOnExit?: number;
   isDefault?: number;
+  /** Node pin; omitted = NULL (any launch-eligible node) */
+  nodeId?: string | null;
 };
 export type ProfileUpdate = Partial<Omit<NewProfile, "id" | "userId" | "harnessId">>;
 

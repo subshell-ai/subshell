@@ -8,6 +8,7 @@ import * as profileDefaultFlagMigration from "@/db/migrations/0010-profile-defau
 import * as sessionNameLockedMigration from "@/db/migrations/0011-session-name-locked.js";
 import * as sessionHarnessIdMigration from "@/db/migrations/0013-session-harness-id.js";
 import * as sessionNotificationsMigration from "@/db/migrations/0014-session-notifications.js";
+import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -31,6 +32,7 @@ beforeAll(async () => {
   await sessionNameLockedMigration.up(db); // SessionsRepository defaults name_locked
   await sessionHarnessIdMigration.up(db); // sessions.harness_session_id
   await sessionNotificationsMigration.up(db); // sessions.notify / waiting_since + subscriptions
+  await nodesMigration.up(db); // sessions.node_id (direct inserts must supply it)
 });
 
 afterAll(async () => {
@@ -50,8 +52,9 @@ describe("live/restart/notes backend wiring", () => {
         harnessId: "h",
         name: "n",
         workingDir: "/tmp",
-        // Liveness columns default in the DB (migration 0003); supply the
-        // defaults explicitly so the typed insert is complete.
+        // Liveness columns default in the DB (migration 0003) and node_id in
+        // 0017; supply the defaults explicitly so the typed insert is complete.
+        nodeId: "local",
         alive: 1,
         backoffCount: 0,
         restartOnExit: 0,
