@@ -11,6 +11,31 @@ export interface ServerStatusStore {
 }
 
 /**
+ * Does THIS query state mean "the server is unreachable right now"?
+ *
+ * Keyed on `fetchFailureReason`, not `status === "error"`. The network-retry
+ * policy is UNBOUNDED (query-client.ts), so a query stuck against a down
+ * server never reaches the terminal `error` status — it sits in `pending`
+ * (cold, no data) or `success` (a background refetch failing) with
+ * `fetchStatus: "fetching"` and `fetchFailureReason` set to the `NetworkError`
+ * of the last attempt. That transient signal IS the outage. It clears itself
+ * on the first successful retry (the reducer nulls `fetchFailureReason`), so
+ * the state needs no expiry. The `status === "error"` branch is belt-and-braces
+ * for any query whose retry policy DID give up (e.g. a caller overriding retry).
+ *
+ * Exported pure so the predicate is unit-testable without racing real retry
+ * timers (a false-green guard: the old `retry: false` tests only ever exercised
+ * the exhausted branch).
+ */
+export function queryIndicatesOffline(q: {
+  isActive(): boolean;
+  state: { status: string; error: unknown; fetchFailureReason: unknown };
+}): boolean {
+  if (!q.isActive()) return false;
+  return isNetworkError(q.state.fetchFailureReason) || (q.state.status === "error" && isNetworkError(q.state.error));
+}
+
+/**
  * Derives "the mote server is unreachable" from the query cache — it never
  * polls. The QueryClient's network-retry loop (query-client.ts) IS the probe:
  * while any active query sits in `NetworkError` the server is down; the first
@@ -28,7 +53,7 @@ export function createServerStatusStore(client: QueryClient): ServerStatusStore 
     client
       .getQueryCache()
       .getAll()
-      .some((q) => q.isActive() && q.state.status === "error" && isNetworkError(q.state.error));
+      .some((q) => queryIndicatesOffline(q));
 
   const refresh = () => {
     const next = compute();

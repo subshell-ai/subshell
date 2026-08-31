@@ -177,64 +177,23 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
 
   const { addPane, removePane, restartSession } = useWorkspacePaneMutations(detail.workspace.id);
 
+  // Restart is IN-PLACE: same id, so the workspace_panes row already points
+  // at the (now-revived) session — there is nothing to add or remove. A clone
+  // dance (add replacement pane, drop the old one) would create a SECOND row
+  // for one session: a duplicate tile on other devices and two terminals on
+  // one tmux pane. (regression #13) The next refetch flips the pane back to
+  // running — which remounts a dead pane's terminal (SessionPane switches
+  // branches) and lets a live pane's socket reconnect — so just restart + refetch.
   const handleRestart = useCallback(
     async (sessionId: string) => {
       try {
-        const created = await restartSession(sessionId);
-        const newPane = await addPane(created.id);
-        // Only touch the old pane once the new one exists server-side — a
-        // failure above leaves the old pane exactly as it was rather than
-        // vanishing it with nothing to replace it.
-        const old = detail.panes.find((p) => p.sessionId === sessionId);
-        if (old) {
-          const api = apiRef.current;
-          if (api) {
-            // Repoints in place: add the replacement into the old pane's
-            // exact slot *before* closing it, so restarting a tile in a
-            // multi-way split keeps its position instead of collapsing it
-            // (the old pane is closed right after, leaving only the new one
-            // where the old one was). `sessionStatus`/`sessionAlive` are set
-            // directly rather than looked up — a just-restarted session is
-            // always freshly running — and the next refetch overwrites this
-            // placeholder row with the authoritative one at the same id.
-            addPanel(
-              api,
-              {
-                id: newPane.id,
-                sessionId: created.id,
-                sessionName: old.sessionName,
-                sessionStatus: "running",
-                sessionAlive: true,
-                // Freshly restarted: no exit code to carry (the restart
-                // clears it server-side too).
-                sessionExitCode: null,
-                // Freshly restarted: nobody is waiting yet (the next poll
-                // carries the authoritative stamp either way).
-                sessionWaitingSince: null,
-                workingDir: old.workingDir,
-              },
-              { referencePanel: old.id, direction: "within" },
-            );
-          }
-          apiRef.current?.getPanel(old.id)?.api.close();
-          // `removePane` already converged on an already-gone row; a throw
-          // here is a genuine failure, and the one thing it must not do is
-          // leave the closed panel's id in the monotonic known set — the
-          // row still exists, so forget the id and let the reconciliation
-          // effect re-attach it on the next poll.
-          try {
-            await removePane(old.id);
-          } catch (err) {
-            knownPaneIdsRef.current.delete(old.id);
-            throw err;
-          }
-        }
+        await restartSession(sessionId);
         onRefetch();
       } catch (err) {
         setError(errMessage(err, "Restart failed"));
       }
     },
-    [detail.panes, addPanel, addPane, removePane, restartSession, onRefetch],
+    [restartSession, onRefetch],
   );
 
   const handleRemovePane = useCallback(

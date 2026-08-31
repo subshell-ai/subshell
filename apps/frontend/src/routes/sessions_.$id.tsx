@@ -145,15 +145,17 @@ function SessionPage() {
       />
 
       <div className="relative flex-1 overflow-hidden bg-terminal-strip p-0">
-        {/* Keyed by aliveness: a restart (or crash) flipping `alive` rebuilds a
-            FRESH terminal. The id survives an in-place restart, so without the
-            aliveness suffix the exited panel would never give way to the live
-            pane — the WS hook inside stops retrying once a dead row rejects the
-            attach (4xxx). The restart POST returns after the pane spawns, so
-            the fresh hook attaches to a live pane; switcher navigation (new id)
-            still rebuilds because the id itself is in the key. */}
+        {/* Keyed by the row's startedAt, not aliveness: a restart mints a NEW
+            startedAt (reviveRow stamps it), so exactly one remount lands on
+            every birth — including a LIVE restart, where the client never sees
+            `alive:false` (the POST returns after the pane is already respawned)
+            and an aliveness key would leave the socket wedged on the transient
+            4004 it hits during the kill→respawn gap. `startedAt ?? "loading"`
+            is stable across the initial load→loaded transition for a crash
+            (reconcile never clears startedAt), so a crash shows the dead panel
+            without remounting, and the auto-restart that follows re-keys it. */}
         <SessionTerminal
-          key={`${id}:${session?.alive === false ? "down" : "up"}`}
+          key={`${id}:${session?.startedAt ?? "loading"}`}
           sessionId={id}
           session={session}
           onReady={handleTerminalReady}

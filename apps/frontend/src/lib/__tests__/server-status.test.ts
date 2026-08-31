@@ -1,13 +1,43 @@
 import { describe, expect, it } from "bun:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { NetworkError } from "@/lib/api";
-import { createServerStatusStore } from "@/lib/server-status";
+import { ApiError, NetworkError } from "@/lib/api";
+import { createServerStatusStore, queryIndicatesOffline } from "@/lib/server-status";
 
 async function settle(qc: QueryClient) {
   // Let queued cache events flush through the store's subscriber.
   await new Promise((r) => setTimeout(r, 0));
   await qc.cancelQueries();
 }
+
+const net = new NetworkError(new TypeError("down"));
+
+describe("queryIndicatesOffline", () => {
+  const q = (over: Record<string, unknown>, active = true) =>
+    queryIndicatesOffline({
+      isActive: () => active,
+      state: { status: "success", error: null, fetchFailureReason: null, ...over },
+    });
+
+  // THE outage signal the retry loop actually produces (regression, review #6):
+  // status stays success/pending with only fetchFailureReason set — the old
+  // `status === "error"` predicate never fired during the loop.
+  it("is true on a mid-retry network failure (status not yet error)", () => {
+    expect(q({ status: "pending", fetchFailureReason: net })).toBe(true);
+    expect(q({ status: "success", fetchFailureReason: net })).toBe(true);
+  });
+  it("is true on an exhausted network error", () => {
+    expect(q({ status: "error", error: net, fetchFailureReason: net })).toBe(true);
+  });
+  it("is false on a healthy query and on an HTTP (answered) failure", () => {
+    expect(q({})).toBe(false);
+    expect(
+      q({ status: "error", error: new ApiError(404, "gone"), fetchFailureReason: new ApiError(404, "gone") }),
+    ).toBe(false);
+  });
+  it("is false for an inactive query, however it failed", () => {
+    expect(q({ status: "error", error: net, fetchFailureReason: net }, false)).toBe(false);
+  });
+});
 
 describe("createServerStatusStore", () => {
   it("goes offline when an ACTIVE query is stuck on NetworkError, online when it recovers", async () => {

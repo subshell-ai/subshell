@@ -6,10 +6,10 @@ const net = new NetworkError(new TypeError("Failed to fetch"));
 const http404 = new ApiError(404, "gone");
 
 describe("queryRetry", () => {
-  it("retries network errors up to the cap (~60 attempts ride out a long outage)", () => {
+  it("retries network errors UNBOUNDED (so a long outage self-heals, never sticks)", () => {
     expect(queryRetry(0, net)).toBe(true);
-    expect(queryRetry(59, net)).toBe(true);
-    expect(queryRetry(60, net)).toBe(false);
+    expect(queryRetry(60, net)).toBe(true);
+    expect(queryRetry(10_000, net)).toBe(true); // no cap — recovery must not need a reload
   });
   it("HTTP errors keep failing fast: exactly one retry, as before", () => {
     expect(queryRetry(0, http404)).toBe(true);

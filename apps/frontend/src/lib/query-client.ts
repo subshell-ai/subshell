@@ -1,18 +1,17 @@
 import { QueryClient } from "@tanstack/react-query";
 import { isNetworkError } from "@/lib/api";
 
-/** Cap on network-error retries: ~60 capped-backoff attempts ride out a
- * ~15-minute outage; past that the operator needs more than a retry loop. */
-const NETWORK_RETRY_MAX = 60;
-
 /**
- * Query retry rule: a DOWN server (`NetworkError`) retries until the cap so
- * every screen self-heals when the server returns — no manual "Try again".
- * An HTTP answer (the server is up and said no) keeps the historical
- * single-retry behavior so auth failures and 404s still surface fast.
+ * Query retry rule: a DOWN server (`NetworkError`) retries UNBOUNDED so every
+ * screen self-heals the moment the server returns — no manual "Try again", and
+ * (deliberately) no final "error" state to get stuck in after a long outage.
+ * The `OfflineBanner` explains the wait; the capped backoff below keeps it to
+ * ≤1 attempt / 15 s. An HTTP answer (the server is up and said no) keeps the
+ * historical single-retry behavior so auth failures and 404s surface fast —
+ * those still reach a real error state and are NOT retried forever.
  */
-export function queryRetry(failureCount: number, err: unknown): boolean {
-  return isNetworkError(err) ? failureCount < NETWORK_RETRY_MAX : failureCount < 1;
+export function queryRetry(_failureCount: number, err: unknown): boolean {
+  return isNetworkError(err) ? true : _failureCount < 1;
 }
 
 /** Exponential backoff capped at 15 s while the server is unreachable;

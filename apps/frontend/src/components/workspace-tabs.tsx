@@ -120,22 +120,15 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
   }
 
   /**
-   * Restarts an exited/terminated session and repoints this pane's tab at
-   * the replacement, exactly as `WorkspaceDock`'s equivalent does for a
-   * tile: create the new session, attach a new pane for it, then drop the
-   * old pane once the new one exists server-side.
+   * Restarts an exited/terminated session IN PLACE. Same id → the pane row
+   * already references it, so unlike the old clone flow there is no
+   * replacement pane to add and no old one to drop (that would duplicate the
+   * tab). Just restart and refetch; the poll flips the tab back to running and
+   * its pane remounts the terminal. (regression #13)
    */
   async function handleRestart(sessionId: string) {
     try {
-      const created = await restartSession(sessionId);
-      const newPane = await addPane(created.id);
-      const old = detail.panes.find((p) => p.sessionId === sessionId);
-      if (old) {
-        // `removePane` converges on an already-gone row and throws on a
-        // genuine failure, which must still fail the restart.
-        await removePane(old.id);
-      }
-      setSelectedId(newPane.id);
+      await restartSession(sessionId);
       onRefetch();
     } catch (err) {
       setError(errMessage(err, "Restart failed"));

@@ -23,11 +23,12 @@ export function useWorkspacePaneMutations(workspaceId: string) {
   );
 
   /**
-   * Restarts a session's process. Deliberately does NOT touch panes: the
-   * caller adds the replacement pane first (so a mid-sequence failure never
-   * vanishes the old pane with nothing to replace it) and then drops the
-   * old pane with {@link removePane}.
-   * @returns The freshly created session
+   * Restarts a session's process IN PLACE (same id). Deliberately does NOT
+   * touch panes: because the id survives, the existing workspace_panes row
+   * already references the revived session — the caller just refetches. (There
+   * is no replacement pane to add and no old pane to drop; doing the old
+   * clone-era swap now yields a duplicate pane for one session.)
+   * @returns The restarted session — id === sessionId
    */
   const restartSession = useCallback(
     (sessionId: string) => apiFetch<{ id: string }>(`/api/sessions/${sessionId}/restart`, { method: "POST" }),

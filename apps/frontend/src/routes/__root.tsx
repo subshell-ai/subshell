@@ -5,8 +5,9 @@ import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useIsWide } from "@/hooks/use-is-wide";
+import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
-import { apiFetch, isNetworkError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
 import { queryClient } from "@/lib/query-client";
 
@@ -56,7 +57,8 @@ function RootComponent() {
 function Shell() {
   const wide = useIsWide();
   const insets = useVisualViewportInsets();
-  const { data: user, isLoading, error: userError } = useCurrentUser();
+  const { data: user, isLoading } = useCurrentUser();
+  const offline = useServerOffline();
   const location = useLocation();
   // Pre-auth pages own the whole frame: no sidebar, no drawer bar.
   const bare = location.pathname === "/login" || location.pathname === "/setup";
@@ -74,12 +76,16 @@ function Shell() {
   const needsSetup = setupStatus?.needsSetup;
 
   // Hold first paint until the session (and, when signed out, the setup
-  // state) is known — chrome must not flash and the guard must not race.
-  if (isLoading) return null;
-  // A server outage is not a sign-out: while the session query itself is in
-  // the network-retry loop, hold the frame (the OfflineBanner explains)
-  // instead of bouncing to /login against an unreachable endpoint.
-  if (!user && !isNetworkError(userError)) {
+  // state) is known — chrome must not flash and the guard must not race. But
+  // a DOWN server must never be a ~15-min blank screen: the session query now
+  // retries unbounded (stays isLoading), so once the store reports offline we
+  // paint the (fixed, standalone) notice instead of nothing. (regression #7)
+  if (isLoading) return offline ? <OfflineBanner /> : null;
+  // A server outage is not a sign-out: while offline, hold the frame (the
+  // banner explains) instead of bouncing to /login against an unreachable
+  // endpoint. Recovery is automatic — the unbounded retry refetches and the
+  // user resolves without a reload. (regression #8)
+  if (!user && !offline) {
     if (setupLoading && !bare) return null;
     if (needsSetup && location.pathname !== "/setup") return <Navigate to="/setup" />;
     if (needsSetup === false && !bare) {

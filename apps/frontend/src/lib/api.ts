@@ -49,6 +49,16 @@ export function isNetworkError(err: unknown): boolean {
 }
 
 /**
+ * A deliberately aborted request (AbortController), NOT a failure. It looks
+ * like a fetch rejection, so `apiFetch` must NOT launder it into a
+ * {@link NetworkError} — callers that cancel superseded requests (the debounced
+ * workspace-layout save) branch on this to stay quiet.
+ */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
+/**
  * Splits a failed response body into the display message and the structured
  * fields. Every backend failure now carries `{errId, code, message, statusCode}`;
  * anything that is not that shape (a proxy error page, an older body) falls

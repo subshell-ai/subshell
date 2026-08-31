@@ -27,12 +27,16 @@ function WorkspaceDetailPage() {
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
-  // "Not found" must be the server's ANSWER (404), never the absence of one:
-  // during an outage (NetworkError) or any other first-load failure the query
-  // layer retries on its own (query-client.ts), so hold the loading state and
-  // let it heal instead of declaring the workspace deleted.
-  const failedWithoutAnswer = !detail && !(error instanceof ApiError && error.status === 404);
-  if (isLoading || failedWithoutAnswer) {
+  // Three "no detail" truths, kept apart (regression #9):
+  //  - 404  → the server's own word: "deleted" (only a real 404 says this)
+  //  - other ANSWERED error (401/403/500) → a genuine failure to show, NOT a
+  //    perpetual "Loading…" (these fail fast, so nothing else would clear them)
+  //  - NO answer (NetworkError / in-flight) → hold "Loading…": the query layer
+  //    retries unbounded AND `useWorkspace` polls every 5s, so it self-heals
+  //    when the server returns — declaring it deleted would be a lie.
+  const notFound = !detail && error instanceof ApiError && error.status === 404;
+  const answeredError = !detail && error instanceof ApiError && error.status !== 404;
+  if (isLoading || (!detail && !notFound && !answeredError)) {
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
         <p className="text-muted-foreground text-sm">Loading…</p>
@@ -40,17 +44,34 @@ function WorkspaceDetailPage() {
     );
   }
 
-  // Deliberately keyed on `!detail`, not `isError`: `useWorkspace` polls
-  // every 5s, and react-query keeps the last-good `data` around when a
-  // background refetch fails (a backend restart, say) — `isError` would go
-  // true in that case even though `detail` is still perfectly usable. Only
-  // a genuine failure on the very first load leaves `detail` undefined, so
-  // that's the only case this card should show; anything else falling back
-  // to this card would unmount the dock/tabs underneath, tearing down every
-  // pane's terminal for a transient network blip instead of a real 404.
+  if (answeredError) {
+    // Keyed on `!detail`: a background refetch failure keeps the last-good
+    // detail, so this card is only for a first load the server answered badly.
+    return (
+      <main className="mx-auto w-full max-w-2xl p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Couldn&apos;t load this workspace</CardTitle>
+            <CardDescription>
+              {error instanceof ApiError ? error.message : "The server returned an error."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex gap-2">
+            <Button variant="outline" onClick={() => void refetch()}>
+              Try again
+            </Button>
+            <Button variant="ghost" render={<Link to="/workspaces">Back to workspaces</Link>} />
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  // `!detail` (narrows for the render below) — and only a real 404 can land
+  // here: every no-answer case took the loading branch and every other
+  // answered error took the card above, so "deleted" is the server's own word,
+  // never an outage or a 500.
   if (!detail) {
-    // Only a real 404 can land here: every no-answer case took the loading
-    // branch above, so "deleted" is the server's own word, never an outage.
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
         <Card>
