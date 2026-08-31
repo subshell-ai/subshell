@@ -110,6 +110,16 @@ export class SessionsService extends BaseService {
   }
 
   /**
+   * Waiting/running counts for the native app's tab badge and push payloads
+   * (same rows the list reconciles would show; counts come straight from the
+   * table — badge correctness beats view reconciliation cost here).
+   * @param userId - Owner whose sessions are counted
+   */
+  async summarySessions(userId: string): Promise<{ total: number; running: number; waiting: number }> {
+    return await this.repos.sessions.countsByUser(userId);
+  }
+
+  /**
    * Gets a single session view for the user.
    * @throws SessionError 404 when absent or owned by someone else.
    */

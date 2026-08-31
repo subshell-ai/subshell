@@ -37,6 +37,31 @@ export class SessionsRepository extends BaseRepository {
     return query.execute();
   }
 
+  /**
+   * Badge/summary counts for one owner (spec §Backend diff). `waiting` is the
+   * ratified formula: status='running' AND alive=1 AND waiting_since IS NOT
+   * NULL; `running` counts alive rows only. Plain row-scan, not SQL
+   * aggregates: per-user session lists are small on a local instance, and
+   * keeping the predicate in one readable place beats three COUNT subqueries.
+   * @param userId - Owner whose sessions are counted
+   * @returns `{ total, running, waiting }`
+   */
+  async countsByUser(userId: string): Promise<{ total: number; running: number; waiting: number }> {
+    const rows = await this.db
+      .selectFrom("sessions")
+      .select(["status", "alive", "waitingSince"])
+      .where("userId", "=", userId)
+      .execute();
+    let running = 0;
+    let waiting = 0;
+    for (const r of rows) {
+      const alive = r.status === "running" && r.alive === 1;
+      if (alive) running += 1;
+      if (alive && r.waitingSince != null) waiting += 1;
+    }
+    return { total: rows.length, running, waiting };
+  }
+
   async update(id: string, update: SessionUpdate): Promise<SessionTable | undefined> {
     await this.db.updateTable("sessions").set(update).where("id", "=", id).execute();
     return this.findById(id);
