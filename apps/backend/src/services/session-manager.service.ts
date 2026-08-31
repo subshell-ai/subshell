@@ -357,10 +357,19 @@ export class SessionManagerService {
     }
   }
 
+  /**
+   * Maps already-fetched rows to client views (reconciled preview per row).
+   * Exposed so a caller that resolved its OWN row set — e.g. the sharing-aware
+   * visible list — can reuse the exact same preview/`#` capture path. Views
+   * come back in the same order as `rows`, and default to `access: "owner"`.
+   */
+  toViews(rows: SessionTable[]): ReturnType<typeof toSessionView>[] {
+    return rows.map((row) => toSessionView(row, row.status, this.#preview(row)));
+  }
+
   /** Lists sessions for a user, reconciling liveness against tmux. */
   async listSessions(userId: string): Promise<ReturnType<typeof toSessionView>[]> {
-    const rows = await this.#sessions.listByUser(userId);
-    return rows.map((row) => toSessionView(row, row.status, this.#preview(row)));
+    return this.toViews(await this.#sessions.listByUser(userId));
   }
 
   /** Gets a single session view for a user (reconciled). */

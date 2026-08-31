@@ -1,6 +1,31 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NewSession, SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
 
+/** The three fields {@link summarizeSessions} reads off a session row. */
+type SummarizableSession = Pick<SessionTable, "status" | "alive" | "waitingSince">;
+
+/**
+ * The badge counts derived from a set of session rows: `waiting` is the
+ * ratified formula (status='running' AND alive=1 AND waiting_since IS NOT
+ * NULL); `running` counts alive rows only. Plain row-scan, not SQL aggregates:
+ * per-user session lists are small on a local instance, and keeping the
+ * predicate in one readable place beats three COUNT subqueries.
+ *
+ * Exported so both the owner-only {@link SessionsRepository.countsByUser} and
+ * the sharing-aware visible summary reduce over the SAME formula (single source
+ * of truth — they must never drift).
+ */
+export function summarizeSessions(rows: SummarizableSession[]): { total: number; running: number; waiting: number } {
+  let running = 0;
+  let waiting = 0;
+  for (const r of rows) {
+    const alive = r.status === "running" && r.alive === 1;
+    if (alive) running += 1;
+    if (alive && r.waitingSince != null) waiting += 1;
+  }
+  return { total: rows.length, running, waiting };
+}
+
 /**
  * Repository for agent sessions.
  * DB rows are a record of intent; liveness comes from the tmux runner.
@@ -38,11 +63,42 @@ export class SessionsRepository extends BaseRepository {
   }
 
   /**
-   * Badge/summary counts for one owner (spec §Backend diff). `waiting` is the
-   * ratified formula: status='running' AND alive=1 AND waiting_since IS NOT
-   * NULL; `running` counts alive rows only. Plain row-scan, not SQL
-   * aggregates: per-user session lists are small on a local instance, and
-   * keeping the predicate in one readable place beats three COUNT subqueries.
+   * Sessions a viewer may SEE (spec 2026-08-31 §4.3): their own, plus any
+   * shared with Everyone (a `session_shares` row with a NULL grantee) or named
+   * directly, newest first. An admin sees every session. A private foreign
+   * session never appears — the whole list reads as "no such session", so a
+   * stranger cannot probe which ids exist.
+   *
+   * This is the WHERE-clause half of visibility; the resolver
+   * (`lib/session-access`) is the access-level half. Both key off the same
+   * `granteeUserId IS NULL OR = viewer` rule.
+   */
+  async listVisibleTo(viewerId: string, isAdmin: boolean, status?: SessionTable["status"]): Promise<SessionTable[]> {
+    let query = this.db.selectFrom("sessions");
+    if (!isAdmin) {
+      query = query.where((eb) =>
+        eb.or([
+          eb("sessions.userId", "=", viewerId),
+          eb.exists(
+            eb
+              .selectFrom("sessionShares")
+              .whereRef("sessionShares.sessionId", "=", "sessions.id")
+              .where((e) =>
+                e.or([e("sessionShares.granteeUserId", "is", null), e("sessionShares.granteeUserId", "=", viewerId)]),
+              )
+              .select("sessionShares.sessionId"),
+          ),
+        ]),
+      );
+    }
+    query = query.orderBy("createdAt", "desc");
+    if (status) query = query.where("status", "=", status);
+    return query.selectAll().execute();
+  }
+
+  /**
+   * Badge/summary counts for one owner (spec §Backend diff), via
+   * {@link summarizeSessions}.
    * @param userId - Owner whose sessions are counted
    * @returns `{ total, running, waiting }`
    */
@@ -52,14 +108,24 @@ export class SessionsRepository extends BaseRepository {
       .select(["status", "alive", "waitingSince"])
       .where("userId", "=", userId)
       .execute();
-    let running = 0;
-    let waiting = 0;
-    for (const r of rows) {
-      const alive = r.status === "running" && r.alive === 1;
-      if (alive) running += 1;
-      if (alive && r.waitingSince != null) waiting += 1;
-    }
-    return { total: rows.length, running, waiting };
+    return summarizeSessions(rows);
+  }
+
+  /**
+   * Badge counts over everything a viewer can SEE (own + shared; all for an
+   * admin) — the same visible set {@link listVisibleTo} returns, reduced with
+   * the shared {@link summarizeSessions} formula. Selects only the three needed
+   * columns.
+   */
+  async countsVisibleTo(
+    viewerId: string,
+    isAdmin: boolean,
+  ): Promise<{ total: number; running: number; waiting: number }> {
+    // Delegates to listVisibleTo so there is exactly ONE definition of
+    // "what a viewer can see" — counts and list can never disagree about the
+    // set. Per-user lists are small, so fetching full rows here is cheap and
+    // worth the single-source-of-truth.
+    return summarizeSessions(await this.listVisibleTo(viewerId, isAdmin));
   }
 
   async update(id: string, update: SessionUpdate): Promise<SessionTable | undefined> {

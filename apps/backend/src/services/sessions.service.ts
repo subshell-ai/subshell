@@ -1,6 +1,7 @@
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
+import { type Access, resolveSessionAccess } from "@/lib/session-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSessionLogTail, SessionManagerService } from "@/services/session-manager.service.js";
@@ -108,19 +109,41 @@ export class SessionsService extends BaseService {
     return { id: created.id, tmuxSocket: created.tmuxSocket, promptDelivered: created.promptDelivered };
   }
 
-  /** Lists the user's sessions (manager-reconciled views). */
-  async listSessions(userId: string): Promise<SessionView[]> {
-    return await this.#manager.listSessions(userId);
+  /**
+   * Lists every session the caller can SEE — their own plus those shared with
+   * Everyone or with them by name (all for an admin) — as manager-reconciled
+   * views carrying the caller's viewer-relative `access`. A private foreign
+   * session is simply absent, never a 403.
+   * @param viewerId - The signed-in user (resolved from cookie or session key)
+   */
+  async listSessions(viewerId: string): Promise<SessionView[]> {
+    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
+    const rows = await this.repos.sessions.listVisibleTo(viewerId, isAdmin);
+    const sharesBy = await this.repos.sessionShares.listForSessions(rows.map((r) => r.id));
+    // Resolve access per row (needs the owner id, which the view doesn't carry),
+    // keyed by id so the view mapping stays a plain lookup. A visible row always
+    // resolves to view/edit/owner; "none" is impossible here but the type
+    // carries it, so the fallback names the weakest real access.
+    const accessBy = new Map<string, Exclude<Access, "none">>();
+    for (const row of rows) {
+      const access = resolveSessionAccess(viewerId, isAdmin, row.userId, sharesBy.get(row.id) ?? []);
+      accessBy.set(row.id, access === "none" ? "view" : access);
+    }
+    return this.#manager.toViews(rows).map((view) => ({
+      ...view,
+      access: accessBy.get(view.id) ?? ("view" as const),
+    }));
   }
 
   /**
-   * Waiting/running counts for the native app's tab badge and push payloads
-   * (same rows the list reconciles would show; counts come straight from the
-   * table — badge correctness beats view reconciliation cost here).
-   * @param userId - Owner whose sessions are counted
+   * Waiting/running counts over the visible set (own + shared; all for an
+   * admin) — the same sessions {@link listSessions} returns, reduced to the
+   * badge numbers for the native tab and push payloads.
+   * @param viewerId - The signed-in user whose visible set to count
    */
-  async summarySessions(userId: string): Promise<{ total: number; running: number; waiting: number }> {
-    return await this.repos.sessions.countsByUser(userId);
+  async summarySessions(viewerId: string): Promise<{ total: number; running: number; waiting: number }> {
+    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
+    return await this.repos.sessions.countsVisibleTo(viewerId, isAdmin);
   }
 
   /**
