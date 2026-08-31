@@ -8,7 +8,7 @@ import type { SessionView } from "@/types/session";
 export interface SessionMutations {
   /** Asks, then terminates the session's process */
   terminate: () => Promise<void>;
-  /** Restarts as a new row, continuing the conversation where it can */
+  /** Revives the session in place (same id): new process, conversation resumed where it can */
   restart: () => void;
   /** Asks, then deletes the session and its log */
   remove: () => Promise<void>;
@@ -28,18 +28,18 @@ export interface SessionMutations {
  * The single implementation of the session lifecycle actions, shared by
  * `SessionActionsMenu` (cards, rows, the detail header) and the terminal's
  * exited-state panel. It owns the endpoints, the delete confirmation, and
- * the cache refresh; callers only decide what a restart or a delete *means*
- * where they are — a refreshed grid, or navigation — through the callbacks.
+ * the cache refresh; callers only decide what a delete *means* where they
+ * are — leave the page, or stay put — through the callbacks. A restart is
+ * in-place (same id): every surface just sees the refreshed row.
  * @param id - The session to act on
  * @param session - The loaded session, used for the delete prompt; actions
  *                  fired before it loads are ignored
- * @param onRestarted - Called with the new session's id after a restart
  * @param onDeleted - Called once the session is gone
  */
 export function useSessionMutations(
   id: string,
   session: SessionView | undefined,
-  { onRestarted, onDeleted }: { onRestarted?: (newId: string) => void; onDeleted?: () => void } = {},
+  { onDeleted }: { onDeleted?: () => void } = {},
 ): SessionMutations {
   const queryClient = useQueryClient();
 
@@ -55,10 +55,8 @@ export function useSessionMutations(
   });
   const restart = useMutation({
     mutationFn: () => apiFetch<{ id: string }>(`/api/sessions/${id}/restart`, { method: "POST" }),
-    onSuccess: (created) => {
-      refresh();
-      onRestarted?.(created.id);
-    },
+    // Revival keeps the id: the refreshed queries ARE the whole sync story.
+    onSuccess: refresh,
   });
   const remove = useMutation({
     mutationFn: () => apiFetch<{ ok: boolean }>(`/api/sessions/${id}`, { method: "DELETE" }),
@@ -108,8 +106,8 @@ export function useSessionMutations(
   }
 
   // Terminate and delete are destructive and always ask. Restart does not:
-  // it creates a new session and resumes the conversation — nothing is lost
-  // by clicking it.
+  // it revives the same session and resumes the conversation — nothing is
+  // lost by clicking it.
   return {
     terminate: () => askThen(confirmTerminateSession, terminate),
     restart: runNow(restart),

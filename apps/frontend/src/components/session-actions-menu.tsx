@@ -29,18 +29,11 @@ import type { SessionView } from "@/types/session";
 export function SessionActionsMenu({
   session,
   disabled,
-  onRestarted,
   onDeleted,
 }: {
   session: SessionView;
   /** Disables the trigger, e.g. while a bulk action is running over this row. */
   disabled?: boolean;
-  /**
-   * Called with the new session's id after a restart. The list surfaces
-   * ignore the fresh session (the refreshed grid shows it), but the detail
-   * page uses it to follow the user to the session they just created.
-   */
-  onRestarted?: (newId: string) => void;
   /** Called after the session is deleted, e.g. to leave a now-dead detail page. */
   onDeleted?: () => void;
 }): JSX.Element {
@@ -48,7 +41,6 @@ export function SessionActionsMenu({
   const navigate = useNavigate();
   const { data: profiles } = useProfiles();
   const { terminate, restart, remove, toggleTitleLock, toggleNotify, busy } = useSessionMutations(session.id, session, {
-    onRestarted,
     onDeleted,
   });
   // A session's profile is fixed at creation, so editing it + starting again

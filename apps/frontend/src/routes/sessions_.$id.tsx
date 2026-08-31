@@ -49,10 +49,9 @@ function SessionPage() {
   }
   // This page's half of the shared `useSessionMutations` implementation —
   // it drives the terminal's exited panel. The header menu uses its own
-  // instance of the same hook. A restart follows the user to the fresh
-  // session; a delete leaves the now-dead page.
+  // instance of the same hook. A restart revives the same row (the terminal
+  // re-mounts via the aliveness key below); a delete leaves the dead page.
   const { restart, remove, restarting, deleting } = useSessionMutations(id, session, {
-    onRestarted: (newId) => void navigate({ to: "/sessions/$id", params: { id: newId } }),
     onDeleted: () => void navigate({ to: "/" }),
   });
   // Once the harness is dead, its pane-log tail is what explains the exit —
@@ -130,7 +129,6 @@ function SessionPage() {
               <SessionActionsMenu
                 session={session}
                 disabled={restarting || deleting}
-                onRestarted={(newId) => void navigate({ to: "/sessions/$id", params: { id: newId } })}
                 onDeleted={() => void navigate({ to: "/" })}
               />
             )}
@@ -147,11 +145,15 @@ function SessionPage() {
       />
 
       <div className="relative flex-1 overflow-hidden bg-terminal-strip p-0">
-        {/* Keyed so restart / switcher navigation (same route, new id) builds
-            a FRESH terminal: an unmounted component would carry the previous
-            session's attach-rejection state into the new page and blank it. */}
+        {/* Keyed by aliveness: a restart (or crash) flipping `alive` rebuilds a
+            FRESH terminal. The id survives an in-place restart, so without the
+            aliveness suffix the exited panel would never give way to the live
+            pane — the WS hook inside stops retrying once a dead row rejects the
+            attach (4xxx). The restart POST returns after the pane spawns, so
+            the fresh hook attaches to a live pane; switcher navigation (new id)
+            still rebuilds because the id itself is in the key. */}
         <SessionTerminal
-          key={id}
+          key={`${id}:${session?.alive === false ? "down" : "up"}`}
           sessionId={id}
           session={session}
           onReady={handleTerminalReady}
