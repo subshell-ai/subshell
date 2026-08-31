@@ -58,6 +58,22 @@ cleanly** — so no `versionGroups` carve-out was needed. If a future SDK bump
 breaks that, add the exemption in `syncpack.config.js`; do not loosen the
 exact-pin rule.
 
+`npx expo install --check` will keep reporting `react` and `typescript` as
+"outdated". That is expected and currently harmless — both are JS-side, and the
+native build works at the repo's pins. Don't "fix" them by guessing; the real
+constraint is the one below.
+
+**⚠️ Never let a `*` peer resolve freely.** `expo-router` declares
+`react-native-reanimated: "*"`, so bun installed reanimated 4.6.0, which needs
+`react-native-worklets@0.12.x` — and 0.12 removed
+`WorkletRuntime::executeSync`, which `expo-modules-core@57.0.14` still calls
+(its peer range is `^0.7.4 || … || ^0.10.0`). The Android build died in C++:
+`error: no member named 'executeSync' in 'worklets::WorkletRuntime'`. The fix is
+to pin both through Expo's resolver, and they are explicit dependencies now:
+`react-native-reanimated@4.5.1` + `react-native-worklets@0.10.1`. After changing
+either, delete the stale native caches or the old include path is reused:
+`find node_modules/.bun -type d -name .cxx -path '*expo-modules-core*' -exec rm -rf {} +`.
+
 **TypeScript extends `@internal/tsconfig`, not `expo/tsconfig.base`.** Repo
 consistency won; the few RN-specific options (`jsx`, `lib`, `types`) are set
 inline in `tsconfig.json`.
@@ -92,10 +108,41 @@ anywhere in this repo.
 
 ## Verifying on Android
 
-Two AVDs exist on the dev host: `mote_phone` (Pixel 9) and `mote_tablet`
-(medium tablet — the wide shell only appears here and on iPad landscape).
-Headless: `emulator -avd mote_tablet -no-window -gpu swiftshader_indirect
--no-audio -no-boot-anim`.
+**Use the `*_34` AVDs: `mote_tablet34` (1280×800dp — the only place the wide
+shell appears besides iPad landscape) and `mote_phone34` (Pixel 9).** The API 37
+image (rev 6) is unusable headless: surfaceflinger aborts in a loop with
+`Assertion failed: !rcEnc->featureInfo()->hasReadColorBufferDma…` in
+`RegionSamplingThread`, taking system_server and the launcher with it — an
+upstream emulator bug in host colour-buffer readback, hit with both
+`swiftshader_indirect` and `swangle`. API 34 is rev 14 and boots clean in ~12s
+with zero errors.
+
+```bash
+emulator -avd mote_tablet34 -no-window -no-audio -no-boot-anim \
+  -gpu swiftshader_indirect -memory 4096 -no-snapshot-save &
+adb wait-for-device
+adb reverse tcp:8081 tcp:8081    # the app reaches Metro through this
+```
+
+Health check is functional, not by property: **`init.svc.system_server` is empty
+even when the framework is fine** — use `adb shell pm list packages | grep -c .`
+and `adb logcat -b crash -d | grep -c 'F DEBUG'`.
+
+Because `expo-dev-client` is installed, launching `MainActivity` opens the **dev
+launcher**, not the app: type `http://localhost:8081` into its field and tap
+Connect (dismiss the soft keyboard first, or the tap lands on the keyboard).
+Known open issue: one run got `SIGSEGV (SEGV_ACCERR)` on the `mqt_v_js` thread
+immediately after `Running "main" … "fabric":true`, i.e. a Hermes/JS-thread crash
+in a debug build, not a graphics one. Unresolved — reproduce on a real device
+before assuming an app bug.
 
 A real device is still required for the things an emulator lies about: soft
 keyboard behaviour, push delivery, badge counts, lock-screen actions.
+
+**Hardware GL on this dev host is not available headless.** `-gpu host` fails
+`Failed to get EGL display` because GLES host mode needs a display-backed
+context; headless Vulkan does reach the RTX 5080, so ANGLE (`-gpu host -angle`)
+is the only route, and software rendering is fine for layout work — it also
+keeps the two RTX PRO 6000s clear for the LLMs. Never bind a second X server to
+the output the desktop is scanning out from: it takes DRM master and the
+compositor keeps running blind.
