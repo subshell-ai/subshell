@@ -10,6 +10,13 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await page.fill("#name", ADMIN.name);
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
+  // A typo in the confirmation must block submit (there is no password reset
+  // until the break-glass hatch; the wizard is the one place that matters).
+  await page.fill("#password-confirm", "typo-does-not-match");
+  await page.locator("#password-confirm").blur();
+  await expect(page.getByText("Passwords do not match")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create admin account" })).toBeDisabled();
+  await page.fill("#password-confirm", ADMIN.password);
   await page.getByRole("button", { name: "Create admin account" }).click();
 
   // Step 2/2 — Harness management. There is no profile step any more:

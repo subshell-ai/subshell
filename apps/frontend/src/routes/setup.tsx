@@ -30,6 +30,8 @@ function SetupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmTouched, setConfirmTouched] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -123,8 +125,24 @@ function SetupPage() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="password-confirm">Confirm password</Label>
+                <Input
+                  id="password-confirm"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onBlur={() => setConfirmTouched(true)}
+                />
+                {confirmTouched && confirmPassword !== password && (
+                  <p className="text-destructive text-sm">Passwords do not match</p>
+                )}
+              </div>
               {regError && <p className="text-destructive text-sm">{regError}</p>}
-              <Button type="submit" className="w-full" disabled={busy}>
+              <Button type="submit" className="w-full" disabled={busy || confirmPassword !== password}>
                 {busy ? "Creating account…" : "Create admin account"}
               </Button>
             </form>
