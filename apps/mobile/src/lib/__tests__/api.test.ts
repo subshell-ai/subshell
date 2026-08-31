@@ -213,3 +213,38 @@ describe("MoteClient session verbs", () => {
     });
   }
 });
+
+describe("MoteClient new-session surface", () => {
+  it("profiles() GETs /api/profiles", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify([])));
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    await client.profiles();
+    expect(calls[0]?.url).toBe(`${BASE}/api/profiles`);
+    expect(calls[0]?.init.method).toBeUndefined();
+  });
+
+  it("filesExplore encodes the path query", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ path: "/a b", parent: "/", entries: [], recent: [], favorites: [] })),
+    );
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const res = await client.filesExplore("/a b");
+    expect(calls[0]?.url).toBe(`${BASE}/api/files/explore?path=%2Fa%20b`);
+    expect(res.path).toBe("/a b");
+  });
+
+  it("createSession POSTs the exact body and returns the new id", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: true })),
+    );
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const res = await client.createSession({ profileId: "p1", workingDir: "/w", prompt: "hi" });
+    expect(calls[0]?.url).toBe(`${BASE}/api/sessions`);
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", prompt: "hi" }));
+    expect(res.id).toBe("new-1");
+  });
+});

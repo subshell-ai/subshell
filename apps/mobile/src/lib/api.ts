@@ -1,5 +1,6 @@
 import { ApiError, parseErrorBody } from "@/lib/api-error";
 import { cookieHeader, tokenFromSetCookie } from "@/lib/cookie";
+import type { ExploreResult, ProfileView } from "@/types/profile";
 import type { SessionLogTail, SessionSummary, SessionView, SignInResponse, WsTokenResponse } from "@/types/session";
 
 /**
@@ -224,6 +225,38 @@ export class MoteClient {
   /** Removes the row. Terminal. @param id - Session id */
   deleteSession(id: string): Promise<unknown> {
     return this.request(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /**
+   * The signed-in user's usable profiles (new-session picker; disabled
+   * harnesses are already filtered out server-side).
+   */
+  profiles(): Promise<ProfileView[]> {
+    return this.request<ProfileView[]>("/api/profiles");
+  }
+
+  /**
+   * One level of the host filesystem for the folder sheet (cookie-only route —
+   * the app is a cookie actor, which is exactly what unlocks it).
+   * @param path - Directory to list; omitted = the server's home.
+   */
+  filesExplore(path?: string): Promise<ExploreResult> {
+    const q = path ? `?path=${encodeURIComponent(path)}` : "";
+    return this.request<ExploreResult>(`/api/files/explore${q}`);
+  }
+
+  /**
+   * Creates and launches a session (spec §Screens New session).
+   * @param input - profileId + workingDir, optional name and first prompt
+   * @returns The new session id (the pane may still be settling)
+   */
+  createSession(input: {
+    profileId: string;
+    workingDir: string;
+    name?: string;
+    prompt?: string;
+  }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
+    return this.request("/api/sessions", { method: "POST", body: JSON.stringify(input) });
   }
 
   /**
