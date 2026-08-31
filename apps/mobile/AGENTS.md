@@ -193,6 +193,17 @@ account's password to get test credentials.
 A real device is still required for the things an emulator lies about: soft
 keyboard behaviour, push delivery, badge counts, lock-screen actions.
 
+**Push cannot be end-to-end tested from this repo as-is.** A bare
+`expo run:android` dev build carries no `google-services.json` (verified in
+logcat: `Default FirebaseApp failed to initialize … google-services was not
+applied`), so `getExpoPushTokenAsync` throws and `enrollPush` no-ops — no
+token ever reaches the backend, so nothing can ring. Before any push/badge
+device test: `eas login` + `eas init` (writes `projectId`/`owner` to
+`app.json`) + `eas credentials` → download `google-services.json` → set
+`android.googleServicesFile` in `app.json`, then rebuild the dev client.
+The wire format itself was verified against exp.host with fake-token
+probes (typed-field validation is at ticket time; unknown keys tolerated).
+
 **Hardware GL on this dev host is not available headless.** `-gpu host` fails
 `Failed to get EGL display` because GLES host mode needs a display-backed
 context; headless Vulkan does reach the RTX 5080, so ANGLE (`-gpu host -angle`)

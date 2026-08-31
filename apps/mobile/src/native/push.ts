@@ -62,7 +62,12 @@ export async function enrollPush(client: MoteClient): Promise<string | null> {
     await client.enrollDevice(data, Platform.OS === "ios" ? "ios" : "android");
     await AsyncStorage.setItem(PUSH_TOKEN_KEY, data);
     return data;
-  } catch {
+  } catch (err) {
+    // A plain `expo run:android` dev build has no google-services.json, so
+    // getExpoPushTokenAsync throws here ("Default FirebaseApp is not
+    // initialized") — enrollment then silently no-ops on every start.
+    // Deliverable builds get the FCM config from EAS (spec §Infra).
+    console.warn("push enrollment failed (no FCM config in a bare dev build?)", err);
     return null;
   }
 }
