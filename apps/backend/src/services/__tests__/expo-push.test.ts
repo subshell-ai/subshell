@@ -24,6 +24,17 @@ describe("badgeCount", () => {
 });
 
 describe("buildExpoMessages", () => {
+  it("names the registered category/channel so lock-screen actions actually appear", () => {
+    // The app registers category "session" (Open/Silence) and android channel
+    // "mote-sessions" (src/native/push.ts). A remote notification only surfaces
+    // them when the payload names them — APNs `category`, Android `channel_id`
+    // (expo maps `_channelId`). Without these the headline lock-screen Silence
+    // action is inert on real devices.
+    const [m] = buildExpoMessages(["ExponentPushToken[a]"], "sess-1", "needs_attention", 0);
+    expect(m.categoryId).toBe("session");
+    expect(m._channelId).toBe("mote-sessions");
+  });
+
   it("builds one opaque message per token — never a name, path or operator text", () => {
     const msgs = buildExpoMessages(["ExponentPushToken[a]", "ExponentPushToken[b"], "sess-1", "needs_attention", 4);
     expect(msgs).toHaveLength(2);
@@ -34,6 +45,8 @@ describe("buildExpoMessages", () => {
       badge: 4,
       sound: "default",
       threadId: "sess-1",
+      categoryId: "session",
+      _channelId: "mote-sessions",
       data: { sid: "sess-1", kind: "needs_attention", origin: expect.any(String) },
     });
     // The privacy invariant (spec §Push): only token/copy/count/uuid cross the relay.

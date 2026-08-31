@@ -107,6 +107,25 @@ describe("notifySession — device fan-out", () => {
     });
   });
 
+  it("fans out only to the session owner's devices", async () => {
+    // Service-level pin for spec §Testing "owner-only fan-out" — the repository
+    // proves listByUser scoping, but nothing pinned THIS path until now.
+    await seedSession(`${uid}-owneronly`, { notify: true });
+    await enroll(`ExponentPushToken[mine${uid.slice(0, 8)}]`);
+    const otherTok = `ExponentPushToken[other${uid.slice(0, 8)}]`;
+    await new DeviceTokensRepository(db).upsertForUser(crypto.randomUUID(), otherTok, "android");
+    try {
+      const rec = { calls: [] as ExpoPushMessage[][] };
+      const { svc } = services(rec);
+      await svc.notifySession(`${uid}-owneronly`, "turn_complete");
+      const msgs = sentFor(rec, `${uid}-owneronly`);
+      expect(msgs.length).toBeGreaterThan(0); // not a vacuous pass
+      expect(msgs.map((m) => m.to)).not.toContain(otherTok);
+    } finally {
+      await db.deleteFrom("deviceTokens").where("token", "=", otherTok).execute();
+    }
+  });
+
   it("never carries a name, path or operator text to the relay", async () => {
     await seedSession(`${uid}-privacy`, { notify: true });
     const rec = { calls: [] as ExpoPushMessage[][] };

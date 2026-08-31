@@ -26,6 +26,15 @@ export interface ExpoPushMessage {
   sound: "default";
   /** Session id — replaces the session's earlier notification, like web's `tag`. */
   threadId: string;
+  /**
+   * The category the app registers its lock-screen actions under (APns
+   * `category`). Remote notifications only surface a registered category's
+   * actions when the payload names it — omit this and Open/Silence never
+   * appear on the lock screen.
+   */
+  categoryId: string;
+  /** Android channel (expo-relay maps `_channelId` → `channel_id`). */
+  _channelId: string;
   /** Opaque routing data; `sid` is a uuid, `origin` lets the app pick the instance. */
   data: { sid: string; kind: NotifyKind; origin: string };
 }
@@ -87,6 +96,10 @@ export function buildExpoMessages(
     badge,
     sound: "default" as const,
     threadId: sessionId,
+    // Names registered in apps/mobile/src/native/push.ts — keep the three in
+    // sync or the lock-screen actions silently vanish on real devices.
+    categoryId: "session",
+    _channelId: "mote-sessions",
     data: { sid: sessionId, kind, origin: APP_BASE_URL },
   }));
 }
