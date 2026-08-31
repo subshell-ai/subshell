@@ -47,6 +47,18 @@ describe("looksPrivate", () => {
     expect(looksPrivate("172.31.255.255")).toBe(true);
     expect(looksPrivate("172.32.0.1")).toBe(false);
   });
+  it("covers the 100.64/10 CGNAT bounds — NOT all of 100/8", () => {
+    // NetBird/Tailscale hand out 100.64–127.x; anything else in 100/8 is
+    // public (AWS) and must default to https, not cleartext http.
+    expect(looksPrivate("100.64.0.1")).toBe(true);
+    expect(looksPrivate("100.127.255.255")).toBe(true);
+    expect(looksPrivate("100.71.37.94")).toBe(true); // the real NetBird host
+    expect(looksPrivate("100.63.255.1")).toBe(false); // just below /10 → public
+    expect(looksPrivate("100.128.0.1")).toBe(false); // just above /10 → public
+    expect(looksPrivate("100.24.1.5")).toBe(false); // AWS public → https
+    // …and normalizeInstanceOrigin must actually honour that (token safety).
+    expect(normalizeInstanceOrigin("100.24.1.5:3080")).toBe("https://100.24.1.5:3080");
+  });
 });
 
 describe("wsOrigin", () => {

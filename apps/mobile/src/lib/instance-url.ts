@@ -29,7 +29,11 @@ export function looksPrivate(hostname: string): boolean {
   // 172.16.0.0/12 and the 100.64.0.0/10 CGNAT range Tailscale/NetBird hand out.
   const m = /^172\.(\d+)\./.exec(host);
   if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
-  if (/^100\.(\d+)\./.test(host)) return true;
+  // 100.64.0.0/10 ONLY — the second octet is 64–127, not the whole /8. Matching
+  // all of 100.x would default a PUBLIC 100.24.x.x (AWS) to http and ship the
+  // session token in cleartext (regression, review #15).
+  const cg = /^100\.(\d+)\./.exec(host);
+  if (cg && Number(cg[1]) >= 64 && Number(cg[1]) <= 127) return true;
   // Everything else — including a bare public IPv4 — defaults to https. Getting
   // this backwards sends a session token in cleartext over the open internet;
   // guessing https wrong only costs the user typing an explicit `http://`.
