@@ -1,0 +1,345 @@
+import type { JsonValue } from "./json.js";
+
+/**
+ * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
+ *
+ * The transport is a websocket dialed OUT by the agent (`GET /ws/node`,
+ * bearer-authed at upgrade). Commands travel control-plane → agent inside a
+ * signed JWS envelope (see node-signing.ts); events travel agent → control
+ * unsigned — the socket itself is authenticated by the node key, so events
+ * inherit exactly the node key's trust (spec §3.3, §12.6).
+ */
+
+/** Bumped on any breaking frame-shape change; both ends refuse mismatches. */
+export const NODE_PROTOCOL_VERSION = 1;
+
+/**
+ * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
+ * GLOBAL to the server, so each handler enforces this by byte length on
+ * inbound messages rather than relying on server config (spec §7).
+ */
+export const NODE_MAX_FRAME_BYTES = 1_048_576;
+
+/** Strict base64 (the alphabet used by `Buffer.toString("base64")` / `btoa`). */
+const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/**
+ * Structural JSON mirror of `@internal/harnesses`' `ProfileDefinition`.
+ *
+ * Deliberately a copy: session-protocol is bundled by the frontend and must
+ * not pull harnesses (which imports node:fs) at runtime (spec §3.2). The
+ * agent decodes the blob against the real `ProfileDefinition` at launch.
+ */
+export interface ProfileDefinitionWire {
+  /** Human-friendly profile name */
+  name: string;
+  /** Optional longer description */
+  description?: string | null;
+  /** Extra environment variables to set on the session (validated key names) */
+  env: Record<string, string>;
+  /** Extra CLI flags to pass to the harness binary */
+  flags: string[];
+  /** Settings blob passed to the harness (opaque JSON) */
+  settings: Record<string, unknown> | null;
+  /** If true, only this profile's config sources apply (isolation) */
+  configIsolation: boolean;
+  /** If true, new sessions from this profile auto-restart on exit */
+  restartOnExit?: boolean;
+}
+
+/** Resume pin carried on `launch` (mirrors BuildCommandInput.harnessSession). */
+export interface HarnessSessionWire {
+  /** Harness-side conversation id */
+  id: string;
+  /** "start" mints a new id; "resume" continues the given one */
+  mode: "start" | "resume";
+}
+
+/** Control-plane → agent command payloads — the JWS `cmd` claim (spec §3.2). */
+export type NodeCommandBody =
+  | {
+      /** Start a harness pane: cwd + env + argv inputs, MCP file, output log path */
+      type: "launch";
+      /** mote session id */
+      sessionId: string;
+      /** tmux socket name (tmuxSocketFor(sessionId)) */
+      socket: string;
+      /** Absolute working dir ON THE NODE (already stat-verified via stat_dir) */
+      cwd: string;
+      /** Harness plugin id */
+      harnessId: string;
+      /** Launch config (mirror of harnesses ProfileDefinition) */
+      profile: ProfileDefinitionWire;
+      /** MOTE_* credential env, supplied by the control plane */
+      moteEnv: Record<string, string>;
+      /** MCP registration file the agent writes (0600) before spawning */
+      mcp?: { path: string; fileContent: string };
+      /** Resume pin for harnesses that support it */
+      harnessSession?: HarnessSessionWire;
+      /** tmux session name (the session id) */
+      sessionName: string;
+      /** Initial terminal geometry */
+      cols?: number;
+      /** Initial terminal geometry */
+      rows?: number;
+    }
+  | { type: "terminate"; sessionId: string }
+  | { type: "kill"; sessionId: string }
+  | { type: "input"; sessionId: string; data: string }
+  | { type: "resize"; sessionId: string; cols: number; rows: number }
+  | {
+      /** Agent-side prompt settle loop: capture-poll until the pane is quiet, type + Enter */
+      type: "prompt_deliver";
+      sessionId: string;
+      text: string;
+      settleTimeoutMs: number;
+      pollMs: number;
+    }
+  | { type: "capture"; sessionId: string }
+  | { type: "probe"; sessionIds: string[] }
+  | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
+  | { type: "stat_dir"; path: string }
+  | { type: "log_read"; sessionId: string; fromByte: number; maxBytes: number }
+  | { type: "tail_start"; sessionId: string; subId: string; fromByte: number }
+  | { type: "tail_stop"; subId: string }
+  | { type: "remove_paths"; paths: string[] }
+  | { type: "inventory" }
+  | {
+      /** Chunked file write (terminal uploads relay, spec §3.4) */
+      type: "write_file";
+      path: string;
+      chunk_b64: string;
+      chunk: number;
+      eof: boolean;
+    }
+  | { type: "ping" };
+
+/** Agent → control events, unsigned (socket-authed; spec §3.3). */
+export type NodeEvent =
+  | {
+      type: "ready";
+      agentVersion: string;
+      protocolVersion: number;
+      os: "linux" | "darwin" | "unknown";
+      arch: string;
+      hostname: string;
+      dataDir: string;
+      capabilities: string[];
+    }
+  | {
+      type: "inventory";
+      harnesses: { harnessId: string; installed: boolean; version?: string; binaryPath?: string }[];
+      ts: string;
+    }
+  | { type: "heartbeat"; ts: string }
+  | { type: "result"; ref: string; ok: true; data?: JsonValue }
+  | { type: "result"; ref: string; ok: false; error: string }
+  | { type: "output"; sessionId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
+  | { type: "exit"; sessionId: string; exitCode: number | null; at: string }
+  | { type: "sessions_report"; sessions: { sessionId: string; alive: boolean; exitCode: number | null }[] }
+  | { type: "error"; code: string; message: string };
+
+/* ------------------------------------------------------------------ */
+/* validators (hand-rolled, parseClientFrame style — spec §3)          */
+/* ------------------------------------------------------------------ */
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isStr(value: unknown): value is string {
+  return typeof value === "string";
+}
+function isNum(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+function isInt(value: unknown): value is number {
+  return isNum(value) && Number.isInteger(value);
+}
+function isBool(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+function isStrArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isStr);
+}
+function isStringMap(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every(isStr);
+}
+
+function validProfileWire(p: unknown): p is ProfileDefinitionWire {
+  if (!isRecord(p) || !isStr(p.name)) return false;
+  if (!isStringMap(p.env)) return false;
+  if (!isStrArray(p.flags)) return false;
+  if (!("settings" in p) || !(p.settings === null || isRecord(p.settings))) return false;
+  if (!isBool(p.configIsolation)) return false;
+  if ("description" in p && p.description !== null && !isStr(p.description)) return false;
+  if ("restartOnExit" in p && p.restartOnExit !== undefined && !isBool(p.restartOnExit)) return false;
+  return true;
+}
+
+/**
+ * Validates and narrows an arbitrary value (JWS `cmd` payload, parsed JSON,
+ * or a pre-parsed object) to a known command. Unknown fields are dropped by
+ * the returned copy on well-understood commands only where cheap; the
+ * contract is that a NON-null return is safe to switch on by `type`.
+ * @param value - candidate payload (typically JWT `cmd` claim)
+ * @returns the narrowed command, or null when malformed/unknown
+ */
+export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(value) || !isStr(value.type)) return null;
+  switch (value.type) {
+    case "launch": {
+      if (!isStr(value.sessionId) || !isStr(value.socket) || !isStr(value.cwd) || !isStr(value.harnessId)) return null;
+      if (!validProfileWire(value.profile) || !isStringMap(value.moteEnv)) return null;
+      if (!isStr(value.sessionName)) return null;
+      if ("mcp" in value) {
+        const m = value.mcp;
+        if (!isRecord(m) || !isStr(m.path) || !isStr(m.fileContent)) return null;
+      }
+      if ("harnessSession" in value) {
+        const h = value.harnessSession;
+        if (!isRecord(h) || !isStr(h.id) || (h.mode !== "start" && h.mode !== "resume")) return null;
+      }
+      if ("cols" in value && !isInt(value.cols)) return null;
+      if ("rows" in value && !isInt(value.rows)) return null;
+      return value as unknown as NodeCommandBody;
+    }
+    case "terminate":
+    case "kill":
+    case "capture":
+      return isStr(value.sessionId) ? ({ type: value.type, sessionId: value.sessionId } as NodeCommandBody) : null;
+    case "input":
+      return isStr(value.sessionId) && isStr(value.data) ? (value as unknown as NodeCommandBody) : null;
+    case "resize":
+      return isStr(value.sessionId) &&
+        isInt(value.cols) &&
+        isInt(value.rows) &&
+        (value.cols as number) > 0 &&
+        (value.rows as number) > 0
+        ? (value as unknown as NodeCommandBody)
+        : null;
+    case "prompt_deliver":
+      return isStr(value.sessionId) && isStr(value.text) && isNum(value.settleTimeoutMs) && isNum(value.pollMs)
+        ? (value as unknown as NodeCommandBody)
+        : null;
+    case "probe":
+      return isStrArray(value.sessionIds) ? { type: "probe", sessionIds: value.sessionIds } : null;
+    case "probe_resume":
+      return isStr(value.harnessId) && isStr(value.harnessSessionId) && isStr(value.cwd)
+        ? { type: "probe_resume", harnessId: value.harnessId, harnessSessionId: value.harnessSessionId, cwd: value.cwd }
+        : null;
+    case "stat_dir":
+      return isStr(value.path) ? { type: "stat_dir", path: value.path } : null;
+    case "log_read":
+      return isStr(value.sessionId) &&
+        isInt(value.fromByte) &&
+        isInt(value.maxBytes) &&
+        (value.fromByte as number) >= 0 &&
+        (value.maxBytes as number) > 0
+        ? (value as unknown as NodeCommandBody)
+        : null;
+    case "tail_start":
+      return isStr(value.sessionId) && isStr(value.subId) && isInt(value.fromByte) && (value.fromByte as number) >= 0
+        ? { type: "tail_start", sessionId: value.sessionId, subId: value.subId, fromByte: value.fromByte }
+        : null;
+    case "tail_stop":
+      return isStr(value.subId) ? { type: "tail_stop", subId: value.subId } : null;
+    case "remove_paths":
+      return isStrArray(value.paths) ? { type: "remove_paths", paths: value.paths } : null;
+    case "inventory":
+      return { type: "inventory" };
+    case "write_file":
+      return isStr(value.path) &&
+        isStr(value.chunk_b64) &&
+        BASE64_RE.test(value.chunk_b64) &&
+        isInt(value.chunk) &&
+        (value.chunk as number) >= 0 &&
+        isBool(value.eof)
+        ? { type: "write_file", path: value.path, chunk_b64: value.chunk_b64, chunk: value.chunk, eof: value.eof }
+        : null;
+    case "ping":
+      return { type: "ping" };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Validates and narrows an inbound agent frame (raw JSON text or the
+ * already-parsed object — Elysia's ws middleware pre-parses JSON).
+ * @param raw - frame as received
+ * @returns the narrowed event, or null when malformed/unknown
+ */
+export function parseNodeEvent(raw: string | object): NodeEvent | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(value) || !isStr(value.type)) return null;
+  switch (value.type) {
+    case "ready":
+      return isStr(value.agentVersion) &&
+        isInt(value.protocolVersion) &&
+        (value.os === "linux" || value.os === "darwin" || value.os === "unknown") &&
+        isStr(value.arch) &&
+        isStr(value.hostname) &&
+        isStr(value.dataDir) &&
+        isStrArray(value.capabilities)
+        ? (value as unknown as NodeEvent)
+        : null;
+    case "inventory": {
+      if (!isStr(value.ts) || !Array.isArray(value.harnesses)) return null;
+      for (const h of value.harnesses) {
+        if (!isRecord(h) || !isStr(h.harnessId) || !isBool(h.installed)) return null;
+        if ("version" in h && !isStr(h.version)) return null;
+        if ("binaryPath" in h && !isStr(h.binaryPath)) return null;
+      }
+      return value as unknown as NodeEvent;
+    }
+    case "heartbeat":
+      return isStr(value.ts) ? { type: "heartbeat", ts: value.ts } : null;
+    case "result":
+      if (!isStr(value.ref) || !isBool(value.ok)) return null;
+      if (value.ok) return { type: "result", ref: value.ref, ok: true, data: value.data as JsonValue };
+      return isStr(value.error) ? { type: "result", ref: value.ref, ok: false, error: value.error } : null;
+    case "output":
+      return isStr(value.sessionId) &&
+        isStr(value.subId) &&
+        isInt(value.fromByte) &&
+        isInt(value.toByte) &&
+        (value.fromByte as number) >= 0 &&
+        (value.toByte as number) >= (value.fromByte as number) &&
+        isStr(value.data_b64) &&
+        BASE64_RE.test(value.data_b64)
+        ? (value as unknown as NodeEvent)
+        : null;
+    case "exit":
+      return isStr(value.sessionId) && isStr(value.at) && (value.exitCode === null || isInt(value.exitCode))
+        ? (value as unknown as NodeEvent)
+        : null;
+    case "sessions_report": {
+      if (!Array.isArray(value.sessions)) return null;
+      for (const s of value.sessions) {
+        if (!isRecord(s) || !isStr(s.sessionId) || !isBool(s.alive)) return null;
+        if (!(s.exitCode === null || isInt(s.exitCode))) return null;
+      }
+      return value as unknown as NodeEvent;
+    }
+    case "error":
+      return isStr(value.code) && isStr(value.message)
+        ? { type: "error", code: value.code, message: value.message }
+        : null;
+    default:
+      return null;
+  }
+}
