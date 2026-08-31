@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { HarnessRow } from "@/components/harness-row";
 import { NotificationsCard } from "@/components/notifications-card";
+import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
 import { PasskeysCard } from "@/components/passkeys-card";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
@@ -150,6 +151,9 @@ function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Account-wide switch first: it gates every device, so it reads as the
+          parent of the per-device opt-in below it. */}
+      <NotificationsMasterCard />
       <NotificationsCard />
 
       <SystemApiKeysCard />
