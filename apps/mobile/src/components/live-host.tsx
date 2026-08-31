@@ -9,6 +9,15 @@ import { type SocketStatus, useSessionSocket } from "@/lib/session-socket";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 
+const UNLOCK_LABEL = "Unlock the terminal";
+/**
+ * Cap on frames buffered while the page boots. A renderer that never reports
+ * ready must not grow memory without bound; if it comes up late the next
+ * attach's replay (wiped in via onReset) is the resync path, so dropping past
+ * the cap is recoverable.
+ */
+const QUEUE_CAP = 200;
+
 /**
  * The Live tab (spec §Rendering): a renderer, not a client. Incoming frames
  * arrive as strings via injectJavaScript; keystrokes/size post back through
@@ -19,7 +28,6 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
   const webview = useRef<WebView | null>(null);
   const ready = useRef(false);
   const queue = useRef<string[]>([]); // writes issued before the page reports ready
-  const [status, setStatus] = useState<SocketStatus>({ state: "connecting" });
   // The Face ID gate protects ATTACHMENT — the socket carries keystroke
   // power (spec §Security notes). Denied → retry card, never silent.
   const [unlocked, setUnlocked] = useState(false);
@@ -30,7 +38,7 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
       setUnlocked(false);
       return;
     }
-    void requireBiometric("Unlock the terminal").then((ok) => {
+    void requireBiometric(UNLOCK_LABEL).then((ok) => {
       if (!cancelled) setUnlocked(ok);
     });
     return () => {
@@ -40,20 +48,23 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
 
   const inject = useCallback((expr: string) => {
     if (!ready.current) {
+      if (queue.current.length >= QUEUE_CAP) {
+        console.warn("[live] renderer not ready; dropping frame");
+        return;
+      }
       queue.current.push(expr);
       return;
     }
     webview.current?.injectJavaScript(`${expr}; true;`);
   }, []);
 
-  const { sendInput, sendResize } = useSessionSocket({
+  const { sendInput, sendResize, status } = useSessionSocket({
     client,
     sessionId,
     active: active && unlocked,
     handlers: {
       onReset: () => inject("window.N.reset()"),
       onBytes: (data) => inject(`window.N.write(${JSON.stringify(data)})`),
-      onStatus: (s) => setStatus(s),
     },
   });
 
@@ -71,7 +82,9 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
       if (m.type === "ready") {
         ready.current = true;
         if (m.cols && m.rows) sendResize(m.cols, m.rows);
-        for (const expr of queue.current.splice(0)) webview.current?.injectJavaScript(`${expr}; true;`);
+        // One bridge call for the whole backlog, not one per queued frame.
+        const queued = queue.current.splice(0);
+        if (queued.length) webview.current?.injectJavaScript(`${queued.join("; ")}; true;`);
       }
     },
     [sendInput, sendResize],
@@ -99,7 +112,7 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 }}>
           <Text style={{ color: colors.mutedFg }}>The terminal is locked.</Text>
           <Pressable
-            onPress={() => void requireBiometric("Unlock the terminal").then(setUnlocked)}
+            onPress={() => void requireBiometric(UNLOCK_LABEL).then(setUnlocked)}
             style={{
               minHeight: touchTarget,
               paddingHorizontal: 20,

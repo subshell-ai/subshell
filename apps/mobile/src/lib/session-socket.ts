@@ -28,15 +28,14 @@ export interface SessionSocketHandlers {
   onBytes: (data: string) => void;
   /** First replay of a fresh attach: wipe the emulator (spec §Transport). */
   onReset: () => void;
-  /** Status transitions, for the UI. */
-  onStatus?: (status: SocketStatus) => void;
 }
 
 /**
  * One socket, one session (spec §Transport): the single-use token is minted
  * per connect AND per reconnect (30 s TTL). Frames are JSON text — the web
  * contract unchanged (invariant 3). RN owns the socket; the WebView never
- * sees it.
+ * sees it. Status is returned, not duplicated through a handler — one source
+ * per value (review, simplification #2).
  */
 export function useSessionSocket(opts: {
   client: MoteClient;
@@ -51,11 +50,6 @@ export function useSessionSocket(opts: {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const [status, setStatus] = useState<SocketStatus>({ state: "connecting" });
-
-  const report = useCallback((s: SocketStatus) => {
-    setStatus(s);
-    handlersRef.current.onStatus?.(s);
-  }, []);
 
   const frame = useCallback((f: ClientFrame) => {
     const ws = wsRef.current;
@@ -83,7 +77,6 @@ export function useSessionSocket(opts: {
   useEffect(() => {
     if (!active || !sessionId) return;
     let cancelled = false;
-    let socket: WebSocket | null = null;
 
     const scheduleRetry = () => {
       if (cancelled) return;
@@ -93,18 +86,17 @@ export function useSessionSocket(opts: {
 
     async function connect() {
       if (cancelled) return;
-      report({ state: "connecting" });
+      setStatus({ state: "connecting" });
       try {
         const { token } = await client.wsToken(); // mint per attempt, never reused
         if (cancelled) return;
         const url = `${wsOrigin(client.baseUrl)}/ws?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`;
         const ws = new WebSocket(url);
-        socket = ws;
         wsRef.current = ws;
         let replayStarted = false;
         ws.onopen = () => {
           if (cancelled || wsRef.current !== ws) return;
-          report({ state: "open" });
+          setStatus({ state: "open" });
           const s = sizeRef.current; // sync tmux to the fitted terminal (80×24 default)
           if (s) ws.send(JSON.stringify({ type: "resize", cols: s.cols, rows: s.rows } satisfies ClientFrame));
         };
@@ -131,10 +123,11 @@ export function useSessionSocket(opts: {
           // RN's CloseEvent types code as optional; 1006 (abnormal closure) is
           // what a dropped socket reports.
           const code = ev.code ?? 1006;
-          if (code >= 4000) report({ state: "rejected", code });
-          else {
-            report({ state: "closed", code });
+          if (shouldReconnectAfterClose(code)) {
+            setStatus({ state: "closed", code });
             scheduleRetry();
+          } else {
+            setStatus({ state: "rejected", code });
           }
         };
         ws.onerror = () => {
@@ -142,7 +135,7 @@ export function useSessionSocket(opts: {
         };
       } catch {
         if (cancelled) return;
-        report({ state: "closed", code: 0 }); // token mint failed — no socket to close
+        setStatus({ state: "closed", code: 0 }); // token mint failed — no socket to close
         scheduleRetry();
       }
     }
@@ -151,7 +144,7 @@ export function useSessionSocket(opts: {
     return () => {
       cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      const ws = wsRef.current ?? socket;
+      const ws = wsRef.current;
       wsRef.current = null;
       try {
         ws?.close();
@@ -159,7 +152,7 @@ export function useSessionSocket(opts: {
         /* already dead */
       }
     };
-  }, [client, sessionId, active, report]);
+  }, [client, sessionId, active]);
 
   return { sendInput, sendResize, status };
 }
