@@ -19,5 +19,8 @@ export const SESSION_QUERY_KEY = ["session"] as const;
 /** Prefix of a session's pane-log tail: `[...SESSION_LOG_QUERY_KEY, id]`. */
 export const SESSION_LOG_QUERY_KEY = ["session-log"] as const;
 
+/** Prefix of a session's sharing grants: `[...SESSION_SHARES_QUERY_KEY, id]`. */
+export const SESSION_SHARES_QUERY_KEY = ["session-shares"] as const;
+
 /** Prefix of one workspace's detail query: `[...WORKSPACE_QUERY_KEY, id]`. */
 export const WORKSPACE_QUERY_KEY = ["workspace"] as const;

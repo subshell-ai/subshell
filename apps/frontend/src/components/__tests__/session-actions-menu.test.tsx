@@ -34,6 +34,7 @@ function makeSession(overrides: Partial<SessionView> = {}): SessionView {
     nextRestartAt: null,
     notify: false,
     waitingSince: null,
+    access: "owner",
     ...overrides,
   };
 }

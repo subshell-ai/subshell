@@ -9,6 +9,14 @@ export type SessionActivity = "active" | "idle" | "terminated";
 export type SessionStatus = "running" | "terminated";
 
 /**
+ * The caller's effective access to a session (viewer-relative, spec
+ * 2026-08-31 §4). A returned session is always visible to *someone*, so this is
+ * never "none". `view` = read/watch; `edit` = interact + manage; `owner` = full
+ * control (delete, sharing, the notification bell).
+ */
+export type SessionAccess = "owner" | "edit" | "view";
+
+/**
  * A session as seen by the operator UX (home cards + terminal page).
  */
 export interface SessionView {
@@ -54,4 +62,6 @@ export interface SessionView {
   notify: boolean;
   /** ISO 8601 ts of the attention event that put the session in waiting-for-you state; null = not waiting */
   waitingSince: string | null;
+  /** The caller's effective access to this session (viewer-relative; drives which controls render) */
+  access: SessionAccess;
 }
