@@ -192,6 +192,19 @@ export class HttpError extends Error {
 }
 
 /**
+ * Cookie-only gate: surfaces whose action is a human-in-the-browser/device
+ * act — enabling browser push, enrolling a phone — reject machine
+ * credentials outright. Extracted from `notifications.route.ts` so the
+ * devices route mirrors it instead of forking the 403 shape.
+ * @param actor - The request's authenticated actor kind
+ * @param message - The full 403 message the surface wants on the wire
+ * @throws HttpError 403 when the actor is not a browser session cookie
+ */
+export function requireCookieActor(actor: GuardActor, message: string): void {
+  if (actor !== "cookie") throw new HttpError(403, message);
+}
+
+/**
  * Admin-only guard, a drop-in replacement for `authGuard` on admin routes:
  *
  *   .use(requireAdmin)   // instead of .use(authGuard)

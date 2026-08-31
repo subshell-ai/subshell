@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { auditRoutes } from "@/api/audit.route.js";
 import { channelRoutes } from "@/api/channels/index.js";
+import { devicesRoutes } from "@/api/devices.route.js";
 import { filesRoutes } from "@/api/files.route.js";
 import { identityRoutes } from "@/api/identities.route.js";
 import { liveRoutes } from "@/api/live.route.js";
@@ -27,6 +28,7 @@ export const routes = new Elysia()
   .use(profileRoutes)
   .use(filesRoutes)
   .use(notificationsRoutes)
+  .use(devicesRoutes)
   .use(metaRoutes)
   .use(usersRoutes)
   .use(auditRoutes)

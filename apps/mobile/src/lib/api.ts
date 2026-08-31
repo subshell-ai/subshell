@@ -159,10 +159,9 @@ export class MoteClient {
   }
 
   /**
-   * Waiting/running counts for the tab badge.
-   * NOTE: this route lands with the push milestone and does not exist yet —
-   * until then derive `waiting` client-side from the polled session list.
-   * @throws ApiError 404 until the backend route ships
+   * Waiting/running counts for the tab badge (`GET /api/sessions/summary`).
+   * Older instances 404 — callers must fall back to deriving `waiting` from
+   * the polled session list (see `lib/session-order.waitingCount`).
    */
   summary(): Promise<SessionSummary> {
     return this.request<SessionSummary>("/api/sessions/summary");
@@ -179,5 +178,24 @@ export class MoteClient {
       method: "PATCH",
       body: JSON.stringify({ notify }),
     });
+  }
+
+  /**
+   * Enrolls this phone for native push (cookie-only route). Called on every
+   * cold start and after sign-in so token rotation stays bounded.
+   * @param token - `data` from `getExpoPushTokenAsync()`
+   * @param platform - `"ios" | "android"` as reported by the OS
+   */
+  enrollDevice(token: string, platform: "ios" | "android"): Promise<{ ok: boolean }> {
+    return this.request("/api/devices", { method: "POST", body: JSON.stringify({ token, platform }) });
+  }
+
+  /**
+   * Idempotent removal of a device token — sign-out deregistration, so a
+   * signed-out phone stops ringing.
+   * @param token - The token previously enrolled
+   */
+  forgetDevice(token: string): Promise<{ ok: boolean }> {
+    return this.request("/api/devices", { method: "DELETE", body: JSON.stringify({ token }) });
   }
 }

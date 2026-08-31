@@ -160,3 +160,36 @@ describe("MoteClient.request", () => {
     expect(fired).toBe(1);
   });
 });
+
+describe("MoteClient device enrollment", () => {
+  it("enrollDevice POSTs the token and platform to /api/devices", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ ok: true })));
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await expect(client.enrollDevice("ExponentPushToken[X]", "ios")).resolves.toEqual({ ok: true });
+    expect(calls[0]?.url).toBe(`${BASE}/api/devices`);
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ token: "ExponentPushToken[X]", platform: "ios" }));
+  });
+
+  it("forgetDevice DELETEs with the token in the body", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ ok: true })));
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await expect(client.forgetDevice("ExponentPushToken[X]")).resolves.toEqual({ ok: true });
+    expect(calls[0]?.url).toBe(`${BASE}/api/devices`);
+    expect(calls[0]?.init.method).toBe("DELETE");
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ token: "ExponentPushToken[X]" }));
+  });
+
+  it("summary throws 404 on instances without the route (caller derives client-side)", async () => {
+    const { store } = memoryStore("tok");
+    const { fn } = recordingFetch(() => fakeResponse(JSON.stringify({ message: "not found" }), { status: 404 }));
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const err = (await client.summary().catch((e) => e)) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(404);
+  });
+});

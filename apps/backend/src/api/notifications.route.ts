@@ -1,6 +1,5 @@
 import { Elysia, t } from "elysia";
-import type { GuardActor } from "@/api/auth-guard.js";
-import { authGuard, HttpError } from "@/api/auth-guard.js";
+import { authGuard, HttpError, requireCookieActor } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
 import { apiModels } from "@/schema/index.js";
@@ -37,10 +36,8 @@ const ConfigResponseSchema = t.Object({
 
 const OkResponseSchema = t.Object({ ok: t.Boolean({ description: "Always true" }) });
 
-/** Throws 403 unless the request authenticated through a browser session cookie. */
-function browserOnly(actor: GuardActor): void {
-  if (actor !== "cookie") throw new HttpError(403, "Notifications are restricted to browser sessions");
-}
+/** 403 message kept byte-identical when the gate moved into auth-guard (existing tests assert it). */
+const NOTIFICATIONS_403 = "Notifications are restricted to browser sessions";
 
 /**
  * Probes the VAPID public key (the same source `/config` degrades on) and
@@ -66,7 +63,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
   .get(
     "/config",
     async ({ actor }) => {
-      browserOnly(actor);
+      requireCookieActor(actor, NOTIFICATIONS_403);
       try {
         return { publicKey: await getNotifyService().vapidPublicKey(), vapidConfigured: true };
       } catch (err) {
@@ -89,7 +86,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
   .post(
     "/subscribe",
     async ({ body, user, actor }) => {
-      browserOnly(actor);
+      requireCookieActor(actor, NOTIFICATIONS_403);
       await requireVapidConfigured();
       await new NotificationsRepository(db).upsertForUser(user.id, body.endpoint, body.p256dh, body.auth);
       return { ok: true } as const;
@@ -113,7 +110,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
   .post(
     "/unsubscribe",
     async ({ body, user, actor }) => {
-      browserOnly(actor);
+      requireCookieActor(actor, NOTIFICATIONS_403);
       await new NotificationsRepository(db).deleteForUser(user.id, body.endpoint);
       return { ok: true } as const;
     },
