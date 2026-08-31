@@ -142,6 +142,19 @@ export const PLACEHOLDER_AUTH_SECRET = "dev-secret-do-not-use-in-prod-0123456789
 export const AUTH_SECRET = env.get("BETTER_AUTH_SECRET").default(PLACEHOLDER_AUTH_SECRET).asString();
 
 /**
+ * Break-glass admin password (spec 2026-08-31 §6). Empty/absent ⇒ the hatch
+ * is disarmed and sign-in behaves normally.
+ *
+ * A live read (function, not a module constant) on purpose: tests arm and
+ * disarm between cases, and an operator flipping the var needs only the
+ * restart they were going to do anyway. The banner (via the public-settings
+ * flag) is the guard — this is an operator feature, so no prod boot-guard.
+ */
+export function emergencyPassword(): string {
+  return process.env.MOTE_EMERGENCY_PASSWORD ?? "";
+}
+
+/**
  * The origins this instance serves itself on: both loopback spellings of the
  * port, the bind host when it is a concrete address, and the base URL's own
  * origin (a proxied/relocated deployment names itself there).

@@ -1,6 +1,8 @@
+import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
 import { auth } from "@/auth.js";
+import { emergencyPassword } from "@/constants.js";
 import { db } from "@/db/index.js";
 
 /**
@@ -68,6 +70,47 @@ type SignInBody = { email?: string; password?: string };
  * (its `cloneRequest` option) and `Request.clone()` throws once a body has
  * been consumed, so passing the consumed request through would fail.
  */
+/**
+ * Break-glass admin login (spec 2026-08-31 §6): when MOTE_EMERGENCY_PASSWORD
+ * is set and the submitted password equals it EXACTLY for an existing account
+ * whose user_meta role is "admin", overwrite that account's credential hash
+ * with the env value's hash. The caller then forwards the ordinary sign-in:
+ * better-auth verifies the value just stored and mints a REAL session
+ * through its own path — nothing is forged.
+ *
+ * The overwrite is destructive by design (the forgotten password dies the
+ * moment the hatch fires); the armed-state banner tells the admin to set a
+ * new password before clearing the env var. Non-admin/mismatch/unknown-email
+ * return false without touching anything, so the response stays an ordinary
+ * bad-password 401 — no signal about which half failed.
+ *
+ * Raw SQL on purpose: better-auth owns `user`/`account`/`user_meta` targets
+ * (camelCase columns outside the typed Database) — same precedent as
+ * UsersRepository.createUser.
+ *
+ * @param email - normalized (lowercased, trimmed) sign-in email
+ * @param password - the submitted password, compared to the env value
+ * @returns true when the credential was rewritten (emergency login approved)
+ */
+async function rewriteAdminCredentialToEnvPassword(email: string, password: string): Promise<boolean> {
+  const envValue = emergencyPassword();
+  if (!envValue || !email || password !== envValue) return false;
+  const found = await sql<{ id: string; role: string | null }>`
+    SELECT u.id, m.role
+    FROM user u
+    LEFT JOIN user_meta m ON m.user_id = u.id
+    WHERE u.email = ${email}
+  `.execute(db);
+  const row = found.rows[0];
+  if (row?.role !== "admin") return false;
+  await sql`
+    UPDATE account
+    SET password = ${await hashPassword(envValue)}, "updatedAt" = ${new Date().toISOString()}
+    WHERE userId = ${row.id} AND providerId = 'credential'
+  `.execute(db);
+  return true;
+}
+
 export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
   "/api/auth/sign-in/email",
   async ({ request }) => {
@@ -83,6 +126,12 @@ export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
     const email = normalizeAuthEmail(body?.email);
     const delay = await authDelayMs(email);
     if (delay) await Bun.sleep(delay);
+
+    // Hatch attempts share the ordinary backoff: the delay above already
+    // applied to them. A rewrite here is invisible to the client — the
+    // forwarded body is unchanged (password === env value) and better-auth's
+    // success path (cookie + attempt-clear below) does the rest.
+    await rewriteAdminCredentialToEnvPassword(email, body.password ?? "");
 
     const forwarded = new Request(request.url, {
       method: request.method,
