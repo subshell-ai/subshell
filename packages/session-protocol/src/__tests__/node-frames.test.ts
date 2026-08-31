@@ -18,6 +18,45 @@ describe("parseNodeCommandBody", () => {
     const cmd = parseNodeCommandBody(structuredClone(launchCmd));
     expect(cmd).not.toBeNull();
     expect(cmd?.type).toBe("launch");
+    if (cmd?.type === "launch") {
+      expect(cmd.cwd).toBe("/home/u/repo");
+      expect(cmd.socket).toBe("mote-abc");
+      expect(cmd.profile.name).toBe("P");
+    }
+  });
+
+  it("rejects non-positive launch geometry and prompt timings", () => {
+    expect(parseNodeCommandBody({ ...launchCmd, cols: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, rows: 0 })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "prompt_deliver", sessionId: "s", text: "hi", settleTimeoutMs: 5000, pollMs: 0 }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "prompt_deliver", sessionId: "s", text: "hi", settleTimeoutMs: -1, pollMs: 250 }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "prompt_deliver", sessionId: "s", text: "hi", settleTimeoutMs: 5000, pollMs: 250 }),
+    ).not.toBeNull();
+  });
+
+  it("accepts an explicit undefined profile description (absent-like)", () => {
+    const cmd = structuredClone(launchCmd) as Record<string, unknown>;
+    (cmd.profile as Record<string, unknown>).description = undefined;
+    expect(parseNodeCommandBody(cmd)).not.toBeNull();
+  });
+
+  it("validates the remaining command variants", () => {
+    expect(parseNodeCommandBody({ type: "log_read", sessionId: "s", fromByte: 0, maxBytes: 100 })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "log_read", sessionId: "s", fromByte: -1, maxBytes: 100 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "tail_start", sessionId: "s", subId: "t", fromByte: 0 })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "tail_start", sessionId: "s", subId: "t", fromByte: -1 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "stat_dir", path: "/x" })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "stat_dir" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "probe", sessionIds: ["a"] })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "probe", sessionIds: ["a", 1] as unknown[] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "remove_paths", paths: [] })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "inventory" })).toEqual({ type: "inventory" });
+    expect(parseNodeCommandBody({ type: "ping" })).toEqual({ type: "ping" });
   });
 
   it("rejects launch with a malformed profile (env value not a string)", () => {
@@ -99,5 +138,13 @@ describe("parseNodeEvent", () => {
     expect(parseNodeEvent({ type: "error", code: "x", message: "y" })?.type).toBe("error");
     expect(parseNodeEvent("nope")).toBeNull();
     expect(parseNodeEvent({ type: "chat", text: "hi" })).toBeNull();
+  });
+
+  it("omits data on ok:true results unless present, and validates it when present", () => {
+    const ev = parseNodeEvent({ type: "result", ref: "j1", ok: true });
+    expect(ev?.type).toBe("result");
+    expect("data" in (ev as object)).toBe(false);
+    expect(parseNodeEvent({ type: "result", ref: "j1", ok: true, data: { x: [1, "a", null] } })).not.toBeNull();
+    expect(parseNodeEvent({ type: "result", ref: "j1", ok: true, data: undefined })).toBeNull();
   });
 });

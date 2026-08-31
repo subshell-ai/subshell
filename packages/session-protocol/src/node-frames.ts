@@ -164,6 +164,23 @@ function isStrArray(value: unknown): value is string[] {
 function isStringMap(value: unknown): value is Record<string, string> {
   return isRecord(value) && Object.values(value).every(isStr);
 }
+/** Cheap recursive structural check that a value is a JSON value (no undefined/functions/NaN). */
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return true;
+    case "number":
+      return Number.isFinite(value);
+    case "object":
+      return Array.isArray(value)
+        ? value.every(isJsonValue)
+        : isRecord(value) && Object.values(value).every(isJsonValue);
+    default:
+      return false;
+  }
+}
 
 function validProfileWire(p: unknown): p is ProfileDefinitionWire {
   if (!isRecord(p) || !isStr(p.name)) return false;
@@ -171,7 +188,8 @@ function validProfileWire(p: unknown): p is ProfileDefinitionWire {
   if (!isStrArray(p.flags)) return false;
   if (!("settings" in p) || !(p.settings === null || isRecord(p.settings))) return false;
   if (!isBool(p.configIsolation)) return false;
-  if ("description" in p && p.description !== null && !isStr(p.description)) return false;
+  if ("description" in p && p.description !== undefined && p.description !== null && !isStr(p.description))
+    return false;
   if ("restartOnExit" in p && p.restartOnExit !== undefined && !isBool(p.restartOnExit)) return false;
   return true;
 }
@@ -206,8 +224,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         const h = value.harnessSession;
         if (!isRecord(h) || !isStr(h.id) || (h.mode !== "start" && h.mode !== "resume")) return null;
       }
-      if ("cols" in value && !isInt(value.cols)) return null;
-      if ("rows" in value && !isInt(value.rows)) return null;
+      if ("cols" in value && !(isInt(value.cols) && (value.cols as number) > 0)) return null;
+      if ("rows" in value && !(isInt(value.rows) && (value.rows as number) > 0)) return null;
       return value as unknown as NodeCommandBody;
     }
     case "terminate":
@@ -225,7 +243,12 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         ? (value as unknown as NodeCommandBody)
         : null;
     case "prompt_deliver":
-      return isStr(value.sessionId) && isStr(value.text) && isNum(value.settleTimeoutMs) && isNum(value.pollMs)
+      return isStr(value.sessionId) &&
+        isStr(value.text) &&
+        isNum(value.settleTimeoutMs) &&
+        (value.settleTimeoutMs as number) > 0 &&
+        isNum(value.pollMs) &&
+        (value.pollMs as number) > 0
         ? (value as unknown as NodeCommandBody)
         : null;
     case "probe":
@@ -310,7 +333,11 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       return isStr(value.ts) ? { type: "heartbeat", ts: value.ts } : null;
     case "result":
       if (!isStr(value.ref) || !isBool(value.ok)) return null;
-      if (value.ok) return { type: "result", ref: value.ref, ok: true, data: value.data as JsonValue };
+      if (value.ok) {
+        // Only include `data` when the key is present, and then only if it is a real JSON value.
+        if (!("data" in value)) return { type: "result", ref: value.ref, ok: true };
+        return isJsonValue(value.data) ? { type: "result", ref: value.ref, ok: true, data: value.data } : null;
+      }
       return isStr(value.error) ? { type: "result", ref: value.ref, ok: false, error: value.error } : null;
     case "output":
       return isStr(value.sessionId) &&
