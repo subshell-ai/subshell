@@ -22,7 +22,7 @@ export type SessionActivity = "active" | "idle" | "terminated";
  * screen, list row, chip and badge in this app.
  */
 export interface SessionView {
-  /** Session id (uuid). Changes on restart: `POST /:id/restart` mints a new row. */
+  /** Session id (uuid). Restart revives the row in place: the id survives. */
   id: string;
   /** Profile the session was launched from. */
   profileId: string;

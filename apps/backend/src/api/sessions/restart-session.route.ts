@@ -4,7 +4,7 @@ import { CreateSessionResponseSchema } from "@/api/sessions/create-session.route
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
-/** `POST /api/sessions/:id/restart` — starts a new session with the same profile + working directory. */
+/** `POST /api/sessions/:id/restart` — revives this session in place (same id): new process, same row, conversation resumed when its transcript survived. */
 export const restartSessionRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
@@ -25,7 +25,8 @@ export const restartSessionRoute = new Elysia()
       detail: {
         operationId: "restartSession",
         tags: ["sessions"],
-        description: "Start a new session with the same profile + working directory",
+        description:
+          "Revive this session in place: same id and name, new process, conversation resumed when its transcript survived",
       },
     },
   );

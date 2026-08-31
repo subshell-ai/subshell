@@ -69,9 +69,9 @@ export function errMessage(err: unknown, fallback: string): string {
 
 /**
  * True when a failed call means the target is already where the call was trying
- * to get it — 404 (deleted elsewhere, or restarted into a new id) or 410 Gone.
- * Session restart mints a NEW id, so a stale id converging on "gone" is the
- * normal outcome rather than an error worth showing.
+ * to get it — 404 (deleted elsewhere while this screen held a stale id) or
+ * 410 Gone. Converging on "gone" is the normal outcome rather than an error
+ * worth showing; a restart no longer invalidates ids (it revives the row).
  * @param err - The error caught from a request
  * @returns Whether the resource should be treated as already gone
  */

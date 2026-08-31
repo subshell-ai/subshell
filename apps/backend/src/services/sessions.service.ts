@@ -205,12 +205,13 @@ export class SessionsService extends BaseService {
   }
 
   /**
-   * Starts a new session with the same profile + working directory as an
-   * existing one. Deliberately does NOT re-check harness usability — the
-   * gate lives on creation only, and this path delegates to
-   * `SessionManagerService.restartSession`, so a session whose harness was
-   * disabled later can still be restarted.
-   * @throws SessionError 404 when the source session is absent or not the caller's.
+   * Revives a session IN PLACE (same id, same row): the manager kills the
+   * pane and re-runs the auto-restart's guarded respawn on this row,
+   * resuming the harness conversation when its transcript survived.
+   * Deliberately does NOT re-check harness usability — the gate lives on
+   * creation and the auto path; a session whose harness was disabled later
+   * can still be restarted.
+   * @throws SessionError 404 when the session is absent or not the caller's.
    */
   async restartSession(
     userId: string,

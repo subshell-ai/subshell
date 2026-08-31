@@ -16,7 +16,7 @@ credential kinds:
   machine credentials:
   - *Per-session tokens*: minted when a session starts (7-day TTL, self-extending for
     long-running agents), scoped by permissions, and **revoked immediately** when the
-    session is terminated/deleted (auto-restart rotates the key). This is what the
+    session is terminated/deleted (restart rotates the key — auto or manual — on the same row). This is what the
     `mote mcp` server and any harness tooling authenticate with.
   - *System keys*: long-lived, no permission ceiling, owned by the `system` service user,
     created by admins under **Settings → System API keys** (plaintext shown exactly once;
