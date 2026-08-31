@@ -1,0 +1,66 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { router } from "expo-router";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { MoteClient } from "@/lib/api";
+import { useApp } from "@/lib/app-state";
+import { loadRegistry, saveRegistry } from "@/native/registry-storage";
+import { secureTokenStore } from "@/native/secure-token-store";
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 1500, retry: 1 } },
+});
+
+const MoteContext = createContext<{ client: MoteClient | null }>({ client: null });
+
+/**
+ * Wires the M2 transport to the app: registry hydration (AsyncStorage), one
+ * MoteClient per active instance (Keychain token store), and the 401 path —
+ * the token store is cleared by MoteClient itself and the guard screen
+ * re-presents sign-in from the cleared state.
+ */
+export function MoteProvider({ children }: { children: ReactNode }) {
+  const hydrated = useApp((s) => s.hydrated);
+  const hydrate = useApp((s) => s.hydrate);
+  const instances = useApp((s) => s.instances);
+  const activeId = useApp((s) => s.activeId);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    void loadRegistry().then(({ instances, activeId }) => {
+      hydrate(instances, activeId);
+      setReady(true);
+    });
+  }, [hydrate]);
+
+  useEffect(() => {
+    if (hydrated) void saveRegistry(instances, activeId);
+  }, [instances, activeId, hydrated]);
+
+  const client = useMemo(() => {
+    if (!activeId) return null;
+    return new MoteClient({
+      baseUrl: activeId,
+      store: secureTokenStore(activeId),
+      // 401 mid-session is expected (7-day session): drop cached reads and
+      // surface sign-in over whatever screen hit it. The instance token is
+      // already cleared by MoteClient.request itself (spec §Auth: never a
+      // silent retry).
+      onUnauthorized: () => {
+        queryClient.clear();
+        router.replace("/sign-in");
+      },
+    });
+  }, [activeId]);
+
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MoteContext.Provider value={{ client }}>{children}</MoteContext.Provider>
+    </QueryClientProvider>
+  );
+}
+
+/** The active client or null (pre-connect / no instance). */
+export function useMote(): { client: MoteClient | null } {
+  return useContext(MoteContext);
+}
