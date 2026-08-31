@@ -31,6 +31,24 @@ export class ApiError extends Error {
 }
 
 /**
+ * The request never got an HTTP answer — DNS failure, refused connection,
+ * dropped socket: the server (or its proxy) is DOWN. `ApiError` means the
+ * opposite (something answered with a status). The retry policy and the
+ * offline banner both key off this one distinction.
+ */
+export class NetworkError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? `Server unreachable: ${cause.message}` : "Server unreachable", { cause });
+    this.name = "NetworkError";
+  }
+}
+
+/** True when a caught failure means "no HTTP answer" (see {@link NetworkError}). */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof NetworkError;
+}
+
+/**
  * Splits a failed response body into the display message and the structured
  * fields. Every backend failure now carries `{errId, code, message, statusCode}`;
  * anything that is not that shape (a proxy error page, an older body) falls
@@ -55,14 +73,19 @@ function parseErrorBody(raw: string): { message: string; code?: string; errId?: 
 
 /** Fetch helper that includes the session cookie (same-origin by default). */
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    credentials: "include",
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init?.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      credentials: "include",
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...init?.headers,
+      },
+    });
+  } catch (err) {
+    throw new NetworkError(err);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     const { message, code, errId } = parseErrorBody(body);
