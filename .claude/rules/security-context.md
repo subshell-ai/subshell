@@ -38,6 +38,37 @@ machine credentials can never manage the instance.
 WS attach requires a short-lived (30 s) single-use token minted through an authenticated
 REST call — replay-resistant.
 
+## Session sharing (spec 2026-08-31)
+
+A session is **private to its owner by default** — it is absent (404, never 403) from
+every other user's list, detail, log, terminal, and workspace-pane path, so ids cannot be
+probed. The owner may grant two levels, to **Everyone** (all signed-in users) or to
+specific users, via `PUT /api/sessions/:id/shares`:
+
+- **view** — read only: list, detail, pane log, and a read-only live terminal.
+- **edit** — view + interact and manage: terminal input, rename, notes, restart,
+  terminate.
+
+Owner-only actions (never conferred by a grant, and not held by an admin either): **delete**,
+**managing the shares themselves**, and the **notification bell**. Sharing is a browser
+(human) act — a bearer/session key is refused on the shares routes and, on every other
+per-session route, runs with the admin boost and shared grants switched **off**, so a
+machine token can act only on its own owner's sessions, never a foreign or shared one.
+
+Admins hold instance-wide **edit** (effective operator access) — they can read and
+interact with any session but cannot delete it or re-share it; those stay with the real
+owner.
+
+Notifications are **owner-targeted**: a push goes only to the session owner's devices,
+gated by a per-user master switch (`user_meta.notify_enabled`, on by default) and the
+per-session bell (`sessions.notify`, on by default for new sessions). Sharing widens who
+can *see/act* on a session; it never widens who gets *pushed* about it.
+
+This is a deliberate widening of exposure beyond the owner, sound only on the
+trusted-network posture below — a share makes a session's full pane output (potentially
+secrets on screen) and, at `edit`, its keystroke stream visible to the audience. Revoke by
+clearing the grant (the sharing dialog or an empty `PUT`).
+
 ## Encrypted channels (cross-session comms)
 
 Channel posts are sealed per-recipient with ECDH-ES + A256GCM (`jose`) to each session's
