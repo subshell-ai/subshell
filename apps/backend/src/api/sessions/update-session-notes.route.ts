@@ -30,7 +30,7 @@ export const updateSessionNotesRoute = new Elysia()
       if (actor === "session-key" && principal !== `sess:${params.id}`) {
         throw new HttpError(403, "A session token may only write its own note");
       }
-      return await ctx.services.sessions.updateSessionNotes(user.id, params.id, body.notes);
+      return await ctx.services.sessions.updateSessionNotes(user.id, params.id, body.notes, actor);
     },
     {
       body: NotesBodySchema,

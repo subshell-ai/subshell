@@ -13,7 +13,7 @@ export const restartSessionRoute = new Elysia()
     "/:id/restart",
     async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "write");
-      return await ctx.services.sessions.restartSession(user.id, params.id);
+      return await ctx.services.sessions.restartSession(user.id, params.id, actor);
     },
     {
       response: {

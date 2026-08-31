@@ -1,7 +1,8 @@
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
-import { type Access, resolveSessionAccess } from "@/lib/session-access.js";
+import type { SessionTable } from "@/db/types/sessions.db-types.js";
+import { type Access, accessAtLeast, loadSessionAccess, resolveSessionAccess } from "@/lib/session-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSessionLogTail, SessionManagerService } from "@/services/session-manager.service.js";
@@ -147,80 +148,121 @@ export class SessionsService extends BaseService {
   }
 
   /**
-   * Gets a single session view for the user.
-   * @throws SessionError 404 when absent or owned by someone else.
+   * Loads a session and enforces that `viewerId` holds at least `min` access,
+   * the single policy point for every per-session route.
+   *
+   * A bearer (session-key) actor is treated as its owner and NOTHING more: the
+   * admin boost and shared grants are switched off for it, so a machine token
+   * can never act on a foreign or shared session — exactly the strictness the
+   * pre-sharing owner check had. Absent/invisible → 404 (`not_found`, no
+   * existence leak); visible-but-insufficient → 403.
+   *
+   * @returns the session row (caller uses `row.userId` as the owner when it
+   *          hands off to the owner-keyed manager) and the resolved access
    */
-  async getSession(userId: string, id: string): Promise<SessionView> {
-    const session = await this.#manager.getSession(userId, id);
-    if (!session) {
-      throw new SessionError("not_found", "Session not found");
+  async #gate(
+    viewerId: string,
+    sessionId: string,
+    min: Exclude<Access, "none">,
+    actor: GuardActor,
+  ): Promise<{ row: SessionTable; access: Access }> {
+    const { row, access } = await loadSessionAccess(
+      { sessions: this.repos.sessions, shares: this.repos.sessionShares, userMeta: this.repos.userMeta },
+      viewerId,
+      sessionId,
+      { allowAdminAndShares: actor !== "session-key" },
+    );
+    if (!row || access === "none") throw new SessionError("not_found", "Session not found");
+    if (!accessAtLeast(access, min)) {
+      throw new HttpError(403, "You do not have permission to do that with this session");
     }
-    return session;
+    return { row, access };
+  }
+
+  /**
+   * Gets a single session view for the viewer — their own or one shared to
+   * them — stamped with the viewer's own `access`.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 is impossible at `view` (visible ⇒ at least view).
+   */
+  async getSession(viewerId: string, id: string, actor: GuardActor): Promise<SessionView> {
+    const { row, access } = await this.#gate(viewerId, id, "view", actor);
+    // Build the view under the OWNER's id (the manager is owner-keyed); the
+    // caller never sees the owner id, only their resolved access level.
+    const session = await this.#manager.getSession(row.userId, id);
+    if (!session) throw new SessionError("not_found", "Session not found");
+    return { ...session, access: access === "none" ? "view" : access };
   }
 
   /**
    * Tail of the session's pane log (ANSI-stripped) — why a harness exited, if it did.
    *
-   * The existence check doubles as the visibility guard (owner-only, like
-   * GET /:id) so a foreign session is a 404, and the log's contents
-   * never leak through timing or body differences.
-   * @throws SessionError 404 when absent or owned by someone else.
+   * Gated at `view`, the same level as GET /:id, so a stranger gets a 404 and
+   * the log's contents never leak through timing or body differences.
+   * @throws SessionError 404 when absent or invisible to the caller.
    */
-  async getSessionLogTail(userId: string, id: string): Promise<{ lines: string[]; truncated: boolean }> {
-    const session = await this.#manager.getSession(userId, id);
-    if (!session) {
-      throw new SessionError("not_found", "Session not found");
-    }
+  async getSessionLogTail(
+    viewerId: string,
+    id: string,
+    actor: GuardActor,
+  ): Promise<{ lines: string[]; truncated: boolean }> {
+    await this.#gate(viewerId, id, "view", actor);
     return await readSessionLogTail(id);
   }
 
   /**
-   * Sets or clears a session note.
-   * @throws SessionError 404 when absent or owned by someone else.
+   * Sets or clears a session note (an `edit` act).
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
    */
-  async updateSessionNotes(userId: string, id: string, notes: string | null): Promise<{ ok: true }> {
-    const ok = await this.#manager.updateNotes(userId, id, notes);
-    if (!ok) {
-      throw new SessionError("not_found", "Session not found");
-    }
+  async updateSessionNotes(
+    viewerId: string,
+    id: string,
+    notes: string | null,
+    actor: GuardActor,
+  ): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    const ok = await this.#manager.updateNotes(row.userId, id, notes);
+    if (!ok) throw new SessionError("not_found", "Session not found");
     return { ok: true };
   }
 
   /**
    * Renames a session (which also locks the name against the pane-title
-   * sweep). Validation (non-blank, length) is the route's job.
-   * @throws SessionError 404 when the session is absent or not the caller's.
+   * sweep) — an `edit` act. Validation (non-blank, length) is the route's job.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
    */
-  async renameSession(userId: string, id: string, name: string): Promise<{ ok: true }> {
-    const ok = await this.#manager.updateName(userId, id, name);
-    if (!ok) {
-      throw new SessionError("not_found", "Session not found");
-    }
+  async renameSession(viewerId: string, id: string, name: string, actor: GuardActor): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    const ok = await this.#manager.updateName(row.userId, id, name);
+    if (!ok) throw new SessionError("not_found", "Session not found");
     return { ok: true };
   }
 
   /**
-   * Turns pane-title auto-naming on/off for a session.
-   * @throws SessionError 404 when the session is absent or not the caller's.
+   * Turns pane-title auto-naming on/off for a session — an `edit` act.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
    */
-  async setSessionAutoTitle(userId: string, id: string, enabled: boolean): Promise<{ ok: true }> {
-    const ok = await this.#manager.setNameLocked(userId, id, !enabled);
-    if (!ok) {
-      throw new SessionError("not_found", "Session not found");
-    }
+  async setSessionAutoTitle(viewerId: string, id: string, enabled: boolean, actor: GuardActor): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    const ok = await this.#manager.setNameLocked(row.userId, id, !enabled);
+    if (!ok) throw new SessionError("not_found", "Session not found");
     return { ok: true };
   }
 
   /**
-   * Rings or mutes a session's notifications (the ⋯-menu bell). Muting
-   * stops pushes only — the waiting stamp is deliberately untouched.
-   * @returns false when the session is absent or not the caller's (route maps to 404).
+   * Rings or mutes a session's notifications (the ⋯-menu bell) — OWNER-only
+   * (it changes what leaves the instance for the owner's devices). Muting stops
+   * pushes only; the waiting stamp is deliberately untouched.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller is not the owner.
    */
-  async setSessionNotify(userId: string, id: string, notify: boolean): Promise<boolean> {
-    const row = await this.repos.sessions.findById(id);
-    if (!row || row.userId !== userId) return false;
+  async setSessionNotify(viewerId: string, id: string, notify: boolean, actor: GuardActor): Promise<{ ok: true }> {
+    await this.#gate(viewerId, id, "owner", actor);
     await this.repos.sessions.update(id, { notify: notify ? 1 : 0 });
-    return true;
+    return { ok: true };
   }
 
   /**
@@ -248,14 +290,17 @@ export class SessionsService extends BaseService {
    * Deliberately does NOT re-check harness usability — the gate lives on
    * creation and the auto path; a session whose harness was disabled later
    * can still be restarted.
-   * @throws SessionError 404 when the session is absent/not the caller's, or
-   *         a terminate/delete won the restart race (converge on "gone").
+   * @throws SessionError 404 when absent/invisible to the caller, or when a
+   *         terminate/delete won the restart race (converge on "gone").
+   * @throws HttpError 403 when the caller holds only `view`.
    */
   async restartSession(
-    userId: string,
+    viewerId: string,
     id: string,
+    actor: GuardActor,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
-    const revived = await this.#manager.restartSession(userId, id);
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    const revived = await this.#manager.restartSession(row.userId, id);
     if (!revived) {
       throw new SessionError("not_found", "Session not found");
     }
@@ -265,12 +310,14 @@ export class SessionsService extends BaseService {
   }
 
   /**
-   * Terminates a session (kills the harness process tree). Matches the
-   * manager's semantics exactly: a missing/foreign session is a silent no-op,
-   * not a 404.
+   * Terminates a session (kills the harness process tree) — an `edit` act. A
+   * missing/invisible session is a 404 via the gate; a view-only grantee a 403.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
    */
-  async terminateSession(userId: string, id: string): Promise<{ ok: true }> {
-    await this.#manager.terminateSession(userId, id);
+  async terminateSession(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    await this.#manager.terminateSession(row.userId, id);
     return { ok: true };
   }
 
@@ -309,11 +356,13 @@ export class SessionsService extends BaseService {
   }
 
   /**
-   * Deletes a session (terminates first if running).
-   * @throws SessionError 404 when absent or owned by someone else.
+   * Deletes a session (terminates first if running) — OWNER-only.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller is not the owner (view/edit included).
    */
-  async deleteSession(userId: string, id: string): Promise<{ ok: true }> {
-    const ok = await this.#manager.deleteSession(userId, id);
+  async deleteSession(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "owner", actor);
+    const ok = await this.#manager.deleteSession(row.userId, id);
     if (!ok) {
       throw new SessionError("not_found", "Session not found");
     }

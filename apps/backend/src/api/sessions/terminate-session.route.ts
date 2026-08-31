@@ -12,7 +12,7 @@ export const terminateSessionRoute = new Elysia()
     "/:id/terminate",
     async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "write");
-      return await ctx.services.sessions.terminateSession(user.id, params.id);
+      return await ctx.services.sessions.terminateSession(user.id, params.id, actor);
     },
     {
       response: {

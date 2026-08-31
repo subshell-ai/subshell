@@ -24,11 +24,10 @@ export const updateSessionNotifyRoute = new Elysia()
       if (actor === "session-key" && principal !== `sess:${params.id}`) {
         throw new HttpError(403, "A session token may only toggle its own session's bell");
       }
-      // Owner check inside the service: a foreign session is a 404, not a
-      // 403 — no existence leak to non-owners.
-      if (!(await ctx.services.sessions.setSessionNotify(user.id, params.id, body.notify))) {
-        throw new HttpError(404, "Session not found");
-      }
+      // Owner-only, enforced inside the service: a foreign/invisible session
+      // is a 404 (no existence leak), a view/edit grantee a 403 (visible, but
+      // the bell is the owner's to change).
+      await ctx.services.sessions.setSessionNotify(user.id, params.id, body.notify, actor);
       return { ok: true } as const;
     },
     {

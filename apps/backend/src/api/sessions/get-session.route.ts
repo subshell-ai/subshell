@@ -13,7 +13,7 @@ export const getSessionRoute = new Elysia()
     "/:id",
     async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "read");
-      return await ctx.services.sessions.getSession(user.id, params.id);
+      return await ctx.services.sessions.getSession(user.id, params.id, actor);
     },
     {
       response: {

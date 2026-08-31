@@ -41,12 +41,12 @@ export const updateSessionNameRoute = new Elysia()
         if (!name) {
           throw new HttpError(400, "Session name cannot be blank");
         }
-        await ctx.services.sessions.renameSession(user.id, params.id, name);
+        await ctx.services.sessions.renameSession(user.id, params.id, name, actor);
       }
       // Applied after the rename so a combined body decides the lock state
       // unambiguously: rename locks, autoTitle then overrides that choice.
       if (body.autoTitle !== undefined) {
-        await ctx.services.sessions.setSessionAutoTitle(user.id, params.id, body.autoTitle);
+        await ctx.services.sessions.setSessionAutoTitle(user.id, params.id, body.autoTitle, actor);
       }
       return { ok: true } as const;
     },

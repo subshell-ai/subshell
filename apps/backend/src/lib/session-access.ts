@@ -62,15 +62,23 @@ export interface SessionAccessDeps {
  * A missing session is NOT an error here — it returns `{ row: undefined,
  * access: "none" }` so the caller can map it to the same 404 as an invisible
  * session (never leaking that the id exists).
+ *
+ * @param opts.allowAdminAndShares - `true` (default) for a human in a browser:
+ * admins get effective edit and shared grants count. Pass `false` for a
+ * machine bearer token — a session key may act ONLY on its own owner's
+ * sessions, never on foreign or shared ones and never via the admin boost. This
+ * keeps the machine path exactly as strict as the pre-sharing owner check.
  */
 export async function loadSessionAccess(
   deps: SessionAccessDeps,
   viewerId: string,
   sessionId: string,
+  opts: { allowAdminAndShares?: boolean } = {},
 ): Promise<{ row: SessionTable | undefined; access: Access }> {
   const row = await deps.sessions.findById(sessionId);
   if (!row) return { row: undefined, access: "none" };
-  const isAdmin = (await deps.userMeta.getRole(viewerId)) === "admin";
-  const shares = await deps.shares.listForSession(sessionId);
+  const allow = opts.allowAdminAndShares ?? true;
+  const isAdmin = allow && (await deps.userMeta.getRole(viewerId)) === "admin";
+  const shares = allow ? await deps.shares.listForSession(sessionId) : [];
   return { row, access: resolveSessionAccess(viewerId, isAdmin, row.userId, shares) };
 }

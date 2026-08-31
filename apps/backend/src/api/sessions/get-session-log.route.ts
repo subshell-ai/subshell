@@ -13,7 +13,7 @@ export const getSessionLogRoute = new Elysia()
     "/:id/log",
     async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "read");
-      return await ctx.services.sessions.getSessionLogTail(user.id, params.id);
+      return await ctx.services.sessions.getSessionLogTail(user.id, params.id, actor);
     },
     {
       response: {

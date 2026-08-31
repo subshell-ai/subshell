@@ -12,7 +12,7 @@ export const deleteSessionRoute = new Elysia()
     "/:id",
     async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "write");
-      return await ctx.services.sessions.deleteSession(user.id, params.id);
+      return await ctx.services.sessions.deleteSession(user.id, params.id, actor);
     },
     {
       response: {
