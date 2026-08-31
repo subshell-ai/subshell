@@ -7,3 +7,12 @@
 # remotes reached from panes; keys/known_hosts come from the ro ~/.ssh mount.
 Host *
 	IdentityAgent none
+
+# GitHub's port-22 range is partially unreachable from this network (some
+# anycast IPs stall the SSH banner; DNS round-robins, so pushes flake at
+# random). GitHub's supported fallback: SSH over the TLS port. HostKeyAlias
+# keeps verification against the known_hosts entry for github.com itself.
+Host github.com
+	Hostname ssh.github.com
+	Port 443
+	HostKeyAlias github.com
