@@ -97,6 +97,25 @@ describe("MoteClient.request", () => {
     expect(peek()).toBe("rotated");
   });
 
+  it("ends CLEARED when a 401 response also carries a rotated cookie (write-before-clear)", async () => {
+    // The rotation write used to be fire-and-forget: it could land AFTER the
+    // 401 path's store.clear() and re-persist the very token the clear was
+    // removing. captureRotation is awaited now, so clear() is the last write.
+    const { store, peek } = memoryStore("stale");
+    const { fn } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ message: "unauthorized", statusCode: 401 }), {
+        status: 401,
+        setCookies: [`${SESSION_COOKIE}=rotated; Path=/; HttpOnly`],
+      }),
+    );
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await expect(client.sessions()).rejects.toBeInstanceOf(ApiError);
+    await Promise.resolve();
+
+    expect(peek()).toBeNull();
+  });
+
   it("throws ApiError carrying the backend's structured code and errId", async () => {
     const { store } = memoryStore("tok");
     const { fn } = recordingFetch(() =>

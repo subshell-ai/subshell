@@ -10,6 +10,7 @@ import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
 import { queryClient } from "@/lib/query-client";
+import { shellGate } from "@/lib/shell-gate";
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -75,23 +76,22 @@ function Shell() {
   });
   const needsSetup = setupStatus?.needsSetup;
 
-  // Hold first paint until the session (and, when signed out, the setup
-  // state) is known — chrome must not flash and the guard must not race. But
-  // a DOWN server must never be a ~15-min blank screen: the session query now
-  // retries unbounded (stays isLoading), so once the store reports offline we
-  // paint the (fixed, standalone) notice instead of nothing. (regression #7)
-  if (isLoading) return offline ? <OfflineBanner /> : null;
-  // A server outage is not a sign-out: while offline, hold the frame (the
-  // banner explains) instead of bouncing to /login against an unreachable
-  // endpoint. Recovery is automatic — the unbounded retry refetches and the
-  // user resolves without a reload. (regression #8)
-  if (!user && !offline) {
-    if (setupLoading && !bare) return null;
-    if (needsSetup && location.pathname !== "/setup") return <Navigate to="/setup" />;
-    if (needsSetup === false && !bare) {
-      return <Navigate to="/login" search={{ redirect: location.pathname }} />;
-    }
-  }
+  // The whole first-paint / signed-out guard is the tested lib/shell-gate.ts
+  // predicate (regressions #7/#8: a down server must be an offline notice,
+  // never a blank screen, and never a bounce to an unreachable /login).
+  const gate = shellGate({
+    isLoading,
+    hasUser: !!user,
+    offline,
+    setupLoading,
+    needsSetup,
+    bare,
+    pathname: location.pathname,
+  });
+  if (gate === "blank" || gate === "holdSetup") return null;
+  if (gate === "offlineHold") return <OfflineBanner />;
+  if (gate === "toSetup") return <Navigate to="/setup" />;
+  if (gate === "toLogin") return <Navigate to="/login" search={{ redirect: location.pathname }} />;
 
   return (
     <div

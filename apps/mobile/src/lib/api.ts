@@ -71,7 +71,11 @@ export class MoteClient {
     if (cookie) headers.set("cookie", cookie);
 
     const res = await this.fetchImpl(`${this.opts.baseUrl}${path}`, { ...init, headers });
-    this.captureRotation(res);
+    // Awaited, NOT fire-and-forget: a floating `store.set(rotation)` could land
+    // AFTER the 401 path's `store.clear()` below and re-persist the token the
+    // clear was removing (or outlive signOut's clear the same way). Serializing
+    // keeps the operation the caller intended LAST on the store. (review #16)
+    await this.captureRotation(res);
 
     if (res.status === 401 && token) {
       // 7-day session with a 5-minute cookie cache: expiry mid-use is routine.
@@ -89,18 +93,19 @@ export class MoteClient {
   }
 
   /**
-   * Reads a rotated token off a response. `expo/fetch` exposes
+   * Reads a rotated token off a response and persists it. `expo/fetch` exposes
    * `getSetCookie()`; core RN's `Headers` may only surface one value via
    * `get()`, which is why both are tried. If neither ever yields the cookie,
    * rotation stops being captured and the app will 401 at the 7-day boundary
    * rather than silently refreshing — the M1 spike asserts this works.
+   * Awaiting the write is what keeps it ordered against a later clear().
    */
-  private captureRotation(res: Response): void {
+  private async captureRotation(res: Response): Promise<void> {
     const headers = res.headers as Headers & { getSetCookie?: () => string[] };
     const raw = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [];
     const single = res.headers.get("set-cookie");
     const rotated = tokenFromSetCookie(raw.length ? raw : single ? [single] : []);
-    if (rotated) void this.opts.store.set(rotated);
+    if (rotated) await this.opts.store.set(rotated);
   }
 
   /**

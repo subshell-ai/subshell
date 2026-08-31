@@ -76,6 +76,5 @@ export function errMessage(err: unknown, fallback: string): string {
  * @returns Whether the resource should be treated as already gone
  */
 export function isAlreadyGone(err: unknown): boolean {
-  if (err instanceof ApiError && (err.status === 404 || err.status === 410)) return true;
-  return err instanceof Error && /^API 404:/.test(err.message);
+  return err instanceof ApiError && (err.status === 404 || err.status === 410);
 }

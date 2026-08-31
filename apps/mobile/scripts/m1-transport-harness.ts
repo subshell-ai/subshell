@@ -134,7 +134,13 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve) => {
       const ws = new WebSocket(url);
       const seen: string[] = [];
+      // One verdict per attach. `done` is reachable from timer, message, error
+      // AND close — and its own ws.close() fires onclose — so without a latch a
+      // timeout-then-close sequence counted (and printed) the check twice.
+      let settled = false;
       const done = (verdict: "PASS" | "FAIL", detail: string): void => {
+        if (settled) return;
+        settled = true;
         console.log(`  ${verdict}  /ws ${target.id.slice(0, 8)} — ${detail} (frames: ${seen.join(",") || "none"})`);
         if (verdict === "FAIL") failures += 1;
         try {

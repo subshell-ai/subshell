@@ -5,20 +5,20 @@
     "clean": {},
     "build": {
       "dependsOn": ["^build", "lint"],
-      "inputs": ["*.json", "*.js", "*.ts", "*.tsx", "app/**", "src/**"],
+      "inputs": ["*.json", "*.js", "*.ts", "*.tsx", "app/**", "src/**", "scripts/**"],
       "outputs": ["dist/**"]
     },
     "lint": {
-      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**"]
+      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**", "scripts/**"]
     },
     "lint:check": {
-      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**"]
+      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**", "scripts/**"]
     },
     "test": {
       "cache": false
     },
     "verify-types": {
-      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**"]
+      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**", "scripts/**"]
     }
   }
 }

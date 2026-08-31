@@ -6,6 +6,7 @@ import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { ApiError } from "@/lib/api";
+import { workspaceLoad } from "@/lib/workspace-load";
 
 export const Route = createFileRoute("/workspaces_/$id")({
   component: WorkspaceDetailPage,
@@ -27,16 +28,10 @@ function WorkspaceDetailPage() {
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
-  // Three "no detail" truths, kept apart (regression #9):
-  //  - 404  → the server's own word: "deleted" (only a real 404 says this)
-  //  - other ANSWERED error (401/403/500) → a genuine failure to show, NOT a
-  //    perpetual "Loading…" (these fail fast, so nothing else would clear them)
-  //  - NO answer (NetworkError / in-flight) → hold "Loading…": the query layer
-  //    retries unbounded AND `useWorkspace` polls every 5s, so it self-heals
-  //    when the server returns — declaring it deleted would be a lie.
-  const notFound = !detail && error instanceof ApiError && error.status === 404;
-  const answeredError = !detail && error instanceof ApiError && error.status !== 404;
-  if (isLoading || (!detail && !notFound && !answeredError)) {
+  // Three "no detail" truths, kept apart (regression #9; the decision itself
+  // is the tested lib/workspace-load.ts predicate, not inline logic).
+  const load = workspaceLoad({ isLoading, detail, error });
+  if (load === "loading") {
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
         <p className="text-muted-foreground text-sm">Loading…</p>
@@ -44,7 +39,7 @@ function WorkspaceDetailPage() {
     );
   }
 
-  if (answeredError) {
+  if (load === "answeredError") {
     // Keyed on `!detail`: a background refetch failure keeps the last-good
     // detail, so this card is only for a first load the server answered badly.
     return (
@@ -67,10 +62,10 @@ function WorkspaceDetailPage() {
     );
   }
 
-  // `!detail` (narrows for the render below) — and only a real 404 can land
-  // here: every no-answer case took the loading branch and every other
-  // answered error took the card above, so "deleted" is the server's own word,
-  // never an outage or a 500.
+  // `!detail` (narrows for the render below) — this is the predicate's
+  // "notFound" case: every no-answer state took the loading branch and every
+  // other answered error the card above, so "deleted" is the server's own
+  // word, never an outage or a 500.
   if (!detail) {
     return (
       <main className="mx-auto w-full max-w-2xl p-6">

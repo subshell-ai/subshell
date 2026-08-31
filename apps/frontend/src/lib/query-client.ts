@@ -14,10 +14,16 @@ export function queryRetry(_failureCount: number, err: unknown): boolean {
   return isNetworkError(err) ? true : _failureCount < 1;
 }
 
-/** Exponential backoff capped at 15 s while the server is unreachable;
- * HTTP retries keep the default first-retry delay (1 s). */
+/**
+ * Backoff while the server is unreachable: exponential capped at 15 s, with
+ * equal jitter (half fixed, half uniform) so queries that all failed on the
+ * same outage retry staggered — not in a lockstep herd hammering the first
+ * moment the server is back. HTTP retries keep the default 1 s.
+ */
 export function queryRetryDelay(attempt: number, err: unknown): number {
-  return isNetworkError(err) ? Math.min(1000 * 2 ** attempt, 15_000) : 1000;
+  if (!isNetworkError(err)) return 1000;
+  const ceiling = Math.min(1000 * 2 ** attempt, 15_000);
+  return Math.round(ceiling / 2 + Math.random() * (ceiling / 2));
 }
 
 /**

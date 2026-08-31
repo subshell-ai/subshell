@@ -23,7 +23,7 @@ export default function ScaffoldProbe() {
       </Text>
       <Text style={{ color: "#8b8b90" }}>
         session-protocol: {MAX_UPLOAD_BYTES / 1024 / 1024} MB upload cap ·{" "}
-        {stripAnsi("␛[31mansi␛[0m") === "ansi" ? "stripAnsi ok" : "stripAnsi FAIL"}
+        {stripAnsi("\x1b[31mansi\x1b[0m") === "ansi" ? "stripAnsi ok" : "stripAnsi FAIL"}
       </Text>
       <Stack screenOptions={{ headerShown: false }} />
     </View>

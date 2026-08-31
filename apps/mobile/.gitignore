@@ -1,4 +1,8 @@
 .expo/
+# Local instance credentials for scripts/m1-transport-harness.ts (Bun auto-loads
+# .env*). Never commit a login — the token these produce can type into any pane.
+.env
+.env.*
 dist/
 build/
 *.log
