@@ -8,16 +8,17 @@ import type { SessionView } from "@/types/session";
 /** One list row (spec §Screens Sessions card): name, harness, dot, preview, chip, death stats. */
 export const SessionCard = memo(function SessionCard({
   session,
-  onPress,
+  onOpen,
 }: {
   session: SessionView;
-  onPress: () => void;
+  /** Stable identity, id-taking — keeps the memo honest when the list re-renders. */
+  onOpen: (id: string) => void;
 }) {
   const waiting = isWaiting(session);
   const preview = stripAnsi(session.preview.at(-1) ?? "").trim();
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => onOpen(session.id)}
       style={{
         backgroundColor: colors.card,
         borderRadius: radius,

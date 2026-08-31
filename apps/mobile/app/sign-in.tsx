@@ -1,11 +1,12 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Field } from "@/components/field";
+import { PrimaryButton } from "@/components/primary-button";
 import { ApiError, errMessage } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors } from "@/lib/tokens";
 import { useMote } from "@/providers/mote-provider";
 
 /** Sign in as the cookie actor (spec §Auth). Rate-limit copy included. */
@@ -67,24 +68,7 @@ export default function SignIn() {
           caption={note ?? undefined}
           captionColor={colors.destructive}
         />
-        <Pressable
-          onPress={() => void submit()}
-          disabled={busy || !email || !password}
-          style={{
-            minHeight: touchTarget,
-            borderRadius: radius,
-            backgroundColor: colors.primary,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: busy || !email || !password ? 0.5 : 1,
-          }}
-        >
-          {busy ? (
-            <ActivityIndicator color={colors.bg} />
-          ) : (
-            <Text style={{ color: colors.bg, fontWeight: "600" }}>Sign in</Text>
-          )}
-        </Pressable>
+        <PrimaryButton onPress={() => void submit()} label="Sign in" disabled={!email || !password} busy={busy} />
         <Pressable onPress={() => router.replace("/connect")} style={{ alignItems: "center", padding: 8 }}>
           <Text style={{ color: colors.mutedFg }}>Use a different instance</Text>
         </Pressable>

@@ -1,10 +1,13 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { confirmAction } from "@/components/confirm-action";
 import { Field } from "@/components/field";
+import { PrimaryButton } from "@/components/primary-button";
 import { useApp } from "@/lib/app-state";
 import { InvalidInstanceUrl, normalizeInstanceOrigin } from "@/lib/instance-url";
+import { instanceMeta } from "@/lib/instances";
 import { type ProbeResult, probeInstance } from "@/lib/probe";
 import { makeProbeDeps } from "@/lib/probe-real";
 import { colors, radius, touchTarget } from "@/lib/tokens";
@@ -78,24 +81,7 @@ export default function Connect() {
           Plain HTTP: your token will cross the network in the clear.
         </Text>
       ) : null}
-      <Pressable
-        onPress={() => void save()}
-        disabled={busy || input.trim().length === 0}
-        style={{
-          minHeight: touchTarget,
-          borderRadius: radius,
-          backgroundColor: colors.primary,
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: busy || input.trim().length === 0 ? 0.5 : 1,
-        }}
-      >
-        {busy ? (
-          <ActivityIndicator color={colors.bg} />
-        ) : (
-          <Text style={{ color: colors.bg, fontWeight: "600" }}>Connect</Text>
-        )}
-      </Pressable>
+      <PrimaryButton onPress={() => void save()} label="Connect" disabled={input.trim().length === 0} busy={busy} />
 
       {instances.length > 0 ? (
         <View style={{ gap: 8 }}>
@@ -108,10 +94,7 @@ export default function Connect() {
                 router.push("/sign-in");
               }}
               onLongPress={() =>
-                Alert.alert("Forget instance?", r.id, [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Forget", style: "destructive", onPress: () => forgetInstance(r.id) },
-                ])
+                confirmAction("Forget instance?", r.id, "Forget", () => forgetInstance(r.id), { destructive: true })
               }
               style={{
                 minHeight: touchTarget,
@@ -124,11 +107,7 @@ export default function Connect() {
               }}
             >
               <Text style={{ color: colors.fg, fontWeight: "500" }}>{r.label}</Text>
-              <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
-                {r.id}
-                {r.plainHttp ? " · http" : ""}
-                {r.wsBlocked ? " · terminal blocked" : ""}
-              </Text>
+              <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{instanceMeta(r)}</Text>
             </Pressable>
           ))}
         </View>

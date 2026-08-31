@@ -1,19 +1,20 @@
 import { FlashList } from "@shopify/flash-list";
-import { router, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useMemo } from "react";
 import { ActivityIndicator, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SessionCard } from "@/components/session-card";
 import { SessionDetail } from "@/components/session-detail";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useSessions } from "@/hooks/use-sessions";
-import { sectionize } from "@/lib/session-order";
+import { type SessionSections, sectionize } from "@/lib/session-order";
 import { colors } from "@/lib/tokens";
 import type { SessionView } from "@/types/session";
 
 type Row = { kind: "header"; title: string } | { kind: "session"; session: SessionView };
 
 /** Flattened section rows → one FlashList, stable identities, no section-API assumptions. */
-function toRows(sections: ReturnType<typeof sectionize>): Row[] {
+function toRows(sections: SessionSections): Row[] {
   const out: Row[] = [];
   const push = (title: string, list: SessionView[]) => {
     if (list.length === 0) return;
@@ -34,14 +35,20 @@ function toRows(sections: ReturnType<typeof sectionize>): Row[] {
  * so deep links and state restoration land correctly (spec §Adaptive).
  */
 export default function SessionsList() {
-  const routerLocal = useRouter();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const wide = useIsWide();
   const { sid } = useLocalSearchParams<{ sid?: string }>();
   const { data, error, isLoading, isRefetching, refetch } = useSessions();
 
-  const rows = toRows(sectionize(data ?? []));
-  const open = (id: string) => (wide ? router.setParams({ sid: id }) : routerLocal.push(`/session/${id}`));
+  // Memoized on the fetch result: without it every isRefetching flip rebuilt
+  // the Row array with fresh object identities and the card memo never hit
+  // (review, efficiency #1).
+  const rows = useMemo(() => toRows(sectionize(data ?? [])), [data]);
+  const open = useCallback(
+    (id: string) => (wide ? router.setParams({ sid: id }) : router.push(`/session/${id}`)),
+    [wide, router],
+  );
   const closeDetail = () => router.setParams({ sid: undefined });
 
   if (wide) {
@@ -107,7 +114,7 @@ export default function SessionsList() {
                 </Text>
               ) : (
                 <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-                  <SessionCard session={item.session} onPress={() => open(item.session.id)} />
+                  <SessionCard session={item.session} onOpen={open} />
                 </View>
               )
             }

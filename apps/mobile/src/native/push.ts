@@ -66,3 +66,21 @@ export async function enrollPush(client: MoteClient): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Best-effort server-side deregistration of this phone, then the local mirror
+ * is dropped (spec §Push prune contract's operator-facing twin). Used by both
+ * sign-out and Forget-instance — a phone must stop ringing for anything the
+ * operator just untrusted (review #4: each call site hand-rolled this dance).
+ * Never throws: a dead instance must not block a local sign-out.
+ */
+export async function deregisterPush(client: MoteClient): Promise<void> {
+  try {
+    const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+    if (!token) return;
+    await client.forgetDevice(token);
+    await AsyncStorage.removeItem(PUSH_TOKEN_KEY);
+  } catch {
+    /* best effort — the enrollment mirror re-converges on the next cold start */
+  }
+}

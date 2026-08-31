@@ -3,8 +3,10 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { confirmAction } from "@/components/confirm-action";
 import { LiveHost } from "@/components/live-host";
 import { PromptModal } from "@/components/prompt-modal";
+import { SESSIONS_KEY } from "@/hooks/query-keys";
 import { useSession } from "@/hooks/use-session";
 import { useSessionLog } from "@/hooks/use-session-log";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
@@ -34,7 +36,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
   function gone(err: unknown): boolean {
     if (isAlreadyGone(err)) {
-      void qc.invalidateQueries({ queryKey: ["sessions"] });
+      void qc.invalidateQueries({ queryKey: SESSIONS_KEY });
       if (onBack) onBack();
       else router.back();
       return true;
@@ -49,7 +51,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     if (!(await requireBiometric(`Confirm: ${label}`))) return;
     try {
       await fn();
-      await Promise.all([refetch(), qc.invalidateQueries({ queryKey: ["sessions"] })]);
+      await Promise.all([refetch(), qc.invalidateQueries({ queryKey: SESSIONS_KEY })]);
     } catch (err) {
       if (!gone(err)) Alert.alert(label, errMessage(err, "Request failed"));
     }
@@ -166,46 +168,42 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         <Action
           label="Restart"
           onPress={() =>
-            Alert.alert(
+            confirmAction(
               "Restart in place?",
               "Revives the same session (same id), resuming the conversation when possible.",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Restart", onPress: () => void run("Restart", () => client!.restart(sessionId)) },
-              ],
+              "Restart",
+              () => void run("Restart", () => client!.restart(sessionId)),
             )
           }
         />
         <Action
           label="Terminate"
           onPress={() =>
-            Alert.alert("Terminate?", "Kills the pane. Restart can revive it.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Terminate",
-                style: "destructive",
-                onPress: () => void run("Terminate", () => client!.terminate(sessionId)),
-              },
-            ])
+            confirmAction(
+              "Terminate?",
+              "Kills the pane. Restart can revive it.",
+              "Terminate",
+              () => void run("Terminate", () => client!.terminate(sessionId)),
+              { destructive: true },
+            )
           }
         />
         <Action
           label="Delete"
           color={colors.destructive}
           onPress={() =>
-            Alert.alert("Delete?", "Removes the session for good.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () =>
-                  void run("Delete", async () => {
-                    await client!.deleteSession(sessionId);
-                    if (onBack) onBack();
-                    else router.back();
-                  }),
-              },
-            ])
+            confirmAction(
+              "Delete?",
+              "Removes the session for good.",
+              "Delete",
+              () =>
+                void run("Delete", async () => {
+                  await client!.deleteSession(sessionId);
+                  if (onBack) onBack();
+                  else router.back();
+                }),
+              { destructive: true },
+            )
           }
         />
       </View>

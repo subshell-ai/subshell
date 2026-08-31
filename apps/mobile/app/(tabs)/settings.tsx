@@ -1,16 +1,17 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MoteClient } from "@/lib/api";
+import { confirmAction } from "@/components/confirm-action";
 import { useApp } from "@/lib/app-state";
+import { instanceMeta } from "@/lib/instances";
 import { probeInstance } from "@/lib/probe";
 import { makeProbeDeps } from "@/lib/probe-real";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { biometricEnabled, requireBiometric, setBiometricEnabled } from "@/native/biometric";
-import { PUSH_TOKEN_KEY } from "@/native/push-token";
+import { clientForOrigin } from "@/native/mote-client-factory";
+import { deregisterPush } from "@/native/push";
 import { secureTokenStore } from "@/native/secure-token-store";
 import { useMote } from "@/providers/mote-provider";
 
@@ -63,17 +64,23 @@ export default function Settings() {
 
   async function signOut() {
     if (!client) return;
-    try {
-      const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
-      if (token) {
-        await client.forgetDevice(token);
-        await AsyncStorage.removeItem(PUSH_TOKEN_KEY);
-      }
-    } catch {
-      /* best effort — a dead instance must not block local sign-out */
-    }
+    await deregisterPush(client);
     await client.signOut(); // clears the Keychain token via the injected store
     router.replace("/sign-in");
+  }
+
+  /**
+   * Forget = stop ringing (server dereg), drop the Keychain token, drop the
+   * registry row; if the forgotten instance was the last one, re-park on
+   * Connect. (Was a 30-line inline onPress nest — review, simplification #6.)
+   */
+  async function forget(rec: (typeof instances)[number]) {
+    await deregisterPush(clientForOrigin(rec.id));
+    await secureTokenStore(rec.id)
+      .clear()
+      .catch(() => undefined);
+    forgetInstance(rec.id);
+    if (instances.length === 1 && activeId === rec.id) router.replace("/connect");
   }
 
   return (
@@ -95,11 +102,7 @@ export default function Settings() {
         >
           <Pressable onPress={() => setActive(r.id)} style={{ minHeight: touchTarget - 12, justifyContent: "center" }}>
             <Text style={{ color: r.id === activeId ? colors.primary : colors.fg, fontWeight: "600" }}>{r.label}</Text>
-            <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
-              {r.id}
-              {r.plainHttp ? " · http" : ""}
-              {r.wsBlocked ? " · terminal blocked" : ""}
-            </Text>
+            <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{instanceMeta(r)}</Text>
           </Pressable>
           <View style={{ flexDirection: "row", gap: 16 }}>
             <Pressable onPress={() => void reprobe(r.id)} disabled={busyId !== null} hitSlop={8}>
@@ -109,32 +112,13 @@ export default function Settings() {
             </Pressable>
             <Pressable
               onPress={() =>
-                Alert.alert("Forget instance?", `Also forgets ${r.label}'s stored token.`, [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Forget",
-                    style: "destructive",
-                    onPress: () => {
-                      // A forgotten instance must stop ringing this phone —
-                      // the operator-facing twin of the prune contract
-                      // (signOut does the same, review #5).
-                      void AsyncStorage.getItem(PUSH_TOKEN_KEY)
-                        .then((token) =>
-                          token
-                            ? new MoteClient({ baseUrl: r.id, store: secureTokenStore(r.id) }).forgetDevice(token)
-                            : undefined,
-                        )
-                        .catch(() => undefined);
-                      void secureTokenStore(r.id)
-                        .clear()
-                        .catch(() => undefined);
-                      forgetInstance(r.id);
-                      if (!instances.some((x) => x.id !== r.id && x.id !== activeId) && activeId === r.id) {
-                        router.replace("/connect");
-                      }
-                    },
-                  },
-                ])
+                confirmAction(
+                  "Forget instance?",
+                  `Also forgets ${r.label}'s stored token and deregisters this phone.`,
+                  "Forget",
+                  () => void forget(r),
+                  { destructive: true },
+                )
               }
               hitSlop={8}
             >
@@ -204,10 +188,13 @@ export default function Settings() {
 
       <Pressable
         onPress={() =>
-          Alert.alert("Sign out?", "Deregisters this phone for push and clears the stored token.", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Sign out", style: "destructive", onPress: () => void signOut() },
-          ])
+          confirmAction(
+            "Sign out?",
+            "Deregisters this phone for push and clears the stored token.",
+            "Sign out",
+            () => void signOut(),
+            { destructive: true },
+          )
         }
         style={{
           minHeight: touchTarget,

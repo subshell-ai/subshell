@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Field } from "@/components/field";
+import { PrimaryButton } from "@/components/primary-button";
 import { useProfiles } from "@/hooks/use-profiles";
 import { errMessage } from "@/lib/api-error";
 import { colors, radius, touchTarget } from "@/lib/tokens";
@@ -160,24 +161,13 @@ export default function NewSession() {
           style={{ minHeight: 88, textAlignVertical: "top" }}
         />
 
-        <Pressable
+        <PrimaryButton
           onPress={() => void start()}
-          disabled={!profileId || !workingDir || busy}
-          style={{
-            minHeight: touchTarget,
-            borderRadius: radius,
-            backgroundColor: colors.primary,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: !profileId || !workingDir || busy ? 0.5 : 1,
-          }}
-        >
-          {busy ? (
-            <ActivityIndicator color={colors.bg} />
-          ) : (
-            <Text style={{ color: colors.bg, fontWeight: "700" }}>Start session</Text>
-          )}
-        </Pressable>
+          label="Start session"
+          bold
+          disabled={!profileId || !workingDir}
+          busy={busy}
+        />
       </ScrollView>
 
       <Modal visible={sheet} animationType="slide" onRequestClose={() => setSheet(false)}>
