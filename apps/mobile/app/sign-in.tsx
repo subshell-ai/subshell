@@ -28,7 +28,7 @@ export default function SignIn() {
     setBusy(true);
     setNote(null);
     try {
-      // MoteClient.signIn stores the body token in the Keychain-backed store.
+      // MoteClient.signIn persists the signed Set-Cookie token (b0743b8).
       await client.signIn(email.trim(), password);
       setEmail(email.trim());
       router.replace("/(tabs)");

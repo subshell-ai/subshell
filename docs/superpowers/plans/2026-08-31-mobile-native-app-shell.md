@@ -22,6 +22,21 @@
 - Compact never writes `layout_json` (spec invariant 5 — the app never calls workspace endpoints at all).
 - Colours: dark-only hex port from `apps/frontend/src/styles.css` (oklch converted via OKLab math, red-anchor verified): primary `#7abdff`, destructive `#f14d4c`, warning amber-400 `#fbbf24` = waiting, success emerald-400 `#34d399`, terminal trio bg `#0f1216` / canvas `#0a0c0f` / fg `#e4e4e7`, radius 8, touch targets 44.
 - No mobile tests join `turbo test`; nothing here changes backend behaviour.
+
+### Amendments during execution (code review 2026-08-31)
+
+- **Task 5's sign-in snippet is superseded.** It stores the response-BODY token;
+  better-auth 1.7.x signs the session cookie (`"<token>.<sig>"`) and accepts only
+  the Set-Cookie value as a credential — body token 401s on guarded routes (proved
+  by the M1 harness). Final behaviour in `b0743b8`: persist the captured Set-Cookie
+  token, keep the body token only as a no-cookie fallback.
+- **Task 3's deep-link parser was deleted** (`parseSessionDeepLink`/`sessionDeepLink`
+  never gained a production caller — expo-router routes `mote://session/<uuid>`
+  natively via the app scheme). The coverage-map row below now reflects router
+  handling + origin-aware push routing instead.
+- **Push payloads name the category/channel** (`categoryId: "session"`,
+  `_channelId: "mote-sessions"`) so registered lock-screen actions appear — the
+  spec §Push payload example omitted them; backend plan amended in place there.
 - Commits on branch `feat/mobile-native-app`; push per task; **never merge to main** (operator gate).
 
 ---
@@ -3270,7 +3285,7 @@ Report the branch as ready for operator review — **do not merge to main** (sta
 | New session (profiles, folder sheet, recents, prompt) | 10 |
 | Settings (switch, re-probe, push consent, sign-out deregisters) | 11 |
 | Push enrollment cold-start/resume, categories Open+Silence (non-destructive, auth-required), token mirror, android channel | 12 |
-| Deep link mote://session/<id> uuid-only, parser-guarded | 3, 12 |
+| Deep link mote://session/<id> — handled by expo-router's native scheme routing; standalone parser deleted as dead code (see Amendments) | 3†, 12 |
 | Biometric gates USE, not storage | 13 |
 | 1024 breakpoint, iPad-portrait-is-phone-shaped, Split View, ?sid= route parity, App-Store-4.1 posture | 14 |
 | Probe on save + persisted wsBlocked banner + Live hidden | 3, 5, 11 |

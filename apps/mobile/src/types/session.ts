@@ -94,7 +94,9 @@ export interface WsTokenResponse {
   token: string;
 }
 
-/** Response of `POST /api/auth/sign-in/email` (token in the BODY, not only a cookie). */
+/** Response of `POST /api/auth/sign-in/email`. The BODY token is the UNSIGNED
+ * one — better-auth 1.7.x only accepts the signed "<token>.<sig>" value from
+ * Set-Cookie as a credential; MoteClient stores that instead (b0743b8). */
 export interface SignInResponse {
   /** Session token — store it and replay it as a Cookie header. */
   token: string;

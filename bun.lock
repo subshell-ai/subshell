@@ -132,9 +132,7 @@
         "expo": "57.0.18",
         "expo-clipboard": "57.0.1",
         "expo-constants": "57.0.16",
-        "expo-crypto": "57.0.2",
         "expo-dev-client": "57.0.16",
-        "expo-haptics": "57.0.2",
         "expo-linking": "57.0.8",
         "expo-local-authentication": "57.0.2",
         "expo-notifications": "57.0.15",
@@ -1555,8 +1553,6 @@
 
     "expo-constants": ["expo-constants@57.0.16", "", { "dependencies": { "@expo/env": "~2.4.3" }, "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-HG3yJjGZo2BPTo2F1sBoxdJZRwX7d9C554EhKn8m12K62pxGolCsvPSoh/lQf95OEP9vO34wwXB2C3QFs0KG0g=="],
 
-    "expo-crypto": ["expo-crypto@57.0.2", "", { "peerDependencies": { "expo": "*" } }, "sha512-OGLvHK7Hb7qsONMWGB9pJw3n+iY4OnZQmM/KwQEHRMrrOmNg0Lxj9+tp9bj46aAMMzXx0FTVA2jUKoplpXPnkA=="],
-
     "expo-dev-client": ["expo-dev-client@57.0.16", "", { "dependencies": { "expo-dev-launcher": "~57.0.16", "expo-dev-menu": "~57.0.16", "expo-dev-menu-interface": "~57.0.0", "expo-manifests": "~57.0.1", "expo-updates-interface": "~57.0.1" }, "peerDependencies": { "expo": "*" } }, "sha512-Txss9sgzEFI0E+4I34E76vPiukeVDHnqCj0ZXy8SDijVM31/P6MCNniVbEZk7MBPQclD0aopfuaCFtkV8+r1sw=="],
 
     "expo-dev-launcher": ["expo-dev-launcher@57.0.16", "", { "dependencies": { "@expo/schema-utils": "^57.0.2", "expo-dev-menu": "~57.0.16", "expo-manifests": "~57.0.1" }, "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-jaBr6q4A5js/r465m2mRxN8A87YOi8I6PiIt8XIt4qfQWDgw6hqGovaF1AVFGT1Z5jxkjtgK8WNz/rAeypjqPQ=="],
@@ -1570,8 +1566,6 @@
     "expo-font": ["expo-font@57.0.2", "", { "dependencies": { "fontfaceobserver": "^2.1.0" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-eWR0CAdysgVqg8VewJ8b5wKh1pa6C8YShIEU3SP0+hlSqOk4djUwuJjn3P04KHVzL3hws9FrUuPxCNmd4TGung=="],
 
     "expo-glass-effect": ["expo-glass-effect@57.0.1", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-m/n8maxqNcHk6ZDhuqXBfD5Kt1Iz3M8xykVgdB0iSCIXvF70IqWXmQhX8Psswhrp8eZ+3r0mAD0Jh/2gFA3QaA=="],
-
-    "expo-haptics": ["expo-haptics@57.0.2", "", { "peerDependencies": { "expo": "*" } }, "sha512-vPths6zTxxaGaemC7D1GKbw1iOnOAAL5oAcCFVSgVNWnuLCBefL1LkhRBaJsepiMXRh2y3vwPiXkPaf6d16blA=="],
 
     "expo-json-utils": ["expo-json-utils@57.0.1", "", {}, "sha512-cgTe1NqzQdYs/WN+3nIY5IZg8s0pb0xaTUbhYvxQDn137GbwRfHoGM2se3m3Vsl4Qu+B9G4RPEK5WJDEU2Do7g=="],
 
