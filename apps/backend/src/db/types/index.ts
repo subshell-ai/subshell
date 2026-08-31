@@ -2,6 +2,7 @@ import type { AuditEventsTable } from "@/db/types/audit-events.db-types.js";
 import type { AuthAttemptsTable } from "@/db/types/auth-attempts.db-types.js";
 import type { ChannelPostRecipientTable, ChannelPostTable } from "@/db/types/channel-posts.db-types.js";
 import type { ChannelCursorTable, ChannelMemberTable, ChannelTable } from "@/db/types/channels.db-types.js";
+import type { DeviceTokenTable } from "@/db/types/device-tokens.db-types.js";
 import type { FavoriteTable } from "@/db/types/favorites.db-types.js";
 import type { HarnessPluginTable } from "@/db/types/harness-plugins.db-types.js";
 import type { IdentityTable } from "@/db/types/identities.db-types.js";
@@ -38,4 +39,5 @@ export interface Database {
   channelCursors: ChannelCursorTable;
   identities: IdentityTable;
   notificationsSubscriptions: NotificationSubscriptionTable;
+  deviceTokens: DeviceTokenTable;
 }
