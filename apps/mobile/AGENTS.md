@@ -82,14 +82,47 @@ inline in `tsconfig.json`.
 `experiments.tsconfigPaths` in `app.json` (for Metro). Change one, the other
 goes red at runtime rather than at typecheck.
 
+**`assets/terminal.html` is generated — never hand-edit, never lint.** The
+Live tab's xterm page (JS + CSS inlined, zero network requests — the WebView
+owns no network and cannot reach the token) is produced by
+`bun scripts/sync-terminal-assets.ts` (from `apps/mobile`), which re-inlines
+the pinned `@xterm/*` files from `node_modules`. After bumping either dep,
+re-run it and commit the regenerated file. The root `biome.json` excludes
+`**/assets/terminal.html` — the exclusion is cwd-agnostic on purpose, because
+the pre-commit `lint:staged` task runs biome from `apps/mobile` and a
+path-anchored pattern silently stopped matching there.
+
+**SDK 57 no longer bundles `@expo/vector-icons` through `expo`.** Without an
+explicit dependency the bottom-tab default glyphs render as tofu boxes in any
+custom dev build (Expo Go masks this). `@expo/vector-icons@15.1.1` is an
+explicit dep and `(tabs)/_layout.tsx` passes `tabBarIcon` per screen.
+
+**SecureStore key slug**: `mote.token.<origin with [^A-Za-z0-9._-] → _>`
+(`src/native/secure-token-store.ts`). Keychain names forbid most URL
+characters, so the slug is lossy-but-stable; never key tokens by the raw
+origin.
+
+**If `npx expo install` dies on this host's TLS flakiness**, the fallback is
+`bun info <pkg> dist-tags` + `bun add <pkg>@<exact SDK-57 version>` (bun
+honours an exact specifier and writes no range). Afterwards verify with
+`git status` that no other app's `package.json` moved.
+
 ## Auth
 
 The app authenticates as the **better-auth cookie actor**, not a bearer client:
-`POST /api/auth/sign-in/email` → session token from the response body →
-`expo-secure-store` → sent as a `Cookie` header. Do not "modernise" this to a
-system API key: `api/ws-token.route.ts` and `api/notifications.route.ts` reject
-bearer actors *deliberately*, and being the cookie actor is what lets the app
-attach a terminal and enroll for push without any backend auth change.
+`POST /api/auth/sign-in/email` → session token → `expo-secure-store` → sent
+as a `Cookie` header. Do not "modernise" this to a system API key:
+`api/ws-token.route.ts` and `api/notifications.route.ts` reject bearer actors
+*deliberately*, and being the cookie actor is what lets the app attach a
+terminal and enroll for push without any backend auth change.
+
+**Store the token from `Set-Cookie`, never the response body.** better-auth
+1.7.x signs its session cookie (`"<token>.<sig>"`, ~85 chars); the 32-char
+token in the JSON body is the *unsigned* one and 401s on every guarded route.
+Proven live by the M1 transport harness (`bun run harness:m1`): body-token →
+401, Set-Cookie-token → 200. `MoteClient.signIn` keeps the body value only as
+a no-cookie fallback. This whole flow is exactly what the harness exists to
+falsify — run it against a scratch instance after any auth-transport change.
 
 ## Layout
 
@@ -131,10 +164,31 @@ and `adb logcat -b crash -d | grep -c 'F DEBUG'`.
 Because `expo-dev-client` is installed, launching `MainActivity` opens the **dev
 launcher**, not the app: type `http://localhost:8081` into its field and tap
 Connect (dismiss the soft keyboard first, or the tap lands on the keyboard).
-Known open issue: one run got `SIGSEGV (SEGV_ACCERR)` on the `mqt_v_js` thread
-immediately after `Running "main" … "fabric":true`, i.e. a Hermes/JS-thread crash
-in a debug build, not a graphics one. Unresolved — reproduce on a real device
-before assuming an app bug.
+A `pm clear` drops the remembered server, but mDNS usually re-displays the
+Metro card a moment later — one tap beats typing.
+
+**The flaky `mqt_v_js` SIGSEGV seen at cold start is not (yet) attributable
+to app code.** Observed on API 34 x86_64 debug builds: `SEGV_ACCERR` on the
+JS thread seconds after `Running "main" … "fabric":true`, ~119 native frames,
+no JS output yet — so it dies inside engine startup, not inside our modules.
+It is intermittent: the same APK cold-booted again reaches the app. A web
+search for an upstream tracker entry did not surface a matching issue, so no
+reference is given here (one research pass produced fabricated issue
+numbers — deleted; verify before citing). Practical stance: relaunch before
+debugging, and reproduce on a real device / release variant before blaming
+the app.
+
+Driving the UI over adb has three traps, all hit for real: `input text` drops
+the first characters if it fires immediately after `input tap` (sleep ~1-2 s);
+`keyevent 66` (Enter) does not advance focus between RN `TextInput`s — use
+`keyevent 61` (Tab); and a mis-timed tap can type the password into the email
+field, so verify with a screenshot before submitting. Reset a stuck sign-in
+with `adb shell pm clear nu.suteki.mote` instead of fighting the fields.
+
+For a throwaway backend to sign into, reuse `e2e/stack.ts` (`startStack` —
+fresh temp DB on :3199, PI stub harness) with `adb reverse tcp:3199 tcp:3199`;
+do not point the app at the live :3080 instance, and never reset a real
+account's password to get test credentials.
 
 A real device is still required for the things an emulator lies about: soft
 keyboard behaviour, push delivery, badge counts, lock-screen actions.
