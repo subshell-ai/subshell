@@ -4,6 +4,10 @@ import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { apiModels } from "@/schema/index.js";
 
+// One policy string for both verbs — the notifications route does the same with
+// NOTIFICATIONS_403 so the wire bytes can't drift per endpoint.
+const DEVICES_403 = "Device enrollment is restricted to browser sessions";
+
 /**
  * Native-device push enrollment (spec 2026-08-31-mobile-native-app §Backend
  * diff). Cookie-only like `notifications.route.ts`: enrolling a phone is a
@@ -35,7 +39,7 @@ export const devicesRoutes = new Elysia({ prefix: "/api/devices" })
   .post(
     "/",
     async ({ body, user, actor }) => {
-      requireCookieActor(actor, "Device enrollment is restricted to browser sessions");
+      requireCookieActor(actor, DEVICES_403);
       await new DeviceTokensRepository(db).upsertForUser(user.id, body.token, body.platform);
       return { ok: true } as const;
     },
@@ -57,7 +61,7 @@ export const devicesRoutes = new Elysia({ prefix: "/api/devices" })
   .delete(
     "/",
     async ({ body, user, actor }) => {
-      requireCookieActor(actor, "Device enrollment is restricted to browser sessions");
+      requireCookieActor(actor, DEVICES_403);
       // Owner-scoped and idempotent: sign-out deregistration must succeed even
       // if the row is already gone (pruned by a DeviceNotRegistered ticket).
       await new DeviceTokensRepository(db).deleteForUser(user.id, body.token);

@@ -101,6 +101,8 @@ export function createNotifyService(deps: NotifyServiceDeps) {
   // Resolution order mirrors `send` above: explicit dep wins, then the test
   // override (which implies a singleton reset), then the production client.
   const expoSend: ExpoPushSender = deps.expoSender ?? expoSenderOverride ?? createExpoPushSender();
+  // One repository per service — both transports read the same db handle.
+  const sessionsRepo = new SessionsRepository(deps.sessions);
 
   /**
    * Device fan-out (spec §Push): opaque messages built from ids and counts,
@@ -112,15 +114,17 @@ export function createNotifyService(deps: NotifyServiceDeps) {
     if (!deps.devices) return;
     const enrolled = await deps.devices.listByUser(row.userId);
     if (enrolled.length === 0) return;
-    const live = enrolled.filter((t) => looksLikeExpoToken(t.token));
-    for (const junk of enrolled) {
-      if (!live.includes(junk)) {
-        await deps.devices.deleteByToken(junk.token); // a row the relay can never use
-        logger.warn(`pruned invalid device token for user ${junk.userId}`);
-      }
+    // One pass partitions relay-usable rows from junk; the junk rows are ones
+    // the relay can never use, so they go now rather than on every send.
+    const live: typeof enrolled = [];
+    const junk: typeof enrolled = [];
+    for (const t of enrolled) (looksLikeExpoToken(t.token) ? live : junk).push(t);
+    for (const dead of junk) {
+      await deps.devices.deleteByToken(dead.token);
+      logger.warn(`pruned invalid device token for user ${dead.userId}`);
     }
     if (live.length === 0) return;
-    const counts = await new SessionsRepository(deps.sessions).countsByUser(row.userId);
+    const counts = await sessionsRepo.countsByUser(row.userId);
     const badge = badgeCount(counts.waiting, kind, row.waitingSince);
     const messages = buildExpoMessages(
       live.map((t) => t.token),
@@ -161,8 +165,12 @@ export function createNotifyService(deps: NotifyServiceDeps) {
      */
     async notifySession(sessionId: string, kind: NotifyKind): Promise<void> {
       try {
-        const row = await new SessionsRepository(deps.sessions).findById(sessionId);
+        const row = await sessionsRepo.findById(sessionId);
         if (row?.notify !== 1) return;
+        // The transports are independent. Start the device fan-out NOW, before
+        // the sequential web-push loop, so a phone never waits behind N HTTPS
+        // round-trips to browser push gateways (review, efficiency #6).
+        const deviceDelivery = notifyDevices(row, kind);
         const subs = await deps.subs.listByUser(row.userId);
         if (subs.length > 0) {
           const payload = JSON.stringify(buildNotificationPayload(row, kind));
@@ -179,7 +187,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
             }
           }
         }
-        await notifyDevices(row, kind);
+        await deviceDelivery;
       } catch (err) {
         // Notifications must never break the caller (sweep / hook route).
         logger.withError(err).warn(`notifySession(${sessionId}, ${kind}) failed`);

@@ -14,9 +14,11 @@ import { updateSessionNotesRoute } from "@/api/sessions/update-session-notes.rou
 import { updateSessionNotifyRoute } from "@/api/sessions/update-session-notify.route.js";
 
 /**
- * `/api/sessions` — one Elysia instance per endpoint (mounted in the original
- * monolithic route's order); business logic lives in `SessionsService`
- * (`src/services/sessions.service.ts`), reached by handlers via `ctx`.
+ * `/api/sessions` — one Elysia instance per endpoint, mounted in the original
+ * monolithic route's order (convention, not a router constraint: Elysia ranks
+ * static segments above `/:id` regardless of order). Business logic lives in
+ * `SessionsService` (`src/services/sessions.service.ts`), reached by handlers
+ * via `ctx`.
  */
 export const sessionRoutes = new Elysia({ prefix: "/api/sessions" })
   .use(createSessionRoute)

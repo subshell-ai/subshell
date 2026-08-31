@@ -11,8 +11,9 @@ const SummaryResponseSchema = t.Object({
 
 /**
  * `GET /api/sessions/summary` — badge counts in one cheap read (spec §Backend
- * diff). Registered before `/:id` in the sessions index: Elysia matches in
- * registration order, so this MUST win over the id route for "summary".
+ * diff). Static segments beat `/:id` in Elysia's router regardless of mount
+ * order (verified against 1.4.30), so "summary" cannot be shadowed by the id
+ * route — the order in `sessions/index.ts` is convention, not a constraint.
  */
 export const summarySessionRoute = new Elysia()
   .use(contextPlugin)
