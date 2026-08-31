@@ -11,7 +11,8 @@
       "!**/test-results/**",
       "!**/playwright-report/**",
       "!packages/backend-client/**",
-      "!**/routeTree.gen.ts"
+      "!**/routeTree.gen.ts",
+      "!**/assets/terminal.html"
     ]
   },
   "assist": {

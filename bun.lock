@@ -126,7 +126,10 @@
         "@react-native-async-storage/async-storage": "2.2.0",
         "@shopify/flash-list": "2.0.2",
         "@tanstack/react-query": "5.101.4",
+        "@xterm/addon-fit": "0.11.0",
+        "@xterm/xterm": "6.0.0",
         "expo": "57.0.18",
+        "expo-clipboard": "57.0.1",
         "expo-constants": "57.0.16",
         "expo-crypto": "57.0.2",
         "expo-dev-client": "57.0.16",
@@ -1543,6 +1546,8 @@
     "expo-application": ["expo-application@57.0.2", "", { "peerDependencies": { "expo": "*" } }, "sha512-q31YwcXyymviAmdrtDfAg3Dld4VMxLCNAfgMHip7vZpPX4lzF/AfwsywqBJUAjQnJknzaNAkzqvMVjO5XmKYDA=="],
 
     "expo-asset": ["expo-asset@57.0.15", "", { "dependencies": { "@expo/image-utils": "^0.11.5", "expo-constants": "~57.0.15" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-ZoiUftQb1Nn1jvL6l1kZoUXvgRCx57tMQYxSsp+g4ZvY+jgVWp/THruXOtPtZVdC/WWZxPUTct53bfAm2EPDAQ=="],
+
+    "expo-clipboard": ["expo-clipboard@57.0.1", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-HWICri4+1ao7S6QEfcorxVumXDiDnx1guGGewjZgGJWLGxFYs0RgH8ujBs+lkTzBkMmlwADaWSlaesR+nDJt5Q=="],
 
     "expo-constants": ["expo-constants@57.0.16", "", { "dependencies": { "@expo/env": "~2.4.3" }, "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-HG3yJjGZo2BPTo2F1sBoxdJZRwX7d9C554EhKn8m12K62pxGolCsvPSoh/lQf95OEP9vO34wwXB2C3QFs0KG0g=="],
 

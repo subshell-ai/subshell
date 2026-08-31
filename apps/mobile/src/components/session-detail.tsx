@@ -3,10 +3,12 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LiveHost } from "@/components/live-host";
 import { PromptModal } from "@/components/prompt-modal";
 import { useSession } from "@/hooks/use-session";
 import { useSessionLog } from "@/hooks/use-session-log";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
+import { useApp } from "@/lib/app-state";
 import { isWaiting } from "@/lib/session-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { useMote } from "@/providers/mote-provider";
@@ -23,6 +25,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
   const insets = useSafeAreaInsets();
   const { client } = useMote();
   const qc = useQueryClient();
+  const wsBlocked = useApp((s) => s.instances.find((r) => r.id === s.activeId)?.wsBlocked ?? false);
   const { data: session, refetch, error } = useSession(sessionId);
   const [tab, setTab] = useState<"live" | "log">("log");
   const [modal, setModal] = useState<"name" | "notes" | null>(null);
@@ -101,9 +104,18 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
       </View>
 
       {tab === "live" ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: colors.mutedFg }}>Terminal view ships with the next build.</Text>
-        </View>
+        !client ? null : wsBlocked ? (
+          // Standing banner (spec §Error handling): this proxy forwards HTTP
+          // but not upgrades — every other screen still works.
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 6 }}>
+            <Text style={{ color: colors.warning, fontWeight: "600" }}>Terminal blocked on this instance</Text>
+            <Text style={{ color: colors.mutedFg, fontSize: 12, textAlign: "center" }}>
+              WebSocket upgrades do not tunnel. Re-probe from Settings once the proxy forwards them.
+            </Text>
+          </View>
+        ) : (
+          <LiveHost client={client} sessionId={sessionId} active />
+        )
       ) : log.isLoading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: colors.mutedFg }}>Loading log…</Text>
