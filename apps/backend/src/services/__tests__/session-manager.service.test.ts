@@ -322,11 +322,18 @@ describe("SessionManagerService notes + restart", () => {
 
     releaseGate();
     const [ra, rb] = await Promise.all([pA, pB]);
-    expect(ra?.id).toBe(id);
-    expect(rb?.id).toBe(id);
-    expect(aIssues).toBe(1); // A did the one real revival…
-    expect(bIssues).toBe(0); // …B rode A's lease and issued nothing of its own.
-    await a.terminateSession("u1", id);
+    try {
+      expect(ra?.id).toBe(id);
+      expect(rb?.id).toBe(id);
+      expect(aIssues).toBe(1); // A did the one real revival…
+      expect(bIssues).toBe(0); // …B rode A's lease and issued nothing of its own.
+    } finally {
+      // A real pane was spawned by the revival; reap it (and its server) even
+      // if an assertion above throws, or it outlives the suite (sibling
+      // tests' try/finally pattern).
+      if (ra) trackTmuxSocket(ra.tmuxSocket);
+      await a.terminateSession("u1", id);
+    }
   });
 
   // Regression (review #4): a relaunch that can't be composed must roll the
