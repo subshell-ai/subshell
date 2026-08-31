@@ -270,7 +270,7 @@ contract.
 | **Connect** | user input; probe result | enter/paste origin; per-instance list (long-press delete) |
 | **Sign in** | probe + `GET /api/setup/status` | email/password; "this instance needs setup" → points at the web wizard; rate-limit copy |
 | **Sessions** | `GET /api/sessions` (polled), `GET /api/sessions/summary` | pull-to-refresh; sections Waiting / Running / Paused-exited / Completed mirroring the web grouping; card = name, harness, activity dot, `preview` via shared `stripAnsi`, amber waiting chip, `backoffCount`/`exitCode` on dead rows; tap → detail; tab badge = `waiting` |
-| **Detail** | `GET /api/sessions/:id` | Live ∣ Log tabs; action bar rename / notes / bell / restart ("starts a new session") / terminate / delete (confirm); status pill from the poll |
+| **Detail** | `GET /api/sessions/:id` | Live ∣ Log tabs; action bar rename / notes / bell / restart (revives in place, same id) / terminate / delete (confirm); status pill from the poll |
 | **New session** | `GET /api/profiles`, `GET /api/setup/harnesses`, `GET /api/files/recent`, `GET /api/files/explore` | native folder sheet over `explore` (one level per request) with recents; profile picker; name; optional first prompt |
 | **Settings** | instance registry, push permission, probe result | switch instance, re-probe, re-request notification permission, sign out (deregisters the device first) |
 
@@ -287,9 +287,11 @@ PgUp/PgDn. Paste is one `input` frame wrapped in `BRACKETED_PASTE_START/END`.
   `onerror`/timeout with REST up means **WS blocked** — persisted per instance, a
   standing banner, Live tab hidden, one retry per 30 s. This is the exact shape of a
   proxy that forwards HTTP but not upgrades.
-- **Restart changes the id.** `POST /:id/restart` mints a new row, so an old deep
-  link or notification 404s → route to the list with "session restarted". Web has the
-  same property; behaviour stays symmetric rather than clever.
+- **Restart is in-place.** `POST /:id/restart` revives the same row (same id,
+  rotated token), so a deep link or notification opened after a restart still
+  resolves to the live session. A 404 therefore only means deleted-elsewhere →
+  route to the list. (Amended 2026-08-31 to match `53654a8`; the original text
+  assumed the old mint-a-new-row contract.)
 - 401 → clear token, preserve intended route, re-auth, resume.
 - Every list/screen has distinct empty and error states (repo convention).
 - Push is fire-and-forget from the backend's perspective: `notifySession` stays
