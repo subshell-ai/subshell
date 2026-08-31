@@ -24,8 +24,17 @@ export interface ExpoPushMessage {
   badge: number;
   /** Always the OS default sound (custom sounds are a follow-up). */
   sound: "default";
-  /** Session id — replaces the session's earlier notification, like web's `tag`. */
+  /** Groups the conversation (iOS thread); NOT the replace mechanism. */
   threadId: string;
+  /**
+   * Android notification tag — the relay maps it to FCM `tag` and derives the
+   * notification id from it, so a second push for the same session REPLACES
+   * the first. This is the web-`tag` parity the spec asks for; `threadId`
+   * alone only groups.
+   */
+  tag: string;
+  /** iOS APNs collapse id — the same replace semantics on the other platform. */
+  collapseId: string;
   /**
    * The category the app registers its lock-screen actions under (APns
    * `category`). Remote notifications only surface a registered category's
@@ -33,7 +42,16 @@ export interface ExpoPushMessage {
    * appear on the lock screen.
    */
   categoryId: string;
-  /** Android channel (expo-relay maps `_channelId` → `channel_id`). */
+  /**
+   * Android channel, sent under BOTH names: `channelId` is current (docs +
+   * expo-server-sdk 7.2), `_channelId` is the legacy name older relays honour.
+   * The relay's schema is open (proved against exp.host: unknown keys are
+   * tolerated, bad types are rejected at ticket time), so it silently ignores
+   * whichever one it no longer reads — and the two values are identical, so
+   * whichever wins cannot contradict the other.
+   */
+  channelId: string;
+  /** @deprecated Legacy twin of `channelId` — see above; same value always. */
   _channelId: string;
   /** Opaque routing data; `sid` is a uuid, `origin` lets the app pick the instance. */
   data: { sid: string; kind: NotifyKind; origin: string };
@@ -96,9 +114,12 @@ export function buildExpoMessages(
     badge,
     sound: "default" as const,
     threadId: sessionId,
+    tag: sessionId,
+    collapseId: sessionId,
     // Names registered in apps/mobile/src/native/push.ts — keep the three in
     // sync or the lock-screen actions silently vanish on real devices.
     categoryId: "session",
+    channelId: "mote-sessions",
     _channelId: "mote-sessions",
     data: { sid: sessionId, kind, origin: APP_BASE_URL },
   }));

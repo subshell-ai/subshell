@@ -68,6 +68,19 @@ export async function enrollPush(client: MoteClient): Promise<string | null> {
 }
 
 /**
+ * App-icon badge: iOS is exact, Android is launcher best-effort (spec lists
+ * Android badge channels as a non-goal). Never throws — a launcher that
+ * refuses the number must not take down the reconciliation loop.
+ */
+export async function setIconBadge(count: number): Promise<void> {
+  try {
+    await Notifications.setBadgeCountAsync(Math.max(0, count));
+  } catch {
+    /* badge-less launcher; the tab-bar badge still tells the truth */
+  }
+}
+
+/**
  * Best-effort server-side deregistration of this phone, then the local mirror
  * is dropped (spec §Push prune contract's operator-facing twin). Used by both
  * sign-out and Forget-instance — a phone must stop ringing for anything the

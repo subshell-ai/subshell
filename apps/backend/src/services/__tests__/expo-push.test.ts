@@ -32,7 +32,8 @@ describe("buildExpoMessages", () => {
     // action is inert on real devices.
     const [m] = buildExpoMessages(["ExponentPushToken[a]"], "sess-1", "needs_attention", 0);
     expect(m.categoryId).toBe("session");
-    expect(m._channelId).toBe("mote-sessions");
+    expect(m.channelId).toBe("mote-sessions");
+    expect(m._channelId).toBe("mote-sessions"); // legacy twin, always the same value
   });
 
   it("builds one opaque message per token — never a name, path or operator text", () => {
@@ -45,7 +46,10 @@ describe("buildExpoMessages", () => {
       badge: 4,
       sound: "default",
       threadId: "sess-1",
+      tag: "sess-1", // Android: same tag replaces the session's earlier push (web `tag` parity)
+      collapseId: "sess-1", // iOS: apns-collapse-id, same replace semantics
       categoryId: "session",
+      channelId: "mote-sessions",
       _channelId: "mote-sessions",
       data: { sid: "sess-1", kind: "needs_attention", origin: expect.any(String) },
     });

@@ -3,6 +3,7 @@ import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect } from "react";
 import { SESSIONS_KEY } from "@/hooks/query-keys";
+import { useIconBadge } from "@/hooks/use-icon-badge";
 import { useApp } from "@/lib/app-state";
 import type { SessionNotifData } from "@/lib/notif-data";
 import { clientForOrigin } from "@/native/mote-client-factory";
@@ -15,6 +16,8 @@ import { useMote } from "@/providers/mote-provider";
  * - categories + presentation handler once at start,
  * - enrollment whenever a client exists (cold start AND after sign-in —
  *   spec: enrollment upserts on every cold start so token churn is bounded),
+ * - app-icon badge = the polled waiting count while foregrounded
+ *   (`useIconBadge`; pushes only stamp it at send time),
  * - response routing: the payload's `origin` selects the INSTANCE (spec
  *   §Push: a push for a session on B must open B, not the instance you last
  *   used) — tap switches active instance and routes to `/session/<sid>` (the
@@ -32,6 +35,7 @@ import { useMote } from "@/providers/mote-provider";
 export function PushBridge() {
   const { client } = useMote();
   const qc = useQueryClient();
+  useIconBadge(); // icon = waiting count while foregrounded (spec §Push)
 
   useEffect(() => {
     configureNotifications();
