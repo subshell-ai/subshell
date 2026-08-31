@@ -38,12 +38,20 @@ export class UserMetaRepository extends BaseRepository {
     return (row?.notifyEnabled ?? 1) === 1;
   }
 
-  /** Sets the per-user notification master switch (on = receive pushes). */
+  /**
+   * Sets the per-user notification master switch (on = receive pushes). Upserts
+   * so it works for a user whose `user_meta` row was never created (e.g. a
+   * user minted before this column existed): `role` falls back to its DB
+   * default and only the switch is written on conflict.
+   */
   async setNotifyEnabled(userId: string, on: boolean): Promise<void> {
     await this.db
-      .updateTable("userMeta")
-      .set({ notifyEnabled: on ? 1 : 0 })
-      .where("userId", "=", userId)
+      .insertInto("userMeta")
+      // role is only used if the row is being created (a brand-new user_meta);
+      // an existing admin's role is preserved because the update sets only the
+      // switch. "user" matches the column's DB default.
+      .values({ userId, role: "user", notifyEnabled: on ? 1 : 0 })
+      .onConflict((oc) => oc.column("userId").doUpdateSet({ notifyEnabled: on ? 1 : 0 }))
       .execute();
   }
 

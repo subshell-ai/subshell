@@ -145,6 +145,35 @@ describe("notifications route", () => {
     expect(rows.map((r) => r.endpoint)).not.toContain("https://push/machine");
   });
 
+  it("GET /settings defaults on; PATCH off persists (and works without a preexisting user_meta row)", async () => {
+    const on = (await (await req("/settings")).json()) as { notifyEnabled: boolean };
+    expect(on.notifyEnabled).toBe(true); // default when unset
+    const patched = (await (
+      await req("/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: json({ notifyEnabled: false }),
+      })
+    ).json()) as { notifyEnabled: boolean };
+    expect(patched.notifyEnabled).toBe(false);
+    const reread = (await (await req("/settings")).json()) as { notifyEnabled: boolean };
+    expect(reread.notifyEnabled).toBe(false);
+    // Restore so no later test sees the switch off.
+    await req("/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: json({ notifyEnabled: true }),
+    });
+  });
+
+  it("bearer / machine credential → 403 on GET /settings", async () => {
+    const key = await mintSystemKey();
+    const res = await app.fetch(
+      new Request("http://localhost:3080/api/notifications/settings", { headers: { authorization: `Bearer ${key}` } }),
+    );
+    expect(res.status).toBe(403);
+  });
+
   it("POST /subscribe → 503 when VAPID is unconfigured; /unsubscribe stays usable", async () => {
     // The spec's degraded state: an unwritable data dir makes VAPID
     // generation impossible, so enrolling a device must fail as loudly as

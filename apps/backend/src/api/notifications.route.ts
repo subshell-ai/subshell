@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requireCookieActor } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { logger } from "@/utils/logger.js";
@@ -35,6 +36,10 @@ const ConfigResponseSchema = t.Object({
 });
 
 const OkResponseSchema = t.Object({ ok: t.Boolean({ description: "Always true" }) });
+
+const NotificationSettingsSchema = t.Object({
+  notifyEnabled: t.Boolean({ description: "Per-user master switch: false = never receive session pushes" }),
+});
 
 /** 403 message kept byte-identical when the gate moved into auth-guard (existing tests assert it). */
 const NOTIFICATIONS_403 = "Notifications are restricted to browser sessions";
@@ -126,6 +131,47 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
         operationId: "unsubscribePush",
         tags: ["notifications"],
         description: "Forget this browser's push subscription",
+      },
+    },
+  )
+  .get(
+    "/settings",
+    async ({ user, actor }) => {
+      requireCookieActor(actor, NOTIFICATIONS_403);
+      return { notifyEnabled: await new UserMetaRepository(db).getNotifyEnabled(user.id) };
+    },
+    {
+      response: {
+        200: NotificationSettingsSchema,
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "getNotificationSettings",
+        tags: ["notifications"],
+        description: "The caller's notification master switch (browser sessions only)",
+      },
+    },
+  )
+  .patch(
+    "/settings",
+    async ({ user, actor, body }) => {
+      requireCookieActor(actor, NOTIFICATIONS_403);
+      await new UserMetaRepository(db).setNotifyEnabled(user.id, body.notifyEnabled);
+      return { notifyEnabled: body.notifyEnabled };
+    },
+    {
+      body: NotificationSettingsSchema,
+      response: {
+        200: NotificationSettingsSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "setNotificationSettings",
+        tags: ["notifications"],
+        description: "Set the caller's notification master switch (browser sessions only)",
       },
     },
   );
