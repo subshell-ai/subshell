@@ -5,6 +5,7 @@ import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { ApiError } from "@/lib/api";
 
 export const Route = createFileRoute("/workspaces_/$id")({
   component: WorkspaceDetailPage,
@@ -21,12 +22,17 @@ export const Route = createFileRoute("/workspaces_/$id")({
  */
 function WorkspaceDetailPage() {
   const { id } = useParams({ from: "/workspaces_/$id" });
-  const { data: detail, isLoading, refetch } = useWorkspace(id);
+  const { data: detail, isLoading, error, refetch } = useWorkspace(id);
   const wide = useIsWide();
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
-  if (isLoading) {
+  // "Not found" must be the server's ANSWER (404), never the absence of one:
+  // during an outage (NetworkError) or any other first-load failure the query
+  // layer retries on its own (query-client.ts), so hold the loading state and
+  // let it heal instead of declaring the workspace deleted.
+  const failedWithoutAnswer = !detail && !(error instanceof ApiError && error.status === 404);
+  if (isLoading || failedWithoutAnswer) {
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
         <p className="text-muted-foreground text-sm">Loading…</p>
@@ -43,6 +49,8 @@ function WorkspaceDetailPage() {
   // to this card would unmount the dock/tabs underneath, tearing down every
   // pane's terminal for a transient network blip instead of a real 404.
   if (!detail) {
+    // Only a real 404 can land here: every no-answer case took the loading
+    // branch above, so "deleted" is the server's own word, never an outage.
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
         <Card>

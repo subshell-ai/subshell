@@ -2,10 +2,11 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileTopBar } from "@/components/mobile-top-bar";
+import { OfflineBanner } from "@/components/offline-banner";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, isNetworkError } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
 import { queryClient } from "@/lib/query-client";
 
@@ -55,7 +56,7 @@ function RootComponent() {
 function Shell() {
   const wide = useIsWide();
   const insets = useVisualViewportInsets();
-  const { data: user, isLoading } = useCurrentUser();
+  const { data: user, isLoading, error: userError } = useCurrentUser();
   const location = useLocation();
   // Pre-auth pages own the whole frame: no sidebar, no drawer bar.
   const bare = location.pathname === "/login" || location.pathname === "/setup";
@@ -75,7 +76,10 @@ function Shell() {
   // Hold first paint until the session (and, when signed out, the setup
   // state) is known — chrome must not flash and the guard must not race.
   if (isLoading) return null;
-  if (!user) {
+  // A server outage is not a sign-out: while the session query itself is in
+  // the network-retry loop, hold the frame (the OfflineBanner explains)
+  // instead of bouncing to /login against an unreachable endpoint.
+  if (!user && !isNetworkError(userError)) {
     if (setupLoading && !bare) return null;
     if (needsSetup && location.pathname !== "/setup") return <Navigate to="/setup" />;
     if (needsSetup === false && !bare) {
@@ -88,6 +92,7 @@ function Shell() {
       className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
       style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
     >
+      {!bare && <OfflineBanner />}
       {!wide && !bare && <MobileTopBar />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {wide && !bare && <AppSidebar />}

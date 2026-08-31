@@ -100,10 +100,12 @@ function SessionsPage() {
       {/* A failed list fetch is not an empty account: say what broke and
           offer the retry, rather than the "No sessions yet" card — the SSE
           stream may never have delivered either, so this is the only truth
-          the page has. */}
+          the page has. Network failures now also self-heal via the query
+          retry loop (and the global offline banner); the button remains for
+          HTTP failures and the impatient. */}
       {isError && (
         <ErrorBanner
-          message="Couldn't load sessions."
+          message="Couldn't load sessions — retrying…"
           action={
             <Button
               variant="link"
