@@ -564,74 +564,9 @@ export class SessionManagerService {
         );
         return false;
       }
-      const profileRow = await this.#profiles.findById(fresh.profileId);
-      if (!profileRow) throw new Error("profile missing");
-      const harness = getHarness(fresh.harnessId);
-      if (!harness) throw new Error("harness missing");
-      const realPath = await validateWorkingDir(fresh.workingDir);
-      const binary = await harness.findBinary();
-      if (!binary) throw new Error("harness binary missing");
-      const profile = parseProfile(profileRow);
-      // Rotate the MCP token: the old process is gone and its baked key must
-      // die with it; the new pane bakes the freshly issued one. A failed
-      // revoke must NOT abort the restart — `issue` below rewrites the row's
-      // apiKeyId, and the guard's link check then 401s the orphaned old key.
-      await this.#revokeTokenOrUnlink(fresh.id);
-      const apiKey = await this.#tokens.issue(fresh.id, fresh.userId);
-      const mcp = registerSessionMcp(harness, fresh.id);
-      // Same-row restart: resume the crashed conversation when it survived,
-      // re-pin when it didn't (or the row predates the feature).
-      const harnessSession = this.#planHarnessSession(harness, fresh.harnessSessionId ?? null, realPath);
-      const cmd = buildHarnessCommand(
-        harness,
-        binary,
-        realPath,
-        profile,
-        fresh.name,
-        sessionMcpEnv(apiKey, fresh.id, fresh.name),
-        mcp,
-        harnessSession,
-      );
-      const socket = fresh.tmuxSocket ?? tmuxSocketFor(fresh.id);
-      // Cheap last look before the spawn: everything above (profile lookup,
-      // findBinary, two token round-trips) is a window in which the operator
-      // can terminate the session — never bake a pane under a killed row.
-      const preSpawn = await this.#sessions.findById(fresh.id);
-      if (preSpawn?.status !== "running" || preSpawn.alive !== 0) {
-        // The row died mid-flight; retire the token we just minted for it.
-        await this.#revokeTokenOrUnlink(fresh.id);
-        return false;
-      }
-      this.#tmux.newSession(socket, fresh.id, realPath, cmd);
-      // Re-attach the log pipe if it was unlinked by cleanup.
-      const logFile = sessionLogPath(fresh.id);
-      // Conditional revival: a terminate that landed after the pre-spawn
-      // check (between it and this write) must not resurrect the row — the
-      // guard makes this a no-op and the orphan below is cleaned up instead.
-      const revived = await this.#sessions.updateIfRunning(fresh.id, {
-        alive: 1,
-        exitCode: null,
-        endedAt: null,
-        startedAt: new Date().toISOString(),
-        backoffCount: fresh.backoffCount + 1,
-        nextRestartAt: null,
-        // Persist the pinned id when this attempt re-pinned (mode "start");
-        // a mode "resume" id equals the stored one, so this is a no-op write.
-        ...(harnessSession ? { harnessSessionId: harnessSession.id } : {}),
-      });
-      if (revived === 0) {
-        logger.warn(`session ${fresh.id} terminated mid-restart; killing the orphan pane and revoking its token`);
-        this.#tmux.killSession(socket, fresh.id); // swallows "already gone"
-        await this.#revokeTokenOrUnlink(fresh.id);
-        return false;
-      }
-      try {
-        this.#tmux.pipePane(socket, row.id, logFile);
-      } catch {
-        /* best-effort */
-      }
-      logger.info(`session auto-restarted (${row.id}), backoff=${row.backoffCount + 1}`);
-      return true;
+      const revived = await this.#reviveRow(fresh, { backoffCount: fresh.backoffCount + 1 });
+      if (revived) logger.info(`session auto-restarted (${row.id}), backoff=${row.backoffCount + 1}`);
+      return revived;
     } catch (err) {
       logger.withError(err).warn(`auto-restart failed for ${row.id}`);
       // A failed spawn still counts as an attempt toward the backoff limit:
@@ -641,6 +576,96 @@ export class SessionManagerService {
       await this.#sessions.update(row.id, { nextRestartAt: null, backoffCount: row.backoffCount + 1 });
       return false;
     }
+  }
+
+  /**
+   * Revive a parked row (`status: "running"`, `alive: 0`) in place: rotate
+   * credentials, re-register MCP, resume the conversation when its transcript
+   * survived, respawn the pane, and conditionally flip the row back alive.
+   *
+   * Shared by the auto-restart sweep and the manual `POST /:id/restart`;
+   * both must obey the same race guards (pre-spawn re-read, conditional
+   * revival) so a terminate landing mid-flight cannot leave a live pane
+   * under a dead row. `nextRestartAt` is cleared on success and the row's
+   * `tmuxSocket` is persisted (a row parked before its first socket write
+   * still gets a durable one).
+   * @param row - the parked row, freshly read (its fields compose the launch)
+   * @param backoffCount - value written to the row on revival (auto: +1;
+   *                       a manual restart resets to 0)
+   * @returns true when the pane spawned and the row revived; false when a
+   *          terminate won the race (orphan pane killed, fresh token revoked)
+   * @throws when the launch cannot even be composed (profile/harness/binary
+   *         gone, working dir unlinked, tmux refused the spawn)
+   */
+  async #reviveRow(row: SessionTable, { backoffCount }: { backoffCount: number }): Promise<boolean> {
+    const profileRow = await this.#profiles.findById(row.profileId);
+    if (!profileRow) throw new Error("profile missing");
+    const harness = getHarness(row.harnessId);
+    if (!harness) throw new Error("harness missing");
+    const realPath = await validateWorkingDir(row.workingDir);
+    const binary = await harness.findBinary();
+    if (!binary) throw new Error("harness binary missing");
+    const profile = parseProfile(profileRow);
+    // Rotate the MCP token: the old process is gone and its baked key must
+    // die with it; the new pane bakes the freshly issued one. A failed
+    // revoke must NOT abort the restart — `issue` below rewrites the row's
+    // apiKeyId, and the guard's link check then 401s the orphaned old key.
+    await this.#revokeTokenOrUnlink(row.id);
+    const apiKey = await this.#tokens.issue(row.id, row.userId);
+    const mcp = registerSessionMcp(harness, row.id);
+    // Same-row restart: resume the crashed conversation when it survived,
+    // re-pin when it didn't (or the row predates the feature).
+    const harnessSession = this.#planHarnessSession(harness, row.harnessSessionId ?? null, realPath);
+    const cmd = buildHarnessCommand(
+      harness,
+      binary,
+      realPath,
+      profile,
+      row.name,
+      sessionMcpEnv(apiKey, row.id, row.name),
+      mcp,
+      harnessSession,
+    );
+    const socket = row.tmuxSocket ?? tmuxSocketFor(row.id);
+    // Cheap last look before the spawn: everything above (profile lookup,
+    // findBinary, two token round-trips) is a window in which the operator
+    // can terminate the session — never bake a pane under a killed row.
+    const preSpawn = await this.#sessions.findById(row.id);
+    if (preSpawn?.status !== "running" || preSpawn.alive !== 0) {
+      // The row died mid-flight; retire the token we just minted for it.
+      await this.#revokeTokenOrUnlink(row.id);
+      return false;
+    }
+    this.#tmux.newSession(socket, row.id, realPath, cmd);
+    // Re-attach the log pipe if it was unlinked by cleanup.
+    const logFile = sessionLogPath(row.id);
+    // Conditional revival: a terminate that landed after the pre-spawn
+    // check (between it and this write) must not resurrect the row — the
+    // guard makes this a no-op and the orphan below is cleaned up instead.
+    const revived = await this.#sessions.updateIfRunning(row.id, {
+      alive: 1,
+      exitCode: null,
+      endedAt: null,
+      tmuxSocket: socket,
+      startedAt: new Date().toISOString(),
+      backoffCount,
+      nextRestartAt: null,
+      // Persist the pinned id when this attempt re-pinned (mode "start");
+      // a mode "resume" id equals the stored one, so this is a no-op write.
+      ...(harnessSession ? { harnessSessionId: harnessSession.id } : {}),
+    });
+    if (revived === 0) {
+      logger.warn(`session ${row.id} terminated mid-restart; killing the orphan pane and revoking its token`);
+      this.#tmux.killSession(socket, row.id); // swallows "already gone"
+      await this.#revokeTokenOrUnlink(row.id);
+      return false;
+    }
+    try {
+      this.#tmux.pipePane(socket, row.id, logFile);
+    } catch {
+      /* best-effort */
+    }
+    return true;
   }
 
   /**
