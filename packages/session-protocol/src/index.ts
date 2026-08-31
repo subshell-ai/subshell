@@ -16,4 +16,20 @@ export {
   parseNodeCommandBody,
   parseNodeEvent,
 } from "./node-frames.js";
+export {
+  type CommandClaims,
+  type ControlKeyPair,
+  generateControlKeys,
+  JtiLru,
+  NODE_CMD_ISSUER,
+  NODE_CMD_TTL_SEC,
+  SeqTracker,
+  type SignCommandInput,
+  signCommand,
+  /** @internal test-only export (see node-signing.ts) */
+  signRawClaims,
+  type VerifyContext,
+  type VerifyOutcome,
+  verifyCommand,
+} from "./node-signing.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";

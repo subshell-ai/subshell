@@ -22,6 +22,9 @@
     "test": "bun test",
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "jose": "6.2.9"
+  },
   "devDependencies": {
     "@types/sprintf-js": "1.1.4",
     "@internal/tsconfig": "workspace:*",

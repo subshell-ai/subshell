@@ -215,6 +215,9 @@
     "packages/session-protocol": {
       "name": "@internal/session-protocol",
       "version": "1.0.0",
+      "dependencies": {
+        "jose": "6.2.9",
+      },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
