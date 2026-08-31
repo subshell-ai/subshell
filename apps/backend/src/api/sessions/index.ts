@@ -7,6 +7,7 @@ import { getSessionLogRoute } from "@/api/sessions/get-session-log.route.js";
 import { listSessionsRoute } from "@/api/sessions/list-sessions.route.js";
 import { restartSessionRoute } from "@/api/sessions/restart-session.route.js";
 import { sessionAttentionRoute } from "@/api/sessions/session-attention.route.js";
+import { sessionSharesRoutes } from "@/api/sessions/session-shares.route.js";
 import { summarySessionRoute } from "@/api/sessions/summary-session.route.js";
 import { terminateSessionRoute } from "@/api/sessions/terminate-session.route.js";
 import { updateSessionNameRoute } from "@/api/sessions/update-session-name.route.js";
@@ -26,6 +27,7 @@ export const sessionRoutes = new Elysia({ prefix: "/api/sessions" })
   .use(summarySessionRoute)
   .use(getSessionRoute)
   .use(getSessionLogRoute)
+  .use(sessionSharesRoutes)
   .use(updateSessionNotesRoute)
   .use(updateSessionNotifyRoute)
   .use(sessionAttentionRoute)

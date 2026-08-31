@@ -18,26 +18,45 @@ import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { wsTokenRoutes } from "@/api/ws-token.route.js";
 
 /**
- * Root API router. Feature routes are composed in as they are built.
+ * Root API router. Feature routes are grouped into a few sub-aggregates and
+ * then merged, rather than chained `.use()` end to end.
+ *
+ * Elysia builds its composed type as a LEFT-NESTED merge of every `.use()`, so a
+ * long flat chain makes `App = ReturnType<typeof createApp>` recursively deep and
+ * eventually trips TypeScript's instantiation-depth ceiling (TS2589) — at which
+ * point ADDING ANY new route module fails to compile, no matter how small. The
+ * old flat chain had consumed essentially all of that depth budget. Grouping
+ * routes into balanced sub-aggregates keeps the identical set of endpoints but
+ * flattens the nesting back to a shallow tree, restoring headroom so new
+ * feature modules (and their endpoints) can be added normally.
+ *
+ * Grouping is by rough domain only — it is not a behaviour boundary. Elysia
+ * matches by path rank (static segments over `/:id`), not registration order,
+ * so splitting one flat chain into three changes nothing about routing.
  */
-export const routes = new Elysia()
+const coreRoutes = new Elysia()
   .use(settingsRoutes)
   .use(setupRoutes)
-  .use(sessionRoutes)
-  .use(uploadsRoutes)
-  .use(profileRoutes)
-  .use(filesRoutes)
-  .use(notificationsRoutes)
-  .use(devicesRoutes)
   .use(metaRoutes)
   .use(usersRoutes)
   .use(auditRoutes)
   .use(wsTokenRoutes)
-  .use(liveRoutes)
-  .use(workspaceRoutes)
   .use(identityRoutes)
-  .use(channelRoutes)
-  .use(systemKeysRoutes)
+  .use(systemKeysRoutes);
+
+const computeRoutes = new Elysia()
+  .use(sessionRoutes)
+  .use(uploadsRoutes)
+  .use(profileRoutes)
+  .use(filesRoutes)
+  .use(workspaceRoutes);
+
+const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(liveRoutes).use(channelRoutes);
+
+export const routes = new Elysia()
+  .use(coreRoutes)
+  .use(computeRoutes)
+  .use(commsRoutes)
   .onError(({ error }) => {
     // Keep API errors JSON-shaped and small; the global error handler also runs.
     throw error;
