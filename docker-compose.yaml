@@ -1,0 +1,73 @@
+services:
+  mote:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mote:latest
+    container_name: mote
+    # Run as the host user so bind mounts stay uid-aligned (SQLite, session
+    # logs and harness file edits all keep sane ownership without fixups).
+    user: ${UID:-1000}:${GID:-1000}
+    # Published, not loopback-bound: remote access runs through a reverse
+    # proxy (e.g. a NetBird service proxy) that connects to this host's
+    # reachable IP — a 127.0.0.1 bind makes every proxy request 502.
+    ports:
+      - "3080:3080"
+    volumes:
+      # App data (SQLite, session logs, channel keypairs) — a plain bind so
+      # the host uid owns it from day one.
+      - ${MOTE_DATA_HOST_DIR:-$HOME/.config/mote}:/data
+      # Session working dirs, mounted at their REAL host path so bookmarks,
+      # recent paths and session paths stored in the DB resolve unchanged.
+      - ${PROJECTS_DIR:-$HOME/projects}:${PROJECTS_DIR:-$HOME/projects}:rw
+      # The harness binary is not bundled in the image; mount the host's
+      # claude CLI and its state (claude writes session records into
+      # ~/.claude, so these are rw — same-uid sharing matches running the
+      # CLI natively).
+      #
+      # DESTINATIONS ARE THE CONTAINER'S HOME (/home/mote), not the host's:
+      # the Dockerfile pins HOME=/home/mote (the runtime uid has no passwd
+      # entry) and panes inherit it, so that is the only place claude will
+      # ever look. Mounting at the host path instead left every pane reading
+      # an empty /home/mote/.claude.json — the first-run theme picker on
+      # every launch, with the state reset again on each redeploy.
+      - ${CLAUDE_BIN:-$HOME/.local/bin/claude}:/usr/local/bin/claude:ro
+      - ${HOME}/.claude:/home/mote/.claude:rw
+      - ${HOME}/.claude.json:/home/mote/.claude.json:rw
+      # git push / signed commits from harness panes: the host's SSH keys,
+      # read-only at the container HOME. ro is fully functional because the
+      # keys are passphrase-free and known_hosts is populated; a NEW git host
+      # needs `ssh-keyscan` on the host (dir mounts propagate immediately).
+      # The host ~/.ssh/config's 1Password IdentityAgent is inert in here —
+      # ssh falls back to on-disk keys when the agent socket is missing.
+      # Keys are readable by any harness pane: deliberate, same posture as
+      # the ~/.claude mount, on a trusted-network host.
+      - ${HOME}/.ssh:/home/mote/.ssh:ro
+      # Over the host config: its 1Password IdentityAgent socket does not
+      # exist in here, and git's ssh-format signing dies on the unreachable
+      # agent instead of falling back to the on-disk keys.
+      - ./docker/ssh-config:/home/mote/.ssh/config:ro
+      # Container git identity + ssh-format signing — personal and untracked:
+      # `cp docker/gitconfig.example docker/gitconfig` and edit BEFORE
+      # `up` (Docker silently creates a missing bind source as an empty
+      # dir). The host ~/.gitconfig is NOT used: its external signer
+      # program does not exist in the image and breaks commits where
+      # commit.gpgsign=true. Recreate after editing (single-file bind
+      # mounts pin the inode).
+      - ./docker/gitconfig:/home/mote/.gitconfig:ro
+      # Host-specific extras (e.g. ~/.config/gh) go in
+      # docker-compose.override.yaml — gitignored, merged automatically by
+      # every `docker compose` command, so no base-file edit needed.
+    environment:
+      # SQLite + per-session logs (logs derive from this path).
+      DATABASE_PATH: /data/mote.db
+      # Auth cookies/redirects; this origin is trusted automatically. Set it
+      # to the URL users actually open (behind a TLS-terminating proxy).
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3080}
+      # Required: the signing secret for session cookies. Put the SAME value
+      # as the old instance used in the .env beside this file and existing
+      # browser sessions survive the move. (Prod refuses the placeholder.)
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (>= 32 chars)}
+      NODE_ENV: production
+    # The service comes back with the Docker daemon — i.e. on boot.
+    restart: unless-stopped

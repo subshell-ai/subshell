@@ -1,0 +1,92 @@
+/*
+ * Overrides dockview's built-in `dockview-theme-abyss` palette (the class
+ * applied to <DockviewReact> in workspace-dock.tsx) with Mote's own tokens,
+ * so the tiling dock reads as part of the app rather than as an embedded
+ * third-party widget. Scoped under `.dockview-theme-abyss` throughout: an
+ * override outside that class either leaks into every future theme or,
+ * more likely, simply never applies.
+ *
+ * Variable names and semantics come from dockview's theming docs:
+ * https://dockview.dev/docs/core/theming
+ * "activegroup" / "inactivegroup" = whether the *group* (tile) has focus;
+ * "visiblepanel" / "hiddenpanel" = whether *this tab* is the selected one
+ * in its group (a background tab in a tab-group is "hidden" even though
+ * its group may be active).
+ *
+ * The selector below repeats the class to double its specificity
+ * (0,2,0) rather than (0,1,0). dockview-react's own dockview.css defines
+ * this same `.dockview-theme-abyss` base palette, and Vite puts it in a
+ * different chunk from this file: it ends up in the lazily-loaded
+ * `workspaces_.$id` route chunk (this file lands in the eagerly-loaded
+ * entry CSS), whose stylesheet is inserted into the document after the
+ * entry CSS already is. At equal specificity, later-in-the-document wins,
+ * which would silently put dockview's defaults back on top of every
+ * variable here. Doubling the class sidesteps that load-order dependency
+ * entirely rather than relying on it.
+ */
+.dockview-theme-abyss.dockview-theme-abyss {
+  /* Base surface behind groups/gaps and behind each group's content area.
+     Matches the workspace canvas (#0a0c0f) and the terminal strip
+     (#0f1216) respectively, same as the rest of the workspace chrome. */
+  --dv-background-color: #0a0c0f;
+  --dv-group-view-background-color: #0f1216;
+
+  /* Tab bar (the "tabs and actions container" that also hosts
+     GroupHeaderActions). */
+  --dv-tabs-and-actions-container-background-color: #0a0c0f;
+  --dv-tabs-and-actions-container-font-size: 13px;
+  --dv-tabs-and-actions-container-height: 36px;
+  --dv-tabs-container-scrollbar-color: var(--border);
+
+  /* Active tab in the focused group: the one surface that should read as
+     "selected" everywhere at once. */
+  --dv-activegroup-visiblepanel-tab-background-color: #0f1216;
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  /* Background tabs in the focused group. */
+  --dv-activegroup-hiddenpanel-tab-background-color: #0a0c0f;
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+
+  /* Same pair, but for a group that doesn't currently have focus — kept a
+     shade flatter than the active group's tabs so focus is readable at a
+     glance across tiles. */
+  --dv-inactivegroup-visiblepanel-tab-background-color: #0a0c0f;
+  --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #0a0c0f;
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+
+  --dv-tab-divider-color: var(--border);
+  --dv-icon-hover-background-color: var(--accent);
+
+  /* Sash: the draggable divider between tiles. `separator-border` is its
+     resting color; `active-sash-color` is the highlight while dragging. */
+  --dv-separator-border: var(--border);
+  --dv-active-sash-color: var(--primary);
+
+  /* Pane (split-view) header border and focus outline. */
+  --dv-paneview-header-border-color: var(--border);
+  --dv-paneview-active-outline-color: var(--ring);
+
+  /* Drop overlay shown while dragging a session or tab over a tile. */
+  --dv-drag-over-background-color: color-mix(in oklch, var(--primary) 20%, transparent);
+  --dv-drag-over-border-color: var(--primary);
+  --dv-floating-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Touch ergonomics for iPad landscape (spec §6): fingers need more than a
+   36px strip and a hairline sash. Coarse-pointer only; the visual divider
+   stays slim — ::before widens only the hit area. Splitting/closing panes by
+   finger remains the pane menus' job (dockview drag on touch is best-effort,
+   verified manually, not asserted by tests). */
+@media (pointer: coarse) {
+  .dockview-theme-abyss.dockview-theme-abyss {
+    --dv-tabs-and-actions-container-height: 44px;
+  }
+  .dockview-theme-abyss .dv-default-tab-action {
+    padding: 6px;
+  }
+  .dockview-theme-abyss .dv-sash::before {
+    content: "";
+    position: absolute;
+    inset: -11px;
+  }
+}

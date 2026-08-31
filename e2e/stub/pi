@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Stub "pi" harness for e2e runs. Real sessions launch `env -i PATH=... <argv>`
+# with no shell, so the stub must be an executable that ignores every argument,
+# prints something observable (pane-log capture proves the pipe works), then
+# stays alive like a real interactive harness.
+#
+# Exception: the version probe. Harness detection runs `<binary> --version`
+# and reads stdout to EOF with no timeout, so the stub MUST exit for that one
+# argument — otherwise /api/setup/harnesses hangs (until Bun's GC happens to
+# reap the unreferenced child) and the setup wizard never renders its cards.
+if [ "${1:-}" = "--version" ]; then
+  echo "pi 0.0.0-e2e-stub"
+  exit 0
+fi
+echo "mote-e2e stub harness ready"
+# Echo pane input back visibly so specs can prove keystrokes reached the PTY
+# (mobile key bar, spec 09). Raw mode makes control bytes arrive as BYTES
+# (no signals); cat -v renders them visibly (^C, ^[ — its notation exempts
+# only LFD and TAB). Two shell facts shape this: a backgrounded `cat -v &`
+# dies instantly under non-interactive bash (async jobs lose the tty as
+# stdin), and bash's own `read` emulates
+# VINTR/VEOF even with isig off — so the special chars are undefined and one
+# foreground `read -t` serves as both the input source and the 5 s tick timer
+# (IFS= so whitespace bytes survive the assignment verbatim). Its exit status
+# must be split, not just checked for zero: 142 is the 5 s timeout (tick),
+# while EOF (status 1) arrives immediately and forever once stdin closes —
+# without breaking on it the loop busy-spins at 100% CPU. The emptiness test
+# doubles as the EOF break under posix `read`, where EOF instead "succeeds"
+# with an empty result. Pane teardown now ends the stub instead of spinning.
+# Echoed bytes carry no trailing newline; they land glued to the tick that
+# follows — assertions join the tail before matching.
+# `raw` also silences OPOST, and without it the ticks' "\n" is a bare LF with
+# no CR: each line would start at the previous line's ending column (a visible
+# staircase in the pane). Re-enabling opost last restores LF→CRLF — an OUTPUT
+# flag, so input stays raw and the key bytes still arrive as plain bytes.
+stty raw -echo intr undef quit undef eof undef erase undef lnext undef opost 2>/dev/null || true
+i=0
+while :; do
+  IFS= read -r -t 5 -n 1 -d "" ch
+  rc=$?
+  if [ "$rc" -eq 142 ]; then
+    i=$((i + 1))
+    printf "\ntick %s\n" "$i"
+  elif [ "$rc" -ne 0 ] || [ -z "$ch" ]; then
+    break
+  else
+    # bash's read hands back a CR byte as $'\n' (it treats CR as a line
+    # terminator even with -d ''), and cat -v prints that as an invisible
+    # newline — render Enter visibly as ^M instead. Real panes read the tty
+    # directly and still receive the raw CR; this is display-only.
+    if [ "$ch" = $'\n' ]; then
+      printf '^M'
+    else
+      printf "%s" "$ch" | cat -v
+    fi
+  fi
+done

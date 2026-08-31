@@ -1,0 +1,75 @@
+import { cn } from "@/lib/utils";
+
+/** One key-bar button — every button sends raw bytes, like a physical key. */
+export interface KeyBarButton {
+  /** Glyph printed on the button */
+  label: string;
+  /** Accessible name; also the test/e2e locator */
+  aria: string;
+  /** Raw bytes written to the pane. Plain CSI arrows (not SS3): tmux
+   * translates them for whatever cursor mode the inner app set — the same
+   * encoding a desktop xterm sends. */
+  bytes: string;
+}
+
+export const KEY_BAR_BUTTONS: KeyBarButton[] = [
+  { label: "Esc", aria: "Send Escape", bytes: "\x1b" },
+  { label: "^C", aria: "Send Ctrl-C", bytes: "\x03" },
+  { label: "⇧Tab", aria: "Send Shift-Tab", bytes: "\x1b[Z" },
+  { label: "Tab", aria: "Send Tab", bytes: "\t" },
+  // CR is what a physical Enter sends (xterm emits "\r"), so form
+  // prompts answer identically from the bar or a hardware keyboard.
+  { label: "⏎", aria: "Send Enter", bytes: "\r" },
+  // The touch stand-in for Shift+Enter: ESC+CR, which the harnesses read as
+  // "insert a newline" (session-terminal maps the physical combo to this).
+  { label: "⇧⏎", aria: "Insert newline", bytes: "\x1b\r" },
+  // A plain "/" byte — the pane's program (a shell, claude's own slash
+  // commands) owns the character; mote intercepts nothing.
+  { label: "/", aria: "Send slash", bytes: "/" },
+  { label: "←", aria: "Send arrow left", bytes: "\x1b[D" },
+  { label: "↑", aria: "Send arrow up", bytes: "\x1b[A" },
+  { label: "↓", aria: "Send arrow down", bytes: "\x1b[B" },
+  { label: "→", aria: "Send arrow right", bytes: "\x1b[C" },
+];
+
+export interface TerminalKeyBarProps {
+  /** Grayed until the session WS is attached */
+  disabled: boolean;
+  /** Write raw bytes to the pane */
+  onBytes: (bytes: string) => void;
+}
+
+/** Accessory special-key row for touch devices (spec §5). Buttons are
+ * min-h-11 (44px) and touch-manipulation (no double-tap zoom). Every button
+ * is a plain byte sender — mote intercepts no characters; the pane's own
+ * program decides what `/` or anything else means.
+ *
+ * `onPointerDown` preventDefault pins focus wherever it is (the terminal's
+ * hidden textarea) when a button is tapped — a native button would take
+ * focus, and xterm stops routing keystrokes once its textarea is blurred,
+ * so the next hardware key would go missing. `click` still fires normally. */
+export function TerminalKeyBar({ disabled, onBytes }: TerminalKeyBarProps) {
+  return (
+    <div
+      role="toolbar"
+      aria-label="Terminal special keys"
+      className="flex shrink-0 items-stretch gap-px overflow-x-auto border-border border-t bg-card pb-[env(safe-area-inset-bottom)]"
+    >
+      {KEY_BAR_BUTTONS.map((b) => (
+        <button
+          key={b.label}
+          type="button"
+          disabled={disabled}
+          aria-label={b.aria}
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => onBytes(b.bytes)}
+          className={cn(
+            "min-h-11 flex-1 basis-11 touch-manipulation select-none bg-transparent font-mono text-muted-foreground text-sm hover:bg-accent/50 hover:text-foreground disabled:opacity-40",
+          )}
+        >
+          {b.label}
+        </button>
+      ))}
+    </div>
+  );
+}

@@ -1,0 +1,269 @@
+import { type FSWatcher, watch } from "node:fs";
+import { getHarness } from "@internal/harnesses";
+import { parseClientFrame } from "@internal/session-protocol";
+import { getRequestlessContext } from "@/lib/context.js";
+import { resolveCookieSession } from "@/lib/session-cookie.js";
+import { sessionLogPath } from "@/services/session-manager.service.js";
+import { TmuxRunner } from "@/services/tmux/tmux-runner.js";
+import { logger } from "@/utils/logger.js";
+import { consumeWsToken } from "@/ws/ws-token.js";
+
+/**
+ * WebSocket attach endpoint: streams a session's live output to the client
+ * and forwards client input to the tmux pane verbatim (send-keys -l).
+ *
+ * Auth: the `token` query param is the short-lived (30 s), single-use WS
+ * attach token minted by `POST /api/auth/ws-token` — NOT the better-auth
+ * session token; the session must belong to the owner.
+ *
+ * Output is streamed by tailing the per-session log file (written by
+ * pipe-pane) with an initial `capture-pane` replay for current scrollback.
+ */
+export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
+  const sessionId = url.searchParams.get("session");
+  if (!sessionId) {
+    ws.close(4001, "missing session");
+    return;
+  }
+
+  // Auth: the `token` query param is a short-lived WS token issued by
+  // POST /api/auth/ws-token (the frontend authenticates via its HttpOnly
+  // cookie on that call). Fall back to reading the session cookie when it
+  // reaches us directly (same-host WS without a proxy).
+  const tokenParam = url.searchParams.get("token");
+  const cookieHeader = ws.raw?.request?.headers.get("cookie") ?? "";
+
+  let userId: string | null = null;
+  if (tokenParam) {
+    userId = consumeWsToken(tokenParam);
+  } else {
+    // Same shared extraction as the REST guard — accepts the https
+    // `__Secure-` spelling and re-presents it under both names.
+    const session = await resolveCookieSession(cookieHeader);
+    userId = session?.user.id ?? null;
+  }
+  if (!userId) {
+    ws.close(4001, "unauthorized");
+    return;
+  }
+
+  const sessions = getRequestlessContext().repos.sessions;
+  const row = await sessions.findById(sessionId);
+  if (!row || row.userId !== userId) {
+    ws.close(4004, "session not found");
+    return;
+  }
+
+  const tmux = new TmuxRunner();
+  if (!row.tmuxSocket || !tmux.hasSession(row.tmuxSocket, row.id)) {
+    ws.close(4004, "session not running");
+    return;
+  }
+
+  const data: WsData = {
+    tmux,
+    socket: row.tmuxSocket,
+    sessionId: row.id,
+    logFile: sessionLogPath(row.id),
+    lastSize: 0,
+    lastOutputWriteAt: 0,
+  };
+  // Assign onto the existing Elysia context object (ws.data holds the
+  // request context; mutating it keeps both worlds in sync).
+  Object.assign(ws.data, data);
+
+  // Replay current pane content, then stream the live log tail.
+  const harness = row.harnessId ? getHarness(row.harnessId) : undefined;
+  void harness;
+  try {
+    const replay = tmux.capturePane(row.tmuxSocket, row.id);
+    ws.send(JSON.stringify({ type: "replay", data: stripSyncMarkers(replay) }));
+  } catch {
+    // pane may have just died
+  }
+
+  const logExists = await Bun.file(data.logFile).exists();
+  if (logExists) {
+    startLogTail(ws, data);
+  } else {
+    logger.info(`ws attach: no log file for ${row.id}, polling pane`);
+    startPanePoll(ws, data);
+  }
+}
+
+/** Minimal WebSocket surface used by the attach handler (ElysiaWS provides it). */
+export interface WsSocket {
+  data: WsData;
+  send(data: string): unknown;
+  close(code?: number, reason?: string): void;
+  readonly raw?: { request?: { headers: Headers } };
+}
+
+interface WsData {
+  tmux: TmuxRunner;
+  socket: string;
+  sessionId: string;
+  logFile: string;
+  lastSize: number;
+  lastOutputWriteAt: number;
+  cleanup?: () => void;
+}
+
+/**
+ * Strips DEC private mode 2026 (synchronized output) begin/end markers from
+ * pane output before it reaches the client.
+ *
+ * Some TUIs (claude-code's ink renderer among them) open a synchronized
+ * update and leave it open until their next redraw — which on an idle prompt
+ * can be a full second later. xterm 6 honors the mode by withholding all
+ * painting until the closing marker or its 1000ms safety timeout, so every
+ * keystroke echo visually lands one second late. Tearing without the mode is
+ * what every pre-2026 terminal has lived with for decades; a guaranteed
+ * 1s paint gate is the worse trade.
+ *
+ * Measured on a claude-code session: keystroke→paint ~1010 ms with the
+ * markers, 1–30 ms without them. Every byte this endpoint sends outbound
+ * (replay, live tail, pane-poll fallback) passes through here — do not
+ * reintroduce the markers anywhere on that path.
+ */
+// The markers are built at runtime so no control-character literal appears
+// in source (biome's noControlCharactersInRegex); plain split/join also beats
+// a regex here.
+const ESC = String.fromCharCode(27);
+const SYNC_BEGIN = `${ESC}[?2026h`;
+const SYNC_END = `${ESC}[?2026l`;
+
+export function stripSyncMarkers(s: string): string {
+  if (!s.includes("2026")) return s;
+  return s.split(SYNC_BEGIN).join("").split(SYNC_END).join("");
+}
+
+/**
+ * Persists the session's lastOutputAt when new output arrives, throttled to
+ * at most one DB write per 2s (drives the active/idle heuristic).
+ */
+function persistOutput(_ws: WsSocket, data: WsData): void {
+  const now = Date.now();
+  if (now - data.lastOutputWriteAt < 2000) return;
+  data.lastOutputWriteAt = now;
+  getRequestlessContext()
+    .repos.sessions.update(data.sessionId, { lastOutputAt: new Date().toISOString() })
+    .catch((err: unknown) => logger.withError(err).warn("failed to persist lastOutputAt"));
+}
+
+/** Safety net for missed watch events (file replaced under the watch, quota). */
+const TAIL_BACKSTOP_MS = 1000;
+
+/**
+ * Streams new log file appends to the WS client.
+ *
+ * Event-driven: `fs.watch` (inotify on Linux) fires the moment pipe-pane
+ * appends, so a keystroke's echo arrives immediately rather than waiting for
+ * the next tick of a poll — polling at 250ms quantized every echo to 0–250ms.
+ * A slow interval remains only as a backstop for lost watch events; both
+ * paths share this size-based read, so delivery is identical either way.
+ */
+function startLogTail(ws: WsSocket, data: WsData): void {
+  // Watch events and the backstop can land together; `pumping`/`again`
+  // serialize the reads so a byte is never sliced twice.
+  let pumping = false;
+  let again = false;
+
+  async function pump(): Promise<void> {
+    if (pumping) {
+      again = true;
+      return;
+    }
+    pumping = true;
+    do {
+      again = false;
+      try {
+        const size = (await Bun.file(data.logFile).stat()).size;
+        if (size > data.lastSize) {
+          const buf = await Bun.file(data.logFile).slice(data.lastSize, size).arrayBuffer();
+          data.lastSize = size;
+          ws.send(JSON.stringify({ type: "output", data: stripSyncMarkers(new TextDecoder().decode(buf)) }));
+          persistOutput(ws, data);
+        }
+      } catch {
+        // file gone
+      }
+    } while (again);
+    pumping = false;
+  }
+
+  let watcher: FSWatcher | null = null;
+  try {
+    watcher = watch(data.logFile, () => void pump());
+    // If the inode dies the watcher is dead weight; the backstop still delivers.
+    watcher.on("error", () => {
+      watcher?.close();
+      watcher = null;
+    });
+  } catch {
+    watcher = null;
+  }
+  const timer = setInterval(() => void pump(), TAIL_BACKSTOP_MS);
+  void pump(); // ship anything written between the replay and the attach
+  data.cleanup = () => {
+    watcher?.close();
+    clearInterval(timer);
+  };
+}
+
+/** Fallback: poll capture-pane for output (no log file configured). */
+function startPanePoll(ws: WsSocket, data: WsData): void {
+  let last = "";
+  const timer = setInterval(() => {
+    try {
+      const out = data.tmux.capturePane(data.socket, data.sessionId);
+      if (out !== last) {
+        const delta = out.startsWith(last) ? out.slice(last.length) : out;
+        last = out;
+        if (delta) {
+          ws.send(JSON.stringify({ type: "output", data: stripSyncMarkers(delta) }));
+          persistOutput(ws, data);
+        }
+      }
+    } catch {
+      // session dead
+    }
+  }, 300);
+  data.cleanup = () => clearInterval(timer);
+}
+
+/**
+ * Client → server frame dispatch.
+ *
+ * Every client frame is JSON (see `@internal/session-protocol`). Elysia's
+ * WebSocket middleware JSON-parses frames that start with `{`, so `message`
+ * may arrive as either the raw text or an already-parsed object;
+ * `parseClientFrame` accepts both. Anything that is not a valid frame is
+ * logged and dropped — it can no longer be mistaken for terminal input.
+ */
+export function handleSessionMessage(ws: WsSocket, message: string | object): void {
+  const data = ws.data;
+  if (!data?.tmux) return;
+  const frame = parseClientFrame(message);
+  if (!frame) {
+    logger.warn("ws: dropped unrecognized client frame");
+    return;
+  }
+  try {
+    if (frame.type === "resize") {
+      data.tmux.resizeWindow(data.socket, data.sessionId, frame.cols, frame.rows);
+      return;
+    }
+    // Raw terminal input, forwarded verbatim. The client emits one frame per
+    // keystroke and already encodes Enter as "\r", so the bytes must not be
+    // split, filtered or terminated here.
+    if (frame.data) data.tmux.sendInput(data.socket, data.sessionId, frame.data);
+  } catch (err) {
+    logger.withError(err).warn("ws input failed");
+  }
+}
+
+/** Stops streaming when the client disconnects. */
+export function cleanupSessionWs(ws: WsSocket): void {
+  ws.data?.cleanup?.();
+}

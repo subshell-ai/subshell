@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "//": [
+    "Build-only config. Identical to tsconfig.json except that test files are",
+    "excluded from emit, so dist/ contains shipping code only.",
+    "",
+    "Two things depended on this: `prod` runs from dist/, so compiled tests were",
+    "being shipped; and a bare `bun test` picked up both src/ and dist/ copies,",
+    "running every backend test twice and reporting doubled failures.",
+    "",
+    "verify-types deliberately stays on tsconfig.json (the full project) so test",
+    "files are still type-checked — they just aren't emitted."
+  ],
+  "exclude": ["src/**/__tests__/**", "src/test-preload.ts"]
+}

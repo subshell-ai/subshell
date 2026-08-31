@@ -1,0 +1,20 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "clean": {},
+    "build": {
+      "dependsOn": ["@internal/backend#build"],
+      "inputs": ["*.json", "*.ts", "src/**"],
+      "outputs": ["dist/**"]
+    },
+    "build:dev": {
+      "dependsOn": ["@internal/backend#build"],
+      "inputs": ["*.json", "*.ts", "src/**"],
+      "outputs": ["dist/**"]
+    },
+    "verify-types": {
+      "inputs": ["*.ts", "*.json", "src/**"]
+    }
+  }
+}

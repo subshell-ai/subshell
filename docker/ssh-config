@@ -1,0 +1,9 @@
+# SSH config for the mote container. Bind-mounted OVER the host's
+# ~/.ssh/config (the host file's IdentityAgent points at a 1Password agent
+# socket that does not exist in the container, and git's ssh-format signing
+# aborts on the unreachable agent instead of falling back to key files).
+#
+# Add `Host` blocks here (ports, jump hosts, per-host identity) for git
+# remotes reached from panes; keys/known_hosts come from the ro ~/.ssh mount.
+Host *
+	IdentityAgent none

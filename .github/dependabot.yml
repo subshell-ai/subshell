@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # The actions in .github/workflows are pinned to commit SHAs, which cannot be
+  # updated by hand in any sane way. Dependabot raises a PR when a new release
+  # appears and rewrites both the SHA and its trailing version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      # Matches the type-enum in commitlint.config.js so the PR passes commit linting.
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+# Note: JS dependencies are deliberately not managed here. They are pinned exactly
+# and updated together via `bun run syncpack:update`, which keeps versions in sync
+# across the workspace — something per-package Dependabot PRs would fight with.

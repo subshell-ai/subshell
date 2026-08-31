@@ -1,0 +1,19 @@
+# TEMPLATE — copy to docker/gitconfig (untracked; personal identity) and
+# fill in. Bind-mounted to /home/mote/.gitconfig in the container.
+#
+# Deliberately omit any `[gpg "ssh"] program = ...` signer override: external
+# signers (e.g. 1Password's op-ssh-sign) do not exist in the image and break
+# commits in repos with commit.gpgsign=true. signingkey must be a PATH to a
+# .pub file — git resolves a pubkey *blob* only against ssh-agent keys (no
+# agent exists in the container), while a path makes git sign with the
+# private key beside it via stock ssh-keygen -Y sign. The .pub companion must
+# exist in the host ~/.ssh (it rides in on the ro mount; Docker cannot create
+# one inside the container's read-only mount).
+#
+# Recreate the container after editing (single-file bind mounts pin the inode).
+[user]
+	name = Your Name
+	email = you@example.com
+	signingkey = /home/mote/.ssh/id_ed25519.pub
+[gpg]
+	format = ssh

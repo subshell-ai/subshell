@@ -1,0 +1,25 @@
+{
+  "name": "@internal/e2e",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "install-browsers": "playwright install chromium",
+    "clean": "rm -rf .turbo node_modules test-results playwright-report .auth",
+    "lint": "biome check --no-errors-on-unmatched --write --unsafe .",
+    "lint:check": "biome check --no-errors-on-unmatched .",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged .",
+    "verify-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@internal/backend": "workspace:*",
+    "@internal/frontend": "workspace:*",
+    "@internal/tsconfig": "workspace:*",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0",
+    "jose": "6.2.9",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/dockview-theme.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Mote UI theme: dark only by design (no light variants exist).
+ * Tokens follow the shadcn/ui convention (oklch values).
+ */
+:root,
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+
+  --card: oklch(0.18 0 0);
+  --card-foreground: oklch(0.985 0 0);
+
+  --popover: oklch(0.18 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+
+  --primary: oklch(0.78 0.12 250);
+  --primary-foreground: oklch(0.15 0.02 250);
+
+  --secondary: oklch(0.26 0.01 250);
+  --secondary-foreground: oklch(0.92 0.01 250);
+
+  --muted: oklch(0.24 0.01 250);
+  --muted-foreground: oklch(0.65 0.01 250);
+
+  --accent: oklch(0.3 0.02 250);
+  --accent-foreground: oklch(0.98 0 0);
+
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.3 0.01 250);
+  --input: oklch(0.3 0.01 250);
+  --ring: oklch(0.78 0.12 250);
+
+  /* Status colors for anything outside Badge (dots, inline confirmations).
+     Seeded from ui/badge.tsx's success/warning variant values (Tailwind
+     emerald-400 / amber-400) so chips and dots finally share one palette. */
+  --success: oklch(0.765 0.177 163.223);
+  --warning: oklch(0.828 0.189 84.429);
+
+  /* Terminal/workspace surfaces. Raw hexes because xterm's theme and
+     dockview-theme.css consume the same literals — these vars are the one
+     home every layer reads. Values match session-terminal.tsx's TERMINAL_THEME. */
+  --terminal-strip: #0f1216;
+  --terminal-canvas: #0a0c0f;
+  --terminal-tab-active: #12161c;
+
+  --radius: 0.5rem;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-terminal-strip: var(--terminal-strip);
+  --color-terminal-canvas: var(--terminal-canvas);
+  --color-terminal-tab-active: var(--terminal-tab-active);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* xterm container: fill the terminal strip */
+.xterm {
+  height: 100%;
+}
+
+/* Mobile touch ergonomics (spec §4): one-finger swipe scrolls the xterm
+   buffer, not the page; no double-tap zoom on controls. Coarse-pointer only
+   so desktop behavior is byte-identical. */
+@media (pointer: coarse) {
+  .xterm,
+  .xterm .xterm-viewport {
+    touch-action: pan-y;
+  }
+  .xterm .xterm-viewport {
+    overscroll-behavior: contain;
+  }
+  button,
+  a,
+  [role="button"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+}

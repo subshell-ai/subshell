@@ -1,0 +1,42 @@
+pre-commit:
+  parallel: true
+  commands:
+    "update bun lockfile":
+      glob: "**/package.json"
+      run: bun install
+      stage_fixed: true
+    "format package.json files":
+      glob: "**/package.json"
+      run: bun run syncpack:format
+      stage_fixed: true
+      tags:
+        - package-lint
+    "check package.json files":
+      glob: "**/package.json"
+      run: bun run syncpack:lint
+      stage_fixed: true
+      tags:
+        - package-lint
+    "lint staged":
+      glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}"
+      run: turbo run lint:staged
+      stage_fixed: true
+      tags:
+        - lint
+        - staged-lint
+
+pre-push:
+  parallel: true
+  commands:
+    "verify types":
+      run: bun run verify-types
+      tags:
+        - types
+    "lint":
+      run: bun run lint:check
+      tags:
+        - lint
+    "test":
+      run: bun run test
+      tags:
+        - test

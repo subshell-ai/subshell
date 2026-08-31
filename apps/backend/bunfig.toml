@@ -1,0 +1,6 @@
+# Applies to every `bun test` in this package — `bun run test`, `turbo test`,
+# and a bare `bun test` typed by hand. The preload sets MOTE_TEST_MODE, which
+# constants.ts turns into an in-memory database and a throwaway log directory
+# so the suites never touch ./data/mote.db, the developer's real one.
+[test]
+preload = ["./src/test-preload.ts"]
