@@ -184,7 +184,9 @@ function SessionPage() {
         {showPill && <StatusPill tone="warning">reconnecting…</StatusPill>}
       </div>
 
-      {coarse && <TerminalKeyBar disabled={!connected} onBytes={handleKeyBarBytes} />}
+      {/* The accessory key bar is an input affordance — a `view` grantee has
+          none (the terminal itself is read-only for them, spec §4.1). */}
+      {coarse && session?.access !== "view" && <TerminalKeyBar disabled={!connected} onBytes={handleKeyBarBytes} />}
     </main>
   );
 }

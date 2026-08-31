@@ -297,17 +297,23 @@ export function SessionTerminal({
   // and re-attaches to the fresh terminal when `active` returns.
   // Declared after the mount effect above so its effect runs second; the
   // effect's onReady closure reads it lazily, by which point it exists.
-  const wsRef = useSessionWs(termRef, active ? sessionId : "", {
-    onOpen: () => emitStatus({ connected: true, closed: statusRef.current.closed }),
-    onClose: (code, _reason) => {
-      // A server rejection code (4xxx) means the attach is refused (session
-      // missing / not running) — a reconnect cannot succeed, so surface the
-      // dead-session state. All other closes (network drops, backend restart)
-      // are transient: the hook reconnects on its own and the caller's
-      // "reconnecting…" pill covers the gap.
-      emitStatus({ connected: false, closed: code >= 4000 });
+  const wsRef = useSessionWs(
+    termRef,
+    active ? sessionId : "",
+    {
+      onOpen: () => emitStatus({ connected: true, closed: statusRef.current.closed }),
+      onClose: (code, _reason) => {
+        // A server rejection code (4xxx) means the attach is refused (session
+        // missing / not running) — a reconnect cannot succeed, so surface the
+        // dead-session state. All other closes (network drops, backend restart)
+        // are transient: the hook reconnects on its own and the caller's
+        // "reconnecting…" pill covers the gap.
+        emitStatus({ connected: false, closed: code >= 4000 });
+      },
     },
-  });
+    // A `view` grantee watches the pane but cannot type (spec §4.1).
+    session?.access === "view",
+  );
 
   // A deliberate detach never reports a close: useSessionWs nulls its socket
   // ref before the browser delivers onclose, and then discards that close as

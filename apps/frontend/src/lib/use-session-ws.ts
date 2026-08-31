@@ -39,6 +39,12 @@ export function useSessionWs(
   terminalRef: { current: Terminal | null },
   sessionId: string,
   handlers: TermWsHandlers = {},
+  /**
+   * Read-only attach (spec 2026-08-31 §4.1): a `view` grantee watches the pane
+   * but cannot type. Sets xterm `disableStdin` and drops any input that still
+   * reaches the handler, so keystrokes and pastes never hit the socket.
+   */
+  readOnly = false,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const inputDisposableRef = useRef<{ dispose(): void } | null>(null);
@@ -136,9 +142,15 @@ export function useSessionWs(
       }
     };
 
+    // A read-only viewer: xterm stops emitting stdin and the cursor hides;
+    // the `readOnly` guard below is the belt to that brace (paste paths, older
+    // xterm). Output still streams in — watching is the whole point.
+    term.options.disableStdin = readOnly;
+
     // Forward terminal input to the session (single subscription for the hook
     // lifetime — the retry loop must not re-subscribe per connection).
     inputDisposableRef.current = term.onData((data) => {
+      if (readOnly) return;
       sendInput(wsRef.current, data);
     });
 
@@ -161,7 +173,7 @@ export function useSessionWs(
       if (socket) socket.close(1000, "client detached");
       wsRef.current = null;
     };
-  }, [terminalRef, sessionId]);
+  }, [terminalRef, sessionId, readOnly]);
 
   return wsRef;
 }
