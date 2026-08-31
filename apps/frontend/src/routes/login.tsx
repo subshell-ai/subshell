@@ -112,8 +112,8 @@ function LoginPage() {
               Sign in with a passkey
             </Button>
             <p className="mt-2 text-muted-foreground text-xs">
-              Passkeys are tied to this address (origin) and device — register one here and, if you use the NetBird
-              domain, another there.
+              Passkeys are tied to this device and to the address this instance serves from. If you reached this page
+              from a different address, passkey sign-in won&apos;t find them — use your password.
             </p>
           </div>
         </CardContent>

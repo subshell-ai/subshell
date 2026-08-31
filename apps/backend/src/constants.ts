@@ -155,6 +155,16 @@ export function emergencyPassword(): string {
 }
 
 /**
+ * True while the break-glass hatch should be live. Whitespace-only values do
+ * NOT arm it — a `" "` emergency password is no password (code-review
+ * 2026-08-31 minor). The comparison itself always uses the raw {@link
+ * emergencyPassword} value; this gate only decides whether it is consulted.
+ */
+export function emergencyLoginArmed(): boolean {
+  return emergencyPassword().trim() !== "";
+}
+
+/**
  * The origins this instance serves itself on: both loopback spellings of the
  * port, the bind host when it is a concrete address, and the base URL's own
  * origin (a proxied/relocated deployment names itself there).

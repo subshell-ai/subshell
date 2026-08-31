@@ -1,9 +1,12 @@
+import { timingSafeEqual } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
 import { auth } from "@/auth.js";
-import { emergencyPassword } from "@/constants.js";
+import { emergencyLoginArmed, emergencyPassword } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { audit } from "@/services/audit.js";
+import { logger } from "@/utils/logger.js";
 
 /**
  * Hard cap on the sign-in delay (2^n seconds per recorded failure, at most
@@ -21,6 +24,18 @@ export function authDelayForAttempts(attemptCount: number | undefined): number {
 /** Emails are attributed lowercase with surrounding whitespace trimmed. */
 export function normalizeAuthEmail(email: string | undefined): string {
   return (email ?? "").trim().toLowerCase();
+}
+
+/**
+ * Constant-time string equality so the env-value comparison cannot be read
+ * as a timing oracle for the break-glass password. A length mismatch is
+ * (necessarily) visible in the timing; `timingSafeEqual` itself throws on
+ * differing lengths, so the length guard comes first.
+ */
+function secretEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
 /** Delay currently owed by an email, based on its recorded failure count. */
@@ -82,24 +97,30 @@ type SignInBody = { email?: string; password?: string };
  * moment the hatch fires); the armed-state banner tells the admin to set a
  * new password before clearing the env var. Non-admin/mismatch/unknown-email
  * return false without touching anything, so the response stays an ordinary
- * bad-password 401 — no signal about which half failed.
+ * bad-password 401 — no signal about which half failed. Every APPROVED
+ * rewrite is an audit event + a warn log line: it is the single most
+ * sensitive auth event the instance can produce and must leave a trace.
  *
  * Raw SQL on purpose: better-auth owns `user`/`account`/`user_meta` targets
  * (camelCase columns outside the typed Database) — same precedent as
  * UsersRepository.createUser.
  *
- * @param email - normalized (lowercased, trimmed) sign-in email
+ * @param lookupEmail - the submitted email LOWERCASED ONLY (no trim), which
+ *   is exactly what better-auth looks up (sign-in.mjs:317; padded emails are
+ *   format-rejected with 400 at sign-in.mjs:316 before any lookup, so the
+ *   hatch must not rewrite for them either — trimming here once destroyed a
+ *   password while granting no session)
  * @param password - the submitted password, compared to the env value
  * @returns true when the credential was rewritten (emergency login approved)
  */
-async function rewriteAdminCredentialToEnvPassword(email: string, password: string): Promise<boolean> {
+async function rewriteAdminCredentialToEnvPassword(lookupEmail: string, password: string): Promise<boolean> {
   const envValue = emergencyPassword();
-  if (!envValue || !email || password !== envValue) return false;
+  if (!emergencyLoginArmed() || !lookupEmail || !secretEquals(password, envValue)) return false;
   const found = await sql<{ id: string; role: string | null }>`
     SELECT u.id, m.role
     FROM user u
     LEFT JOIN user_meta m ON m.user_id = u.id
-    WHERE u.email = ${email}
+    WHERE u.email = ${lookupEmail}
   `.execute(db);
   const row = found.rows[0];
   if (row?.role !== "admin") return false;
@@ -108,6 +129,14 @@ async function rewriteAdminCredentialToEnvPassword(email: string, password: stri
     SET password = ${await hashPassword(envValue)}, "updatedAt" = ${new Date().toISOString()}
     WHERE userId = ${row.id} AND providerId = 'credential'
   `.execute(db);
+  await audit({
+    actorUserId: row.id,
+    action: "emergency_login.rewrite_credential",
+    targetType: "user",
+    targetId: row.id,
+    metadataJson: JSON.stringify({ email: lookupEmail }),
+  });
+  logger.warn(`emergency login: admin credential for ${lookupEmail} rewritten to the MOTE_EMERGENCY_PASSWORD value`);
   return true;
 }
 
@@ -130,8 +159,10 @@ export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
     // Hatch attempts share the ordinary backoff: the delay above already
     // applied to them. A rewrite here is invisible to the client — the
     // forwarded body is unchanged (password === env value) and better-auth's
-    // success path (cookie + attempt-clear below) does the rest.
-    await rewriteAdminCredentialToEnvPassword(email, body.password ?? "");
+    // success path (cookie + attempt-clear below) does the rest. The lookup
+    // email is lowercased but deliberately NOT trimmed (see the function's
+    // @param) even though backoff attribution above does trim.
+    await rewriteAdminCredentialToEnvPassword((body.email ?? "").toLowerCase(), body.password ?? "");
 
     const forwarded = new Request(request.url, {
       method: request.method,

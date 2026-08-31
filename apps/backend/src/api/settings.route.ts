@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { isAdmin } from "@/api/user-utils.js";
-import { emergencyPassword } from "@/constants.js";
+import { emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 
@@ -31,7 +31,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     async () => {
       const repo = new SettingsRepository(db);
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow, emergencyLoginActive: emergencyPassword() !== "" } as const;
+      return { allowRegistrations: allow, emergencyLoginActive: emergencyLoginArmed() } as const;
     },
     {
       response: PublicSettingsSchema,

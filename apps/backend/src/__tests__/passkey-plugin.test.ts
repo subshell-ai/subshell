@@ -51,8 +51,16 @@ describe("passkey plugin (server)", () => {
       }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { challenge?: string; rp?: { name?: string } };
+    const body = (await res.json()) as { challenge?: string; rp?: { name?: string; id?: string } };
     expect(typeof body.challenge).toBe("string");
     expect(body.rp?.name).toBe("mote");
+    // rpID regression pin (code-review 2026-08-31): better-auth 1.7.1 derives
+    // it from the CONFIGURED baseURL (new URL(baseURL).hostname), never the
+    // request host — under tests APP_BASE_URL is forced to localhost:3080, so
+    // "localhost" must appear regardless of the Origin header sent above.
+    // Passkeys therefore bind to the instance's canonical address, NOT per
+    // browsing origin; if this ever returns the request host, the UI copy in
+    // login.tsx/passkeys-card.tsx needs revisiting.
+    expect(body.rp?.id).toBe("localhost");
   });
 });

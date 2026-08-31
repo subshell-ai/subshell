@@ -205,6 +205,10 @@ describe("settings routes (admin cookie only)", () => {
       const on = await get();
       expect(on.emergencyLoginActive).toBe(true);
       expect(on.allowRegistrations).toBe(off.allowRegistrations);
+      // Whitespace-only must read as DISARMED (the hatch itself refuses to
+      // arm on it — a " " break-glass password is no password).
+      process.env.MOTE_EMERGENCY_PASSWORD = "   ";
+      expect((await get()).emergencyLoginActive).toBe(false);
     } finally {
       if (saved === undefined) delete process.env.MOTE_EMERGENCY_PASSWORD;
       else process.env.MOTE_EMERGENCY_PASSWORD = saved;

@@ -71,8 +71,8 @@ export function PasskeysCard() {
       <CardHeader>
         <CardTitle>Passkeys</CardTitle>
         <CardDescription>
-          Sign in without a password. A passkey belongs to this browser on this address — register one per origin you
-          use, and on each device.
+          Sign in without a password. A passkey belongs to one device and to the address this instance serves from —
+          from a different address (e.g. localhost vs the domain) your passkeys won&apos;t be found.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

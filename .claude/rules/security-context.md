@@ -13,8 +13,10 @@ credential kinds:
   path and the only path allowed on admin surfaces. The first registered user becomes the
   admin; registration is gated by a settings toggle.
   - *Passkeys* (WebAuthn, `@better-auth/passkey`) mint the SAME session cookie — an
-    additional browser credential per user/origin, never a second factor. Being
-    origin-bound, loopback and the NetBird domain each need their own registration.
+    additional browser credential per user/device, never a second factor. The rpID is
+    the **configured `APP_BASE_URL` host** (better-auth 1.7.1 derives it from the
+    static baseURL, not the request host), so passkeys work only when browsing on
+    that address — other names (e.g. loopback vs the domain) fail in the browser.
   - *Break-glass*: while `MOTE_EMERGENCY_PASSWORD` is set, an admin signing in with that
     exact value has **their credential overwritten** by it and a real session is minted —
     destructive by design, signalled by a warning banner to every signed-in user
@@ -65,6 +67,9 @@ DNS-rebinding hole the allowlist exists to close.
 
 Login is rate-limited; other endpoints are not — intentional for a local/trusted service
 where performance and simplicity are prioritized over protection from abuse.
+Passkey sign-in is **not** behind the email backoff — it carries no email to attribute
+failures to; the physical authenticator (device + biometric) is the gate.
+Approved emergency-logins (the credential rewrite) are audit events + warn log lines.
 
 ## Input Validation
 

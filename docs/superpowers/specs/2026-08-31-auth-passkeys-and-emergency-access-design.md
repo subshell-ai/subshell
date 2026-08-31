@@ -215,3 +215,27 @@ already uses to create sign-in-able credential accounts.
 - Mobile app (`apps/mobile`) auth — different branch.
 - Removing the leftover `better-auth-ui` dep from the backend (noticed in
   passing; unrelated cleanup).
+
+## 9. Errata (post-implementation, code review 2026-08-31)
+
+Three claims in this spec were wrong; the implementation and UI copy now
+follow the corrected facts, and this section is the authoritative note.
+
+1. **§4/§4.3: rpID does NOT default to the request hostname.** better-auth
+   1.7.1 derives it from the **configured `baseURL`** (passkey dist
+   `index.mjs:13`: `options.rpID || new URL(baseURL).hostname`), i.e. the
+   `APP_BASE_URL` host, statically. Passkeys bind to the instance's canonical
+   address; browsing from any other name (loopback vs the domain) fails
+   WebAuthn validation in the browser — "register once per origin you use"
+   (§4) is not achievable. Pinned by the `rp.id` assertion in
+   `passkey-plugin.test.ts`.
+2. **§6: `/api/settings/public` is NOT unauthenticated.** It sits behind
+   `authGuard` (anonymous → 401), so `emergencyLoginActive` is disclosed only
+   to signed-in users — strictly better than assumed. Pinned by a test in
+   `settings-route.test.ts`.
+3. **§6: a padded email must not reach the rewrite.** better-auth
+   format-rejects it (`z.email()`, sign-in `mjs:316`) with a 400 **before**
+   any lookup (which is lowercase-only, `mjs:317`). The wrapper's original
+   trimmed lookup rewrote the hash anyway — destroying a password while
+   granting no session. The rewrite lookup is now lowercase-only, and every
+   approved rewrite is an audit event + warn log line.

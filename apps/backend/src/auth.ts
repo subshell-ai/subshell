@@ -60,10 +60,15 @@ export const AUTH_OPTIONS = {
       rateLimit: { enabled: false },
     }),
     // Passkeys (spec 2026-08-31): additional browser credential, never a
-    // second factor. rpID is deliberately unset — better-auth derives it from
-    // the request host, so loopback AND the NetBird domain each own their
-    // passkeys (a per-origin reality, stated in the UI copy). origin unset
-    // likewise: the client supplies it (1.7.1 documented default).
+    // second factor. rpID is deliberately unset — better-auth 1.7.1 derives
+    // it from the CONFIGURED baseURL (options.rpID || new URL(baseURL)
+    // .hostname, passkey dist index.mjs:13), NEVER the request host. So
+    // passkeys bind to the instance's canonical address (APP_BASE_URL's
+    // host): browsing from any other name — loopback against a
+    // domain-configured instance, or a relocated host — fails WebAuthn
+    // validation in the browser before reaching the server. Pinned by the
+    // rp.id assertion in passkey-plugin.test.ts; the UI copy says the same.
+    // origin unset likewise: the client supplies it (1.7.1 documented default).
     passkey({ rpName: "mote" }),
   ],
   databaseHooks: {

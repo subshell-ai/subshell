@@ -102,4 +102,51 @@ describe("emergency admin login (MOTE_EMERGENCY_PASSWORD)", () => {
     const res = await signInRaw(`ghost-${crypto.randomUUID()}@mote.local`, ENV_VALUE);
     expect(res.status).toBe(401);
   });
+
+  /** Approved-rewrite audit rows this suite produced for `email` (metadata carries it). */
+  async function rewriteAuditCount(email: string): Promise<number> {
+    const rows = await db
+      .selectFrom("auditEvents")
+      .select("metadataJson")
+      .where("action", "=", "emergency_login.rewrite_credential")
+      .execute();
+    return rows.filter((r) => r.metadataJson?.includes(email)).length;
+  }
+
+  it("armed: an approved rewrite leaves an audit row (code-review 2026-08-31)", async () => {
+    process.env[ENV] = ENV_VALUE;
+    const email = await makeUser("admin", OLD_ADMIN_PASS);
+    expect((await signInRaw(email, ENV_VALUE)).status).toBe(200);
+    expect(await rewriteAuditCount(email)).toBe(1);
+  });
+
+  it("the declined paths leave no audit row", async () => {
+    process.env[ENV] = ENV_VALUE;
+    const email = await makeUser("user", USER_PASS);
+    expect((await signInRaw(email, ENV_VALUE)).status).toBe(401);
+    expect(await rewriteAuditCount(email)).toBe(0);
+  });
+
+  it("whitespace-only env value keeps the hatch disarmed", async () => {
+    // " " must not become a one-character backdoor (code-review minor).
+    process.env[ENV] = " ";
+    const email = await makeUser("admin", OLD_ADMIN_PASS);
+    expect((await signInRaw(email, " ")).status).toBe(401);
+    await clearAttempts(email);
+    expect((await signInRaw(email, OLD_ADMIN_PASS)).status).toBe(200);
+  });
+
+  it("padded email + env value 400s and destroys nothing", async () => {
+    // better-auth format-validates the email (z.email(), sign-in.mjs:316)
+    // and 400s a padded one BEFORE any lookup — so the hatch must never
+    // rewrite for it either: the old trimmed lookup rewrote the hash and
+    // then better-auth refused, killing the password with no session.
+    // (Mixed-case emails pass z.email() and are looked up lowercased —
+    // sign-in.mjs:317 — which is the shape the rewrite lookup must match.)
+    process.env[ENV] = ENV_VALUE;
+    const email = await makeUser("admin", OLD_ADMIN_PASS);
+    expect((await signInRaw(` ${email}`, ENV_VALUE)).status).toBe(400);
+    await clearAttempts(email); // the backoff counter IS attributed trimmed
+    expect((await signInRaw(email, OLD_ADMIN_PASS)).status).toBe(200);
+  });
 });
