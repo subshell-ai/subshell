@@ -10,6 +10,7 @@ import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository
 import { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -53,6 +54,7 @@ export class ApiContext {
       recentPaths: new RecentPathsRepository(params.db),
       sessionShares: new SessionSharesRepository(params.db),
       userMeta: new UserMetaRepository(params.db),
+      users: new UsersRepository(params.db),
     };
     this.services = {} as Services;
     this.init();

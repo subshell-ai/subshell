@@ -45,6 +45,23 @@ export class UsersRepository extends BaseRepository {
   }
 
   /**
+   * Display labels (name, falling back to email) for a set of user ids, for
+   * rendering sharing grants. Only ids that still exist come back, so callers
+   * can detect a removed grantee (missing from the map).
+   */
+  async displayNamesByIds(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    // Raw sql bypasses the CamelCasePlugin, so better-auth's camelCase `name`
+    // column is quoted; `COALESCE(NULLIF(...))` prefers a real name over email.
+    const { rows } = await sql<{ id: string; label: string }>`
+      SELECT id, COALESCE(NULLIF(name, ''), email) AS label
+      FROM user
+      WHERE id IN (${sql.join(ids.map((id) => sql`${id}`))})
+    `.execute(this.db);
+    return new Map(rows.map((r) => [r.id, r.label]));
+  }
+
+  /**
    * Creates a credential account user (mirrors better-auth's own registration
    * insert shape): a `user` row, a `credential` `account` row with the hashed
    * password, and the app `user_meta` role row.

@@ -1,6 +1,8 @@
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
+import type { ShareEntry } from "@/db/repositories/session-shares.repository.js";
+import type { SessionSharePermission } from "@/db/types/session-shares.db-types.js";
 import type { SessionTable } from "@/db/types/sessions.db-types.js";
 import { type Access, accessAtLeast, loadSessionAccess, resolveSessionAccess } from "@/lib/session-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
@@ -13,6 +15,18 @@ export type AttentionKind = Extract<NotifyKind, "turn_complete" | "needs_attenti
 
 /** Session view shape returned by the manager (single source: toSessionView). */
 type SessionView = NonNullable<Awaited<ReturnType<SessionManagerService["getSession"]>>>;
+
+/** A sharing grant as returned to the client, with the grantee label resolved. */
+interface SessionShareView {
+  /** Share row id */
+  id: string;
+  /** Grantee user id, or null for the Everyone grant */
+  granteeUserId: string | null;
+  /** Display name ("Everyone" for the null grant; the id if the user is gone) */
+  granteeName: string | null;
+  /** Access level this grant confers */
+  permission: SessionSharePermission;
+}
 
 /** Route error with an HTTP status; Elysia maps `status` to the response code. */
 class SessionCreateError extends Error {
@@ -263,6 +277,55 @@ export class SessionsService extends BaseService {
     await this.#gate(viewerId, id, "owner", actor);
     await this.repos.sessions.update(id, { notify: notify ? 1 : 0 });
     return { ok: true };
+  }
+
+  /** The current grants on a session, with grantee names resolved for display. */
+  async #shareViews(sessionId: string): Promise<SessionShareView[]> {
+    const rows = await this.repos.sessionShares.listForSession(sessionId);
+    const named = rows.map((r) => r.granteeUserId).filter((x): x is string => x !== null);
+    const names = await this.repos.users.displayNamesByIds(named);
+    return rows.map((r) => ({
+      id: r.id,
+      granteeUserId: r.granteeUserId,
+      granteeName: r.granteeUserId === null ? "Everyone" : (names.get(r.granteeUserId) ?? r.granteeUserId),
+      permission: r.permission,
+    }));
+  }
+
+  /**
+   * Lists a session's sharing grants — OWNER-only (managing who can see a
+   * session is the owner's act; an admin's effective `edit` does not extend here).
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller is not the owner.
+   */
+  async getShares(viewerId: string, id: string, actor: GuardActor): Promise<{ shares: SessionShareView[] }> {
+    await this.#gate(viewerId, id, "owner", actor);
+    return { shares: await this.#shareViews(id) };
+  }
+
+  /**
+   * Replaces a session's whole grant set — OWNER-only. Each non-null grantee
+   * must be an existing user (else 400); a null/absent grantee is the Everyone
+   * grant. Returns the resulting set (with names). The creator recorded on each
+   * row is the acting owner.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller is not the owner; 400 on an unknown grantee.
+   */
+  async setShares(
+    viewerId: string,
+    id: string,
+    entries: ShareEntry[],
+    actor: GuardActor,
+  ): Promise<{ shares: SessionShareView[] }> {
+    await this.#gate(viewerId, id, "owner", actor);
+    const named = entries.map((e) => e.granteeUserId).filter((x): x is string => x !== null);
+    if (named.length > 0) {
+      const names = await this.repos.users.displayNamesByIds(named);
+      const unknown = named.find((uid) => !names.has(uid));
+      if (unknown) throw new HttpError(400, "Cannot share with an unknown user");
+    }
+    await this.repos.sessionShares.replaceForSession(id, entries, viewerId);
+    return { shares: await this.#shareViews(id) };
   }
 
   /**

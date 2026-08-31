@@ -6,6 +6,7 @@ import type { RecentPathsRepository } from "@/db/repositories/recent-paths.repos
 import type { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import type { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import type { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 
@@ -26,4 +27,5 @@ export interface Repositories {
   readonly recentPaths: RecentPathsRepository;
   readonly sessionShares: SessionSharesRepository;
   readonly userMeta: UserMetaRepository;
+  readonly users: UsersRepository;
 }

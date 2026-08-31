@@ -63,6 +63,44 @@ export const SessionLogTailSchema = t.Object({
   truncated: t.Boolean({ description: "True when older output existed but was cut from the response" }),
 });
 
+// Shared TypeBox refs for the sharing schemas: reusing one object across the
+// response and body keeps the composed `App` type under Elysia's inference
+// depth limit (the aggregate router is right at that edge).
+/** A sharing permission level (view or edit). */
+const SharePermissionSchema = t.Union([t.Literal("view"), t.Literal("edit")], {
+  description: "Access level a grant confers",
+});
+/** A grantee user id or null (the Everyone grant). */
+const GranteeIdSchema = t.Nullable(t.String({ description: "Grantee user id" }), {
+  description: "Grantee user id, or null for the Everyone grant",
+});
+
+/** One sharing grant on a session, with the grantee's display name resolved. */
+export const SessionShareSchema = t.Object({
+  id: t.String({ description: "Share row id" }),
+  granteeUserId: GranteeIdSchema,
+  granteeName: t.Nullable(t.String({ description: "Grantee display name" }), {
+    description: "Grantee display name ('Everyone' for the null grant; the id when the user is gone)",
+  }),
+  permission: SharePermissionSchema,
+});
+
+/** Response of both the GET and PUT sharing routes: the full current grant set. */
+export const SessionSharesResponseSchema = t.Object({
+  shares: t.Array(SessionShareSchema, { description: "Every grant currently on the session" }),
+});
+
+/** Body of PUT /api/sessions/:id/shares — the complete replacement set. */
+export const SetSessionSharesBodySchema = t.Object({
+  shares: t.Array(
+    t.Object({
+      granteeUserId: t.Optional(GranteeIdSchema),
+      permission: SharePermissionSchema,
+    }),
+    { description: "The grants to keep; any prior grant not listed here is removed" },
+  ),
+});
+
 // The standard API error body lives in src/schema/error.type.ts as
 // ApiErrorResponseSchema (single source of truth) — there is deliberately no
 // second error schema here.
