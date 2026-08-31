@@ -118,6 +118,26 @@ docker compose up -d         # http://localhost:3080
   `docker-compose.override.yaml` beside the base file — gitignored and merged
   automatically by `docker compose`, no base-file edits required.
 
+### Host service (no Docker)
+
+`svc.sh` (repo root) runs mote as a systemd **user** service at boot — the
+panes then get native host tools instead of the image's package set. No sudo
+is involved; the one-time `sudo loginctl enable-linger $USER` (so user
+services start without a login) is checked for you.
+
+```bash
+turbo build            # fresh dist artifacts (prerequisite of install)
+./svc.sh install       # generate ~/.config/systemd/user/mote.service + enable
+./svc.sh start         # stop / restart / status / uninstall also exist
+```
+
+The service reads the same `.env` and the same data dir (`~/.config/mote`) as
+the Docker deployment — switching over is just `docker compose down`, then
+install + start (guard the container against resurrection with a
+`restart: "no"` override if you keep the compose files around). `:3080` must
+be free, and `.env` must contain no double quotes (systemd `EnvironmentFile`
+keeps them literally).
+
 ## Configuration
 
 Environment variables (see `apps/backend/src/constants.ts`):
