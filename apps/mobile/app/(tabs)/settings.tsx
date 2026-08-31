@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MoteClient } from "@/lib/api";
 import { useApp } from "@/lib/app-state";
 import { probeInstance } from "@/lib/probe";
 import { makeProbeDeps } from "@/lib/probe-real";
@@ -114,6 +115,16 @@ export default function Settings() {
                     text: "Forget",
                     style: "destructive",
                     onPress: () => {
+                      // A forgotten instance must stop ringing this phone —
+                      // the operator-facing twin of the prune contract
+                      // (signOut does the same, review #5).
+                      void AsyncStorage.getItem(PUSH_TOKEN_KEY)
+                        .then((token) =>
+                          token
+                            ? new MoteClient({ baseUrl: r.id, store: secureTokenStore(r.id) }).forgetDevice(token)
+                            : undefined,
+                        )
+                        .catch(() => undefined);
                       void secureTokenStore(r.id)
                         .clear()
                         .catch(() => undefined);

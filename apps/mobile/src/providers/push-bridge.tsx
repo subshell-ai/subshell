@@ -2,9 +2,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect } from "react";
+import { MoteClient } from "@/lib/api";
 import { useApp } from "@/lib/app-state";
 import type { SessionNotifData } from "@/lib/notif-data";
 import { configureNotifications, enrollPush } from "@/native/push";
+import { secureTokenStore } from "@/native/secure-token-store";
 import { useMote } from "@/providers/mote-provider";
 
 /**
@@ -13,13 +15,19 @@ import { useMote } from "@/providers/mote-provider";
  * - categories + presentation handler once at start,
  * - enrollment whenever a client exists (cold start AND after sign-in —
  *   spec: enrollment upserts on every cold start so token churn is bounded),
- * - response routing: tap → `/session/<sid>` (the route itself is the
- *   biometric gate, spec §Security notes), "Silence bell" → one PATCH +
- *   list refresh, without foregrounding.
+ * - response routing: the payload's `origin` selects the INSTANCE (spec
+ *   §Push: "a push for a session you follow on B must open B, not the
+ *   instance you last used") — tap switches active instance and routes to
+ *   `/session/<sid>` (the route itself is the biometric gate, §Security
+ *   notes), "Silence bell" → one PATCH against the ORIGIN's client + list
+ *   refresh, without foregrounding. An origin this phone no longer knows
+ *   (forgotten instance) is ignored rather than opened on the wrong server.
  */
 export function PushBridge() {
   const { client } = useMote();
-  const _activeId = useApp((s) => s.activeId);
+  const activeId = useApp((s) => s.activeId);
+  const instances = useApp((s) => s.instances);
+  const setActive = useApp((s) => s.setActive);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -35,17 +43,22 @@ export function PushBridge() {
     const respond = async (response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data as SessionNotifData;
       if (!data?.sid) return;
+      const origin = data.origin && data.origin !== activeId ? data.origin : null;
+      if (origin && !instances.some((i) => i.id === origin)) return; // unknown/forgotten instance
+      // The action belongs to the ORIGIN's instance, whatever is active now.
+      const actor = origin ? new MoteClient({ baseUrl: origin, store: secureTokenStore(origin) }) : client;
       if (response.actionIdentifier === "silence") {
         // Background action: one quick PATCH; the app never opens.
-        if (!client) return;
+        if (!actor) return;
         try {
-          await client.setNotify(data.sid, false);
+          await actor.setNotify(data.sid, false);
           await qc.invalidateQueries({ queryKey: ["sessions"] });
         } catch {
           /* signed-out mid-flight: the bell state re-converges on next open */
         }
         return;
       }
+      if (origin) setActive(origin); // provider clears the query cache on switch
       router.push(`/session/${encodeURIComponent(data.sid)}`);
     };
     const sub = Notifications.addNotificationResponseReceivedListener((r) => void respond(r));
@@ -54,7 +67,7 @@ export function PushBridge() {
       if (r) void respond(r);
     });
     return () => sub.remove();
-  }, [client, qc]);
+  }, [client, qc, activeId, instances, setActive]);
 
   return null;
 }

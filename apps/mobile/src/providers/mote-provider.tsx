@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { MoteClient } from "@/lib/api";
 import { useApp } from "@/lib/app-state";
 import { loadRegistry, saveRegistry } from "@/native/registry-storage";
@@ -26,19 +26,37 @@ export function MoteProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // .catch matters: without it a storage rejection left the app rendering
-    // `null` forever — an unexplained black screen, no redbox, no log.
+    // .catch matters twice: a rejection used to leave the app rendering `null`
+    // forever (black screen, no redbox), and skipping hydrate() in the catch
+    // would just swap that for the guard's infinite spinner. A storage that
+    // rejects on READ will reject on WRITE too, so falling back to an empty
+    // registry cannot silently destroy data — it matches the corrupt-data
+    // path in registry-storage.ts (review #3, 2026-08-31).
     void loadRegistry()
       .then(({ instances, activeId }) => {
         hydrate(instances, activeId);
       })
-      .catch((err) => console.warn("[mote] registry hydration failed", err))
+      .catch((err) => {
+        console.warn("[mote] registry hydration failed; starting empty", err);
+        hydrate([], null);
+      })
       .finally(() => setReady(true));
   }, [hydrate]);
 
   useEffect(() => {
-    if (hydrated) void saveRegistry(instances, activeId);
+    if (hydrated) void saveRegistry(instances, activeId).catch(() => undefined);
   }, [instances, activeId, hydrated]);
+
+  // Queries are keyed by NAME ("sessions", "summary", "session/<id>"), so an
+  // instance switch would otherwise show (and poll) the previous instance's
+  // data under the same keys. Drop the whole cache on switch — cheap, and the
+  // resumed poll re-populates it.
+  const prevActive = useRef(activeId);
+  useEffect(() => {
+    if (prevActive.current === activeId) return;
+    prevActive.current = activeId;
+    queryClient.clear();
+  }, [activeId]);
 
   const client = useMemo(() => {
     if (!activeId) return null;

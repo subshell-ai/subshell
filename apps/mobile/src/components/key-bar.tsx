@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { isRepeatable, KEY_BAR_BUTTONS, KEY_BAR_EXTENDED } from "@/lib/key-bar";
 import { colors, touchTarget } from "@/lib/tokens";
@@ -30,11 +30,15 @@ export function KeyBar({
     loop: null,
   });
 
-  function stopRepeat() {
+  const stopRepeat = useCallback(() => {
     if (timers.current.start) clearTimeout(timers.current.start);
     if (timers.current.loop) clearInterval(timers.current.loop);
     timers.current = { start: null, loop: null };
-  }
+  }, []);
+
+  // Navigating away mid-hold must not leave a 90 ms interval typing into a
+  // socket the unmounted screen no longer owns (review #6, 2026-08-31).
+  useEffect(() => stopRepeat, [stopRepeat]);
 
   function startRepeat(bytes: string, label: string) {
     onBytes(bytes);
