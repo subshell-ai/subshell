@@ -9,6 +9,7 @@ import type { IdentityTable } from "@/db/types/identities.db-types.js";
 import type { NotificationSubscriptionTable } from "@/db/types/notification-subscriptions.db-types.js";
 import type { ProfileTable } from "@/db/types/profiles.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
+import type { SessionShareTable } from "@/db/types/session-shares.db-types.js";
 import type { SessionTable } from "@/db/types/sessions.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
 import type { UserMetaTable } from "@/db/types/user-meta.db-types.js";
@@ -26,6 +27,7 @@ export interface Database {
   harnessPlugins: HarnessPluginTable;
   profiles: ProfileTable;
   sessions: SessionTable;
+  sessionShares: SessionShareTable;
   recentPaths: RecentPathTable;
   favorites: FavoriteTable;
   settings: SettingTable;
