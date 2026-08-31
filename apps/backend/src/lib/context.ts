@@ -5,6 +5,10 @@ import { ChannelPostsRepository } from "@/db/repositories/channel-posts.reposito
 import { ChannelsRepository } from "@/db/repositories/channels.repository.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import type { Repositories } from "@/db/repositories/index.js";
+import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
+import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
@@ -55,6 +59,10 @@ export class ApiContext {
       sessionShares: new SessionSharesRepository(params.db),
       userMeta: new UserMetaRepository(params.db),
       users: new UsersRepository(params.db),
+      nodes: new NodesRepository(params.db),
+      nodeShares: new NodeSharesRepository(params.db),
+      nodeSetupKeys: new NodeSetupKeysRepository(params.db),
+      nodeHarnesses: new NodeHarnessesRepository(params.db),
     };
     this.services = {} as Services;
     this.init();

@@ -9,7 +9,7 @@ export interface NodeShareTable {
   id: string;
   /** Node this grant is on */
   nodeId: string;
-  /** Granteed user; NULL means the "Everyone" grant */
+  /** Grantee user id; NULL means the "Everyone" grant */
   granteeUserId: string | null;
   /** 'view' | 'edit' */
   permission: NodeSharePermission;

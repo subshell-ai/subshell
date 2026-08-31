@@ -1,6 +1,10 @@
 import type { ChannelPostsRepository } from "@/db/repositories/channel-posts.repository.js";
 import type { ChannelsRepository } from "@/db/repositories/channels.repository.js";
 import type { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
+import type { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
+import type { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import type { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import type { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
@@ -28,4 +32,8 @@ export interface Repositories {
   readonly sessionShares: SessionSharesRepository;
   readonly userMeta: UserMetaRepository;
   readonly users: UsersRepository;
+  readonly nodes: NodesRepository;
+  readonly nodeShares: NodeSharesRepository;
+  readonly nodeSetupKeys: NodeSetupKeysRepository;
+  readonly nodeHarnesses: NodeHarnessesRepository;
 }
