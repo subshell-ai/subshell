@@ -24,7 +24,18 @@ const QUEUE_CAP = 200;
  * onMessage. The bundled page has no network access and cannot reach the
  * token — that posture is what keeps the Keychain gate meaningful.
  */
-export function LiveHost({ client, sessionId, active }: { client: MoteClient; sessionId: string; active: boolean }) {
+export function LiveHost({
+  client,
+  sessionId,
+  active,
+  readOnly = false,
+}: {
+  client: MoteClient;
+  sessionId: string;
+  active: boolean;
+  /** A `view` grantee: output streams but keystrokes/paste are dropped and the key bar is hidden (spec §4.1). */
+  readOnly?: boolean;
+}) {
   const webview = useRef<WebView | null>(null);
   const ready = useRef(false);
   const queue = useRef<string[]>([]); // writes issued before the page reports ready
@@ -77,7 +88,7 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
         return;
       }
       if (!m) return;
-      if (m.type === "keys" && m.data) sendInput(m.data);
+      if (m.type === "keys" && m.data && !readOnly) sendInput(m.data);
       if (m.type === "size" && m.cols && m.rows) sendResize(m.cols, m.rows);
       if (m.type === "ready") {
         ready.current = true;
@@ -87,7 +98,7 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
         if (queued.length) webview.current?.injectJavaScript(`${queued.join("; ")}; true;`);
       }
     },
-    [sendInput, sendResize],
+    [sendInput, sendResize, readOnly],
   );
 
   // When the tab hides, the socket tears down and the page must re-report
@@ -100,10 +111,11 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
   }, [active]);
 
   const onPaste = useCallback(async () => {
+    if (readOnly) return;
     const text = await Clipboard.getStringAsync();
     // Harness TUIs run with DECSET 2004 on; bracket by default (web parity).
     sendInput(wrapPaste(text, true));
-  }, [sendInput]);
+  }, [sendInput, readOnly]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.termCanvas }}>
@@ -137,7 +149,9 @@ export function LiveHost({ client, sessionId, active }: { client: MoteClient; se
             onShouldStartLoadWithRequest={(r) => r.url.startsWith("file://") || r.url === "about:blank"}
             originWhitelist={["file://*"]}
           />
-          <KeyBar disabled={status.state !== "open"} onBytes={sendInput} onPaste={() => void onPaste()} />
+          {!readOnly && (
+            <KeyBar disabled={status.state !== "open"} onBytes={sendInput} onPaste={() => void onPaste()} />
+          )}
         </>
       )}
     </View>

@@ -26,6 +26,7 @@ function make(over: Partial<SessionView> = {}): SessionView {
     nameLocked: false,
     notify: false,
     waitingSince: null,
+    access: "owner",
     ...over,
   };
 }

@@ -12,6 +12,7 @@ import { useSessionLog } from "@/hooks/use-session-log";
 import type { MoteClient } from "@/lib/api";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
+import { sessionActionFlags } from "@/lib/session-access";
 import { isWaiting } from "@/lib/session-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
@@ -84,6 +85,9 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
           ? { text: "completed", color: colors.mutedFg }
           : { text: "exited", color: colors.mutedFg };
 
+  // Viewer-relative access drives the action bar and live input (spec §4.1).
+  const flags = sessionActionFlags(session?.access);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, gap: 8 }}>
@@ -129,7 +133,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
             </Text>
           </View>
         ) : (
-          <LiveHost client={client} sessionId={sessionId} active />
+          <LiveHost client={client} sessionId={sessionId} active readOnly={!flags.canInput} />
         )
       ) : log.isLoading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -155,67 +159,75 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         />
       )}
 
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 8,
-          padding: 12,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-          backgroundColor: colors.card,
-          paddingBottom: insets.bottom + 12,
-        }}
-      >
-        <Action label="Rename" onPress={() => setModal("name")} />
-        <Action label="Notes" onPress={() => setModal("notes")} />
-        <Action
-          label={session?.notify ? "Bell on" : "Bell off"}
-          color={session?.notify ? colors.warning : colors.primary}
-          onPress={() => void run("Bell", (cli) => cli.setNotify(sessionId, !(session?.notify ?? false)))}
-        />
-        <Action
-          label="Restart"
-          onPress={() =>
-            confirmAction(
-              "Restart in place?",
-              "Revives the same session (same id), resuming the conversation when possible.",
-              "Restart",
-              () => void run("Restart", (cli) => cli.restart(sessionId)),
-            )
-          }
-        />
-        <Action
-          label="Terminate"
-          onPress={() =>
-            confirmAction(
-              "Terminate?",
-              "Kills the pane. Restart can revive it.",
-              "Terminate",
-              () => void run("Terminate", (cli) => cli.terminate(sessionId)),
-              { destructive: true },
-            )
-          }
-        />
-        <Action
-          label="Delete"
-          color={colors.destructive}
-          onPress={() =>
-            confirmAction(
-              "Delete?",
-              "Removes the session for good.",
-              "Delete",
-              () =>
-                void run("Delete", async (cli) => {
-                  await cli.deleteSession(sessionId);
-                  if (onBack) onBack();
-                  else router.back();
-                }),
-              { destructive: true },
-            )
-          }
-        />
-      </View>
+      {flags.showActions && (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 8,
+            padding: 12,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            backgroundColor: colors.card,
+            paddingBottom: insets.bottom + 12,
+          }}
+        >
+          <Action label="Rename" onPress={() => setModal("name")} />
+          <Action label="Notes" onPress={() => setModal("notes")} />
+          {/* The bell and deletion are owner-only (spec §4.1); edit grantees
+            manage the session but do not decide its owner's push posture. */}
+          {flags.isOwner && (
+            <Action
+              label={session?.notify ? "Bell on" : "Bell off"}
+              color={session?.notify ? colors.warning : colors.primary}
+              onPress={() => void run("Bell", (cli) => cli.setNotify(sessionId, !(session?.notify ?? false)))}
+            />
+          )}
+          <Action
+            label="Restart"
+            onPress={() =>
+              confirmAction(
+                "Restart in place?",
+                "Revives the same session (same id), resuming the conversation when possible.",
+                "Restart",
+                () => void run("Restart", (cli) => cli.restart(sessionId)),
+              )
+            }
+          />
+          <Action
+            label="Terminate"
+            onPress={() =>
+              confirmAction(
+                "Terminate?",
+                "Kills the pane. Restart can revive it.",
+                "Terminate",
+                () => void run("Terminate", (cli) => cli.terminate(sessionId)),
+                { destructive: true },
+              )
+            }
+          />
+          {flags.isOwner && (
+            <Action
+              label="Delete"
+              color={colors.destructive}
+              onPress={() =>
+                confirmAction(
+                  "Delete?",
+                  "Removes the session for good.",
+                  "Delete",
+                  () =>
+                    void run("Delete", async (cli) => {
+                      await cli.deleteSession(sessionId);
+                      if (onBack) onBack();
+                      else router.back();
+                    }),
+                  { destructive: true },
+                )
+              }
+            />
+          )}
+        </View>
+      )}
 
       {modal ? (
         <PromptModal

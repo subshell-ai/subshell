@@ -18,6 +18,13 @@ export type SessionStatus = "running" | "terminated";
 export type SessionActivity = "active" | "idle" | "terminated";
 
 /**
+ * The caller's effective access to a session (viewer-relative, spec §4). Never
+ * "none" on a returned row. `view` = watch read-only; `edit` = interact +
+ * manage; `owner` = full control incl. the bell and deletion.
+ */
+export type SessionAccess = "owner" | "edit" | "view";
+
+/**
  * One session as the API returns it — the single source of truth for every
  * screen, list row, chip and badge in this app.
  */
@@ -68,6 +75,8 @@ export interface SessionView {
    * harness hooks or the idle watcher, cleared on output resume or death.
    */
   waitingSince: string | null;
+  /** The caller's effective access (drives which actions + live input are allowed). */
+  access: SessionAccess;
 }
 
 /** Tail of a session's pane log (`GET /api/sessions/:id/log`). */
