@@ -4,9 +4,19 @@ import type { Kysely } from "kysely";
 import webpush from "web-push";
 import { SESSION_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
+import type { SessionTable } from "@/db/types/sessions.db-types.js";
+import {
+  badgeCount,
+  buildExpoMessages,
+  createExpoPushSender,
+  type ExpoPushSender,
+  isUnregisteredTicket,
+  looksLikeExpoToken,
+} from "@/services/expo-push.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -59,6 +69,9 @@ export interface NotifyServiceDeps {
   sessions: Kysely<Database>;
   subs: NotificationsRepository;
   sender?: PushSender;
+  /** Native-device transport; absent = pre-mobile behaviour (spec invariant 2). */
+  devices?: DeviceTokensRepository;
+  expoSender?: ExpoPushSender;
   /** Test escape hatch; production leaves it undefined and loads/generates VAPID from the data dir. */
   vapid?: VapidPair;
 }
@@ -85,35 +98,88 @@ export function createNotifyService(deps: NotifyServiceDeps) {
     return loadOrGenerateVapid();
   }
 
+  // Resolution order mirrors `send` above: explicit dep wins, then the test
+  // override (which implies a singleton reset), then the production client.
+  const expoSend: ExpoPushSender = deps.expoSender ?? expoSenderOverride ?? createExpoPushSender();
+
+  /**
+   * Device fan-out (spec §Push): opaque messages built from ids and counts,
+   * rows pruned only on the relay's DeviceNotRegistered verdict. A service
+   * built without the device transport behaves exactly as it did before the
+   * mobile app existed (invariant 2).
+   */
+  async function notifyDevices(row: SessionTable, kind: NotifyKind): Promise<void> {
+    if (!deps.devices) return;
+    const enrolled = await deps.devices.listByUser(row.userId);
+    if (enrolled.length === 0) return;
+    const live = enrolled.filter((t) => looksLikeExpoToken(t.token));
+    for (const junk of enrolled) {
+      if (!live.includes(junk)) {
+        await deps.devices.deleteByToken(junk.token); // a row the relay can never use
+        logger.warn(`pruned invalid device token for user ${junk.userId}`);
+      }
+    }
+    if (live.length === 0) return;
+    const counts = await new SessionsRepository(deps.sessions).countsByUser(row.userId);
+    const badge = badgeCount(counts.waiting, kind, row.waitingSince);
+    const messages = buildExpoMessages(
+      live.map((t) => t.token),
+      row.id,
+      kind,
+      badge,
+    );
+    try {
+      const tickets = await expoSend(messages);
+      // Tickets zip 1:1 with messages, in order (ExpoPushSender contract).
+      for (let i = 0; i < tickets.length; i += 1) {
+        const ticket = tickets[i];
+        const token = messages[i]?.to;
+        if (!ticket || !token) continue;
+        if (isUnregisteredTicket(ticket)) {
+          await deps.devices.deleteByToken(token); // the relay says the device is gone
+        } else if (ticket.status === "error") {
+          logger.warn(`expo push ticket error (kept): ${ticket.message}`); // e.g. MessageTooBig = our bug
+        }
+      }
+    } catch (err) {
+      // Transport exception is transient BY CONTRACT: every row survives.
+      logger.withError(err).warn(`expo push send failed (kept) for ${live.length} device(s)`);
+    }
+  }
+
   return {
     async vapidPublicKey(): Promise<string> {
       return (await keys()).publicKey;
     },
     /**
-     * Ring every one of the session OWNER's devices — but only if the
-     * session's bell is on. Send-time gate: flipping the bell takes effect
-     * on the next event with nothing to invalidate. A dead endpoint (404/410)
-     * is pruned; every other failure keeps the row (transient).
+     * Ring every one of the session OWNER's devices — web-push subscriptions
+     * and native devices alike — but only if the session's bell is on. The
+     * bell check is the SINGLE policy point above both transports (spec
+     * §Push): flipping it takes effect on the next event with nothing to
+     * invalidate. A dead web endpoint (404/410) or a DeviceNotRegistered
+     * ticket prunes its row; every other failure keeps it (transient).
      */
     async notifySession(sessionId: string, kind: NotifyKind): Promise<void> {
       try {
         const row = await new SessionsRepository(deps.sessions).findById(sessionId);
         if (row?.notify !== 1) return;
         const subs = await deps.subs.listByUser(row.userId);
-        if (subs.length === 0) return;
-        const payload = JSON.stringify(buildNotificationPayload(row, kind));
-        for (const sub of subs) {
-          try {
-            await send({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, payload);
-          } catch (err) {
-            const status = (err as { statusCode?: number }).statusCode;
-            if (status === 404 || status === 410) {
-              await deps.subs.deleteByEndpoint(sub.endpoint);
-            } else {
-              logger.withError(err).warn(`push send failed (kept): ${sub.endpoint.slice(0, 60)}…`);
+        if (subs.length > 0) {
+          const payload = JSON.stringify(buildNotificationPayload(row, kind));
+          for (const sub of subs) {
+            try {
+              await send({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, payload);
+            } catch (err) {
+              const status = (err as { statusCode?: number }).statusCode;
+              if (status === 404 || status === 410) {
+                await deps.subs.deleteByEndpoint(sub.endpoint);
+              } else {
+                logger.withError(err).warn(`push send failed (kept): ${sub.endpoint.slice(0, 60)}…`);
+              }
             }
           }
         }
+        await notifyDevices(row, kind);
       } catch (err) {
         // Notifications must never break the caller (sweep / hook route).
         logger.withError(err).warn(`notifySession(${sessionId}, ${kind}) failed`);
@@ -126,14 +192,18 @@ export type NotifyService = ReturnType<typeof createNotifyService>;
 
 let singleton: NotifyService | null = null;
 let senderOverride: PushSender | null = null;
+let expoSenderOverride: ExpoPushSender | null = null;
 
-/** The app-wide service (shared `db` + its own repository + real sender). */
+/** The app-wide service (shared `db` + its own repositories + real senders). */
 export function getNotifyService(): NotifyService {
   singleton ??= createNotifyService({
     // The typed app db is structurally the same Kysely<Database> the
     // repositories already take everywhere.
     sessions: db,
     subs: new NotificationsRepository(db),
+    devices: new DeviceTokensRepository(db),
+    // No explicit expoSender: the createExpoPushSender() fallback keeps
+    // __setExpoSenderForTests working like its web-push sibling.
   });
   return singleton;
 }
@@ -145,6 +215,17 @@ export function getNotifyService(): NotifyService {
  */
 export function __setSenderForTests(sender: PushSender | null): void {
   senderOverride = sender;
+  singleton = null;
+}
+
+/**
+ * @internal Test isolation: route the device fan-out through `sender` instead
+ * of the real Expo relay. Resetting the singleton makes the next
+ * `getNotifyService()` pick the override up — same contract as
+ * `__setSenderForTests`.
+ */
+export function __setExpoSenderForTests(sender: ExpoPushSender | null): void {
+  expoSenderOverride = sender;
   singleton = null;
 }
 
