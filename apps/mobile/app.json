@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "mote",
+    "slug": "mote-mobile",
+    "version": "1.0.0",
+    "scheme": "mote",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0a0c0f",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "nu.suteki.mote"
+    },
+    "android": {
+      "package": "nu.suteki.mote"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "tsconfigPaths": true
+    }
+  }
+}
