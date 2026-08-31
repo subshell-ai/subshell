@@ -23,6 +23,30 @@ export class UserMetaRepository extends BaseRepository {
     return row?.role ?? null;
   }
 
+  /**
+   * Whether this user receives session notifications (the master switch). A
+   * missing row or the column default reads as enabled — notifications are on
+   * by default (spec 2026-08-31).
+   * @param userId - better-auth user id
+   */
+  async getNotifyEnabled(userId: string): Promise<boolean> {
+    const row = await this.db
+      .selectFrom("userMeta")
+      .select("notifyEnabled")
+      .where("userId", "=", userId)
+      .executeTakeFirst();
+    return (row?.notifyEnabled ?? 1) === 1;
+  }
+
+  /** Sets the per-user notification master switch (on = receive pushes). */
+  async setNotifyEnabled(userId: string, on: boolean): Promise<void> {
+    await this.db
+      .updateTable("userMeta")
+      .set({ notifyEnabled: on ? 1 : 0 })
+      .where("userId", "=", userId)
+      .execute();
+  }
+
   async countUsers(): Promise<number> {
     const row = await this.db
       .selectFrom("userMeta")

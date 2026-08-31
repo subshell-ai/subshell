@@ -15,6 +15,7 @@ import * as favoritesMigration from "@/db/migrations/0012-favorites.js";
 import * as sessionHarnessIdMigration from "@/db/migrations/0013-session-harness-id.js";
 import * as sessionNotificationsMigration from "@/db/migrations/0014-session-notifications.js";
 import * as devicePushTokensMigration from "@/db/migrations/0015-device-push-tokens.js";
+import * as sessionSharingMigration from "@/db/migrations/0016-session-sharing.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -41,6 +42,7 @@ export async function runMigrations(): Promise<void> {
           "0013-session-harness-id": sessionHarnessIdMigration,
           "0014-session-notifications": sessionNotificationsMigration,
           "0015-device-push-tokens": devicePushTokensMigration,
+          "0016-session-sharing": sessionSharingMigration,
         };
       },
     },
