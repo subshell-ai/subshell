@@ -11,6 +11,23 @@ import type { SessionView } from "@/types/session";
 
 /** The exact fields {@link isWaiting} reads — accept any view that carries them. */
 type WaitingProbe = Pick<SessionView, "status" | "alive" | "waitingSince">;
+/** The fields the lifecycle predicates read. */
+type RowProbe = Pick<SessionView, "status" | "alive">;
+
+/** Alive with a live pane — the Running bucket, the poll's activity unit. */
+export function isRunning(s: RowProbe): boolean {
+  return s.status === "running" && s.alive;
+}
+
+/** status `running` but dead pane — crashed or paused mid-backoff. */
+export function isExited(s: RowProbe): boolean {
+  return s.status === "running" && !s.alive;
+}
+
+/** Operator-completed. */
+export function isCompleted(s: Pick<SessionView, "status">): boolean {
+  return s.status === "terminated";
+}
 
 /**
  * True when the session is alive and the attention watcher has stamped it as
@@ -36,12 +53,15 @@ export interface SessionSections {
 
 /** Buckets a list into the four sections; input array untouched, order stable. */
 export function sectionize(sessions: SessionView[]): SessionSections {
-  return {
-    waiting: sessions.filter((s) => isWaiting(s)),
-    running: sessions.filter((s) => s.status === "running" && s.alive && !isWaiting(s)),
-    exited: sessions.filter((s) => s.status === "running" && !s.alive),
-    completed: sessions.filter((s) => s.status === "terminated"),
-  };
+  // One pass; the buckets are exhaustive for the running|terminated union.
+  const out: SessionSections = { waiting: [], running: [], exited: [], completed: [] };
+  for (const s of sessions) {
+    if (isCompleted(s)) out.completed.push(s);
+    else if (isExited(s)) out.exited.push(s);
+    else if (isWaiting(s)) out.waiting.push(s);
+    else if (isRunning(s)) out.running.push(s);
+  }
+  return out;
 }
 
 /** Foreground fallback for the badge when `summary()` is unreachable (older instance). */

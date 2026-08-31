@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isWaiting, sectionize, waitingCount } from "@/lib/session-order";
+import { isCompleted, isExited, isRunning, isWaiting, sectionize, waitingCount } from "@/lib/session-order";
 import type { SessionView } from "@/types/session";
 
 /** Minimal SessionView factory — tests override only what the predicate reads. */
@@ -75,5 +75,21 @@ describe("waitingCount", () => {
         make(),
       ]),
     ).toBe(1);
+  });
+});
+
+describe("lifecycle predicates", () => {
+  // The scalars behind sectionize/hasActivity — pinned so the pill, the
+  // buckets and the poll cannot drift apart silently (review, reuse #3).
+  it("classifies the four lifecycle states", () => {
+    const running = { status: "running", alive: true } as never;
+    const exited = { status: "running", alive: false } as never;
+    const completed = { status: "terminated", alive: false } as never;
+    expect(isRunning(running)).toBe(true);
+    expect(isRunning(exited)).toBe(false);
+    expect(isExited(exited)).toBe(true);
+    expect(isExited(running)).toBe(false);
+    expect(isCompleted(completed)).toBe(true);
+    expect(isCompleted(running)).toBe(false);
   });
 });

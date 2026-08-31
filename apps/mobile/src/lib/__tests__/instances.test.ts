@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type InstanceRecord, removeInstance, upsertInstance } from "@/lib/instances";
+import { type InstanceRecord, instanceMeta, patchInstance, removeInstance, upsertInstance } from "@/lib/instances";
 
 const rec = (id: string, over: Partial<InstanceRecord> = {}): InstanceRecord => ({
   id,
@@ -49,5 +49,20 @@ describe("removeInstance", () => {
 
   it("is a no-op for unknown ids", () => {
     expect(removeInstance([rec("https://a")], "https://zz")).toHaveLength(1);
+  });
+});
+
+describe("patchInstance + instanceMeta", () => {
+  const base = { id: "https://a", label: "A", email: "e", wsBlocked: false, plainHttp: false };
+  it("replaces one entry by id without touching the rest", () => {
+    const other = { ...base, id: "https://b", label: "B" };
+    const out = patchInstance([base, other], "https://a", { wsBlocked: true });
+    expect(out[0]).toEqual({ ...base, wsBlocked: true });
+    expect(out[1]).toBe(other);
+    expect(patchInstance(out, "nope", { label: "x" })).toEqual(out);
+  });
+  it("renders the card meta line", () => {
+    expect(instanceMeta(base)).toBe("https://a");
+    expect(instanceMeta({ ...base, plainHttp: true, wsBlocked: true })).toBe("https://a · http · terminal blocked");
   });
 });

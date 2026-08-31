@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { polledInterval } from "@/hooks/polled-interval";
+import { sessionKey } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { hasActivity, pollIntervalMs } from "@/lib/poll-policy";
 import { useMote } from "@/providers/mote-provider";
 
 /**
@@ -13,10 +14,9 @@ export function useSession(id: string) {
   const foreground = useForeground();
   return useQuery({
     enabled: Boolean(client && id),
-    queryKey: ["session", id],
+    queryKey: sessionKey(id),
     queryFn: () => client?.session(id),
-    refetchInterval: (q) =>
-      pollIntervalMs({ foreground, hasActivity: hasActivity(q.state.data ? [q.state.data] : []) }) ?? false,
+    refetchInterval: (q) => polledInterval(foreground, () => (q.state.data ? [q.state.data] : undefined)),
     refetchIntervalInBackground: false,
   });
 }

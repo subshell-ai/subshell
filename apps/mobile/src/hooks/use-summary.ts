@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import { polledInterval } from "@/hooks/polled-interval";
+import { SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
 import { useSessions } from "@/hooks/use-sessions";
-import { hasActivity, pollIntervalMs } from "@/lib/poll-policy";
 import { waitingCount } from "@/lib/session-order";
 import { useMote } from "@/providers/mote-provider";
 
@@ -12,7 +13,7 @@ import { useMote } from "@/providers/mote-provider";
  * the badge is as live as the list — a persistently-mounted consumer never
  * remounts, and RN's focus manager fires no `visibilitychange` (a one-shot
  * `staleTime` would freeze the number for the whole foreground session;
- * code review found exactly that, 2026-08-31).
+ * review found exactly that, 2026-08-31).
  */
 export function useWaitingCount(): number {
   const { client } = useMote();
@@ -20,11 +21,11 @@ export function useWaitingCount(): number {
   const foreground = useForeground();
   const summary = useQuery({
     enabled: Boolean(client),
-    queryKey: ["summary"],
+    queryKey: SUMMARY_KEY,
     queryFn: () => client?.summary(),
     staleTime: 2000,
     retry: false, // 404 on older instances is the fallback signal, not an error to fight
-    refetchInterval: () => pollIntervalMs({ foreground, hasActivity: hasActivity(sessions.data ?? []) }) ?? false,
+    refetchInterval: () => polledInterval(foreground, () => sessions.data),
     refetchIntervalInBackground: false,
   });
   return summary.data?.waiting ?? waitingCount(sessions.data ?? []);

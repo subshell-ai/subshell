@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { AppState } from "react-native";
+import { polledInterval } from "@/hooks/polled-interval";
+import { SESSIONS_KEY, SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { hasActivity, pollIntervalMs } from "@/lib/poll-policy";
 import { useMote } from "@/providers/mote-provider";
 
 /**
@@ -18,10 +19,10 @@ export function useSessions() {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active") {
-        // resume-immediate; ["summary"] rides along so the tab badge refreshes
-        // too (its own interval follows this query's policy).
-        void qc.invalidateQueries({ queryKey: ["sessions"] });
-        void qc.invalidateQueries({ queryKey: ["summary"] });
+        // resume-immediate; the badge rides along so ["summary"] is never the
+        // stale one after a background stretch.
+        void qc.invalidateQueries({ queryKey: SESSIONS_KEY });
+        void qc.invalidateQueries({ queryKey: SUMMARY_KEY });
       }
     });
     return () => sub.remove();
@@ -29,9 +30,9 @@ export function useSessions() {
 
   return useQuery({
     enabled: Boolean(client),
-    queryKey: ["sessions"],
+    queryKey: SESSIONS_KEY,
     queryFn: () => client?.sessions(),
-    refetchInterval: (q) => pollIntervalMs({ foreground, hasActivity: hasActivity(q.state.data ?? []) }) ?? false,
+    refetchInterval: (q) => polledInterval(foreground, () => q.state.data),
     refetchIntervalInBackground: false,
   });
 }

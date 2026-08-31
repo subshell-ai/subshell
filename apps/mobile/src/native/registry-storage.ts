@@ -19,7 +19,11 @@ export async function loadRegistry(): Promise<{ instances: InstanceRecord[]; act
   } catch {
     instances = []; // corrupt registry is non-fatal; the operator re-adds
   }
-  return { instances, activeId: active ?? instances[0]?.id ?? null };
+  // The two keys are written sequentially, so a kill between writes can leave
+  // `active` pointing at an origin that is no longer registered. Never hand
+  // the caller an activeId the registry can't vouch for (review, altitude #8).
+  const activeId = active && instances.some((i) => i.id === active) ? active : null;
+  return { instances, activeId: activeId ?? instances[0]?.id ?? null };
 }
 
 /** Persist after every store mutation (fire-and-forget from the provider). */

@@ -29,3 +29,20 @@ export function upsertInstance(list: readonly InstanceRecord[], rec: InstanceRec
 export function removeInstance(list: readonly InstanceRecord[], id: string): InstanceRecord[] {
   return list.filter((r) => r.id !== id);
 }
+
+/** Replaces one entry by id (the store's email/wsBlocked transitions). */
+export function patchInstance(
+  list: readonly InstanceRecord[],
+  id: string,
+  patch: Partial<Omit<InstanceRecord, "id">>,
+): InstanceRecord[] {
+  return list.map((r) => (r.id === id ? { ...r, ...patch } : r));
+}
+
+/**
+ * The one-line summary the saved-instance cards render (connect + settings
+ * showed byte-identical copies before review #8).
+ */
+export function instanceMeta(rec: InstanceRecord): string {
+  return `${rec.id}${rec.plainHttp ? " · http" : ""}${rec.wsBlocked ? " · terminal blocked" : ""}`;
+}
