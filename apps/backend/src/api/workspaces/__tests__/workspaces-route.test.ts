@@ -4,6 +4,7 @@ import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
@@ -151,6 +152,36 @@ describe("workspaces route", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+
+  it("a pane MAY point at a session shared to the caller (spec §4.3), while an unshared one still 404s", async () => {
+    const ownerToken = await signIn(ownerEmail, password);
+    const id = await createWorkspace(ownerToken, `shared-session-${crypto.randomUUID().slice(0, 8)}`);
+    const otherSessionId = await makeSession(otherId);
+    // other shares it with Everyone → visible (view) to owner.
+    await new SessionSharesRepository(db).replaceForSession(
+      otherSessionId,
+      [{ granteeUserId: null, permission: "view" }],
+      otherId,
+    );
+
+    const ok = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/panes`, ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ sessionId: otherSessionId }),
+      }),
+    );
+    expect(ok.status).toBe(200);
+
+    // A DIFFERENT foreign session, unshared, is still invisible → 404.
+    const unshared = await makeSession(otherId);
+    const bad = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/panes`, ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ sessionId: unshared }),
+      }),
+    );
+    expect(bad.status).toBe(404);
   });
 
   it("removes a pane, and removing it again 404s", async () => {

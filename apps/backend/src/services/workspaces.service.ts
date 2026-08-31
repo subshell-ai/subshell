@@ -1,6 +1,7 @@
 import { pruneLayout } from "@/api/workspaces/workspace-layout.js";
 import type { SessionStatus } from "@/db/types/session-status.js";
 import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
+import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { BaseService } from "@/services/base.service.js";
 
 /** Route error carrying an HTTP status; Elysia maps `status` to the response code. */
@@ -209,18 +210,24 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Adds a pane holding one of the caller's sessions.
+   * Adds a pane holding a session the caller can see (own or shared to them).
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
-   * @throws WorkspacesError 404 when the session is absent or not the caller's
-   *   (reported as 404 so the endpoint never confirms another user's session id).
+   * @throws WorkspacesError 404 when the session is absent or invisible to the
+   *   caller (reported as 404 so the endpoint never confirms another user's id).
    */
   async addWorkspacePane(userId: string, workspaceId: string, sessionId: string): Promise<{ id: string }> {
     const workspace = await this.repos.workspaces.findByIdForUser(workspaceId, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
 
-    // A pane may only reference the caller's own session.
-    const session = await this.repos.sessions.findById(sessionId);
-    if (!session || session.userId !== userId) {
+    // A pane may reference any session the caller can SEE — their own or one
+    // shared to them (spec 2026-08-31 §4.3). Invisible (absent or unshared) is
+    // a 404, so the endpoint never confirms another user's session id.
+    const { row, access } = await loadSessionAccess(
+      { sessions: this.repos.sessions, shares: this.repos.sessionShares, userMeta: this.repos.userMeta },
+      userId,
+      sessionId,
+    );
+    if (!row || !accessAtLeast(access, "view")) {
       throw new WorkspacesError("not_found", "Session not found", 404);
     }
 
