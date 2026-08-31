@@ -48,6 +48,23 @@ function LoginPage() {
     }
   }
 
+  async function signInWithPasskey() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { error: pkError } = await authClient.signIn.passkey({});
+      if (pkError) {
+        const code = (pkError as unknown as { code?: string }).code;
+        // Dismissing the platform chooser is a cancel, not an app failure.
+        if (code !== "AUTH_CANCELLED") setError(pkError.message ?? "Passkey sign-in failed");
+        return;
+      }
+      window.location.href = redirect ?? "/";
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="flex min-h-dvh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
@@ -84,6 +101,21 @@ function LoginPage() {
               {busy ? "Signing in…" : "Sign in"}
             </Button>
           </form>
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() => void signInWithPasskey()}
+            >
+              Sign in with a passkey
+            </Button>
+            <p className="mt-2 text-muted-foreground text-xs">
+              Passkeys are tied to this address (origin) and device — register one here and, if you use the NetBird
+              domain, another there.
+            </p>
+          </div>
         </CardContent>
       </Card>
     </main>

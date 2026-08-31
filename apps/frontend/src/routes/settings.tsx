@@ -5,6 +5,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { HarnessRow } from "@/components/harness-row";
 import { NotificationsCard } from "@/components/notifications-card";
 import { PageHeader } from "@/components/page-header";
+import { PasskeysCard } from "@/components/passkeys-card";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -151,6 +152,9 @@ function SettingsPage() {
       <NotificationsCard />
 
       <SystemApiKeysCard />
+      {/* Self-service for ANY signed-in user (own passkeys only via the
+          session), hence above the admin-scoped cards' concerns. */}
+      <PasskeysCard />
 
       <Card>
         <CardHeader>
