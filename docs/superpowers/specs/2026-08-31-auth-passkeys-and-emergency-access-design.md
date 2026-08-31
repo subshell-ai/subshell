@@ -28,6 +28,7 @@ Three gaps in the auth stack:
 | 2 | Emergency login target | **Any admin account only** — env value + real admin email = sign-in. Rejected: synthetic `admin` identity (no `user_meta` row → would need special-casing in `isAdmin`/`requireAdmin`) |
 | 3 | Banner audience | **Everyone, every page** — an armed break-glass affects all users, so all users see it; also avoids role-gating the banner |
 | 4 | Frontend integration | **Approach 1 + 3 combined** — adopt the better-auth client for passkey flows *and* migrate the existing raw-fetch auth calls to it. Rejected: hand-rolled WebAuthn (against the "prefer libraries" preference). Deferred-scope-creep concern accepted deliberately by Theo |
+| 5 | Hatch mechanism (post-approval revision) | **Rewrite-then-normal-sign-in** — verified against 1.7.1 that forging a session needs a hand-built `GenericEndpointContext` (fragile), while hashing the env value into the account row reuses the proven `hashPassword` write path (`users.route.ts:54`). Drops the forged-session, the `/api/admin/emergency-reset-password` endpoint, and the reset-mode card. Approved by Theo during plan authoring |
 
 ## 3. better-auth client migration (frontend)
 
@@ -84,14 +85,19 @@ sign-out in `app-sidebar.tsx`, `lib/auth.ts:14-17`).
 ### Frontend
 
 - **Login page**: secondary "Sign in with a passkey" button →
-  `authClient.passkey.authenticate({})` (discoverable-credential, no email
-  needed). Cancel/AbortError from the platform UI returns to the form
-  silently; other errors go to the error banner.
+  `authClient.signIn.passkey({})` (discoverable-credential, no email needed —
+  verified action name in the shipped 1.7.1 client). A
+  `REGISTRATION_CANCELLED`/`AUTH_CANCELLED` error code (user dismissed the
+  platform UI) returns to the form silently; other errors go to the error
+  banner.
 - **Settings → new "Passkeys" card** (every signed-in user, their own
-  credentials): list via `listPasskeys()`, add via
-  `addPasskey({ name })`, remove via `deletePasskey({ id })`. Follow the
-  `SystemApiKeysCard` component pattern
-  (`components/system-api-keys-card.tsx`).
+  credentials): add via `authClient.passkey.addPasskey({ name })`, list via
+  the client's `listPasskeys` query, remove via `authClient.$fetch(
+  "/passkey/delete-passkey", { method: "POST", body: { id } })` (endpoints
+  confirmed present in the 1.7.1 dist). Follow the `SystemApiKeysCard`
+  component pattern (`components/system-api-keys-card.tsx`). Exact client
+  method shapes to be pinned during implementation against
+  `@better-auth/passkey/client` types.
 - UI copy must state the WebAuthn reality: a passkey registered on
   `127.0.0.1:PORT` does not work on the NetBird domain and vice versa
   (different RP IDs) — register once per origin you use.
@@ -123,7 +129,7 @@ manually in the plan's checklist.
   warning comment. No prod boot-guard — this is explicitly an operator
   feature; the banner is the guard.
 
-### Sign-in path
+### Sign-in path (rewrite-then-normal-sign-in)
 
 Intercept inside the existing `api/auth-rate-limit.route.ts` wrapper (it
 already owns `POST /api/auth/sign-in/email` ahead of better-auth and parses
@@ -131,30 +137,34 @@ the body):
 
 1. Var unset, or body password ≠ var value → fall through to better-auth
    unchanged (emergency attempts share the normal per-email backoff).
-2. Password matches exactly:
-   - account exists and `user_meta.role === 'admin'` → create a session via
-     better-auth's internal adapter (`internalAdapter.createSession` + the
-     context's cookie setter — the same mechanism better-auth uses; exact
-     1.7.1 surface to be confirmed at implementation start) and return it as
-     a normal successful sign-in.
-   - otherwise (no account / non-admin) → respond exactly like a bad password
-     (no signal about which half failed, no special case).
+2. Password matches the env value exactly:
+   - account exists and `user_meta.role === 'admin'` → overwrite that user's
+     credential hash (`UPDATE account SET password = <hashPassword(envValue)>
+     WHERE userId = ? AND providerId = 'credential'`), then forward the
+     ordinary sign-in. better-auth verifies the value it just stored and
+     mints a **real session** through its own path — no internal-context
+     forging. The wrapper's success branch clears the attempt counter as
+     usual.
+   - otherwise (no account / non-admin) → fall through unchanged, so the
+     response is identical to a bad password (no signal about which half
+     failed).
 
-### Forced reset
+### Recovery (no new endpoint)
 
-- New endpoint `POST /api/admin/emergency-reset-password` — body
-  `{ newPassword }`; guarded by `requireAdmin` (cookie-only, per the existing
-  admin-route posture) **and** 403 whenever `MOTE_EMERGENCY_PASSWORD` is
-  unset, so it is inert in normal operation.
-- Implementation mirrors the admin-mints-user precedent (`users.route.ts:51-63`):
-  hash with `better-auth/crypto.hashPassword` and update the caller's own
-  credential row directly; revoke all the caller's other sessions. The caller
-  keeps their current session (they're mid-recovery).
-- No session tagging: while the hatch is armed, the Settings change-password
-  card renders in **reset mode** (new password + confirm; current-password
-  field replaced by a notice). Rationale: an armed hatch is a conscious
-  operator act, and the only sessions that can use the endpoint are admin
-  sessions anyway.
+After signing in, the admin **knows** the current password — it is the env
+value — so the existing better-auth `change-password` flow works unchanged;
+no reset endpoint and no "reset mode" UI are needed (the original plan for
+both is dropped per decision #5). The banner tells the admin exactly this.
+
+Accepted consequence: the moment the hatch is used, the old (forgotten)
+password is destroyed, and clearing the env var without setting a new
+password locks the admin out until the hatch is re-armed. The banner exists
+to prevent exactly that.
+
+Verified against 1.7.1: sign-in verifies `account.password` with
+`ctx.context.password.verify`, whose hasher matches `hashPassword` from
+`better-auth/crypto` — the exact primitive `users.repository.ts:62-65`
+already uses to create sign-in-able credential accounts.
 
 ### Banner
 
@@ -173,12 +183,14 @@ the body):
 
 - **Backend (`bun test`)**, using the `api/__tests__/helpers/auth-tables.ts`
   suite pattern (real migrations + real `signIn` helper):
-  - emergency sign-in: match + admin → session cookie; match + non-admin →
-    401 identical to bad-password; var unset → pure passthrough; normal
-    password still works while armed; backoff still applies.
-  - `emergency-reset-password`: 403 unarmed; updates the hash (old password
-    fails, new succeeds); other sessions revoked, current session alive;
-    non-admin session → 403.
+  - emergency sign-in: match + admin → 200 with session cookie, AND the old
+    admin password now fails (hash was replaced); match + non-admin → 401
+    identical to bad-password AND the non-admin's password still works (no
+    rewrite happened); var unset → pure passthrough (env-value password
+    rejected); unknown email + env value → 401; wrong-password backoff still
+    applies around it.
+  - recovery is just the existing change-password flow (already covered by
+    the migrated e2e path), so no new endpoint tests.
   - `settings/public` includes `emergencyLoginActive` in both states.
 - **Frontend / e2e (Playwright)**:
   - `01-setup-wizard.spec.ts`: confirm-field parity (mismatch blocks submit).
