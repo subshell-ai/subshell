@@ -9,6 +9,7 @@ import { PromptModal } from "@/components/prompt-modal";
 import { SESSIONS_KEY } from "@/hooks/query-keys";
 import { useSession } from "@/hooks/use-session";
 import { useSessionLog } from "@/hooks/use-session-log";
+import type { MoteClient } from "@/lib/api";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { isWaiting } from "@/lib/session-order";
@@ -44,13 +45,21 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     return false;
   }
 
-  async function run(label: string, fn: () => Promise<unknown>) {
+  /**
+   * One guarded action: null-check, biometric, run, refresh. The callback
+   * receives the non-null client as an argument — deliberately NOT `client!`
+   * inside the callbacks: the build graph runs biome's --write --unsafe before
+   * type-checking, and its noNonNullAssertion fix rewrites `client!.x()` into
+   * `client?.x()`, which returns `Promise<T> | undefined` and breaks tsc
+   * (CI incident 2026-08-31). An injected parameter cannot be rewritten.
+   */
+  async function run(label: string, fn: (cli: MoteClient) => Promise<unknown>) {
     if (!client) return;
     // Same posture as the Live tab: actions that can type into a pane (or end
     // one) require the biometric (spec §Security notes).
     if (!(await requireBiometric(`Confirm: ${label}`))) return;
     try {
-      await fn();
+      await fn(client);
       await Promise.all([refetch(), qc.invalidateQueries({ queryKey: SESSIONS_KEY })]);
     } catch (err) {
       if (!gone(err)) Alert.alert(label, errMessage(err, "Request failed"));
@@ -163,7 +172,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         <Action
           label={session?.notify ? "Bell on" : "Bell off"}
           color={session?.notify ? colors.warning : colors.primary}
-          onPress={() => void run("Bell", () => client!.setNotify(sessionId, !(session?.notify ?? false)))}
+          onPress={() => void run("Bell", (cli) => cli.setNotify(sessionId, !(session?.notify ?? false)))}
         />
         <Action
           label="Restart"
@@ -172,7 +181,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               "Restart in place?",
               "Revives the same session (same id), resuming the conversation when possible.",
               "Restart",
-              () => void run("Restart", () => client!.restart(sessionId)),
+              () => void run("Restart", (cli) => cli.restart(sessionId)),
             )
           }
         />
@@ -183,7 +192,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               "Terminate?",
               "Kills the pane. Restart can revive it.",
               "Terminate",
-              () => void run("Terminate", () => client!.terminate(sessionId)),
+              () => void run("Terminate", (cli) => cli.terminate(sessionId)),
               { destructive: true },
             )
           }
@@ -197,8 +206,8 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               "Removes the session for good.",
               "Delete",
               () =>
-                void run("Delete", async () => {
-                  await client!.deleteSession(sessionId);
+                void run("Delete", async (cli) => {
+                  await cli.deleteSession(sessionId);
                   if (onBack) onBack();
                   else router.back();
                 }),

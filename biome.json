@@ -48,6 +48,9 @@
       "suspicious": {
         "noImplicitAnyLet": "off",
         "noExplicitAny": "off"
+      },
+      "style": {
+        "noNonNullAssertion": { "level": "warn", "fix": "none" }
       }
     }
   }
