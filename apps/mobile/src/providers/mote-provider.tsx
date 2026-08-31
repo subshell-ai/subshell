@@ -26,10 +26,14 @@ export function MoteProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    void loadRegistry().then(({ instances, activeId }) => {
-      hydrate(instances, activeId);
-      setReady(true);
-    });
+    // .catch matters: without it a storage rejection left the app rendering
+    // `null` forever — an unexplained black screen, no redbox, no log.
+    void loadRegistry()
+      .then(({ instances, activeId }) => {
+        hydrate(instances, activeId);
+      })
+      .catch((err) => console.warn("[mote] registry hydration failed", err))
+      .finally(() => setReady(true));
   }, [hydrate]);
 
   useEffect(() => {
