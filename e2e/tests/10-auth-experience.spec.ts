@@ -23,7 +23,7 @@ test("signed-out deep-link round-trips through /login?redirect", async ({ page }
 
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/workspaces$/);
 });
 
@@ -53,7 +53,7 @@ test("members see the roster but no management UI", async ({ browser }) => {
   await page.goto("/login");
   await page.fill("#email", member.email);
   await page.fill("#password", member.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 
   await page.goto("/users");

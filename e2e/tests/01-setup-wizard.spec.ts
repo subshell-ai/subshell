@@ -72,7 +72,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(page).toHaveURL(/\/login$/);
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL("**/");
 
   // Hand the session to the specs that run after this one (workers: 1).
