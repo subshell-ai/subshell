@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { NODE_MAX_FRAME_BYTES, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/session-protocol";
 import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { getLive, type NodeConnection, resetNodeRegistryForTests } from "../node-registry.js";
 import { NodeRpcError } from "../node-rpc.js";
 import {
@@ -47,6 +47,8 @@ interface Harness {
   keys: Map<string, { id: string; metadata: Record<string, unknown> | null } | null>;
   /** node id → apiKeyId the row binds (absent = no row) */
   bindings: Map<string, string | null>;
+  /** node id → row `kind` (absent = "agent") */
+  kinds: Map<string, NodeKind>;
   ready: { id: string; report: NodeReadyReport }[];
   inventories: { id: string; json: string }[];
   touched: string[];
@@ -62,6 +64,7 @@ function makeHarness(): Harness {
   const h = {
     keys: new Map(),
     bindings: new Map(),
+    kinds: new Map(),
     ready: [],
     inventories: [],
     touched: [],
@@ -74,7 +77,9 @@ function makeHarness(): Harness {
     verifyApiKey: async (rawKey) => h.keys.get(rawKey) ?? null,
     nodes: {
       findById: async (id) =>
-        h.bindings.has(id) ? ({ id, apiKeyId: h.bindings.get(id) ?? null } as unknown as NodeTable) : undefined,
+        h.bindings.has(id)
+          ? ({ id, apiKeyId: h.bindings.get(id) ?? null, kind: h.kinds.get(id) ?? "agent" } as unknown as NodeTable)
+          : undefined,
       applyReady: async (id, report) => {
         h.ready.push({ id, report });
         return undefined;
@@ -140,6 +145,19 @@ describe("authenticateNodeUpgrade (spec §5.3 pre-socket tier)", () => {
     h.keys.set("old", { id: "k-old", metadata: { kind: "node", nodeId: "n1" } });
     h.bindings.set("n1", "k-new");
     await expect(authenticateNodeUpgrade(h.deps, "Bearer old")).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("refuses 403: fully linked node key aimed at the LOCAL node row (it never dials in)", async () => {
+    // A rotated local key (admin-only mint surface) must not impersonate the
+    // control-plane host over /ws/node and overwrite its facts via ready.
+    const h = makeHarness();
+    h.keys.set("local", { id: "k-local", metadata: { kind: "node", nodeId: "local" } });
+    h.bindings.set("local", "k-local"); // key↔row link is CORRECT — only `kind` refuses
+    h.kinds.set("local", "local");
+    await expect(authenticateNodeUpgrade(h.deps, "Bearer local")).rejects.toMatchObject({
+      status: 403,
+      message: "The local node cannot connect over /ws/node",
+    });
   });
 
   it("accepts the fully linked chain and passes the RAW key (bearer prefix stripped) to the verifier", async () => {

@@ -152,11 +152,13 @@ function bearerOf(headerValue: string | null): string | null {
 
 /**
  * The full upgrade-time verification chain (spec §5.3): bearer key → valid →
- * kind==="node" → node row exists → `nodes.apiKeyId === row.id`. Throws the
- * status-carrying errors the global error handler maps to a pre-socket HTTP
- * refusal — 401 for a key that is not a live node credential, 403 for a
- * key↔node link mismatch (rotated/stale key). The node-row read happens HERE
- * (not at `open`) so the socket is never opened for a mismatched key.
+ * kind==="node" → node row exists → row is not the local node →
+ * `nodes.apiKeyId === row.id`. Throws the status-carrying errors the global
+ * error handler maps to a pre-socket HTTP refusal — 401 for a key that is not
+ * a live node credential, 403 for a key↔node link mismatch (rotated/stale
+ * key) or a dial-in aimed at the local node (it never runs an agent). The
+ * node-row read happens HERE (not at `open`) so the socket is never opened
+ * for a mismatched key.
  * @param deps - injected dependencies
  * @param authzHeader - the raw `Authorization` header value (or null)
  * @returns the identity to stash on the socket
@@ -181,6 +183,10 @@ export async function authenticateNodeUpgrade(
 
   const node = await deps.nodes.findById(meta.nodeId);
   if (!node) throw new HttpError(401, "Node no longer exists");
+  // Local never runs an agent; a rotated local key (admin-only surface) must
+  // not open a socket impersonating the control-plane host and overwrite its
+  // machine facts via ready/inventory.
+  if (node.kind === "local") throw new HttpError(403, "The local node cannot connect over /ws/node");
   // Anti-forgery: the key must be the one THIS node row binds (rotation
   // flips `apiKeyId`; delete disables the key — either breaks the link).
   if (node.apiKeyId !== row.id) throw new HttpError(403, "Key is not bound to this node");
