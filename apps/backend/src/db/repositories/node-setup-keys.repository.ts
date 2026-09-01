@@ -81,6 +81,25 @@ export class NodeSetupKeysRepository extends BaseRepository {
   }
 
   /**
+   * Consumption-free validity probe — download/install gate, spec §5.1/§8.
+   * Answers "would this plaintext redeem right now?" without flipping
+   * `usedAt`, so the agent's download step can gate on it before enrolling.
+   * @param plaintext - The `nsk_…` code as presented (hashed before the lookup)
+   * @returns true when a key with this hash exists, is unused, and unexpired
+   */
+  async peekValid(plaintext: string): Promise<boolean> {
+    const keyHash = hashKey(plaintext);
+    const row = await this.db
+      .selectFrom("nodeSetupKeys")
+      .select("id")
+      .where("keyHash", "=", keyHash)
+      .where("usedAt", "is", null)
+      .where("expiresAt", ">", new Date().toISOString())
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
+  /**
    * Transactionally redeems a presented plaintext for a new node (spec §5.2).
    * Returns the key row on success (unused and unexpired), null otherwise —
    * wrong hash, already used, or expired all read as null. The flip

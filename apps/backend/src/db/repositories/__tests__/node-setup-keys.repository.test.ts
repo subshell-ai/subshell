@@ -46,6 +46,18 @@ describe("NodeSetupKeysRepository", () => {
     expect(results.filter((r) => r !== null)).toHaveLength(1);
   });
 
+  it("peekValid: fresh true, wrong/used/expired false — and never consumes", async () => {
+    const { plaintext } = await repo.create("peek", unique("u"), 60_000);
+    expect(await repo.peekValid(plaintext)).toBe(true);
+    expect(await repo.peekValid("nsk_wrong")).toBe(false);
+    // peek is consumption-free: repeatable, and the key still redeems afterwards.
+    expect(await repo.peekValid(plaintext)).toBe(true);
+    await repo.consume(plaintext, "n1");
+    expect(await repo.peekValid(plaintext)).toBe(false);
+    const { plaintext: expired } = await repo.create("stale", unique("u"), -1000);
+    expect(await repo.peekValid(expired)).toBe(false);
+  });
+
   it("listByUser scoped to owner; deleteById only by owner", async () => {
     const owner = unique("u");
     const { row } = await repo.create("lab", owner);
