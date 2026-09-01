@@ -409,6 +409,9 @@ export class RemoteLauncher implements NodeLauncher {
    * (5 s, fire-and-forget). Idempotent — a second call is a no-op, so a
    * double cleanup (close after an error-path teardown) never sends a
    * duplicate `tail_stop` (local-twin parity, {@link LocalLauncher.tailStart}).
+   * @throws whatever the `tail_start` round-trip rejects with — after first
+   * unsubscribing the bus handler (the disposer is the only unsubscribe path,
+   * and a rejecting send means the caller never receives one).
    */
   async tailStart(
     id: string,
@@ -447,7 +450,19 @@ export class RemoteLauncher implements NodeLauncher {
         })
         .catch((err: unknown) => logger.withError(err).warn(`remote tail relay failed for ${id}`));
     });
-    await this.#send({ type: "tail_start", sessionId: id, subId, fromByte }, TAIL_START_TIMEOUT_MS);
+    try {
+      await this.#send({ type: "tail_start", sessionId: id, subId, fromByte }, TAIL_START_TIMEOUT_MS);
+    } catch (err) {
+      // The disposer below is the ONLY unsubscribe path — a rejecting
+      // round-trip means the caller never gets one, so drop the bus handler
+      // here (bytes queued for this subId go unread; the next attach
+      // replays). Worst case the agent DID process `tail_start` and its
+      // result died mid-drop: it then tails a sub nobody reads — the caller
+      // owns that concern (its teardown closes the socket); this guard at
+      // least never leaks the handler into the connection's lifetime.
+      unsubscribe();
+      throw err;
+    }
     return () => {
       if (disposed) return; // idempotent: a double cleanup must not re-send tail_stop
       disposed = true;

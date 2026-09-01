@@ -398,7 +398,20 @@ describe("attachRemoteSessionWs — input/resize/cleanup ride the shared handler
     cleanupSessionWs(ws);
     cleanupSessionWs(ws); // belt-and-braces second cleanup (e.g. close after an error-path teardown)
     await until(() => sim.cmdTypes().includes("tail_stop"), "tail_stop on the wire");
-    await Bun.sleep(25); // any hypothetical second stop lands within this via the send chain
+    // Rule out a late second stop over a BOUNDED window — the file's
+    // until-with-budget idiom rather than a wall-clock sleep, so a loaded
+    // runner can't out- or under-run it: poll up to 100 ms for the send
+    // chain to land another one (it never should — the disposer is
+    // idempotent), then count.
+    const sawLateStop = await until(
+      () => sim.cmdTypes().filter((t) => t === "tail_stop").length > 1,
+      "second (double-dispose) tail_stop",
+      100,
+    ).then(
+      () => true,
+      () => false,
+    );
+    expect(sawLateStop).toBe(false); // budget elapsed ⇒ nothing late ever arrived
     expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(1);
     // …and the stop names the subscription that was started.
     expect(sim.cmdsOf("tail_stop")).toEqual([{ type: "tail_stop", subId: subIdOf(sim) }]);

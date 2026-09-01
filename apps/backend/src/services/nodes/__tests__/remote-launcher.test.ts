@@ -520,6 +520,29 @@ describe("tailStart relay", () => {
     dispose();
   });
 
+  it("a tail_start send failure unsubscribes and rethrows (no disposer ⇒ no leaked handler)", async () => {
+    // Review wave: the disposer is the ONLY unsubscribe path — if the
+    // round-trip rejects after `subscribeOutput` ran, the caller never
+    // receives one. Worst case the agent DID process `tail_start` and its
+    // result died mid-drop: without the fix the bus handler leaks AND the
+    // agent keeps pumping into a dead relay forever. Pinned behavior: the
+    // error propagates, the handler is gone, and no disposer ran (no
+    // tail_stop on the wire).
+    const h = makeHarness();
+    const rpcErr = new NodeRpcError("timeout", "no answer to tail_start", "node-1");
+    h.answer("tail_start", () => {
+      throw rpcErr;
+    });
+    expect(await rejection(h.launcher.tailStart("s1", "sub-1", 0, () => {}))).toBe(rpcErr);
+    expect(
+      dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 0, toByte: 1, data_b64: b64("x") })),
+    ).toBe(false); // the bus dropped the handler (RED pre-fix: still subscribed ⇒ true)
+    await flush();
+    expect(h.calls).toEqual([
+      { cmd: { type: "tail_start", sessionId: "s1", subId: "sub-1", fromByte: 0 }, timeoutMs: 10_000 },
+    ]); // disposer never returned ⇒ nothing sends tail_stop
+  });
+
   it("delivers in-order events with monotonic cursors", async () => {
     const h = makeHarness();
     const chunks: Array<[string, number]> = [];

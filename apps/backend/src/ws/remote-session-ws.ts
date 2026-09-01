@@ -99,9 +99,13 @@ export async function attachRemoteSessionWs(
   };
 
   // The WsData the shared message/close handlers read. Mirrors the local
-  // attach's shape exactly: `logFile` carries the path ON THE NODE
-  // (diagnostic truth, never opened here — see below), `socket` the row's
-  // tmux name (the remote launcher ignores it, like every other member).
+  // attach's shape — except `logFile`, which honestly stays "": the remote
+  // path never opens a local file (tail bytes ride `log_read`/`output`
+  // frames) and neither shared handler reads the field, so the node-side
+  // path (`launcher.logPath`) has no consumer here — filling it after the
+  // Object.assign below would not even reach `ws.data` (review-wave trap).
+  // `socket` carries the row's tmux name (the remote launcher ignores it,
+  // like every other member).
   const data: WsData = {
     launcher,
     socket: row.tmuxSocket ?? "",
@@ -121,9 +125,6 @@ export async function attachRemoteSessionWs(
       return;
     }
     if (detached) return;
-    // The node just answered a round-trip, so its `ready` facts are present
-    // and logPath cannot throw for a pre-ready connection here.
-    data.logFile = launcher.logPath(row.id);
 
     try {
       const capture = await launcher.capture(data.socket, row.id);
