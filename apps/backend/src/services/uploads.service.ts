@@ -1,8 +1,10 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { parseNodeWriteFileResult } from "@internal/session-protocol";
 import { fileTypeFromBuffer } from "file-type";
 import sanitize from "sanitize-filename";
+import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
 
 /** Upper bound on collision-suffix retries before giving up. */
@@ -40,15 +42,42 @@ export interface UploadResult {
 /**
  * An upload that cannot be stored safely.
  *
- * Deliberately carries no machine-readable code: the only consumer is the
- * upload route, which maps any `UploadError` to a 400 and returns `message`
- * verbatim. A discriminant existed here and drifted precisely because
- * nothing read it — add one back only alongside a caller that branches on it.
+ * Deliberately carries no machine-readable code: the local upload path maps
+ * any `UploadError` to a 400 and returns `message` verbatim. A discriminant
+ * existed here and drifted precisely because nothing read it — add one back
+ * only alongside a caller that branches on it. (The remote relay needs a
+ * discriminant for exactly that reason, so it got one — on
+ * {@link RemoteUploadError}, leaving this class's contract untouched.)
  */
 export class UploadError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "UploadError";
+  }
+}
+
+/**
+ * An upload that was relayed to an agent node and failed on the wire or on
+ * the node itself — the remote twin of {@link UploadError}.
+ *
+ * This class DOES carry the one discriminant the upload route branches on
+ * (`offline`, deciding 409 vs 502): unlike the base class's "nothing reads a
+ * code" situation, here a caller genuinely branches, and it branches on
+ * `instanceof` + a boolean — never on message text, because agent error
+ * strings are deliberately unpinned protocol-side (T6 ruling).
+ */
+export class RemoteUploadError extends UploadError {
+  /**
+   * True when the node's connection was gone when a chunk was sent — the
+   * §5.6 NODE_OFFLINE class (mid-stream disconnect). Every other failure
+   * (refusal, timeout, malformed answer, short `received`) is false.
+   */
+  readonly offline: boolean;
+
+  constructor(message: string, offline = false) {
+    super(message);
+    this.name = "RemoteUploadError";
+    this.offline = offline;
   }
 }
 
@@ -164,6 +193,39 @@ export function ensureGitExcluded(workingRealPath: string): void {
   }
 }
 
+/** What {@link sniffedUpload} derives from a `File` before any storage exists. */
+export interface SniffedUpload {
+  /** Owned copy of the file's bytes (safe to slice for chunking) */
+  bytes: Uint8Array;
+  /** Final sanitized, timestamp-prefixed filename */
+  name: string;
+  /** MIME type, sniffed from content when possible, else the client's */
+  contentType: string;
+}
+
+/**
+ * Reads, magic-sniffs and names an uploaded file — the storage-agnostic head
+ * of {@link writeUpload}, shared verbatim by the remote relay.
+ *
+ * Sniff ordering is load-bearing and preserved here: the magic check runs on
+ * the real bytes BEFORE `safeUploadName` (the sniffed extension wins over the
+ * client's), and the content type falls back client-type → octet-stream, just
+ * as the local write always did.
+ *
+ * @param file - The uploaded file
+ * @param now - Timestamp source for the filename prefix (defaults to now)
+ * @returns The bytes, the safe name and the derived content type
+ */
+export async function sniffedUpload(file: File, now = new Date()): Promise<SniffedUpload> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const sniffed = await fileTypeFromBuffer(bytes);
+  return {
+    bytes,
+    name: safeUploadName(file.name, sniffed?.ext ?? null, now),
+    contentType: sniffed?.mime ?? file.type ?? "application/octet-stream",
+  };
+}
+
 /**
  * Stores an uploaded file in the working directory and returns its absolute path.
  *
@@ -182,19 +244,117 @@ export async function writeUpload({
   file: File;
   now?: Date;
 }): Promise<UploadResult> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const sniffed = await fileTypeFromBuffer(bytes);
-  const name = safeUploadName(file.name, sniffed?.ext ?? null, now);
+  const { bytes, name, contentType } = await sniffedUpload(file, now);
   const dir = uploadsDirFor(workingRealPath);
   mkdirSync(dir, { recursive: true });
   const { path, finalName } = await writeUnique(workingRealPath, name, bytes);
   ensureGitExcluded(workingRealPath);
-  return {
-    path,
-    name: finalName,
-    size: bytes.byteLength,
-    contentType: sniffed?.mime ?? file.type ?? "application/octet-stream",
-  };
+  return { path, name: finalName, size: bytes.byteLength, contentType };
+}
+
+/* ------------------------------------------------------------------ */
+/* remote relay (spec 2026-08-31 §3.4, phase-2 Task 12)                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Raw byte budget per `write_file` frame. 512 KiB, NOT the spec prose's
+ * 768 KiB: base64 inflates by 4/3, so 768 KiB raw overflows the 1 MiB frame
+ * cap (spec errata — Global Constraints pin this value).
+ */
+export const UPLOAD_CHUNK_BYTES = 512 * 1024;
+
+/** Per-chunk RPC deadline — parity with RemoteLauncher's `write_file` budget. */
+const WRITE_CHUNK_TIMEOUT_MS = 30_000;
+
+/**
+ * Relays an uploaded file to an agent node as ordered `write_file` chunks
+ * (spec §3.4) and returns the path ON THE NODE.
+ *
+ * The composition is string-only — no local `mkdirSync`, no `resolveUploadPath`
+ * containment check, no {@link ensureGitExcluded}: the target lives on the
+ * node's filesystem, where the agent's own twice-gated path policy
+ * (`apps/agent/src/commands/write-file.ts`) is the authority and git
+ * bookkeeping stays operator-controlled.
+ *
+ * Agent-side semantics this loop relies on (pinned by the agent's own tests):
+ * - chunk indices must arrive strictly 0, 1, 2… — every chunk is AWAITED
+ *   before the next is sent, and any failure stops the loop immediately (no
+ *   further frames, eof included).
+ * - every accepted chunk answers `{ path, received }` with `received` the
+ *   running total; the eof answer MUST equal the file size or this throws.
+ * - `chunk 0` on an open stream REPLACES it, so recovery for ANY failed
+ *   stream is simply re-running the upload from chunk 0 — deliberately no
+ *   abort command, and the short-`received` throw below needs no cleanup
+ *   (the agent's `.part` tmp self-heals on the next attempt).
+ * - refusals (`ok:false`, e.g. policy) surface as `NodeRpcError("failed")`
+ *   whose message is UNPINNED protocol-side — it rides the
+ *   {@link RemoteUploadError} for the logs but the route must map on the
+ *   class/flag only, never on the text.
+ *
+ * A zero-byte file still sends one empty eof chunk so the node-side file
+ * exists (local parity: `writeUpload` creates empty files too).
+ *
+ * @param nodeId - Target node (caller has already gated on a live connection;
+ *   a mid-stream drop maps to `offline: true`)
+ * @param workingRealPath - The session's working directory AS THERE (absolute)
+ * @param file - The uploaded file
+ * @param send - RPC seam (default {@link sendCommand}; tests inject fakes)
+ * @returns Path (on the node), final name, size and content type
+ * @throws UploadError when the composed target is not an absolute path —
+ *   checked BEFORE the first frame: the agent echoes the path it was given,
+ *   and an empty/garbage echo wedges the result mapping (T6 finding #4)
+ * @throws RemoteUploadError for any wire/agent failure
+ */
+export async function writeUploadRemote(
+  nodeId: string,
+  workingRealPath: string,
+  file: File,
+  send: typeof sendCommand = sendCommand,
+): Promise<UploadResult> {
+  const { bytes, name, contentType } = await sniffedUpload(file);
+  const path = `${uploadsDirFor(workingRealPath)}/${name}`;
+  if (!name || !path.startsWith("/")) {
+    throw new UploadError("Upload target must be an absolute path on the node");
+  }
+  logger.debug(
+    `remote upload to node "${nodeId}": ${bytes.byteLength} bytes -> ${path} (git-exclude skipped — node-side git is operator-controlled)`,
+  );
+
+  const chunkCount = Math.max(1, Math.ceil(bytes.byteLength / UPLOAD_CHUNK_BYTES));
+  let received = 0;
+  for (let i = 0; i < chunkCount; i++) {
+    const off = i * UPLOAD_CHUNK_BYTES;
+    const piece = bytes.subarray(off, Math.min(off + UPLOAD_CHUNK_BYTES, bytes.byteLength));
+    let data: unknown;
+    try {
+      data = await send(
+        nodeId,
+        {
+          type: "write_file",
+          path,
+          chunk_b64: Buffer.from(piece).toString("base64"),
+          chunk: i,
+          eof: i === chunkCount - 1,
+        },
+        WRITE_CHUNK_TIMEOUT_MS,
+      );
+    } catch (err) {
+      if (err instanceof NodeRpcError) {
+        throw new RemoteUploadError(
+          `write_file chunk ${i} to node "${nodeId}" failed: ${err.message}`,
+          err.code === "offline",
+        );
+      }
+      throw err;
+    }
+    const result = parseNodeWriteFileResult(data);
+    if (!result) throw new RemoteUploadError(`node "${nodeId}" returned a malformed write_file result (chunk ${i})`);
+    received = result.received;
+    if (i === chunkCount - 1 && received !== bytes.byteLength) {
+      throw new RemoteUploadError(`node "${nodeId}" received ${received} of ${bytes.byteLength} bytes`);
+    }
+  }
+  return { path, name, size: bytes.byteLength, contentType };
 }
 
 /** `YYYYMMDD-HHmmss-` in UTC. */

@@ -5,9 +5,11 @@ import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
-import { UploadError, writeUpload } from "@/services/uploads.service.js";
+import { getLive } from "@/services/nodes/node-registry.js";
+import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/services/uploads.service.js";
 
 /** Multipart body: exactly one file per request. */
 const UploadBodySchema = t.Object({
@@ -42,6 +44,10 @@ const UploadResponseSchema = t.Object({
  * an agent can read them without a permission prompt, and on a read-write
  * host mount under Docker so they are visible from the host too. The client
  * then injects the returned path into the terminal.
+ *
+ * For a session pinned to an agent node the same path is produced THERE:
+ * the bytes ride the signed RPC as ordered `write_file` chunks (spec §3.4),
+ * and the response shape is identical — only the filesystem differs.
  */
 export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
   .use(authGuard)
@@ -63,6 +69,58 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
       }
 
       const workingDir = row.workingDir;
+
+      // Phase-2 relay (spec §3.4): a session pinned to an agent node stores
+      // its upload THERE. The local-fs checks below are deliberately skipped
+      // for this branch — that filesystem lives on the node, where the
+      // agent's `write_file` path policy is the authority; stat-ing a local
+      // copy of the path (or refusing because this host has no such dir)
+      // would be meaningless.
+      if (row.nodeId !== LOCAL_NODE_ID) {
+        // Pre-gate the live connection (§5.6): a dead node is 409 before a
+        // single chunk goes out. Mid-stream drops land in the catch below.
+        if (!getLive(row.nodeId)) {
+          return status(
+            409,
+            apiErrorBody({
+              code: BackendErrorCodes.NODE_OFFLINE,
+              message: `The session's node "${row.nodeId}" is offline — start its agent and retry`,
+            }),
+          );
+        }
+        try {
+          return await writeUploadRemote(row.nodeId, workingDir, body.file);
+        } catch (err) {
+          if (err instanceof RemoteUploadError) {
+            // Map on the class + `offline` flag ONLY — agent refusal strings
+            // are unpinned protocol-side (T6 ruling), so no agent text is
+            // echoed; the details ride the server-side error, not the body.
+            return err.offline
+              ? status(
+                  409,
+                  apiErrorBody({
+                    code: BackendErrorCodes.NODE_OFFLINE,
+                    message: "The node dropped the connection mid-upload — re-run the upload",
+                  }),
+                )
+              : status(
+                  502,
+                  apiErrorBody({
+                    code: BackendErrorCodes.NODE_UNREACHABLE,
+                    message:
+                      "The node failed to store the file — re-run the upload (the agent self-heals the partial file)",
+                  }),
+                );
+          }
+          if (err instanceof UploadError) {
+            // Local composition guard (target not absolute, etc.) — same 400
+            // contract as the local branch's UploadError mapping.
+            return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: err.message }));
+          }
+          throw err;
+        }
+      }
+
       try {
         if (!statSync(workingDir).isDirectory()) {
           return status(
@@ -107,11 +165,14 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
+        // Remote-relay failure (node accepted then refused/lost the stream).
+        502: "ApiErrorResponse",
       },
       detail: {
         operationId: "uploadSessionFile",
         tags: ["sessions"],
-        description: "Stores a file in the session's working directory and returns its absolute path",
+        description:
+          "Stores a file in the session's working directory (relayed to the session's node when it runs on one) and returns its absolute path",
       },
     },
   );
