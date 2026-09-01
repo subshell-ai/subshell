@@ -224,7 +224,11 @@ describe("command executors (spec §7)", () => {
     expect(Buffer.byteLength(JSON.stringify(data))).toBeLessThanOrEqual(PROBE_RESULT_BUDGET_BYTES);
     const entries = parseNodeProbeEntries(data);
     expect(entries?.length).toBe(200);
-    expect(entries?.every((e) => e.alive && e.capture === undefined)).toBe(true);
+    expect(entries?.every((e) => e.alive)).toBe(true);
+    // `not.toHaveProperty` (not `capture === undefined`): the rebuild must DROP
+    // the key entirely — a stored `capture: undefined` would round-trip as a
+    // phantom field through JSON.parse on the backend side.
+    for (const e of entries ?? []) expect(e).not.toHaveProperty("capture");
   });
 
   it("stat_dir: realpath + isDirectory; ENOENT / ENOTDIR answer ok:false", async () => {

@@ -208,12 +208,22 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
-  // executors hold `ctx` across reconnects, and the serial chain guarantees
-  // the socket that verified a command is still the live one while it runs.
+  // executors hold `ctx` across reconnects. The serial chain does NOT keep
+  // the socket alive: a command verified on one socket can still be running
+  // when it closes. What recovers from that is (a) `send`'s catch — a result
+  // frame that can no longer leave is logged, never fatal, and (b) the
+  // idempotence map: if the control plane re-delivers the same jti on the
+  // NEW socket, the cached answer is re-sent without re-execution.
   let currentWs: WsLike | undefined;
   const commandWs: CommandWs = {
     send: (ev) => {
-      if (currentWs) send(currentWs, ev);
+      if (!currentWs) {
+        // The event had a real consumer (inventory/tail pumps never learn the
+        // socket died mid-command) — one line so the void is at least visible.
+        log(`dropped ${ev.type} event (no live socket)`);
+        return;
+      }
+      send(currentWs, ev);
     },
     // Bun's WebSocket CLIENT does not surface bufferedAmount — read it
     // defensively (the tail pump, Task 5, throttles on it when present).
@@ -269,16 +279,18 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   let attempt = 0;
 
   const send = (ws: WsLike, ev: NodeEvent): void => {
-    const payload = JSON.stringify(ev);
-    const size = new Blob([payload]).size;
-    if (size > NODE_MAX_FRAME_BYTES) {
-      // Mirrors the inbound rule: suppress, do NOT close — the control plane
-      // already guards its own direction, so an oversize outbound frame is a
-      // producer bug (log it loudly) rather than a reason to drop the link.
-      log(`oversize ${ev.type} event suppressed (${size}B)`);
-      return;
-    }
     try {
+      // stringify INSIDE the try: a hostile/unserializable payload would
+      // otherwise throw past every guard and unwind the frame handler.
+      const payload = JSON.stringify(ev);
+      const size = new Blob([payload]).size;
+      if (size > NODE_MAX_FRAME_BYTES) {
+        // Mirrors the inbound rule: suppress, do NOT close — the control plane
+        // already guards its own direction, so an oversize outbound frame is a
+        // producer bug (log it loudly) rather than a reason to drop the link.
+        log(`oversize ${ev.type} event suppressed (${size}B)`);
+        return;
+      }
       ws.send(payload);
     } catch (err) {
       log(`send ${ev.type} failed: ${err instanceof Error ? err.message : String(err)}`);
