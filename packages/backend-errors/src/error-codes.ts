@@ -6,6 +6,12 @@ export enum BackendErrorCodes {
   INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR",
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
+  NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
+  NODE_OFFLINE = "NODE_OFFLINE",
+  NODE_UNREACHABLE = "NODE_UNREACHABLE",
+  SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
+  SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
+  SETUP_KEY_INVALID = "SETUP_KEY_INVALID",
 }
 
 export const BackendErrorCodeDefs = {
@@ -36,5 +42,29 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.NOT_FOUND_ERROR]: {
     message: "Resource not found",
     statusCode: 404,
+  },
+  [BackendErrorCodes.NODE_LAUNCH_NOT_READY]: {
+    message: "Remote node launch is not available yet",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_OFFLINE]: {
+    message: "Node is offline",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_UNREACHABLE]: {
+    message: "Node did not respond",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SETUP_KEY_CONSUMED]: {
+    message: "Setup key has already been used",
+    statusCode: 401,
+  },
+  [BackendErrorCodes.SETUP_KEY_EXPIRED]: {
+    message: "Setup key has expired",
+    statusCode: 401,
+  },
+  [BackendErrorCodes.SETUP_KEY_INVALID]: {
+    message: "Invalid setup key",
+    statusCode: 401,
   },
 };
