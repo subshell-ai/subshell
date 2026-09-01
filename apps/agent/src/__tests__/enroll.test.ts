@@ -224,10 +224,11 @@ test("unknown command and unknown flag → usage on stderr, exit 2", async () =>
   expect(badFlag.err).toInclude("usage");
 });
 
-test("run is a stub this task: message + exit 3 (T13 replaces it)", async () => {
+test("run without a config → code 1 pointing at enroll (the daemon loop itself lives in daemon.test.ts)", async () => {
+  newHome();
   const res = await run(["run"]);
-  expect(res.code).toBe(3);
-  expect(res.err).toInclude("phase 1 task 13");
+  expect(res.code).toBe(1);
+  expect(res.err.toLowerCase()).toInclude("enroll");
 });
 
 test("version prints agent version + node protocol version", async () => {
@@ -237,20 +238,35 @@ test("version prints agent version + node protocol version", async () => {
   expect(res.out).toInclude("protocol v1");
 });
 
-test("status shows the enrollment without the node key; --json omits nodeKey too", async () => {
+test("status probes the node socket (T13) and never prints the node key", async () => {
   const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
   expect((await run(enrollArgv(url))).code).toBe(0);
 
+  // The fake plane answers the /ws/node handshake with a 201 JSON (never a 101),
+  // so the probe fails immediately → OFFLINE, exit 1 — but the message must
+  // carry the node identity WITHOUT the key, in either format.
   const human = await run(["status"]);
-  expect(human.code).toBe(0);
+  expect(human.code).toBe(1);
+  expect(human.out).toInclude("OFFLINE");
   expect(human.out).toInclude("node_test_1");
   expect(human.out).not.toInclude(CANNED.nodeKey);
 
   const json = await run(["status", "--json"]);
-  expect(json.code).toBe(0);
-  const parsed = JSON.parse(json.out);
-  expect(parsed.nodeId).toBe("node_test_1");
+  expect(json.code).toBe(1);
+  const parsed = JSON.parse(json.out) as Record<string, unknown>;
+  expect(parsed).toMatchObject({ nodeId: "node_test_1", serverUrl: url, online: false, agentVersion: AGENT_VERSION });
   expect("nodeKey" in parsed).toBe(false);
+});
+
+test("status --json without a config: JSON still prints (online:false + reason), exit 1", async () => {
+  newHome();
+  const res = await run(["status", "--json"]);
+  expect(res.code).toBe(1);
+  const parsed = JSON.parse(res.out) as Record<string, unknown>;
+  expect(parsed.online).toBe(false);
+  expect(parsed.nodeId).toBeNull();
+  expect(typeof parsed.reason).toBe("string");
+  expect(parsed.agentVersion).toBe(AGENT_VERSION);
 });
 
 test("status without a config → code 1 pointing at enroll", async () => {

@@ -1,5 +1,6 @@
 import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
-import { loadConfig } from "./config.js";
+import { type AgentConfig, loadConfig } from "./config.js";
+import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -91,9 +92,15 @@ export async function run(argv: string[]): Promise<CliResult> {
     switch (parsed.command) {
       case "version":
         return { code: 0, out: `mote-agent ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
-      case "run":
-        // Placeholder until the daemon lands; exit 3 distinguishes "not built" from "broken".
-        return { code: 3, out: "", err: "mote-agent run: the daemon is not implemented yet (phase 1 task 13)\n" };
+      case "run": {
+        // The daemon is a foreground process that owns its own lifetime: it
+        // logs its one-line entries (plain console, not CliResult) and exits
+        // only through runDaemon's injected exit hook. loadConfig() still
+        // throws the enroll-pointing message through this path.
+        const cfg = await loadConfig();
+        await runDaemon(cfg);
+        return { code: 0, out: "", err: "" }; // unreachable: runDaemon never resolves (test seam only)
+      }
       case "enroll": {
         const server = parsed.flags.server;
         const key = parsed.flags.key;
@@ -110,16 +117,29 @@ export async function run(argv: string[]): Promise<CliResult> {
         return { code: 0, out: `Enrolled as ${nodeId} — next: mote-agent run\n`, err: "" };
       }
       case "status": {
-        const cfg = await loadConfig();
+        // Config read → one short-lived connect (5 s cap, sends nothing). Exit 0
+        // iff online; --json always prints (even config-missing, with a reason).
         // The nodeKey is NEVER echoed — not even via --json; the 0600 config file is its only home.
-        const { nodeKey: _redacted, ...safe } = cfg;
-        if (parsed.flags.json) return { code: 0, out: `${JSON.stringify(safe, null, 2)}\n`, err: "" };
-        const out =
-          `node ${cfg.nodeId} "${cfg.name}"\n` +
-          `  server:   ${cfg.serverUrl}\n` +
-          `  data dir: ${cfg.dataDir}\n` +
-          "  control key: pinned\n";
-        return { code: 0, out, err: "" };
+        let cfg: AgentConfig;
+        try {
+          cfg = await loadConfig();
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          if (!parsed.flags.json) return fail(1, err);
+          const missing = { nodeId: null, serverUrl: null, online: false, agentVersion: AGENT_VERSION, reason };
+          return { code: 1, out: `${JSON.stringify(missing, null, 2)}\n`, err: "" };
+        }
+        const online = await probeOnline(cfg);
+        if (parsed.flags.json) {
+          const body = { nodeId: cfg.nodeId, serverUrl: cfg.serverUrl, online, agentVersion: AGENT_VERSION };
+          return { code: online ? 0 : 1, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
+        }
+        if (online) return { code: 0, out: `node ${cfg.nodeId} "${cfg.name}" — ONLINE (${cfg.serverUrl})\n`, err: "" };
+        return {
+          code: 1,
+          out: `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (no socket to ${cfg.serverUrl} within 5 s)\n`,
+          err: "",
+        };
       }
     }
   } catch (err) {
