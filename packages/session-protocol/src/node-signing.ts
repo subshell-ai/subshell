@@ -1,13 +1,4 @@
-import {
-  compactVerify,
-  decodeJwt,
-  exportJWK,
-  generateKeyPair,
-  importJWK,
-  type JWK,
-  type JWTPayload,
-  SignJWT,
-} from "jose";
+import { compactVerify, exportJWK, generateKeyPair, importJWK, type JWK, type JWTPayload, SignJWT } from "jose";
 import { type NodeCommandBody, parseNodeCommandBody } from "./node-frames.js";
 
 /**
@@ -153,7 +144,11 @@ export async function signCommand(privateJwk: JsonWebKey, input: SignCommandInpu
  */
 export async function signRawClaims(
   privateJwk: JsonWebKey,
-  claims: Record<string, unknown> & { exp?: number; iat?: number },
+  claims: Record<string, unknown> & { aud?: string | string[]; exp?: number; iat?: number },
+  opts?: {
+    /** Omit the `exp` claim entirely — lets tests pin the missing-expiry path. */
+    omitExp?: boolean;
+  },
 ): Promise<string> {
   const key = await importPrivate(privateJwk);
   const now = Math.floor(Date.now() / 1000);
@@ -162,10 +157,10 @@ export async function signRawClaims(
     Object.fromEntries(Object.entries(claims).filter(([k]) => !reserved.has(k))),
   ).setProtectedHeader({ alg: "ES256", typ: "JWT" });
   if (typeof claims.iss === "string") jwt.setIssuer(claims.iss);
-  if (typeof claims.aud === "string") jwt.setAudience(claims.aud);
+  if (typeof claims.aud === "string" || Array.isArray(claims.aud)) jwt.setAudience(claims.aud);
   if (typeof claims.jti === "string") jwt.setJti(claims.jti);
   jwt.setIssuedAt(claims.iat ?? now);
-  jwt.setExpirationTime(claims.exp ?? now + NODE_CMD_TTL_SEC);
+  if (!opts?.omitExp) jwt.setExpirationTime(claims.exp ?? now + NODE_CMD_TTL_SEC);
   return jwt.sign(key);
 }
 
@@ -211,26 +206,25 @@ function audienceMatches(aud: JWTPayload["aud"], want: string): boolean {
  * it must never get a second evaluation).
  *
  * jose v6's `compactVerify` checks crypto and format ONLY (it ignores
- * registered-claim options), so iss/aud/exp/iat are validated here — that
+ * registered-claim options; `algorithms` pins the accepted alg so a header
+ * swap can never downgrade us), so iss/aud/exp/iat are validated here — that
  * split is what keeps `reason: "signature"` for bad crypto/format and
  * `reason: "claims"` for issuer/audience/expiry failures.
  */
 export async function verifyCommand(jws: string, publicJwk: JsonWebKey, ctx: VerifyContext): Promise<VerifyOutcome> {
-  // 1. Signature + compact-JWS format.
+  // 1. Signature + compact-JWS format; the payload is parsed from the BYTES
+  // this call just verified (jose v6 hands back a Uint8Array) — never by a
+  // second unverified decode of the wire string.
+  let payload: JWTPayload;
   try {
     const key = await importPublic(publicJwk);
-    await compactVerify(jws, key);
+    const verified = await compactVerify(jws, key, { algorithms: ["ES256"] });
+    payload = JSON.parse(new TextDecoder().decode(verified.payload)) as JWTPayload;
   } catch {
     return { ok: false, reason: "signature" };
   }
 
   // 2. Registered claims (compactVerify does not evaluate these).
-  let payload: JWTPayload;
-  try {
-    payload = decodeJwt(jws);
-  } catch {
-    return { ok: false, reason: "signature" };
-  }
   const now = ctx.nowSec ?? Math.floor(Date.now() / 1000);
   if (payload.iss !== NODE_CMD_ISSUER) return { ok: false, reason: "claims" };
   if (!audienceMatches(payload.aud, `node:${ctx.nodeId}`)) return { ok: false, reason: "claims" };

@@ -27,7 +27,7 @@ describe("sign/verify round-trip", () => {
     expect(out).toEqual({ ok: false, reason: "claims" });
   });
 
-  it("rejects a foreign keypair and a tampered payload", async () => {
+  it("rejects a foreign keypair and a malformed envelope", async () => {
     const { keys, jtiLru, seq } = await fixtures();
     const other = await generateControlKeys();
     const jws = await signCommand(keys.privateJwk, { nodeId: "n1", jti: "j1", seq: 1, cmd });
@@ -35,7 +35,22 @@ describe("sign/verify round-trip", () => {
       ok: false,
       reason: "signature",
     });
+    // Appending to the SIGNATURE segment: broken crypto/format, not a payload edit.
     expect(await verifyCommand(`${jws}x`, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq })).toEqual({
+      ok: false,
+      reason: "signature",
+    });
+  });
+
+  it("rejects a real payload tamper (byte flipped in the payload segment)", async () => {
+    const { keys, jtiLru, seq } = await fixtures();
+    const jws = await signCommand(keys.privateJwk, { nodeId: "n1", jti: "j1", seq: 1, cmd });
+    const [header, payload, signature] = jws.split(".");
+    // Swap the first base64url char for another valid one — the envelope stays
+    // 3-part and decodable-looking; only the signature check can catch it.
+    const flipped = payload[0] === "A" ? "B" : "A";
+    const tampered = `${header}.${flipped}${payload.slice(1)}.${signature}`;
+    expect(await verifyCommand(tampered, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq })).toEqual({
       ok: false,
       reason: "signature",
     });
@@ -90,6 +105,52 @@ describe("sign/verify round-trip", () => {
     expect(await verifyCommand(jws, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq })).toEqual({
       ok: false,
       reason: "malformed",
+    });
+  });
+});
+
+describe("claims layer (iss/aud/exp/iat, signed with the RIGHT key)", () => {
+  const base = (over: Record<string, unknown>) => ({
+    iss: "mote-control",
+    aud: "node:n1",
+    jti: "j1",
+    seq: 1,
+    cmd: { type: "ping" },
+    ...over,
+  });
+
+  it("rejects the wrong issuer", async () => {
+    const { keys, jtiLru, seq } = await fixtures();
+    const jws = await signRawClaims(keys.privateJwk, base({ iss: "mallory-control" }));
+    expect(await verifyCommand(jws, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq })).toEqual({
+      ok: false,
+      reason: "claims",
+    });
+  });
+
+  it("accepts an aud ARRAY that contains the node's audience", async () => {
+    const { keys, jtiLru, seq } = await fixtures();
+    const jws = await signRawClaims(keys.privateJwk, base({ aud: ["node:other", "node:n1"] }));
+    const out = await verifyCommand(jws, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq });
+    expect(out.ok).toBe(true);
+  });
+
+  it("rejects an iat in the future beyond the 5 s skew", async () => {
+    const { keys, jtiLru, seq } = await fixtures();
+    const future = Math.floor(Date.now() / 1000) + 60;
+    const jws = await signRawClaims(keys.privateJwk, base({ iat: future }));
+    expect(await verifyCommand(jws, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq })).toEqual({
+      ok: false,
+      reason: "claims",
+    });
+  });
+
+  it("rejects a command with NO exp claim (indefinite validity is not a long one)", async () => {
+    const { keys, jtiLru, seq } = await fixtures();
+    const jws = await signRawClaims(keys.privateJwk, base({}), { omitExp: true });
+    expect(await verifyCommand(jws, keys.publicJwk, { nodeId: "n1", jtiLru, seqTracker: seq })).toEqual({
+      ok: false,
+      reason: "claims",
     });
   });
 });
