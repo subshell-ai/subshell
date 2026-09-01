@@ -44,7 +44,7 @@ export interface CommandContext {
   nowMs: () => number;
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
-  /** Live pane-exit watcher intervals by sessionId (Task 4 fills this). */
+  /** Live pane-exit watcher intervals by sessionId (filled by launch/report.ts since Task 4). */
   watchers: Map<string, ReturnType<typeof setInterval>>;
   /** Live log-tail pumps by subId (Task 5 fills this). */
   tails: Map<string, TailHandle>;

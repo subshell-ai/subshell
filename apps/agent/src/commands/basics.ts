@@ -10,6 +10,7 @@ import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSessionId } from "../session-meta.js";
 import type { CommandContext, CommandResult } from "./context.js";
+import { stopWatcher } from "./report.js";
 
 /**
  * The phase-2 basic command executors (spec 2026-08-31 §7). Every function
@@ -42,10 +43,13 @@ async function resolveSocket(ctx: CommandContext, sessionId: string): Promise<st
 
 /**
  * `terminate` (spec §7): STRICT `kill-session` — a tmux refusal is the answer
- * (`{ok:false}`), mirroring `LocalLauncher.terminate`.
+ * (`{ok:false}`), mirroring `LocalLauncher.terminate`. The session's exit
+ * watcher is stopped FIRST: a deliberate kill must not double-report a death
+ * the control plane just ordered (Task 4's report.ts owns the watchers).
  */
 export async function execTerminate(ctx: CommandContext, cmd: Cmd<"terminate">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.sessionId);
+  stopWatcher(ctx, cmd.sessionId);
   ctx.tmux.run(["-L", socket, "kill-session", "-t", cmd.sessionId], {});
   return { ok: true };
 }
@@ -53,10 +57,13 @@ export async function execTerminate(ctx: CommandContext, cmd: Cmd<"terminate">):
 /**
  * `kill` (spec §7): best-effort `kill-session` — "already gone" is success,
  * mirroring `LocalLauncher.killSession` (the restart/terminate sweeps call it
- * on panes that may have died on their own).
+ * on panes that may have died on their own). Like `terminate`, stops the exit
+ * watcher before killing so the death never arrives as a surprise `exit`
+ * event.
  */
 export async function execKill(ctx: CommandContext, cmd: Cmd<"kill">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.sessionId);
+  stopWatcher(ctx, cmd.sessionId);
   try {
     ctx.tmux.killSession(socket, cmd.sessionId);
   } catch {

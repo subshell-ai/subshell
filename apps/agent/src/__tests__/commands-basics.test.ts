@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { tmuxSocketFor } from "@internal/harnesses";
 import {
   NODE_MAX_FRAME_BYTES,
-  type NodeCommandBody,
   type NodeEvent,
   parseNodeCaptureResult,
   parseNodeProbeEntries,
@@ -328,20 +327,7 @@ describe("command executors (spec §7)", () => {
     });
     expect(tmux.calls).toEqual([]);
   });
-
-  // Pinned until Task 4 flips `launch`; keep the type here unimplemented.
-  it("launch (not yet implemented) answers unsupported", async () => {
-    const { ctx } = makeCtx({}, []);
-    const launch: NodeCommandBody = {
-      type: "launch",
-      sessionId: S1,
-      socket: "mote-s1",
-      cwd: "/tmp",
-      harnessId: "claude-code",
-      profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
-      moteEnv: {},
-      sessionName: "s1",
-    };
-    expect(await dispatchCommand(ctx, launch)).toEqual({ ok: false, error: "unsupported" });
-  });
+  // `launch` flipped to the real executor in Task 4 — its "unsupported" pin
+  // moved out with it (see commands-launch.test.ts for the launch suite and
+  // the still-unimplemented-type pin).
 });

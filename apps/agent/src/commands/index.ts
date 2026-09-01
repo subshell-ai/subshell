@@ -12,17 +12,18 @@ import {
   execTerminate,
 } from "./basics.js";
 import type { CommandContext, CommandResult } from "./context.js";
+import { execLaunch } from "./launch.js";
 
 export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./context.js";
 
 /**
- * The command switch (spec 2026-08-31 §7): wired types from phase-2 Task 3 are
- * `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
- * `stat_dir`, `probe`, `probe_resume`, `remove_paths`. Everything else —
- * `launch` (Task 4), `prompt_deliver`/`log_read`/`tail_*` (Task 5),
- * `write_file` (Task 6) — answers `unsupported` until its task flips it; that
- * answer is the integration contract letting the backend and agent tracks
- * move independently.
+ * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–4
+ * are `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
+ * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`. Everything
+ * else — `prompt_deliver`/`log_read`/`tail_*` (Task 5), `write_file` (Task 6)
+ * — answers `unsupported` until its task flips it; that answer is the
+ * integration contract letting the backend and agent tracks move
+ * independently.
  *
  * TOTAL by construction: the whole switch is wrapped once, so no executor
  * throw — not even the meta store's bad-id throw — escapes. The daemon stays
@@ -37,6 +38,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
     switch (cmd.type) {
       case "ping":
         return { ok: true, data: "pong" };
+      case "launch":
+        return await execLaunch(ctx, cmd);
       case "inventory":
         return await execInventory(ctx);
       case "terminate":
@@ -58,7 +61,7 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
       case "remove_paths":
         return await execRemovePaths(ctx, cmd);
       default:
-        // launch/…/write_file land in later tasks; `unsupported` is the contract answer.
+        // prompt_deliver/log_read/tail_*/write_file land in later tasks; `unsupported` is the contract answer.
         return { ok: false, error: "unsupported" };
     }
   } catch (err) {

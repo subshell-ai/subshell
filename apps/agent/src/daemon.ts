@@ -14,6 +14,7 @@ import {
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
+import { buildSessionsReport } from "./commands/report.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
 import { clearLock, writeLock } from "./lock.js";
@@ -159,6 +160,13 @@ function jtiOfUnverified(jws: string): string | undefined {
   }
 }
 
+/**
+ * Capability gate for the `mote-agent mcp` subcommand. This build does NOT
+ * ship it — Task 13 flips the constant to true together with the `mcp` CLI
+ * command, and `readyEvent` then advertises `mcp` alongside `uploads`.
+ */
+const HAS_MCP = false;
+
 /** The `ready` frame: machine identity + protocol version (spec §3.3/§5.3). */
 function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
   return {
@@ -169,7 +177,15 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     arch: process.arch,
     hostname: hostname(),
     dataDir: config.dataDir,
-    capabilities: [], // phase 1: no mcp subcommand, no uploads (spec §7 capability flags)
+    // Phase 2 (Task 4): the capability set advertises the phase-2 command
+    // surface. `uploads` names the terminal-upload relay pipeline (the
+    // write_file receiver lands in Task 6); `mcp` joins only when the
+    // subcommand ships (HAS_MCP, Task 13).
+    capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
+    // Task 1's additive field: the control plane composes the MCP launch spec
+    // against this path (the agent re-runs the dialect locally regardless —
+    // see the design note in commands/launch.ts).
+    executablePath: process.execPath,
   };
 }
 
@@ -428,6 +444,13 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
         send(ws, readyEvent(config));
+        // Connect-time `sessions_report` (spec §3.3): re-projects the panes
+        // that survived an agent restart so the control plane heals its rows.
+        // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
+        // refusing) must never cost the connection.
+        void buildSessionsReport(ctx)
+          .then((report) => send(ws, report))
+          .catch((err: unknown) => log(`sessions_report failed: ${err instanceof Error ? err.message : String(err)}`));
         heartbeat = setInterval(() => {
           send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh

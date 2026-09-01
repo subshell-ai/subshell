@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
+import { join } from "node:path";
 import type { TmuxRunner } from "@internal/harnesses";
 import {
   type ControlKeyPair,
@@ -16,7 +17,7 @@ import { run as runCli } from "../cli.js";
 import { type AgentConfig, saveConfig } from "../config.js";
 import { type DaemonDeps, probeOnline, runDaemon, wsUrlFor } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
-import type { SessionMetaStore } from "../session-meta.js";
+import { SessionMetaStore } from "../session-meta.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
 
@@ -258,7 +259,11 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
     arch: process.arch,
     hostname: hostname(),
     dataDir: h.config.dataDir,
-    capabilities: [],
+    // Phase 2 (Task 4): the capability set advertises the phase-2 command
+    // surface; `mcp` joins in Task 13 when the subcommand ships.
+    capabilities: ["uploads"],
+    // Task 1's additive field: the control plane composes the MCP spec against it.
+    executablePath: process.execPath,
   });
   const os = (ready as Extract<NodeEvent, { type: "ready" }>).os;
   expect(["linux", "darwin", "unknown"]).toContain(os);
@@ -284,7 +289,12 @@ test("frame signed by an unknown key → verify error event, NO result", async (
   expect(count(h, (e) => e.type === "result")).toBe(0);
 });
 
-test("launch (valid wire, unimplemented) → result ok:false unsupported", async () => {
+// Task 4 flipped `launch` to the real executor. The end-to-end meaning of
+// this case is kept — a signed launch frame reaches the dispatcher and its
+// answer comes back as a result frame with the matching ref — answered here
+// through the id-format gate so NO tmux/spawn side effect can happen on the
+// test host (the launch happy path is covered in commands-launch.test.ts).
+test("launch (valid wire, hostile session id) → result ok:false invalid session id", async () => {
   const h = await startDaemon();
   const launch: NodeCommandBody = {
     type: "launch",
@@ -299,7 +309,7 @@ test("launch (valid wire, unimplemented) → result ok:false unsupported", async
   const jti = await signAndSend(h, launch, { jti: "launch-1", seq: 1 });
   const result = await waitFor<Extract<NodeEvent, { type: "result" }>>(h, (e) => e.type === "result", "result");
   expect(result.ref).toBe(jti);
-  expect(result).toMatchObject({ ok: false, error: "unsupported" });
+  expect(result).toMatchObject({ ok: false, error: "invalid session id" });
 });
 
 test("inventory command: inventory EVENT first, then result ok; harness list well-formed", async () => {
@@ -635,6 +645,79 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
   const refs = eventsAs(h, "result").map((e) => e.ref);
   expect(refs.indexOf(jtiT)).toBeLessThan(refs.indexOf(jtiI));
   expect(h.plane.unparsed).toEqual([]);
+});
+
+/* ------------------------------------------------------------------ */
+/* Phase 2 Task 4: connect-time sessions_report (spec §3.3)            */
+/* ------------------------------------------------------------------ */
+
+test("sessions_report lands AFTER ready: one row per recorded meta, re-projection on connect", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-report-"));
+  const store = new SessionMetaStore(dataDir); // simulates panes that survived an agent restart
+  await store.record({
+    sessionId: HEX_A,
+    cwd: dataDir,
+    socket: "rep-sock",
+    harnessId: "pi",
+    name: "a",
+    startedAt: "2026-09-01T00:00:00.000Z",
+  });
+  await store.record({
+    sessionId: HEX_B,
+    cwd: dataDir,
+    socket: "rep-sock",
+    harnessId: "pi",
+    name: "b",
+    startedAt: "2026-09-01T00:00:00.000Z",
+  });
+  const fakeTmux = {
+    hasSession: (_socket: string, id: string) => id === HEX_A,
+    paneExitCode: () => 5,
+  } as unknown as TmuxRunner;
+  try {
+    const h = await startDaemon({ tmux: fakeTmux, meta: store });
+    const report = await waitFor<Extract<NodeEvent, { type: "sessions_report" }>>(
+      h,
+      (e) => e.type === "sessions_report",
+      "sessions_report frame",
+    );
+    const types = eventTypes(h);
+    expect(types.indexOf("sessions_report")).toBeGreaterThan(types.indexOf("ready")); // after ready (spec §3.3)
+    expect(report.sessions).toEqual([
+      { sessionId: HEX_A, alive: true, exitCode: null },
+      { sessionId: HEX_B, alive: false, exitCode: 5 },
+    ]);
+    expect(h.plane.unparsed).toEqual([]);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a throwing sessions_report scan is catch-logged, never fatal to the connection", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-report-fail-"));
+  const store = new SessionMetaStore(dataDir);
+  await store.record({
+    sessionId: HEX_A,
+    cwd: dataDir,
+    socket: "x",
+    harnessId: "pi",
+    name: "a",
+    startedAt: "2026-09-01T00:00:00.000Z",
+  });
+  const fakeTmux = {
+    hasSession: () => {
+      throw new Error("tmux exploded");
+    },
+  } as unknown as TmuxRunner;
+  try {
+    const h = await startDaemon({ tmux: fakeTmux, meta: store });
+    const jti = await signAndSend(h, { type: "ping" }, { jti: "after-report-fail", seq: 1 });
+    await waitFor(h, (e) => e.type === "result" && e.ref === jti, "ping result after a failed report scan");
+    expect(count(h, (e) => e.type === "sessions_report")).toBe(0); // the scan failed, so no frame — and no close
+    expect(h.plane.closes).toBe(0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 test("outbound guard: an oversize result is suppressed + logged, never sent; the link survives", async () => {
