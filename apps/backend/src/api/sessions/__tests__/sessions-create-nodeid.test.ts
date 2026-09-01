@@ -106,6 +106,7 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
     }
     for (const id of createdNodeIds) await new NodesRepository(db).deleteById(id);
     for (const id of createdProfileIds) await db.deleteFrom("profiles").where("id", "=", id).execute();
+    await db.deleteFrom("recentPaths").where("userId", "=", userId).execute();
     // Reap any tmux server the 200-path spawned (same net the manager suite uses).
     for (const socket of sockets) {
       spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
@@ -279,6 +280,17 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
       // The node's own dataDir wins over the backend's SESSION_DATA_DIR (Task 9)
       // — where the ported identity-store/pin-store write under MOTE_DATA_DIR.
       expect(moteEnv.MOTE_DATA_DIR).toBe("/node-data");
+
+      // Write-site per-node scoping: the recent-path touch that follows a
+      // successful launch must carry the RESOLVED node, not silently default
+      // to local — the remote machine's /tmp is not the control plane's /tmp.
+      const recentRows = await db
+        .selectFrom("recentPaths")
+        .select(["path", "nodeId", "label"])
+        .where("userId", "=", userId)
+        .where("path", "=", "/tmp")
+        .execute();
+      expect(recentRows).toContainEqual({ path: "/tmp", nodeId, label: "cnode-gate" });
     } finally {
       detachConnection(nodeId, ws);
     }
@@ -351,6 +363,17 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
 
       const row = await new SessionsRepository(db).findById(id);
       expect(row?.nodeId).toBe(LOCAL_NODE_ID);
+
+      // The local launch touches the LOCAL recent-path scope — byte-identical
+      // to the pre-nodes behavior for a local session.
+      const recentRow = await db
+        .selectFrom("recentPaths")
+        .select(["nodeId", "label"])
+        .where("userId", "=", userId)
+        .where("path", "=", "/tmp")
+        .where("nodeId", "=", LOCAL_NODE_ID)
+        .executeTakeFirst();
+      expect(recentRow).toEqual({ nodeId: LOCAL_NODE_ID, label: "cnode-200" });
 
       const get = await app.fetch(
         new Request(`http://localhost:3080/api/sessions/${id}`, {

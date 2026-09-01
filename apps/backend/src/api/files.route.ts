@@ -5,7 +5,12 @@ import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { loadNodeAccess } from "@/lib/node-access.js";
 import { expandTilde } from "@/utils/path.js";
 
 interface DirEntry {
@@ -135,6 +140,9 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       const parent = resolved === "/" ? null : join(resolved, "..");
       // Both sections in one response so the picker needs one request per
       // folder. A path is listed once — favorites win over recents.
+      // The recents section stays LOCAL-scoped on purpose: this picker walks
+      // the control-plane filesystem, so a remote node's paths here would be
+      // dead clicks. Per-node recents live on /recent?node=<id> instead.
       const favorites = await favoritePaths(user.id);
       const starred = new Set(favorites.map((f) => f.path));
       const recent = (await recentPaths(user.id))
@@ -157,23 +165,51 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
   )
   .get(
     "/recent",
-    async ({ user, actor }) => {
+    async ({ user, actor, query }) => {
       // Browser-only, like /explore: this pre-fills the new-session form —
       // a human-in-the-browser affordance, not a harness API.
       if (actor !== "cookie") {
         throw new FilesError("forbidden", "Recent paths are restricted to browser sessions", 403);
       }
-      const paths = (await recentPaths(user.id)).map(({ path, label }) => ({ path, label }));
+      const nodeId = query.node?.trim() || LOCAL_NODE_ID;
+      // Omitted/'local' needs no visibility check — own local recents are
+      // one's own, and the response stays byte-identical to the pre-nodes
+      // behavior. Any other id must be a node the caller can SEE: the same
+      // rule the profile pin applies (spec 2026-08-31 §6.2) — absent and
+      // invisible collapse to one 404, never 403, so node ids cannot be
+      // probed through the recents list.
+      if (nodeId !== LOCAL_NODE_ID) {
+        const { access } = await loadNodeAccess(
+          {
+            nodes: new NodesRepository(db),
+            shares: new NodeSharesRepository(db),
+            userMeta: new UserMetaRepository(db),
+          },
+          user.id,
+          nodeId,
+        );
+        if (access === "none") {
+          throw new FilesError("not_found", "Node not found", 404);
+        }
+      }
+      const paths = (await recentPaths(user.id, nodeId)).map(({ path, label }) => ({ path, label }));
       return { paths } as const;
     },
     {
+      query: t.Object({
+        node: t.Optional(
+          t.String({
+            description: "Node id to scope the list to; omitted or 'local' = the control-plane host",
+          }),
+        ),
+      }),
       // Just the 200 schema, like /explore: the error bodies are the
       // global handler's structured shape, which this route adds nothing to.
       response: RecentResponseSchema,
       detail: {
         operationId: "recentFilePaths",
         tags: ["files"],
-        description: "Lists recently used working directories (browser sessions only)",
+        description: "Lists recently used working directories for one node (browser sessions only)",
       },
     },
   )
@@ -279,10 +315,16 @@ function isAllowedRoot(path: string): boolean {
   }
 }
 
-/** Recently used paths, filtered to whatever the current confinement allows. */
-async function recentPaths(userId: string) {
+/**
+ * Recently used paths for ONE node (default: the control-plane host),
+ * filtered to whatever the current confinement allows. The confinement filter
+ * rides remote-node scopes too — conservative by design: `MOTE_FS_ROOT` is
+ * the operator's "show me nothing outside this tree" switch, and a remote
+ * path is still just a path string this picker can never cd into anyway.
+ */
+async function recentPaths(userId: string, nodeId = LOCAL_NODE_ID) {
   const repo = new RecentPathsRepository(db);
-  const all = await repo.listByUser(userId);
+  const all = await repo.listByUser(userId, 20, nodeId);
   return all.filter((r) => isAllowedRoot(r.path));
 }
 

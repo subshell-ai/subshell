@@ -265,9 +265,11 @@ export class SessionsService extends BaseService {
       })
       .catch(rethrowUnlessNodeOffline);
     // Feed the picker's Recents (and the new-session form's pre-fill) from
-    // real use. Best-effort: the session EXISTS at this point, and a book-
+    // real use — scoped to the node the session actually launched on, so a
+    // remote machine's paths never surface in the local picker (and vice
+    // versa). Best-effort: the session EXISTS at this point, and a book-
     // keeping insert failing must not turn a successful launch into an error.
-    await this.repos.recentPaths.touch(userId, workingDir, name ?? null).catch(() => {});
+    await this.repos.recentPaths.touch(userId, workingDir, name ?? null, resolvedNodeId).catch(() => {});
     // The MCP apiKey is returned by the manager for env injection only; it is
     // a secret issued once and NEVER echoed to the HTTP client.
     return { id: created.id, tmuxSocket: created.tmuxSocket, promptDelivered: created.promptDelivered };

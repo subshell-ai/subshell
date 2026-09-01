@@ -13,10 +13,12 @@ export interface RecentPath {
  * The caller's recently used working directories (newest first), recorded
  * whenever a session is created. Feeds the new-session form's pre-fill; the
  * folder picker gets the same list inside every explore response.
- * @param nodeId - Launch node to scope the list to; the server IGNORES the
- *                 `node` param until phase-2 per-node recent paths, so the
- *                 default (undefined) stays byte-identical to today's request
- *                 and a provided id only adds the param (and its cache key).
+ * @param nodeId - Launch node to scope the list to. The server records each
+ *                 session-create touch under the session's resolved node and
+ *                 filters `/recent` by this param; omitted (or `local`) means
+ *                 the control-plane host, byte-identical to the pre-nodes
+ *                 request. A node the caller cannot see answers 404, so the
+ *                 param is only worth sending for ids from the node list.
  * @returns The query over `GET /api/files/recent`
  */
 export function useRecentPaths(nodeId?: string) {

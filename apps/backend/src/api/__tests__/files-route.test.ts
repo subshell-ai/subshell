@@ -8,6 +8,7 @@ import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -189,6 +190,105 @@ describe("files route (folder explorer)", () => {
     it("machine bearer -> 403 (browser affordance, like /explore)", async () => {
       const key = await mintSessionKey();
       expect((await recent({ bearer: key })).status).toBe(403);
+    });
+
+    describe("per-node scoping (recent paths are per-machine)", () => {
+      const nodes = new NodesRepository(db);
+      const repo = new RecentPathsRepository(db);
+      /** A node the test user OWNS → visible (owner access). */
+      let ownNodeId: string;
+      /** A node owned by a ghost id with no shares → invisible, like a foreign one. */
+      let foreignNodeId: string;
+      const SHARED_PATH = "/tmp/mote-recent-two-nodes";
+
+      async function recentScoped(node?: string) {
+        const url = `http://localhost:3080/api/files/recent${node !== undefined ? `?node=${encodeURIComponent(node)}` : ""}`;
+        return filesRoutes.fetch(new Request(url, { headers: { cookie: `better-auth.session_token=${cookie}` } }));
+      }
+
+      beforeAll(async () => {
+        ownNodeId = crypto.randomUUID();
+        await nodes.create({
+          id: ownNodeId,
+          ownerUserId: userId,
+          name: `recent-${ownNodeId}`,
+          kind: "agent",
+          status: "offline",
+        });
+        // owner_user_id carries no FK; a ghost owner is exactly a private
+        // foreign node from this viewer's seat: access "none", never 403.
+        foreignNodeId = crypto.randomUUID();
+        await nodes.create({
+          id: foreignNodeId,
+          ownerUserId: `ghost-${crypto.randomUUID()}`,
+          name: `recent-${foreignNodeId}`,
+          kind: "agent",
+          status: "offline",
+        });
+      });
+
+      afterEach(async () => {
+        await db.deleteFrom("recentPaths").where("userId", "=", userId).execute();
+      });
+
+      afterAll(async () => {
+        await nodes.deleteById(ownNodeId);
+        await nodes.deleteById(foreignNodeId);
+      });
+
+      it("a path used on node X surfaces for ?node=X and NOT for omitted or local", async () => {
+        // Same touch a session-create on node X performs (the write site now
+        // carries the resolved node — pinned end-to-end in
+        // sessions-create-nodeid.test.ts).
+        await repo.touch(userId, "/tmp/remote-only", "on-x", ownNodeId);
+        const onX = (await (await recentScoped(ownNodeId)).json()) as { paths: { path: string }[] };
+        expect(onX.paths.map((p) => p.path)).toContain("/tmp/remote-only");
+
+        for (const localish of [await recentScoped(), await recentScoped("local")]) {
+          expect(localish.status).toBe(200);
+          const body = (await localish.json()) as { paths: { path: string }[] };
+          expect(body.paths.map((p) => p.path)).not.toContain("/tmp/remote-only");
+        }
+      });
+
+      it("omitted and ?node=local are the same list — local rows only, unchanged from today", async () => {
+        await repo.touch(userId, "/tmp/local-a", null);
+        await repo.touch(userId, "/tmp/local-b", null);
+        await repo.touch(userId, "/tmp/remote-b", null, ownNodeId);
+        const omitted = (await (await recentScoped()).json()) as { paths: { path: string; label: string | null }[] };
+        const explicit = (await (await recentScoped("local")).json()) as {
+          paths: { path: string; label: string | null }[];
+        };
+        expect(explicit.paths).toEqual(omitted.paths);
+        expect(new Set(omitted.paths.map((p) => p.path))).toEqual(new Set(["/tmp/local-a", "/tmp/local-b"]));
+      });
+
+      it("the same path on two nodes is TWO entries — the (user, node, path) upsert keeps them apart", async () => {
+        await repo.touch(userId, SHARED_PATH, "local label");
+        await repo.touch(userId, SHARED_PATH, "node label", ownNodeId);
+        // Re-touch the local triple: it must update the local row, never
+        // collide with or overwrite the node row (this is the feature's point).
+        await repo.touch(userId, SHARED_PATH, "relabeled local");
+
+        const rows = await db
+          .selectFrom("recentPaths")
+          .select(["path", "nodeId", "label"])
+          .where("userId", "=", userId)
+          .where("path", "=", SHARED_PATH)
+          .execute();
+        expect(rows).toHaveLength(2);
+        const local = (await (await recentScoped()).json()) as { paths: { path: string; label: string | null }[] };
+        const onX = (await (await recentScoped(ownNodeId)).json()) as {
+          paths: { path: string; label: string | null }[];
+        };
+        expect(local.paths).toEqual([{ path: SHARED_PATH, label: "relabeled local" }]);
+        expect(onX.paths).toEqual([{ path: SHARED_PATH, label: "node label" }]);
+      });
+
+      it("invisible or unknown node -> 404 (never 403 — recents are no node-id oracle)", async () => {
+        expect((await recentScoped(foreignNodeId)).status).toBe(404);
+        expect((await recentScoped(crypto.randomUUID())).status).toBe(404);
+      });
     });
   });
 
