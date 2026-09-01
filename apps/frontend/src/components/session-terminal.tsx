@@ -288,6 +288,24 @@ export function SessionTerminal({
       vv.addEventListener("resize", repairCursorVisibility);
       vv.addEventListener("scroll", repairCursorVisibility);
     }
+    // The "loses the cursor right after SPACE" case: iOS autocorrect commits
+    // the just-typed word when space is pressed, and Safari blurs xterm's
+    // helper textarea as part of that composition commit — the keyboard
+    // stays up, but the terminal's input target is gone and every following
+    // keystroke goes nowhere (no resize fires, so the repair above cannot
+    // see it). Reclaim focus while the blur is still the page's only event:
+    // Safari honors a synchronous-ish refocus, and the rAF lets its blur
+    // dance finish first. An intentional focus move (Find bar, dialog,
+    // another control) carries a relatedTarget and is left alone; closing
+    // the keyboard lands here and only restores the cursor — iOS will not
+    // re-show the keyboard without a fresh tap, which is the right outcome.
+    const onFocusOut = (e: FocusEvent) => {
+      if (!isTouchUi() || e.relatedTarget) return;
+      requestAnimationFrame(() => {
+        if (container.isConnected && document.activeElement === document.body) term.focus();
+      });
+    };
+    container.addEventListener("focusout", onFocusOut);
 
     // Ensure the terminal has at least one line
     term.write("");
@@ -306,6 +324,7 @@ export function SessionTerminal({
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);
       }
+      container.removeEventListener("focusout", onFocusOut);
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a
       // real unmount there is nothing left to render it into.
