@@ -101,6 +101,19 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
     expect(getLive("n1")?.ws).toBe(fresh);
   });
 
+  it("re-attaching the SAME socket returns the existing record untouched", () => {
+    const a = fakeSocket();
+    const first = attachConnection("n1", a);
+    first.seq = 9; // lived-in connection: the guard must not reset it
+
+    const again = attachConnection("n1", a);
+
+    expect(again).toBe(first); // identity, not a fresh record
+    expect(again.seq).toBe(9);
+    expect(a.closed).toHaveLength(0); // nothing was superseded/closed
+    expect(getLive("n1")).toBe(first);
+  });
+
   it("REPLACE_CLOSE_CODE is 4409 (spec §5.3)", () => {
     expect(REPLACE_CLOSE_CODE).toBe(4409);
   });

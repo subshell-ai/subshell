@@ -10,7 +10,14 @@ import {
 } from "@internal/session-protocol";
 import { loadControlKeys } from "../control-keys.js";
 import { attachConnection, getLive, type NodeSocket, resetNodeRegistryForTests } from "../node-registry.js";
-import { failAllFor, type NodeResultEvent, NodeRpcError, resolveResult, sendCommand } from "../node-rpc.js";
+import {
+  failAllFor,
+  failConnPendings,
+  type NodeResultEvent,
+  NodeRpcError,
+  resolveResult,
+  sendCommand,
+} from "../node-rpc.js";
 
 /** Fake agent socket: records every wire frame we send it. */
 interface FakeSocket extends NodeSocket {
@@ -229,6 +236,28 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     expect((await rejection(p1)).code).toBe("offline");
     expect((await rejection(p2)).code).toBe("offline");
     expect(conn.pending.size).toBe(0);
+  });
+
+  it("failConnPendings drains ONLY the given connection — the superseded-socket close path", async () => {
+    const oldFake = fakeSocket();
+    const oldConn = attachConnection("n1", oldFake);
+    const p1 = sendCommand("n1", { type: "ping" }, 5000);
+    await waitFor(() => oldFake.sent.length === 1, "old frame");
+
+    // Supersede: the registry now maps the FRESH socket, but the old socket's
+    // close event has not fired yet (its pending must survive until it does).
+    const fresh = fakeSocket();
+    const freshConn = attachConnection("n1", fresh);
+    const p2 = sendCommand("n1", { type: "ping" }, 5000);
+    await waitFor(() => fresh.sent.length === 1, "fresh frame");
+
+    expect(failConnPendings(oldConn)).toBe(1); // targeted: only the old conn
+    expect((await rejection(p1)).code).toBe("offline");
+    expect(freshConn.pending.size).toBe(1); // the mapped connection is untouched
+    expect(oldConn.pending.size).toBe(0);
+
+    expect(failConnPendings(freshConn)).toBe(1);
+    expect((await rejection(p2)).code).toBe("offline");
   });
 
   it("failAllFor honors a custom code/message and is a no-op for unknown nodes", async () => {

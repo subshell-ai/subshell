@@ -1,6 +1,6 @@
 import { type NodeCommandBody, type NodeEvent, signCommand } from "@internal/session-protocol";
 import { loadControlKeys } from "./control-keys.js";
-import { getLive, listLive } from "./node-registry.js";
+import { getLive, listLive, type NodeConnection } from "./node-registry.js";
 
 /**
  * Signed command RPC over the node registry (spec 2026-08-31 §4). This is the
@@ -174,8 +174,31 @@ export function resolveResult(event: NodeResultEvent): boolean {
 }
 
 /**
- * Fail every in-flight command for `nodeId` — call from the WS close handler
- * BEFORE {@link detachConnection}, since it targets the still-mapped entry.
+ * Fail every in-flight command on ONE connection record — the WS close
+ * handler's tool, because a superseded socket's close must fail THAT
+ * connection's pendings even when the registry already maps the node's NEWER
+ * socket (per-connection identity, not per-node lookup).
+ * @param conn - the connection whose pending map should be drained
+ * @param code - rejection code (default `offline`)
+ * @param message - optional override for the error message
+ * @returns how many commands were failed
+ */
+export function failConnPendings(conn: NodeConnection, code: NodeRpcErrorCode = "offline", message?: string): number {
+  const entries = [...conn.pending.values()];
+  conn.pending.clear();
+  const fallback = `node "${conn.nodeId}" connection closed with ${entries.length} in-flight command(s)`;
+  for (const pending of entries) {
+    clearTimeout(pending.timer);
+    pending.reject(new NodeRpcError(code, message ?? fallback, conn.nodeId));
+  }
+  return entries.length;
+}
+
+/**
+ * Fail every in-flight command for `nodeId`'s CURRENTLY MAPPED connection.
+ * Delegates to {@link failConnPendings}; prefer that one from close handlers,
+ * which know the exact connection that died (this lookup misses a superseded
+ * socket whose entry the registry already replaced).
  * @param nodeId - node whose pendings should be settled as failures
  * @param code - rejection code (default `offline`)
  * @param message - optional override for the error message
@@ -184,12 +207,5 @@ export function resolveResult(event: NodeResultEvent): boolean {
 export function failAllFor(nodeId: string, code: NodeRpcErrorCode = "offline", message?: string): number {
   const conn = getLive(nodeId);
   if (!conn) return 0;
-  const entries = [...conn.pending.values()];
-  conn.pending.clear();
-  const fallback = `node "${nodeId}" connection closed with ${entries.length} in-flight command(s)`;
-  for (const pending of entries) {
-    clearTimeout(pending.timer);
-    pending.reject(new NodeRpcError(code, message ?? fallback, nodeId));
-  }
-  return entries.length;
+  return failConnPendings(conn, code, message);
 }

@@ -79,13 +79,18 @@ const live = new Map<string, NodeConnection>();
  * connection is flagged `closing` and its socket closed with 4409 first
  * (spec §5.3). A throwing close on the stale socket is swallowed — a dead
  * socket that refuses to die must not block the fresh one.
+ * Re-attaching the socket that is ALREADY mapped returns the existing record
+ * untouched (no close, no fresh seq, no lost pendings).
  * @param nodeId - node id (no `node:` prefix)
  * @param ws - the freshly authenticated socket
  * @returns the new connection record (seq starts at 0, pendings empty)
  */
 export function attachConnection(nodeId: string, ws: NodeSocket): NodeConnection {
   const previous = live.get(nodeId);
-  if (previous && previous.ws !== ws) {
+  // Same socket re-attached (defensive: duplicate `open` dispatch): keep the
+  // existing record — seq, pendings, and identity stay untouched.
+  if (previous?.ws === ws) return previous;
+  if (previous) {
     previous.closing = true;
     try {
       previous.ws.close(REPLACE_CLOSE_CODE, "replaced by a newer connection for this node");
