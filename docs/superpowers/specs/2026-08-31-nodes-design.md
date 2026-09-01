@@ -228,9 +228,13 @@ a normal user (not `system`), consumption is transactional, and forcing them int
 plugin-owned apikey table would mean raw-SQL lookups-by-hash against someone else's
 hash format.
 
-- Format `nsk_<nanoid(32)>`; shown once (UI mirrors the System-API-keys
+- Format `nsk_<randomBytes(24) base64url>`; shown once (UI mirrors the System-API-keys
   plaintext-once card); stored as SHA-256 hex; default expiry 24 h; owner is the
-  creating user; audit on create/consume/revoke; constant-time compare at enroll.
+  creating user; audit on create/consume/revoke; at enroll the presented code is
+  SHA-256-hashed and matched by digest equality via the indexed lookup on
+  `key_hash` — the plaintext is never compared and never stored (therefore no
+  constant-time comparison: single-use short-lived activation codes, not
+  long-lived password digests).
 
 ### 5.2 Enroll
 
@@ -408,7 +412,7 @@ nodes.service.ts    # (services/) registry CRUD, enroll, share glue
 export interface NodeLauncher {
   validateWorkingDir(raw: string): Promise<string>;        // realpath / stat_dir
   resolveBinary(harness: HarnessPlugin): Promise<string | null>; // findBinary / inventory path
-  launch(plan: LaunchPlan): Promise<{ promptDelivered: boolean }>;
+  launch(plan: LaunchPlan): Promise<void>;               // ERRATUM: void — see note below
   terminate(socket: string, id: string): Promise<void>;
   killSession(socket: string, id: string): Promise<void>;
   hasSession(socket: string, id: string): Promise<boolean>;
@@ -417,6 +421,9 @@ export interface NodeLauncher {
   capture(socket: string, id: string): Promise<string>;
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   sendInput(socket: string, id: string, input: string): Promise<void>;
+  pressEnter(socket: string, id: string): Promise<void>;
+  deliverPrompt(socket: string, id: string, text: string,
+                settleTimeoutMs: number, pollMs: number): Promise<boolean>; // ERRATUM: see note below
   logPath(id: string): string;                             // backend path / agent path
   readLogTail(id: string): Promise<{ lines: string[]; truncated: boolean }>;
   readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }>;
@@ -427,6 +434,15 @@ export interface NodeLauncher {
   removeArtifacts(id: string, paths: string[]): Promise<void>;
 }
 ```
+
+> **ERRATUM (phase-0 final review wave, 2026-08-31):** `launch()` returns
+> `Promise<void>` — `promptDelivered` is not part of the launch result. Prompt
+> delivery is its own seam member, `deliverPrompt(socket, id, text,
+> settleTimeoutMs, pollMs) → Promise<boolean>` (the mirror of §3.2's
+> `prompt_deliver` command), so a remote agent runs the whole settle loop as
+> ONE round-trip instead of streaming capture polls through the control plane.
+> `pressEnter` is likewise an explicit member (the pre-seam service composed
+> sendInput+pressEnter itself).
 
 Every `this.#tmux.*` / local-fs call site in `session-manager.service.ts`
 (`createSession`, `#deliverPrompt`, `#reviveRow`, `restartSession`, `terminateSession`,
