@@ -1,5 +1,6 @@
 import { ApiError, parseErrorBody } from "@/lib/api-error";
 import { cookieHeader, tokenFromSetCookie } from "@/lib/cookie";
+import type { Node } from "@/types/node";
 import type { ExploreResult, ProfileView } from "@/types/profile";
 import type { SessionLogTail, SessionSummary, SessionView, SignInResponse, WsTokenResponse } from "@/types/session";
 
@@ -250,8 +251,21 @@ export class MoteClient {
   }
 
   /**
+   * Nodes visible to the caller (owned or shared; the seeded `local` included
+   * via its Everyone grant) — the new-session launch picker. The `{ nodes }`
+   * envelope is unwrapped here so callers speak `Node[]`. Cookie-only route.
+   * @returns Every visible node, `local` first in practice (server order)
+   */
+  async nodes(): Promise<Node[]> {
+    const res = await this.request<{ nodes: Node[] }>("/api/nodes");
+    return res.nodes;
+  }
+
+  /**
    * Creates and launches a session (spec §Screens New session).
-   * @param input - profileId + workingDir, optional name and first prompt
+   * @param input - profileId + workingDir, optional name, first prompt, and
+   *   launch node (omit for `local` — the server default; a pick of an
+   *   invisible node 404s, an offline agent 409s NODE_OFFLINE)
    * @returns The new session id (the pane may still be settling)
    */
   createSession(input: {
@@ -259,6 +273,7 @@ export class MoteClient {
     workingDir: string;
     name?: string;
     prompt?: string;
+    nodeId?: string;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     return this.request("/api/sessions", { method: "POST", body: JSON.stringify(input) });
   }

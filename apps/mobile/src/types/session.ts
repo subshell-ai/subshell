@@ -41,6 +41,15 @@ export interface SessionView {
    * keep typechecking — no mobile UI reads it yet.
    */
   nodeId?: string;
+  /**
+   * True = the session's agent node has no live connection (spec §5.6) — the
+   * session may still be RUNNING there, its state is just unobservable from
+   * here, so the exited/crash copy must say "node unreachable" instead.
+   * Optional so older payloads keep typechecking: `undefined` reads as
+   * online-ish and must NEVER render "node unreachable" (test with
+   * `=== true`). Always false for sessions on `local`.
+   */
+  nodeOffline?: boolean;
   /** Display name; may be auto-mirrored from the pane title. */
   name: string;
   /** Absolute working directory on the instance's host. */

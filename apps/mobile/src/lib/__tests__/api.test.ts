@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { MoteClient, type TokenStore } from "@/lib/api";
 import { ApiError } from "@/lib/api-error";
 import { SECURE_SESSION_COOKIE, SESSION_COOKIE } from "@/lib/cookie";
+import type { Node } from "@/types/node";
 
 /** In-memory TokenStore stand-in. */
 function memoryStore(initial: string | null = null) {
@@ -275,5 +276,39 @@ describe("MoteClient new-session surface", () => {
     expect(calls[0]?.init.method).toBe("POST");
     expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", prompt: "hi" }));
     expect(res.id).toBe("new-1");
+  });
+
+  it("createSession forwards nodeId when set; omitted stays omitted", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: false })),
+    );
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await client.createSession({ profileId: "p1", workingDir: "/w", nodeId: "n1" });
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", nodeId: "n1" }));
+
+    await client.createSession({ profileId: "p1", workingDir: "/w" });
+    expect(calls[1]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w" }));
+  });
+});
+
+describe("MoteClient.nodes", () => {
+  it("GETs /api/nodes and unwraps the { nodes } envelope", async () => {
+    const { store } = memoryStore("tok");
+    const node: Node = {
+      id: "n1",
+      name: "build-box",
+      kind: "agent",
+      status: "online",
+      access: "owner",
+      agentVersion: "0.2.1",
+      protocolVersion: 1,
+    };
+    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ nodes: [node] })));
+    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await expect(client.nodes()).resolves.toEqual([node]);
+    expect(calls[0]?.url).toBe(`${BASE}/api/nodes`);
   });
 });

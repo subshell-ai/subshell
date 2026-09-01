@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Field } from "@/components/field";
 import { PrimaryButton } from "@/components/primary-button";
+import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { errMessage } from "@/lib/api-error";
 import { colors, radius, touchTarget } from "@/lib/tokens";
@@ -32,7 +33,9 @@ export default function NewSession() {
   const { client } = useMote();
   const qc = useQueryClient();
   const profiles = useProfiles();
+  const nodes = useNodes();
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [nodeId, setNodeId] = useState("local");
   const [workingDir, setWorkingDir] = useState("");
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -68,6 +71,9 @@ export default function NewSession() {
         workingDir,
         name: name.trim() || undefined,
         prompt: prompt.trim() || undefined,
+        // "local" stays off the wire — omitting nodeId is the server default
+        // and keeps single-machine payloads byte-identical to pre-nodes ones.
+        nodeId: nodeId === "local" ? undefined : nodeId,
       });
       await qc.invalidateQueries({ queryKey: ["sessions"] });
       router.replace(`/session/${res.id}`);
@@ -89,6 +95,17 @@ export default function NewSession() {
         .map((e) => ({ kind: "dir" as const, path: e.path, label: e.name })),
     ];
   }, [dir]);
+
+  /**
+   * The launch picker (spec §9): every visible node (ANY share grants launch).
+   * Hidden unless there is a real choice — one node (or a pre-nodes instance
+   * where the route 404s) means `local`, and single-machine users see no
+   * change. Labels/selectability mirror the web picker exactly: "Local" for
+   * the control-plane host, an " — offline" suffix on a downed agent, which
+   * is disabled because launching there 409s (the 409 path still covers the
+   * race when the list goes stale mid-form).
+   */
+  const nodeOptions = nodes.data ?? [];
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -124,6 +141,39 @@ export default function NewSession() {
             </ScrollView>
           )}
         </View>
+
+        {nodeOptions.length > 1 ? (
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Node</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {nodeOptions.map((n) => {
+                  const pickable = n.kind === "local" || n.status === "online";
+                  const sel = nodeId === n.id;
+                  return (
+                    <Pressable
+                      key={n.id}
+                      onPress={() => setNodeId(n.id)}
+                      disabled={!pickable}
+                      style={{
+                        padding: 10,
+                        borderRadius: radius,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.primary : colors.border,
+                        backgroundColor: colors.card,
+                        opacity: pickable ? 1 : 0.5,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>
+                        {n.kind === "local" ? "Local" : n.status === "online" ? n.name : `${n.name} — offline`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Working directory</Text>

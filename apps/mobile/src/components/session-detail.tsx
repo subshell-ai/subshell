@@ -75,15 +75,20 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     );
   }
 
+  // `node unreachable` outranks every other reading (web detail badge, spec
+  // §5.6): with no live agent, alive/waitingSince are last-known facts.
+  // `=== true` so older payloads without the field never read as unreachable.
   const pill = !session
     ? { text: "…", color: colors.mutedFg }
-    : isWaiting(session)
-      ? { text: "waiting for you", color: colors.warning }
-      : session.alive
-        ? { text: "running", color: colors.success }
-        : session.status === "terminated"
-          ? { text: "completed", color: colors.mutedFg }
-          : { text: "exited", color: colors.mutedFg };
+    : session.nodeOffline === true
+      ? { text: "node unreachable", color: colors.warning }
+      : isWaiting(session)
+        ? { text: "waiting for you", color: colors.warning }
+        : session.alive
+          ? { text: "running", color: colors.success }
+          : session.status === "terminated"
+            ? { text: "completed", color: colors.mutedFg }
+            : { text: "exited", color: colors.mutedFg };
 
   // Viewer-relative access drives the action bar and live input (spec §4.1).
   const flags = sessionActionFlags(session?.access);

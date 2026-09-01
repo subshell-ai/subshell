@@ -59,11 +59,16 @@ export const SessionCard = memo(function SessionCard({
           </Text>
         ) : null}
       </View>
+      {/* `node unreachable` outranks `exited` (web session-card, spec §5.6):
+          with no live agent the exit facts are last-known, not current.
+          `=== true` — an older payload without the field is online-ish. */}
       <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
         {session.harnessId}
-        {!session.alive
-          ? ` · exited ${session.exitCode ?? "?"}${session.backoffCount > 0 ? ` · restarts ${session.backoffCount}` : ""}`
-          : ""}
+        {session.nodeOffline === true
+          ? " · node unreachable"
+          : !session.alive
+            ? ` · exited ${session.exitCode ?? "?"}${session.backoffCount > 0 ? ` · restarts ${session.backoffCount}` : ""}`
+            : ""}
       </Text>
       {preview ? (
         <Text numberOfLines={1} style={{ color: colors.mutedFg, fontSize: 12, fontFamily: "Menlo" }}>
