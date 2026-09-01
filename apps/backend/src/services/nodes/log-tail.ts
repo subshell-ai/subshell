@@ -82,10 +82,7 @@ export async function logReplayStartOffset(path: string, lines: number): Promise
  * @param startWasZero - true when the window began at byte 0
  * @returns the last {@link LOG_TAIL_LINES} display lines + truncation flag
  */
-export function tailLinesFromWindowText(
-  text: string,
-  startWasZero: boolean,
-): { lines: string[]; truncated: boolean } {
+export function tailLinesFromWindowText(text: string, startWasZero: boolean): { lines: string[]; truncated: boolean } {
   let body = text;
   if (!startWasZero) {
     // Drop the first partial line the byte-window may have cut through.

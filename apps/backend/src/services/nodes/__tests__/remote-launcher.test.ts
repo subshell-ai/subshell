@@ -28,10 +28,12 @@ type OutputEvent = Extract<NodeEvent, { type: "output" }>;
 /** Scripted answer: a value, or a thunk that may throw (sync ⇒ rejected promise). */
 type Script = unknown | (() => unknown);
 
-function makeHarness(facts: NodeAgentFacts | undefined = testFacts) {
+function makeHarness(facts: NodeAgentFacts | null = testFacts) {
   const calls: Sent[] = [];
   const scripts = new Map<string, Script[]>();
-  let currentFacts = facts;
+  // `null` (not `undefined`) means offline — an explicit `undefined` would
+  // re-trigger the default-parameter above.
+  let currentFacts: NodeAgentFacts | undefined = facts ?? undefined;
   let row: NodeTable | undefined;
 
   const send = async (_nodeId: string, cmd: NodeCommandBody, timeoutMs = 10_000): Promise<unknown> => {
@@ -75,6 +77,13 @@ const testFacts: NodeAgentFacts = {
 };
 
 const harness = { id: "claude-code" } as unknown as HarnessPlugin;
+
+/**
+ * writeArtifact uuid-gates the id (mirrors the agent's isSessionId), so its
+ * tests use a uuid-ish session id; everything else keeps the short "s1".
+ */
+const UUID = "0e63c9a1-2f5b-4c8a-9d1e-2f3a4b5c6d7e";
+const artifactPath = `/home/u/.mote-agent/mcp/${UUID}.json`;
 
 const testProfile: ProfileDefinition = {
   name: "p",
@@ -271,7 +280,9 @@ describe("launch", () => {
 
   it("mcp content without mcpConfigPath throws locally without a send", async () => {
     const h = makeHarness();
-    const err = (await rejection(h.launcher.launch({ ...planBase(), mcp: { fileContent: "{}" } as McpRegistration }))) as Error;
+    const err = (await rejection(
+      h.launcher.launch({ ...planBase(), mcp: { fileContent: "{}" } as McpRegistration }),
+    )) as Error;
     expect(err.message).toContain("mcpConfigPath");
     expect(h.calls).toEqual([]);
   });
@@ -304,9 +315,11 @@ describe("terminate / killSession", () => {
 
     const h2 = makeHarness();
     h2.answer("terminate", () => {
-      throw new NodeRpcError("failed", "node \"node-1\" reported: can't find session: s1", "node-1");
+      throw new NodeRpcError("failed", 'node "node-1" reported: can\'t find session: s1', "node-1");
     });
-    expect(((await rejection(h2.launcher.terminate("mote-abc", "s1"))) as Error).message).toContain("can't find session");
+    expect(((await rejection(h2.launcher.terminate("mote-abc", "s1"))) as Error).message).toContain(
+      "can't find session",
+    );
   });
 
   it("killSession swallows the already-gone class only", async () => {
@@ -322,7 +335,9 @@ describe("terminate / killSession", () => {
     h.answer("kill", () => {
       throw new NodeRpcError("failed", 'node "node-1" reported: no server running', "node-1");
     });
-    expect(((await rejection(h.launcher.killSession("mote-abc", "s1"))) as Error).message).toContain("no server running");
+    expect(((await rejection(h.launcher.killSession("mote-abc", "s1"))) as Error).message).toContain(
+      "no server running",
+    );
   });
 });
 
@@ -609,7 +624,10 @@ describe("canResume", () => {
     h.answer("probe_resume", { canResume: true });
     expect(await h.launcher.canResume(harness, "h9", "/work")).toBe(true);
     expect(h.calls).toEqual([
-      { cmd: { type: "probe_resume", harnessId: "claude-code", harnessSessionId: "h9", cwd: "/work" }, timeoutMs: 10_000 },
+      {
+        cmd: { type: "probe_resume", harnessId: "claude-code", harnessSessionId: "h9", cwd: "/work" },
+        timeoutMs: 10_000,
+      },
     ]);
   });
 
@@ -625,13 +643,13 @@ describe("canResume", () => {
 describe("writeArtifact / removeArtifacts", () => {
   it("writeArtifact ships ONE chunk to <dataDir>/mcp/<id>.json and returns the path", async () => {
     const h = makeHarness();
-    const path = await h.launcher.writeArtifact("s1", "mcp-config", '{"a":1}');
-    expect(path).toBe("/home/u/.mote-agent/mcp/s1.json");
+    const path = await h.launcher.writeArtifact(UUID, "mcp-config", '{"a":1}');
+    expect(path).toBe(artifactPath);
     expect(h.calls).toEqual([
       {
         cmd: {
           type: "write_file",
-          path: "/home/u/.mote-agent/mcp/s1.json",
+          path: artifactPath,
           chunk_b64: b64('{"a":1}'),
           chunk: 0,
           eof: true,
@@ -653,7 +671,7 @@ describe("writeArtifact / removeArtifacts", () => {
   it("writeArtifact without facts throws without a send", async () => {
     const h = makeHarness();
     h.setFacts(undefined);
-    expect(((await rejection(h.launcher.writeArtifact("s1", "mcp-config", "{}"))) as Error).message).toBe(
+    expect(((await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"))) as Error).message).toBe(
       'node "node-1" has no live connection',
     );
     expect(h.calls).toEqual([]);
@@ -682,9 +700,9 @@ describe("writeArtifact / removeArtifacts", () => {
 
 describe("offline short-circuit (no facts ⇒ no send)", () => {
   it("facts-dependent members fail before the wire; never-throws members stay soft", async () => {
-    const h = makeHarness(undefined);
+    const h = makeHarness(null);
     expect(() => h.launcher.logPath("s1")).toThrow('node "node-1" has no live connection');
-    await rejection(h.launcher.writeArtifact("s1", "mcp-config", "{}"));
+    await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"));
     expect(h.calls).toEqual([]);
 
     // Non-facts members do go through `send` — with the REAL offline rpc error
@@ -699,16 +717,18 @@ describe("offline short-circuit (no facts ⇒ no send)", () => {
     expect(await h.launcher.deliverPrompt("sock", "s1", "x", 100, 10)).toBe(false);
     expect(await h.launcher.canResume(harness, "h", "/w")).toBe(false);
     await h.launcher.removeArtifacts(["/p"]);
-    await rejection(h.launcher.launch({
-      id: "s1",
-      socket: "sock",
-      harness,
-      binary: "/b",
-      cwd: "/w",
-      profile: testProfile,
-      sessionName: "s1",
-      moteEnv: {},
-    })); // launch still surfaces the failure
+    await rejection(
+      h.launcher.launch({
+        id: "s1",
+        socket: "sock",
+        harness,
+        binary: "/b",
+        cwd: "/w",
+        profile: testProfile,
+        sessionName: "s1",
+        moteEnv: {},
+      }),
+    ); // launch still surfaces the failure
   });
 });
 

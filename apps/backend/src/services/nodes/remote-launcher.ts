@@ -14,8 +14,8 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { logger } from "@/utils/logger.js";
 import { readAgentInventory } from "./inventory.js";
 import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "./log-tail.js";
-import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
 import { subscribeOutput } from "./node-events.js";
+import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
 import { getLive, type NodeAgentFacts } from "./node-registry.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "./node-rpc.js";
 
@@ -320,7 +320,11 @@ export class RemoteLauncher implements NodeLauncher {
    * `size` in one round-trip). {@link RemoteLauncher.readLog} stays the
    * interface's narrowed wrapper.
    */
-  async readLogSized(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number; size: number }> {
+  async readLogSized(
+    id: string,
+    fromByte: number,
+    maxBytes: number,
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
     const data = await this.#send({ type: "log_read", sessionId: id, fromByte, maxBytes }, LOG_READ_TIMEOUT_MS);
     const r = parseNodeLogReadResult(data);
     if (!r) throw this.#malformed("log_read");
