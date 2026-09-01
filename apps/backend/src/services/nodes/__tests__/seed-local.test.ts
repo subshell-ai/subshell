@@ -70,14 +70,14 @@ describe("ensureLocalNode", () => {
     expect(grants[0]?.createdBy).toBe(systemId);
   });
 
-  it("repair re-adds a deleted Everyone share WITHOUT clobbering a named grant", async () => {
+  it("an absent Everyone row STAYS absent across a later boot (disable survives restarts)", async () => {
     await wipeLocal();
-    await ensureLocalNode(db);
+    await ensureLocalNode(db); // first boot: seeds node row + Everyone/edit switch
     const systemId = await ensureSystemUser();
     const grantee = unique("u");
 
-    // An admin's named grant, then the Everyone row deleted (the state a boot
-    // repair must recover from).
+    // An admin's named grant, then the Everyone row removed — the OFF state of
+    // the local-launch switch (the settings-card toggle PUTs exactly this).
     await db
       .insertInto("nodeShares")
       .values({
@@ -91,15 +91,13 @@ describe("ensureLocalNode", () => {
       .execute();
     await db.deleteFrom("nodeShares").where("nodeId", "=", LOCAL_NODE_ID).where("granteeUserId", "is", null).execute();
 
+    // "Restart": the row already exists, so seeding must NOT re-add the switch.
     await ensureLocalNode(db);
 
     const grants = await shares.listForNode(LOCAL_NODE_ID);
-    expect(grants.length).toBe(2); // repair APPENDS the missing Everyone row
-    const everyone = grants.find((s) => s.granteeUserId === null);
-    expect(everyone?.permission).toBe("edit");
-    expect(everyone?.createdBy).toBe(systemId);
-    const named = grants.find((s) => s.granteeUserId === grantee);
-    expect(named?.permission).toBe("view"); // survives the replace-merge
+    expect(grants.length).toBe(1); // only the named grant survives
+    expect(grants.some((s) => s.granteeUserId === null)).toBe(false); // stays OFF
+    expect(grants[0]?.permission).toBe("view"); // named grant untouched
   });
 
   it("an existing local row is never overwritten (rename/os edits survive a re-run)", async () => {
@@ -115,7 +113,7 @@ describe("ensureLocalNode", () => {
     const row = await nodes.findById(LOCAL_NODE_ID);
     expect(row?.name).toBe("Renamed"); // seed only fills absence
     expect(row?.os).toBe("plan9");
-    // …and the share guarantee still holds
+    // …and the first-boot seed (Everyone/edit, added at ROW creation) is intact
     const grants = await shares.listForNode(LOCAL_NODE_ID);
     expect(grants.some((s) => s.granteeUserId === null && s.permission === "edit")).toBe(true);
   });
