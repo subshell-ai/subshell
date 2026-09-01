@@ -10,8 +10,7 @@ import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch } from "@/lib/node-a
 import { type Access, accessAtLeast, loadSessionAccess, resolveSessionAccess } from "@/lib/session-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { getLive } from "@/services/nodes/node-registry.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { NoLiveConnectionError } from "@/services/nodes/remote-launcher.js";
+import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSessionLogTail, SessionManagerService } from "@/services/session-manager.service.js";
 import { extendSessionToken, sessionTokenTtlSeconds } from "@/services/session-tokens.js";
@@ -53,17 +52,6 @@ class SessionError extends Error {
     super(message);
     this.code = code;
   }
-}
-
-/**
- * True for either sentinel class of "that node has no live agent connection":
- * {@link NoLiveConnectionError} (the sync throw the RemoteLauncher's facts
- * guard raises) and the RPC-path twin `NodeRpcError("offline")`. `instanceof`
- * only — the mapping is deliberately not text-coupled, so either message may
- * be reworded without breaking the §5.6 409 mapping.
- */
-function isNodeOfflineError(err: unknown): boolean {
-  return err instanceof NoLiveConnectionError || (err instanceof NodeRpcError && err.code === "offline");
 }
 
 /**
@@ -376,6 +364,10 @@ export class SessionsService extends BaseService {
    * Gated at `view`, the same level as GET /:id, so a stranger gets a 404 and
    * the log's contents never leak through timing or body differences.
    * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
+   *         connection (spec §5.6, the create/restart mapping again — the UI
+   *         polls this tail, so an offline node must answer 409, never a 500
+   *         plus a server-error log line per poll).
    */
   async getSessionLogTail(
     viewerId: string,
@@ -384,8 +376,9 @@ export class SessionsService extends BaseService {
   ): Promise<{ lines: string[]; truncated: boolean }> {
     const { row } = await this.#gate(viewerId, id, "view", actor);
     // Spec §6.5: the tail reads from the node that owns the pane — an
-    // agent-node row goes through its RemoteLauncher (`log_read` window).
-    return await readSessionLogTail(id, row.nodeId);
+    // agent-node row goes through its RemoteLauncher (`log_read` window),
+    // whose offline throw maps onto §5.6 exactly like create/restart.
+    return await readSessionLogTail(id, row.nodeId).catch(rethrowUnlessNodeOffline);
   }
 
   /**

@@ -21,6 +21,9 @@ export const getSessionLogRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        // Spec §5.6: the row's agent node has no live connection (409
+        // NODE_OFFLINE, the create/restart mapping).
+        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "getSessionLogTail",

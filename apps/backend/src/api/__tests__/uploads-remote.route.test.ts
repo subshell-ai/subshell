@@ -25,7 +25,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * filesystem — the file ships as ordered `write_file` chunks over the signed
  * RPC, and every failure maps to the structured error contract:
  * offline pre-gate / mid-stream disconnect → 409 `NODE_OFFLINE`, agent
- * refusal or a short `received` total → 502 `NODE_UNREACHABLE` with a generic
+ * refusal or a short `received` total → 409 `NODE_UNREACHABLE` with a generic
  * message (agent error text is unpinned protocol-side, so it is never echoed
  * to the browser), a locally-composed target that is not an absolute path →
  * 400 without a single frame.
@@ -281,7 +281,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     }
   });
 
-  it("stops at a mid-stream refusal: 502 NODE_UNREACHABLE, generic body, no frames after the failing chunk", async () => {
+  it("stops at a mid-stream refusal: 409 NODE_UNREACHABLE, generic body, no frames after the failing chunk", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
     const id = await makeSession(ws, nodeId);
@@ -295,7 +295,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
           new File([payload(CHUNK * 2 + 10)], "mid.bin", { type: "application/octet-stream" }),
         ),
       );
-      expect(res.status).toBe(502);
+      expect(res.status).toBe(409);
       const body = (await res.json()) as { code: string; message: string };
       expect(body.code).toBe("NODE_UNREACHABLE");
       // Agent error strings are UNPINNED protocol-side (T6 ruling): the route
@@ -323,7 +323,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     expect(agent.cmds.length).toBe(0);
   });
 
-  it("502s when the agent's eof `received` total disagrees with the byte count", async () => {
+  it("409s when the agent's eof `received` total disagrees with the byte count", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
     const id = await makeSession(ws, nodeId);
@@ -332,7 +332,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       const res = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(10)], "short.bin", { type: "application/octet-stream" })),
       );
-      expect(res.status).toBe(502);
+      expect(res.status).toBe(409);
       expect(((await res.json()) as { code: string }).code).toBe("NODE_UNREACHABLE");
       expect(agent.cmds.length).toBe(1);
     } finally {
@@ -345,7 +345,8 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     const ws = tempWorkDir();
     const id = await makeSession(ws, nodeId);
     // Chunk 0 is answered, then the socket dies — chunk 1's sendCommand finds
-    // no live connection (the offline twin of the refusal path, 409 not 502).
+    // no live connection (the offline twin of the refusal path — both 409,
+    // distinct only by code: NODE_OFFLINE vs NODE_UNREACHABLE).
     const agent = attachFakeAgent(nodeId, { offlineAfter: 0 });
     try {
       const res = await uploadsRoutes.fetch(

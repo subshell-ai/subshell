@@ -30,7 +30,7 @@ import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { getLive, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
-import { NoLiveConnectionError } from "@/services/nodes/remote-launcher.js";
+import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { issueSessionToken, revokeSessionToken } from "@/services/session-tokens.js";
@@ -59,18 +59,6 @@ const PROMPT_POLL_MS = 400;
 const PROBE_BATCH_MAX = 24;
 /** The sweep's probe deadline — wider than a single RPC (batched work on the node). */
 const RECONCILE_PROBE_TIMEOUT_MS = 30_000;
-
-/**
- * The two classes an offline node answers at the KILL step:
- * {@link NoLiveConnectionError} (sync, facts-dependent members) and
- * `NodeRpcError("offline")` (the RPC path). Both are §5.6 NODE_OFFLINE to
- * callers; {@link SessionManagerService.terminateSession} swallows ONLY these
- * (the operator's stop must never 500 over an unreachable node — best-effort,
- * audited `killUnverified`), every other kill failure keeps today's semantics.
- */
-function isOfflineKillError(err: unknown): boolean {
-  return err instanceof NoLiveConnectionError || (err instanceof NodeRpcError && err.code === "offline");
-}
 
 const defaultTokens: SessionTokenProvider = {
   issue: issueSessionToken,
@@ -658,9 +646,11 @@ export class SessionManagerService {
   /**
    * Terminates a session: kills its pane (on the row's node) and marks the DB
    * row. Best-effort against an unreachable node (O2 ruling): an OFFLINE kill
-   * — {@link NoLiveConnectionError} or `NodeRpcError("offline")` — is
+   * — anything {@link isNodeOfflineError} recognizes (the sync
+   * `NoLiveConnectionError` or the RPC-path `NodeRpcError("offline")`) — is
    * swallowed at the kill step with a warn and an audit
-   * `killUnverified: true`, and the row is retired anyway; the node's
+   * `killUnverified: true`, and the row is retired anyway (the operator's
+   * stop must never 500 over an unreachable node); the node's
    * reconnect census best-effort-kills the surviving pane (see
    * {@link applySessionsReport}). Every other kill failure keeps the classic
    * semantics (throw, row untouched), and every other teardown step is
@@ -675,7 +665,7 @@ export class SessionManagerService {
       try {
         await this.#launcherFor(row.nodeId).killSession(row.tmuxSocket, id);
       } catch (err) {
-        if (!isOfflineKillError(err)) throw err;
+        if (!isNodeOfflineError(err)) throw err;
         killUnverified = true;
         logger.warn(
           `session ${id}: node "${row.nodeId}" is offline — pane kill UNVERIFIED, retiring the row anyway (spec §5.6)`,

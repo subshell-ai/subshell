@@ -26,7 +26,9 @@ export interface AgentConfig {
    * the daemon dials exactly the URL the control plane named, not a locally
    * re-derived guess (behind a divergent proxy the derivation targets the
    * alias). Optional: configs written before 17c lack it and the daemon
-   * falls back to `wsUrlFor(serverUrl)`.
+   * falls back to `wsUrlFor(serverUrl)`; an empty/blank value is treated as
+   * absent at load — only a hand-edit could carry one, and enroll never
+   * persists an empty answer.
    */
   nodeWsUrl?: string;
 }
@@ -92,6 +94,9 @@ export async function loadConfig(): Promise<AgentConfig> {
     // Optional + tolerant (ledger 17c): absent ⇒ a pre-17c config, and the
     // daemon dials the derived URL. Junk is treated the same as absent —
     // never a corruption verdict, since nothing else in the file changed.
-    nodeWsUrl: typeof obj.nodeWsUrl === "string" ? obj.nodeWsUrl : undefined,
+    // An empty/blank string is junk too: enroll only persists a non-empty
+    // server answer, so "" can only be a hand-edit, and `??` in resolveWsUrl
+    // would otherwise pin an empty dial target.
+    nodeWsUrl: typeof obj.nodeWsUrl === "string" && obj.nodeWsUrl.trim() !== "" ? obj.nodeWsUrl : undefined,
   };
 }

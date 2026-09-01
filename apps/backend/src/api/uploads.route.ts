@@ -116,7 +116,10 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
                   }),
                 )
               : status(
-                  502,
+                  // 409, NOT 502: NODE_UNREACHABLE carries 409 everywhere else
+                  // (the registry default + recheck + log-tail), and clients
+                  // branch on `code` — one code must mean one status.
+                  409,
                   apiErrorBody({
                     code: BackendErrorCodes.NODE_UNREACHABLE,
                     message:
@@ -176,9 +179,10 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
         400: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        // Offline pre-gate / mid-stream drop (NODE_OFFLINE) AND the remote
+        // relay failure (node accepted then refused the stream,
+        // NODE_UNREACHABLE) — one code, one status, everywhere (§5.6).
         409: "ApiErrorResponse",
-        // Remote-relay failure (node accepted then refused/lost the stream).
-        502: "ApiErrorResponse",
       },
       detail: {
         operationId: "uploadSessionFile",

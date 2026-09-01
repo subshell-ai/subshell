@@ -48,6 +48,22 @@ test("nodeWsUrl round-trips when present; an old config loads without it (ledger
   expect(old).toEqual(sample);
 });
 
+test("a hand-edited empty/blank nodeWsUrl is junk → absent, so resolveWsUrl derives (never dials '')", async () => {
+  newHome();
+  // enroll only persists a non-empty server answer, so "" on disk is a
+  // hand-edit; the daemon's `??` would otherwise pin an empty dial target.
+  writeFileSync(configPath(), JSON.stringify({ ...sample, nodeWsUrl: "" }));
+  const empty = await loadConfig();
+  expect(empty.nodeWsUrl).toBeUndefined();
+  expect(empty).toEqual(sample);
+  // Whitespace-only is the same junk class.
+  writeFileSync(configPath(), JSON.stringify({ ...sample, nodeWsUrl: "   " }));
+  expect((await loadConfig()).nodeWsUrl).toBeUndefined();
+  // A non-string value was always junk-tolerated the same way — unchanged.
+  writeFileSync(configPath(), JSON.stringify({ ...sample, nodeWsUrl: 42 }));
+  expect((await loadConfig()).nodeWsUrl).toBeUndefined();
+});
+
 test("loadConfig throws an actionable error when no config exists", async () => {
   newHome();
   await expect(loadConfig()).rejects.toThrow(/enroll/);

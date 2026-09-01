@@ -62,7 +62,8 @@ export class UploadError extends Error {
  * the node itself — the remote twin of {@link UploadError}.
  *
  * This class DOES carry the one discriminant the upload route branches on
- * (`offline`, deciding 409 vs 502): unlike the base class's "nothing reads a
+ * (`offline`, deciding NODE_OFFLINE vs NODE_UNREACHABLE — both 409):
+ * unlike the base class's "nothing reads a
  * code" situation, here a caller genuinely branches, and it branches on
  * `instanceof` + a boolean — never on message text, because agent error
  * strings are deliberately unpinned protocol-side (T6 ruling).

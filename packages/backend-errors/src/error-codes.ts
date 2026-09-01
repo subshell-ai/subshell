@@ -8,9 +8,11 @@ export enum BackendErrorCodes {
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
   /**
    * The phase-1 placeholder refusing any non-local `POST /api/sessions` body.
-   * Phase 2 removed the gate it served (§6.6 resolution is live); kept so the
-   * published enum never churns, and the frontend's phase-1 belt comment still
-   * names it. Nothing throws it anymore.
+   * Phase 2 removed the gate it served (§6.6 resolution is live); kept for
+   * enum stability — the published value set never churns. Nothing throws it
+   * anymore and no client references it (the old frontend belt comment is
+   * gone); removing the member is possible but needs every client bundle
+   * refreshed off the stale type first.
    * @deprecated Superseded by the §6.6 launch-node resolution (NODE_REQUIRED,
    * NODE_OFFLINE, and the plain 403/404s it produces).
    */

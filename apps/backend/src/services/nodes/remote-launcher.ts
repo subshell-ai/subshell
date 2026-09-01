@@ -88,6 +88,21 @@ export interface RemoteLauncherDeps {
  */
 export class NoLiveConnectionError extends Error {}
 
+/**
+ * True for either sentinel class of "that node has no live agent connection":
+ * {@link NoLiveConnectionError} (the sync throw the facts guard raises) and the
+ * RPC-path twin `NodeRpcError("offline")`. Both are §5.6 NODE_OFFLINE to
+ * callers; the two mappers import this instead of re-spelling the predicate —
+ * `sessions.service.rethrowUnlessNodeOffline` (create/restart/log-tail →
+ * structured 409) and `session-manager.terminateSession` (the kill step
+ * swallows ONLY these, retiring the row `killUnverified`). `instanceof` only —
+ * the mapping is deliberately not text-coupled, so either message may be
+ * reworded without breaking the 409 mapping.
+ */
+export function isNodeOfflineError(err: unknown): boolean {
+  return err instanceof NoLiveConnectionError || (err instanceof NodeRpcError && err.code === "offline");
+}
+
 /** Resolve one agent-facts-derived absolute path (spec §6.4 composes). */
 function factsPath(facts: NodeAgentFacts, rel: string): string {
   return `${facts.dataDir}/${rel}`;
