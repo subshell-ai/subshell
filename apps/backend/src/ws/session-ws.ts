@@ -1,9 +1,11 @@
 import { type FSWatcher, watch } from "node:fs";
-import { getHarness, TmuxRunner } from "@internal/harnesses";
+import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/session-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
+import { LocalLauncher } from "@/services/nodes/local-launcher.js";
+import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { logger } from "@/utils/logger.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
@@ -63,14 +65,14 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
     return;
   }
 
-  const tmux = new TmuxRunner();
-  if (!row.tmuxSocket || !tmux.hasSession(row.tmuxSocket, row.id)) {
+  const launcher = new LocalLauncher();
+  if (!row.tmuxSocket || !(await launcher.hasSession(row.tmuxSocket, row.id))) {
     ws.close(4004, "session not running");
     return;
   }
 
   const data: WsData = {
-    tmux,
+    launcher,
     socket: row.tmuxSocket,
     sessionId: row.id,
     logFile: sessionLogPath(row.id),
@@ -87,7 +89,7 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
   const harness = row.harnessId ? getHarness(row.harnessId) : undefined;
   void harness;
   try {
-    const replay = tmux.capturePane(row.tmuxSocket, row.id);
+    const replay = await launcher.capture(row.tmuxSocket, row.id);
     ws.send(JSON.stringify({ type: "replay", data: stripSyncMarkers(replay) }));
   } catch {
     // pane may have just died
@@ -111,7 +113,8 @@ export interface WsSocket {
 }
 
 interface WsData {
-  tmux: TmuxRunner;
+  /** Machine handle for every pane touchpoint (spec §6.3 seam; local in phase 0). */
+  launcher: NodeLauncher;
   socket: string;
   sessionId: string;
   logFile: string;
@@ -177,6 +180,7 @@ const TAIL_BACKSTOP_MS = 1000;
  * paths share this size-based read, so delivery is identical either way.
  */
 function startLogTail(ws: WsSocket, data: WsData): void {
+  // spec §6.5: phase 2 routes local + remote tails through NodeLauncher.tailStart
   // Watch events and the backstop can land together; `pumping`/`again`
   // serialize the reads so a byte is never sliced twice.
   let pumping = false;
@@ -227,9 +231,12 @@ function startLogTail(ws: WsSocket, data: WsData): void {
 /** Fallback: poll capture-pane for output (no log file configured). */
 function startPanePoll(ws: WsSocket, data: WsData): void {
   let last = "";
-  const timer = setInterval(() => {
+  // The capture is async behind the launcher seam; the tick stays fire-and-forget
+  // (`void`). Local capture resolves synchronously inside the wrapper, so ticks
+  // never overlap in practice.
+  async function poll(): Promise<void> {
     try {
-      const out = data.tmux.capturePane(data.socket, data.sessionId);
+      const out = await data.launcher.capture(data.socket, data.sessionId);
       if (out !== last) {
         const delta = out.startsWith(last) ? out.slice(last.length) : out;
         last = out;
@@ -241,7 +248,8 @@ function startPanePoll(ws: WsSocket, data: WsData): void {
     } catch {
       // session dead
     }
-  }, 300);
+  }
+  const timer = setInterval(() => void poll(), 300);
   data.cleanup = () => clearInterval(timer);
 }
 
@@ -256,28 +264,29 @@ function startPanePoll(ws: WsSocket, data: WsData): void {
  */
 export function handleSessionMessage(ws: WsSocket, message: string | object): void {
   const data = ws.data;
-  if (!data?.tmux) return;
+  if (!data?.launcher) return;
   const frame = parseClientFrame(message);
   if (!frame) {
     logger.warn("ws: dropped unrecognized client frame");
     return;
   }
-  try {
-    if (frame.type === "resize") {
-      data.tmux.resizeWindow(data.socket, data.sessionId, frame.cols, frame.rows);
-      return;
-    }
-    // Raw terminal input, forwarded verbatim — but only for callers allowed to
-    // type (spec §4.1: input is an `edit` act). A `view` grantee's keystrokes
-    // are dropped here; the resize branch above still applies (a view is a
-    // legitimate layout action). The client emits one frame per keystroke and
-    // already encodes Enter as "\r", so bytes must not be split or terminated.
-    if (frame.data) {
-      if (!data.canInput) return;
-      data.tmux.sendInput(data.socket, data.sessionId, frame.data);
-    }
-  } catch (err) {
-    logger.withError(err).warn("ws input failed");
+  // Fire-and-forget through the launcher (spec §6.3): local stays sync-fast
+  // inside the async wrapper, so the browser socket never waits on tmux. The
+  // rejections the old sync try/catch used to log are logged in place — the
+  // browser socket must not await, and the promise must not go unhandled.
+  const logFailure = (err: unknown) => logger.withError(err).warn("ws input failed");
+  if (frame.type === "resize") {
+    void data.launcher.resize(data.socket, data.sessionId, frame.cols, frame.rows).catch(logFailure);
+    return;
+  }
+  // Raw terminal input, forwarded verbatim — but only for callers allowed to
+  // type (spec §4.1: input is an `edit` act). A `view` grantee's keystrokes
+  // are dropped here; the resize branch above still applies (a view is a
+  // legitimate layout action). The client emits one frame per keystroke and
+  // already encodes Enter as "\r", so bytes must not be split or terminated.
+  if (frame.data) {
+    if (!data.canInput) return;
+    void data.launcher.sendInput(data.socket, data.sessionId, frame.data).catch(logFailure);
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { TmuxRunner } from "@internal/harnesses";
+import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { handleSessionMessage, stripSyncMarkers, type WsSocket } from "@/ws/session-ws.js";
 
 describe("stripSyncMarkers", () => {
@@ -27,17 +27,24 @@ describe("stripSyncMarkers", () => {
   });
 });
 
-/** Records every tmux call the message handler makes. `canInput` defaults true (an edit/owner attach). */
+/** Records every launcher call the message handler makes. `canInput` defaults true (an edit/owner attach). */
 function fakeSocket(opts: { canInput?: boolean } = {}) {
   const inputs: string[] = [];
   const resizes: Array<{ cols: number; rows: number }> = [];
-  const tmux = {
-    sendInput: (_socket: string, _session: string, input: string) => inputs.push(input),
-    resizeWindow: (_socket: string, _session: string, cols: number, rows: number) => resizes.push({ cols, rows }),
-  } as unknown as TmuxRunner;
+  // Async-shaped like NodeLauncher, but the bodies run synchronously on call
+  // (async functions execute to the first await eagerly), so the handler's
+  // fire-and-forget `void` dispatch is observable without awaiting.
+  const launcher = {
+    sendInput: async (_socket: string, _session: string, input: string) => {
+      inputs.push(input);
+    },
+    resize: async (_socket: string, _session: string, cols: number, rows: number) => {
+      resizes.push({ cols, rows });
+    },
+  } as unknown as NodeLauncher;
   const ws = {
     data: {
-      tmux,
+      launcher,
       socket: "sock",
       sessionId: "s1",
       logFile: "/dev/null",
