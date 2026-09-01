@@ -322,7 +322,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       // stringify INSIDE the try: a hostile/unserializable payload would
       // otherwise throw past every guard and unwind the frame handler.
       const payload = JSON.stringify(ev);
-      const size = new Blob([payload]).size;
+      const size = Buffer.byteLength(payload); // exact UTF-8 size without allocating a Blob
       if (size > NODE_MAX_FRAME_BYTES) {
         // Mirrors the inbound rule: suppress, do NOT close — the control plane
         // already guards its own direction, so an oversize outbound frame is a
@@ -380,7 +380,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       log("ignored non-text frame");
       return;
     }
-    const size = new Blob([data]).size;
+    const size = Buffer.byteLength(data); // exact UTF-8 size without allocating a Blob
     if (size > NODE_MAX_FRAME_BYTES) {
       // Ignore, do NOT close: the server already guards its own direction, so an
       // oversize inbound frame is hostile noise — answer nothing.

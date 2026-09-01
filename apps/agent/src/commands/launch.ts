@@ -1,12 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { buildHarnessCommand, getHarness, type McpRegistration, type ProfileDefinition } from "@internal/harnesses";
-import type { NodeCommandBody } from "@internal/session-protocol";
 import { enforceMode } from "../fs-mode.js";
 import { log } from "../log.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
 import { isSessionId } from "../session-meta.js";
-import type { CommandContext, CommandResult } from "./context.js";
+import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { startExitWatcher } from "./report.js";
 
 /**
@@ -16,9 +15,6 @@ import { startExitWatcher } from "./report.js";
  * profile.env ⊕ mcp.env, plugin argv, resume pin), so the wire carries only
  * the INPUTS and the plugin code runs on the machine the pane lives on.
  */
-
-/** Narrowing alias for one command's executor signature (same pattern as basics.ts). */
-type Cmd<T extends NodeCommandBody["type"]> = Extract<NodeCommandBody, { type: T }>;
 
 /**
  * Start one harness session on this node.

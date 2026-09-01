@@ -8,6 +8,7 @@ export {
 export type { JsonValue } from "./json.js";
 export {
   type HarnessSessionWire,
+  isNodeSessionId,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,

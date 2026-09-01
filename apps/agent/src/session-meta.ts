@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isNodeSessionId } from "@internal/session-protocol";
 import { enforceMode } from "./fs-mode.js";
 import { log } from "./log.js";
 
@@ -28,16 +29,17 @@ export interface SessionMeta {
 const META_SUFFIX = ".meta.json";
 
 /**
- * Uuid-ish guard at the untrusted boundary: the backend mints session ids as
- * uuids, so hex + hyphen (≤ 64 chars) is all a legitimate id ever contains.
- * Ids arrive over a control-plane wire we do not fully trust, and the store
- * interpolates them directly into paths — a hostile `../../../../x` would let
- * Task 4's pipe-pane (`cat >> <logPath>`) write anywhere, bypassing the path
- * policy entirely because tmux/shell, not us, opens the file.
+ * Agent-side name for the protocol package's ONE session-id guard
+ * (`isNodeSessionId` in `@internal/session-protocol` — ids interpolated into
+ * node-side paths; wire contract shared by backend RemoteLauncher gates and
+ * the agent path policy). The alias keeps every call site below reading as
+ * the agent's own boundary check. The boundary matters: ids arrive over a
+ * control-plane wire we do not fully trust, and this store interpolates them
+ * directly into paths — a hostile `../../../../x` would let Task 4's
+ * pipe-pane (`cat >> <logPath>`) write anywhere, bypassing the path policy
+ * entirely because tmux/shell, not us, opens the file.
  */
-export function isSessionId(id: string): boolean {
-  return /^[0-9a-fA-F-]{1,64}$/.test(id);
-}
+export const isSessionId = isNodeSessionId;
 
 /** Throws when `id` could not have come from our control plane; callers surface this as a command failure. */
 function assertSessionId(id: string): void {
@@ -79,11 +81,20 @@ function parseMeta(raw: string, file: string): SessionMeta | null {
 /**
  * File-backed store over `<dataDir>/sessions/<id>.meta.json` (0600 file,
  * 0700 dir — same re-tightening discipline as config.ts). Deliberately dumb:
- * no cache, no watcher; the daemon is the only writer and rates are trivial.
+ * no watcher, and the ONE memory it keeps is the record mirror behind `get`
+ * (the record — socket first of all, see `resolveSocket`'s per-keystroke
+ * lookups — never changes while it lives, so the mirror is populated on
+ * `record` and by `get`'s file-read fallback, evicted on `forget`, and
+ * replaced on re-record). Within one agent process the files only change
+ * under these methods, so the mirror cannot go stale. The daemon is the only
+ * writer.
  */
 export class SessionMetaStore {
   /** Root the store reads/writes under; the sessions dir is created lazily on first record. */
   private readonly dataDir: string;
+
+  /** In-memory mirror of readable records (keyed by sessionId); see the class doc. */
+  private readonly mem = new Map<string, SessionMeta>();
 
   /**
    * @param dataDir - the node's data dir (from the agent config); no fs I/O happens here.
@@ -120,18 +131,25 @@ export class SessionMetaStore {
     await enforceMode(dir, 0o700);
     await writeFile(file, `${JSON.stringify({ ...meta })}\n`, { mode: 0o600 });
     await enforceMode(file, 0o600);
+    this.mem.set(meta.sessionId, { ...meta }); // only after the write landed; re-record replaces
   }
 
   /**
-   * Reads one session's meta.
+   * Reads one session's meta, served from the record mirror once this
+   * instance has seen it — the file-read fallback covers records that
+   * predate the cache (the agent-restart case).
    * @param id - session id; throws on a malformed id (see `metaPath`).
    * @returns the record, or undefined when the file is missing or junk
-   * (junk gets exactly one log line; missing is silent).
+   * (junk gets exactly one log line; missing is silent; neither is mirrored).
    */
   async get(id: string): Promise<SessionMeta | undefined> {
+    const hit = this.mem.get(id);
+    if (hit !== undefined) return hit;
     const file = this.metaPath(id);
     try {
-      return parseMeta(await readFile(file, "utf8"), file) ?? undefined;
+      const meta = parseMeta(await readFile(file, "utf8"), file);
+      if (meta) this.mem.set(id, meta);
+      return meta ?? undefined;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log(`session meta unreadable: ${file}: ${err instanceof Error ? err.message : String(err)}`);
@@ -181,7 +199,8 @@ export class SessionMetaStore {
    * malformed id throws (see `metaPath`).
    */
   async forget(id: string): Promise<void> {
-    const file = this.metaPath(id);
+    const file = this.metaPath(id); // validates first: a malformed id throws with no side effect
+    this.mem.delete(id); // evict on intent: even if the unlink below fails, the next lookup re-reads the file
     try {
       await unlink(file);
     } catch (err) {

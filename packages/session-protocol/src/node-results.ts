@@ -11,33 +11,14 @@
  * success result is just `{ ok: true }`, so they need no validator here.
  *
  * Validators are hand-rolled in the `parseNodeEvent` style (this package stays
- * schema-lib-free); a NON-null return is safe to cast.
+ * schema-lib-free); a NON-null return is safe to cast. The primitives the
+ * validators stand on live in `guards.ts` (shared with `node-frames.ts`).
  */
 
-/** Strict base64 (same discipline as `node-frames.ts`; local copy by design). */
-const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+import { BASE64_RE, isBool, isInt, isRecord, isStr } from "./guards.js";
 
-/* ------------------------------------------------------------------ */
-/* guards (mirrors the local-helper style of node-frames.ts)           */
-/* ------------------------------------------------------------------ */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function isStr(value: unknown): value is string {
-  return typeof value === "string";
-}
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
-}
-function isNum(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-function isInt(value: unknown): value is number {
-  return isNum(value) && Number.isInteger(value);
-}
-function isBool(value: unknown): value is boolean {
-  return typeof value === "boolean";
 }
 
 /* ------------------------------------------------------------------ */

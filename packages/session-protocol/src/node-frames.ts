@@ -1,3 +1,4 @@
+import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr } from "./guards.js";
 import type { JsonValue } from "./json.js";
 
 /**
@@ -19,9 +20,6 @@ export const NODE_PROTOCOL_VERSION = 1;
  * inbound messages rather than relying on server config (spec §7).
  */
 export const NODE_MAX_FRAME_BYTES = 1_048_576;
-
-/** Strict base64 (the alphabet used by `Buffer.toString("base64")` / `btoa`). */
-const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 /* ------------------------------------------------------------------ */
 /* shared close codes (phase-2 hoist)                                   */
@@ -46,6 +44,23 @@ export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
  * the backend ever emits them.
  */
 export const NODE_CLOSE_SUPERSEDED = 4409;
+
+/* ------------------------------------------------------------------ */
+/* session-id policy                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The uuid-ish session-id guard: ids interpolated into node-side paths;
+ * wire contract shared by backend RemoteLauncher gates and the agent path
+ * policy (the agent's `isSessionId` is an alias of this; the backend's
+ * `SESSION_ID_RE` mirrors it until its wave adopts the import). Session ids
+ * are minted as uuids, so hex + hyphen (≤ 64 chars) is all a legitimate id
+ * ever contains — a hostile `../../../../x` must never reach path
+ * interpolation on either side of the link.
+ */
+export function isNodeSessionId(id: string): boolean {
+  return /^[0-9a-fA-F-]{1,64}$/.test(id);
+}
 
 /**
  * Structural JSON mirror of `@internal/harnesses`' `ProfileDefinition`.
@@ -181,21 +196,6 @@ export type NodeEvent =
 /* validators (hand-rolled, parseClientFrame style — spec §3)          */
 /* ------------------------------------------------------------------ */
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function isStr(value: unknown): value is string {
-  return typeof value === "string";
-}
-function isNum(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-function isInt(value: unknown): value is number {
-  return isNum(value) && Number.isInteger(value);
-}
-function isBool(value: unknown): value is boolean {
-  return typeof value === "boolean";
-}
 function isStrArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(isStr);
 }

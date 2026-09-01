@@ -1,5 +1,5 @@
 import type { TmuxRunner } from "@internal/harnesses";
-import type { JsonValue, NodeEvent } from "@internal/session-protocol";
+import type { JsonValue, NodeCommandBody, NodeEvent } from "@internal/session-protocol";
 import type { AgentConfig } from "../config.js";
 import type { SessionMetaStore } from "../session-meta.js";
 
@@ -75,3 +75,9 @@ export interface CommandContext {
  * `@internal/session-protocol` `node-results.ts` when that command has one.
  */
 export type CommandResult = { ok: true; data?: JsonValue } | { ok: false; error: string };
+
+/**
+ * Narrowing alias for one command's executor signature — the ONE declaration
+ * shared by the executor modules (basics/launch/prompt/tail).
+ */
+export type Cmd<T extends NodeCommandBody["type"]> = Extract<NodeCommandBody, { type: T }>;

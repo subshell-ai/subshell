@@ -1,8 +1,8 @@
 import { type FSWatcher, watch } from "node:fs";
-import type { JsonValue, NodeCommandBody, NodeEvent, NodeLogReadResult } from "@internal/session-protocol";
+import type { JsonValue, NodeEvent, NodeLogReadResult } from "@internal/session-protocol";
 import { log } from "../log.js";
 import { isSessionId } from "../session-meta.js";
-import type { CommandContext, CommandResult, TailHandle } from "./context.js";
+import type { Cmd, CommandContext, CommandResult, TailHandle } from "./context.js";
 
 /**
  * The `log_read` + `tail_start`/`tail_stop` executors (spec 2026-08-31 §3.1/§3.4)
@@ -17,8 +17,14 @@ import type { CommandContext, CommandResult, TailHandle } from "./context.js";
  * event so a slow control plane cannot make the agent buffer unboundedly.
  */
 
-/** Narrowing alias for one command's executor signature (same pattern as basics.ts). */
-type Cmd<T extends NodeCommandBody["type"]> = Extract<NodeCommandBody, { type: T }>;
+/**
+ * Zero-copy base64 carrier: a Buffer VIEW over `b`'s range of its backing
+ * ArrayBuffer (`Buffer.from(b)` on a Uint8Array copies the bytes first).
+ * Byte-identical output is the contract — the view covers exactly `b`.
+ */
+function byteView(b: Uint8Array): Buffer {
+  return Buffer.from(b.buffer as ArrayBuffer, b.byteOffset, b.byteLength);
+}
 
 /** Max RAW bytes carried by ONE `output` event (spec §3.1; base64 inflates ~4/3 on the wire). */
 export const TAIL_CHUNK_BYTES = 192 * 1024;
@@ -64,7 +70,7 @@ export async function execLogRead(ctx: CommandContext, cmd: Cmd<"log_read">): Pr
   try {
     const bytes = await file.slice(cmd.fromByte, end).bytes();
     const data: NodeLogReadResult = {
-      bytes_b64: Buffer.from(bytes).toString("base64"),
+      bytes_b64: byteView(bytes).toString("base64"),
       next: cmd.fromByte + bytes.byteLength,
       size,
     };
@@ -179,7 +185,7 @@ export async function execTailStart(ctx: CommandContext, cmd: Cmd<"tail_start">)
               subId: cmd.subId,
               fromByte,
               toByte,
-              data_b64: Buffer.from(bytes.subarray(off, off + n)).toString("base64"),
+              data_b64: byteView(bytes.subarray(off, off + n)).toString("base64"),
             };
             ctx.ws.send(ev);
             sendFailures = 0;

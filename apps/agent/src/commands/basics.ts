@@ -1,15 +1,10 @@
 import { realpath, stat, unlink } from "node:fs/promises";
 import { getHarness, tmuxSocketFor } from "@internal/harnesses";
-import {
-  type JsonValue,
-  NODE_MAX_FRAME_BYTES,
-  type NodeCommandBody,
-  type NodeProbeEntry,
-} from "@internal/session-protocol";
+import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/session-protocol";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSessionId } from "../session-meta.js";
-import type { CommandContext, CommandResult } from "./context.js";
+import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { stopWatcher } from "./report.js";
 
 /**
@@ -18,9 +13,6 @@ import { stopWatcher } from "./report.js";
  * whose message is the answer — `dispatchCommand` wraps the switch once, so a
  * throw (including the meta store's bad-id throw) can never escape it.
  */
-
-/** Narrowing alias for one command's executor signature. */
-type Cmd<T extends NodeCommandBody["type"]> = Extract<NodeCommandBody, { type: T }>;
 
 /**
  * Result budget for a `probe` answer: the frame cap minus headroom for the
@@ -31,9 +23,11 @@ export const PROBE_RESULT_BUDGET_BYTES = NODE_MAX_FRAME_BYTES - 64 * 1024;
 
 /**
  * Resolve the tmux socket for a wire-supplied session id (spec §6.3): the
- * socket recorded at launch wins; `tmuxSocketFor` is the orphan fallback.
- * The id is format-checked BEFORE any store touch — the store throws on a
- * malformed id, and the message the dispatcher answers must be exactly
+ * socket recorded at launch wins — `meta.get` answers from the store's
+ * record mirror after the first lookup, so per-keystroke commands never
+ * re-read the file — and `tmuxSocketFor` is the orphan fallback. The id is
+ * format-checked BEFORE any store touch — the store throws on a malformed
+ * id, and the message the dispatcher answers must be exactly
  * `invalid session id`. Shared with prompt.ts (the settle loop captures and
  * types on the same socket the other pane executors use).
  */

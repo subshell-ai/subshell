@@ -1,7 +1,7 @@
 import { stripAnsi } from "@internal/backend-errors";
-import type { JsonValue, NodeCommandBody, NodePromptDeliverResult } from "@internal/session-protocol";
+import type { JsonValue, NodePromptDeliverResult } from "@internal/session-protocol";
 import { resolveSocket } from "./basics.js";
-import type { CommandContext, CommandResult } from "./context.js";
+import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
  * The `prompt_deliver` executor (spec 2026-08-31 §6.5) — a verbatim port of
@@ -15,9 +15,6 @@ import type { CommandContext, CommandResult } from "./context.js";
  * per-session meta store (via `resolveSocket`, id-gated), and the deadline
  * math runs on the injectable `ctx.nowMs()` clock so tests own time.
  */
-
-/** Narrowing alias for one command's executor signature (same pattern as basics.ts). */
-type Cmd<T extends NodeCommandBody["type"]> = Extract<NodeCommandBody, { type: T }>;
 
 /**
  * Types `text` into a freshly-spawned pane once it shows output, then submits
