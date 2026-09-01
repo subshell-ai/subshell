@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { BackendErrorCodes } from "@internal/backend-errors";
 import { agentHome, saveConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { AGENT_VERSION } from "./version.js";
@@ -126,6 +127,32 @@ function normalizeServer(raw: string): string {
   return raw.replace(/\/+$/, "");
 }
 
+/**
+ * Maps a 401 from the enroll route onto per-state operator copy. Post-Task-17
+ * the route sends structured bodies (`ApiErrorResponse`) with one of
+ * `SETUP_KEY_INVALID` / `SETUP_KEY_CONSUMED` / `SETUP_KEY_EXPIRED`; the two
+ * "definitely spent" states get their own advice (telling someone whose key
+ * was already redeemed to "mint a fresh one" hides that the enrollment
+ * already succeeded somewhere). Everything else — the generic INVALID, an
+ * unknown code from a newer server, a bodyless/message-only 401 from an older
+ * one — answers with the original sentence verbatim, so the CLI stays
+ * forward- and backward-compatible.
+ */
+function setupKeyFailure(body: Record<string, unknown> | null): Error {
+  const code = typeof body?.code === "string" ? body.code : undefined;
+  if (code === BackendErrorCodes.SETUP_KEY_CONSUMED) {
+    return new Error(
+      "this setup key has already been used — each key enrolls one node; create a new setup key on the Nodes page",
+    );
+  }
+  if (code === BackendErrorCodes.SETUP_KEY_EXPIRED) {
+    return new Error("this setup key expired (they are valid 24 hours) — create a new one on the Nodes page");
+  }
+  return new Error(
+    "setup key is invalid, expired, or already used — mint a fresh one under Settings → Node setup keys",
+  );
+}
+
 /** Turns a non-201 into the actionable message the operator needs (spec §5.2 error map). */
 async function enrollFailure(res: Response, name: string): Promise<Error> {
   let serverMessage = "";
@@ -136,11 +163,7 @@ async function enrollFailure(res: Response, name: string): Promise<Error> {
   } catch {
     /* body wasn't JSON — the status code still carries the meaning */
   }
-  if (res.status === 401) {
-    return new Error(
-      "setup key is invalid, expired, or already used — mint a fresh one under Settings → Node setup keys",
-    );
-  }
+  if (res.status === 401) return setupKeyFailure(body);
   if (res.status === 409) {
     return new Error(serverMessage || `a node named '${name}' already exists — pass --name to pick another`);
   }

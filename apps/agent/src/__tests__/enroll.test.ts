@@ -2,6 +2,7 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { BackendErrorCodes } from "@internal/backend-errors";
 import { type CliResult, run } from "../cli.js";
 import { configPath, loadConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
@@ -101,13 +102,74 @@ test("an empty wsUrl in the 201 is ignored — config carries no nodeWsUrl (daem
   expect((await loadConfig()).nodeWsUrl).toBeUndefined();
 });
 
-test("401 maps to an actionable setup-key message and writes NO config", async () => {
+// The one-line copy per 401 state. The INVALID/generic string is TODAY'S
+// message verbatim — it stays the answer for SETUP_KEY_INVALID and for any 401
+// shape the agent cannot classify (old servers send a bodyless or message-only
+// 401), so the CLI never gets quieter than it used to be.
+const GENERIC_401 =
+  "setup key is invalid, expired, or already used — mint a fresh one under Settings → Node setup keys";
+
+/** Structured 401 body as the real route sends it post-Task-17 (ApiErrorResponse shape). */
+function setupKey401(code: string): Response {
+  return Response.json(
+    { errId: "err_test123456", code, message: `Setup key error (${code}).`, statusCode: 401 },
+    { status: 401 },
+  );
+}
+
+test("401 SETUP_KEY_CONSUMED: the key is spent — stop retrying, point at the Nodes page", async () => {
+  const url = fakeControlPlane(() => setupKey401(BackendErrorCodes.SETUP_KEY_CONSUMED));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(1);
+  // Verbatim: never hints the key might still work, never reuses the generic hedge.
+  expect(res.err).toBe(
+    "mote-agent: this setup key has already been used — each key enrolls one node; " +
+      "create a new setup key on the Nodes page\n",
+  );
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("401 SETUP_KEY_EXPIRED: names the 24 h lifetime and the Nodes page", async () => {
+  const url = fakeControlPlane(() => setupKey401(BackendErrorCodes.SETUP_KEY_EXPIRED));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(1);
+  expect(res.err).toBe(
+    "mote-agent: this setup key expired (they are valid 24 hours) — create a new one on the Nodes page\n",
+  );
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("401 SETUP_KEY_INVALID keeps today's generic copy verbatim", async () => {
+  const url = fakeControlPlane(() => setupKey401(BackendErrorCodes.SETUP_KEY_INVALID));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(1);
+  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("bodyless 401 (old server) keeps today's generic copy verbatim", async () => {
+  const url = fakeControlPlane(() => new Response(null, { status: 401 }));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(1);
+  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("401 with a pre-structured body (message, no code) keeps today's generic copy verbatim", async () => {
   const url = fakeControlPlane(() =>
     Response.json({ message: "Setup key is invalid, expired, or already used." }, { status: 401 }),
   );
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
-  expect(res.err.toLowerCase()).toInclude("setup key");
+  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("unknown code on a 401 falls back to today's generic copy", async () => {
+  const url = fakeControlPlane(() => setupKey401("SOMETHING_NEW"));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(1);
+  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
   expect(existsSync(configPath())).toBe(false);
 });
 
