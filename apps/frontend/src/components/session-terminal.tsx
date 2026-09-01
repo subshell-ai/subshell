@@ -11,6 +11,7 @@ import { LogTail } from "@/components/log-tail";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
+import { isKeyboardUp, shouldPinAppScroll } from "@/lib/app-scroll-pin";
 import { sendInput } from "@/lib/session-frames.js";
 import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
@@ -299,6 +300,27 @@ export function SessionTerminal({
     // another control) carries a relatedTarget and is left alone; closing
     // the keyboard lands here and only restores the cursor — iOS will not
     // re-show the keyboard without a fresh tap, which is the right outcome.
+    // iOS brings the focused input "into view" by scrolling its ancestor
+    // scrollers — mid-typing, classically the instant space commits
+    // autocorrect. This page is viewport-sized on purpose, but the wrapper
+    // still has a few px of safe-area padding to give, and iOS happily spends
+    // it: the terminal pans off-screen ("view goes blank, can still type
+    // blindly") until the keyboard closes and the layout resets. Pin it.
+    const appScroller = container.closest<HTMLElement>("[data-app-scroll]");
+    const onAppScroll = () => {
+      if (
+        appScroller &&
+        shouldPinAppScroll({
+          touchUi: isTouchUi(),
+          scrollTop: appScroller.scrollTop,
+          keyboardUp: !!vv && isKeyboardUp(vv.height, window.innerHeight),
+          terminalFocused: container.contains(document.activeElement),
+        })
+      ) {
+        appScroller.scrollTop = 0;
+      }
+    };
+    appScroller?.addEventListener("scroll", onAppScroll);
     const onFocusOut = (e: FocusEvent) => {
       if (!isTouchUi() || e.relatedTarget) return;
       requestAnimationFrame(() => {
@@ -324,6 +346,7 @@ export function SessionTerminal({
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);
       }
+      appScroller?.removeEventListener("scroll", onAppScroll);
       container.removeEventListener("focusout", onFocusOut);
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a

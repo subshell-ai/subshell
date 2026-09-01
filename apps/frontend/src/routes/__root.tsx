@@ -106,7 +106,7 @@ function Shell() {
       {!wide && !bare && <MobileTopBar />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {wide && !bare && <AppSidebar />}
-        <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        <div data-app-scroll className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <Outlet />
         </div>
       </div>
