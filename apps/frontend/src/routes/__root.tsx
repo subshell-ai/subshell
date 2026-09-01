@@ -1,6 +1,5 @@
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
-import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
@@ -12,7 +11,6 @@ import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
-import { maybeResetViewport } from "@/lib/ios-viewport-reset";
 import { queryClient } from "@/lib/query-client";
 import { shellGate } from "@/lib/shell-gate";
 
@@ -62,22 +60,6 @@ function RootComponent() {
 function Shell() {
   const wide = useIsWide();
   const insets = useVisualViewportInsets();
-  // iOS standalone mode can boot already broken: WebKit's auto-zoom (armed
-  // by focusing any sub-16px input) persists its scale and the shrunken
-  // layout height across app kills, leaving a dead band under the key bar
-  // that no CSS inside the webview can fix. Heal at launch and whenever the
-  // visual viewport moves while the scale is stuck above 1.
-  useEffect(() => {
-    const vv = window.visualViewport;
-    const heal = () => maybeResetViewport(vv?.scale ?? window.visualViewport?.scale ?? 1);
-    heal();
-    vv?.addEventListener("resize", heal);
-    vv?.addEventListener("scroll", heal);
-    return () => {
-      vv?.removeEventListener("resize", heal);
-      vv?.removeEventListener("scroll", heal);
-    };
-  }, []);
   const { data: user, isLoading } = useCurrentUser();
   const offline = useServerOffline();
   const location = useLocation();

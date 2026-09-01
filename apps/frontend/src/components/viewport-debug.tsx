@@ -36,10 +36,11 @@ export function ViewportDebug() {
     `vv ${Math.round(vv?.height ?? -1)} top ${Math.round(vv?.offsetTop ?? -1)} scale ${vv?.scale ?? 1}`,
     `scroll ${window.scrollY} dTop ${document.documentElement.scrollTop} bTop ${document.body.scrollTop}`,
     `insets ${insets ? `${insets.heightPx}/${insets.offsetYpx}` : "null(dvh)"}`,
-    // Proves WHICH bundle is running: BUILD 3 shipped the 16px no-zoom CSS
-    // and the launch-time viewport heal; the helper line shows whether the
-    // xterm input carries it (16px = fixed CSS; ~13px = cached old CSS).
-    "BUILD 3",
+    // Proves WHICH bundle/document is live: BUILD 4 shipped the permanent
+    // standalone zoom clamp; the meta line reads the SERVED viewport tag
+    // (clamped = new index.html; open = iOS resurrected a cached document).
+    "BUILD 4",
+    `meta ${document.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.content.includes("user-scalable=no") ? "clamped" : "open"}`,
     (() => {
       const t = document.querySelector<HTMLElement>(".xterm-helper-textarea");
       return t ? `helper ${getComputedStyle(t).fontSize}` : "helper absent";
