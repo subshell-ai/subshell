@@ -703,7 +703,8 @@ export class SessionManagerService {
     }
     // Command assembly + spawn + log-dir + pipe-pane in one launcher call
     // (same method createSession uses; the pipe is re-attached even when
-    // cleanup unlinked the log).
+    // cleanup unlinked the log). bestEffortLog restores the pre-seam revive
+    // semantics: a pane this live must not die over a lost replay-log pipe.
     await this.#launcher.launch({
       id: row.id,
       socket,
@@ -715,6 +716,7 @@ export class SessionManagerService {
       moteEnv: sessionMcpEnv(apiKey, row.id, row.name),
       mcp,
       harnessSession,
+      bestEffortLog: true,
     });
     // Conditional revival: a terminate that landed after the pre-spawn
     // check (between it and this write) must not resurrect the row — the

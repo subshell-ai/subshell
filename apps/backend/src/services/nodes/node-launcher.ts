@@ -22,6 +22,12 @@ export interface LaunchPlan {
   mcp?: McpRegistration;
   /** Resume pin */
   harnessSession?: { id: string; mode: "start" | "resume" };
+  /**
+   * A pipe-pane attach failure is logged and ignored instead of failing the
+   * launch. Used by revive, where a live pane must survive a lost log pipe —
+   * restores the pre-seam semantics (createSession stays strict).
+   */
+  bestEffortLog?: boolean;
 }
 
 /**

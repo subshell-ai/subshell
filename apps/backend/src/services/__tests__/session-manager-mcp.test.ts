@@ -42,6 +42,8 @@ class MockTmux extends TmuxRunner {
   alive = true;
   /** When true, newSession records the attempt then throws (simulated spawn failure). */
   failSpawn = false;
+  /** When true, pipePane throws (simulated log-attach failure). */
+  failPipe = false;
   /** capturePane returns script[i] on the i-th call (last entry repeats). */
   captureScript: string[] = [""];
 
@@ -49,7 +51,9 @@ class MockTmux extends TmuxRunner {
     this.newSessionCmds.push(cmd);
     if (this.failSpawn) throw new Error("spawn failed (test)");
   }
-  override pipePane(): void {}
+  override pipePane(): void {
+    if (this.failPipe) throw new Error("pipe-pane attach failed (test)");
+  }
   override hasSession(): boolean {
     return this.alive;
   }
@@ -449,6 +453,48 @@ describe("auto-restart failure bounds + terminate race", () => {
     // …and the token revoked twice (rotate-old + retire-the-just-issued).
     expect(tokens.revoked).toEqual([id, id]);
     await manager.deleteSession("u1", id);
+  });
+});
+
+describe("log-pipe attach strictness (LaunchPlan.bestEffortLog)", () => {
+  beforeEach(async () => {
+    // Sweep-clean like the race suite: reconcileAll is server-wide.
+    await db.deleteFrom("sessions").execute();
+  });
+
+  it("createSession stays strict: a pipe-pane failure aborts the spawn and rolls back", async () => {
+    const pid = await seedProfile(profiles, { name: `pipfail-${crypto.randomUUID().slice(0, 8)}` });
+    tmux.failPipe = true;
+    await expect(manager.createSession({ userId: "u1", profileId: pid, workingDir: testDir })).rejects.toThrow(
+      /pipe-pane/,
+    );
+    // Rollback like any other spawn failure: the token minted pre-spawn is retired.
+    expect(tokens.revoked.length).toBe(1);
+  });
+
+  it("revive survives a lost log pipe: the pane respawns and the row revives", async () => {
+    // Pre-seam semantics restored: the original revive swallowed pipe-pane
+    // failures — a live pane must not die over a replay log that will not
+    // attach (the row just lost its pane to a crash; the pipe is re-attached
+    // best-effort).
+    const pid = await seedProfile(profiles, { name: `pipeok-${crypto.randomUUID().slice(0, 8)}` });
+    await profiles.update(pid, { restartOnExit: 1 });
+    const created = await manager.createSession({ userId: "u1", profileId: pid, workingDir: testDir });
+    tmux.alive = false; // crash
+    tmux.failPipe = true; // and the log re-attach now fails
+    await sessions.update(created.id, {
+      alive: 0,
+      exitCode: 1,
+      backoffCount: 0,
+      endedAt: new Date(Date.now() - 2_000).toISOString(),
+      nextRestartAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await manager.reconcileAll();
+    expect(tmux.newSessionCmds.length).toBe(2); // the respawn DID happen…
+    const row = await sessions.findById(created.id);
+    expect(row?.alive).toBe(1); // …and the swallowed pipe failure kept it revived
+    expect(row?.status).toBe("running");
+    await manager.deleteSession("u1", created.id);
   });
 });
 

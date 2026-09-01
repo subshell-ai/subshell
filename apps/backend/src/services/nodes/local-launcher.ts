@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { stripAnsi } from "@internal/backend-errors";
 import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/harnesses";
 import { sessionMcpConfigPath } from "@/services/mcp-launch.js";
+import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_BACKSTOP_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
 import { sessionLogDir, sessionLogPath } from "./session-paths.js";
@@ -39,7 +40,9 @@ export class LocalLauncher implements NodeLauncher {
    * One harness start, verbatim from the pre-seam `createSession` sequence:
    * compose the pane command (throws on a bad env key — before anything
    * spawns), create the detached session, make sure the log dir exists, then
-   * pipe-pane the output log.
+   * pipe-pane the output log. With {@link LaunchPlan.bestEffortLog} set, only
+   * that last step degrades — a pipe-pane failure is logged (debug) and
+   * swallowed, exactly like the pre-seam revive did.
    */
   async launch(plan: LaunchPlan): Promise<void> {
     const cmd = buildHarnessCommand(
@@ -57,7 +60,19 @@ export class LocalLauncher implements NodeLauncher {
     const logFile = sessionLogPath(plan.id);
     const logDir = logFile.slice(0, Math.max(0, logFile.lastIndexOf("/")));
     if (logDir && logDir !== "." && !existsSync(logDir)) mkdirSync(logDir, { recursive: true });
-    this.#tmux.pipePane(plan.socket, plan.id, logFile);
+    if (plan.bestEffortLog) {
+      try {
+        this.#tmux.pipePane(plan.socket, plan.id, logFile);
+      } catch (err) {
+        // Revive-only (see LaunchPlan.bestEffortLog): the pane is live and the
+        // row must come back even when the replay log refuses to attach. The
+        // pre-seam revive swallowed this silently; one quiet debug line is
+        // the improvement — loud enough to find, too soft to alarm a sweep.
+        logger.withError(err).debug(`pipe-pane attach failed for ${plan.id}; reviving without the log pipe`);
+      }
+    } else {
+      this.#tmux.pipePane(plan.socket, plan.id, logFile);
+    }
   }
 
   /**
