@@ -1,5 +1,5 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
-import { LOCAL_NODE_ID, type NewNode, type NodeStatus, type NodeTable } from "@/db/types/nodes.db-types.js";
+import type { NewNode, NodeStatus, NodeTable } from "@/db/types/nodes.db-types.js";
 
 /** Fields a `ready` frame carries about the machine behind a node (spec §5.3). */
 export type NodeReadyReport = {
@@ -15,12 +15,6 @@ export type NodeReadyReport = {
   hostname: string;
   /** Capability strings (persisted as a JSON array) */
   capabilities: string[];
-};
-
-/** Options for {@link NodesRepository.findAccessible}. */
-export type FindAccessibleOptions = {
-  /** Include the seeded control-plane 'local' row regardless of ownership (default: true). */
-  includeLocal?: boolean;
 };
 
 /**
@@ -67,23 +61,19 @@ export class NodesRepository extends BaseRepository {
   }
 
   /**
-   * Nodes a viewer may SEE (mirror of sessions' `listVisibleTo`): their own,
-   * plus any they hold a share on (named or Everyone), plus the control-plane
-   * 'local' row — it is a launch target for every user, so a private foreign
-   * node never appears and ids cannot be probed.
+   * Nodes a viewer may SEE: owned or shared — including 'local' via its
+   * seeded Everyone/edit share; there is no separate local visibility switch
+   * (spec 2026-08-31 §2). A private foreign node never appears and ids cannot
+   * be probed; revoking local's share revokes its visibility.
    * @param viewerUserId - The user whose grants and ownership decide visibility
-   * @param opts - `{ includeLocal: false }` drops the always-visible local row
-   *               (callers listing remote-capable targets only)
    */
-  async findAccessible(viewerUserId: string, opts?: FindAccessibleOptions): Promise<NodeTable[]> {
-    const includeLocal = opts?.includeLocal ?? true;
+  async findAccessible(viewerUserId: string): Promise<NodeTable[]> {
     return await this.db
       .selectFrom("nodes")
       .selectAll()
       .where((eb) =>
         eb.or([
           eb("ownerUserId", "=", viewerUserId),
-          ...(includeLocal ? [eb("id", "=", LOCAL_NODE_ID)] : []),
           eb.exists(
             eb
               .selectFrom("nodeShares")

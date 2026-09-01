@@ -37,7 +37,7 @@ describe("NodesRepository", () => {
     expect(found?.status).toBe("offline");
   });
 
-  it("findAccessible: owner yes, stranger no, view-sharee yes, local always", async () => {
+  it("findAccessible: owner yes, stranger no, view-sharee yes", async () => {
     const owner = unique("u");
     const stranger = unique("u");
     const grantee = unique("u");
@@ -71,10 +71,10 @@ describe("NodesRepository", () => {
     expect((await repo.findAccessible(stranger)).some((x) => x.id === n.id)).toBe(true);
   });
 
-  it("findAccessible includes the local row by default; includeLocal:false hides it", async () => {
-    // Seed the control-plane row if this process hasn't already (shared temp DB).
+  it("findAccessible: local rides its seeded Everyone share — no share, not visible", async () => {
+    // Re-seed the control-plane row (shared temp DB may already carry one).
     await db.deleteFrom("nodes").where("id", "=", LOCAL_NODE_ID).execute();
-    await repo.create({
+    const local = await repo.create({
       id: LOCAL_NODE_ID,
       ownerUserId: "system-local-fixture",
       name: "local",
@@ -83,10 +83,24 @@ describe("NodesRepository", () => {
       createdAt: new Date().toISOString(),
     });
     const viewer = unique("u");
+    // (a) the Everyone/edit share (what phase-1 boot seeds) makes local visible
+    await db
+      .insertInto("nodeShares")
+      .values({
+        id: unique("sh"),
+        nodeId: LOCAL_NODE_ID,
+        granteeUserId: null,
+        permission: "edit",
+        createdBy: local.ownerUserId,
+        createdAt: new Date().toISOString(),
+      })
+      .execute();
     expect((await repo.findAccessible(viewer)).some((x) => x.id === LOCAL_NODE_ID)).toBe(true);
-    expect((await repo.findAccessible(viewer, { includeLocal: false })).some((x) => x.id === LOCAL_NODE_ID)).toBe(
-      false,
-    );
+    // (b) the share row IS the filter: revoke it and a non-owner loses local
+    await db.deleteFrom("nodeShares").where("nodeId", "=", LOCAL_NODE_ID).execute();
+    expect((await repo.findAccessible(viewer)).some((x) => x.id === LOCAL_NODE_ID)).toBe(false);
+    // ownership still stands on its own
+    expect((await repo.findAccessible(local.ownerUserId)).some((x) => x.id === LOCAL_NODE_ID)).toBe(true);
   });
 
   it("applyReady stamps identity, JSON-encodes capabilities, flips online", async () => {
