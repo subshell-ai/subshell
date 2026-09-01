@@ -12,7 +12,7 @@ import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { sendInput } from "@/lib/session-frames.js";
-import { attachTouchScroll } from "@/lib/terminal-touch-scroll";
+import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
 import type { SessionView } from "@/types/session";
 import "@xterm/xterm/css/xterm.css";
@@ -260,8 +260,34 @@ export function SessionTerminal({
       return true;
     });
 
-    const ro = new ResizeObserver(() => fit.fit());
-    ro.observe(containerRef.current);
+    const container = containerRef.current;
+    // Touch only: opening/closing the soft keyboard shrinks this container,
+    // and xterm leaves its viewport scrollTop pointing where it was in the
+    // TALLER buffer — below the shrunken content. The prompt + cursor are
+    // then "lost": off-screen in a blank area, and focus may have been
+    // dropped with them (iOS drops the helper textarea mid-typing when it
+    // pans the page to satisfy its keyboard-placement heuristics). Re-pin to
+    // the bottom and hand focus back to the pane's input target. Desktop is
+    // deliberately untouched: a window resize must not yank a reader out of
+    // scrollback they scrolled up to study.
+    const repairCursorVisibility = () => {
+      if (!isTouchUi()) return;
+      term.scrollToBottom();
+      const active = document.activeElement;
+      if (!active || active === document.body || container.contains(active)) term.focus();
+    };
+    const ro = new ResizeObserver(() => {
+      fit.fit();
+      repairCursorVisibility();
+    });
+    ro.observe(container);
+    // iOS pans the visual viewport mid-typing WITHOUT resizing any container
+    // (no RO event), and that pan is exactly when it likes to drop focus.
+    const vv = isTouchUi() ? window.visualViewport : null;
+    if (vv) {
+      vv.addEventListener("resize", repairCursorVisibility);
+      vv.addEventListener("scroll", repairCursorVisibility);
+    }
 
     // Ensure the terminal has at least one line
     term.write("");
@@ -276,7 +302,10 @@ export function SessionTerminal({
 
     return () => {
       detachTouchScroll();
-
+      if (vv) {
+        vv.removeEventListener("resize", repairCursorVisibility);
+        vv.removeEventListener("scroll", repairCursorVisibility);
+      }
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a
       // real unmount there is nothing left to render it into.

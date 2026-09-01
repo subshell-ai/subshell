@@ -3,7 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 /** Fallback row height when the renderer's metrics are unreachable. */
 const FALLBACK_ROW_PX = 18;
 /** Testable override of the styles.css `@media (pointer: coarse)` gate. */
-const defaultIsTouchUi = () => typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+export const isTouchUi = () => typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 
 /** The renderer's measured CSS row height, private-path-guarded (falls back
  * rather than throwing, so a resize mid-swipe can never kill scrolling). */
@@ -31,12 +31,8 @@ function rowHeightPx(term: Terminal): number {
  * Attaches to `.xterm-screen` (the grid body — outside it, the page still
  * scrolls normally: headers, lists, settings). Returns the detach fn.
  */
-export function attachTouchScroll(
-  term: Terminal,
-  root: HTMLElement,
-  isTouchUi: () => boolean = defaultIsTouchUi,
-): () => void {
-  if (!isTouchUi()) return () => {};
+export function attachTouchScroll(term: Terminal, root: HTMLElement, isTouch: () => boolean = isTouchUi): () => void {
+  if (!isTouch()) return () => {};
   const target = root.querySelector<HTMLElement>(".xterm-screen") ?? root;
   let lastY: number | null = null;
   let carry = 0;
