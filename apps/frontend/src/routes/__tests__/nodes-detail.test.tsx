@@ -200,7 +200,8 @@ describe("NodeDetailPage rotate-key", () => {
       });
       // POST exactly once — the reveal must not re-fire the rotation.
       expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key").length).toBe(1);
-      expect((await screen.findByText("mote_new_secret")) !== null).toBe(true);
+      const revealed = await screen.findByText("mote_new_secret");
+      expect(revealed.textContent).toBe("mote_new_secret");
       expect(screen.getByText(/shown once/i)).toBeDefined();
       // Done retires the plaintext from the DOM.
       fireEvent.click(screen.getByRole("button", { name: /Done — hide the key/ }));
@@ -211,12 +212,22 @@ describe("NodeDetailPage rotate-key", () => {
   });
 
   it("does not POST when the confirm is declined", async () => {
-    setConfirmHandler(() => Promise.resolve(false));
+    let confirmAnswered = false;
+    setConfirmHandler(() =>
+      Promise.resolve(false).then((ok) => {
+        confirmAnswered = true;
+        return ok;
+      }),
+    );
     const { calls, restore } = mockFetch(agentNode());
     try {
       renderDetail("agent1");
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
-      await new Promise((r) => setTimeout(r, 50));
+      // Gate on the decline having actually been processed instead of a fixed
+      // sleep: `rotateKey` continues in the microtask right after this promise
+      // settles, so if a rogue POST were fired it would be recorded before
+      // waitFor's next poll (a macrotask) can observe `confirmAnswered`.
+      await waitFor(() => expect(confirmAnswered).toBe(true));
       expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key")).toBe(false);
     } finally {
       restore();

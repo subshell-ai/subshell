@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import { NODE_QUERY_KEY, NODES_QUERY_KEY } from "@/lib/query-keys";
+import { NODE_QUERY_KEY, NODES_QUERY_KEY, SESSIONS_QUERY_KEY } from "@/lib/query-keys";
 import type { CreatedSetupKey, Node, NodeDetail, RotatedNodeKey, SetupKeyRow } from "@/types/node";
 
 /**
@@ -107,6 +107,10 @@ export function useRotateNodeKey(id: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+      // Cross-domain (the useCreateSession pattern): the eviction drops the
+      // agent, which flips every session on this node to `nodeOffline` — the
+      // session list must learn that now, not on its next incidental refetch.
+      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
     },
   });
 }
