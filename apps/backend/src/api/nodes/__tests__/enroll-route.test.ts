@@ -138,12 +138,19 @@ describe("/api/nodes/enroll", () => {
     expect(first.status).toBe(201);
     createdNodeIds.push(((await first.json()) as { nodeId: string }).nodeId);
 
-    const again = await enroll(bodyFor(setupKey));
+    const secondName = `reuse-${crypto.randomUUID().slice(0, 8)}`;
+    const ownedBefore = await nodes.listByOwner(aliceId);
+    const again = await enroll(bodyFor(setupKey, { name: secondName }));
     expect(again.status).toBe(401);
     const err = (await again.json()) as { code: string; message: string };
     expect(err.code).toBe("SETUP_KEY_INVALID");
     // One honest code for invalid/expired/used — the message says all three.
     expect(err.message).toContain("invalid, expired, or already used");
+    // The rejected redemption wrote nothing: the creator's node rows are unchanged
+    // and the 401's name never became a node.
+    const ownedAfter = await nodes.listByOwner(aliceId);
+    expect(ownedAfter.length).toBe(ownedBefore.length);
+    expect(ownedAfter.some((n) => n.name === secondName)).toBe(false);
   });
 
   it("unknown key → 401 (no row churn)", async () => {
@@ -154,11 +161,18 @@ describe("/api/nodes/enroll", () => {
 
   it("bad publicKey fails BEFORE consume — key stays redeemable", async () => {
     const setupKey = await makeKey("validate-first");
-    const garbage = await enroll(bodyFor(setupKey, { publicKey: "not-json" }));
+    // Both fixtures stay ABOVE the body schema's `minLength: 16` so they pass schema
+    // validation and genuinely reach the route's own JSON.parse-catch /
+    // assertImportablePublicJwk branches (shorter strings die at the schema instead).
+    const garbage = await enroll(bodyFor(setupKey, { publicKey: "this-is-not-json-at-all" }));
     expect(garbage.status).toBe(400);
     expect(await repo.peekValid(setupKey)).toBe(true);
 
-    const notImportable = await enroll(bodyFor(setupKey, { publicKey: JSON.stringify({ kty: "EC" }) }));
+    const notImportable = await enroll(
+      bodyFor(setupKey, {
+        publicKey: JSON.stringify({ kty: "OKP", crv: "Ed25519", x: "a".repeat(43) }),
+      }),
+    );
     expect(notImportable.status).toBe(400);
     expect(await repo.peekValid(setupKey)).toBe(true);
 

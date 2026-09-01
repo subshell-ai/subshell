@@ -198,6 +198,8 @@ export const enrollRoute = new Elysia().use(apiModels).post(
           message:
             "Node enrollment failed after the setup key was consumed — the key is spent; issue a new one and retry.",
           causedBy: err,
+          // 5xx is a server fault — log it loudly (apiErrorBody defaults to "debug", which hides it).
+          logLevel: "error",
         }),
       );
     }
