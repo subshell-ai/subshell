@@ -268,6 +268,26 @@ export class SessionsService extends BaseService {
   }
 
   /**
+   * Sets how many trailing log lines a terminal replays when attaching to
+   * this session — an `edit` act (it is session config, like rename/notes).
+   * `null` clears the per-session choice so the instance default
+   * (`MOTE_TERMINAL_REPLAY_LINES`) applies again. Clamping [1, 200] is the
+   * route's schema job; this stores what it validated.
+   * @throws SessionError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
+   */
+  async setSessionReplayLines(
+    viewerId: string,
+    id: string,
+    lines: number | null,
+    actor: GuardActor,
+  ): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    await this.repos.sessions.update(row.id, { terminalReplayLines: lines });
+    return { ok: true };
+  }
+
+  /**
    * Rings or mutes a session's notifications (the ⋯-menu bell) — OWNER-only
    * (it changes what leaves the instance for the owner's devices). Muting stops
    * pushes only; the waiting stamp is deliberately untouched.

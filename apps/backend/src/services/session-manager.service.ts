@@ -1038,6 +1038,7 @@ export function toSessionView(
     nameLocked: number;
     notify: number;
     waitingSince: string | null;
+    terminalReplayLines?: number | null;
   },
   status: string,
   /** The session's current screen, bottom-first-trimmed; empty when not running. */
@@ -1079,5 +1080,7 @@ export function toSessionView(
     // state (null = not waiting); cleared by the watcher on output-resume/death.
     waitingSince: row.waitingSince,
     access,
+    // Per-session terminal attach history cap; null = instance default.
+    terminalReplayLines: row.terminalReplayLines ?? null,
   };
 }

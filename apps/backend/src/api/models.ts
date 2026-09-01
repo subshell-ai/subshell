@@ -57,6 +57,9 @@ export const SessionSchema = t.Object({
   access: t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
     description: "Caller's effective access to this session (viewer-relative; never 'none' on a returned row)",
   }),
+  terminalReplayLines: t.Nullable(
+    t.Number({ description: "Per-session terminal attach history cap (1–200)" }),
+  ) /* null = instance default */,
 });
 
 /** Tail of a session's pane log — the diagnostic record of what it printed. */

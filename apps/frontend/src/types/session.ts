@@ -70,4 +70,9 @@ export interface SessionView {
   waitingSince: string | null;
   /** The caller's effective access to this session (viewer-relative; drives which controls render) */
   access: SessionAccess;
+  /**
+   * Trailing output lines a terminal replays when attaching to this session
+   * (1–200); null = the instance default (MOTE_TERMINAL_REPLAY_LINES, 100).
+   */
+  terminalReplayLines: number | null;
 }

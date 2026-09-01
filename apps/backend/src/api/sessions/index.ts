@@ -13,6 +13,7 @@ import { terminateSessionRoute } from "@/api/sessions/terminate-session.route.js
 import { updateSessionNameRoute } from "@/api/sessions/update-session-name.route.js";
 import { updateSessionNotesRoute } from "@/api/sessions/update-session-notes.route.js";
 import { updateSessionNotifyRoute } from "@/api/sessions/update-session-notify.route.js";
+import { updateSessionReplayRoute } from "@/api/sessions/update-session-replay.route.js";
 
 /**
  * `/api/sessions` — one Elysia instance per endpoint, mounted in the original
@@ -29,6 +30,7 @@ export const sessionRoutes = new Elysia({ prefix: "/api/sessions" })
   .use(getSessionLogRoute)
   .use(sessionSharesRoutes)
   .use(updateSessionNotesRoute)
+  .use(updateSessionReplayRoute)
   .use(updateSessionNotifyRoute)
   .use(sessionAttentionRoute)
   .use(updateSessionNameRoute)

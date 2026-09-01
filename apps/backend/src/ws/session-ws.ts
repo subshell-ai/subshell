@@ -1,10 +1,12 @@
 import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/session-protocol";
+import { TERMINAL_REPLAY_LINES } from "@/constants.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
+import { logReplayStartOffset } from "@/services/nodes/log-tail.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { logger } from "@/utils/logger.js";
@@ -97,6 +99,14 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
 
   const logExists = await Bun.file(data.logFile).exists();
   if (logExists) {
+    // Start the tail at the offset where the last N replay lines begin instead
+    // of byte 0 — the whole-log replay is what made long sessions crawl.
+    // N is per-session config, falling back to the instance default.
+    // Clamp again: the column is older than the API and could hold an
+    // out-of-band value; the ceiling is a load guarantee, not a preference.
+    const stored = row.terminalReplayLines;
+    const cap = stored == null ? TERMINAL_REPLAY_LINES : Math.min(200, Math.max(1, Math.trunc(stored)));
+    data.lastSize = await logReplayStartOffset(data.logFile, cap);
     startLogTail(ws, data);
   } else {
     logger.info(`ws attach: no log file for ${row.id}, polling pane`);

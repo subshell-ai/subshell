@@ -239,6 +239,21 @@ export const IS_PROD = process.env.NODE_ENV === "production";
 export const BACKEND_LOG_LEVEL = env.get("BACKEND_LOG_LEVEL").default("debug").asString();
 
 /**
+ * Trailing lines of a session's log that the terminal WS replays on attach
+ * before switching to the live tail. Long sessions used to ship their ENTIRE
+ * pipe-pane log into every attach, so the terminal took minutes to open.
+ * Hard-capped at 200 — the setting exists to bound load time, not to
+ * re-enable the full history. Garbage/unset values fall back to 100.
+ *
+ * Env: `MOTE_TERMINAL_REPLAY_LINES` (default 100).
+ */
+export const TERMINAL_REPLAY_LINES = (() => {
+  const raw = Number.parseInt(env.get("MOTE_TERMINAL_REPLAY_LINES").default("100").asString(), 10);
+  if (!Number.isFinite(raw) || raw < 1) return 100;
+  return Math.min(200, raw);
+})();
+
+/**
  * Hard-fails a production boot that would sign session cookies with the
  * placeholder secret.
  *

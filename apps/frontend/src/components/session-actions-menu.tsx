@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   Bell,
   BellOff,
+  History,
   NotebookPen,
   Pin,
   PinOff,
@@ -15,6 +16,7 @@ import { type JSX, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { NotesDialog } from "@/components/ui/notes-dialog";
+import { ReplayLinesDialog } from "@/components/ui/replay-lines-dialog";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSessionMutations } from "@/hooks/use-session-mutations";
 import type { SessionView } from "@/types/session";
@@ -40,6 +42,7 @@ export function SessionActionsMenu({
   onDeleted?: () => void;
 }): JSX.Element | null {
   const [notesOpen, setNotesOpen] = useState(false);
+  const [replayOpen, setReplayOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const navigate = useNavigate();
   const { data: profiles } = useProfiles();
@@ -72,6 +75,11 @@ export function SessionActionsMenu({
           session.nameLocked
             ? { icon: PinOff, label: "Resume auto title", onSelect: () => void toggleTitleLock() }
             : { icon: Pin, label: "Pin this title", onSelect: () => void toggleTitleLock() },
+          {
+            icon: History,
+            label: "Terminal history…",
+            onSelect: () => setReplayOpen(true),
+          },
         ]
       : []),
     // Owner-only: the bell decides whether THIS session pushes to the owner's
@@ -131,6 +139,14 @@ export function SessionActionsMenu({
         onOpenChange={setNotesOpen}
       />
       {isOwner && <SharingDialog sessionId={session.id} open={shareOpen} onOpenChange={setShareOpen} />}
+      {/* Keyed by session id so each session opens with its own stored cap. */}
+      <ReplayLinesDialog
+        key={session.id}
+        sessionId={session.id}
+        current={session.terminalReplayLines}
+        open={replayOpen}
+        onOpenChange={setReplayOpen}
+      />
     </>
   );
 }

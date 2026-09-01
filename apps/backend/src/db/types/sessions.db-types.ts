@@ -58,6 +58,12 @@ export interface SessionTable {
   apiKeyId: string | null;
   /** Node the session runs on ('local' = control-plane host) */
   nodeId: string;
+  /**
+   * Trailing log lines replayed when a terminal attaches (NULL = instance
+   * default, `MOTE_TERMINAL_REPLAY_LINES`). Readers clamp to [1, 200].
+   * See migration 0018.
+   */
+  terminalReplayLines: number | null;
 }
 
 /**
@@ -83,9 +89,12 @@ export type NewSession = Omit<
   | "notify"
   | "waitingSince"
   | "nodeId"
+  | "terminalReplayLines"
 > & {
   /** Node to launch on; omitted = DB default 'local' */
   nodeId?: string;
+  /** Per-session terminal replay cap; omitted = NULL = instance default */
+  terminalReplayLines?: number | null;
   harnessSessionId?: string | null;
   status?: SessionStatus;
   lastOutputAt?: string | null;
