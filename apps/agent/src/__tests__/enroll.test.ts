@@ -164,6 +164,53 @@ test("unreachable control plane → code 1, no config, no stack trace", async ()
   expect(existsSync(configPath())).toBe(false);
 });
 
+test("name pre-flight: >64-char --name fails with NO request, message names --name", async () => {
+  let hits = 0;
+  const url = fakeControlPlane(() => {
+    hits++;
+    return Response.json(CANNED, { status: 201 });
+  });
+  const res = await run([...enrollArgv(url), "--name", "n".repeat(65)]);
+  expect(res.code).toBe(1);
+  expect(hits).toBe(0); // the cap is caught before any network call
+  expect(res.err).toInclude("--name");
+  expect(res.err).toInclude("64");
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("server 400 with validationError details surfaces the field message", async () => {
+  // Mirrors what the real route sends for a too-short setup key (the agent
+  // deliberately does NOT pre-check key length): Elysia's VALIDATION error,
+  // rewritten by the backend's error-handler plugin into a 400 whose body
+  // carries validationError.validation[] items with `path` + `message`.
+  const url = fakeControlPlane(() =>
+    Response.json(
+      {
+        errId: "err_test123456",
+        code: "INPUT_VALIDATION_ERROR",
+        message: "Validation Error",
+        statusCode: 400,
+        validationError: {
+          validation: [
+            {
+              summary: "Expected string length greater or equal to 8",
+              path: "/setupKey",
+              message: "Expected string length greater or equal to 8",
+            },
+          ],
+          validationContext: "body",
+          message: "Validation Error",
+        },
+      },
+      { status: 400 },
+    ),
+  );
+  const res = await run(["enroll", "--server", url, "--key", "short", "--data-dir", dataDir]);
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("setupKey: Expected string length greater or equal to 8");
+  expect(existsSync(configPath())).toBe(false);
+});
+
 test("missing required flags → usage, exit 2", async () => {
   const res = await run(["enroll", "--server", "http://x"]);
   expect(res.code).toBe(2);

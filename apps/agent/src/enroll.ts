@@ -33,6 +33,9 @@ export interface EnrollOptions {
 
 const ENROLL_TIMEOUT_MS = 30_000;
 
+/** Mirrors the `name` maxLength of EnrollBodySchema (apps/backend/src/api/nodes/enroll.route.ts). */
+const MAX_NAME_LEN = 64;
+
 /**
  * Redeems a setup key into an enrolled node: tmux preflight → identity keypair
  * → `POST /api/nodes/enroll` → 0600 config write. Throws an actionable `Error`
@@ -43,6 +46,17 @@ export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }
   assertTmux(); // BEFORE any network call — an unenrollable box shouldn't burn a setup key
   const serverUrl = normalizeServer(opts.server);
   const name = opts.name?.trim() || hostname();
+  // Pre-flight the name cap BEFORE touching the identity/network: a hostname
+  // like `some-box.internal.example.org` plus suffix can exceed it, and burning
+  // a one-time setup key to learn that is a bad day. (Only the name is
+  // pre-checked here; everything else stays the server's call.)
+  if (name.length > MAX_NAME_LEN) {
+    throw new Error(
+      opts.name?.trim()
+        ? `--name is ${name.length} characters — the control plane accepts at most ${MAX_NAME_LEN}; pass a shorter --name`
+        : `the default node name (hostname '${name}') is ${name.length} characters — at most ${MAX_NAME_LEN} are accepted; pass --name <short-name>`,
+    );
+  }
   const dataDir = opts.dataDir ?? join(agentHome(), "data");
   const identity = await loadOrCreateIdentity(dataDir);
 
@@ -109,8 +123,9 @@ function normalizeServer(raw: string): string {
 /** Turns a non-201 into the actionable message the operator needs (spec §5.2 error map). */
 async function enrollFailure(res: Response, name: string): Promise<Error> {
   let serverMessage = "";
+  let body: Record<string, unknown> | null = null;
   try {
-    const body = (await res.json()) as { message?: unknown };
+    body = (await res.json()) as Record<string, unknown>;
     if (typeof body.message === "string") serverMessage = body.message;
   } catch {
     /* body wasn't JSON — the status code still carries the meaning */
@@ -123,5 +138,29 @@ async function enrollFailure(res: Response, name: string): Promise<Error> {
   if (res.status === 409) {
     return new Error(serverMessage || `a node named '${name}' already exists — pass --name to pick another`);
   }
-  return new Error(`enroll failed (HTTP ${res.status})${serverMessage ? `: ${serverMessage}` : ""}`);
+  return new Error(
+    `enroll failed (HTTP ${res.status})${serverMessage ? `: ${serverMessage}` : ""}${validationDetails(body)}`,
+  );
+}
+
+/**
+ * Renders the field-level failures of a `400 INPUT_VALIDATION_ERROR` body into a
+ * suffix like `; invalid input — setupKey: Expected string length greater or
+ * equal to 8`. The shape mirrors the server: the VALIDATION branch of
+ * apps/backend/src/plugins/error-handler.plugin.ts puts Elysia's `error.all`
+ * items under `validationError.validation[]`, each carrying a JSON-pointer
+ * `path` ("/name") and a human `message`. Field names only — never the offending
+ * values (a rejected `publicKey` echo would be noise, a rejected key would be a
+ * secret).
+ */
+function validationDetails(body: Record<string, unknown> | null): string {
+  const validation = (body?.validationError as { validation?: unknown } | undefined)?.validation;
+  if (!Array.isArray(validation) || validation.length === 0) return "";
+  const parts = validation.map((raw) => {
+    const item = raw as { path?: unknown; message?: unknown };
+    const field = typeof item.path === "string" ? (item.path.replace(/^#?\//, "").split("/").pop() ?? "?") : "?";
+    const message = typeof item.message === "string" ? item.message : "invalid value";
+    return `${field}: ${message}`;
+  });
+  return `; invalid input — ${parts.join("; ")}`;
 }

@@ -9,7 +9,7 @@
  * cannot read — the file is moved aside (best-effort) and the call throws,
  * never silently rotating over the old key and orphaning sealed history.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { exportJWK, generateKeyPair } from "jose";
 
@@ -28,7 +28,15 @@ export function identityPath(dataDir: string): string {
 
 /** Loads the node's keypair, generating and persisting one on first run. */
 export async function loadOrCreateIdentity(dataDir: string): Promise<AgentIdentity> {
+  // The dir will hold the private key material, so a dir WE create gets 0700 —
+  // unconditionally chmod'd, because mkdir's `mode` option is masked by the
+  // umask and cannot guarantee it. A dir that already exists is left alone:
+  // whoever created it chose its mode (shared mount, pre-seeded permissions,
+  // a deliberate ACL), and silently re-modding an operator's directory is
+  // not this function's business.
+  const weCreated = !existsSync(dataDir);
   mkdirSync(dataDir, { recursive: true });
+  if (weCreated) chmodSync(dataDir, 0o700);
   const file = identityPath(dataDir);
   try {
     const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));

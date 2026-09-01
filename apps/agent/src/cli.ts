@@ -51,11 +51,22 @@ export function parseArgs(argv: string[]): { command: string; flags: Record<stri
   const flags: Record<string, string> = {};
   const allowed = new Set(COMMAND_FLAGS[command]);
   for (let i = 0; i < rest.length; i++) {
-    const tok = rest[i];
+    // `--flag=value` is accepted alongside `--flag value` (split on the FIRST
+    // "=", so a value may itself contain "="); usage text keeps showing the
+    // space form.
+    const eq = rest[i].startsWith("--") ? rest[i].indexOf("=") : -1;
+    const tok = eq === -1 ? rest[i] : rest[i].slice(0, eq);
+    const inlineValue = eq === -1 ? undefined : rest[i].slice(eq + 1);
     if (!(tok in FLAGS)) throw new UsageError(`unknown flag '${tok}'`);
     if (!allowed.has(tok)) throw new UsageError(`flag '${tok}' is not valid for '${command}'`);
     if (!FLAGS[tok]) {
+      if (inlineValue !== undefined) throw new UsageError(`flag '${tok}' takes no value`);
       flags[flagKey(tok)] = "1";
+      continue;
+    }
+    if (inlineValue !== undefined) {
+      if (inlineValue === "") throw new UsageError(`flag '${tok}' requires a value`);
+      flags[flagKey(tok)] = inlineValue;
       continue;
     }
     const value = rest[++i];
@@ -86,7 +97,10 @@ export async function run(argv: string[]): Promise<CliResult> {
       case "enroll": {
         const server = parsed.flags.server;
         const key = parsed.flags.key;
-        if (!server || !key) throw new UsageError("enroll requires --server <url> and --key <nsk_…>");
+        const missing: string[] = [];
+        if (!server) missing.push("--server <url>");
+        if (!key) missing.push("--key <nsk_…>");
+        if (missing.length > 0) throw new UsageError(`enroll requires ${missing.join(" and ")}`);
         const { nodeId } = await runEnroll({
           server,
           setupKey: key,
