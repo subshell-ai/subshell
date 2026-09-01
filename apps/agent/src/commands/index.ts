@@ -15,17 +15,17 @@ import type { CommandContext, CommandResult } from "./context.js";
 import { execLaunch } from "./launch.js";
 import { execPromptDeliver } from "./prompt.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
+import { execWriteFile } from "./write-file.js";
 
 export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./context.js";
 
 /**
- * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–5
+ * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–6
  * are `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
  * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`,
- * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`. The only holdout is
- * `write_file` (Task 6) — it answers `unsupported` until its task flips it;
- * that answer is the integration contract letting the backend and agent
- * tracks move independently.
+ * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, and `write_file`
+ * (Task 6). Any unknown type still answers `unsupported` — the integration
+ * contract that lets the backend and agent tracks move independently.
  *
  * TOTAL by construction: the whole switch is wrapped once, so no executor
  * throw — not even the meta store's bad-id throw — escapes. The daemon stays
@@ -70,8 +70,9 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execTailStop(ctx, cmd);
       case "remove_paths":
         return await execRemovePaths(ctx, cmd);
+      case "write_file":
+        return await execWriteFile(ctx, cmd);
       default:
-        // write_file lands in Task 6; `unsupported` is the contract answer until then.
         return { ok: false, error: "unsupported" };
     }
   } catch (err) {

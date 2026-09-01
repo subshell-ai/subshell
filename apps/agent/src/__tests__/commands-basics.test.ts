@@ -98,6 +98,7 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
     ws: { send: (ev) => events.push(ev) },
     watchers: new Map(),
     tails: new Map(),
+    uploads: new Map(),
   };
   return { ctx, tmux: { calls, raw } };
 }
@@ -327,7 +328,8 @@ describe("command executors (spec §7)", () => {
     });
     expect(tmux.calls).toEqual([]);
   });
-  // `launch` flipped to the real executor in Task 4 — its "unsupported" pin
-  // moved out with it (see commands-launch.test.ts for the launch suite and
-  // the still-unimplemented-type pin).
+  // `launch` flipped to the real executor in Task 4 (see
+  // commands-launch.test.ts); `write_file` flipped in Task 6 (see
+  // commands-write-file.test.ts). The `default: unsupported` arm is the
+  // contract answer for any FUTURE unknown type — no pin test needed.
 });

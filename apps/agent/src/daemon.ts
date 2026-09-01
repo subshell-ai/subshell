@@ -16,6 +16,7 @@ import type { CommandContext, CommandResult, CommandWs } from "./commands/contex
 import { dispatchCommand } from "./commands/index.js";
 import { buildSessionsReport } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
+import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
 import { clearLock, writeLock } from "./lock.js";
@@ -256,7 +257,11 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
     ws: commandWs,
     watchers: new Map(),
     tails: new Map(),
+    uploads: new Map(),
   };
+  // Startup sweep for upload temps orphaned by a crash mid-stream (spec §3.4).
+  // Never throws by contract — a broken sweep must not cost the node its connection.
+  await cleanupStaleUploads(ctx);
   // SERIAL command executor (spec §3.4): verified commands queue here so pane
   // effects land in arrival order across the whole daemon life — surviving
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset

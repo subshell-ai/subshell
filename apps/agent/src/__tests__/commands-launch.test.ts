@@ -105,6 +105,7 @@ function makeCtx(
     ws: { send: (ev) => events.push(ev) },
     watchers: new Map(),
     tails: new Map(),
+    uploads: new Map(),
   };
   return { ctx, calls };
 }
@@ -585,23 +586,6 @@ describe("buildSessionsReport (spec §3.3)", () => {
 });
 
 /* ------------------------------------------------------------------ */
-
-describe("dispatch wiring", () => {
-  it("write_file stays 'unsupported' (pinned until Task 6 flips it)", async () => {
-    const dataDir = freshDataDir("still-unsupported");
-    const { ctx } = makeCtx(dataDir, {}, []);
-    const result = await dispatchCommand(ctx, {
-      type: "write_file",
-      path: join(dataDir, "x"),
-      chunk_b64: "aGk=",
-      chunk: 0,
-      eof: true,
-    });
-    expect(result).toEqual({ ok: false, error: "unsupported" });
-  });
-});
-
-/* ------------------------------------------------------------------ */
 /* Step 5: real-tmux smoke (gated on `which tmux`, mirroring the         */
 /* backend's Bun.which skip pattern)                                     */
 /* ------------------------------------------------------------------ */
@@ -639,6 +623,7 @@ it.skipIf(!HAS_TMUX)(
       ws: { send: (ev) => events.push(ev) },
       watchers: new Map(),
       tails: new Map(),
+      uploads: new Map(),
     };
     try {
       const result = await dispatchCommand(

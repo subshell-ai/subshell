@@ -147,6 +147,7 @@ function makeCtx(
     ws: ws.ws,
     watchers: new Map(),
     tails: new Map(),
+    uploads: new Map(),
   };
   live.push(ctx);
   return { ctx, ws };

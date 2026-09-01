@@ -35,6 +35,20 @@ export interface CommandWs {
   readonly bufferedAmount?: number;
 }
 
+/**
+ * One in-flight `write_file` stream (spec §3.4), keyed in
+ * {@link CommandContext.uploads} by the RESOLVED final path. The chunk
+ * receiver owns this state entirely; it never touches the socket.
+ */
+export interface UploadState {
+  /** Absolute path of the `.<basename>.part` temp living beside the final path. */
+  tmpPath: string;
+  /** Running byte total across accepted chunks — echoed as `received` on every answer. */
+  received: number;
+  /** Next chunk index this stream accepts (order gate; a mismatch is refused). */
+  expectedChunk: number;
+}
+
 /** Everything `dispatchCommand` (index.ts) hands an executor. */
 export interface CommandContext {
   /** The enrolled config — `dataDir` is the root of the path policy (spec §7). */
@@ -51,6 +65,8 @@ export interface CommandContext {
   watchers: Map<string, ReturnType<typeof setInterval>>;
   /** Live log-tail pumps by subId (filled by tail.ts; drained by `stopAllTails` on socket close). */
   tails: Map<string, TailHandle>;
+  /** In-flight `write_file` streams by resolved final path (filled by write-file.ts; survives reconnects). */
+  uploads: Map<string, UploadState>;
 }
 
 /**
