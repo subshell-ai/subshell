@@ -109,6 +109,32 @@ body {
   height: 100%;
 }
 
+/* iOS auto-zoom rule: focusing a text input whose computed font-size is
+   below 16px makes WebKit zoom the whole page (factor ~= 16/font-size), and
+   in home-screen PWAs that zoom — plus the keyboard-shrunk viewport it
+   rides on — can PERSIST after the keyboard closes. Symptom: a dead black
+   band under the key bar and `visualViewport.scale` stuck at ~1.2
+   (measured live on the phone). The xterm helper textarea inherits the
+   terminal's 13px font, so every keystroke armed it. Both inputs are
+   invisible/1-char; their font size is never seen — it only has to be >=16.
+   `!important` beats xterm's inline style. */
+.xterm .xterm-helper-textarea,
+.xterm .composition-view {
+  font-size: 16px;
+}
+
+/* The same threshold guards the app's own form fields on touch: the shared
+   input style is 14px, which would zoom login/search/dialog fields the same
+   way. Desktop keeps its 14px; phones get Apple's no-zoom size (which is
+   also the accessibility-correct touch size). */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* Mobile touch ergonomics (spec §4): one-finger swipe scrolls the xterm
    buffer, not the page; no double-tap zoom on controls. Coarse-pointer only
    so desktop behavior is byte-identical. */
