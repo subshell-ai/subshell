@@ -1,4 +1,5 @@
 import {
+  NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
@@ -35,11 +36,16 @@ import { failConnPendings, resolveResult, sendCommand } from "./node-rpc.js";
  * drive it with a scripted fake socket and fake deps — no HTTP layer.
  */
 
-/** Close: authenticated-looking socket without an upgrade-stashed identity. */
+/** Close: authenticated-looking socket without an upgrade-stashed identity. Handler-local: only the backend emits it. */
 export const NODE_CLOSE_UNAUTHENTICATED = 4401;
-/** Close: agent speaks a different node protocol than we enforce (spec §5.3). */
-export const NODE_CLOSE_PROTOCOL = 4406;
-/** Close: frame exceeded {@link NODE_MAX_FRAME_BYTES} (standard message-too-big). */
+/**
+ * Close: agent speaks a different node protocol than we enforce (spec §5.3).
+ * Alias of the hoisted {@link NODE_CLOSE_UPDATE_REQUIRED} — the shared value
+ * lives in `@internal/session-protocol` so the daemon's terminal-close check
+ * and this handler can never drift; the old name stays for existing imports.
+ */
+export const NODE_CLOSE_PROTOCOL = NODE_CLOSE_UPDATE_REQUIRED;
+/** Close: frame exceeded {@link NODE_MAX_FRAME_BYTES} (standard message-too-big). Handler-local: only the backend emits it. */
 export const NODE_CLOSE_TOO_BIG = 1009;
 
 /** Identity the upgrade hook derives from the bearer key and stashes on `ws.data`. */

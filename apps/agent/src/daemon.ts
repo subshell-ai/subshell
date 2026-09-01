@@ -3,6 +3,8 @@ import {
   type CommandClaims,
   type JsonValue,
   JtiLru,
+  NODE_CLOSE_SUPERSEDED,
+  NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
@@ -35,10 +37,14 @@ import { AGENT_VERSION } from "./version.js";
  * the §7 dep line divergence is accepted for phase 1).
  */
 
-/** Terminal close: another agent superseded this node's identity (spec §5.3). */
-export const NODE_CLOSE_SUPERSEDED = 4409;
-/** Terminal close: protocol mismatch — the agent binary must be updated (spec §5.3). */
-export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
+/**
+ * Terminal close codes (spec §5.3): 4409 — another agent superseded this
+ * node's identity; 4406 — protocol mismatch, the agent binary must be
+ * updated. The values live in `@internal/session-protocol` (phase-2 hoist,
+ * shared with the backend) and are re-exported through here unchanged so the
+ * library surface in `src/index.ts` stays green.
+ */
+export { NODE_CLOSE_SUPERSEDED, NODE_CLOSE_UPDATE_REQUIRED };
 
 /** Steady-state heartbeat period (spec §5.3). */
 export const HEARTBEAT_MS = 15_000;

@@ -730,3 +730,20 @@ body above stays legible as the original design:
   row is created only when the `local` node row itself is created (first boot);
   `ensureLocalNode()` no longer re-adds it on later boots, so an admin's disable
   survives restarts. Re-enable is the shares PUT (the settings-card toggle).
+- **§3.4 write_file chunk size: 512 KiB raw, not 768 KiB** (phase-2 plan). 768 KiB
+  base64-encodes to exactly 1 MiB, so any JSON envelope overhead pushes the frame
+  past `NODE_MAX_FRAME_BYTES` and the receiving byte-guard drops it — the chunk
+  would never land. 512 KiB raw (~700 KiB base64) keeps the frame under the cap
+  with room for the path + index fields.
+- **§3.2/§3.3 `result{data}` shapes are contractized** in
+  `packages/session-protocol/src/node-results.ts` (phase-2): probe entries,
+  log_read (with whole-file `size` so a relay computes a tail window in one
+  round-trip), stat_dir (success-only — missing/not-a-dir answers `ok:false`),
+  prompt_deliver, probe_resume, write_file (running `received` total), capture
+  (bare string). Additive contract; protocol stays v1.
+- **§3.2 two additive frame fields (phase-2):** `launch.bestEffortLog?: boolean`
+  (revive parity — a remote revive must survive a lost log pipe exactly like
+  `LocalLauncher`'s `LaunchPlan.bestEffortLog`) and `ready.executablePath?:
+  string` (the agent's `process.execPath`, so the control plane composes MCP
+  registrations against the real target; the agent's local `mcpRegistration`
+  re-run remains the source of truth).

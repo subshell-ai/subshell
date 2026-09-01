@@ -1,3 +1,4 @@
+import { NODE_CLOSE_SUPERSEDED } from "@internal/session-protocol";
 import type { NodeRpcError } from "./node-rpc.js";
 
 /**
@@ -7,7 +8,7 @@ import type { NodeRpcError } from "./node-rpc.js";
  * (who attaches/detaches) and `node-rpc.ts` (who sends and correlates).
  *
  * Newest-wins: when a node re-dials while an old socket is still mapped, the
- * OLD socket is closed with {@link REPLACE_CLOSE_CODE} and flagged `closing`
+ * OLD socket is closed with {@link NODE_CLOSE_SUPERSEDED} and flagged `closing`
  * before the new one is installed. The flag plus the identity guard in
  * {@link detachConnection} defuse the classic race where the old socket's
  * `close` event fires AFTER the new attach and would otherwise evict the
@@ -19,8 +20,13 @@ import type { NodeRpcError } from "./node-rpc.js";
  * counter that restarts at 0 on every attach.
  */
 
-/** Close code sent to the superseded socket on a newest-wins replace (spec §5.3). */
-export const REPLACE_CLOSE_CODE = 4409;
+/**
+ * Close code sent to the superseded socket on a newest-wins replace (spec §5.3).
+ * @deprecated Alias of {@link NODE_CLOSE_SUPERSEDED} (hoisted to
+ * `@internal/session-protocol` in phase 2 so the agent and the registry share
+ * one source of truth). Prefer the protocol constant in new code.
+ */
+export const REPLACE_CLOSE_CODE = NODE_CLOSE_SUPERSEDED;
 
 /**
  * Close code sent when the node's credential just stopped working — rotate
@@ -100,7 +106,7 @@ export function attachConnection(nodeId: string, ws: NodeSocket): NodeConnection
   if (previous) {
     previous.closing = true;
     try {
-      previous.ws.close(REPLACE_CLOSE_CODE, "replaced by a newer connection for this node");
+      previous.ws.close(NODE_CLOSE_SUPERSEDED, "replaced by a newer connection for this node");
     } catch {
       // already dead — nothing to close
     }

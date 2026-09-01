@@ -23,6 +23,30 @@ export const NODE_MAX_FRAME_BYTES = 1_048_576;
 /** Strict base64 (the alphabet used by `Buffer.toString("base64")` / `btoa`). */
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
+/* ------------------------------------------------------------------ */
+/* shared close codes (phase-2 hoist)                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Close: the agent speaks a node protocol the control plane refuses — the
+ * agent binary must be updated (spec §5.3). Emitted by the backend's
+ * `/ws/node` handler (aliased there as `NODE_CLOSE_PROTOCOL`); terminal for
+ * the agent, which imports this constant by name.
+ */
+export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
+
+/**
+ * Close: newest-wins replace — a second agent dialed with this node's
+ * identity, so the older socket is kicked (spec §5.3). Emitted by the backend
+ * registry (aliased there as `REPLACE_CLOSE_CODE`); terminal for the
+ * superseded agent.
+ *
+ * The other two node close codes — 4401 (no verified identity) and 1009
+ * (message too big) — stay handler-local in `node-ws-handler.ts` because only
+ * the backend ever emits them.
+ */
+export const NODE_CLOSE_SUPERSEDED = 4409;
+
 /**
  * Structural JSON mirror of `@internal/harnesses`' `ProfileDefinition`.
  *
@@ -82,6 +106,14 @@ export type NodeCommandBody =
       cols?: number;
       /** Initial terminal geometry */
       rows?: number;
+      /**
+       * Revive parity (phase-2): when true the agent downgrades a log-attach
+       * failure (sessions-dir mkdir + pipe-pane) to a logged note and still
+       * answers `{ ok: true }` — the pane is live. Wire twin of
+       * `LaunchPlan.bestEffortLog`; absent ⇒ a log failure fails the launch
+       * (today's behavior).
+       */
+      bestEffortLog?: boolean;
     }
   | { type: "terminate"; sessionId: string }
   | { type: "kill"; sessionId: string }
@@ -125,6 +157,12 @@ export type NodeEvent =
       hostname: string;
       dataDir: string;
       capabilities: string[];
+      /**
+       * Absolute path of the running mote-agent binary on the node; the
+       * control plane composes the MCP launch spec against it. Absent from
+       * pre-phase-2 agents.
+       */
+      executablePath?: string;
     }
   | {
       type: "inventory";
@@ -226,6 +264,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       }
       if ("cols" in value && !(isInt(value.cols) && (value.cols as number) > 0)) return null;
       if ("rows" in value && !(isInt(value.rows) && (value.rows as number) > 0)) return null;
+      if ("bestEffortLog" in value && !isBool(value.bestEffortLog)) return null;
       return value as unknown as NodeCommandBody;
     }
     case "terminate":
@@ -317,7 +356,8 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         isStr(value.arch) &&
         isStr(value.hostname) &&
         isStr(value.dataDir) &&
-        isStrArray(value.capabilities)
+        isStrArray(value.capabilities) &&
+        (!("executablePath" in value) || isStr(value.executablePath))
         ? (value as unknown as NodeEvent)
         : null;
     case "inventory": {
