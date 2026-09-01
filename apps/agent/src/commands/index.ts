@@ -13,17 +13,19 @@ import {
 } from "./basics.js";
 import type { CommandContext, CommandResult } from "./context.js";
 import { execLaunch } from "./launch.js";
+import { execPromptDeliver } from "./prompt.js";
+import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 
 export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./context.js";
 
 /**
- * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–4
+ * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–5
  * are `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
- * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`. Everything
- * else — `prompt_deliver`/`log_read`/`tail_*` (Task 5), `write_file` (Task 6)
- * — answers `unsupported` until its task flips it; that answer is the
- * integration contract letting the backend and agent tracks move
- * independently.
+ * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`,
+ * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`. The only holdout is
+ * `write_file` (Task 6) — it answers `unsupported` until its task flips it;
+ * that answer is the integration contract letting the backend and agent
+ * tracks move independently.
  *
  * TOTAL by construction: the whole switch is wrapped once, so no executor
  * throw — not even the meta store's bad-id throw — escapes. The daemon stays
@@ -52,16 +54,24 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execResize(ctx, cmd);
       case "capture":
         return await execCapture(ctx, cmd);
+      case "prompt_deliver":
+        return await execPromptDeliver(ctx, cmd);
       case "stat_dir":
         return await execStatDir(ctx, cmd);
       case "probe":
         return await execProbe(ctx, cmd);
       case "probe_resume":
         return await execProbeResume(ctx, cmd);
+      case "log_read":
+        return await execLogRead(ctx, cmd);
+      case "tail_start":
+        return await execTailStart(ctx, cmd);
+      case "tail_stop":
+        return await execTailStop(ctx, cmd);
       case "remove_paths":
         return await execRemovePaths(ctx, cmd);
       default:
-        // prompt_deliver/log_read/tail_*/write_file land in later tasks; `unsupported` is the contract answer.
+        // write_file lands in Task 6; `unsupported` is the contract answer until then.
         return { ok: false, error: "unsupported" };
     }
   } catch (err) {

@@ -15,6 +15,7 @@ import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
 import { buildSessionsReport } from "./commands/report.js";
+import { stopAllTails } from "./commands/tail.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
 import { clearLock, writeLock } from "./lock.js";
@@ -438,6 +439,10 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         if (heartbeat !== undefined) clearInterval(heartbeat);
         if (socket === ws) socket = undefined;
         if (currentWs === ws) currentWs = undefined;
+        // Tails push into the socket that just died — stop every pump before
+        // the reconnect loop dials again (the control plane re-`tail_start`s
+        // on the new connection with its own cursors; spec §3.4).
+        stopAllTails(ctx);
         resolve(close);
       };
       ws.addEventListener("open", () => {

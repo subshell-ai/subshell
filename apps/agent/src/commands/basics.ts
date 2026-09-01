@@ -34,9 +34,10 @@ export const PROBE_RESULT_BUDGET_BYTES = NODE_MAX_FRAME_BYTES - 64 * 1024;
  * socket recorded at launch wins; `tmuxSocketFor` is the orphan fallback.
  * The id is format-checked BEFORE any store touch — the store throws on a
  * malformed id, and the message the dispatcher answers must be exactly
- * `invalid session id`.
+ * `invalid session id`. Shared with prompt.ts (the settle loop captures and
+ * types on the same socket the other pane executors use).
  */
-async function resolveSocket(ctx: CommandContext, sessionId: string): Promise<string> {
+export async function resolveSocket(ctx: CommandContext, sessionId: string): Promise<string> {
   if (!isSessionId(sessionId)) throw new Error("invalid session id");
   return (await ctx.meta.get(sessionId))?.socket ?? tmuxSocketFor(sessionId);
 }

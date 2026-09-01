@@ -12,12 +12,15 @@ import type { SessionMetaStore } from "../session-meta.js";
  */
 
 /**
- * Handle over one live `tail_start` pump (the real thing lands in Task 5's
- * tail.ts; the interface is pinned now so the context shape never moves).
+ * Handle over one live `tail_start` pump (created by tail.ts). The session id
+ * is part of the pinned shape so the exit watcher's death sweep (report.ts
+ * `dropTailsFor`) can stop every sub belonging to a dead pane.
  */
 export interface TailHandle {
   /** Stops the pump and releases its watcher/timer. Must be idempotent. */
   stop(): void;
+  /** The mote session whose pane log this pump streams (death-sweep key). */
+  readonly sessionId: string;
 }
 
 /** The websocket surface an executor may use: emit events; optionally read backpressure. */
@@ -46,7 +49,7 @@ export interface CommandContext {
   ws: CommandWs;
   /** Live pane-exit watcher intervals by sessionId (filled by launch/report.ts since Task 4). */
   watchers: Map<string, ReturnType<typeof setInterval>>;
-  /** Live log-tail pumps by subId (Task 5 fills this). */
+  /** Live log-tail pumps by subId (filled by tail.ts; drained by `stopAllTails` on socket close). */
   tails: Map<string, TailHandle>;
 }
 

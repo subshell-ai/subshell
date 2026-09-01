@@ -70,16 +70,15 @@ export async function startExitWatcher(
 }
 
 /**
- * Stop and drop every tail pump belonging to a dead session. The `tails` map
- * keys by SUB-id (Task 5 owns `tail.ts`); the pinned {@link
- * import("./context.js").TailHandle} carries no session id yet, so this is the
- * forward-compatible hook — once Task 5's handles name their session, the
- * death sweep stops their pumps automatically. No-op today, which is correct:
- * no tails exist before Task 5.
+ * Stop and drop every tail pump belonging to a dead session (Task 5 made this
+ * real: {@link import("./context.js").TailHandle} names its session, so the
+ * death sweep stops a dead pane's subs the moment the watcher reports). A
+ * tailed session dying is the common case — the control plane re-`log_read`s
+ * the final bytes, so streaming into a corpse is pure waste.
  */
 function dropTailsFor(ctx: CommandContext, sessionId: string): void {
   for (const [subId, handle] of ctx.tails) {
-    if ((handle as { sessionId?: string }).sessionId === sessionId) {
+    if (handle.sessionId === sessionId) {
       try {
         handle.stop(); // idempotent by contract; belt against a throwing pump
       } catch {

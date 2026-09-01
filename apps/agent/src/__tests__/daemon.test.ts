@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TmuxRunner } from "@internal/harnesses";
@@ -14,6 +14,7 @@ import {
   signCommand,
 } from "@internal/session-protocol";
 import { run as runCli } from "../cli.js";
+import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";
 import { type DaemonDeps, probeOnline, runDaemon, wsUrlFor } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
@@ -634,6 +635,9 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
       }
       return undefined;
     },
+    // The connect-time sessions_report scan needs it too — without `list` every
+    // connect logs "sessions_report failed" noise around this test.
+    list: async () => [],
   } as unknown as SessionMetaStore;
   const h = await startDaemon({ tmux: fakeTmux, meta: slowMeta });
   const jtiT = await signAndSend(h, { type: "terminate", sessionId: HEX_A }, { jti: "ser-t", seq: 1 });
@@ -740,4 +744,39 @@ test("outbound guard: an oversize result is suppressed + logged, never sent; the
   // The daemon is healthy behind the suppressed frame:
   const jti2 = await signAndSend(h, { type: "ping" }, { jti: "after-big", seq: 2 });
   await waitFor(h, (e) => e.type === "result" && e.ref === jti2, "ping after a suppressed capture");
+});
+
+/* ------------------------------------------------------------------ */
+/* Phase 2 Task 5: tails die with the socket they stream into          */
+/* ------------------------------------------------------------------ */
+
+test("socket close stops every live tail: no output into the dead ws, none resurrected on reconnect", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-tail-"));
+  mkdirSync(join(dataDir, "sessions"), { recursive: true });
+  const store = new SessionMetaStore(dataDir);
+  const file = store.logPath(HEX_A);
+  writeFileSync(file, "abc");
+  try {
+    const h = await startDaemon({ meta: store });
+    await signAndSend(
+      h,
+      { type: "tail_start", sessionId: HEX_A, subId: "d-1", fromByte: 0 },
+      { jti: "tail-1", seq: 1 },
+    );
+    const out = await waitFor<Extract<NodeEvent, { type: "output" }>>(h, (e) => e.type === "output", "tail output");
+    expect(out).toMatchObject({ subId: "d-1", sessionId: HEX_A, fromByte: 0, toByte: 3 });
+
+    // Non-terminal close → finish() drains ctx.tails (stopAllTails) → reconnect.
+    closeAllSockets(h.plane, 1001, "server restart");
+    await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+    appendFileSync(file, "de");
+    // Outlast the backstop window: a surviving pump WOULD have delivered —
+    // tails must never push into a dead ws, and the daemon must not auto-resume
+    // subscriptions (the control plane re-`tail_start`s with its own cursors).
+    await sleep(TAIL_BACKSTOP_MS + 300);
+    expect(count(h, (e) => e.type === "output")).toBe(1);
+    expect(h.plane.unparsed).toEqual([]);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
