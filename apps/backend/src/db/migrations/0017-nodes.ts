@@ -3,8 +3,11 @@ import { type Kysely, sql } from "kysely";
 /**
  * Nodes — remote execution hosts (spec 2026-08-31 §6.1).
  *
- * - `nodes`: one row per machine. Kind "local" is the seeded control-plane
- *   host (id literally 'local', owner the system user, never connects).
+ * - `nodes`: one row per machine. Kind "local" is the control-plane host
+ *   (id literally 'local', owner the system user, never connects). Phase
+ *   truth: THIS migration ships schema only — the 'local' row and its
+ *   Everyone/edit share are SEEDED AT PHASE-1 BOOT (`ensureLocalNode`,
+ *   phase 1A), not by this up().
  *   `api_key_id` mirrors sessions.api_key_id — the anti-forgery link the
  *   node auth path re-checks on every upgrade.
  * - `node_shares`: exact mirror of session_shares (0016); NULL grantee is

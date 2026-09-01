@@ -3,9 +3,17 @@ export type NodeStatus = "online" | "offline";
 /** Whether a node is the control-plane host or an enrolled agent machine. */
 export type NodeKind = "local" | "agent";
 
-/** The seeded control-plane host row id (spec 2026-08-31 §2). Single home —
- *  repositories AND services import it from this type file (a repository must
- *  never import from services/). */
+/**
+ * The control-plane host row id (spec 2026-08-31 §2). Single home —
+ * repositories AND services import it from this type file (a repository must
+ * never import from services/).
+ *
+ * TRUTH (phase boundary): phase 0 ships SCHEMA ONLY — no `local` row exists
+ * yet. The row (owner: system user) and its Everyone/edit share are SEEDED AT
+ * PHASE-1 BOOT (`ensureLocalNode`, phase 1A). Until then this constant is a
+ * column DEFAULT value and a partition key for `recent_paths`/`sessions`
+ * (every pre-nodes row means 'local'), not a pointer to a live `nodes` row.
+ */
 export const LOCAL_NODE_ID = "local";
 
 /**

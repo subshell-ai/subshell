@@ -56,7 +56,7 @@ src/
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
-├── services/       # Business logic: session-manager, tmux/, channels/, uploads, tokens, audit, mcp-launch
+├── services/       # Business logic: session-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node agent can reuse it
 ├── utils/          # Logger and small shared helpers
 ├── ws/             # Terminal attach WebSocket (short-lived single-use tokens)
 └── test-preload.ts # Loaded by bunfig.toml before every test run

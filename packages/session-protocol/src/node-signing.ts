@@ -179,13 +179,22 @@ export type VerifyOutcome =
   | { ok: true; claims: CommandClaims }
   | { ok: false; reason: "signature" | "claims" | "replay" | "seq" | "malformed" };
 
-/** Context for {@link verifyCommand}: per-connection state lives here. */
+/**
+ * Context for {@link verifyCommand}. The two stateful members have DIFFERENT
+ * lifetimes and mixing them up is a security bug:
+ * - `jtiLru` MUST be per-NODE, created once and shared across every
+ *   connection that node ever makes. A fresh LRU per socket reopens the full
+ *   30 s replay window on every reconnect — seq cannot close it, since a
+ *   reconnect resets seq and a replayed command carries a "fresh" seq value.
+ * - `seqTracker` is per-CONNECTION (fresh/reset when a new socket opens) —
+ *   ordering only makes sense within one stream.
+ */
 export interface VerifyContext {
   /** This node's id (audience check) */
   nodeId: string;
-  /** Shared anti-replay cache for this node's connections */
+  /** Per-NODE anti-replay cache — one instance shared across ALL of this node's connections/reconnects */
   jtiLru: JtiLru;
-  /** Per-connection seq tracker (fresh/reset per socket) */
+  /** Per-CONNECTION seq tracker (fresh/reset per socket) */
   seqTracker: SeqTracker;
   /** Seconds since epoch (default wall clock) — injectable for tests */
   nowSec?: number;

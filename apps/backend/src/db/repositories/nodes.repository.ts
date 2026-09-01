@@ -62,9 +62,12 @@ export class NodesRepository extends BaseRepository {
 
   /**
    * Nodes a viewer may SEE: owned or shared — including 'local' via its
-   * seeded Everyone/edit share; there is no separate local visibility switch
-   * (spec 2026-08-31 §2). A private foreign node never appears and ids cannot
-   * be probed; revoking local's share revokes its visibility.
+   * Everyone/edit share. There is no separate local visibility switch
+   * (spec 2026-08-31 §2): a private foreign node never appears and ids
+   * cannot be probed, and revoking local's share revokes its visibility.
+   * Phase truth: the `local` row and that Everyone/edit share are SEEDED AT
+   * PHASE-1 BOOT (`ensureLocalNode`, phase 1A) — in phase 0 this query simply
+   * returns owned/explicitly-shared agent rows (there are none yet).
    * @param viewerUserId - The user whose grants and ownership decide visibility
    */
   async findAccessible(viewerUserId: string): Promise<NodeTable[]> {
