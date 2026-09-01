@@ -1,6 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import type { TmuxRunner } from "@internal/harnesses";
 import {
   type ControlKeyPair,
   generateControlKeys,
@@ -15,6 +16,7 @@ import { run as runCli } from "../cli.js";
 import { type AgentConfig, saveConfig } from "../config.js";
 import { type DaemonDeps, probeOnline, runDaemon, wsUrlFor } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
+import type { SessionMetaStore } from "../session-meta.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
 
@@ -126,7 +128,9 @@ function closeAllSockets(plane: Plane, code: number, reason: string): void {
   }
 }
 
-async function startDaemon(overrides: Partial<Pick<DaemonDeps, "heartbeatMs" | "rand">> = {}): Promise<Harness> {
+async function startDaemon(
+  overrides: Partial<Pick<DaemonDeps, "heartbeatMs" | "rand" | "tmux" | "meta">> = {},
+): Promise<Harness> {
   const [keys, hostileKeys] = await Promise.all([keysReady, hostileKeysReady]);
   const plane = startPlane();
   const config: AgentConfig = {
@@ -587,4 +591,70 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
   const deadBody = JSON.parse(dead.out) as Record<string, unknown>;
   expect(deadBody.online).toBe(false);
   expect(deadBody.probe).toBe(false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Phase 2 Task 3: serial executor + outbound frame guard (spec §3.4)  */
+/* ------------------------------------------------------------------ */
+
+const HEX_A = "00000000-0000-4000-8000-00000000000a";
+const HEX_B = "00000000-0000-4000-8000-00000000000b";
+
+test("commands run SERIALLY in arrival order (spec §3.4): the second starts only after the first's promise resolves", async () => {
+  // The first command (terminate) is made slow INSIDE its await (the meta
+  // lookup); the second (input) is instant. With the old per-message
+  // `void onFrame(...)` they interleave — input lands while terminate is
+  // still parked — so the exact order array is the serialization proof.
+  const order: string[] = [];
+  const fakeTmux = {
+    run: () => {
+      order.push("terminate:end"); // the kill-session call — the first command's effect
+      return { stdout: "", stderr: "" };
+    },
+    sendInput: () => {
+      order.push("input:start"); // the second command's start
+    },
+  } as unknown as TmuxRunner;
+  const slowMeta = {
+    get: async (id: string) => {
+      if (id === HEX_A) {
+        order.push("terminate:start");
+        await sleep(60);
+        order.push("terminate:awaited");
+      }
+      return undefined;
+    },
+  } as unknown as SessionMetaStore;
+  const h = await startDaemon({ tmux: fakeTmux, meta: slowMeta });
+  const jtiT = await signAndSend(h, { type: "terminate", sessionId: HEX_A }, { jti: "ser-t", seq: 1 });
+  const jtiI = await signAndSend(h, { type: "input", sessionId: HEX_B, data: "x" }, { jti: "ser-i", seq: 2 });
+  await waitFor(h, (e) => e.type === "result" && e.ref === jtiI, "input result");
+  // The second's start FOLLOWS the first's end — strict serial, arrival order.
+  expect(order).toEqual(["terminate:start", "terminate:awaited", "terminate:end", "input:start"]);
+  // …and the result frames carry the same order.
+  const refs = eventsAs(h, "result").map((e) => e.ref);
+  expect(refs.indexOf(jtiT)).toBeLessThan(refs.indexOf(jtiI));
+  expect(h.plane.unparsed).toEqual([]);
+});
+
+test("outbound guard: an oversize result is suppressed + logged, never sent; the link survives", async () => {
+  const fakeTmux = {
+    capturePane: () => "x".repeat(NODE_MAX_FRAME_BYTES), // result frame exceeds the 1 MiB cap
+  } as unknown as TmuxRunner;
+  const h = await startDaemon({ tmux: fakeTmux });
+  const lines: string[] = [];
+  const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+    lines.push(a.join(" "));
+  });
+  const jti = await signAndSend(h, { type: "capture", sessionId: HEX_A }, { jti: "big-1", seq: 1 });
+  await sleep(100);
+  spy.mockRestore();
+  // Mirrors the inbound rule: suppress, do NOT close.
+  expect(count(h, (e) => e.type === "result" && e.ref === jti)).toBe(0);
+  expect(h.plane.closes).toBe(0);
+  // (the suppressed frame is the RESULT frame — `ev.type` is "result")
+  expect(lines.some((l) => l.includes("oversize result event suppressed"))).toBe(true);
+  // The daemon is healthy behind the suppressed frame:
+  const jti2 = await signAndSend(h, { type: "ping" }, { jti: "after-big", seq: 2 });
+  await waitFor(h, (e) => e.type === "result" && e.ref === jti2, "ping after a suppressed capture");
 });

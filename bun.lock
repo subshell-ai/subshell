@@ -30,6 +30,7 @@
       "name": "@internal/agent",
       "version": "0.1.0",
       "dependencies": {
+        "@internal/backend-errors": "workspace:*",
         "@internal/harnesses": "workspace:*",
         "@internal/session-protocol": "workspace:*",
         "jose": "6.2.9",

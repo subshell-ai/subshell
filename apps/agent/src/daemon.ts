@@ -1,23 +1,24 @@
 import { hostname } from "node:os";
+import { TmuxRunner } from "@internal/harnesses";
 import {
   type CommandClaims,
-  type JsonValue,
   JtiLru,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
-  type NodeCommandBody,
   type NodeEvent,
   SeqTracker,
   verifyCommand,
 } from "@internal/session-protocol";
 import { backoffDelay } from "./backoff.js";
+import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
+import { dispatchCommand } from "./commands/index.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
-import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
+import { SessionMetaStore } from "./session-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
 // The definition moved to log.ts (downstream modules — session-meta.ts — need
@@ -97,9 +98,17 @@ export interface DaemonDeps {
   WebSocketImpl?: WsConstructor;
   /** Heartbeat period, ms (default {@link HEARTBEAT_MS}). */
   heartbeatMs?: number;
+  /**
+   * tmux runner for the command executors (default `new TmuxRunner()`).
+   * @internal test seam — production never passes one.
+   */
+  tmux?: TmuxRunner;
+  /**
+   * Session-meta store for the executors (default `new SessionMetaStore(config.dataDir)`).
+   * @internal test seam — production never passes one.
+   */
+  meta?: SessionMetaStore;
 }
-
-type CachedResult = { ok: true; data?: JsonValue } | { ok: false; error: string };
 
 interface WsClose {
   /** Close code observed on the socket (1006 when the transport just died). */
@@ -195,7 +204,37 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   // jti → result cache: the `replay` verify path re-answers a double-delivered command
   // from here (and so does execute(), should the LRU ever evict inside the TTL window) —
   // a jti that has run once NEVER runs twice.
-  const idempotent = new Map<string, CachedResult>();
+  const idempotent = new Map<string, CommandResult>();
+
+  // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
+  // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
+  // executors hold `ctx` across reconnects, and the serial chain guarantees
+  // the socket that verified a command is still the live one while it runs.
+  let currentWs: WsLike | undefined;
+  const commandWs: CommandWs = {
+    send: (ev) => {
+      if (currentWs) send(currentWs, ev);
+    },
+    // Bun's WebSocket CLIENT does not surface bufferedAmount — read it
+    // defensively (the tail pump, Task 5, throttles on it when present).
+    get bufferedAmount() {
+      return (currentWs as unknown as { bufferedAmount?: number } | undefined)?.bufferedAmount;
+    },
+  };
+  const ctx: CommandContext = {
+    config,
+    tmux: deps.tmux ?? new TmuxRunner(),
+    meta: deps.meta ?? new SessionMetaStore(config.dataDir),
+    nowMs,
+    ws: commandWs,
+    watchers: new Map(),
+    tails: new Map(),
+  };
+  // SERIAL command executor (spec §3.4): verified commands queue here so pane
+  // effects land in arrival order across the whole daemon life — surviving
+  // reconnects. A command verified pre-`seqTracker.reset` executing post-reset
+  // stays harmless: effects key by jti and the idempotence map spans reconnects.
+  let execChain: Promise<void> = Promise.resolve();
 
   // Local-liveness lock for `mote-agent status` (fix wave 1). Best-effort: a home that
   // cannot hold the file degrades `status`, never the daemon.
@@ -230,8 +269,17 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   let attempt = 0;
 
   const send = (ws: WsLike, ev: NodeEvent): void => {
+    const payload = JSON.stringify(ev);
+    const size = new Blob([payload]).size;
+    if (size > NODE_MAX_FRAME_BYTES) {
+      // Mirrors the inbound rule: suppress, do NOT close — the control plane
+      // already guards its own direction, so an oversize outbound frame is a
+      // producer bug (log it loudly) rather than a reason to drop the link.
+      log(`oversize ${ev.type} event suppressed (${size}B)`);
+      return;
+    }
     try {
-      ws.send(JSON.stringify(ev));
+      ws.send(payload);
     } catch (err) {
       log(`send ${ev.type} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -266,34 +314,13 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       send(ws, { type: "result", ref: claims.jti, ...cached });
       return;
     }
-    const result = await dispatch(ws, claims.cmd);
+    const result = await dispatchCommand(ctx, claims.cmd);
     idempotent.set(claims.jti, result);
     if (idempotent.size > IDEMPOTENCE_CAP) {
       const oldest = idempotent.keys().next().value as string | undefined;
       if (oldest !== undefined) idempotent.delete(oldest);
     }
     send(ws, { type: "result", ref: claims.jti, ...result });
-  };
-
-  /** The phase-1 command switch: ping + inventory execute, everything else answers `unsupported`. */
-  const dispatch = async (ws: WsLike, cmd: NodeCommandBody): Promise<CachedResult> => {
-    switch (cmd.type) {
-      case "ping":
-        return { ok: true, data: "pong" };
-      case "inventory":
-        try {
-          // Event FIRST (the server persists from it), result second — matches the
-          // server's fire-and-forget handler best-effort (phase-2 carry: serialize).
-          send(ws, await buildInventoryEvent(nowMs()));
-          return { ok: true };
-        } catch (err) {
-          return { ok: false, error: `inventory: ${err instanceof Error ? err.message : String(err)}` };
-        }
-      default:
-        // launch/terminate/input/... land in phase 2; the `unsupported` answer is
-        // the integration contract that lets both tracks move independently (spec §7).
-        return { ok: false, error: "unsupported" };
-    }
   };
 
   /** One inbound frame: byte guard → jws extraction → verify → execute (spec §4). */
@@ -352,7 +379,14 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       }
       return;
     }
-    await execute(ws, outcome.claims);
+    // SERIAL executor (spec §3.4): verify happened just now, but EXECUTION
+    // queues behind every earlier verified command — arrival order across the
+    // whole daemon life, never interleaved (a slow `launch` cannot let a
+    // `write_file` slip past it). The chain's catch keeps a surprise throw
+    // from poisoning the queue; `execute` itself swallows everything.
+    execChain = execChain
+      .then(() => execute(ws, outcome.claims))
+      .catch((err: unknown) => log(`command execution failed: ${String(err)}`));
   };
 
   /** Open one socket; resolves with the close event when the stream ends. */
@@ -367,6 +401,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         return;
       }
       socket = ws;
+      currentWs = ws; // the ctx.ws seam routes executor events here while this connection lives
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let settled = false;
       const finish = (close: WsClose): void => {
@@ -374,6 +409,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         settled = true;
         if (heartbeat !== undefined) clearInterval(heartbeat);
         if (socket === ws) socket = undefined;
+        if (currentWs === ws) currentWs = undefined;
         resolve(close);
       };
       ws.addEventListener("open", () => {

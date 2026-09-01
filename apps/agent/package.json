@@ -24,6 +24,7 @@
     "compile": "bun build --compile --bytecode --minify --sourcemap ./src/main.ts --outfile ./dist/mote-agent"
   },
   "dependencies": {
+    "@internal/backend-errors": "workspace:*",
     "@internal/harnesses": "workspace:*",
     "@internal/session-protocol": "workspace:*",
     "jose": "6.2.9"
