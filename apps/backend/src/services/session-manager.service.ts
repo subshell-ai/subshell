@@ -1,16 +1,15 @@
-import { existsSync, mkdirSync, realpathSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { hostname } from "node:os";
-import { resolve } from "node:path";
 import { stripAnsi } from "@internal/backend-errors";
 import {
   ALL_HARNESSES,
+  buildHarnessCommand,
   getHarness,
   type HarnessPlugin,
-  type McpRegistration,
   type ProfileDefinition,
-  shellQuote,
   TmuxRunner,
   tmuxSocketFor,
+  validateWorkingDir,
 } from "@internal/harnesses";
 import { harnessUsable } from "@/api/harness-utils.js";
 import { SESSION_DATA_DIR } from "@/constants.js";
@@ -891,96 +890,6 @@ const defaultAudit: (event: AuditEventInput) => Promise<void> = async (event) =>
   // Static import (module-level) — dynamic imports break `bun build --compile`.
   await audit(event);
 };
-
-/**
- * POSIX shell variable names: a leading letter/underscore then word chars.
- * Anything else (spaces, `;`, newlines, `#`, …) would splice raw shell into
- * the pane command, because tmux executes the assembled string via `sh -c`.
- */
-const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * Builds the shell command tmux runs for a harness session. Env precedence,
- * lowest to highest: curated host env (`curatedEnv()`) < MOTE_* credentials <
- * profile env < the MCP registration's wiring env (see the inline note — the
- * wiring layer wins on purpose). The harness argv itself is built by the
- * plugin, but the final assembly IS a shell string (tmux runs it through
- * `sh -c`), so every env KEY is validated against {@link ENV_KEY_RE} and
- * every value is single-quoted: an unchecked key like `X; touch /tmp/pwned #`
- * would execute during that `sh -c`, before `env -i` ever scrubs anything —
- * and it would inherit the tmux server's env (seeded from the backend
- * process). Values from any source may contain shell metacharacters; keys
- * may not, so a bad key is a hard error, not a quoting problem.
- * @throws Error when a merged env key is not a valid shell variable name
- * (names the offending key). Session creation surfaces it to the caller.
- */
-export function buildHarnessCommand(
-  harness: HarnessPlugin,
-  binary: string,
-  cwd: string,
-  profile: ProfileDefinition,
-  sessionName: string,
-  moteEnv: Record<string, string> = {},
-  mcp?: McpRegistration,
-  harnessSession?: { id: string; mode: "start" | "resume" },
-): string {
-  const argv = harness.buildCommand({ binary, cwd, profile, sessionName, mcp, harnessSession });
-  // Precedence, lowest to highest: curated host env < MOTE_* credentials
-  // (a profile may deliberately override MOTE_BASE_URL) < the profile's own
-  // env < the registration's wiring env. Wiring env goes LAST on purpose:
-  // a key like OPENCODE_CONFIG is transport plumbing, not a user knob — a
-  // profile setting it would otherwise silently drop the session's mote
-  // tools while the UI still promised automatic registration.
-  const env = { ...curatedEnv(), ...moteEnv, ...profile.env, ...(mcp?.env ?? {}) };
-  // Defense-in-depth at the last chokepoint before the shell string exists:
-  // this catches legacy DB rows and any other env source merged above,
-  // regardless of what the entry-point (profile-save) validation allowed.
-  for (const key of Object.keys(env)) {
-    if (!ENV_KEY_RE.test(key)) {
-      throw new Error(`Invalid harness env var name ${JSON.stringify(key)}: keys must match [A-Za-z_][A-Za-z0-9_]*`);
-    }
-  }
-  const envArgs = Object.entries(env).map(([k, v]) => `${k}=${shellQuote(String(v))}`);
-  // TERM must always reach the harness — pane programs decide color support
-  // from it, and a backend started by systemd/docker has none (its own
-  // terminal type would describe the wrong terminal even when set). The
-  // value that describes THIS terminal is the one tmux gave the pane, so
-  // emit a literal "$TERM": the `sh -c` wrapper expands it at launch time,
-  // inside the pane. A profile that sets TERM explicitly wins instead.
-  if (!("TERM" in env)) envArgs.push('TERM="$TERM"');
-  return `env -i ${envArgs.join(" ")} ${argv.map(shellQuote).join(" ")}`;
-}
-
-/** The minimal host env we pass through to harness processes. */
-function curatedEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  // TERM deliberately absent: the SERVER's terminal type describes the wrong
-  // terminal (see buildHarnessCommand — the pane's own TERM is forwarded).
-  for (const key of ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL"]) {
-    if (process.env[key]) out[key] = process.env[key];
-  }
-  // Claude Code needs to find its own install dir even if PATH is trimmed.
-  out.CLAUDE_PATH = process.env.CLAUDE_PATH ?? "";
-  return out;
-}
-
-/** Validates + resolves the working directory; rejects non-directories. */
-export async function validateWorkingDir(raw: string): Promise<string> {
-  if (!raw || typeof raw !== "string") throw new Error("workingDir is required");
-  const resolved = resolve(raw);
-  if (!existsSync(resolved)) throw new Error(`Path does not exist: ${resolved}`);
-  if (!(await isDirectory(resolved))) throw new Error(`Not a directory: ${resolved}`);
-  return realpathSync(resolved);
-}
-
-async function isDirectory(p: string): Promise<boolean> {
-  try {
-    const stat = await Bun.file(p).stat();
-    return stat.isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 /** Bytes read from the end of a pane log for {@link readSessionLogTail}. */
 const LOG_TAIL_BYTES = 256 * 1024;

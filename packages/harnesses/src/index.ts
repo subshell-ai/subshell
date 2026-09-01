@@ -22,6 +22,7 @@ export function getHarness(id: string): HarnessPlugin | undefined {
 
 export { ClaudeCodePlugin } from "./claude-code.js";
 export { HermesPlugin } from "./hermes.js";
+export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";
 export { OpencodePlugin } from "./opencode.js";
 export { PiPlugin } from "./pi.js";
 export { shellQuote } from "./shell.js";

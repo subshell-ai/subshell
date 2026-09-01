@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
+import { buildHarnessCommand, ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
@@ -20,7 +20,6 @@ import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
 import {
-  buildHarnessCommand,
   defaultSessionName,
   parseProfile,
   SessionManagerService,
