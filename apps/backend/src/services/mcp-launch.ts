@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HarnessPlugin, McpLaunchSpec, McpRegistration } from "@internal/harnesses";
 import { APP_BASE_URL, SESSION_DATA_DIR } from "@/constants.js";
+import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 
 /**
  * Everything per-session `mote mcp` needs: how to spawn it in this deployment,
@@ -104,4 +105,33 @@ export function registerSessionMcp(
 /** Where a session's MCP config lives (also the write target — one definition). */
 export function sessionMcpConfigPath(sessionId: string): string {
   return join(SESSION_DATA_DIR, "mcp", `${sessionId}.json`);
+}
+
+/**
+ * The PURE (no-disk-write) mirror of {@link registerSessionMcp} for AGENT
+ * nodes (spec §6.4): computes the same harness dialect but against the
+ * node's own filesystem — `mote-agent mcp` as the spawn command (its
+ * `executablePath` from the `ready` facts, the bare name as fallback) and
+ * `<dataDir>/mcp/<sessionId>.json` as the target path. Nothing is written
+ * locally: `RemoteLauncher.launch` ships `reg.fileContent` inline with the
+ * launch command (`RemoteLauncher.writeArtifact` covers other artifact
+ * flows). The capability gate and the debug-log note live in the
+ * session manager, not here — this function answers "what would the
+ * registration be", for any node facts handed to it.
+ * @param harness - The resolved plugin (its `mcpRegistration` dialect)
+ * @param sessionId - The session the config is generated for
+ * @param facts - The node's live `ready` facts (dataDir + executablePath)
+ * @returns the registration plus the node-side path, or undefined for
+ *          harnesses with no per-session format (hermes, pi)
+ */
+export function planRemoteSessionMcp(
+  harness: HarnessPlugin,
+  sessionId: string,
+  facts: Pick<NodeAgentFacts, "dataDir" | "executablePath">,
+): { reg: McpRegistration; configPath: string } | undefined {
+  const launch: McpLaunchSpec = { command: facts.executablePath ?? "mote-agent", args: ["mcp"] };
+  const configPath = `${facts.dataDir}/mcp/${sessionId}.json`;
+  const reg = harness.mcpRegistration?.(launch, configPath);
+  if (!reg) return undefined;
+  return { reg, configPath };
 }

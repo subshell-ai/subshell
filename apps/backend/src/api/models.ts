@@ -60,6 +60,10 @@ export const SessionSchema = t.Object({
   terminalReplayLines: t.Nullable(
     t.Number({ description: "Per-session terminal attach history cap (1–200)" }),
   ) /* null = instance default */,
+  nodeOffline: t.Boolean({
+    description:
+      "True when the session's agent node has no live connection — the session may still be running there (spec §5.6); always false for local sessions",
+  }),
 });
 
 /** Tail of a session's pane log — the diagnostic record of what it printed. */

@@ -5,6 +5,7 @@ import {
   ALL_HARNESSES,
   getHarness,
   type HarnessPlugin,
+  type McpRegistration,
   type ProfileDefinition,
   type TmuxRunner,
   tmuxSocketFor,
@@ -12,12 +13,21 @@ import {
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
 import type { Access } from "@/lib/session-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
-import { registerSessionMcp, sessionMcpConfigPath, sessionMcpEnv } from "@/services/mcp-launch.js";
+import {
+  planRemoteSessionMcp,
+  registerSessionMcp,
+  sessionMcpConfigPath,
+  sessionMcpEnv,
+} from "@/services/mcp-launch.js";
+import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { defaultLocalLauncher, LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
+import { getLive, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { issueSessionToken, revokeSessionToken } from "@/services/session-tokens.js";
@@ -74,7 +84,20 @@ const defaultNotify: (sessionId: string, kind: NotifyKind) => Promise<void> = as
 export class SessionManagerService {
   readonly #sessions: SessionsRepository;
   readonly #profiles: ProfilesRepository;
+  /**
+   * The machine for the paths that are still deliberately local-only: the
+   * sync `isAlive` probe, view previews, and the reconcile sweep. Task 10
+   * routes the sweep per node (spec §6.3); until then agent rows reaching
+   * it read as absent panes — the accepted interim state between Task 9 and
+   * Task 10, with no released agent to hit it.
+   */
   readonly #launcher: NodeLauncher;
+  /**
+   * Constructor-injected launcher (or the deprecated `tmux` shim wrapped in
+   * one). A TEST OVERRIDE: when set it answers for EVERY node id, so the
+   * phase-0 session-manager suites keep working untouched.
+   */
+  readonly #testLauncher: NodeLauncher | undefined;
   readonly #audit: (event: AuditEventInput) => Promise<void>;
   readonly #tokens: SessionTokenProvider;
   readonly #notify: (sessionId: string, kind: NotifyKind) => Promise<void>;
@@ -101,15 +124,31 @@ export class SessionManagerService {
     tokens?: SessionTokenProvider;
     /** Push sink fired on the alive→dead reconcile transition (default: the app-wide notify service). Injectable for test isolation. */
     notify?: (sessionId: string, kind: NotifyKind) => Promise<void>;
-    /** Machine interface for this manager's sessions; phase 0: always LocalLauncher. */
+    /**
+     * Machine interface for this manager's sessions. TEST OVERRIDE: when set
+     * it answers for every node id (see {@link #testLauncher}); production
+     * callers pass nothing and get per-node routing via `#launcherFor`.
+     */
     launcher?: NodeLauncher;
   }) {
     this.#sessions = sessions;
     this.#profiles = profiles;
-    this.#launcher = launcher ?? new LocalLauncher({ tmux });
+    this.#testLauncher = launcher ?? (tmux !== undefined ? new LocalLauncher({ tmux }) : undefined);
+    this.#launcher = this.#testLauncher ?? defaultLocalLauncher;
     this.#audit = audit;
     this.#tokens = tokens;
     this.#notify = notify;
+  }
+
+  /**
+   * The launcher for one node id: the injected test override wins for EVERY
+   * node (phase-0 suites keep their scripted machine), otherwise the shared
+   * registry resolves `local` to the LocalLauncher and agent ids to a cached
+   * RemoteLauncher (spec §6.3).
+   * @param nodeId - the row's node id (`local` = control-plane host)
+   */
+  #launcherFor(nodeId: string): NodeLauncher {
+    return this.#testLauncher ?? launcherFor(nodeId);
   }
 
   /**
@@ -127,15 +166,44 @@ export class SessionManagerService {
    * and the caller persists it on the row being launched.
    */
   async #planHarnessSession(
+    launcher: NodeLauncher,
     harness: HarnessPlugin,
     storedId: string | null,
     cwd: string,
   ): Promise<{ id: string; mode: "start" | "resume" } | undefined> {
     if (!harness.resume) return undefined;
-    if (storedId && (await this.#launcher.canResume(harness, storedId, cwd))) {
+    if (storedId && (await launcher.canResume(harness, storedId, cwd))) {
       return { id: storedId, mode: "resume" };
     }
     return { id: harness.resume.allocateSessionId(), mode: "start" };
+  }
+
+  /**
+   * Compose the MCP registration for one launch on one node (spec §6.4).
+   * Local rows keep today's write-the-file path; agent rows get the PURE
+   * remote plan (dialect computed control-side, content shipped with the
+   * launch command) — gated on the node advertising the `"mcp"` capability,
+   * and on the node still having live `ready` facts (its connection dropped
+   * between resolution and launch ⇒ the same offline-flavored throw
+   * `sendCommand` produces, so rollback and the 409 mapping treat it alike).
+   * @throws NodeRpcError code "offline" for an agent node with no live facts
+   */
+  #planMcp(
+    harness: HarnessPlugin,
+    sessionId: string,
+    nodeId: string,
+  ): { mcp?: McpRegistration; mcpConfigPath?: string; facts?: NodeAgentFacts } {
+    if (nodeId === LOCAL_NODE_ID) return { mcp: registerSessionMcp(harness, sessionId) };
+    const facts = getLive(nodeId)?.agent;
+    if (!facts) throw new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId);
+    if (!facts.capabilities.includes("mcp")) {
+      logger.debug(
+        `session ${sessionId}: node "${nodeId}" did not advertise the "mcp" capability — mote mcp not registered for this launch`,
+      );
+      return { facts };
+    }
+    const planned = planRemoteSessionMcp(harness, sessionId, facts);
+    return planned ? { mcp: planned.reg, mcpConfigPath: planned.configPath, facts } : { facts };
   }
 
   /**
@@ -154,6 +222,7 @@ export class SessionManagerService {
     promptPollMs,
     resumeFromId,
     notify,
+    nodeId,
   }: {
     userId: string;
     profileId: string;
@@ -176,6 +245,13 @@ export class SessionManagerService {
      * monitoring survives a restart.
      */
     notify?: boolean;
+    /**
+     * Node to launch on (§6.6 — already authorized by the caller's
+     * `resolveLaunchNode`; absent = the control-plane host). Everything
+     * machine-local below — cwd check, binary lookup, spawn, MCP compose —
+     * runs against THIS node's launcher.
+     */
+    nodeId?: string;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
     const profileRow = await this.#profiles.findById(profileId);
     if (!profileRow || profileRow.userId !== userId) {
@@ -186,9 +262,11 @@ export class SessionManagerService {
       throw new Error(`Unknown harness: ${profileRow.harnessId}`);
     }
 
-    const realPath = await this.#launcher.validateWorkingDir(workingDir);
+    const targetNode = nodeId ?? LOCAL_NODE_ID;
+    const launcher = this.#launcherFor(targetNode);
+    const realPath = await launcher.validateWorkingDir(workingDir);
     const profile = parseProfile(profileRow);
-    const binary = await this.#launcher.resolveBinary(harness);
+    const binary = await launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
     }
@@ -198,7 +276,7 @@ export class SessionManagerService {
     const sessionName = name?.trim() || defaultSessionName();
     // Restart-resume plan: continue the predecessor's conversation when it
     // survived, else pin a fresh id this session will be resumed by later.
-    const harnessSession = await this.#planHarnessSession(harness, resumeFromId ?? null, realPath);
+    const harnessSession = await this.#planHarnessSession(launcher, harness, resumeFromId ?? null, realPath);
 
     // Record intent in the DB first so the row exists even if tmux errors.
     // The profile's auto-restart policy is inherited at creation time.
@@ -210,6 +288,9 @@ export class SessionManagerService {
       name: sessionName,
       workingDir: realPath,
       tmuxSocket: socket,
+      // The launch node rides on the row: every later per-row operation
+      // (terminate, restart, delete, reconcile) routes its launcher from it.
+      nodeId: targetNode,
       // A fresh session shows as active until real output lands.
       lastOutputAt: new Date().toISOString(),
       alive: 1,
@@ -225,19 +306,27 @@ export class SessionManagerService {
     // baked into the harness env.
     const apiKey = await this.#tokens.issue(id, userId);
 
-    // Register `mote mcp` with the harness, in whatever dialect the plugin
-    // speaks: claude gets --mcp-config argv, opencode a merged config layer +
-    // OPENCODE_CONFIG (baked below); harnesses without a per-session format
-    // (hermes, pi) register nothing — their MOTE_* env still lands, and the
-    // UI shows their one-time manual registration steps.
-    const mcp = registerSessionMcp(harness, id);
-
     let promptDelivered = false;
     try {
+      // Register `mote mcp` with the harness, in whatever dialect the plugin
+      // speaks: claude gets --mcp-config argv, opencode a merged config layer
+      // + OPENCODE_CONFIG (baked below); harnesses without a per-session
+      // format (hermes, pi) register nothing — their MOTE_* env still lands,
+      // and the UI shows their one-time manual registration steps. Agent
+      // rows get the PURE plan (no local file; content ships with the launch
+      // command to the node's own path). INSIDE the try: an agent that
+      // dropped offline between resolution and here must roll back too.
+      const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, id, targetNode);
+      const moteEnv = sessionMcpEnv(apiKey, id, sessionName);
+      if (facts) {
+        // sessionMcpEnv bakes the BACKEND's SESSION_DATA_DIR — a path that
+        // means nothing on the node; the agent's own dataDir is the truth there.
+        moteEnv.MOTE_DATA_DIR = facts.dataDir;
+      }
       // Command assembly happens INSIDE launch, which runs inside this try:
       // a rejected env key throws there, and the row + token must roll back
       // like any other spawn failure below.
-      await this.#launcher.launch({
+      await launcher.launch({
         id,
         socket,
         harness,
@@ -245,12 +334,14 @@ export class SessionManagerService {
         cwd: realPath,
         profile,
         sessionName,
-        moteEnv: sessionMcpEnv(apiKey, id, sessionName),
+        moteEnv,
         mcp,
+        mcpConfigPath,
         harnessSession,
       });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
+          launcher,
           socket,
           id,
           prompt.trim(),
@@ -265,7 +356,7 @@ export class SessionManagerService {
       // swallows "already gone", and the try/catch keeps any other kill
       // failure from masking the original error or skipping the rollback.
       try {
-        await this.#launcher.killSession(socket, id);
+        await launcher.killSession(socket, id);
       } catch {
         // kill is best-effort; the row + token rollback below must still run
       }
@@ -274,14 +365,16 @@ export class SessionManagerService {
       throw err;
     }
 
-    logger.info(`session created: ${id} (${sessionName}) harness=${profileRow.harnessId} cwd=${realPath}`);
+    logger.info(
+      `session created: ${id} (${sessionName}) harness=${profileRow.harnessId} cwd=${realPath} node=${targetNode}`,
+    );
     // Audit trail: best-effort sink (default app-wide recorder), never throws.
     await this.#audit({
       actorUserId: userId,
       action: "session.create",
       targetType: "session",
       targetId: id,
-      metadataJson: JSON.stringify({ name: sessionName, profileId, workingDir: realPath }),
+      metadataJson: JSON.stringify({ name: sessionName, profileId, workingDir: realPath, nodeId: targetNode }),
     });
     return { id, tmuxSocket: socket, apiKey, promptDelivered };
   }
@@ -293,13 +386,14 @@ export class SessionManagerService {
    * `prompt_deliver` command so a remote agent runs it as one round-trip.
    */
   async #deliverPrompt(
+    launcher: NodeLauncher,
     socket: string,
     id: string,
     prompt: string,
     settleTimeoutMs: number,
     pollMs: number,
   ): Promise<boolean> {
-    return this.#launcher.deliverPrompt(socket, id, prompt, settleTimeoutMs, pollMs);
+    return launcher.deliverPrompt(socket, id, prompt, settleTimeoutMs, pollMs);
   }
 
   /**
@@ -361,7 +455,7 @@ export class SessionManagerService {
   async toViews(rows: SessionTable[]): Promise<ReturnType<typeof toSessionView>[]> {
     const views: ReturnType<typeof toSessionView>[] = [];
     for (const row of rows) {
-      views.push(toSessionView(row, row.status, await this.#preview(row)));
+      views.push(toSessionView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row)));
     }
     return views;
   }
@@ -375,7 +469,7 @@ export class SessionManagerService {
   async getSession(userId: string, id: string): Promise<ReturnType<typeof toSessionView> | undefined> {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSessionView(row, row.status, await this.#preview(row));
+    return toSessionView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row));
   }
 
   /**
@@ -436,10 +530,14 @@ export class SessionManagerService {
    *          when the session is absent/not the caller's, was deleted, or a
    *          terminate won the race (so the caller converges on "gone")
    * @throws Error when the relaunch cannot be composed (profile/harness/
-   *         binary gone, working dir unlinked, tmux refused the spawn). The
-   *         parked row is rolled back to `terminated` + token revoked on the
-   *         way out, so a failed restart leaves a dead-and-restartable row,
-   *         never a `running` zombie the sweep would auto-revive.
+   *         binary gone, working dir unlinked, tmux refused the spawn) — or
+   *         when the row's agent node is offline, in the offline-flavored
+   *         shape (`NodeRpcError("offline")` / "has no live connection")
+   *         that {@link SessionsService.restartSession} maps to the 409
+   *         NODE_OFFLINE of spec §5.6. The parked row is rolled back to
+   *         `terminated` + token revoked on the way out, so a failed restart
+   *         leaves a dead-and-restartable row, never a `running` zombie the
+   *         sweep would auto-revive.
    */
   async restartSession(userId: string, sourceId: string): Promise<{ id: string; tmuxSocket: string } | null> {
     // Ownership is checked BEFORE consulting the lease, so a foreign caller
@@ -452,7 +550,10 @@ export class SessionManagerService {
       if (source.alive === 1 && source.tmuxSocket) {
         // killSession swallows "already gone"; the tree dies with its baked
         // key, which #reviveRow then rotates off the same row anyway.
-        await this.#launcher.killSession(source.tmuxSocket, source.id);
+        // Row-based launcher: a restart kills where the pane actually lives
+        // (an offline agent answers NodeRpcError("offline"), which the
+        // service maps to the 409 NODE_OFFLINE of spec §5.6).
+        await this.#launcherFor(source.nodeId).killSession(source.tmuxSocket, source.id);
       }
       // Conditional park: succeeds only if the row is still where we read it.
       // A terminate/delete in the window flips status/alive, so this no-ops
@@ -514,7 +615,8 @@ export class SessionManagerService {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return;
     if (row.tmuxSocket) {
-      await this.#launcher.killSession(row.tmuxSocket, id);
+      // Kill on the node the row lives on (row-based launcher, spec §6.3).
+      await this.#launcherFor(row.nodeId).killSession(row.tmuxSocket, id);
     }
     await this.#sessions.markTerminated(id, new Date().toISOString());
     await this.#sessions.update(id, { alive: 0 });
@@ -538,11 +640,12 @@ export class SessionManagerService {
   async deleteSession(userId: string, id: string): Promise<boolean> {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return false;
+    const launcher = this.#launcherFor(row.nodeId);
     if (row.tmuxSocket) {
       // Kill the pane even if it is already dead; try/catch so a missing
-      // tmux session does not block the deletion.
+      // tmux session (or an unreachable node) does not block the deletion.
       try {
-        await this.#launcher.killSession(row.tmuxSocket, row.id);
+        await launcher.killSession(row.tmuxSocket, row.id);
       } catch {
         // pane already gone
       }
@@ -552,9 +655,19 @@ export class SessionManagerService {
     // row outright does the same via the guard's missing-row check.
     await this.#revokeTokenOrUnlink(id);
     await this.#sessions.delete(id);
-    // Best-effort log cleanup (the log is only an attach-replay artifact);
-    // removeArtifacts swallows "no file" per path, as the direct unlink did.
-    await this.#launcher.removeArtifacts([this.#launcher.logPath(id)]);
+    // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
+    // attach-replay artifact; the MCP config holds no secrets but nothing
+    // should be left behind). An offline agent has no readable facts to
+    // compose its paths from — its artifacts age out with the node.
+    const artifacts: string[] = [];
+    try {
+      artifacts.push(launcher.logPath(id));
+    } catch {
+      // no live facts on an agent node — nothing to name
+    }
+    const facts = row.nodeId !== LOCAL_NODE_ID ? getLive(row.nodeId)?.agent : undefined;
+    if (facts) artifacts.push(`${facts.dataDir}/mcp/${id}.json`);
+    await launcher.removeArtifacts(artifacts);
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
       unlinkSync(sessionMcpConfigPath(id));
@@ -638,12 +751,21 @@ export class SessionManagerService {
       // and we must not spawn a process under a session the operator killed.
       const fresh = await this.#sessions.findById(row.id);
       if (fresh?.status !== "running" || fresh.alive !== 0) return false;
+      // An agent row whose node is offline DEFERS (spec §5.6): absence of
+      // the socket is not absence of the process, and there is nothing to
+      // launch through anyway. The backoff schedule set above re-tries on
+      // the next tick; the node coming back is what unblocks the restart.
+      if (fresh.nodeId !== LOCAL_NODE_ID && !getLive(fresh.nodeId)) {
+        logger.debug(`session ${fresh.id}: auto-restart deferred — node "${fresh.nodeId}" has no live connection`);
+        return false;
+      }
       // A restart IS a new session, so it obeys the same rule the create
       // route and the picker enforce: a disabled or uninstalled harness
-      // starts nothing. The row stays parked (the up-front nextRestartAt
-      // re-tries on the backoff schedule); re-enabling the harness — or
-      // reinstalling the CLI — makes the next tick respawn the pane.
-      if (!(await harnessUsable(fresh.harnessId))) {
+      // starts nothing (ON THE ROW'S NODE — §6.2's per-node gate). The row
+      // stays parked (the up-front nextRestartAt re-tries on the backoff
+      // schedule); re-enabling the harness — or reinstalling the CLI —
+      // makes the next tick respawn the pane.
+      if (!(await harnessUsable(fresh.harnessId, fresh.nodeId))) {
         logger.debug(
           `session ${fresh.id}: auto-restart deferred — harness "${fresh.harnessId}" is disabled or not installed`,
         );
@@ -680,15 +802,24 @@ export class SessionManagerService {
    * @returns true when the pane spawned and the row revived; false when a
    *          terminate won the race (orphan pane killed, fresh token revoked)
    * @throws when the launch cannot even be composed (profile/harness/binary
-   *         gone, working dir unlinked, tmux refused the spawn)
+   *         gone, working dir unlinked, tmux refused the spawn) — or when
+   *         the row's agent node has no live connection: the throw is
+   *         offline-flavored (NodeRpcError("offline") or the same message
+   *         from the facts guard) so the restart boundary can answer the
+   *         structured 409 NODE_OFFLINE of spec §5.6.
    */
   async #reviveRow(row: SessionTable, { backoffCount }: { backoffCount: number }): Promise<boolean> {
     const profileRow = await this.#profiles.findById(row.profileId);
     if (!profileRow) throw new Error("profile missing");
     const harness = getHarness(row.harnessId);
     if (!harness) throw new Error("harness missing");
-    const realPath = await this.#launcher.validateWorkingDir(row.workingDir);
-    const binary = await this.#launcher.resolveBinary(harness);
+    // The row's node owns this revive end to end (spec §6.3). An agent that
+    // is offline answers with the offline-flavored throw from the very first
+    // round-trip (or from #planMcp below), which is what lets the manual
+    // restart map to 409 NODE_OFFLINE and the sweep defer (§5.6).
+    const launcher = this.#launcherFor(row.nodeId);
+    const realPath = await launcher.validateWorkingDir(row.workingDir);
+    const binary = await launcher.resolveBinary(harness);
     if (!binary) throw new Error("harness binary missing");
     const profile = parseProfile(profileRow);
     // Rotate the MCP token: the old process is gone and its baked key must
@@ -697,10 +828,16 @@ export class SessionManagerService {
     // apiKeyId, and the guard's link check then 401s the orphaned old key.
     await this.#revokeTokenOrUnlink(row.id);
     const apiKey = await this.#tokens.issue(row.id, row.userId);
-    const mcp = registerSessionMcp(harness, row.id);
+    const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, row.id, row.nodeId);
+    const moteEnv = sessionMcpEnv(apiKey, row.id, row.name);
+    if (facts) {
+      // sessionMcpEnv bakes the BACKEND's SESSION_DATA_DIR — a path that
+      // means nothing on the node; the agent's own dataDir is the truth there.
+      moteEnv.MOTE_DATA_DIR = facts.dataDir;
+    }
     // Same-row restart: resume the crashed conversation when it survived,
     // re-pin when it didn't (or the row predates the feature).
-    const harnessSession = await this.#planHarnessSession(harness, row.harnessSessionId ?? null, realPath);
+    const harnessSession = await this.#planHarnessSession(launcher, harness, row.harnessSessionId ?? null, realPath);
     const socket = row.tmuxSocket ?? tmuxSocketFor(row.id);
     // Cheap last look before the spawn: everything above (profile lookup,
     // findBinary, two token round-trips) is a window in which the operator
@@ -715,7 +852,7 @@ export class SessionManagerService {
     // (same method createSession uses; the pipe is re-attached even when
     // cleanup unlinked the log). bestEffortLog restores the pre-seam revive
     // semantics: a pane this live must not die over a lost replay-log pipe.
-    await this.#launcher.launch({
+    await launcher.launch({
       id: row.id,
       socket,
       harness,
@@ -723,8 +860,9 @@ export class SessionManagerService {
       cwd: realPath,
       profile,
       sessionName: row.name,
-      moteEnv: sessionMcpEnv(apiKey, row.id, row.name),
+      moteEnv,
       mcp,
+      mcpConfigPath,
       harnessSession,
       bestEffortLog: true,
     });
@@ -745,7 +883,7 @@ export class SessionManagerService {
     });
     if (revived === 0) {
       logger.warn(`session ${row.id} terminated mid-restart; killing the orphan pane and revoking its token`);
-      await this.#launcher.killSession(socket, row.id); // swallows "already gone"
+      await launcher.killSession(socket, row.id); // swallows "already gone"
       await this.#revokeTokenOrUnlink(row.id);
       return false;
     }
@@ -1015,6 +1153,18 @@ function normalizePaneTitle(raw: string): string {
     .slice(0, 120);
 }
 
+/**
+ * Whether a row's launch node is currently unreachable (spec §5.6): an
+ * AGENT row whose id has no entry in the live-connection registry. Local
+ * rows answer false by definition (the control-plane host has no agent
+ * socket); the check is a Map probe, deliberately NOT a DB query, so it is
+ * cheap in a per-row view loop. True means "the pane may still be running
+ * there" — the UI shows a stale-banner, not a dead session.
+ */
+export function isNodeOffline(row: { nodeId: string }): boolean {
+  return row.nodeId !== LOCAL_NODE_ID && getLive(row.nodeId) === undefined;
+}
+
 export function toSessionView(
   row: {
     id: string;
@@ -1050,6 +1200,13 @@ export function toSessionView(
    * overrides it per-viewer.
    */
   access: Exclude<Access, "none"> = "owner",
+  /**
+   * The row's agent node has no live connection (spec §5.6) — the session
+   * may still be running there. Computed by the caller via
+   * {@link isNodeOffline}; local rows (and every legacy caller) pass nothing
+   * and read false.
+   */
+  nodeOffline = false,
 ) {
   return {
     id: row.id,
@@ -1082,5 +1239,8 @@ export function toSessionView(
     access,
     // Per-session terminal attach history cap; null = instance default.
     terminalReplayLines: row.terminalReplayLines ?? null,
+    // Agent node unreachable right now (see the param doc) — the UI's
+    // "node offline" chip; false for every local session.
+    nodeOffline,
   };
 }

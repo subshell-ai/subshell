@@ -6,10 +6,19 @@ export enum BackendErrorCodes {
   INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR",
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
+  /**
+   * The phase-1 placeholder refusing any non-local `POST /api/sessions` body.
+   * Phase 2 removed the gate it served (§6.6 resolution is live); kept so the
+   * published enum never churns, and the frontend's phase-1 belt comment still
+   * names it. Nothing throws it anymore.
+   * @deprecated Superseded by the §6.6 launch-node resolution (NODE_REQUIRED,
+   * NODE_OFFLINE, and the plain 403/404s it produces).
+   */
   NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
+  NODE_REQUIRED = "NODE_REQUIRED",
   NODE_RUNNING_SESSIONS = "NODE_RUNNING_SESSIONS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
@@ -61,6 +70,10 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.NODE_ONLINE]: {
     message: "Node is online",
     statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_REQUIRED]: {
+    message: "No launch-eligible node — pick one",
+    statusCode: 400,
   },
   [BackendErrorCodes.NODE_RUNNING_SESSIONS]: {
     message: "Node has running sessions",

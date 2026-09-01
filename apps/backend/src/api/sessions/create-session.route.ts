@@ -1,4 +1,3 @@
-import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
@@ -34,24 +33,20 @@ export const createSessionRoute = new Elysia()
     "/",
     async ({ body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "write");
-      // Phase-1 contract (spec 2026-08-31 §3): the column and the wire field
-      // exist, but ONLY the control-plane host launches. Any other value —
-      // whatever the node's id, visibility, or state — is refused here,
-      // before any profile/service work. Nothing else about the node is
-      // validated; remote launch (and its real gating) arrives in phase 2.
-      if (body.nodeId !== undefined && body.nodeId !== "local") {
-        throwApiError({
-          code: BackendErrorCodes.NODE_LAUNCH_NOT_READY,
-          message: "Remote launch arrives in phase 2",
-          doNotLog: true,
-        });
-      }
+      // Phase 2 (spec §6.6): `nodeId` resolves for real — the service gates
+      // the requested node (404/403/409), honors the profile pin, falls back
+      // to `local` (its Everyone share is the switch), and auto-picks a lone
+      // online agent. Bearer actors get the STRICT owner-only rule everywhere
+      // on this path (no admin boost, no shares — a leaked harness key must
+      // not spawn a control-plane session), hence `machineActor` below.
       return await ctx.services.sessions.createSession({
         userId: user.id,
         profileId: body.profileId,
         workingDir: body.workingDir,
         name: body.name,
         prompt: body.prompt,
+        nodeId: body.nodeId,
+        machineActor: actor !== "cookie",
       });
     },
     {

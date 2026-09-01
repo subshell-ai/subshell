@@ -74,6 +74,9 @@ export const NodeViewSchema = t.Object({
   agentVersion: t.Nullable(t.String({ description: "mote-agent version from `ready`" }), {
     description: "mote-agent version, null until first ready",
   }),
+  protocolVersion: t.Nullable(t.Number({ description: "Node protocol version from `ready`" }), {
+    description: "Node protocol version, null until first ready (the UI's agent-too-old check, spec §9)",
+  }),
   access: NodeAccessSchema,
   canManage: t.Boolean({
     description:
@@ -155,6 +158,8 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boole
     status: row.status,
     lastSeenAt: row.lastSeenAt,
     agentVersion: row.agentVersion,
+    // Task 15's "agent too old" chip reads this against NODE_PROTOCOL_VERSION.
+    protocolVersion: row.protocolVersion,
     access,
     // The SAME rule the route gate applies — shared helper, so view and gate
     // can never drift (T14 review carry: the frontend cannot derive admin identity).

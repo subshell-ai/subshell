@@ -21,6 +21,9 @@ export const restartSessionRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        // Spec §5.6: the row's agent node has no live connection (409
+        // NODE_OFFLINE); the parked row is rolled back before the 409.
+        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "restartSession",

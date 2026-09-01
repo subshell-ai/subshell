@@ -1,11 +1,16 @@
+import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ShareEntry } from "@/db/repositories/session-shares.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SessionSharePermission } from "@/db/types/session-shares.db-types.js";
 import type { SessionTable } from "@/db/types/sessions.db-types.js";
+import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch } from "@/lib/node-access.js";
 import { type Access, accessAtLeast, loadSessionAccess, resolveSessionAccess } from "@/lib/session-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
+import { getLive } from "@/services/nodes/node-registry.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSessionLogTail, SessionManagerService } from "@/services/session-manager.service.js";
 import { extendSessionToken, sessionTokenTtlSeconds } from "@/services/session-tokens.js";
@@ -50,6 +55,124 @@ class SessionError extends Error {
 }
 
 /**
+ * True for either spelling of "that node has no live agent connection": the
+ * `NodeRpcError("offline")` the RPC layer rejects with, and the plain Error
+ * the RemoteLauncher's facts guard throws (identical message text —
+ * both are owned by Task 8's shipped behavior, which this mapping may not
+ * assume more of than the string it prints).
+ */
+function isNodeOfflineError(err: unknown): boolean {
+  if (err instanceof NodeRpcError) return err.code === "offline";
+  return err instanceof Error && /has no live connection/.test(err.message);
+}
+
+/**
+ * Map an offline-flavored manager throw onto the structured 409 NODE_OFFLINE
+ * of spec §5.6 (the pane may still be running on the node — the row is the
+ * UI's truth again). Every other error keeps whatever mapping it had: the
+ * rethrow rides the global handler unchanged.
+ * @throws ApiError 409 NODE_OFFLINE (doNotLog — an expected 4xx class)
+ */
+function rethrowUnlessNodeOffline(err: unknown): never {
+  if (isNodeOfflineError(err)) {
+    throwApiError({
+      code: BackendErrorCodes.NODE_OFFLINE,
+      message: "The session's node has no live agent connection — it may still be running the session there",
+      doNotLog: true,
+    });
+  }
+  throw err;
+}
+
+/**
+ * THE launch-node decision for a new session (spec 2026-08-31 §6.6), in
+ * strict precedence — a request that says where to run is never silently
+ * relocated:
+ *
+ * 1. `requestedNodeId` (body) — gate it: row absent ⇒ 404 (absent and
+ *    invisible are never distinguished beyond this); row present but no
+ *    launch access ⇒ 403; an AGENT node with no live connection ⇒ 409
+ *    NODE_OFFLINE. Any share level grants launch (the node rule).
+ * 2. `profile.nodeId` (the pin) — the same gate, but every failure carries
+ *    the "profile is pinned" message: a pin that cannot launch right now is
+ *    an error, never a relocation.
+ * 3. `local` when its own access check grants launch — today's default, and
+ *    the disable-switch (an admin deleting local's Everyone row turns this
+ *    step off for non-owners).
+ * 4. Auto-pick: exactly one ONLINE agent among the caller's candidates —
+ *    `findAccessible` for a browser actor, `listByOwner` for a bearer. Zero
+ *    or several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's single-online
+ *    auto-pick is read literally — two online nodes is NOT a choice).
+ *
+ * MACHINE actors (`machineActor: true` — any bearer token, session or
+ * system key) get the STRICT loader everywhere: no admin boost, no shares,
+ * owner-only — so a leaked harness key can never spawn a control-plane
+ * session (local belongs to the system user) nor ride a shared node.
+ *
+ * @param deps - the repositories the access resolver reads (nodes, shares,
+ *               userMeta) — injected so tests drive a scratch DB
+ * @returns the node id to launch on (`local` = control-plane host)
+ * @throws SessionCreateError 404/403 (invisible/no-access); ApiError 409
+ *         NODE_OFFLINE (offline gate) and 400 NODE_REQUIRED (auto-pick)
+ */
+export async function resolveLaunchNode(
+  {
+    userId,
+    machineActor,
+    requestedNodeId,
+    profile,
+  }: {
+    /** The creating user (bearer actors arrive as their owning user). */
+    userId: string;
+    /** True for every non-cookie actor — switches off admin boost + shares. */
+    machineActor: boolean;
+    /** Explicit `body.nodeId` (may name `local`). */
+    requestedNodeId?: string;
+    /** The resolved profile row — only `nodeId` (the pin) is read. */
+    profile: { nodeId: string | null };
+  },
+  deps: NodeAccessDeps,
+): Promise<{ nodeId: string }> {
+  /** The steps 1/2 gate: existence → launch access → agent liveness. */
+  const gate = async (nodeId: string, pinned: boolean): Promise<{ nodeId: string }> => {
+    const { row, access } = await loadNodeAccess(deps, userId, nodeId, { allowAdminAndShares: !machineActor });
+    const why = pinned ? `Profile is pinned to node ${nodeId}, which can't launch right now` : undefined;
+    if (!row) throw new SessionCreateError("node_not_found", why ?? "Node not found", 404);
+    if (!nodeCanLaunch(access))
+      throw new SessionCreateError("node_forbidden", why ?? "You cannot launch on that node", 403);
+    if (row.kind === "agent" && !getLive(nodeId)) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_OFFLINE,
+        message: why ?? "That node has no live agent connection",
+        doNotLog: true,
+      });
+    }
+    return { nodeId };
+  };
+
+  if (requestedNodeId) return gate(requestedNodeId, false);
+  if (profile.nodeId) return gate(profile.nodeId, true);
+
+  // Step 3: the control-plane host, via the same gate (its seeded Everyone/
+  // edit share is the launch switch; its absence relocates to step 4).
+  const local = await loadNodeAccess(deps, userId, LOCAL_NODE_ID, { allowAdminAndShares: !machineActor });
+  if (local.row && nodeCanLaunch(local.access)) return { nodeId: LOCAL_NODE_ID };
+
+  // Step 4: single-online-agent auto-pick over the actor's candidate set.
+  const candidates = machineActor ? await deps.nodes.listByOwner(userId) : await deps.nodes.findAccessible(userId);
+  const online = candidates.filter((n) => n.kind === "agent" && getLive(n.id));
+  if (online.length === 1) return { nodeId: online[0].id };
+  throwApiError({
+    code: BackendErrorCodes.NODE_REQUIRED,
+    message:
+      online.length === 0
+        ? "No launch-eligible node — pick one"
+        : `Multiple online nodes — pick one explicitly (${online.length} are online)`,
+    doNotLog: true,
+  });
+}
+
+/**
  * Business logic behind `/api/sessions`, one method per endpoint.
  *
  * A thin layer over {@link SessionManagerService} (the session lifecycle truth,
@@ -70,11 +193,15 @@ export class SessionsService extends BaseService {
   }
 
   /**
-   * Creates a new agent session (starts the harness under tmux) and returns
-   * only the client-safe fields — the MCP apiKey is issued once inside the
+   * Creates a new agent session (starts the harness on the node §6.6
+   * resolves — control-plane host unless stated otherwise) and returns only
+   * the client-safe fields — the MCP apiKey is issued once inside the
    * manager for env injection and is NEVER echoed to the HTTP client.
-   * @throws SessionCreateError 404 when the profile is absent or not the caller's.
-   * @throws SessionCreateError 409 when the profile's harness is disabled/unusable.
+   * @throws SessionCreateError 404 when the profile or the requested node
+   *         is absent/invisible; 403 for a node without launch access.
+   * @throws ApiError 409 NODE_OFFLINE (agent node unreachable), 400
+   *         NODE_REQUIRED (no launch-eligible node), 409 when the profile's
+   *         harness is disabled/unusable ON THE RESOLVED NODE.
    */
   async createSession({
     userId,
@@ -82,6 +209,8 @@ export class SessionsService extends BaseService {
     workingDir,
     name,
     prompt,
+    nodeId,
+    machineActor,
   }: {
     /** Owner of the new session (never taken from the body). */
     userId: string;
@@ -93,6 +222,14 @@ export class SessionsService extends BaseService {
     name?: string;
     /** Optional task text typed into the pane once the harness settles. */
     prompt?: string;
+    /** Node to launch on (spec §6.6); omitted/`local` = control-plane host. */
+    nodeId?: string;
+    /**
+     * True for any bearer (non-cookie) actor — enforced by the user-ratified
+     * STRICT rule: bearer creation resolves nodes with no admin boost and no
+     * shares, owner-only, the implicit `local` fallback included.
+     */
+    machineActor: boolean;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Gate new sessions here, not inside SessionManagerService: its own
     // restart path reuses createSession, and an existing session's harness
@@ -101,20 +238,32 @@ export class SessionsService extends BaseService {
     if (!profile || profile.userId !== userId) {
       throw new SessionCreateError("not_found", "Profile not found", 404);
     }
-    if (!(await harnessUsable(profile.harnessId))) {
+    // §6.6 precedence BEFORE the harness gate: "where" must be settled first,
+    // since "usable" is per-node now (spec §6.2).
+    const { nodeId: resolvedNodeId } = await resolveLaunchNode(
+      { userId, machineActor, requestedNodeId: nodeId, profile },
+      { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
+    );
+    if (!(await harnessUsable(profile.harnessId, resolvedNodeId))) {
       throw new SessionCreateError("harness_disabled", "That harness is disabled on this machine", 409);
     }
-    const created = await this.#manager.createSession({
-      userId,
-      profileId,
-      workingDir,
-      name,
-      prompt,
-      // Notifications default ON for new sessions (spec 2026-08-31); the
-      // per-user master switch still gates the actual send, and the operator
-      // can mute an individual session with its bell.
-      notify: true,
-    });
+    // The manager already rolled the row + token back; a node that dropped
+    // offline between resolution and launch answers with the same structured
+    // 409 the restart boundary gives (§5.6) — everything else rethrows.
+    const created = await this.#manager
+      .createSession({
+        userId,
+        profileId,
+        workingDir,
+        name,
+        prompt,
+        nodeId: resolvedNodeId,
+        // Notifications default ON for new sessions (spec 2026-08-31); the
+        // per-user master switch still gates the actual send, and the
+        // operator can mute an individual session with its bell.
+        notify: true,
+      })
+      .catch(rethrowUnlessNodeOffline);
     // Feed the picker's Recents (and the new-session form's pre-fill) from
     // real use. Best-effort: the session EXISTS at this point, and a book-
     // keeping insert failing must not turn a successful launch into an error.
@@ -377,6 +526,9 @@ export class SessionsService extends BaseService {
    * @throws SessionError 404 when absent/invisible to the caller, or when a
    *         terminate/delete won the restart race (converge on "gone").
    * @throws HttpError 403 when the caller holds only `view`.
+   * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
+   *         connection (spec §5.6) — the manager has already rolled the
+   *         parked row back and retired the token before this boundary.
    */
   async restartSession(
     viewerId: string,
@@ -384,7 +536,7 @@ export class SessionsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
-    const revived = await this.#manager.restartSession(row.userId, id);
+    const revived = await this.#manager.restartSession(row.userId, id).catch(rethrowUnlessNodeOffline);
     if (!revived) {
       throw new SessionError("not_found", "Session not found");
     }
