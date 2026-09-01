@@ -4,7 +4,9 @@ import { SessionActionsMenu } from "@/components/session-actions-menu";
 import { TerminalPreview } from "@/components/terminal-preview";
 import { Badge } from "@/components/ui/badge";
 import { WaitingChip } from "@/components/waiting-chip";
+import { useNodes } from "@/hooks/use-nodes";
 import { isWaiting } from "@/lib/session-order";
+import type { Node } from "@/types/node";
 import type { SessionView } from "@/types/session";
 
 const ACTIVITY_LABEL: Record<SessionView["activity"], string> = {
@@ -19,16 +21,34 @@ const ACTIVITY_VARIANT: Record<SessionView["activity"], "success" | "warning" | 
 };
 
 /**
- * The card's corner badge: `exited` outranks `waiting for you`, which
- * outranks the plain activity chip. (An exited session is never waiting —
- * `isWaiting` requires `alive` — so the first two arms are disjoint anyway.)
- * `exited` is computed once by {@link SessionCard} and passed in — the
- * predicate already drives the body's exit rows too.
+ * The card's corner badge: `node unreachable` outranks `exited`, which
+ * outranks `waiting for you`, which outranks the plain activity chip. An
+ * unreachable node supersedes both lower arms because neither is knowable
+ * from here — the agent is down, so `alive`/`waitingSince` are last-known
+ * facts, not current state (spec 2026-08-31 §5.6: the session may still be
+ * running there). (An exited session is never waiting — `isWaiting` requires
+ * `alive` — so those two arms are disjoint anyway.) `exited`/`nodeOffline`
+ * are computed once by {@link SessionCard} and passed in — they drive the
+ * body's exit rows too.
  */
-function accessoryFor(session: SessionView, exited: boolean): ReactNode {
+function accessoryFor(session: SessionView, exited: boolean, nodeOffline: boolean): ReactNode {
+  if (nodeOffline) return <Badge variant="warning">node unreachable</Badge>;
   if (exited) return <Badge variant="muted">exited</Badge>;
   if (isWaiting(session)) return <WaitingChip session={session} />;
   return <Badge variant={ACTIVITY_VARIANT[session.activity]}>{ACTIVITY_LABEL[session.activity]}</Badge>;
+}
+
+/**
+ * The subtitle node pill for a REMOTE session — where the process runs when
+ * that isn't the control-plane host. The name rides the shared `useNodes()`
+ * cache (one query, names only); an id the registry no longer holds is a
+ * deleted node, said plainly. Identity only: the offline STATE renders as
+ * the corner badge (see {@link accessoryFor}), so a downed node's card
+ * spells "node unreachable" exactly once.
+ */
+function nodePill(session: SessionView, known: Node | undefined): ReactNode {
+  if (!session.nodeId || session.nodeId === "local") return null;
+  return <Badge variant="muted">{known ? known.name : "deleted node"}</Badge>;
 }
 
 /**
@@ -48,6 +68,14 @@ export function SessionCard({ session }: { session: SessionView }) {
   const preview = session.preview ?? [];
   const note = session.notes;
   const exited = session.status === "running" && !session.alive;
+  // Remote + no live agent: everything "exited" would claim is unknowable
+  // right now (spec §5.6), so the offline reading supersedes it everywhere.
+  const nodeOffline = session.nodeOffline === true;
+  // Names-only lookup over the shared nodes query (already cached for the
+  // pickers) — a not-yet-loaded or failed list reads as "unknown id", the
+  // same as a genuinely deleted node, and the pill refreshes when it lands.
+  const { data: nodeData } = useNodes();
+  const knownNode = session.nodeId ? nodeData?.nodes.find((n) => n.id === session.nodeId) : undefined;
 
   return (
     <EntityCard
@@ -56,14 +84,17 @@ export function SessionCard({ session }: { session: SessionView }) {
       title={session.name}
       description={session.harnessId}
       menu={<SessionActionsMenu session={session} />}
-      accessory={accessoryFor(session, exited)}
-      // A session is a process *somewhere*, so the directory rides in the
-      // subtitle block with the harness — the preview area below stays
-      // purely about output.
+      accessory={accessoryFor(session, exited, nodeOffline)}
+      // A session is a process *somewhere*, so the directory and (for remote
+      // rows) the node pill ride in the subtitle block with the harness —
+      // the preview area below stays purely about output.
       headerExtra={
-        <p className="truncate font-mono text-muted-foreground text-xs" title={session.workingDir}>
-          {session.workingDir}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-xs" title={session.workingDir}>
+            {session.workingDir}
+          </p>
+          {nodePill(session, knownNode)}
+        </div>
       }
     >
       {/* Fixed height whatever the state, so cards in a row stay the
@@ -79,11 +110,15 @@ export function SessionCard({ session }: { session: SessionView }) {
           <TerminalPreview lines={preview} />
         ) : (
           <p className="truncate p-1 font-mono text-muted-foreground text-xs">
-            {exited ? "no screen — session has exited" : "waiting for first output…"}
+            {nodeOffline
+              ? "no screen — the node is offline"
+              : exited
+                ? "no screen — session has exited"
+                : "waiting for first output…"}
           </p>
         )}
       </div>
-      {exited && (
+      {exited && !nodeOffline && (
         <p className="truncate text-muted-foreground text-xs">
           exit: {session.exitCode != null ? session.exitCode : "no exit code"}
           {session.backoffCount > 0 && ` · restart ${session.backoffCount}`}

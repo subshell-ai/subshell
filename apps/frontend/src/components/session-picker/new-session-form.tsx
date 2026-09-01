@@ -34,8 +34,9 @@ export function canSubmit(value: NewSessionFormValue): boolean {
 /**
  * Whether a node is pickable right now: ANY visible node grants launch
  * (`nodeCanLaunch` — deliberately not the session rule, spec §2), but an
- * OFFLINE agent is shown disabled: launching there is phase-2 anyway, and
+ * OFFLINE agent is shown disabled: launching there 409s `NODE_OFFLINE`, and
  * offering a target we know is down would only invite a confusing failure.
+ * (The pick list can always be stale — the 409 path covers the race.)
  */
 function isSelectable(n: Node): boolean {
   return n.kind === "local" || n.status === "online";
@@ -88,9 +89,10 @@ const DIALOG_IDS: NewSessionFormIds = {
  * `useCreateSession` hook.
  *
  * The node picker (spec 2026-08-31 §9) defaults to `local`; a remote pick is
- * allowed but honest — phase 1 always launches on the control-plane host (the
- * backend 409s a remote `nodeId`, and `toSessionCreateBody` normalises the
- * pick before the POST), so the notice says exactly that.
+ * real (spec §6.6) — the id rides the POST and the server resolves it against
+ * the registry, so the picker is a launch-target chooser, not a hint. An
+ * offline agent is disabled; a node that went down since the list loaded
+ * surfaces as the caller's inline 409 copy.
  */
 export function NewSessionForm({
   value,
@@ -143,8 +145,6 @@ export function NewSessionForm({
   }, [recent, nodes, value, onChange]);
 
   const options = nodes ?? [];
-  const selected = options.find((n) => n.id === value.nodeId);
-  const remote = selected !== undefined && selected.kind !== "local";
 
   return (
     <div className="space-y-4">
@@ -192,11 +192,6 @@ export function NewSessionForm({
             ))}
           </SelectContent>
         </Select>
-        {remote && (
-          <p className="text-muted-foreground text-sm">
-            Remote launch arrives in phase 2; this session will start on the control-plane host.
-          </p>
-        )}
       </div>
 
       <div className="space-y-2">

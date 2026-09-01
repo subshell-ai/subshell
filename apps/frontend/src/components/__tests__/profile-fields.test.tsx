@@ -35,6 +35,7 @@ function node(overrides: Partial<Node> = {}): Node {
     status: "online",
     lastSeenAt: null,
     agentVersion: null,
+    protocolVersion: null,
     access: "owner",
     canManage: true,
     capabilities: [],

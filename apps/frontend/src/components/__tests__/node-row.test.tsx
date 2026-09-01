@@ -13,6 +13,7 @@ const BASE: Node = {
   status: "online",
   lastSeenAt: new Date().toISOString(),
   agentVersion: null,
+  protocolVersion: null,
   access: "owner",
   canManage: true,
   capabilities: [],

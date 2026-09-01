@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { HarnessRow } from "@/components/harness-row";
@@ -178,6 +178,17 @@ function SetupPage() {
                   onRecheck={recheck}
                 />
               ))}
+              {/* First-run escape hatch (spec §8): a host with no usable
+                  harness is not a dead end — sessions can run on an enrolled
+                  node instead. "Usable" = installed AND enabled. */}
+              {harnesses !== undefined && !harnesses.some((h) => h.installed && h.enabled) && (
+                <p className="text-muted-foreground text-sm">
+                  Nothing usable on this machine?{" "}
+                  <Link to="/nodes" className="underline">
+                    …or register a Node →
+                  </Link>
+                </p>
+              )}
               <Button className="w-full" disabled={busy} onClick={finish}>
                 Finish setup
               </Button>

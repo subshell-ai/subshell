@@ -12,11 +12,11 @@ import {
 import type { Node } from "@/types/node";
 
 /**
- * The node picker added to the shared new-session form (spec 2026-08-31 §9):
+ * The node picker on the shared new-session form (spec 2026-08-31 §9, §6.6):
  * any visible node is a launch target, offline agents are shown but not
- * selectable, the default is `local`, and a non-local pick still launches on
- * the control-plane host in phase 1 (the form says so; the submit belt lives
- * in `toSessionCreateBody`).
+ * selectable, the default is `local`, and a remote pick is REAL — the form
+ * offers it without any phase-1 caveat (the id posts as-is; see
+ * `create-session.test`).
  */
 function node(overrides: Partial<Node>): Node {
   return {
@@ -29,6 +29,7 @@ function node(overrides: Partial<Node>): Node {
     status: "online",
     lastSeenAt: null,
     agentVersion: null,
+    protocolVersion: null,
     access: "owner",
     canManage: true,
     capabilities: [],
@@ -102,13 +103,15 @@ describe("NewSessionForm node picker", () => {
     }
   });
 
-  it("shows the phase-1 notice when a remote node is selected", async () => {
+  it("offers a remote node with NO phase-1 caveat — remote launch is real", async () => {
     const restore = mockFetch([LOCAL, AGENT_ONLINE]);
     try {
-      renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "a1" });
-      // A controlled remote pick renders the notice (submit still posts local —
-      // the belt is in `toSessionCreateBody`, pinned in create-session.test).
-      await waitFor(() => expect(screen.getByText(/Remote launch arrives in phase 2/)).toBeDefined());
+      const { latest } = renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "a1" });
+      // The pick stands (no notice, no normalisation): the id posts as-is
+      // (belt pinned in create-session.test) and the server gates it.
+      await waitFor(() => expect(latest().nodeId).toBe("a1"));
+      expect(screen.queryByText(/phase 2/i)).toBeNull();
+      expect(screen.queryByText(/control-plane host/)).toBeNull();
     } finally {
       restore();
     }

@@ -17,6 +17,7 @@ function makeSession(overrides: Partial<SessionView> = {}): SessionView {
     id: "id-1",
     profileId: "profile-1",
     harnessId: "claude",
+    nodeOffline: false,
     name: "session",
     nameLocked: false,
     terminalReplayLines: null,

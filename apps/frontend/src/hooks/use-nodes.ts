@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { NODE_QUERY_KEY, NODES_QUERY_KEY } from "@/lib/query-keys";
-import type { CreatedSetupKey, Node, NodeDetail, SetupKeyRow } from "@/types/node";
+import type { CreatedSetupKey, Node, NodeDetail, RotatedNodeKey, SetupKeyRow } from "@/types/node";
 
 /**
  * Node registry reads/writes (spec 2026-08-31 §9). All endpoints are
- * cookie-only in phase 1 and every failure arrives as an `ApiError` from
- * `apiFetch` — callers branch on `status`/`code` (e.g. the 409
- * NODE_RUNNING_SESSIONS delete guard).
+ * cookie-only and every failure arrives as an `ApiError` from `apiFetch` —
+ * callers branch on `status`/`code` (e.g. the 409 NODE_RUNNING_SESSIONS
+ * delete guard, the 409 NODE_NAME_TAKEN rename collision).
  */
 
 /** Key of the caller's setup-key list (`GET /api/nodes/setup-keys`). */
@@ -64,6 +64,46 @@ export function useRecheckNode(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => apiFetch<{ ok: boolean }>(`/api/nodes/${id}/recheck`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+    },
+  });
+}
+
+/**
+ * Renames a node (`PATCH /api/nodes/:id` `{name}`) — OWNER-only server-side
+ * (an admin's effective edit does not extend to renaming a foreign agent) and
+ * the `local` node's name is fixed for everyone (400). A per-owner name
+ * collision answers 409 `NODE_NAME_TAKEN` with the server's own message.
+ * The response is a plain NodeView; the detail cache is INVALIDATED rather
+ * than written through because the detail row also carries `shares`, which
+ * the PATCH response omits.
+ */
+export function useRenameNode(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<Node>(`/api/nodes/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+    },
+  });
+}
+
+/**
+ * Rotates a node's bearer key (`POST /api/nodes/:id/rotate-key`) — manager-
+ * only cookie call. The plaintext arrives ONCE in this response (only its
+ * hash is stored); the caller shows it once and forgets it. The old key is
+ * disabled and a live agent socket is evicted, so the node drops offline
+ * until the operator re-configures the agent with the new key — the response
+ * `message` carries that guidance verbatim.
+ */
+export function useRotateNodeKey(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<RotatedNodeKey>(`/api/nodes/${id}/rotate-key`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });

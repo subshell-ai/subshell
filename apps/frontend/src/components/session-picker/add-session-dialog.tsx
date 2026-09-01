@@ -20,6 +20,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { useCreateSession } from "@/hooks/use-create-session";
 import { useSessionsList } from "@/hooks/use-sessions";
 import { errMessage } from "@/lib/api";
+import { createSessionErrorMessage } from "@/lib/create-session-error";
 import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
 
 /** Which half of the dialog is showing. */
@@ -100,7 +101,9 @@ export function AddSessionDialog({
     try {
       created = await create.mutateAsync(form);
     } catch (err) {
-      setError(errMessage(err, "Failed to create session"));
+      // Node-aware copy: a remote pick that raced the picker answers 409
+      // NODE_OFFLINE and gets the actionable line (lib/create-session-error).
+      setError(createSessionErrorMessage(err, "Failed to create session"));
       setCreating(false);
       return;
     }
@@ -149,6 +152,12 @@ export function AddSessionDialog({
         {mode === "existing" ? (
           <ExistingSessionList
             sessions={available}
+            // Keep the two halves coherent: the list shows sessions on the
+            // node the New-session half would launch onto ("local" until a
+            // remote pick is made; an unmade pick — "" — is the local default).
+            // Display filtering only: the list is already visibility-filtered
+            // server-side and this never substitutes for authz.
+            nodeId={form.nodeId || "local"}
             query={query}
             onQueryChange={setQuery}
             loadFailed={sessionsFailed}

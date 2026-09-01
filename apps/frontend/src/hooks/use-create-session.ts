@@ -21,10 +21,12 @@ export interface CreateSessionInput {
  * The POST body for a fresh session — built in one place because `/new` and
  * the workspace dialog used to duplicate it byte for byte. A blank name is
  * sent as `undefined` so the backend applies its date/time default.
- * Phase-1 belt (spec 2026-08-31 §3): a remote node is NEVER posted — the
- * backend 409s (`NODE_LAUNCH_NOT_READY`) anything but `"local"`/omitted — so
- * any non-local pick is normalised to `"local"`; the form already told the
- * user the session will start on the control-plane host.
+ * Remote launch is real (spec 2026-08-31 §6.6): a non-`local` pick is posted
+ * as-is and the backend resolves/gates it (`resolveLaunchNode` — 404 for an
+ * invisible node, 409 `NODE_OFFLINE` when the agent is down). An omitted or
+ * `"local"` pick sends no `nodeId` at all: omission is the server's own
+ * resolve path (pin → local → lone-online auto-pick), which explicit `local`
+ * merely skips — so leaving it out whenever possible is the honest default.
  * @param input - The collected form values
  * @returns The JSON body for `POST /api/sessions`
  */
@@ -38,7 +40,7 @@ export function toSessionCreateBody({ profileId, workingDir, name, nodeId }: Cre
     profileId,
     workingDir,
     name: name.trim() || undefined,
-    nodeId: nodeId ? "local" : undefined,
+    nodeId: nodeId && nodeId !== "local" ? nodeId : undefined,
   };
 }
 

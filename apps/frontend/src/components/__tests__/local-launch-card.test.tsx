@@ -29,6 +29,7 @@ function localNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     status: "online",
     lastSeenAt: null,
     agentVersion: null,
+    protocolVersion: null,
     access: "owner",
     canManage: true,
     capabilities: [],

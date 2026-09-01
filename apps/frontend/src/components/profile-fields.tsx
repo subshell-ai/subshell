@@ -202,8 +202,8 @@ export function ProfileFields({
               </SelectContent>
             </Select>
             <p className="text-muted-foreground text-sm">
-              Pins sessions started from this profile to one machine. The pin is a preference: phase 1 still launches
-              everything on the control-plane host.
+              Pins sessions started from this profile to one machine. The pin is honoured at launch — if the pinned node
+              is offline, starting a session with this profile fails until it is back.
             </p>
           </div>
           <div className="space-y-2">

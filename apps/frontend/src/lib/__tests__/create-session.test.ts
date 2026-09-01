@@ -22,13 +22,27 @@ describe("toSessionCreateBody", () => {
     expect(JSON.parse(JSON.stringify(body))).toEqual({ profileId: "p1", workingDir: "/tmp/x", name: "n" });
   });
 
-  it("normalises any picked node to 'local' — the phase-1 belt (spec §3)", () => {
-    expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" }).nodeId).toBe(
-      "local",
-    );
-    // A remote pick is never posted: the backend 409s anything but "local".
-    expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "n1" }).nodeId).toBe("local");
-    // And an unmade selection blocks submit upstream (canSubmit), never leaks "".
+  it("posts a remote pick as-is — remote launch is real (spec §6.6)", () => {
+    // The form's node choice reaches the server verbatim; the backend
+    // resolves/gates it (404 invisible, 409 NODE_OFFLINE).
+    expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "n1" }).nodeId).toBe("n1");
+    const body = toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "n", nodeId: "mac-mini" });
+    expect(JSON.parse(JSON.stringify(body))).toEqual({
+      profileId: "p1",
+      workingDir: "/tmp/x",
+      name: "n",
+      nodeId: "mac-mini",
+    });
+  });
+
+  it("omits nodeId for 'local' and for an absent/unmade pick — the server's own resolve path", () => {
+    // "local" stays legal on the wire but needs no explicit statement:
+    // omission = resolve (pin → local → lone-online auto-pick).
+    expect(
+      toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" }).nodeId,
+    ).toBeUndefined();
+    expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "" }).nodeId).toBeUndefined();
+    // An unmade selection blocks submit upstream (canSubmit), never leaks "".
     expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "" }).nodeId).toBeUndefined();
   });
 });

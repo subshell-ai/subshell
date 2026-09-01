@@ -93,7 +93,7 @@ function NodesPage() {
         <EmptyState
           icon={Server}
           title="No nodes yet"
-          description="Enroll another machine with a setup key to run sessions on it (remote launch arrives in phase 2)."
+          description="Enroll another machine with a setup key to run sessions on it."
           actionLabel="Add your first node"
           onAction={() => setDialogOpen(true)}
         />

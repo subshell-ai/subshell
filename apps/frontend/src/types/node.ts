@@ -47,6 +47,8 @@ export interface Node {
   lastSeenAt: string | null;
   /** mote-agent version from `ready`, null until first ready */
   agentVersion: string | null;
+  /** Node protocol version from `ready`, null until first ready — compare against `NODE_PROTOCOL_VERSION` to spot an agent too old to speak to this control plane */
+  protocolVersion: number | null;
   /** The caller's effective access (drives which controls render) */
   access: NodeAccess;
   /**
@@ -105,4 +107,12 @@ export interface CreatedSetupKey {
   key: string;
   /** ISO 8601 expiry (24 h from creation) */
   expiresAt: string;
+}
+
+/** The rotate-key response — the plaintext node bearer key is delivered exactly once, here. */
+export interface RotatedNodeKey {
+  /** Plaintext node bearer key — shown once, then never again (only its hash is stored) */
+  nodeKey: string;
+  /** Operator guidance: the agent's stored config does NOT update itself — re-configure it by hand */
+  message: string;
 }

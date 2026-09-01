@@ -1,15 +1,18 @@
+import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { RefreshCw, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { EditableText } from "@/components/editable-text";
 import { ErrorBanner } from "@/components/error-banner";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
+import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
 import { osLabel } from "@/components/nodes/node-row";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { PageHeader } from "@/components/page-header";
 import { relativeElapsed } from "@/components/session-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useDeleteNode, useNode, useRecheckNode } from "@/hooks/use-nodes";
+import { useDeleteNode, useNode, useRecheckNode, useRenameNode } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
 
@@ -19,8 +22,9 @@ export const Route = createFileRoute("/nodes_/$id")({
 
 /**
  * One node's config page (spec 2026-08-31 §9/§10): machine facts, the
- * harness matrix with per-node toggles, the Re-check button, and the
- * Share/Delete actions.
+ * harness matrix with per-node toggles, the Re-check and Rotate-key buttons,
+ * and the Share/Delete actions. The title renames itself (owner-only PATCH;
+ * `local`'s name is fixed for everyone).
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
  * error, never a leak), `view` grantees get a fully read-only page (harness
@@ -34,9 +38,15 @@ function NodeDetailPage() {
   const navigate = useNavigate();
   const node = useNode(id);
   const recheck = useRecheckNode(id);
+  const renameNode = useRenameNode(id);
   const deleteNode = useDeleteNode();
   const [shareOpen, setShareOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  /** Owner-only rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
+  async function saveName(name: string): Promise<void> {
+    await renameNode.mutateAsync(name);
+  }
 
   async function remove() {
     setActionError(null);
@@ -94,11 +104,17 @@ function NodeDetailPage() {
   // Harness toggles follow the server's `nodeCanConfigure`: owner or `edit`
   // grantee (admins resolve to `edit`); a `view` grantee gets the read-only card.
   const canConfigure = n.access === "owner" || n.access === "edit";
+  // Rename is stricter than configure: the route is owner-gated (`canManage`
+  // on a NON-local node ⇔ real owner — an admin's boost is `local`-only) and
+  // `local`'s name is fixed for everyone, so the affordance never appears there.
+  const canRename = n.canManage && n.kind !== "local";
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
-        title={n.name}
+        title={
+          canRename ? <EditableText value={n.name} placeholder={n.id} label="Rename node" onSave={saveName} /> : n.name
+        }
         subtitle={n.kind === "local" ? "The control-plane host" : (n.hostname ?? "Enrolled agent")}
         action={
           <div className="flex items-center gap-2">
@@ -132,8 +148,16 @@ function NodeDetailPage() {
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-muted-foreground">Status</dt>
-            <dd className="mt-1">
+            <dd className="mt-1 flex flex-wrap items-center gap-2">
               <Badge variant={n.status === "online" ? "success" : "muted"}>{n.status}</Badge>
+              {n.status === "offline" && n.protocolVersion != null && n.protocolVersion < NODE_PROTOCOL_VERSION && (
+                <Badge
+                  variant="warning"
+                  title={`Agent speaks node protocol v${n.protocolVersion}; this control plane needs v${NODE_PROTOCOL_VERSION}`}
+                >
+                  agent too old
+                </Badge>
+              )}
             </dd>
           </div>
           <div>
@@ -195,6 +219,11 @@ function NodeDetailPage() {
           {recheck.isSuccess && <p className="text-success text-xs">Re-check sent — inventory will refresh shortly.</p>}
         </div>
       )}
+
+      {/* Key rotation lives with the agents: `local`'s key is the control
+          plane's own credential — mint/rotate it server-side deliberately,
+          not from a button on its own status page. */}
+      {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
       <NodeHarnessCard nodeId={n.id} canConfigure={canConfigure} />
 

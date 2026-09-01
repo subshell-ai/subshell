@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCreateSession } from "@/hooks/use-create-session";
-import { errMessage } from "@/lib/api";
+import { createSessionErrorMessage } from "@/lib/create-session-error";
 
 export const Route = createFileRoute("/new")({
   component: NewSessionPage,
@@ -51,8 +51,12 @@ function NewSessionPage() {
             ids={{ profile: "profile", workingDir: "working-dir", name: "name", node: "node" }}
           />
 
+          {/* Node-aware copy: a remote pick that raced the picker answers 409
+              NODE_OFFLINE and gets the actionable line (lib/create-session-error). */}
           {create.error && (
-            <p className="text-destructive text-sm">{errMessage(create.error, "Failed to create session")}</p>
+            <p className="text-destructive text-sm">
+              {createSessionErrorMessage(create.error, "Failed to create session")}
+            </p>
           )}
 
           <div className="flex justify-end gap-2">

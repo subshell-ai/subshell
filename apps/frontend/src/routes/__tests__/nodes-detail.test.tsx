@@ -2,14 +2,16 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { setConfirmHandler } from "@/lib/confirm";
 import { Route } from "@/routes/nodes_.$id";
 import type { NodeDetail } from "@/types/node";
 
 /**
- * The node detail page's Re-check gating (spec 2026-08-31 §9): the recheck
- * route runs with `nodeCanConfigure` (owner | edit), so a `view` grantee must
- * NOT get an enabled button — the disabled+tooltip treatment matches the
- * read-only harness toggles on the same page. The page component is rendered
+ * The node detail page's manager affordances (spec 2026-08-31 §9/§10):
+ * Re-check gating (`nodeCanConfigure` = owner | edit — a `view` grantee gets
+ * a disabled button, matching the read-only harness toggles), the owner-only
+ * inline rename, the manager-only rotate-key flow with its plaintext-once
+ * reveal, and the `agent too old` chip. The page component is rendered
  * through the real route object (its `useParams` is strict), mounted under a
  * minimal memory router the way routeTree.gen wires it.
  */
@@ -24,6 +26,7 @@ function agentNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     status: "online",
     lastSeenAt: null,
     agentVersion: "0.1.0",
+    protocolVersion: 1,
     access: "owner",
     canManage: true,
     capabilities: [],
@@ -36,6 +39,7 @@ function agentNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
 interface Call {
   method: string;
   url: string;
+  body?: string;
 }
 
 function mockFetch(node: NodeDetail) {
@@ -44,9 +48,17 @@ function mockFetch(node: NodeDetail) {
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = init?.method ?? "GET";
-    calls.push({ method, url: url.pathname });
+    calls.push({ method, url: url.pathname, body: init?.body as string | undefined });
     if (url.pathname === `/api/nodes/${node.id}` && method === "GET") {
       return Promise.resolve(new Response(JSON.stringify(node)));
+    }
+    if (url.pathname === `/api/nodes/${node.id}/rotate-key` && method === "POST") {
+      return Promise.resolve(
+        new Response(JSON.stringify({ nodeKey: "mote_new_secret", message: "re-config by hand" })),
+      );
+    }
+    if (url.pathname === `/api/nodes/${node.id}` && method === "PATCH") {
+      return Promise.resolve(new Response(JSON.stringify({ ...node, name: "renamed" })));
     }
     if (url.pathname === "/api/setup/harnesses" && method === "GET") {
       return Promise.resolve(new Response(JSON.stringify([])));
@@ -126,6 +138,143 @@ describe("NodeDetailPage re-check gating", () => {
       renderDetail("local");
       await screen.findByText("Your access");
       expect(screen.queryByRole("button", { name: /Re-check/ })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NodeDetailPage rename (owner-only PATCH)", () => {
+  it("offers the inline editor to an owner-agent and PATCHes the name on Enter", async () => {
+    const { calls, restore } = mockFetch(agentNode());
+    try {
+      renderDetail("agent1");
+      const btn = await screen.findByRole("button", { name: "Rename node" });
+      fireEvent.click(btn);
+      const input = screen.getByRole("textbox", { name: "Rename node" }) as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "renamed" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => {
+        const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/nodes/agent1");
+        expect(JSON.parse(patch?.body ?? "{}")).toEqual({ name: "renamed" });
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("never renders the editor for `local` (its name is fixed for everyone)", async () => {
+    const { restore } = mockFetch(agentNode({ id: "local", kind: "local" }));
+    try {
+      renderDetail("local");
+      await screen.findByText("Your access");
+      expect(screen.queryByRole("button", { name: "Rename node" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("never renders the editor for a non-manager (the route 403s them too)", async () => {
+    const { restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.queryByRole("button", { name: "Rename node" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NodeDetailPage rotate-key", () => {
+  afterEach(() => setConfirmHandler(null));
+
+  it("confirms, POSTs once, and reveals the plaintext key (shown-once card)", async () => {
+    setConfirmHandler(() => Promise.resolve(true));
+    const { calls, restore } = mockFetch(agentNode());
+    try {
+      renderDetail("agent1");
+      fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
+      await waitFor(() => {
+        expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key")).toBe(true);
+      });
+      // POST exactly once — the reveal must not re-fire the rotation.
+      expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key").length).toBe(1);
+      expect((await screen.findByText("mote_new_secret")) !== null).toBe(true);
+      expect(screen.getByText(/shown once/i)).toBeDefined();
+      // Done retires the plaintext from the DOM.
+      fireEvent.click(screen.getByRole("button", { name: /Done — hide the key/ }));
+      await waitFor(() => expect(screen.queryByText("mote_new_secret")).toBeNull());
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not POST when the confirm is declined", async () => {
+    setConfirmHandler(() => Promise.resolve(false));
+    const { calls, restore } = mockFetch(agentNode());
+    try {
+      renderDetail("agent1");
+      fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("disables Rotate key for a non-manager", async () => {
+    const { restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
+    try {
+      renderDetail("agent1");
+      const btn = await screen.findByRole("button", { name: /Rotate key/ });
+      expect(btn.hasAttribute("disabled")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NodeDetailPage agent-too-old chip", () => {
+  it("chips an offline agent whose reported protocol predates the control plane's", async () => {
+    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 0 }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.getByText("agent too old")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent for a current protocol", async () => {
+    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 1 }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("agent too old")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent for a never-seen agent (protocolVersion null)", async () => {
+    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: null }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("agent too old")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent while the agent is still online", async () => {
+    const { restore } = mockFetch(agentNode({ status: "online", protocolVersion: 0 }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("agent too old")).toBeNull();
     } finally {
       restore();
     }

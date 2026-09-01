@@ -117,8 +117,21 @@ function SessionPage() {
         }
         actions={
           <>
-            <Badge variant={exited ? "warning" : session?.status === "running" ? "success" : "muted"}>
-              {exited ? "exited" : (session?.status ?? "…")}
+            {/* Node-offline outranks `exited` (spec §5.6): with no live agent
+                the process state is unobservable, not dead — same precedence
+                the home cards use. */}
+            <Badge
+              variant={
+                session?.nodeOffline
+                  ? "warning"
+                  : exited
+                    ? "warning"
+                    : session?.status === "running"
+                      ? "success"
+                      : "muted"
+              }
+            >
+              {session?.nodeOffline ? "node unreachable" : exited ? "exited" : (session?.status ?? "…")}
             </Badge>
             {session && session.backoffCount > 0 && (
               <span className="text-muted-foreground text-xs">restart #{session.backoffCount} pending</span>

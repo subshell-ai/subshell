@@ -32,6 +32,12 @@ export interface SessionView {
    * (same tolerance as `preview` below).
    */
   nodeId?: string;
+  /**
+   * True = the session's agent node currently has no live connection (spec
+   * §5.6) — the session may still be RUNNING there, its state is just
+   * unobservable from here. Always false for sessions on `local`.
+   */
+  nodeOffline: boolean;
   /** User-visible session name */
   name: string;
   /** True = the operator named/pinned it; false = the pane-title sweep owns it */

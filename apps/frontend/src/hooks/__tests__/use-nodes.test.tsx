@@ -9,6 +9,8 @@ import {
   useNode,
   useNodes,
   useRecheckNode,
+  useRenameNode,
+  useRotateNodeKey,
   useSetupKeys,
 } from "@/hooks/use-nodes";
 import { ApiError } from "@/lib/api";
@@ -25,6 +27,7 @@ const NODE: Node = {
   status: "online",
   lastSeenAt: new Date().toISOString(),
   agentVersion: "0.1.0",
+  protocolVersion: 1,
   access: "owner",
   canManage: true,
   capabilities: ["launch"],
@@ -169,6 +172,78 @@ describe("node mutations", () => {
       const { result } = renderHook(() => useDeleteSetupKey(), { wrapper });
       await result.current.mutateAsync("k1");
       expect(calls.find((c) => c.method === "DELETE" && c.url === "/api/nodes/setup-keys/k1")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("useRenameNode PATCHes {name} and invalidates list + detail (never writes the view through)", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const written: unknown[] = [];
+    const invalidated: unknown[] = [];
+    const originalSet = client.setQueryData.bind(client);
+    const originalInvalidate = client.invalidateQueries.bind(client);
+    client.setQueryData = ((key: unknown, data: unknown) => {
+      written.push([key, data]);
+      return originalSet(key as never, data as never);
+    }) as typeof client.setQueryData;
+    client.invalidateQueries = ((opts: unknown) => {
+      invalidated.push(opts);
+      return originalInvalidate(opts as Parameters<typeof originalInvalidate>[0]);
+    }) as typeof client.invalidateQueries;
+    const spyWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { calls, restore } = mockFetch({ "PATCH /api/nodes/n1": () => json(NODE) });
+    try {
+      const { result } = renderHook(() => useRenameNode("n1"), { wrapper: spyWrapper });
+      await result.current.mutateAsync("studio");
+      const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/nodes/n1");
+      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ name: "studio" });
+      // The PATCH response carries no `shares`; writing it into the detail
+      // cache would silently erase them, so the contract is invalidate-only.
+      expect(written.length).toBe(0);
+      const keys = invalidated.map((o) => (o as { queryKey?: readonly unknown[] }).queryKey);
+      expect(keys).toContainEqual(["nodes"]);
+      expect(keys).toContainEqual(["node", "n1"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("useRenameNode surfaces the 409 NODE_NAME_TAKEN message for the inline field error", async () => {
+    const { restore } = mockFetch({
+      "PATCH /api/nodes/n1": () =>
+        json(
+          { errId: "e1", code: "NODE_NAME_TAKEN", message: 'You already have a node named "studio"', statusCode: 409 },
+          409,
+        ),
+    });
+    try {
+      const { result } = renderHook(() => useRenameNode("n1"), { wrapper });
+      const err = await result.current.mutateAsync("studio").then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).code).toBe("NODE_NAME_TAKEN");
+      expect((err as ApiError).message).toContain("already have a node");
+    } finally {
+      restore();
+    }
+  });
+
+  it("useRotateNodeKey POSTs rotate-key and hands back the plaintext once", async () => {
+    const { calls, restore } = mockFetch({
+      "POST /api/nodes/n1/rotate-key": () =>
+        json({ nodeKey: "mote_rotated_secret", message: "Re-configure the agent by hand." }),
+    });
+    try {
+      const { result } = renderHook(() => useRotateNodeKey("n1"), { wrapper });
+      const rotated = await result.current.mutateAsync();
+      expect(rotated.nodeKey).toBe("mote_rotated_secret");
+      expect(rotated.message).toContain("Re-configure");
+      expect(calls.find((c) => c.method === "POST" && c.url === "/api/nodes/n1/rotate-key")).toBeDefined();
     } finally {
       restore();
     }
