@@ -1,27 +1,27 @@
 import { describe, expect, it } from "bun:test";
-import { isKeyboardUp, shouldPinAppScroll } from "@/lib/app-scroll-pin";
+import { isKeyboardUp, shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 
-describe("shouldPinAppScroll", () => {
-  const panned = { touchUi: true, scrollTop: 34, keyboardUp: true, terminalFocused: true };
+describe("shouldResetForeignScroll", () => {
+  const iosPan = { touchUi: true, keyboardUp: true, terminalFocused: true, insideTerminal: false };
 
-  it("pins only a panned touch scroller while the keyboard is up and the terminal is focused", () => {
-    expect(shouldPinAppScroll(panned)).toBe(true);
+  it("undoes any scroll outside the terminal while keyboard is up and focused", () => {
+    expect(shouldResetForeignScroll(iosPan)).toBe(true);
   });
 
-  it("never pins desktop scrolling", () => {
-    expect(shouldPinAppScroll({ ...panned, touchUi: false })).toBe(false);
+  it("never touches desktop scrolling", () => {
+    expect(shouldResetForeignScroll({ ...iosPan, touchUi: false })).toBe(false);
   });
 
-  it("has nothing to undo at the top", () => {
-    expect(shouldPinAppScroll({ ...panned, scrollTop: 0 })).toBe(false);
+  it("leaves scrolls alone with no keyboard up (plain page/list scrolling)", () => {
+    expect(shouldResetForeignScroll({ ...iosPan, keyboardUp: false })).toBe(false);
   });
 
-  it("leaves list pages scrollable when no keyboard is up", () => {
-    expect(shouldPinAppScroll({ ...panned, keyboardUp: false })).toBe(false);
+  it("leaves scrolls alone when another control holds focus", () => {
+    expect(shouldResetForeignScroll({ ...iosPan, terminalFocused: false })).toBe(false);
   });
 
-  it("does not fight scrolling while another control holds focus", () => {
-    expect(shouldPinAppScroll({ ...panned, terminalFocused: false })).toBe(false);
+  it("always allows the terminal's own scrolling (swipe-to-read, scrollToBottom)", () => {
+    expect(shouldResetForeignScroll({ ...iosPan, insideTerminal: true })).toBe(false);
   });
 });
 

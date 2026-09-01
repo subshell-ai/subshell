@@ -11,7 +11,7 @@ import { LogTail } from "@/components/log-tail";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
-import { isKeyboardUp, shouldPinAppScroll } from "@/lib/app-scroll-pin";
+import { isKeyboardUp, shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { sendInput } from "@/lib/session-frames.js";
 import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
@@ -302,25 +302,35 @@ export function SessionTerminal({
     // re-show the keyboard without a fresh tap, which is the right outcome.
     // iOS brings the focused input "into view" by scrolling its ancestor
     // scrollers — mid-typing, classically the instant space commits
-    // autocorrect. This page is viewport-sized on purpose, but the wrapper
-    // still has a few px of safe-area padding to give, and iOS happily spends
-    // it: the terminal pans off-screen ("view goes blank, can still type
-    // blindly") until the keyboard closes and the layout resets. Pin it.
-    const appScroller = container.closest<HTMLElement>("[data-app-scroll]");
-    const onAppScroll = () => {
+    // autocorrect — and scrollIntoView happily spends `overflow: hidden`
+    // ancestors too. Those containers are invisible scrollers: a swipe can
+    // never undo them, only the keyboard closing (layout reset) does — which
+    // is exactly the reported behavior ("jumps on space, typing works
+    // blindly, swipe does nothing, close keyboard restores"). Capture-phase
+    // listener so EVERY scroller is seen, document included; anything
+    // outside the terminal gets pinned to its origin while the keyboard is
+    // up and the terminal holds focus.
+    const onAnyScroll = (e: Event) => {
+      const t = e.target;
       if (
-        appScroller &&
-        shouldPinAppScroll({
+        shouldResetForeignScroll({
           touchUi: isTouchUi(),
-          scrollTop: appScroller.scrollTop,
           keyboardUp: !!vv && isKeyboardUp(vv.height, window.innerHeight),
           terminalFocused: container.contains(document.activeElement),
+          insideTerminal: t instanceof Element && container.contains(t),
         })
       ) {
-        appScroller.scrollTop = 0;
+        if (t === document) {
+          window.scrollTo(0, 0);
+          return;
+        }
+        if (t instanceof Element) {
+          t.scrollTop = 0;
+          t.scrollLeft = 0;
+        }
       }
     };
-    appScroller?.addEventListener("scroll", onAppScroll);
+    window.addEventListener("scroll", onAnyScroll, true);
     const onFocusOut = (e: FocusEvent) => {
       if (!isTouchUi() || e.relatedTarget) return;
       requestAnimationFrame(() => {
@@ -346,7 +356,7 @@ export function SessionTerminal({
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);
       }
-      appScroller?.removeEventListener("scroll", onAppScroll);
+      window.removeEventListener("scroll", onAnyScroll, true);
       container.removeEventListener("focusout", onFocusOut);
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a

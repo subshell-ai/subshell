@@ -8,19 +8,27 @@
  * scroll position must stay pinned.
  */
 
-/** Whether a page-scroller movement should be undone (pure, tested). */
-export function shouldPinAppScroll(args: {
+/**
+ * Whether a scroll event should be undone (pure, tested). The rule: on a
+ * touch UI, while the soft keyboard is up and the terminal holds focus, NO
+ * scroll outside the terminal is the user's — it can only be iOS chasing the
+ * helper textarea. Crucially, iOS pans `overflow: hidden` ancestors too
+ * (scrollIntoView does not care), and those invisible pans are exactly the
+ * ones a swipe can never undo. Inside-the-terminal scroll (swipe-to-read
+ * scrollback, our own scrollToBottom) is always allowed.
+ */
+export function shouldResetForeignScroll(args: {
   /** Coarse-pointer (touch) UI — desktop scrolling is always the user's. */
   touchUi: boolean;
-  /** The scroller's current offset; 0 has nothing to undo. */
-  scrollTop: number;
   /** Soft keyboard is up: the visual viewport is materially shorter than
    * the layout viewport (iOS does not resize the layout viewport). */
   keyboardUp: boolean;
   /** Focus is inside the terminal (the input iOS is chasing). */
   terminalFocused: boolean;
+  /** The scrolled thing lives inside the terminal container. */
+  insideTerminal: boolean;
 }): boolean {
-  return args.touchUi && args.scrollTop > 0 && args.keyboardUp && args.terminalFocused;
+  return args.touchUi && args.keyboardUp && args.terminalFocused && !args.insideTerminal;
 }
 
 /** How far the keyboard may cover before it counts as up (px of slack for
