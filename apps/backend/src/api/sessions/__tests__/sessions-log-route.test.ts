@@ -7,7 +7,7 @@ import { SESSION_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { sessionLogPath } from "@/services/session-manager.service.js";
+import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**

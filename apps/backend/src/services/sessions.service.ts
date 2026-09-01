@@ -144,7 +144,8 @@ export class SessionsService extends BaseService {
       const access = resolveSessionAccess(viewerId, isAdmin, row.userId, sharesBy.get(row.id) ?? []);
       accessBy.set(row.id, access === "none" ? "view" : access);
     }
-    return this.#manager.toViews(rows).map((view) => ({
+    const views = await this.#manager.toViews(rows);
+    return views.map((view) => ({
       ...view,
       access: accessBy.get(view.id) ?? ("view" as const),
     }));

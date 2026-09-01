@@ -19,12 +19,8 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
-import {
-  defaultSessionName,
-  parseProfile,
-  SessionManagerService,
-  sessionLogPath,
-} from "@/services/session-manager.service.js";
+import { sessionLogPath } from "@/services/nodes/session-paths.js";
+import { defaultSessionName, parseProfile, SessionManagerService } from "@/services/session-manager.service.js";
 
 let dbCleanup: (() => void) | undefined;
 let sessionManager: SessionManagerService;

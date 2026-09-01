@@ -1,24 +1,24 @@
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { hostname } from "node:os";
 import { stripAnsi } from "@internal/backend-errors";
 import {
   ALL_HARNESSES,
-  buildHarnessCommand,
   getHarness,
   type HarnessPlugin,
   type ProfileDefinition,
-  TmuxRunner,
+  type TmuxRunner,
   tmuxSocketFor,
-  validateWorkingDir,
 } from "@internal/harnesses";
 import { harnessUsable } from "@/api/harness-utils.js";
-import { SESSION_DATA_DIR } from "@/constants.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
 import type { Access } from "@/lib/session-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { registerSessionMcp, sessionMcpConfigPath, sessionMcpEnv } from "@/services/mcp-launch.js";
+import { defaultLocalLauncher, LocalLauncher } from "@/services/nodes/local-launcher.js";
+import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
+import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { issueSessionToken, revokeSessionToken } from "@/services/session-tokens.js";
 import { logger } from "@/utils/logger.js";
@@ -74,7 +74,7 @@ const defaultNotify: (sessionId: string, kind: NotifyKind) => Promise<void> = as
 export class SessionManagerService {
   readonly #sessions: SessionsRepository;
   readonly #profiles: ProfilesRepository;
-  readonly #tmux: TmuxRunner;
+  readonly #launcher: NodeLauncher;
   readonly #audit: (event: AuditEventInput) => Promise<void>;
   readonly #tokens: SessionTokenProvider;
   readonly #notify: (sessionId: string, kind: NotifyKind) => Promise<void>;
@@ -82,13 +82,18 @@ export class SessionManagerService {
   constructor({
     sessions,
     profiles,
-    tmux = new TmuxRunner(),
+    tmux,
     audit = defaultAudit,
     tokens = defaultTokens,
     notify = defaultNotify,
+    launcher,
   }: {
     sessions: SessionsRepository;
     profiles: ProfilesRepository;
+    /**
+     * @deprecated test-compat shim — wrapped in a {@link LocalLauncher} when
+     * no `launcher` is given, so MockTmux-style injection keeps working.
+     */
     tmux?: TmuxRunner;
     /** Audit sink (default: the app-wide best-effort recorder). Injectable for test isolation. */
     audit?: (event: AuditEventInput) => Promise<void>;
@@ -96,10 +101,12 @@ export class SessionManagerService {
     tokens?: SessionTokenProvider;
     /** Push sink fired on the alive→dead reconcile transition (default: the app-wide notify service). Injectable for test isolation. */
     notify?: (sessionId: string, kind: NotifyKind) => Promise<void>;
+    /** Machine interface for this manager's sessions; phase 0: always LocalLauncher. */
+    launcher?: NodeLauncher;
   }) {
     this.#sessions = sessions;
     this.#profiles = profiles;
-    this.#tmux = tmux;
+    this.#launcher = launcher ?? new LocalLauncher({ tmux });
     this.#audit = audit;
     this.#tokens = tokens;
     this.#notify = notify;
@@ -119,13 +126,13 @@ export class SessionManagerService {
    * `--session-id` on an id that exists somewhere would fail the launch),
    * and the caller persists it on the row being launched.
    */
-  #planHarnessSession(
+  async #planHarnessSession(
     harness: HarnessPlugin,
     storedId: string | null,
     cwd: string,
-  ): { id: string; mode: "start" | "resume" } | undefined {
+  ): Promise<{ id: string; mode: "start" | "resume" } | undefined> {
     if (!harness.resume) return undefined;
-    if (storedId && harness.resume.canResume(storedId, cwd)) {
+    if (storedId && (await this.#launcher.canResume(harness, storedId, cwd))) {
       return { id: storedId, mode: "resume" };
     }
     return { id: harness.resume.allocateSessionId(), mode: "start" };
@@ -179,9 +186,9 @@ export class SessionManagerService {
       throw new Error(`Unknown harness: ${profileRow.harnessId}`);
     }
 
-    const realPath = await validateWorkingDir(workingDir);
+    const realPath = await this.#launcher.validateWorkingDir(workingDir);
     const profile = parseProfile(profileRow);
-    const binary = await harness.findBinary();
+    const binary = await this.#launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
     }
@@ -191,7 +198,7 @@ export class SessionManagerService {
     const sessionName = name?.trim() || defaultSessionName();
     // Restart-resume plan: continue the predecessor's conversation when it
     // survived, else pin a fresh id this session will be resumed by later.
-    const harnessSession = this.#planHarnessSession(harness, resumeFromId ?? null, realPath);
+    const harnessSession = await this.#planHarnessSession(harness, resumeFromId ?? null, realPath);
 
     // Record intent in the DB first so the row exists even if tmux errors.
     // The profile's auto-restart policy is inherited at creation time.
@@ -227,24 +234,21 @@ export class SessionManagerService {
 
     let promptDelivered = false;
     try {
-      // Built INSIDE the try: a rejected env key throws here, and the row +
-      // token must roll back like any other spawn failure below.
-      const cmd = buildHarnessCommand(
+      // Command assembly happens INSIDE launch, which runs inside this try:
+      // a rejected env key throws there, and the row + token must roll back
+      // like any other spawn failure below.
+      await this.#launcher.launch({
+        id,
+        socket,
         harness,
         binary,
-        realPath,
+        cwd: realPath,
         profile,
         sessionName,
-        sessionMcpEnv(apiKey, id, sessionName),
+        moteEnv: sessionMcpEnv(apiKey, id, sessionName),
         mcp,
         harnessSession,
-      );
-      this.#tmux.newSession(socket, id, realPath, cmd);
-      // Stream all pane output to a per-session log file for attach replay.
-      const logFile = sessionLogPath(id);
-      const logDir = logFile.slice(0, Math.max(0, logFile.lastIndexOf("/")));
-      if (logDir && logDir !== "." && !existsSync(logDir)) mkdirSync(logDir, { recursive: true });
-      this.#tmux.pipePane(socket, id, logFile);
+      });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
           socket,
@@ -290,7 +294,7 @@ export class SessionManagerService {
     let settled = false;
     while (Date.now() < deadline) {
       try {
-        if (stripAnsi(this.#tmux.capturePane(socket, id)).trim()) {
+        if (stripAnsi(await this.#launcher.capture(socket, id)).trim()) {
           settled = true;
           break;
         }
@@ -301,8 +305,8 @@ export class SessionManagerService {
     }
     if (!settled) return false;
     try {
-      this.#tmux.sendInput(socket, id, prompt);
-      this.#tmux.pressEnter(socket, id);
+      await this.#launcher.sendInput(socket, id, prompt);
+      await this.#launcher.pressEnter(socket, id);
       return true;
     } catch {
       return false;
@@ -346,10 +350,10 @@ export class SessionManagerService {
    * makes the preview cheap enough to fan out over every card: no socket, no
    * terminal emulator and no WebGL context per tile.
    */
-  #preview(row: { id: string; status: string; alive: number; tmuxSocket: string | null }): string[] {
+  async #preview(row: { id: string; status: string; alive: number; tmuxSocket: string | null }): Promise<string[]> {
     if (row.status !== "running" || row.alive !== 1 || !row.tmuxSocket) return [];
     try {
-      return screenTail(this.#tmux.capturePane(row.tmuxSocket, row.id));
+      return screenTail(await this.#launcher.capture(row.tmuxSocket, row.id));
     } catch {
       // A pane that vanished between the liveness check and this call is a
       // normal race, not an error worth failing the whole list over.
@@ -362,21 +366,27 @@ export class SessionManagerService {
    * Exposed so a caller that resolved its OWN row set — e.g. the sharing-aware
    * visible list — can reuse the exact same preview/`#` capture path. Views
    * come back in the same order as `rows`, and default to `access: "owner"`.
+   * Sequential on purpose: the capture-per-row is what keeps the fan-out one
+   * tmux call at a time, exactly as the pre-seam sync loop was.
    */
-  toViews(rows: SessionTable[]): ReturnType<typeof toSessionView>[] {
-    return rows.map((row) => toSessionView(row, row.status, this.#preview(row)));
+  async toViews(rows: SessionTable[]): Promise<ReturnType<typeof toSessionView>[]> {
+    const views: ReturnType<typeof toSessionView>[] = [];
+    for (const row of rows) {
+      views.push(toSessionView(row, row.status, await this.#preview(row)));
+    }
+    return views;
   }
 
   /** Lists sessions for a user, reconciling liveness against tmux. */
   async listSessions(userId: string): Promise<ReturnType<typeof toSessionView>[]> {
-    return this.toViews(await this.#sessions.listByUser(userId));
+    return await this.toViews(await this.#sessions.listByUser(userId));
   }
 
   /** Gets a single session view for a user (reconciled). */
   async getSession(userId: string, id: string): Promise<ReturnType<typeof toSessionView> | undefined> {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSessionView(row, row.status, this.#preview(row));
+    return toSessionView(row, row.status, await this.#preview(row));
   }
 
   /**
@@ -453,7 +463,7 @@ export class SessionManagerService {
       if (source.alive === 1 && source.tmuxSocket) {
         // killSession swallows "already gone"; the tree dies with its baked
         // key, which #reviveRow then rotates off the same row anyway.
-        this.#tmux.killSession(source.tmuxSocket, source.id);
+        await this.#launcher.killSession(source.tmuxSocket, source.id);
       }
       // Conditional park: succeeds only if the row is still where we read it.
       // A terminate/delete in the window flips status/alive, so this no-ops
@@ -515,7 +525,7 @@ export class SessionManagerService {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return;
     if (row.tmuxSocket) {
-      this.#tmux.killSession(row.tmuxSocket, id);
+      await this.#launcher.killSession(row.tmuxSocket, id);
     }
     await this.#sessions.markTerminated(id, new Date().toISOString());
     await this.#sessions.update(id, { alive: 0 });
@@ -543,7 +553,7 @@ export class SessionManagerService {
       // Kill the pane even if it is already dead; try/catch so a missing
       // tmux session does not block the deletion.
       try {
-        this.#tmux.killSession(row.tmuxSocket, row.id);
+        await this.#launcher.killSession(row.tmuxSocket, row.id);
       } catch {
         // pane already gone
       }
@@ -553,12 +563,9 @@ export class SessionManagerService {
     // row outright does the same via the guard's missing-row check.
     await this.#revokeTokenOrUnlink(id);
     await this.#sessions.delete(id);
-    // Best-effort log cleanup (the log is only an attach-replay artifact).
-    try {
-      unlinkSync(sessionLogPath(id));
-    } catch {
-      // no log file to remove
-    }
+    // Best-effort log cleanup (the log is only an attach-replay artifact);
+    // removeArtifacts swallows "no file" per path, as the direct unlink did.
+    await this.#launcher.removeArtifacts([this.#launcher.logPath(id)]);
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
       unlinkSync(sessionMcpConfigPath(id));
@@ -576,10 +583,22 @@ export class SessionManagerService {
     return true;
   }
 
-  /** True if the tmux session is still alive for this row. */
+  /**
+   * True if the tmux session is still alive for this row.
+   *
+   * Deliberately SYNC (the sweep's `hasSession` below goes through the async
+   * launcher): callers outside async code use this as a cheap boolean probe,
+   * and the local tmux call is synchronous under the hood. It is therefore a
+   * LocalLauncher-only affordance — a phase-2 remote launcher's liveness is
+   * async by nature, so injecting one makes this throw loudly rather than
+   * silently answer from a stale projection.
+   */
   isAlive(row: { tmuxSocket: string | null; id: string }): boolean {
     if (!row.tmuxSocket) return false;
-    return this.#tmux.hasSession(row.tmuxSocket, row.id);
+    if (this.#launcher instanceof LocalLauncher) {
+      return this.#launcher.hasSessionSync(row.tmuxSocket, row.id);
+    }
+    throw new Error("isAlive() is a local-launcher sync probe; remote liveness must await NodeLauncher.hasSession");
   }
 
   /** Reconciles all running rows in the DB against tmux liveness. */
@@ -679,8 +698,8 @@ export class SessionManagerService {
     if (!profileRow) throw new Error("profile missing");
     const harness = getHarness(row.harnessId);
     if (!harness) throw new Error("harness missing");
-    const realPath = await validateWorkingDir(row.workingDir);
-    const binary = await harness.findBinary();
+    const realPath = await this.#launcher.validateWorkingDir(row.workingDir);
+    const binary = await this.#launcher.resolveBinary(harness);
     if (!binary) throw new Error("harness binary missing");
     const profile = parseProfile(profileRow);
     // Rotate the MCP token: the old process is gone and its baked key must
@@ -692,17 +711,7 @@ export class SessionManagerService {
     const mcp = registerSessionMcp(harness, row.id);
     // Same-row restart: resume the crashed conversation when it survived,
     // re-pin when it didn't (or the row predates the feature).
-    const harnessSession = this.#planHarnessSession(harness, row.harnessSessionId ?? null, realPath);
-    const cmd = buildHarnessCommand(
-      harness,
-      binary,
-      realPath,
-      profile,
-      row.name,
-      sessionMcpEnv(apiKey, row.id, row.name),
-      mcp,
-      harnessSession,
-    );
+    const harnessSession = await this.#planHarnessSession(harness, row.harnessSessionId ?? null, realPath);
     const socket = row.tmuxSocket ?? tmuxSocketFor(row.id);
     // Cheap last look before the spawn: everything above (profile lookup,
     // findBinary, two token round-trips) is a window in which the operator
@@ -713,9 +722,21 @@ export class SessionManagerService {
       await this.#revokeTokenOrUnlink(row.id);
       return false;
     }
-    this.#tmux.newSession(socket, row.id, realPath, cmd);
-    // Re-attach the log pipe if it was unlinked by cleanup.
-    const logFile = sessionLogPath(row.id);
+    // Command assembly + spawn + log-dir + pipe-pane in one launcher call
+    // (same method createSession uses; the pipe is re-attached even when
+    // cleanup unlinked the log).
+    await this.#launcher.launch({
+      id: row.id,
+      socket,
+      harness,
+      binary,
+      cwd: realPath,
+      profile,
+      sessionName: row.name,
+      moteEnv: sessionMcpEnv(apiKey, row.id, row.name),
+      mcp,
+      harnessSession,
+    });
     // Conditional revival: a terminate that landed after the pre-spawn
     // check (between it and this write) must not resurrect the row — the
     // guard makes this a no-op and the orphan below is cleaned up instead.
@@ -733,14 +754,9 @@ export class SessionManagerService {
     });
     if (revived === 0) {
       logger.warn(`session ${row.id} terminated mid-restart; killing the orphan pane and revoking its token`);
-      this.#tmux.killSession(socket, row.id); // swallows "already gone"
+      await this.#launcher.killSession(socket, row.id); // swallows "already gone"
       await this.#revokeTokenOrUnlink(row.id);
       return false;
-    }
-    try {
-      this.#tmux.pipePane(socket, row.id, logFile);
-    } catch {
-      /* best-effort */
     }
     return true;
   }
@@ -782,9 +798,9 @@ export class SessionManagerService {
         }
         continue;
       }
-      if (!this.#tmux.hasSession(row.tmuxSocket, row.id)) {
+      if (!(await this.#launcher.hasSession(row.tmuxSocket, row.id))) {
         if (row.alive === 1) {
-          const exitCode = this.#tmux.paneExitCode(row.tmuxSocket, row.id);
+          const exitCode = await this.#launcher.paneExitCode(row.tmuxSocket, row.id);
           // `waiting_since` dies with the process — nobody is waiting anymore.
           await this.#sessions.update(row.id, { alive: 0, exitCode, endedAt: now, waitingSince: null });
           logger.info(`session crashed (exit=${exitCode ?? "?"}): ${row.id}`);
@@ -823,13 +839,15 @@ export class SessionManagerService {
       // 3.6). Locked names (an operator renamed or pinned) are never
       // touched, and the read is skipped entirely so the sweep stays cheap.
       if (row.nameLocked !== 1) {
-        const pane = this.#tmux.paneTitle(row.tmuxSocket, row.id);
+        const pane = await this.#launcher.paneTitle(row.tmuxSocket, row.id);
         const title = pane ? normalizePaneTitle(pane.title) : "";
         if (pane && title && title !== pane.command && title !== HOST_NAME && title !== row.name) {
           patch.name = title;
         }
       }
       try {
+        // TODO(spec §6.3): phase-2 routes through launcher (lastOutputAt's
+        // mtime probe is not machine-scoped yet; phase 0 is local-only).
         const mtimeMs = (await Bun.file(sessionLogPath(row.id)).stat()).mtime.getTime();
         if (!row.lastOutputAt || mtimeMs > new Date(row.lastOutputAt).getTime()) {
           patch.lastOutputAt = new Date(mtimeMs).toISOString();
@@ -891,50 +909,13 @@ const defaultAudit: (event: AuditEventInput) => Promise<void> = async (event) =>
   await audit(event);
 };
 
-/** Bytes read from the end of a pane log for {@link readSessionLogTail}. */
-const LOG_TAIL_BYTES = 256 * 1024;
-/** Lines returned by {@link readSessionLogTail}, newest end of the log. */
-const LOG_TAIL_LINES = 200;
-
 /**
- * Reads the tail of a session's pane log — the only surviving record of a
- * harness that exited before anyone attached (the WS refuses dead panes and
- * the live preview is empty for them). ANSI is stripped and the read is
- * bounded ({@link LOG_TAIL_BYTES} from the end, last {@link LOG_TAIL_LINES}
- * lines) so a long-lived session cannot balloon the response. A missing or
- * unreadable log reads as empty; this is a display surface, not a gate.
+ * Reads the tail of a session's pane log (see the mover: `nodes/log-tail.ts`
+ * + `LocalLauncher.readLogTail`). Kept as the import path every route/test
+ * already uses; the read itself lives behind the launcher seam.
  */
 export async function readSessionLogTail(sessionId: string): Promise<{ lines: string[]; truncated: boolean }> {
-  const file = Bun.file(sessionLogPath(sessionId));
-  const size = file.size;
-  if (size === undefined) return { lines: [], truncated: false };
-  let text: string;
-  try {
-    const start = Math.max(0, size - LOG_TAIL_BYTES);
-    text = await file.slice(start, size).text();
-    if (start > 0) {
-      // Drop the first partial line the byte-window may have cut through.
-      text = text.slice(Math.max(0, text.indexOf("\n") + 1));
-    }
-  } catch {
-    return { lines: [], truncated: false };
-  }
-  const all = stripAnsi(text).split("\n");
-  if (all.at(-1) === "") all.pop();
-  const truncated = size > LOG_TAIL_BYTES || all.length > LOG_TAIL_LINES;
-  return { lines: all.slice(-LOG_TAIL_LINES), truncated };
-}
-
-/**
- * Per-session output log file under the app data dir.
- *
- * Reads {@link SESSION_DATA_DIR}, which defaults to the database file's own
- * directory. It used to re-derive that from `process.env.DATABASE_PATH` here,
- * which broke for a database path with no dirname to take (an in-memory
- * database or a SQLite URI) and silently wrote into the process's cwd.
- */
-export function sessionLogPath(id: string): string {
-  return `${SESSION_DATA_DIR}/sessions/${id}.log`;
+  return defaultLocalLauncher.readLogTail(sessionId);
 }
 
 /** Rough liveness state of a session, derived from output recency. */

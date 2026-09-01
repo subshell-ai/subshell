@@ -10,9 +10,10 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
+import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
-import { SessionManagerService, sessionLogPath } from "@/services/session-manager.service.js";
+import { SessionManagerService } from "@/services/session-manager.service.js";
 import { getLogger } from "@/utils/logger.js";
 import { sweepWsTokens } from "@/ws/ws-token.js";
 

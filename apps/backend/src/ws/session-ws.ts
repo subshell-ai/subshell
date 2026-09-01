@@ -4,7 +4,7 @@ import { parseClientFrame } from "@internal/session-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { sessionLogPath } from "@/services/session-manager.service.js";
+import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { logger } from "@/utils/logger.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
