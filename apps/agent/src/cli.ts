@@ -2,6 +2,7 @@ import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
 import { type AgentConfig, loadConfig } from "./config.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
+import { clearLock, isPidAlive, readLock } from "./lock.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -19,7 +20,7 @@ const USAGE = `mote-agent — mote node daemon
 usage:
   mote-agent enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
   mote-agent run
-  mote-agent status [--json]
+  mote-agent status [--json] [--probe]
   mote-agent version
 `;
 
@@ -34,11 +35,12 @@ const FLAGS: Record<string, boolean> = {
   "--name": true,
   "--data-dir": true,
   "--json": false,
+  "--probe": false,
 };
 const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir"],
   run: [],
-  status: ["--json"],
+  status: ["--json", "--probe"],
   version: [],
 };
 
@@ -117,8 +119,11 @@ export async function run(argv: string[]): Promise<CliResult> {
         return { code: 0, out: `Enrolled as ${nodeId} — next: mote-agent run\n`, err: "" };
       }
       case "status": {
-        // Config read → one short-lived connect (5 s cap, sends nothing). Exit 0
-        // iff online; --json always prints (even config-missing, with a reason).
+        // NON-DESTRUCTIVE by default (fix wave 1): a live `daemon.lock` (pid alive, same
+        // nodeId) answers ONLINE locally — the plane is never dialed. A stale lock (dead
+        // pid) is cleaned. With NO lock the honest answer is OFFLINE; `--probe` is the
+        // explicit opt-in to the WS connect probe, which can supersede-kick a remote-run
+        // agent (registry newest-wins) and says so loudly on stderr. Exit 0 iff online.
         // The nodeKey is NEVER echoed — not even via --json; the 0600 config file is its only home.
         let cfg: AgentConfig;
         try {
@@ -129,23 +134,61 @@ export async function run(argv: string[]): Promise<CliResult> {
           const missing = { nodeId: null, serverUrl: null, online: false, agentVersion: AGENT_VERSION, reason };
           return { code: 1, out: `${JSON.stringify(missing, null, 2)}\n`, err: "" };
         }
-        const online = await probeOnline(cfg);
-        if (parsed.flags.json) {
-          const body = { nodeId: cfg.nodeId, serverUrl: cfg.serverUrl, online, agentVersion: AGENT_VERSION };
-          return { code: online ? 0 : 1, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
+        let lock = readLock();
+        if (lock && lock.nodeId !== cfg.nodeId) {
+          lock = null; // another node's lock in this home: never trust, never delete
+        } else if (lock && !isPidAlive(lock.pid)) {
+          clearLock(); // ours, but the daemon is gone: stale — clean up
+          lock = null;
         }
-        if (online) return { code: 0, out: `node ${cfg.nodeId} "${cfg.name}" — ONLINE (${cfg.serverUrl})\n`, err: "" };
-        return {
-          code: 1,
-          out: `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (no socket to ${cfg.serverUrl} within 5 s)\n`,
-          err: "",
-        };
+        let online = false;
+        let daemonAgeMs: number | undefined;
+        let probe: boolean | undefined;
+        let line: string;
+        let errOut = "";
+        if (lock) {
+          online = true;
+          daemonAgeMs = Math.max(0, Date.now() - Date.parse(lock.lastTickAt));
+          line = `node ${cfg.nodeId} "${cfg.name}" — ONLINE (local daemon pid ${lock.pid}, last heartbeat ${fmtAge(daemonAgeMs)} ago)`;
+        } else if (parsed.flags.probe) {
+          errOut =
+            "mote-agent: --probe opens a live node socket — the control plane keeps the NEWEST " +
+            "connection, so this KICKS any mote-agent running elsewhere for this node (terminal " +
+            "4409 for it). Only probe when you are certain no other agent is running.\n";
+          probe = await probeOnline(cfg);
+          online = probe;
+          line = online
+            ? `node ${cfg.nodeId} "${cfg.name}" — ONLINE (probe: a socket to ${cfg.serverUrl} opened)`
+            : `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (probe: no socket to ${cfg.serverUrl} within 5 s)`;
+        } else {
+          line =
+            `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (no local mote-agent running; ` +
+            `start one with \`mote-agent run\`, or pass --probe to ask the control plane — ` +
+            `a probe KICKS a remote agent!)`;
+        }
+        if (parsed.flags.json) {
+          const body = {
+            nodeId: cfg.nodeId,
+            serverUrl: cfg.serverUrl,
+            online,
+            agentVersion: AGENT_VERSION,
+            ...(daemonAgeMs !== undefined ? { daemonAgeMs } : {}),
+            ...(probe !== undefined ? { probe } : {}),
+          };
+          return { code: online ? 0 : 1, out: `${JSON.stringify(body, null, 2)}\n`, err: errOut };
+        }
+        return { code: online ? 0 : 1, out: `${line}\n`, err: errOut };
       }
     }
   } catch (err) {
     return err instanceof UsageError ? fail(2, err) : fail(1, err);
   }
   return fail(2, new UsageError(`unknown command '${parsed.command}'`));
+}
+
+/** Human-friendly age for the ONLINE line ("4.2 s", "850 ms"). */
+function fmtAge(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 
 function fail(code: number, err: unknown): CliResult {

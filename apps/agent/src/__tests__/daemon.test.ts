@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import {
   type ControlKeyPair,
@@ -10,8 +11,11 @@ import {
   parseNodeEvent,
   signCommand,
 } from "@internal/session-protocol";
-import type { AgentConfig } from "../config.js";
+import { run as runCli } from "../cli.js";
+import { type AgentConfig, saveConfig } from "../config.js";
 import { type DaemonDeps, probeOnline, runDaemon, wsUrlFor } from "../daemon.js";
+import { type DaemonLock, lockPath } from "../lock.js";
+import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
 
 /**
@@ -206,6 +210,22 @@ function count(h: Harness, pred: (e: NodeEvent) => boolean): number {
   return h.plane.events.filter(pred).length;
 }
 
+/** All events of one type, narrowed (so `.ref`/`.message` are typed in assertions). */
+function eventsAs<T extends NodeEvent["type"]>(h: Harness, type: T): Extract<NodeEvent, { type: T }>[] {
+  return h.plane.events.filter((e): e is Extract<NodeEvent, { type: T }> => e.type === type);
+}
+
+/** Parse the daemon lock — THROWS when absent/corrupt (a legible test failure, not a silent null). */
+function lockFileOrThrow(): DaemonLock {
+  return JSON.parse(readFileSync(lockPath(), "utf8")) as DaemonLock;
+}
+
+/** Sign ONE envelope; deliver it on the plane's live socket; return the bytes for re-delivery. */
+async function signEnvelope(h: Harness, cmd: NodeCommandBody, jti: string, seq: number): Promise<string> {
+  const jws = await signCommand(h.keys.privateJwk, { nodeId: NODE_ID, jti, seq, cmd });
+  return JSON.stringify({ jws });
+}
+
 afterEach(async () => {
   const h = active;
   if (!h) return;
@@ -297,22 +317,49 @@ test("inventory command: inventory EVENT first, then result ok; harness list wel
   expect(result).toMatchObject({ ref: jti, ok: true });
 });
 
-test("replayed jti: exactly one execution (spy), one result, silence — no second result", async () => {
+test("replayed jti (same connection): ONE execution (spy), verify/replay error event, cached result re-sent", async () => {
   const h = await startDaemon();
-  // Sign ONE envelope and deliver it twice — the jti LRU must drop the second.
-  const jws = await signCommand(h.keys.privateJwk, {
-    nodeId: NODE_ID,
-    jti: "replay-1",
-    seq: 1,
-    cmd: { type: "inventory" },
-  });
-  h.plane.socket?.send(JSON.stringify({ jws }));
+  // Sign ONE envelope and deliver it twice — the jti LRU must drop the second EXECUTION,
+  // but the brief (§4) wants the anomaly VISIBLE: every verify failure, replay included,
+  // answers the error event (fix wave 1; this replaces the old "replay → silence" ruling).
+  const frame = await signEnvelope(h, { type: "inventory" }, "replay-1", 1);
+  h.plane.socket?.send(frame);
   await waitFor(h, (e) => e.type === "inventory", "first inventory execution");
-  h.plane.socket?.send(JSON.stringify({ jws }));
+  h.plane.socket?.send(frame);
   await sleep(150); // give a double execution every chance to show up
   expect(count(h, (e) => e.type === "inventory")).toBe(1); // handler spy: executed ONCE
-  expect(count(h, (e) => e.type === "result" && e.ref === "replay-1")).toBe(1);
-  expect(count(h, (e) => e.type === "error")).toBe(0); // replay path is SILENCE (ruling)
+  const errs = eventsAs(h, "error");
+  expect(errs.length).toBe(1);
+  expect(errs[0]).toMatchObject({ code: "verify", message: "replay" });
+  // The idempotence map is REACHABLE through the replay path: the double-delivery gets
+  // its answer back — a duplicate result with the SAME ref and body, not a re-execution.
+  const results = eventsAs(h, "result").filter((e) => e.ref === "replay-1");
+  expect(results.length).toBe(2);
+  expect(results[1]).toEqual(results[0]);
+});
+
+test("per-process jti LRU survives a reconnect: replay on the NEW socket → verify/replay telemetry, never a second execution", async () => {
+  const h = await startDaemon();
+  // conn 1: execute a signed inventory (jti "recon-1").
+  const frame = await signEnvelope(h, { type: "inventory" }, "recon-1", 1);
+  h.plane.socket?.send(frame);
+  await waitFor(h, (e) => e.type === "inventory", "conn-1 inventory execution");
+  await waitFor(h, (e) => e.type === "result" && e.ref === "recon-1", "conn-1 result");
+  // NON-terminal close (1001) → the daemon reconnects (rand 0 → immediate).
+  closeAllSockets(h.plane, 1001, "server restart");
+  await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+  // conn 2: the plane REPLAYS the exact same signed envelope.
+  h.plane.socket?.send(frame);
+  await sleep(150);
+  // A per-CONNECTION LRU (the mutation this test exists to catch) would pass verify here
+  // and produce ZERO error events; the process-wide LRU must produce exactly the replay one.
+  const errs = eventsAs(h, "error");
+  expect(errs.length).toBe(1);
+  expect(errs[0]).toMatchObject({ code: "verify", message: "replay" });
+  expect(count(h, (e) => e.type === "inventory")).toBe(1); // spy: no second evaluation on conn 2
+  const results = eventsAs(h, "result").filter((e) => e.ref === "recon-1");
+  expect(results.length).toBe(2); // first execution + idempotence-map re-send
+  expect(h.plane.unparsed).toEqual([]);
 });
 
 test("close 4409 (superseded) is terminal: exit injection fires with 1, loop stops", async () => {
@@ -422,4 +469,122 @@ test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
   expect(plane.opens).toBe(0); // refused at the HTTP upgrade — never attached
   expect(exits).toEqual([]); // a refused upgrade is NOT terminal: it took the backoff path
   plane.server.stop(true);
+});
+
+/* ------------------------------------------------------------------ */
+/* Fix wave 1: signal during backoff + non-destructive status          */
+/* ------------------------------------------------------------------ */
+
+test("SIGINT during the backoff sleep: exits 0 inside the slice budget and never dials again", async () => {
+  const h = await startDaemon({ rand: () => 1 }); // full jitter → first backoff sleep is 1000 ms
+  const opensBefore = h.plane.opens; // 1 (the initial connection only)
+  closeAllSockets(h.plane, 1001, "transient"); // non-terminal → daemon enters the sleep
+  const closeDeadline = Date.now() + 2000;
+  while (h.plane.closes === 0 && Date.now() < closeDeadline) await sleep(5);
+  expect(h.plane.closes).toBeGreaterThan(0); // we are inside the sleep now
+  const t0 = Date.now();
+  process.kill(process.pid, "SIGINT"); // the daemon's handler is registered in this very process
+  const exitDeadline = t0 + 900;
+  while (h.exits.length === 0 && Date.now() < exitDeadline) await sleep(5);
+  expect(h.exits).toEqual([0]); // first Ctrl-C wins — no second signal needed
+  expect(Date.now() - t0).toBeLessThan(750); // the ≤250 ms slice budget, NOT the ~1000 ms sleep
+  await h.stopped;
+  expect(h.fatal).toBeUndefined();
+  await sleep(400); // outlast the remainder of the original sleep window
+  expect(h.plane.opens).toBe(opensBefore); // the pre-dial check stopped the loop: no further dial
+});
+
+test("daemon.lock: written at startup, refreshed on heartbeat ticks, cleared on terminal exit", async () => {
+  newHome(); // isolate the lock file from other tests (they share the preload home)
+  const h = await startDaemon({ heartbeatMs: 30 });
+  const lock = lockFileOrThrow();
+  expect(lock.pid).toBe(process.pid);
+  expect(lock.nodeId).toBe(NODE_ID);
+  expect(Number.isNaN(Date.parse(lock.startedAt))).toBe(false);
+  const firstTick = lock.lastTickAt;
+  await sleep(120); // ~4 heartbeat ticks at 30 ms
+  expect(lockFileOrThrow().lastTickAt).not.toBe(firstTick); // every tick refreshes lastTickAt
+  closeAllSockets(h.plane, 4409, "terminal");
+  const deadline = Date.now() + 2000;
+  while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
+  expect(h.exits).toEqual([1]);
+  expect(existsSync(lockPath())).toBe(false); // cleared on the exit path (BEFORE exit fires)
+});
+
+test("status: a live daemon.lock reports ONLINE without touching the plane (destructiveness regression)", async () => {
+  newHome();
+  const h = await startDaemon();
+  await saveConfig(h.config); // the CLI loads its config from the (fresh) agent home
+  const opensBefore = h.plane.opens;
+  const text = await runCli(["status"]);
+  expect(text.code).toBe(0);
+  expect(text.out).toInclude("ONLINE");
+  expect(text.err).toBe("");
+  const json = await runCli(["status", "--json"]);
+  expect(json.code).toBe(0);
+  const body = JSON.parse(json.out) as Record<string, unknown>;
+  expect(body).toMatchObject({
+    nodeId: NODE_ID,
+    serverUrl: h.config.serverUrl,
+    online: true,
+    agentVersion: AGENT_VERSION,
+  });
+  expect(typeof body.daemonAgeMs).toBe("number"); // heartbeat age on the JSON path
+  expect(body.probe).toBeUndefined(); // lock path never probes
+  // THE regression: the old status dialed a probe socket and supersede-KICKED the agent.
+  expect(h.plane.opens).toBe(opensBefore);
+  // And the daemon survived its own status check:
+  await signAndSend(h, { type: "ping" }, { jti: "after-status", seq: 1 });
+  await waitFor(h, (e) => e.type === "result" && e.ref === "after-status", "ping after status");
+});
+
+test("status: stale lock (dead pid) is cleaned and OFFLINE without a probe; a foreign node's lock is left alone", async () => {
+  newHome();
+  const h = await startDaemon(); // its own startup lock gets overwritten below
+  await saveConfig(h.config);
+  const opensBefore = h.plane.opens;
+  const DEAD_PID = 2_147_483_646; // beyond any pid_max on Linux: kill(pid, 0) is a guaranteed ESRCH
+  const stamp = new Date().toISOString();
+  writeFileSync(lockPath(), JSON.stringify({ pid: DEAD_PID, startedAt: stamp, nodeId: NODE_ID, lastTickAt: stamp }));
+  const r = await runCli(["status"]);
+  expect(r.code).toBe(1);
+  expect(r.out).toInclude("OFFLINE");
+  expect(existsSync(lockPath())).toBe(false); // stale lock cleaned up
+  expect(h.plane.opens).toBe(opensBefore); // …and OFFLINE was answered LOCALLY — zero dials
+  writeFileSync(
+    lockPath(),
+    JSON.stringify({ pid: process.pid, startedAt: stamp, nodeId: "some-other-node", lastTickAt: stamp }),
+  );
+  const r2 = await runCli(["status"]);
+  expect(r2.code).toBe(1); // a live lock for ANOTHER node: neither trusted nor deleted
+  expect(existsSync(lockPath())).toBe(true);
+});
+
+test("status --probe: explicit opt-in dials the plane with a loud stderr warning; no-lock default stays silent", async () => {
+  newHome();
+  const h = await startDaemon();
+  await saveConfig(h.config);
+  rmSync(lockPath(), { force: true }); // simulate "no local daemon" (the harness heartbeat is off)
+  const opensBefore = h.plane.opens;
+  const r = await runCli(["status", "--probe"]);
+  expect(r.code).toBe(0);
+  expect(r.out).toInclude("ONLINE");
+  expect(r.err).toInclude("KICKS"); // the loud warning ships with every --probe invocation
+  expect(h.plane.opens).toBe(opensBefore + 1); // the probe DID dial (opt-in destructiveness)
+  const body = JSON.parse((await runCli(["status", "--probe", "--json"])).out) as Record<string, unknown>;
+  expect(body.online).toBe(true);
+  expect(body.probe).toBe(true); // probe verdict is labelled
+  expect(body.daemonAgeMs).toBeUndefined(); // probe path knows nothing about a local daemon
+  // No lock + NO --probe → honest OFFLINE, no dial, no warning:
+  const off = await runCli(["status"]);
+  expect(off.code).toBe(1);
+  expect(off.err).toBe("");
+  expect(off.out).toInclude("OFFLINE");
+  // Probe against a dead port → refusal is a clean offline, still labelled.
+  await saveConfig({ ...h.config, serverUrl: "http://localhost:1" });
+  const dead = await runCli(["status", "--probe", "--json"]);
+  expect(dead.code).toBe(1);
+  const deadBody = JSON.parse(dead.out) as Record<string, unknown>;
+  expect(deadBody.online).toBe(false);
+  expect(deadBody.probe).toBe(false);
 });

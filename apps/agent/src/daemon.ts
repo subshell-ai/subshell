@@ -14,6 +14,7 @@ import { backoffDelay } from "./backoff.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
 import { buildInventoryEvent } from "./inventory.js";
+import { clearLock, writeLock } from "./lock.js";
 import { AGENT_VERSION } from "./version.js";
 
 /**
@@ -127,6 +128,25 @@ function parsePinnedKey(serialized: string): JsonWebKey {
   }
 }
 
+/**
+ * Best-effort `jti` extraction from an already-rejected envelope — used ONLY as
+ * the idempotence-map key on the `replay` path. Safe by construction: `replay` is
+ * returned only after the signature over these exact bytes verified, so the payload
+ * is authentic; the decoded claims are never executed or trusted beyond the lookup.
+ * @param jws - the compact JWS whose verify failed with `replay`
+ * @returns the payload's `jti` when it parses to a string, else undefined
+ */
+function jtiOfUnverified(jws: string): string | undefined {
+  const payload = jws.split(".")[1];
+  if (!payload) return undefined;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { jti?: unknown };
+    return typeof claims.jti === "string" ? claims.jti : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The `ready` frame: machine identity + protocol version (spec §3.3/§5.3). */
 function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
   return {
@@ -145,8 +165,13 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
  * The reconnect loop: connect → `ready` + heartbeat → verify-and-execute signed
  * commands → backoff-and-retry on any non-terminal close. Terminal closes
  * (4409 superseded, 4406 update-required) exit the process with code 1 through
- * the injected `exit` (spec §5.3/F); SIGINT/SIGTERM close cleanly (1000) and
- * exit 0. Never resolves otherwise.
+ * the injected `exit` (spec §5.3/F); SIGINT/SIGTERM exit 0 — closing the socket cleanly
+ * (1000) when one is attached, and aborting the backoff sleep within 250 ms when one is
+ * not, so the first Ctrl-C always wins. Never resolves otherwise.
+ *
+ * Local liveness contract with `mote-agent status`: a `daemon.lock` ({pid, startedAt,
+ * nodeId, lastTickAt}) is written under the agent home at startup, refreshed on every
+ * heartbeat tick, and removed on every exit path — so `status` never needs to dial.
  *
  * @param config - the enrolled node's config (server, ids, pinned control key)
  * @param deps - test seams; production omits them entirely
@@ -164,12 +189,28 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
   const jtiLru = new JtiLru(); // survives every reconnect: a replayed jti never gets a second evaluation
   const seqTracker = new SeqTracker(); // per-CONNECTION value; reset on every open below
-  // jti → result cache: even if the LRU evicted a jti inside its TTL window, a
-  // re-delivered command returns the CACHED result and never re-executes.
+  // jti → result cache: the `replay` verify path re-answers a double-delivered command
+  // from here (and so does execute(), should the LRU ever evict inside the TTL window) —
+  // a jti that has run once NEVER runs twice.
   const idempotent = new Map<string, CachedResult>();
+
+  // Local-liveness lock for `mote-agent status` (fix wave 1). Best-effort: a home that
+  // cannot hold the file degrades `status`, never the daemon.
+  const startedAt = new Date(nowMs()).toISOString();
+  const writeLiveness = (): void => {
+    try {
+      writeLock({ pid: process.pid, startedAt, nodeId: config.nodeId, lastTickAt: new Date(nowMs()).toISOString() });
+    } catch (err) {
+      log(`cannot maintain daemon.lock: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  writeLiveness();
 
   let socket: WsLike | undefined;
   let shuttingDown = false;
+  // No socket attached (we are between connections / inside the backoff sleep)? Setting
+  // the flag is enough: the sliced sleep notices it within 250 ms and the loop exits 0
+  // BEFORE dialing again — the first Ctrl-C always wins.
   const onSignal = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -190,6 +231,27 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       ws.send(JSON.stringify(ev));
     } catch (err) {
       log(`send ${ev.type} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** The ONE exit path: clears `daemon.lock` FIRST (the real `exit` never returns), then defers. */
+  const stop = (code: number): never => {
+    try {
+      clearLock();
+    } catch (err) {
+      log(`cannot clear daemon.lock: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return exit(code); // never-typed: neither the real nor the injected exit ever returns
+  };
+
+  /**
+   * Backoff sleep in ≤250 ms slices, aborting the moment shutdown begins — a signal
+   * during a 60 s capped sleep must not cost 60 s of shutdown latency (fix wave 1).
+   */
+  const sleepCancellable = async (ms: number): Promise<void> => {
+    const until = Date.now() + ms;
+    while (!shuttingDown && Date.now() < until) {
+      await new Promise<void>((r) => setTimeout(r, Math.max(0, Math.min(250, until - Date.now()))));
     }
   };
 
@@ -260,14 +322,21 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       seqTracker,
     });
     if (!outcome.ok) {
+      // EVERY verify failure — `replay` included — answers with the error event
+      // (brief §4: the control plane must SEE the anomaly); skipping the switch-entry
+      // below is all a failure costs. (The fix-wave-1 revert of the old replay-silence
+      // divergence — the brief governs.)
+      send(ws, { type: "error", code: "verify", message: outcome.reason });
       if (outcome.reason === "replay") {
-        // SILENCE (ruling): the jti was already evaluated once — re-answering it is
-        // the idempotence map's business if the LRU later forgets it; a duplicate
-        // error/result frame would only confuse the correlator.
+        // SILENT about EXECUTING — but if this jti ran before, the per-process
+        // idempotence map re-sends its answer, so a double-delivery still gets a
+        // response alongside the anomaly telemetry. (No cache → error event only.)
         log("dropped replayed command (jti already seen)");
+        const seenJti = jtiOfUnverified(jws);
+        const cached = seenJti === undefined ? undefined : idempotent.get(seenJti);
+        if (seenJti !== undefined && cached) send(ws, { type: "result", ref: seenJti, ...cached });
         return;
       }
-      send(ws, { type: "error", code: "verify", message: outcome.reason });
       if (outcome.reason === "seq") {
         // Spec §4: a seq regression drops the CONNECTION — the reconnect starts a
         // fresh SeqTracker (ordering is per-stream), while the jti LRU stays warm.
@@ -310,6 +379,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         send(ws, readyEvent(config));
         heartbeat = setInterval(() => {
           send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
+          writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
         }, heartbeatMs);
       });
       ws.addEventListener("message", (ev) => {
@@ -325,29 +395,37 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
 
   try {
     for (;;) {
+      // Pre-dial check: a signal that landed while detached or during the (sliced)
+      // backoff sleep exits 0 here — the first Ctrl-C never waits out a sleep or a dial.
+      if (shuttingDown) stop(0);
       const close = await runConnection();
-      if (shuttingDown) exit(0); // graceful: the socket closed cleanly on our request
+      if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
         log(
           `another mote-agent is already registered as node '${config.nodeId}' (close 4409) — exiting; stop the duplicate agent first`,
         );
-        exit(1);
+        stop(1);
       }
       if (close.code === NODE_CLOSE_UPDATE_REQUIRED) {
         log(
           `the control plane rejected protocol v${NODE_PROTOCOL_VERSION} (close 4406) — a newer mote-agent is required; exiting`,
         );
-        exit(1);
+        stop(1);
       }
       const delay = backoffDelay(attempt++, rand);
       log(
         `disconnected (code ${close.code}${close.reason ? `: ${close.reason}` : ""}) — reconnecting in ${Math.round(delay)} ms`,
       );
-      await new Promise<void>((r) => setTimeout(r, delay));
+      await sleepCancellable(delay);
     }
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
+    try {
+      clearLock(); // every unwind path (incl. the test seams that throw through exit)
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
@@ -363,11 +441,13 @@ export interface OnlineProbeDeps {
  * The `status` probe: open a short-lived node socket, send NOTHING, online =
  * the open completed inside the cap. Then close with 1000.
  *
- * NOTE (phase-1 wrinkle): the control plane's registry attaches at OPEN and
- * is newest-wins, so probing while `mote-agent run` is live on this node
- * supersede-kicks the running agent (it treats 4409 as terminal). The brief
- * mandates the connect probe; a REST-based `status` reading the node row is
- * the phase-2 fix — see the task report.
+ * NOTE (destructive by design): the control plane's registry attaches at OPEN
+ * and is newest-wins, so probing while `mote-agent run` is live on this node
+ * supersede-kicks the running agent (it treats 4409 as terminal). That is why
+ * `mote-agent status` calls this ONLY on the explicit `--probe` opt-in (fix
+ * wave 1); its default path reads the local `daemon.lock` and never dials. A
+ * REST-based `status` reading the node row remains the phase-2 upgrade — see
+ * the task report.
  *
  * @param config - the enrolled node's config
  * @param deps - seams for tests

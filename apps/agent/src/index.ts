@@ -19,4 +19,5 @@ export {
 export { type EnrollOptions, mapOs, type NodeOs, runEnroll } from "./enroll.js";
 export { type AgentIdentity, identityPath, loadOrCreateIdentity } from "./identity.js";
 export { buildInventoryEvent, type InventoryEvent } from "./inventory.js";
+export { clearLock, type DaemonLock, isPidAlive, lockPath, readLock, writeLock } from "./lock.js";
 export { AGENT_VERSION } from "./version.js";
