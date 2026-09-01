@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useNodes } from "@/hooks/use-nodes";
+import { nodeOptionLabel } from "@/lib/node-label";
 import { type ProfileFormValue, parseEnvPaste, parseFlagsPaste } from "@/lib/profile-form";
 
 /**
@@ -184,8 +185,7 @@ export function ProfileFields({
                 { value: "any", label: "Any node (default)" },
                 ...nodes.map((n) => ({
                   value: n.id,
-                  label:
-                    n.kind === "local" ? "Local (this host)" : n.status === "online" ? n.name : `${n.name} — offline`,
+                  label: nodeOptionLabel(n, "Local (this host)"),
                 })),
               ]}
             >
@@ -196,7 +196,7 @@ export function ProfileFields({
                 <SelectItem value="any">Any node (default)</SelectItem>
                 {nodes.map((n) => (
                   <SelectItem key={n.id} value={n.id}>
-                    {n.kind === "local" ? "Local (this host)" : n.status === "online" ? n.name : `${n.name} — offline`}
+                    {nodeOptionLabel(n, "Local (this host)")}
                   </SelectItem>
                 ))}
               </SelectContent>

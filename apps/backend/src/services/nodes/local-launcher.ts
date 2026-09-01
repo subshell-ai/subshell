@@ -1,8 +1,6 @@
-import { existsSync, type FSWatcher, mkdirSync, unlinkSync, watch, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
 import { stripAnsi } from "@internal/backend-errors";
 import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/harnesses";
-import { sessionMcpConfigPath } from "@/services/mcp-launch.js";
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_BACKSTOP_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
@@ -281,20 +279,6 @@ export class LocalLauncher implements NodeLauncher {
   /** Trusts the plugin's transcript probe (machine-local state dir). */
   async canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean> {
     return harness.resume ? harness.resume.canResume(storedId, cwd) : false;
-  }
-
-  /**
-   * Writes a per-session artifact and returns its path. `mcp-config` mirrors
-   * where `registerSessionMcp` writes today (`mcp-launch.ts`) — one shared
-   * path definition so a phase-2 agent and the local writer cannot drift.
-   * Content holds no secrets, but the file stays 0600 — least exposure is
-   * free (same rule as `registerSessionMcp`).
-   */
-  async writeArtifact(id: string, _kind: "mcp-config", content: string): Promise<string> {
-    const file = sessionMcpConfigPath(id);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, content, { mode: 0o600 });
-    return file;
   }
 
   /**

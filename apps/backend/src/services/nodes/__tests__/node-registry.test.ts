@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { NODE_CLOSE_SUPERSEDED } from "@internal/session-protocol";
 import {
   attachConnection,
   detachConnection,
@@ -6,7 +7,6 @@ import {
   getLive,
   listOnline,
   type NodeSocket,
-  REPLACE_CLOSE_CODE,
   REVOKED_CLOSE_CODE,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
@@ -70,7 +70,7 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
     const fresh = fakeSocket();
     const second = attachConnection("n1", fresh);
 
-    expect(old.closed).toEqual([{ code: REPLACE_CLOSE_CODE, reason: expect.any(String) }]);
+    expect(old.closed).toEqual([{ code: NODE_CLOSE_SUPERSEDED, reason: expect.any(String) }]);
     expect(first.closing).toBe(true); // so the old close handler skips registry teardown
     expect(getLive("n1")).toBe(second);
     expect(second.ws).toBe(fresh);
@@ -116,8 +116,8 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
     expect(getLive("n1")).toBe(first);
   });
 
-  it("REPLACE_CLOSE_CODE is 4409 (spec §5.3)", () => {
-    expect(REPLACE_CLOSE_CODE).toBe(4409);
+  it("NODE_CLOSE_SUPERSEDED is 4409 (spec §5.3)", () => {
+    expect(NODE_CLOSE_SUPERSEDED).toBe(4409);
   });
 
   // rotate-key / delete-node revoke the credential out from under a LIVE

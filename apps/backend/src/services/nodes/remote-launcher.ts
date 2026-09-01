@@ -49,19 +49,9 @@ const LAUNCH_TIMEOUT_MS = 60_000;
 const LOG_READ_TIMEOUT_MS = 10_000;
 const TAIL_START_TIMEOUT_MS = 10_000;
 const TAIL_STOP_TIMEOUT_MS = 5_000;
-const WRITE_FILE_TIMEOUT_MS = 30_000;
 const REMOVE_PATHS_TIMEOUT_MS = 10_000;
 /** `deliverPrompt` waits for the agent's whole settle loop: its budget plus RPC slack. */
 const PROMPT_DELIVER_SLACK_MS = 30_000;
-
-/**
- * Uuid-ish session-id guard mirroring the agent's `isSessionId`
- * (`apps/agent/src/session-meta.ts`): the backend mints uuids, so hex +
- * hyphen ≤ 64 chars is all a legitimate id ever contains. Checked locally
- * before composing a path — an empty/garbage `path` must never reach
- * `write_file` (the agent echoes it and the result validator rejects).
- */
-const SESSION_ID_RE = /^[0-9a-fA-F-]{1,64}$/;
 
 /** "Already gone" answers the agent gives for a dead pane (kill swallow class). */
 const ALREADY_GONE_RE = /no session|can't find session/i;
@@ -293,20 +283,6 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * Submits the pending line. The wire has no `press_enter`; this sends a
-   * literal CR through `input`, which is BEHAVIOR-equivalent at the pane
-   * (raw-mode TUIs read CR as Enter; canonical shells map CR to NL via
-   * ICRNL) rather than byte-identical to tmux's `send-keys Enter` mapping.
-   * Today the only production path that presses Enter is local
-   * {@link LocalLauncher.deliverPrompt}; the remote prompt consumer,
-   * {@link RemoteLauncher.deliverPrompt}, rides the one-round-trip
-   * `prompt_deliver` instead.
-   */
-  async pressEnter(_socket: string, id: string): Promise<void> {
-    await this.#send({ type: "input", sessionId: id, data: "\r" });
-  }
-
-  /**
    * The agent-side settle loop as ONE round-trip (`prompt_deliver`), with the
    * RPC deadline set to the settle budget + 30 s slack. Never throws —
    * mirrors {@link LocalLauncher.deliverPrompt}: any rpc error or malformed
@@ -525,25 +501,6 @@ export class RemoteLauncher implements NodeLauncher {
     } catch {
       return false;
     }
-  }
-
-  /**
-   * Ships one artifact (the MCP config) as a SINGLE `write_file` chunk
-   * (chunk 0, eof) to `<agentDataDir>/mcp/<id>.json` (spec §6.4; layout twin
-   * of {@link mcpArtifactPath}) — 30 s, returns the path on the target
-   * machine. The agent's path policy admits anything under its dataDir. The
-   * id is uuid-checked LOCALLY first (mirroring the agent's `isSessionId`):
-   * an empty or traversal-y path must never reach `write_file`, whose result
-   * validator echoes it back.
-   */
-  async writeArtifact(id: string, _kind: "mcp-config", content: string): Promise<string> {
-    if (!SESSION_ID_RE.test(id)) throw new Error(`invalid session id "${id}"`);
-    const path = this.mcpArtifactPath(id);
-    await this.#send(
-      { type: "write_file", path, chunk_b64: Buffer.from(content, "utf8").toString("base64"), chunk: 0, eof: true },
-      WRITE_FILE_TIMEOUT_MS,
-    );
-    return path;
   }
 
   /**

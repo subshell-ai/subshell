@@ -78,13 +78,6 @@ const testFacts: NodeAgentFacts = {
 
 const harness = { id: "claude-code" } as unknown as HarnessPlugin;
 
-/**
- * writeArtifact uuid-gates the id (mirrors the agent's isSessionId), so its
- * tests use a uuid-ish session id; everything else keeps the short "s1".
- */
-const UUID = "0e63c9a1-2f5b-4c8a-9d1e-2f3a4b5c6d7e";
-const artifactPath = `/home/u/.mote-agent/mcp/${UUID}.json`;
-
 const testProfile: ProfileDefinition = {
   name: "p",
   env: {},
@@ -396,12 +389,6 @@ describe("capture / resize / sendInput / pressEnter", () => {
       { type: "resize", sessionId: "s1", cols: 120, rows: 40 },
       { type: "input", sessionId: "s1", data: "ls\r" },
     ]);
-  });
-
-  it("pressEnter is a literal CR through input (the pty's Enter)", async () => {
-    const h = makeHarness();
-    await h.launcher.pressEnter("sock", "s1");
-    expect(h.calls).toEqual([{ cmd: { type: "input", sessionId: "s1", data: "\r" }, timeoutMs: 10_000 }]);
   });
 });
 
@@ -718,41 +705,7 @@ describe("canResume", () => {
   });
 });
 
-describe("writeArtifact / removeArtifacts", () => {
-  it("writeArtifact ships ONE chunk to <dataDir>/mcp/<id>.json and returns the path", async () => {
-    const h = makeHarness();
-    const path = await h.launcher.writeArtifact(UUID, "mcp-config", '{"a":1}');
-    expect(path).toBe(artifactPath);
-    expect(h.calls).toEqual([
-      {
-        cmd: {
-          type: "write_file",
-          path: artifactPath,
-          chunk_b64: b64('{"a":1}'),
-          chunk: 0,
-          eof: true,
-        },
-        timeoutMs: 30_000,
-      },
-    ]);
-  });
-
-  it("a non-uuid id is rejected LOCALLY (an empty/unsafe path never reaches write_file)", async () => {
-    for (const bad of ["", "../evil", "not an id", "x".repeat(65)]) {
-      const h = makeHarness();
-      const err = (await rejection(h.launcher.writeArtifact(bad, "mcp-config", "{}"))) as Error;
-      expect(err.message).toContain("invalid session id");
-      expect(h.calls).toEqual([]);
-    }
-  });
-
-  it("writeArtifact without facts throws NoLiveConnectionError without a send", async () => {
-    const h = makeHarness();
-    h.setFacts(undefined);
-    expect(await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"))).toBeInstanceOf(NoLiveConnectionError);
-    expect(h.calls).toEqual([]);
-  });
-
+describe("removeArtifacts", () => {
   it("removeArtifacts sends remove_paths (10 s) and swallows every rpc error", async () => {
     const h = makeHarness();
     await h.launcher.removeArtifacts(["/home/u/.mote-agent/mcp/s1.json"]);
@@ -778,7 +731,6 @@ describe("offline short-circuit (no facts ⇒ no send)", () => {
   it("facts-dependent members fail before the wire; never-throws members stay soft", async () => {
     const h = makeHarness(null);
     expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
-    await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"));
     expect(h.calls).toEqual([]);
 
     // Non-facts members do go through `send` — with the REAL offline rpc error

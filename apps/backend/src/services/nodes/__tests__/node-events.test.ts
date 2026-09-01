@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/session-protocol";
+import { NODE_CLOSE_UPDATE_REQUIRED, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/session-protocol";
 import { dispatchOutput, resetNodeEventsForTests, setNodeLifecycleHooks, subscribeOutput } from "../node-events.js";
 import { resetNodeRegistryForTests } from "../node-registry.js";
 import {
   handleNodeMessage,
   handleNodeMessageQueued,
   handleNodeOpen,
-  NODE_CLOSE_PROTOCOL,
   type NodeWsDeps,
   type NodeWsSocket,
 } from "../node-ws-handler.js";
@@ -204,7 +203,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
     await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
 
     expect(conn.agent?.agentVersion).toBe("0.1.0");
-    expect(ws.closed).toEqual([{ code: NODE_CLOSE_PROTOCOL, reason: "agent update required" }]);
+    expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
   });
 });
 

@@ -65,7 +65,6 @@ export class FakeNodeLauncher implements NodeLauncher {
   }
   async resize(): Promise<void> {}
   async sendInput(): Promise<void> {}
-  async pressEnter(): Promise<void> {}
   async deliverPrompt(): Promise<boolean> {
     return false;
   }
@@ -95,9 +94,6 @@ export class FakeNodeLauncher implements NodeLauncher {
   }
   async canResume(): Promise<boolean> {
     return false;
-  }
-  async writeArtifact(id: string): Promise<string> {
-    return id;
   }
   async removeArtifacts(paths: string[]): Promise<void> {
     this.removedPaths.push(paths);

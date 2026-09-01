@@ -39,13 +39,6 @@ import { failConnPendings, resolveResult, sendCommand } from "./node-rpc.js";
 
 /** Close: authenticated-looking socket without an upgrade-stashed identity. Handler-local: only the backend emits it. */
 export const NODE_CLOSE_UNAUTHENTICATED = 4401;
-/**
- * Close: agent speaks a different node protocol than we enforce (spec §5.3).
- * Alias of the hoisted {@link NODE_CLOSE_UPDATE_REQUIRED} — the shared value
- * lives in `@internal/session-protocol` so the daemon's terminal-close check
- * and this handler can never drift; the old name stays for existing imports.
- */
-export const NODE_CLOSE_PROTOCOL = NODE_CLOSE_UPDATE_REQUIRED;
 /** Close: frame exceeded {@link NODE_MAX_FRAME_BYTES} (standard message-too-big). Handler-local: only the backend emits it. */
 export const NODE_CLOSE_TOO_BIG = 1009;
 
@@ -289,7 +282,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         };
       }
       if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
-        ws.close(NODE_CLOSE_PROTOCOL, "agent update required");
+        ws.close(NODE_CLOSE_UPDATE_REQUIRED, "agent update required");
         return;
       }
       // Spec §5.3: `ready` triggers an immediate inventory refresh.

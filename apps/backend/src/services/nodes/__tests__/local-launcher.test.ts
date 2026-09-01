@@ -27,7 +27,7 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     tmux.newSession(socket, id, tmpdir(), "sleep 30");
   });
 
-  it("hasSession / capture / sendInput + pressEnter round-trip", async () => {
+  it("hasSession / capture / sendInput round-trip", async () => {
     expect(await launcher.hasSession(socket, id)).toBe(true);
     await launcher.sendInput(socket, id, "marker-not-typed\r"); // no Enter yet
     expect(await launcher.capture(socket, id)).toContain("marker-not-typed");
@@ -164,16 +164,5 @@ describe("LocalLauncher artifacts + validation", () => {
 
   it("validateWorkingDir rejects missing paths", async () => {
     await expect(launcher.validateWorkingDir(join(tmp, "nope"))).rejects.toThrow(/Path does not exist/);
-  });
-
-  it("writeArtifact('mcp-config') writes 0600 under the session data dir and removeArtifacts deletes it", async () => {
-    const path = await launcher.writeArtifact(`${id}-art`, "mcp-config", '{"mcpServers":{}}');
-    const meta = await Bun.file(path).stat();
-    expect(meta.size).toBeGreaterThan(0);
-    // mode check is POSIX-only; skip on non-POSIX hosts (none here).
-    // Bun's Stats carries `mode` directly — no cast needed.
-    expect((meta.mode & 0o077) === 0).toBe(true);
-    await launcher.removeArtifacts([path]);
-    expect(await Bun.file(path).exists()).toBe(false);
   });
 });

@@ -21,14 +21,6 @@ import type { NodeRpcError } from "./node-rpc.js";
  */
 
 /**
- * Close code sent to the superseded socket on a newest-wins replace (spec §5.3).
- * @deprecated Alias of {@link NODE_CLOSE_SUPERSEDED} (hoisted to
- * `@internal/session-protocol` in phase 2 so the agent and the registry share
- * one source of truth). Prefer the protocol constant in new code.
- */
-export const REPLACE_CLOSE_CODE = NODE_CLOSE_SUPERSEDED;
-
-/**
  * Close code sent when the node's credential just stopped working — rotate
  * and delete revoke the key while its socket is still mapped (spec §5.4).
  * 4401 mirrors the REST 401 the same dead key would get on an upgrade.

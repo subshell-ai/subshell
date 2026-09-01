@@ -76,8 +76,6 @@ export interface NodeLauncher {
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   /** Types raw input into the pane (escape sequences included). */
   sendInput(socket: string, id: string, input: string): Promise<void>;
-  /** Submits the pane's pending input line. */
-  pressEnter(socket: string, id: string): Promise<void>;
   /**
    * Types `text` into a fresh pane once it shows output and submits it — the
    * mirror of the phase-2 `prompt_deliver` command, so a remote agent runs
@@ -100,8 +98,6 @@ export interface NodeLauncher {
   ): Promise<() => void>;
   /** Whether the harness can actually resume the stored session id in that cwd. */
   canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean>;
-  /** Persists a per-session artifact (e.g. MCP config); returns its path on the target machine. */
-  writeArtifact(id: string, kind: "mcp-config", content: string): Promise<string>;
   /**
    * The node-side files a session owns — what delete removes. `[]` when the
    * machine cannot answer: an agent with no live `ready` facts has no readable

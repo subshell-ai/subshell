@@ -114,8 +114,9 @@ export function sessionMcpConfigPath(sessionId: string): string {
  * `executablePath` from the `ready` facts, the bare name as fallback) and
  * `<dataDir>/mcp/<sessionId>.json` as the target path. Nothing is written
  * locally: `RemoteLauncher.launch` ships `reg.fileContent` inline with the
- * launch command (`RemoteLauncher.writeArtifact` covers other artifact
- * flows). The capability gate and the debug-log note live in the
+ * launch command — the launch command is the ONLY writer of node-side MCP
+ * configs; `RemoteLauncher.sessionArtifacts` owns the layout for cleanup.
+ * The capability gate and the debug-log note live in the
  * session manager, not here — this function answers "what would the
  * registration be", for any node facts handed to it.
  * @param harness - The resolved plugin (its `mcpRegistration` dialect)

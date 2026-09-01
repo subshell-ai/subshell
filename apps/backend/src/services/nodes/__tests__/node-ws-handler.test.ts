@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { NODE_MAX_FRAME_BYTES, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/session-protocol";
+import {
+  NODE_CLOSE_UPDATE_REQUIRED,
+  NODE_MAX_FRAME_BYTES,
+  NODE_PROTOCOL_VERSION,
+  type NodeEvent,
+} from "@internal/session-protocol";
 import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
@@ -10,7 +15,6 @@ import {
   handleNodeClose,
   handleNodeMessage,
   handleNodeOpen,
-  NODE_CLOSE_PROTOCOL,
   NODE_CLOSE_TOO_BIG,
   NODE_CLOSE_UNAUTHENTICATED,
   type NodeWsDeps,
@@ -230,7 +234,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: 999 }));
     expect(h.ready).toHaveLength(1); // persisted so the UI can say "agent too old"
-    expect(ws.closed).toEqual([{ code: NODE_CLOSE_PROTOCOL, reason: "agent update required" }]);
+    expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
     expect(h.inventoryRequests).toEqual([]);
   });
 

@@ -24,11 +24,6 @@ import { log } from "./log.js";
 import { SessionMetaStore } from "./session-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
-// The definition moved to log.ts (downstream modules — session-meta.ts — need
-// it and sit below the daemon in the import graph); re-exported so existing
-// `import { log } from "./daemon.js"` paths keep working.
-export { log };
-
 /**
  * `mote-agent run` — the signed-frame execution loop (spec 2026-08-31 §7).
  *
@@ -50,12 +45,10 @@ export { log };
 /**
  * Terminal close codes (spec §5.3): 4409 — another agent superseded this
  * node's identity; 4406 — protocol mismatch, the agent binary must be
- * updated. The values live in `@internal/session-protocol` (phase-2 hoist,
- * shared with the backend) and are re-exported through here unchanged so the
- * library surface in `src/index.ts` stays green.
+ * updated. The values live in `@internal/session-protocol` (hoisted so the
+ * daemon's terminal-close check and the backend registry share one source);
+ * `src/index.ts` re-exports them from the package directly.
  */
-export { NODE_CLOSE_SUPERSEDED, NODE_CLOSE_UPDATE_REQUIRED };
-
 /** Steady-state heartbeat period (spec §5.3). */
 export const HEARTBEAT_MS = 15_000;
 

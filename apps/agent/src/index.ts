@@ -3,13 +3,13 @@
  * is main.ts. Exposes the pieces another tool — or a later-phase test harness
  * — may want without going through the CLI.
  */
+
+export { NODE_CLOSE_SUPERSEDED, NODE_CLOSE_UPDATE_REQUIRED } from "@internal/session-protocol";
 export { BACKOFF_BASE_MS, BACKOFF_CAP_MS, backoffDelay } from "./backoff.js";
 export { type AgentConfig, agentHome, configPath, loadConfig, saveConfig } from "./config.js";
 export {
   type DaemonDeps,
   HEARTBEAT_MS,
-  NODE_CLOSE_SUPERSEDED,
-  NODE_CLOSE_UPDATE_REQUIRED,
   probeOnline,
   runDaemon,
   type WsConstructor,

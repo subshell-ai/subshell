@@ -7,6 +7,7 @@ import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
+import { nodeOptionLabel } from "@/lib/node-label";
 import type { Node } from "@/types/node";
 
 /** The fields needed to launch a new session. */
@@ -178,7 +179,7 @@ export function NewSessionForm({
           onValueChange={(nodeId) => nodeId !== null && onChange({ ...value, nodeId })}
           items={options.map((n) => ({
             value: n.id,
-            label: n.kind === "local" ? "Local" : n.status === "online" ? n.name : `${n.name} — offline`,
+            label: nodeOptionLabel(n, "Local"),
           }))}
         >
           <SelectTrigger id={ids.node}>
@@ -187,7 +188,7 @@ export function NewSessionForm({
           <SelectContent>
             {options.map((n) => (
               <SelectItem key={n.id} value={n.id} disabled={!isSelectable(n)}>
-                {n.kind === "local" ? "Local" : n.status === "online" ? n.name : `${n.name} — offline`}
+                {nodeOptionLabel(n, "Local")}
               </SelectItem>
             ))}
           </SelectContent>
