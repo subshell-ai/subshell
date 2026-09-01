@@ -440,6 +440,18 @@ describe("log paths and reads", () => {
     expect(h.calls).toEqual([]);
   });
 
+  it("metaArtifactPath pins the agent's `<dataDir>/sessions/<id>.meta.json` layout", () => {
+    // Pinned against apps/agent/src/session-meta.ts: SessionMetaStore.metaPath =
+    // join(dataDir, "sessions", `${id}${".meta.json"}`). The manager feeds this
+    // into the delete-time `remove_paths` so a deliberate delete unlinks the
+    // agent's per-session record alongside the log and the MCP config.
+    const h = makeHarness();
+    expect(h.launcher.metaArtifactPath("s1")).toBe("/home/u/.mote-agent/sessions/s1.meta.json");
+    h.setFacts(undefined);
+    expect(() => h.launcher.metaArtifactPath("s1")).toThrow(NoLiveConnectionError);
+    expect(h.calls).toEqual([]);
+  });
+
   it("readLog decodes bytes and keeps next; readLogSized adds size", async () => {
     const h = makeHarness();
     h.answer("log_read", { bytes_b64: b64("hello"), next: 5, size: 40 });

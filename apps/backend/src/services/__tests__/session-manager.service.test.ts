@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildHarnessCommand, ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
+import type { NodeCommandBody, NodeProbeEntry } from "@internal/session-protocol";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
@@ -18,7 +19,11 @@ import { openSqliteDatabase } from "@/db/open-database.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { defaultSessionName, parseProfile, SessionManagerService } from "@/services/session-manager.service.js";
 
@@ -870,5 +875,625 @@ describe("SessionManagerService restart-resume", () => {
     } finally {
       sb.restore();
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 10 — reconciler batching, preview cache, exit/report apply,    */
+/* best-effort offline stop, and the agent meta artifact (spec §6.3).  */
+/* These describes build their OWN managers (injected launcher +       */
+/* scripted node wire); the file's real-tmux `sessionManager` is not   */
+/* involved. The full-suite gate rule applies to every file here.      */
+/* ------------------------------------------------------------------ */
+
+/** One recorded sweep-probe call. */
+interface ProbeCall {
+  nodeId: string;
+  sessionIds: string[];
+  timeoutMs: number;
+}
+
+/**
+ * A manager wired to a recording node wire + loud fakes: `probes` shows every
+ * batched `probe` the reconciler sent (node, ids, deadline), `pushes` every
+ * death notification, `audits` each audit's parsed metadata, and the shared
+ * {@link FakeNodeLauncher} records every launcher call the partition must NOT
+ * make for agent rows (`hasSessionCalls`, `captureCalls`, `plans`, `kills`).
+ * @param probe - scripted answer for the nth probe call (1-based); may return
+ *   a promise to hold the sweep mid-round-trip (the race tests gate on it)
+ */
+function remoteFixture(
+  probe?: (call: number, sessionIds: string[]) => NodeProbeEntry[] | undefined | Promise<NodeProbeEntry[] | undefined>,
+): {
+  manager: SessionManagerService;
+  probes: ProbeCall[];
+  pushes: Array<[string, string]>;
+  audits: Array<Record<string, unknown>>;
+  revoked: string[];
+  launcher: FakeNodeLauncher;
+  issues: () => number;
+  sendNode: (nodeId: string, cmd: NodeCommandBody, timeoutMs?: number) => Promise<unknown>;
+} {
+  const probes: ProbeCall[] = [];
+  const pushes: Array<[string, string]> = [];
+  const audits: Array<Record<string, unknown>> = [];
+  const revoked: string[] = [];
+  let issued = 0;
+  const launcher = new FakeNodeLauncher(testDir);
+  const sendNode = async (nodeId: string, cmd: NodeCommandBody, timeoutMs = 30_000): Promise<unknown> => {
+    if (cmd.type !== "probe") throw new Error(`unexpected node command: ${cmd.type}`);
+    probes.push({ nodeId, sessionIds: [...cmd.sessionIds], timeoutMs });
+    return probe?.(probes.length, cmd.sessionIds);
+  };
+  const manager = new SessionManagerService({
+    sessions: sessionsRepo,
+    profiles: profilesRepo,
+    launcher,
+    tokens: {
+      issue: async () => {
+        issued++;
+        return "mote_stub";
+      },
+      revoke: async (id: string) => {
+        revoked.push(id);
+      },
+    },
+    audit: async (event) => {
+      audits.push(JSON.parse(event.metadataJson ?? "{}") as Record<string, unknown>);
+    },
+    notify: async (id: string, kind: string) => {
+      pushes.push([id, kind]);
+    },
+    sendNode,
+  });
+  return { manager, probes, pushes, audits, revoked, launcher, issues: () => issued, sendNode };
+}
+
+/** Seed a running agent row directly (the fake "pane" lives only on the node). */
+async function seedAgentRow(
+  nodeId: string,
+  over: Partial<Parameters<typeof sessionsRepo.create>[0]> = {},
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await sessionsRepo.create({
+    id,
+    userId: "u-recon",
+    profileId: "p",
+    harnessId: "claude-code",
+    name: "Agent row",
+    workingDir: "/tmp",
+    tmuxSocket: tmuxSocketFor(id),
+    nodeId,
+    ...over,
+  });
+  return id;
+}
+
+const probeAlive = (sessionId: string, extra: Partial<NodeProbeEntry> = {}): NodeProbeEntry => ({
+  sessionId,
+  alive: true,
+  exitCode: null,
+  ...extra,
+});
+const probeDead = (sessionId: string, exitCode: number | null): NodeProbeEntry => ({
+  sessionId,
+  alive: false,
+  exitCode,
+});
+
+describe("reconcile partition — agent rows (spec §6.3)", () => {
+  it("an online agent row with a LIVE pane sweeps clean: no death, no push, no revive, no local probe (O1)", async () => {
+    const nodeId = "recon-node-o1";
+    let entries: NodeProbeEntry[] = [];
+    const f = remoteFixture(() => entries);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    // The hazard shape: the injected launcher answers hasSession=false, so a
+    // sweep that probed it for an agent row would FALSE-CRASH the row (death
+    // push) and revive through `#launcherFor(nodeId)` onto the node itself.
+    f.launcher.alive = false;
+    const id = await seedAgentRow(nodeId, { name: "Before", backoffCount: 0 });
+    try {
+      entries = [probeAlive(id, { title: "Remote task", command: "claude", capture: "screen line 1\nscreen line 2" })];
+      await f.manager.reconcileAll();
+      const row = await sessionsRepo.findById(id);
+      expect(row?.status).toBe("running");
+      expect(row?.alive).toBe(1); // alive entry patches only
+      expect(row?.endedAt).toBeNull();
+      expect(row?.name).toBe("Remote task"); // title adopted through the same reject rules
+      // NEVER the local probe path — even with the launcher wired to answer
+      // "absent" (the false-crash hazard), the agent row reached it only via
+      // the node `probe` (other LOCAL rows in the shared DB may use the fake).
+      expect(f.launcher.probedIds).not.toContain(id);
+      expect(f.launcher.plans).toHaveLength(0); // no revive attempt
+      expect(f.launcher.kills).toEqual([]); // no rollback kill of the (locally invisible) pane
+      expect(f.issues()).toBe(0); // …and no token churn
+      expect(f.pushes).toHaveLength(0); // no death push
+      expect(f.probes).toEqual([{ nodeId, sessionIds: [id], timeoutMs: 30_000 }]);
+      expect(previewCacheGet(id)).toEqual(["screen line 1", "screen line 2"]); // capture → cache
+    } finally {
+      off();
+      previewCacheDrop(id);
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("an offline agent node ⇒ its rows are skipped entirely (no probe, row stays running; spec §5.6)", async () => {
+    const nodeId = "recon-node-offline";
+    const f = remoteFixture(() => []);
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      await f.manager.reconcileAll();
+      expect(f.probes).toHaveLength(0); // never probed…
+      const row = await sessionsRepo.findById(id);
+      expect(row?.status).toBe("running");
+      expect(row?.alive).toBe(1); // …and NOT false-crashed (absence of socket ≠ absence of process)
+      expect(f.pushes).toHaveLength(0);
+      expect(f.launcher.probedIds).not.toContain(id); // nor probed through the local launcher
+    } finally {
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("30 rows on one node ⇒ two chunked probes of ≤ 24 (PROBE_BATCH_MAX)", async () => {
+    const nodeId = "recon-node-batch";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture(() => []);
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) ids.push(await seedAgentRow(nodeId, { name: `b-${i}` }));
+    try {
+      await f.manager.reconcileAll();
+      expect(f.probes.map((p) => p.sessionIds.length)).toEqual([24, 6]);
+      expect(f.probes.every((p) => p.nodeId === nodeId)).toBe(true);
+      const covered = [...f.probes[0].sessionIds, ...f.probes[1].sessionIds];
+      expect([...covered].sort()).toEqual([...ids].sort());
+      expect(f.pushes).toHaveLength(0);
+    } finally {
+      off();
+      for (const id of ids) await sessionsRepo.delete(id);
+    }
+  });
+
+  it("a probe error is warn-and-continue: the sweep survives, later chunks still apply", async () => {
+    const nodeId = "recon-node-err";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture((call, sessionIds) => {
+      if (call === 1) throw new NodeRpcError("timeout", `probe to node "${nodeId}" timed out`, nodeId);
+      return sessionIds.map((id) => probeDead(id, 1));
+    });
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) ids.push(await seedAgentRow(nodeId, { name: `e-${i}` }));
+    try {
+      await f.manager.reconcileAll(); // must not reject
+      expect(f.probes).toHaveLength(2);
+      const chunk1 = new Set(f.probes[0].sessionIds);
+      const chunk2 = new Set(f.probes[1].sessionIds);
+      expect(chunk1.size).toBe(24);
+      expect(chunk2.size).toBe(6);
+      for (const id of chunk1) expect((await sessionsRepo.findById(id))?.alive).toBe(1); // errored chunk untouched
+      for (const id of chunk2) {
+        const row = await sessionsRepo.findById(id);
+        expect(row?.alive).toBe(0); // dead entries of the healthy chunk applied
+        expect(row?.exitCode).toBe(1);
+      }
+      expect(f.pushes).toHaveLength(6);
+    } finally {
+      off();
+      for (const id of ids) await sessionsRepo.delete(id);
+    }
+  });
+
+  it("dead entry (exit=3): alive:0 + exit + endedAt + waitingSince cleared, one push, auto-restart fired (scheduled, node-gated)", async () => {
+    const nodeId = "recon-node-dead";
+    const off = nodeOnline(nodeId, []);
+    let entries: NodeProbeEntry[] = [];
+    const f = remoteFixture(() => entries);
+    const id = await seedAgentRow(nodeId, {
+      alive: 1,
+      restartOnExit: 1,
+      backoffCount: 0,
+      waitingSince: new Date().toISOString(),
+    });
+    try {
+      entries = [probeDead(id, 3)];
+      await f.manager.reconcileAll();
+      const row = await sessionsRepo.findById(id);
+      expect(row?.alive).toBe(0);
+      expect(row?.exitCode).toBe(3);
+      expect(row?.endedAt).toBeTruthy();
+      expect(row?.waitingSince).toBeNull();
+      expect(f.pushes).toEqual([[id, "crashed"]]); // opted-in row → crashed, exactly once
+      // The agent branch runs the pre-existing crash-block semantics verbatim:
+      // the sweep that STAMPS the death never starts the ladder (the row the
+      // block hands `maybeAutoRestart` is still alive at read time — the same
+      // guard the local path carries), so no schedule/backoff write lands here.
+      expect(row?.nextRestartAt).toBeNull();
+      expect(row?.backoffCount).toBe(0);
+      // The NEXT sweep — snapshot alive:0, still dead per the node — is where
+      // `maybeAutoRestart` actually fires. Its up-front `nextRestartAt` write
+      // lands before the §6.2 per-node harness gate defers the spawn (no node
+      // row/inventory in the control-plane DB for this fake), so the ladder
+      // ticked WITHOUT a revive being attempted (no plans, no token churn).
+      // One push still — the second sweep must not re-notify a dead row.
+      await f.manager.reconcileAll();
+      const row2 = await sessionsRepo.findById(id);
+      expect(row2?.nextRestartAt ?? (row2?.backoffCount ?? 0) >= 1).toBeTruthy();
+      expect(row2?.alive).toBe(0);
+      expect(f.pushes).toHaveLength(1);
+      expect(f.launcher.plans).toHaveLength(0);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("row raced to terminated mid-probe ⇒ no resurrection — the alive pane gets a best-effort kill (O2)", async () => {
+    const nodeId = "recon-node-race";
+    const off = nodeOnline(nodeId, []);
+    let entries: NodeProbeEntry[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // The probe round-trip is held open; the operator terminates the session
+    // inside that window; the node then answers ALIVE (its kill never landed
+    // — the same shape as the offline stop). The alive-apply must re-read,
+    // find the row retired, and FINISH the operator's job instead of patching.
+    const f = remoteFixture(() => gate.then(() => entries));
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      const sweepP = f.manager.reconcileAll();
+      for (let i = 0; f.probes.length === 0 && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
+      expect(f.probes).toHaveLength(1);
+      await sessionsRepo.markTerminated(id, new Date().toISOString());
+      await sessionsRepo.update(id, { alive: 0 });
+      entries = [probeAlive(id)];
+      release();
+      await sweepP;
+      expect(f.launcher.kills).toEqual([id]); // killSession on the row's node (the fake stands in for all)
+      const row = await sessionsRepo.findById(id);
+      expect(row?.status).toBe("terminated"); // never resurrected
+      expect(row?.alive).toBe(0);
+      expect(f.pushes).toHaveLength(0); // an operator terminate does not notify
+      expect(f.launcher.plans).toHaveLength(0);
+    } finally {
+      release();
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("alive-entry rules: title rejects command/host defaults, locked names untouched, backoff reset, capture optional", async () => {
+    const nodeId = "recon-node-rules";
+    const off = nodeOnline(nodeId, []);
+    const adopt = await seedAgentRow(nodeId, { name: "Auto", backoffCount: 2 });
+    const sameCmd = await seedAgentRow(nodeId, { name: "Run" });
+    const locked = await seedAgentRow(nodeId, { name: "Pinned", nameLocked: 1 });
+    const hostTitled = await seedAgentRow(nodeId, { name: "Hosty" });
+    try {
+      const entries = [
+        probeAlive(adopt, { title: "✳ Ship the feature", command: "claude" }),
+        probeAlive(sameCmd, { title: "sleep 300", command: "sleep 300" }),
+        probeAlive(locked, { title: "Should not stick", command: "claude" }),
+        probeAlive(hostTitled, { title: hostname(), command: "claude" }),
+      ];
+      const f = remoteFixture(() => entries);
+      await f.manager.reconcileAll();
+      const rAdopt = await sessionsRepo.findById(adopt);
+      expect(rAdopt?.name).toBe("Ship the feature"); // status glyph stripped, adopted
+      expect(rAdopt?.backoffCount).toBe(0); // healthy sweep resets the ladder
+      expect((await sessionsRepo.findById(sameCmd))?.name).toBe("Run"); // title === command → rejected
+      expect((await sessionsRepo.findById(locked))?.name).toBe("Pinned"); // locked names never touched
+      expect((await sessionsRepo.findById(hostTitled))?.name).toBe("Hosty"); // host-name default rejected
+      // No capture on any entry ⇒ nothing cached (a dropped capture = no fill).
+      expect(previewCacheGet(adopt)).toBeUndefined();
+    } finally {
+      off();
+      for (const id of [adopt, sameCmd, locked, hostTitled]) await sessionsRepo.delete(id);
+    }
+  });
+
+  it("#preview for agent rows reads the cache ONLY — no launcher capture, no probe (list path)", async () => {
+    const nodeId = "recon-node-view";
+    const off = nodeOnline(nodeId, []);
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      previewCachePut(id, ["cached", "screen"]);
+      const f = remoteFixture(() => []);
+      const views = await f.manager.toViews(await sessionsRepo.listByUser("u-recon"));
+      const view = views.find((v) => v.id === id);
+      expect(view?.preview).toEqual(["cached", "screen"]);
+      expect(f.launcher.captureCalls).toBe(0); // the list path never captures on a node…
+      expect(f.probes).toHaveLength(0); // …and never probes either
+    } finally {
+      off();
+      previewCacheDrop(id);
+      await sessionsRepo.delete(id);
+    }
+  });
+});
+
+describe("applyRemoteExit — shared death transition (idempotent against sweep + report)", () => {
+  it("two exit events ⇒ ONE death push; the row takes the agent-reported exit code and time", async () => {
+    const nodeId = "exit-node-a";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      const at = new Date(Date.now() - 5_000).toISOString();
+      await f.manager.applyRemoteExit(nodeId, id, 3, at);
+      await f.manager.applyRemoteExit(nodeId, id, 3, at);
+      expect(f.pushes).toEqual([[id, "exited"]]);
+      const row = await sessionsRepo.findById(id);
+      expect(row?.alive).toBe(0);
+      expect(row?.exitCode).toBe(3);
+      expect(row?.endedAt).toBe(at); // the agent's clock is the truthful end time
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("exit event then a sweep pass ⇒ still exactly ONE push", async () => {
+    const nodeId = "exit-node-b";
+    const off = nodeOnline(nodeId, []);
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const f = remoteFixture(() => [probeDead(id, 3)]);
+    try {
+      await f.manager.applyRemoteExit(nodeId, id, 3, new Date().toISOString());
+      await f.manager.reconcileAll();
+      expect(f.pushes).toHaveLength(1);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("a sweep that stamped the death first swallows the LATE exit event (either order converges)", async () => {
+    const nodeId = "exit-node-c";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture((_call, sessionIds) => sessionIds.map((sid) => probeDead(sid, 3)));
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      await f.manager.reconcileAll(); // sweep marks dead first — one push
+      expect(f.pushes).toHaveLength(1);
+      await f.manager.applyRemoteExit(nodeId, id, 3, new Date().toISOString()); // late event
+      expect(f.pushes).toHaveLength(1); // …adds nothing: the transition already happened
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("the death transition drops the cached preview with the pane", async () => {
+    const nodeId = "exit-node-cache";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      previewCachePut(id, ["last", "screen"]);
+      await f.manager.applyRemoteExit(nodeId, id, 1, new Date().toISOString());
+      expect(previewCacheGet(id)).toBeUndefined(); // a dead pane's screen never outlives its row
+    } finally {
+      off();
+      previewCacheDrop(id);
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("a foreign node cannot report a death it does not own", async () => {
+    const nodeId = "exit-node-owner";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      await f.manager.applyRemoteExit("exit-node-imposter", id, 1, new Date().toISOString());
+      expect(f.pushes).toHaveLength(0);
+      expect((await sessionsRepo.findById(id))?.alive).toBe(1);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("a row mid-restart is off-limits: no push, no stamp (restartInFlight guard)", async () => {
+    const nodeId = "exit-node-race";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      releaseGate = r;
+    });
+    let reachedIssue = false;
+    // A gated token.issue holds this manager inside #reviveRow, mid-restart —
+    // exactly the window the shared death helper must refuse to enter.
+    const gated = new SessionManagerService({
+      sessions: sessionsRepo,
+      profiles: profilesRepo,
+      launcher: f.launcher,
+      tokens: {
+        issue: async () => {
+          reachedIssue = true;
+          await gate;
+          return "mote_stub";
+        },
+        revoke: async () => {},
+      },
+      audit: async () => {},
+      notify: async (id: string, kind: string) => {
+        f.pushes.push([id, kind]);
+      },
+      sendNode: f.sendNode,
+    });
+    const liveProfile = await seedProfile(profilesRepo);
+    const id = await seedAgentRow(nodeId, { alive: 0, profileId: liveProfile }); // parked row → restart revives it
+    const restartP = gated.restartSession("u-recon", id);
+    for (let i = 0; !reachedIssue && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(reachedIssue).toBe(true);
+    try {
+      await f.manager.applyRemoteExit(nodeId, id, 9, new Date().toISOString());
+      expect(f.pushes).toHaveLength(0);
+      const row = await sessionsRepo.findById(id);
+      expect(row?.status).toBe("running");
+      expect(row?.alive).toBe(0); // still parked — the restart owns the row
+    } finally {
+      releaseGate();
+      await restartP; // revive completes through the fake launcher (node still online here)
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+});
+
+describe("applySessionsReport — reconnect census (O2 reconnect path)", () => {
+  it("running + alive:0 reported ALIVE ⇒ revive patch (alive:1, endedAt cleared), no push", async () => {
+    const nodeId = "report-node-revive";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 0 });
+    await sessionsRepo.update(id, { endedAt: new Date().toISOString() }); // parked WITH a death stamp
+    try {
+      await f.manager.applySessionsReport(nodeId, [{ sessionId: id, alive: true, exitCode: null }]);
+      const row = await sessionsRepo.findById(id);
+      expect(row?.alive).toBe(1);
+      expect(row?.endedAt).toBeNull();
+      expect(row?.status).toBe("running");
+      expect(f.pushes).toHaveLength(0); // a revive never notifies
+      expect(f.launcher.kills).toEqual([]);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("running + alive:1 reported DEAD ⇒ the shared death transition fires", async () => {
+    const nodeId = "report-node-dead";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      await f.manager.applySessionsReport(nodeId, [{ sessionId: id, alive: false, exitCode: 7 }]);
+      const row = await sessionsRepo.findById(id);
+      expect(row?.alive).toBe(0);
+      expect(row?.exitCode).toBe(7);
+      expect(row?.endedAt).toBeTruthy();
+      expect(f.pushes).toEqual([[id, "exited"]]);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("a row NOT running (operator terminated it while the node was offline) reported ALIVE ⇒ best-effort kill, row untouched", async () => {
+    const nodeId = "report-node-kill";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    await sessionsRepo.markTerminated(id, new Date().toISOString());
+    await sessionsRepo.update(id, { alive: 0 });
+    try {
+      await f.manager.applySessionsReport(nodeId, [{ sessionId: id, alive: true, exitCode: null }]);
+      expect(f.launcher.kills).toEqual([id]); // the pane survived the offline window; the operator said stop
+      const row = await sessionsRepo.findById(id);
+      expect(row?.status).toBe("terminated"); // never resurrected
+      expect(row?.alive).toBe(0);
+      expect(f.pushes).toHaveLength(0);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("foreign-node reports and unknown ids are inert", async () => {
+    const nodeId = "report-node-guard";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 1 });
+    try {
+      await f.manager.applySessionsReport("report-node-imposter", [{ sessionId: id, alive: false, exitCode: 0 }]);
+      await f.manager.applySessionsReport(nodeId, [{ sessionId: crypto.randomUUID(), alive: true, exitCode: null }]);
+      expect((await sessionsRepo.findById(id))?.alive).toBe(1);
+      expect(f.pushes).toHaveLength(0);
+      expect(f.launcher.kills).toEqual([]);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+});
+
+describe("terminateSession on an offline agent node — best-effort stop (O2 ruling)", () => {
+  it("offline kill ⇒ swallowed: row retired, token revoked, audit flags killUnverified", async () => {
+    // NO launcher injected: the REAL RemoteLauncher answers the kill offline
+    // (NodeRpcError("offline") from sendCommand) — the stop must still finish.
+    const revoked: string[] = [];
+    const audits: Array<Record<string, unknown>> = [];
+    const manager = new SessionManagerService({
+      sessions: sessionsRepo,
+      profiles: profilesRepo,
+      tokens: {
+        issue: async () => "mote_stub",
+        revoke: async (id: string) => {
+          revoked.push(id);
+        },
+      },
+      audit: async (event) => {
+        audits.push(JSON.parse(event.metadataJson ?? "{}") as Record<string, unknown>);
+      },
+    });
+    const id = await seedAgentRow("terminate-node-off", { alive: 1 });
+    await manager.terminateSession("u-recon", id); // must NOT throw
+    const row = await sessionsRepo.findById(id);
+    expect(row?.status).toBe("terminated");
+    expect(row?.alive).toBe(0);
+    expect(revoked).toEqual([id]);
+    expect(audits.at(-1)).toEqual({ name: "Agent row", killUnverified: true });
+    await sessionsRepo.delete(id);
+  });
+
+  it("a successful kill keeps the audit metadata exactly as before (no killUnverified)", async () => {
+    const f = remoteFixture();
+    const id = await seedAgentRow("terminate-node-on", { alive: 1 });
+    await f.manager.terminateSession("u-recon", id);
+    expect(f.launcher.kills).toEqual([id]);
+    expect(f.audits.at(-1)).toEqual({ name: "Agent row" });
+    await sessionsRepo.delete(id);
+  });
+
+  it("a NON-offline kill failure still throws and leaves the row running (all other kills behave as today)", async () => {
+    const f = remoteFixture();
+    f.launcher.killError = new Error("tmux refused");
+    const id = await seedAgentRow("terminate-node-boom", { alive: 1 });
+    await expect(f.manager.terminateSession("u-recon", id)).rejects.toThrow("tmux refused");
+    const row = await sessionsRepo.findById(id);
+    expect(row?.status).toBe("running"); // the terminate aborted, as today
+    await sessionsRepo.delete(id);
+  });
+});
+
+describe("deleteSession cleans the agent meta artifact (O3)", () => {
+  it("agent row: remove_paths carries log + mcp + meta", async () => {
+    const nodeId = "delete-node-o3";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    const id = await seedAgentRow(nodeId, { alive: 0, status: "terminated" });
+    try {
+      expect(await f.manager.deleteSession("u-recon", id)).toBe(true);
+      expect(f.launcher.removedPaths.at(-1)).toEqual([
+        join(testDir, `${id}.log`), // logPath (the fake composes it under the temp dir)
+        `/node-data/mcp/${id}.json`, // MCP config (composed from live facts)
+        `/node-data/sessions/${id}.meta.json`, // the agent's session-meta record (O3)
+      ]);
+    } finally {
+      off();
+      await sessionsRepo.delete(id);
+    }
+  });
+
+  it("local row: byte-identical artifact list (no meta concept locally)", async () => {
+    const f = remoteFixture();
+    const id = await seedAgentRow(LOCAL_NODE_ID, { status: "terminated", userId: "u-recon-local" });
+    expect(await f.manager.deleteSession("u-recon-local", id)).toBe(true);
+    expect(f.launcher.removedPaths.at(-1)).toEqual([join(testDir, `${id}.log`)]);
+    await sessionsRepo.delete(id);
   });
 });

@@ -10,6 +10,7 @@ import {
   type TmuxRunner,
   tmuxSocketFor,
 } from "@internal/harnesses";
+import { type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/session-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
@@ -27,7 +28,9 @@ import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { defaultLocalLauncher, LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { getLive, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
+import { NoLiveConnectionError } from "@/services/nodes/remote-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { issueSessionToken, revokeSessionToken } from "@/services/session-tokens.js";
@@ -48,6 +51,26 @@ const PROMPT_SETTLE_TIMEOUT_MS = 15_000;
 const HOST_NAME = hostname();
 /** Poll interval while waiting for the pane to settle. */
 const PROMPT_POLL_MS = 400;
+/**
+ * Session ids per `probe` command in the reconcile sweep (spec §6.3): one
+ * round-trip probes this many panes (liveness + exit + title + opportunistic
+ * capture). Sized under the agent's frame budget so captures ride along.
+ */
+const PROBE_BATCH_MAX = 24;
+/** The sweep's probe deadline — wider than a single RPC (batched work on the node). */
+const RECONCILE_PROBE_TIMEOUT_MS = 30_000;
+
+/**
+ * The two classes an offline node answers at the KILL step:
+ * {@link NoLiveConnectionError} (sync, facts-dependent members) and
+ * `NodeRpcError("offline")` (the RPC path). Both are §5.6 NODE_OFFLINE to
+ * callers; {@link SessionManagerService.terminateSession} swallows ONLY these
+ * (the operator's stop must never 500 over an unreachable node — best-effort,
+ * audited `killUnverified`), every other kill failure keeps today's semantics.
+ */
+function isOfflineKillError(err: unknown): boolean {
+  return err instanceof NoLiveConnectionError || (err instanceof NodeRpcError && err.code === "offline");
+}
 
 const defaultTokens: SessionTokenProvider = {
   issue: issueSessionToken,
@@ -85,11 +108,11 @@ export class SessionManagerService {
   readonly #sessions: SessionsRepository;
   readonly #profiles: ProfilesRepository;
   /**
-   * The machine for the paths that are still deliberately local-only: the
-   * sync `isAlive` probe, view previews, and the reconcile sweep. Task 10
-   * routes the sweep per node (spec §6.3); until then agent rows reaching
-   * it read as absent panes — the accepted interim state between Task 9 and
-   * Task 10, with no released agent to hit it.
+   * The machine for the paths that stay deliberately local: the sync
+   * `isAlive` probe, local view previews, and the LOCAL half of the reconcile
+   * sweep. Agent rows NEVER probe through it — the sweep batches their
+   * liveness into per-node `probe` commands (spec §6.3), so an online agent
+   * row can never false-crash against a local tmux lookup.
    */
   readonly #launcher: NodeLauncher;
   /**
@@ -101,6 +124,8 @@ export class SessionManagerService {
   readonly #audit: (event: AuditEventInput) => Promise<void>;
   readonly #tokens: SessionTokenProvider;
   readonly #notify: (sessionId: string, kind: NotifyKind) => Promise<void>;
+  /** The reconciler's node wire (default `sendCommand`); injectable for tests. */
+  readonly #sendNode: typeof sendCommand;
 
   constructor({
     sessions,
@@ -110,6 +135,7 @@ export class SessionManagerService {
     tokens = defaultTokens,
     notify = defaultNotify,
     launcher,
+    sendNode = sendCommand,
   }: {
     sessions: SessionsRepository;
     profiles: ProfilesRepository;
@@ -130,6 +156,12 @@ export class SessionManagerService {
      * callers pass nothing and get per-node routing via `#launcherFor`.
      */
     launcher?: NodeLauncher;
+    /**
+     * Signed-command wire for the reconcile sweep's batched `probe` (default:
+     * the real `sendCommand`). Injectable for test isolation — the ONLY
+     * consumer is the sweep's agent branch.
+     */
+    sendNode?: typeof sendCommand;
   }) {
     this.#sessions = sessions;
     this.#profiles = profiles;
@@ -138,6 +170,7 @@ export class SessionManagerService {
     this.#audit = audit;
     this.#tokens = tokens;
     this.#notify = notify;
+    this.#sendNode = sendNode;
   }
 
   /**
@@ -429,12 +462,24 @@ export class SessionManagerService {
    * is exactly what the old preview showed. `capture-pane` renders the screen
    * instead, so the card shows what the terminal shows.
    *
-   * Costs one tmux invocation per running session per call, which is what
-   * makes the preview cheap enough to fan out over every card: no socket, no
-   * terminal emulator and no WebGL context per tile.
+   * Costs one tmux invocation per running LOCAL session per call, which is
+   * what makes the preview cheap enough to fan out over every card: no
+   * socket, no terminal emulator and no WebGL context per tile.
+   *
+   * AGENT rows never hit the wire here: a capture per card would be a signed
+   * round-trip on every list read, so their preview comes from the sweep's
+   * probe-fed {@link previewCacheGet} — cache-only, absence simply means no
+   * preview this tick.
    */
-  async #preview(row: { id: string; status: string; alive: number; tmuxSocket: string | null }): Promise<string[]> {
+  async #preview(row: {
+    id: string;
+    status: string;
+    alive: number;
+    tmuxSocket: string | null;
+    nodeId: string;
+  }): Promise<string[]> {
     if (row.status !== "running" || row.alive !== 1 || !row.tmuxSocket) return [];
+    if (row.nodeId !== LOCAL_NODE_ID) return previewCacheGet(row.id) ?? [];
     try {
       return screenTail(await this.#launcher.capture(row.tmuxSocket, row.id));
     } catch {
@@ -610,13 +655,32 @@ export class SessionManagerService {
     return run;
   }
 
-  /** Terminates a session: kills the tmux tree and marks the DB row. */
+  /**
+   * Terminates a session: kills its pane (on the row's node) and marks the DB
+   * row. Best-effort against an unreachable node (O2 ruling): an OFFLINE kill
+   * — {@link NoLiveConnectionError} or `NodeRpcError("offline")` — is
+   * swallowed at the kill step with a warn and an audit
+   * `killUnverified: true`, and the row is retired anyway; the node's
+   * reconnect census best-effort-kills the surviving pane (see
+   * {@link applySessionsReport}). Every other kill failure keeps the classic
+   * semantics (throw, row untouched), and every other teardown step is
+   * unchanged.
+   */
   async terminateSession(userId: string, id: string): Promise<void> {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return;
+    let killUnverified = false;
     if (row.tmuxSocket) {
       // Kill on the node the row lives on (row-based launcher, spec §6.3).
-      await this.#launcherFor(row.nodeId).killSession(row.tmuxSocket, id);
+      try {
+        await this.#launcherFor(row.nodeId).killSession(row.tmuxSocket, id);
+      } catch (err) {
+        if (!isOfflineKillError(err)) throw err;
+        killUnverified = true;
+        logger.warn(
+          `session ${id}: node "${row.nodeId}" is offline — pane kill UNVERIFIED, retiring the row anyway (spec §5.6)`,
+        );
+      }
     }
     await this.#sessions.markTerminated(id, new Date().toISOString());
     await this.#sessions.update(id, { alive: 0 });
@@ -628,7 +692,7 @@ export class SessionManagerService {
       action: "session.terminate",
       targetType: "session",
       targetId: id,
-      metadataJson: JSON.stringify({ name: row.name }),
+      metadataJson: JSON.stringify({ name: row.name, ...(killUnverified ? { killUnverified: true } : {}) }),
     });
   }
 
@@ -667,6 +731,23 @@ export class SessionManagerService {
     }
     const facts = row.nodeId !== LOCAL_NODE_ID ? getLive(row.nodeId)?.agent : undefined;
     if (facts) artifacts.push(`${facts.dataDir}/mcp/${id}.json`);
+    // The agent's per-session record `<dataDir>/sessions/<id>.meta.json`: a
+    // deliberate kill leaves it on purpose (the agent's executors read it to
+    // resolve the session), so the DELETE unlinks it — log + mcp + meta are
+    // the three artifacts a session leaves on a node, and they go together.
+    // Gated on the launcher exposing the path: {@link RemoteLauncher} does,
+    // {@link LocalLauncher} has no meta concept, so local rows' artifact list
+    // stays byte-identical to before.
+    if (row.nodeId !== LOCAL_NODE_ID) {
+      const metaLauncher = launcher as { metaArtifactPath?: (id: string) => string };
+      if (typeof metaLauncher.metaArtifactPath === "function") {
+        try {
+          artifacts.push(metaLauncher.metaArtifactPath(id));
+        } catch {
+          // node dropped offline between the fact reads — its artifacts age out with the node
+        }
+      }
+    }
     await launcher.removeArtifacts(artifacts);
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
@@ -906,8 +987,25 @@ export class SessionManagerService {
     void this.#notify(row.id, kind);
   }
 
+  /**
+   * Reconciles running rows against what each row's NODE reports (spec §6.3).
+   * Partition first: LOCAL rows run the classic single-machine loop verbatim
+   * (the regression net — sync seams, pane-title reads, the mtime probe);
+   * AGENT rows NEVER touch that path (probing an online agent row through the
+   * local launcher false-crashes it, and a collided revive would then kill on
+   * the node). Their liveness arrives in batched `probe` commands instead.
+   */
   private async reconcileRows(rows: SessionTable[]): Promise<void> {
     const now = new Date().toISOString();
+    const local: SessionTable[] = [];
+    const agent: SessionTable[] = [];
+    for (const row of rows) (row.nodeId === LOCAL_NODE_ID ? local : agent).push(row);
+    await this.#reconcileLocalRows(local, now);
+    await this.#reconcileAgentRows(agent, now);
+  }
+
+  /** The classic local sweep loop (verbatim pre-§6.3 body, crash branch folded into {@link #applyDeath}). */
+  async #reconcileLocalRows(rows: SessionTable[], now: string): Promise<void> {
     for (const row of rows) {
       // A manual restart owns this row right now: it is parked (alive:0, no
       // pane) mid-kill→respawn and is about to come back on its own. Sweeping
@@ -930,35 +1028,12 @@ export class SessionManagerService {
       if (!(await this.#launcher.hasSession(row.tmuxSocket, row.id))) {
         // Probe FIRST, decide after: paneExitCode is awaited just like
         // hasSession, so collect every async probe before touching state.
+        // ── TOCTOU re-check (spec §6.3 async seam TOCTOU): the probes widen
+        // the check→act window; #applyDeath re-reads the lease AND the fresh
+        // row before touching anything (a restart that began mid-flight owns
+        // the row now; a terminate/delete mid-await isn't ours to stamp).
         const exitCode = row.alive === 1 ? await this.#launcher.paneExitCode(row.tmuxSocket, row.id) : null;
-        // ── TOCTOU re-check (spec §6.3 async seam TOCTOU): the probes above
-        // widened the check→act window that opened at the skip-guard. A
-        // restart that began mid-flight owns this row now (its pane is
-        // deliberately absent) — skip it this sweep rather than revoke the
-        // token #reviveRow just minted.
-        if (restartInFlight.has(row.id)) continue;
-        // Same spirit: the row may have been terminated or deleted under us
-        // mid-await — neither stamping its death nor retiring its token is
-        // ours to do once it isn't a running row anymore.
-        const fresh = await this.#sessions.findById(row.id);
-        if (fresh?.status !== "running") continue;
-        if (row.alive === 1) {
-          // `waiting_since` dies with the process — nobody is waiting anymore.
-          await this.#sessions.update(row.id, { alive: 0, exitCode, endedAt: now, waitingSince: null });
-          logger.info(`session crashed (exit=${exitCode ?? "?"}): ${row.id}`);
-          this.#notifyDeath(row);
-        }
-        // Auto-restart crashed sessions that opted in (exponential backoff);
-        // a session that will never come back has its MCP token revoked here.
-        // "Never" means opted out OR the backoff limit was exhausted (the
-        // sweep gives up at that count, so the bearer would linger otherwise).
-        const restarted = await this.maybeAutoRestart(row);
-        if (!restarted && (row.restartOnExit !== 1 || row.backoffCount >= 5)) {
-          // Terminal: this session will never come back, so its bearer must
-          // not linger. Revoke failures here must not abort the sweep for the
-          // remaining rows — unlinking apiKeyId is the guard-side fallback.
-          await this.#revokeTokenOrUnlink(row.id);
-        }
+        await this.#applyDeath(row, { exitCode, endedAt: now });
         continue;
       }
       // Alive: stamp liveness + fold in the existing lastOutputAt mtime logic.
@@ -988,8 +1063,9 @@ export class SessionManagerService {
         }
       }
       try {
-        // TODO(spec §6.3): phase-2 routes through launcher (lastOutputAt's
-        // mtime probe is not machine-scoped yet; phase 0 is local-only).
+        // The mtime probe is LOCAL-ONLY by design: an agent pane has no file
+        // here — the WS attach relay's `persistOutput` plus the exit/report
+        // paths keep agent rows' `lastOutputAt` fresh (spec §6.3).
         const mtimeMs = (await Bun.file(sessionLogPath(row.id)).stat()).mtime.getTime();
         if (!row.lastOutputAt || mtimeMs > new Date(row.lastOutputAt).getTime()) {
           patch.lastOutputAt = new Date(mtimeMs).toISOString();
@@ -1000,6 +1076,241 @@ export class SessionManagerService {
       if (Object.keys(patch).length > 0) {
         await this.#sessions.update(row.id, patch);
       }
+    }
+  }
+
+  /**
+   * The agent half of the sweep (spec §5.6/§6.3). Rows whose node has no live
+   * connection are SKIPPED, never crashed — absence of the socket is not
+   * absence of the process; the reconnect census and the next probe settle
+   * it. Survivors group by node and ride `probe` commands in chunks of
+   * {@link PROBE_BATCH_MAX} ids; a chunk whose round-trip errors is
+   * warn-and-continue — one wedged node must never abort the sweep.
+   */
+  async #reconcileAgentRows(rows: SessionTable[], now: string): Promise<void> {
+    if (rows.length === 0) return;
+    const byNode = new Map<string, SessionTable[]>();
+    let skipped = 0;
+    for (const row of rows) {
+      // Same lease rule as the local loop (mid-restart rows are deliberately
+      // pane-less), plus the offline skip the whole branch exists for.
+      if (restartInFlight.has(row.id) || !getLive(row.nodeId)) {
+        skipped++;
+        continue;
+      }
+      const list = byNode.get(row.nodeId) ?? [];
+      list.push(row);
+      byNode.set(row.nodeId, list);
+    }
+    if (skipped > 0) {
+      logger.debug(`reconcile: ${skipped} agent row(s) skipped (node offline or mid-restart; spec §5.6)`);
+    }
+    for (const [nodeId, nodeRows] of byNode) {
+      for (let i = 0; i < nodeRows.length; i += PROBE_BATCH_MAX) {
+        const chunk = nodeRows.slice(i, i + PROBE_BATCH_MAX);
+        try {
+          const data = await this.#sendNode(
+            nodeId,
+            { type: "probe", sessionIds: chunk.map((r) => r.id) },
+            RECONCILE_PROBE_TIMEOUT_MS,
+          );
+          const entries = parseNodeProbeEntries(data);
+          if (!entries) {
+            logger.warn(`reconcile: node "${nodeId}" answered a malformed probe result; chunk skipped`);
+            continue;
+          }
+          const byId = new Map(entries.map((e) => [e.sessionId, e]));
+          for (const row of chunk) {
+            const entry = byId.get(row.id);
+            // The agent answers ONLY for the ids it supervises; no entry is
+            // the same no-evidence class as an offline node — skip, don't kill.
+            if (!entry) continue;
+            if (!entry.alive) {
+              await this.#applyDeath(row, { exitCode: entry.exitCode, endedAt: now });
+              continue;
+            }
+            await this.#applyAgentAlive(row, entry, now);
+          }
+        } catch (err) {
+          logger
+            .withError(err)
+            .warn(`reconcile probe to node "${nodeId}" failed (chunk of ${chunk.length}); sweep continues`);
+        }
+      }
+    }
+  }
+
+  /**
+   * The shared death transition — the ONE place a running row is stamped
+   * alive→dead. Every entry point that learns of a death calls this: the
+   * sweep (local tmux probe or the agent `probe`/`exit` census), an agent
+   * `exit` event, and the `sessions_report` reconnect census. Idempotent by
+   * construction: the stamp + death push fire only while the FRESH row is
+   * still `running` with `alive: 1`, and a row a restart owns
+   * (`restartInFlight`) is off-limits. After the (possible) transition the
+   * auto-restart ladder runs for parked rows, and a session that will never
+   * come back — opted out or backoff-exhausted — has its bearer revoked here.
+   * The cached preview dies with the pane.
+   * @param row - the row as the caller saw it; only its id must still be true
+   * @param opts.exitCode - the observed pane exit code (null = never seen)
+   * @param opts.endedAt - ISO stamp for the death (the agent's clock for remote events)
+   */
+  async #applyDeath(
+    row: SessionTable,
+    { exitCode, endedAt }: { exitCode: number | null; endedAt: string },
+  ): Promise<void> {
+    previewCacheDrop(row.id);
+    if (restartInFlight.has(row.id)) return;
+    const fresh = await this.#sessions.findById(row.id);
+    // The row may have been terminated or deleted under us mid-await —
+    // neither stamping its death nor retiring its token is ours to do once
+    // it isn't a running row anymore.
+    if (fresh?.status !== "running") return;
+    if (fresh.alive === 1) {
+      // `waiting_since` dies with the process — nobody is waiting anymore.
+      await this.#sessions.update(fresh.id, { alive: 0, exitCode, endedAt, waitingSince: null });
+      logger.info(`session crashed (exit=${exitCode ?? "?"}): ${fresh.id}`);
+      this.#notifyDeath(fresh);
+    }
+    // Auto-restart crashed sessions that opted in (exponential backoff);
+    // a session that will never come back has its MCP token revoked here.
+    // "Never" means opted out OR the backoff limit was exhausted (the
+    // sweep gives up at that count, so the bearer would linger otherwise).
+    const restarted = await this.maybeAutoRestart(fresh);
+    if (!restarted && (fresh.restartOnExit !== 1 || fresh.backoffCount >= 5)) {
+      // Terminal: this session will never come back, so its bearer must
+      // not linger. Revoke failures here must not abort the sweep for the
+      // remaining rows — unlinking apiKeyId is the guard-side fallback.
+      await this.#revokeTokenOrUnlink(fresh.id);
+    }
+  }
+
+  /**
+   * Folds one ALIVE `probe` entry into its row — the agent twin of the local
+   * sweep's alive branch: liveness patch, pane-title name through the same
+   * reject rules, backoff reset. Minus the machine-local parts: there is no
+   * node-side file for the `lastOutputAt` mtime probe (the relay's
+   * `persistOutput` + exit/report keep it fresh), and title/capture ride in on
+   * the entry — no second round-trip. The fresh re-read closes the multi-
+   * second probe window: a row that raced to a non-running state was stopped
+   * by the operator mid-sweep, so its still-alive pane gets
+   * {@link #bestEffortKill} rather than a resurrection; a restart-owned row is
+   * left alone. `capture` fills the preview cache when the agent had frame
+   * budget to send one.
+   */
+  async #applyAgentAlive(row: SessionTable, entry: NodeProbeEntry, now: string): Promise<void> {
+    const fresh = await this.#sessions.findById(row.id);
+    if (!fresh) return;
+    if (restartInFlight.has(fresh.id)) return;
+    if (fresh.status !== "running") {
+      await this.#bestEffortKill(fresh, "reported alive by the probe but terminated mid-sweep");
+      return;
+    }
+    const patch: SessionUpdate = {};
+    if (fresh.alive !== 1) {
+      patch.alive = 1;
+      patch.endedAt = null; // back among the living — the stamp was for the death
+    }
+    if (fresh.startedAt == null) patch.startedAt = now;
+    if (fresh.alive === 1 && fresh.backoffCount > 0) patch.backoffCount = 0;
+    if (fresh.nameLocked !== 1 && entry.title != null) {
+      const title = normalizePaneTitle(entry.title);
+      if (title && title !== (entry.command ?? "") && title !== HOST_NAME && title !== fresh.name) {
+        patch.name = title;
+      }
+    }
+    // Conditional write: the terminate race can still land between the
+    // re-read and this statement — a stale patch must never resurrect a row
+    // (closes the window the local branch leaves open; costs nothing here).
+    if (Object.keys(patch).length > 0) {
+      await this.#sessions.updateIfRunning(fresh.id, patch);
+    }
+    if (entry.capture != null) {
+      previewCachePut(fresh.id, screenTail(entry.capture));
+    }
+  }
+
+  /**
+   * Best-effort kill on the row's node: the backend has retired the row
+   * (a terminate won while the node was unreachable, or mid-sweep) yet the
+   * node reports the pane alive — the operator said stop, so the census
+   * finishes the job the offline kill could not (O2). Errors are logged,
+   * never thrown: the loop that owns this call must survive an unkillable
+   * pane.
+   */
+  async #bestEffortKill(row: SessionTable, why: string): Promise<void> {
+    const socket = row.tmuxSocket ?? tmuxSocketFor(row.id);
+    try {
+      await this.#launcherFor(row.nodeId).killSession(socket, row.id);
+      logger.info(`session ${row.id}: killed a stale-live pane on node "${row.nodeId}" (${why})`);
+    } catch (err) {
+      logger.withError(err).warn(`session ${row.id}: best-effort kill of a stale-live pane failed (${why})`);
+    }
+  }
+
+  /**
+   * Applies one `exit` event from a node (spec §3.3/§6.3): the agent watched
+   * its supervised pane die and reports it before the next sweep gets there.
+   * THE SAME shared death transition as the sweep ({@link #applyDeath}), so
+   * exit-vs-sweep races are harmless — whichever lands first stamps and
+   * pushes, the other finds the row already dead and no-ops. The reporting
+   * CONNECTION's node id scopes authority: a node cannot report for rows it
+   * does not own.
+   * @param nodeId - the socket's authenticated node identity (never frame data)
+   * @param sessionId - the session whose pane exited
+   * @param exitCode - the pane's exit code (null when never captured)
+   * @param at - the agent's death timestamp, stamped as `endedAt`
+   */
+  async applyRemoteExit(nodeId: string, sessionId: string, exitCode: number | null, at: string): Promise<void> {
+    const row = await this.#sessions.findById(sessionId);
+    if (!row || row.nodeId !== nodeId) return; // unknown row, or a foreign report — not ours to apply
+    if (row.status !== "running") return; // already retired — the census/sweep and this event converge
+    await this.#applyDeath(row, { exitCode, endedAt: at });
+  }
+
+  /**
+   * The `sessions_report` reconnect census (spec §3.3/§5.6): after (re)connecting,
+   * the agent lists every session it still supervises, and the rows THIS node
+   * owns converge toward that truth — under the same guards as every remote
+   * mutation (fresh read, `restartInFlight`, `row.nodeId === nodeId`, status
+   * re-checks):
+   * - reported ALIVE on a parked row (`running` / `alive: 0`): the revive
+   *   patch (a restart that spawned but died before its `updateIfRunning`, or
+   *   a pane restarted out-of-band) — mirrors the sweep's alive branch, no
+   *   notification;
+   * - reported ALIVE on a row the backend no longer runs: the operator said
+   *   STOP and the kill never reached this node (the offline-stop of
+   *   {@link terminateSession}) — best-effort kill, the row is never
+   *   resurrected;
+   * - reported DEAD: the shared death transition, idempotent with the sweep
+   *   and {@link applyRemoteExit}.
+   * @param nodeId - the socket's authenticated node identity
+   * @param report - the frame's per-session alive census
+   */
+  async applySessionsReport(
+    nodeId: string,
+    report: Extract<NodeEvent, { type: "sessions_report" }>["sessions"],
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    for (const entry of report) {
+      const row = await this.#sessions.findById(entry.sessionId);
+      if (!row || row.nodeId !== nodeId) continue; // census authority follows the socket identity
+      if (entry.alive) {
+        // A restart mid-flight owns the row AND its pane (the launch may
+        // legitimately show up in the census before `updateIfRunning` lands).
+        if (restartInFlight.has(row.id)) continue;
+        if (row.status !== "running") {
+          await this.#bestEffortKill(row, "reported alive by the census but the operator stopped it");
+          continue;
+        }
+        if (row.alive !== 1) {
+          const patch: SessionUpdate = { alive: 1, endedAt: null };
+          if (row.startedAt == null) patch.startedAt = now;
+          await this.#sessions.updateIfRunning(row.id, patch);
+        }
+        continue;
+      }
+      await this.#applyDeath(row, { exitCode: entry.exitCode, endedAt: now });
     }
   }
 

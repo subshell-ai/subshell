@@ -326,6 +326,23 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
+   * The agent's per-session record ON THE NODE:
+   * `<agentDataDir>/sessions/<id>.meta.json` — the twin of
+   * `apps/agent/src/session-meta.ts` (`SessionMetaStore.metaPath` =
+   * `join(dataDir, "sessions", `${id}${".meta.json"}`); pinned equal by test).
+   * A deliberate kill leaves this file behind on purpose: the manager feeds it
+   * into the delete-time `remove_paths` (with the log and the MCP config), so
+   * a deleted session unlinks all three artifacts it left on the node.
+   * Not on the {@link NodeLauncher} interface — the concept is agent-side
+   * only; {@link LocalLauncher} has no meta file and its delete path stays
+   * untouched. Throws {@link NoLiveConnectionError} offline (sync member,
+   * same shape as {@link logPath}).
+   */
+  metaArtifactPath(id: string): string {
+    return factsPath(this.#requireFacts(), `sessions/${id}.meta.json`);
+  }
+
+  /**
    * `log_read` (10 s) as the raw triple: the window, the resume offset, and
    * the whole-file size. Not on the frozen interface — the sanctioned
    * class-local shape for the tail-window math (Task 11's remote replay reads

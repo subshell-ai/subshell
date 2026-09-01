@@ -17,14 +17,9 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
-import type { LaunchPlan, NodeLauncher } from "@/services/nodes/node-launcher.js";
-import {
-  attachConnection,
-  detachConnection,
-  type NodeSocket,
-  resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
+import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { SessionManagerService, type SessionTokenProvider } from "@/services/session-manager.service.js";
 
@@ -33,68 +28,11 @@ import { SessionManagerService, type SessionTokenProvider } from "@/services/ses
  * resolves its launcher from the node id, agent rows get the pure remote MCP
  * plan + node-side `MOTE_DATA_DIR`, offline nodes throw the offline-flavored
  * error, and views stamp `nodeOffline` from the live-connection registry.
- * A scripted {@link FakeLauncher} stands in for every node (the constructor
- * launcher is the TEST override and wins for all nodes), while one describe
- * runs WITHOUT it to exercise the real RemoteLauncher's offline behavior.
+ * A scripted {@link FakeNodeLauncher} stands in for every node (the
+ * constructor launcher is the TEST override and wins for all nodes), while one
+ * describe runs WITHOUT it to exercise the real RemoteLauncher's offline
+ * behavior.
  */
-
-/** Records launches; everything else answers the way a healthy node would. */
-class FakeLauncher implements NodeLauncher {
-  readonly plans: LaunchPlan[] = [];
-  readonly kills: string[] = [];
-  revokes = 0;
-
-  async validateWorkingDir(raw: string): Promise<string> {
-    return raw;
-  }
-  async resolveBinary(): Promise<string | null> {
-    return "/bin/stub";
-  }
-  async launch(plan: LaunchPlan): Promise<void> {
-    this.plans.push(plan);
-  }
-  async terminate(): Promise<void> {}
-  async killSession(_socket: string, id: string): Promise<void> {
-    this.kills.push(id);
-  }
-  async hasSession(): Promise<boolean> {
-    return true;
-  }
-  async paneExitCode(): Promise<number | null> {
-    return null;
-  }
-  async paneTitle(): Promise<{ title: string; command: string } | null> {
-    return null;
-  }
-  async capture(): Promise<string> {
-    return "";
-  }
-  async resize(): Promise<void> {}
-  async sendInput(): Promise<void> {}
-  async pressEnter(): Promise<void> {}
-  async deliverPrompt(): Promise<boolean> {
-    return false;
-  }
-  logPath(id: string): string {
-    return join(testDir, `${id}.log`);
-  }
-  async readLogTail(): Promise<{ lines: string[]; truncated: boolean }> {
-    return { lines: [], truncated: false };
-  }
-  async readLog(): Promise<{ bytes: Uint8Array; next: number }> {
-    return { bytes: new Uint8Array(0), next: 0 };
-  }
-  async tailStart(): Promise<() => void> {
-    return () => {};
-  }
-  async canResume(): Promise<boolean> {
-    return false;
-  }
-  async writeArtifact(id: string): Promise<string> {
-    return id;
-  }
-  async removeArtifacts(): Promise<void> {}
-}
 
 const testDir = mkdtempSync(join(tmpdir(), "mote-rmgr-"));
 let dbHandle: Kysely<Database>;
@@ -109,20 +47,6 @@ const tokens: SessionTokenProvider = {
   },
   revoke: async () => {},
 };
-
-/** Put a node "online" with `ready` facts; returns the detach closure. */
-function nodeOnline(nodeId: string, capabilities: string[]): () => void {
-  const ws: NodeSocket = { send: () => {}, close: () => {} };
-  const conn = attachConnection(nodeId, ws);
-  conn.agent = {
-    dataDir: "/node-data",
-    capabilities,
-    hostname: "rmgr",
-    agentVersion: "1.0.0",
-    executablePath: "/usr/bin/mote-agent",
-  };
-  return () => detachConnection(nodeId, ws);
-}
 
 beforeAll(async () => {
   dbHandle = new Kysely<Database>({
@@ -150,7 +74,7 @@ afterAll(async () => {
 
 describe("manager createSession on an agent node (test launcher wins for all nodes)", () => {
   it("routes the launch through the node's launcher, persists nodeId, ships the remote MCP plan + node MOTE_DATA_DIR", async () => {
-    const fake = new FakeLauncher();
+    const fake = new FakeNodeLauncher(testDir);
     const manager = new SessionManagerService({
       sessions: sessionsRepo,
       profiles: profilesRepo,
@@ -191,7 +115,7 @@ describe("manager createSession on an agent node (test launcher wins for all nod
   });
 
   it('an agent without the "mcp" capability launches with NO registration at all', async () => {
-    const fake = new FakeLauncher();
+    const fake = new FakeNodeLauncher(testDir);
     const manager = new SessionManagerService({
       sessions: sessionsRepo,
       profiles: profilesRepo,
@@ -213,7 +137,7 @@ describe("manager createSession on an agent node (test launcher wins for all nod
   });
 
   it("the node drops offline between resolution and compose → offline-flavored throw + full rollback (row terminated, launch never sent)", async () => {
-    const fake = new FakeLauncher();
+    const fake = new FakeNodeLauncher(testDir);
     const manager = new SessionManagerService({
       sessions: sessionsRepo,
       profiles: profilesRepo,
@@ -271,7 +195,7 @@ describe("manager restartSession on an offline agent row (real launcher path)", 
 
 describe("nodeOffline on views (spec §5.6)", () => {
   it("agent rows carry nodeOffline while their node has no live connection; local rows never do", async () => {
-    const fake = new FakeLauncher();
+    const fake = new FakeNodeLauncher(testDir);
     const manager = new SessionManagerService({
       sessions: sessionsRepo,
       profiles: profilesRepo,

@@ -11,6 +11,7 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
+import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
@@ -85,6 +86,15 @@ process.on("uncaughtException", (error) => {
   const manager = new SessionManagerService({
     sessions,
     profiles: new ProfilesRepository(db),
+  });
+  // Node lifecycle events (spec §3.3/§6.3): the sweep's manager instance is
+  // the hook host, so `exit` events and the reconnect `sessions_report`
+  // census converge through the SAME death/revive transitions (and the same
+  // in-process restart lease) as the periodic sweep. Without this the frames
+  // warn-and-drop.
+  setNodeLifecycleHooks({
+    onExit: (nodeId, sessionId, exitCode, at) => manager.applyRemoteExit(nodeId, sessionId, exitCode, at),
+    onSessionsReport: (nodeId, report) => manager.applySessionsReport(nodeId, report),
   });
   // Restore alive/exit state at boot: a backend restart mid-session must not
   // leave stale alive=1 rows (tmux sessions died with the old process).
