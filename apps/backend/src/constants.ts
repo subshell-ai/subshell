@@ -106,6 +106,21 @@ export const SESSION_DATA_DIR = IS_TEST
   : resolve(env.get("SESSION_DATA_DIR").default(defaultSessionDataDir()).asString());
 
 /**
+ * Directory `GET /api/downloads/node/*` serves the prebuilt `mote-agent`
+ * binaries from (spec 2026-08-31 §8): files named `mote-agent-<target>`
+ * (plus an optional `mote-agent-<target>.sha256` sidecar). The build pipeline
+ * that populates it is separate (e2e Task 16) — serving a directory that does
+ * not exist yet is a plain 404, so no boot check.
+ *
+ * Under {@link IS_TEST} it hangs off the temp {@link SESSION_DATA_DIR} (the
+ * environment is ignored, same reasoning as there), which lets route tests
+ * write fixtures straight into it.
+ */
+export const NODE_ARTIFACTS_DIR = IS_TEST
+  ? join(SESSION_DATA_DIR, "node-artifacts")
+  : resolve(env.get("MOTE_NODE_ARTIFACTS_DIR").default(join(SESSION_DATA_DIR, "node-artifacts")).asString());
+
+/**
  * The database file's directory, or `./data` when the path is not file-backed
  * (an in-memory database or a SQLite URI has no meaningful dirname).
  */

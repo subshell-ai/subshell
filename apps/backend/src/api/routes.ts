@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { auditRoutes } from "@/api/audit.route.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
+import { downloadsRoutes } from "@/api/downloads.route.js";
 import { filesRoutes } from "@/api/files.route.js";
 import { identityRoutes } from "@/api/identities.route.js";
 import { liveRoutes } from "@/api/live.route.js";
@@ -43,7 +44,8 @@ const coreRoutes = new Elysia()
   .use(auditRoutes)
   .use(wsTokenRoutes)
   .use(identityRoutes)
-  .use(systemKeysRoutes);
+  .use(systemKeysRoutes)
+  .use(downloadsRoutes);
 
 const computeRoutes = new Elysia()
   .use(sessionRoutes)

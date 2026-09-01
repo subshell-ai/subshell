@@ -2,6 +2,7 @@ import { cors } from "@elysiajs/cors";
 import { openapi } from "@elysiajs/openapi";
 import { Elysia } from "elysia";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
+import { installScriptRoute } from "@/api/install-script.js";
 import { routes } from "@/api/routes.js";
 import { TRUSTED_ORIGINS } from "@/constants.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
@@ -28,6 +29,11 @@ export function createApp() {
     // Rate limiter must mount BEFORE the auth passthrough so its explicit
     // POST /api/auth/sign-in/email route wins over the .all("/api/auth/*").
     .use(authRateLimitRoutes)
+    // Root-level (not under /api) and BEFORE the static SPA plugin, same
+    // off-the-tree precedent as the rate limiter: `/install.sh` is a dotted
+    // top-level path the static plugin's file branch would otherwise 404
+    // (it is not a dist file). spec 2026-08-31 §8.
+    .use(installScriptRoute)
     .use(authPlugin)
     .use(staticPlugin(FRONTEND_DIST))
     .use(wsPlugin)
