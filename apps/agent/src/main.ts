@@ -8,6 +8,10 @@ import { run } from "./cli.js";
  */
 run(process.argv.slice(2))
   .then((result) => {
+    // A process-lifetime handle owns the process now (the `mcp` stdio
+    // transport) — its resolve means "attached", not "done". Exiting here
+    // kills the live connection (the T18 parity bug); fall through to idle.
+    if (result.keepAlive) return;
     if (result.out) process.stdout.write(result.out);
     if (result.err) process.stderr.write(result.err);
     process.exit(result.code);

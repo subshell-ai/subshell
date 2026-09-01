@@ -15,6 +15,14 @@ export interface CliResult {
   out: string;
   /** Text for stderr. */
   err: string;
+  /**
+   * The invocation started a process-lifetime handle — the MCP stdio
+   * transport — whose completion IS the success condition: `connect()`
+   * resolves once attached and the SDK's stdin listener is what keeps the
+   * process alive. An entry that sees this MUST NOT write or exit; exiting
+   * would kill the live transport (the T18 parity bug).
+   */
+  keepAlive?: boolean;
 }
 
 const USAGE = `mote-agent — mote node daemon
@@ -110,7 +118,11 @@ export async function run(argv: string[]): Promise<CliResult> {
           return fail(2, err);
         }
         await runAgentMcp();
-        return { code: 0, out: "", err: "" }; // unreachable: the stdio connection holds the process (test seam only)
+        // REACHABLE, and not the end: `connect()` resolves as soon as the
+        // stdio transport attaches, so this await returns while the server is
+        // still live. keepAlive is the contract that stops the entry from
+        // exiting (main.ts) — exiting here killed the transport pre-T18-fix.
+        return { code: 0, out: "", err: "", keepAlive: true };
       }
       case "run": {
         // The daemon is a foreground process that owns its own lifetime: it

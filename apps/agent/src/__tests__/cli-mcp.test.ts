@@ -3,9 +3,10 @@ import { parseArgs, run } from "../cli.js";
 
 /**
  * The `mote-agent mcp` CLI surface (Task 13). ONLY the reject paths are run
- * through `run()`: a complete MOTE_* env would boot the real stdio server on
- * the test process's stdin and never return, so the happy path is pinned by
- * the compiled-binary smoke check (task report, Step 3) instead. Isolation:
+ * through `run()`: a complete MOTE_* env would attach the real stdio transport
+ * to this test runner's own stdin (run() then resolves with `keepAlive` once
+ * attached — post-T18-fix, see `cli-mcp-entry.test.ts` for the spawned-child
+ * happy path: liveness + the initialize handshake). Isolation:
  * every MOTE_* variable is stripped per test — the reject assertions must
  * describe OUR env handling, never whatever the developer's shell exports.
  */
