@@ -36,6 +36,14 @@ export function ViewportDebug() {
     `vv ${Math.round(vv?.height ?? -1)} top ${Math.round(vv?.offsetTop ?? -1)} scale ${vv?.scale ?? 1}`,
     `scroll ${window.scrollY} dTop ${document.documentElement.scrollTop} bTop ${document.body.scrollTop}`,
     `insets ${insets ? `${insets.heightPx}/${insets.offsetYpx}` : "null(dvh)"}`,
+    // Proves WHICH bundle is running: BUILD 3 shipped the 16px no-zoom CSS
+    // and the launch-time viewport heal; the helper line shows whether the
+    // xterm input carries it (16px = fixed CSS; ~13px = cached old CSS).
+    "BUILD 3",
+    (() => {
+      const t = document.querySelector<HTMLElement>(".xterm-helper-textarea");
+      return t ? `helper ${getComputedStyle(t).fontSize}` : "helper absent";
+    })(),
     kb ? `keybar btm ${Math.round(kb.bottom)} of ${window.innerHeight}` : "keybar none",
     shell ? `shell h ${Math.round(shell.getBoundingClientRect().height)}` : "shell?",
     `standalone ${window.matchMedia("(display-mode: standalone)").matches}`,
