@@ -2,7 +2,7 @@ import { authDatabase } from "@/auth/database.js";
 
 /**
  * The one owner of raw SQL against better-auth's `apikey` table and of the
- * `metadata.kind` vocabulary that discriminates the two bearer kinds.
+ * `metadata.kind` vocabulary that discriminates the three bearer kinds.
  *
  * Why raw SQL: the `@better-auth/api-key` plugin's update/list/delete
  * endpoints are session-guarded and unusable server-side (spike finding) —
@@ -10,14 +10,14 @@ import { authDatabase } from "@/auth/database.js";
  * names are better-auth's physical camelCase, which the app's Kysely
  * CamelCasePlugin would mangle; hence this module, on the auth handle.
  *
- * Why the metadata contract lives here: both key kinds share one table and
+ * Why the metadata contract lives here: all three key kinds share one table and
  * only `metadata.kind` tells them apart. Mint sites (session-tokens, the
  * system-keys route) and the guard's kind check all import these names, so
  * a rename is a one-file change instead of a cross-file grep.
  */
 
-/** The two kinds of bearer key this app mints. */
-export type ApiKeyKind = "session" | "system";
+/** The three kinds of bearer key this app mints. */
+export type ApiKeyKind = "session" | "system" | "node";
 
 /** metadata payload for a per-session token. */
 export interface SessionKeyMetadata {
@@ -29,6 +29,18 @@ export interface SessionKeyMetadata {
 /** metadata payload for an admin-managed system key. */
 export interface SystemKeyMetadata {
   kind: "system";
+}
+
+/**
+ * metadata payload for a node key (spec 2026-08-31 §5.5). Node keys NEVER
+ * authenticate REST — auth-guard rejects them on every `/api/*` route; only
+ * the `/ws/node` upgrade verifies them, and there their blast radius is
+ * exactly "open the socket as this node".
+ */
+export interface NodeKeyMetadata {
+  kind: "node";
+  /** The node this key authenticates as on /ws/node. */
+  nodeId: string;
 }
 
 /** The subset of the plugin's createApiKey return shape this app reads. */

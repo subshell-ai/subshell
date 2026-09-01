@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { authGuard, ForbiddenError, requireAdmin, requirePerm } from "@/api/auth-guard.js";
+import { sessionRoutes } from "@/api/sessions/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
@@ -9,6 +10,7 @@ import { db } from "@/db/index.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -48,6 +50,11 @@ const probe = new Elysia().use(authGuard).get("/probe", (c) => {
 });
 
 const adminProbe = new Elysia().use(requireAdmin).get("/admin-probe", () => ({ ok: true }));
+
+// Real /api/sessions surface with the production error serializer, so a
+// guard-thrown 401 carries the ApiErrorResponse body (and its message) the
+// same way it does under createApp().
+const restApp = new Elysia().use(errorHandlerPlugin).use(sessionRoutes);
 
 describe("authGuard bearer path", () => {
   let userId: string;
@@ -150,6 +157,25 @@ describe("authGuard bearer path", () => {
     createdKeyIds.push(fakeSystem.id);
     // Owned by a normal user, not the system user → not a system actor.
     expect((await bearerGet(fakeSystem.key)).status).toBe(401);
+  });
+
+  it('a "node" kind key 401s on REST with an explicit node-key message (spec §5.5)', async () => {
+    // Node keys authenticate /ws/node only. Today such a key already 401s —
+    // but accidentally, by failing the system-user ownership check with the
+    // generic "Unauthorized". Asserting the MESSAGE names node keys pins the
+    // explicit guard branch, so it can never silently degrade back to the
+    // accidental path (or be widened) without a test failure.
+    const created = (await auth.api.createApiKey({
+      body: { name: "node-rest-test", userId, metadata: { kind: "node", nodeId: "n1" } },
+    })) as unknown as { id: string; key: string };
+    createdKeyIds.push(created.id);
+    const res = await restApp.fetch(
+      new Request("http://localhost:3080/api/sessions", { headers: { authorization: `Bearer ${created.key}` } }),
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("INVALID_CREDENTIALS");
+    expect(body.message).toMatch(/node keys/i);
   });
 
   it("the plugin's self-service api-key endpoints are blocked", async () => {

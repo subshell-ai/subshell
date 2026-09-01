@@ -31,6 +31,8 @@ interface VerifiedKeyRow {
  * A session token whose session row is gone is 401 even if the key itself is
  * valid — the row is the lifecycle truth. System keys authenticate as their
  * owning user with no permission ceiling (plan decision: admins manage them).
+ * Node-kind keys are rejected outright here — they are `/ws/node` credentials
+ * only (spec 2026-08-31 §5.5).
  */
 async function deriveFromApiKey(bearer: string) {
   let valid = false;
@@ -65,6 +67,11 @@ async function deriveFromApiKey(bearer: string) {
       apiKeyId: row.id,
       apiKeyPermissions: row.permissions ?? {},
     };
+  }
+  if (meta?.kind === "node") {
+    // Explicit, permanent rejection (spec 2026-08-31 §5.5): a node key's blast
+    // radius is exactly "open /ws/node as that node". Do NOT widen this.
+    throw new UnauthorizedError("Node keys cannot be used on the REST API");
   }
   // System-key actor is reserved for keys owned by the `system` service user
   // (minted through admin-only routes); anything else reaching here is a
@@ -159,11 +166,15 @@ export function requirePerm(ctx: PermContext, resource: "channels" | "sessions",
   if (!(ctx.apiKeyPermissions?.[resource] ?? []).includes(action)) throw new ForbiddenError();
 }
 
-/** Thrown by guards on missing/invalid credentials; Elysia maps `status`. */
+/**
+ * Thrown by guards on missing/invalid credentials; Elysia maps `status`.
+ * The message is overridable (it reaches the client via the error handler);
+ * the default keeps every generic rejection worded as it always has been.
+ */
 export class UnauthorizedError extends Error {
   readonly status = 401;
-  constructor() {
-    super("Unauthorized");
+  constructor(message = "Unauthorized") {
+    super(message);
     this.name = "UnauthorizedError";
   }
 }
