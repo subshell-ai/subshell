@@ -10,6 +10,7 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
+import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
@@ -70,6 +71,9 @@ process.on("uncaughtException", (error) => {
   } catch (err) {
     getLogger().withError(err).warn("default-profile backfill failed at boot; will retry next start");
   }
+  // Seed/repair the control-plane host's `local` node row + Everyone/edit
+  // share (spec 2026-08-31 §2). Idempotent; needs the system user seeded above.
+  await ensureLocalNode(db);
 
   await startServer({ port: SERVER_PORT, host: HOST });
 
