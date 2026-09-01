@@ -132,6 +132,59 @@ describe("NodesRepository", () => {
     expect((await repo.findById(n.id))?.inventoryJson).toBe("[]");
   });
 
+  it("markStaleAgentsOffline: stale + never-seen flip, fresh + local survive", async () => {
+    const owner = unique("u");
+    const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+
+    const fresh = await mkNode(repo, owner); // online, heartbeat 5 s ago
+    await repo.setStatus(fresh.id, "online");
+    await repo.touch(fresh.id);
+
+    const stale = await mkNode(repo, owner); // online, heartbeat 10 min ago
+    await repo.setStatus(stale.id, "online");
+    await db
+      .updateTable("nodes")
+      .set({ lastSeenAt: iso(600_000) })
+      .where("id", "=", stale.id)
+      .execute();
+
+    const neverSeen = await mkNode(repo, owner); // online (manually), lastSeenAt NULL
+    await repo.setStatus(neverSeen.id, "online");
+
+    const local = await repo.create({
+      id: unique("n"),
+      ownerUserId: owner,
+      name: unique("node"),
+      kind: "local",
+      status: "online",
+    });
+    await db
+      .updateTable("nodes")
+      .set({ lastSeenAt: iso(600_000) })
+      .where("id", "=", local.id)
+      .execute();
+
+    const alreadyOffline = await mkNode(repo, owner); // offline + stale → not counted
+    await db
+      .updateTable("nodes")
+      .set({ lastSeenAt: iso(600_000) })
+      .where("id", "=", alreadyOffline.id)
+      .execute();
+
+    const flipped = await repo.markStaleAgentsOffline(iso(45_000));
+    expect(flipped).toBeGreaterThanOrEqual(2); // exactly stale + neverSeen (plus any foreign leftovers)
+
+    expect((await repo.findById(fresh.id))?.status).toBe("online");
+    expect((await repo.findById(stale.id))?.status).toBe("offline");
+    expect((await repo.findById(neverSeen.id))?.status).toBe("offline");
+    expect((await repo.findById(local.id))?.status).toBe("online"); // local is never swept
+    expect((await repo.findById(alreadyOffline.id))?.status).toBe("offline");
+
+    // Idempotent: a second run finds nothing of ours left to flip.
+    const second = await repo.markStaleAgentsOffline(iso(45_000));
+    expect(second).toBe(0);
+  });
+
   it("deleteById unpins profiles and removes the node; countPinnedProfiles pre-counts", async () => {
     const n = await mkNode(repo, unique("u"));
     const userId = unique("u");

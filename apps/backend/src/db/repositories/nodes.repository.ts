@@ -155,6 +155,28 @@ export class NodesRepository extends BaseRepository {
     await this.db.updateTable("nodes").set({ lastSeenAt: new Date().toISOString() }).where("id", "=", id).execute();
   }
 
+  /**
+   * Offline sweep (spec 2026-08-31 §5.3): flip agent nodes that stopped
+   * reporting from `online` to `offline`. A row is stale when its last
+   * heartbeat/ready predates `olderThanIso` OR was never stamped (crash
+   * between socket-open and first frame). `local` is excluded by `kind` —
+   * the control-plane host has no agent socket and no heartbeat stream.
+   * @param olderThanIso - ISO 8601 cutoff; `lastSeenAt` strictly before it is stale
+   * @returns the number of rows flipped
+   */
+  async markStaleAgentsOffline(olderThanIso: string): Promise<number> {
+    const res = await this.db
+      .updateTable("nodes")
+      .set({ status: "offline", updatedAt: new Date().toISOString() })
+      .where("kind", "=", "agent")
+      .where("status", "=", "online")
+      .where((eb) => eb.or([eb("lastSeenAt", "is", null), eb("lastSeenAt", "<", olderThanIso)]))
+      .executeTakeFirst();
+    // numUpdatedRows arrives bigint from bun:sqlite and number from some
+    // Kysely paths — Number() normalizes both spellings.
+    return Number(res?.numUpdatedRows ?? 0);
+  }
+
   /** Bind the node's better-auth apikey id (the anti-forgery link, spec §5.2). */
   async setApiKeyId(id: string, apiKeyId: string): Promise<void> {
     await this.db

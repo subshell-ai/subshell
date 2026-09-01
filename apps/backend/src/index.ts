@@ -6,6 +6,7 @@ import { assertProdAuthSecret, DATABASE_PATH, HOST, SERVER_PORT } from "@/consta
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { startServer } from "@/server.js";
@@ -79,6 +80,7 @@ process.on("uncaughtException", (error) => {
 
   // Background housekeeping: expire WS attach tokens, reconcile tmux state.
   const sessions = new SessionsRepository(db);
+  const nodes = new NodesRepository(db);
   const manager = new SessionManagerService({
     sessions,
     profiles: new ProfilesRepository(db),
@@ -89,6 +91,11 @@ process.on("uncaughtException", (error) => {
   setInterval(() => {
     sweepWsTokens();
     void manager.reconcileAll();
+    // Offline sweep (spec §5.3): a crashed/evicted agent may never produce a
+    // socket close here; staleness of `lastSeenAt` is the backstop.
+    void nodes
+      .markStaleAgentsOffline(new Date(Date.now() - 45_000).toISOString())
+      .catch((err: unknown) => getLogger().withError(err).warn("node offline sweep failed"));
   }, 60_000);
 
   // Quiet-output idle watcher (services/notify-idle.ts): for harnesses
