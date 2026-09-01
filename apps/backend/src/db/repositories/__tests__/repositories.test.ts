@@ -255,6 +255,17 @@ describe("recent paths repository", () => {
     expect(list).toHaveLength(2);
     expect(list.map((p) => p.path)).toEqual(expect.arrayContaining(["/a", "/b"]));
   });
+
+  it("lists per node: the read side matches the per-node write side", async () => {
+    // Same path touched under two nodes — the default (local) read must see
+    // only the local row; the remote row is visible only by name.
+    await repos.recentPaths.touch("u-node", "/shared", null, "node-x");
+    await repos.recentPaths.touch("u-node", "/shared");
+    expect(await repos.recentPaths.listByUser("u-node")).toEqual([{ path: "/shared", label: null }]);
+    expect(await repos.recentPaths.listByUser("u-node", 20, "node-x")).toEqual([{ path: "/shared", label: null }]);
+    // A node nobody touched reads empty even though the path exists elsewhere.
+    expect(await repos.recentPaths.listByUser("u-node", 20, "node-y")).toEqual([]);
+  });
 });
 
 describe("settings repository", () => {

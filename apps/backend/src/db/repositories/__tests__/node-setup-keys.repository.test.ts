@@ -25,6 +25,9 @@ describe("NodeSetupKeysRepository", () => {
     expect(stored?.keyHash).toMatch(/^[0-9a-f]{64}$/);
     const consumed = await repo.consume(plaintext, "n1");
     expect(consumed?.id).toBe(row.id);
+    // Post-flip state: the winner's copy already carries its own spend.
+    expect(consumed?.usedAt).not.toBeNull();
+    expect(consumed?.consumedNodeId).toBe("n1");
     expect(await repo.consume(plaintext, "n2")).toBeNull();
     const after = await repo.findById(row.id);
     expect(after?.usedAt).not.toBeNull();

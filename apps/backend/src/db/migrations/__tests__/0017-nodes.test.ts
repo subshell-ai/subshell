@@ -128,6 +128,42 @@ describe("migration 0017-nodes", () => {
     expect(await db.selectFrom("nodeHarnesses").selectAll().execute()).toHaveLength(0);
   });
 
+  it("uniques key_hash on node_setup_keys (the indexed redemption lookup, spec §5.1)", async () => {
+    const db = await migratedDb();
+    const mk = (id: string, hash: string) => ({
+      id,
+      ownerUserId: "u1",
+      label: "l",
+      keyHash: hash,
+      createdAt: "t",
+      expiresAt: "t",
+      usedAt: null,
+      consumedNodeId: null,
+    });
+    await db.insertInto("nodeSetupKeys").values(mk("k1", "aa")).execute();
+    // same digest twice: rejected (honest duplicates can't both redeem)
+    await expect(db.insertInto("nodeSetupKeys").values(mk("k2", "aa")).execute()).rejects.toThrow();
+    await expect(db.insertInto("nodeSetupKeys").values(mk("k3", "bb")).execute()).resolves.toBeTruthy();
+  });
+
+  it("down() collapses cross-node recent_paths duplicates instead of aborting", async () => {
+    const db = await migratedDb();
+    const mk = (id: string, node: string) => ({ id, userId: "u1", path: "/dup", label: null, nodeId: node });
+    await db.insertInto("recentPaths").values(mk("r1", "local")).execute();
+    // legitimate post-0017 data: the same path on two nodes — pre-fix, the
+    // UNIQUE (user, path) re-creation in down() aborted right here.
+    await db.insertInto("recentPaths").values(mk("r2", "node-2")).execute();
+    await expect(nodesMigration.down(db)).resolves.toBeUndefined();
+    // duplicates collapsed to the oldest row (MIN(id))
+    const kept = await db.selectFrom("recentPaths").select("id").where("path", "=", "/dup").execute();
+    expect(kept.map((r) => r.id)).toEqual(["r1"]);
+    // old unique behavior restored: same (user, path) twice fails again
+    // (node_id is gone after down(), so the fixture must not mention it)
+    await expect(
+      db.insertInto("recentPaths").values({ id: "r9", userId: "u1", path: "/dup", label: null }).execute(),
+    ).rejects.toThrow();
+  });
+
   it("down() removes the tables and restores the old recent_paths index", async () => {
     const db = await migratedDb();
     await nodesMigration.down(db);

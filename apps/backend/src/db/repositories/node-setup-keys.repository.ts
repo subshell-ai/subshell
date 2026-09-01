@@ -114,7 +114,11 @@ export class NodeSetupKeysRepository extends BaseRepository {
       // race; this one gets nothing.
       const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
       if (Number(counts?.numUpdatedRows ?? counts?.numUpdated ?? 0) === 0) return null;
-      return row;
+      // Return the POST-flip state (usedAt + consumedNodeId set), re-read in
+      // the same transaction — callers redeem a key and then look at what
+      // they just spent; handing back the pre-UPDATE row made the winner's
+      // copy read as still-unused.
+      return await tx.selectFrom("nodeSetupKeys").selectAll().where("id", "=", row.id).executeTakeFirstOrThrow();
     });
   }
 }

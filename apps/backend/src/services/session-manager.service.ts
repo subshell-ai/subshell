@@ -790,8 +790,21 @@ export class SessionManagerService {
         continue;
       }
       if (!(await this.#launcher.hasSession(row.tmuxSocket, row.id))) {
+        // Probe FIRST, decide after: paneExitCode is awaited just like
+        // hasSession, so collect every async probe before touching state.
+        const exitCode = row.alive === 1 ? await this.#launcher.paneExitCode(row.tmuxSocket, row.id) : null;
+        // ── TOCTOU re-check (spec §6.3 async seam TOCTOU): the probes above
+        // widened the check→act window that opened at the skip-guard. A
+        // restart that began mid-flight owns this row now (its pane is
+        // deliberately absent) — skip it this sweep rather than revoke the
+        // token #reviveRow just minted.
+        if (restartInFlight.has(row.id)) continue;
+        // Same spirit: the row may have been terminated or deleted under us
+        // mid-await — neither stamping its death nor retiring its token is
+        // ours to do once it isn't a running row anymore.
+        const fresh = await this.#sessions.findById(row.id);
+        if (fresh?.status !== "running") continue;
         if (row.alive === 1) {
-          const exitCode = await this.#launcher.paneExitCode(row.tmuxSocket, row.id);
           // `waiting_since` dies with the process — nobody is waiting anymore.
           await this.#sessions.update(row.id, { alive: 0, exitCode, endedAt: now, waitingSince: null });
           logger.info(`session crashed (exit=${exitCode ?? "?"}): ${row.id}`);

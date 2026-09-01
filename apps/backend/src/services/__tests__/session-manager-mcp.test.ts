@@ -18,7 +18,7 @@ import { openSqliteDatabase } from "@/db/open-database.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import type { Database } from "@/db/types/index.js";
-import type { SessionUpdate } from "@/db/types/sessions.db-types.js";
+import type { SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
 import { sessionMcpConfigPath } from "@/services/mcp-launch.js";
 import { SessionManagerService, type SessionTokenProvider } from "@/services/session-manager.service.js";
@@ -406,6 +406,44 @@ describe("auto-restart failure bounds + terminate race", () => {
     expect(row?.status).toBe("terminated");
     expect(row?.alive).toBe(0);
     await manager.deleteSession("u1", id);
+  });
+
+  it("row terminated under the sweep: no death stamp, no push, no revoke (async-seam TOCTOU, spec §6.3)", async () => {
+    // The window the async probes open: the snapshot said running/alive,
+    // hasSession says false, but a terminate lands during the awaits. The
+    // post-probe re-read reports it (simulated here by a findById that
+    // answers with the post-terminate state) — the sweep must back off
+    // entirely: stamping and retiring the token belong to the terminate.
+    const pid = await seedProfile(profiles, { name: `toctou-${crypto.randomUUID().slice(0, 8)}` });
+    const created = await manager.createSession({ userId: "u1", profileId: pid, workingDir: testDir });
+    tmux.alive = false; // the pane is gone by sweep time
+    const notified: string[] = [];
+    class RereadingSessions extends SessionsRepository {
+      override async findById(id: string): Promise<SessionTable | undefined> {
+        const row = await super.findById(id);
+        // Exactly what the reconcile's post-probe re-read would see after a
+        // terminate (which also flips alive) — a terminated row.
+        return row && row.alive === 1 ? { ...row, status: "terminated" } : row;
+      }
+    }
+    manager = new SessionManagerService({
+      sessions: new RereadingSessions(db),
+      profiles,
+      tmux,
+      tokens,
+      audit: async () => {},
+      notify: async (id) => {
+        notified.push(id);
+      },
+    });
+    await manager.reconcileAll();
+    expect(tokens.revoked).not.toContain(created.id);
+    expect(notified).toEqual([]);
+    // Untouched by the sweep (the fake terminate was read-only by design):
+    const row = await sessions.findById(created.id);
+    expect(row?.status).toBe("running");
+    expect(row?.alive).toBe(1);
+    expect(row?.endedAt).toBeNull();
   });
 
   it("terminate between spawn and the post-spawn patch: row stays terminated, orphan cleaned", async () => {
