@@ -1,0 +1,5 @@
+# Applies to every `bun test` in this package. The preload points MOTE_AGENT_HOME
+# at a throwaway directory (and skips the tmux preflight) so the suites never
+# touch the developer's real ~/.config/mote-agent and never require a tmux server.
+[test]
+preload = ["./src/test-preload.ts"]
