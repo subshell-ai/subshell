@@ -22,6 +22,12 @@ export interface ActionItem {
   onSelect?: () => void;
   /** Red item styling; pair it with a `confirmAction` prompt in `onSelect` */
   destructive?: boolean;
+  /**
+   * Renders the item greyed and inert — for actions the caller can SEE but
+   * not perform (e.g. Delete on a node shared read-only), where hiding would
+   * misrepresent what the surface can do.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -66,8 +72,9 @@ export function ActionsMenu({
           return (
             <DropdownMenuItem
               key={item.label}
+              disabled={item.disabled}
               className={item.destructive ? "text-destructive data-highlighted:text-destructive" : undefined}
-              onSelect={item.onSelect}
+              onSelect={item.disabled ? undefined : item.onSelect}
             >
               <Icon className="h-4 w-4" />
               {item.label}

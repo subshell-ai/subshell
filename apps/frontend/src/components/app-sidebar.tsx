@@ -1,5 +1,14 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { ChevronLeft, LayoutDashboard, LogOut, type LucideIcon, Settings, TerminalSquare, Users } from "lucide-react";
+import {
+  ChevronLeft,
+  LayoutDashboard,
+  LogOut,
+  type LucideIcon,
+  Server,
+  Settings,
+  TerminalSquare,
+  Users,
+} from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSessionsList } from "@/hooks/use-sessions";
@@ -25,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   // not a grid (the grid icon belongs to the tiles/list view toggle).
   { to: "/", label: "Sessions", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
+  { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   { to: "/profiles", label: "Profiles", icon: Settings, short: "Prof" },
   { to: "/settings", label: "Settings", icon: Settings, short: "Sets" },
   { to: "/users", label: "Users", icon: Users, short: "Users" },

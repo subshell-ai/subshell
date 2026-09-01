@@ -24,3 +24,9 @@ export const SESSION_SHARES_QUERY_KEY = ["session-shares"] as const;
 
 /** Prefix of one workspace's detail query: `[...WORKSPACE_QUERY_KEY, id]`. */
 export const WORKSPACE_QUERY_KEY = ["workspace"] as const;
+
+/** The caller's node list (`GET /api/nodes`); read via `useNodes`. */
+export const NODES_QUERY_KEY = ["nodes"] as const;
+
+/** Prefix of one node's detail query: `[...NODE_QUERY_KEY, id]`. */
+export const NODE_QUERY_KEY = ["node"] as const;
