@@ -69,4 +69,17 @@ describe("TerminalKeyBar", () => {
     const img = screen.getByRole("button", { name: "Attach image" }) as HTMLButtonElement;
     expect(img.disabled).toBe(true);
   });
+
+  it("splits the keys across two rows with the image button trailing the second", () => {
+    // One row of twelve squished the glyphs on a phone — the layout contract
+    // is: control keys on top, input/arrows/image below.
+    render(<TerminalKeyBar disabled={false} onBytes={() => {}} onPickImage={() => {}} />);
+    const escRow = screen.getByRole("button", { name: "Send Escape" }).parentElement;
+    const enterRow = screen.getByRole("button", { name: "Send Enter" }).parentElement;
+    const slashRow = screen.getByRole("button", { name: "Send slash" }).parentElement;
+    const imgRow = screen.getByRole("button", { name: "Attach image" }).parentElement;
+    expect(enterRow).toBe(escRow); // controls stay together
+    expect(slashRow).not.toBe(escRow); // arrows/slash moved down
+    expect(imgRow).toBe(slashRow);
+  });
 });

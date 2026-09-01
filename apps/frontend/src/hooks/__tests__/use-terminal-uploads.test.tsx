@@ -60,9 +60,11 @@ describe("useTerminalUploads.openImagePicker", () => {
     );
     result.current.openImagePicker();
 
+    if (!input) throw new Error("openImagePicker never built an input");
+    const picked = input;
     const file = new File(["x"], "pic.png", { type: "image/png" });
-    Object.defineProperty(input!, "files", { value: [file] });
-    input!.dispatchEvent(new Event("change"));
+    Object.defineProperty(picked, "files", { value: [file] });
+    picked.dispatchEvent(new Event("change"));
 
     expect(uploadSpy).toHaveBeenCalledWith("s1", file);
 
