@@ -133,6 +133,9 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
     logger.info(`ws attach: no log file for ${row.id}, polling pane`);
     startPanePoll(ws, data);
   }
+  // Both start* fns assign `cleanup` AFTER the Object.assign above — propagate it
+  // to the live ws.data (both branches) so cleanupSessionWs reaches the disposer.
+  ws.data.cleanup = data.cleanup;
 }
 
 /** Minimal WebSocket surface used by the attach handler (ElysiaWS provides it). */
