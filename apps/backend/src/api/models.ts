@@ -33,6 +33,7 @@ export const SessionSchema = t.Object({
   id: t.String({ description: "Session id" }),
   profileId: t.String({ description: "Profile id" }),
   harnessId: t.String({ description: "Harness plugin id" }),
+  nodeId: t.String({ description: "Node the session runs on ('local' = control-plane host)" }),
   name: t.String({ description: "Session display name" }),
   workingDir: t.String({ description: "Absolute working directory" }),
   status: t.String({ description: "running | terminated" }),

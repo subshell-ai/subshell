@@ -1,3 +1,4 @@
+import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
@@ -9,6 +10,9 @@ const CreateSessionBodySchema = t.Object({
   name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Session display name" })),
   prompt: t.Optional(
     t.String({ maxLength: 20000, description: "Task text typed into the pane once the harness settles" }),
+  ),
+  nodeId: t.Optional(
+    t.String({ minLength: 1, description: "Node to launch on; omitted or 'local' = control-plane host" }),
   ),
 });
 
@@ -30,6 +34,18 @@ export const createSessionRoute = new Elysia()
     "/",
     async ({ body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "sessions", "write");
+      // Phase-1 contract (spec 2026-08-31 §3): the column and the wire field
+      // exist, but ONLY the control-plane host launches. Any other value —
+      // whatever the node's id, visibility, or state — is refused here,
+      // before any profile/service work. Nothing else about the node is
+      // validated; remote launch (and its real gating) arrives in phase 2.
+      if (body.nodeId !== undefined && body.nodeId !== "local") {
+        throwApiError({
+          code: BackendErrorCodes.NODE_LAUNCH_NOT_READY,
+          message: "Remote launch arrives in phase 2",
+          doNotLog: true,
+        });
+      }
       return await ctx.services.sessions.createSession({
         userId: user.id,
         profileId: body.profileId,

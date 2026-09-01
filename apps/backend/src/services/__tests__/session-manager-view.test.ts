@@ -13,6 +13,7 @@ function row(overrides: Partial<Parameters<typeof toSessionView>[0]> = {}) {
     userId: "u1",
     profileId: "p1",
     harnessId: "claude",
+    nodeId: "local",
     name: "session",
     workingDir: "/tmp",
     status: "running",

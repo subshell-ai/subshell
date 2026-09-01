@@ -1021,6 +1021,7 @@ export function toSessionView(
     userId: string;
     profileId: string;
     harnessId: string;
+    nodeId: string;
     name: string;
     workingDir: string;
     status: string;
@@ -1053,6 +1054,7 @@ export function toSessionView(
     id: row.id,
     profileId: row.profileId,
     harnessId: row.harnessId,
+    nodeId: row.nodeId,
     name: row.name,
     workingDir: row.workingDir,
     status,
