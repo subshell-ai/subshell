@@ -32,7 +32,8 @@ export function ViewportDebug() {
   const kb = keybar?.getBoundingClientRect();
   const shell = document.querySelector("body > div > div, #root > div > div");
   const lines = [
-    `inner ${window.innerHeight} vv ${Math.round(vv?.height ?? -1)} top ${Math.round(vv?.offsetTop ?? -1)}`,
+    `screen ${window.screen.height} inner ${window.innerHeight}`,
+    `vv ${Math.round(vv?.height ?? -1)} top ${Math.round(vv?.offsetTop ?? -1)} scale ${vv?.scale ?? 1}`,
     `scroll ${window.scrollY} dTop ${document.documentElement.scrollTop} bTop ${document.body.scrollTop}`,
     `insets ${insets ? `${insets.heightPx}/${insets.offsetYpx}` : "null(dvh)"}`,
     kb ? `keybar btm ${Math.round(kb.bottom)} of ${window.innerHeight}` : "keybar none",

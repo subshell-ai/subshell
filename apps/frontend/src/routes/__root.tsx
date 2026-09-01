@@ -111,7 +111,8 @@ function Shell() {
           <Outlet />
         </div>
       </div>
-      {new URLSearchParams(location.search).has("viewport-debug") && <ViewportDebug />}
+      {(new URLSearchParams(location.search).has("viewport-debug") ||
+        window.matchMedia("(display-mode: standalone)").matches) && <ViewportDebug />}
     </div>
   );
 }
