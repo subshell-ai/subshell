@@ -7,6 +7,7 @@ export enum BackendErrorCodes {
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
   NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
+  NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
@@ -45,6 +46,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_LAUNCH_NOT_READY]: {
     message: "Remote node launch is not available yet",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_NAME_TAKEN]: {
+    message: "You already have a node with this name",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_OFFLINE]: {

@@ -157,9 +157,11 @@ describe("/api/nodes/setup-keys", () => {
     expect((await listKeys(aliceCookie)).some((k) => k.id === row.id)).toBe(false);
   });
 
-  it("a session bearer key is refused (cookie-only) → 403 on POST and GET", async () => {
+  it("a session bearer key is refused (cookie-only) → 403 on POST, GET and DELETE", async () => {
     expect((await req("POST", "/setup-keys", { bearer: sessionKey, body: { label: "nope" } })).status).toBe(403);
     expect((await req("GET", "/setup-keys", { bearer: sessionKey })).status).toBe(403);
+    // 403 before the 404 lookup — requireCookieActor gates the route first.
+    expect((await req("DELETE", "/setup-keys/whatever", { bearer: sessionKey })).status).toBe(403);
   });
 
   it("unauthenticated → 401", async () => {
