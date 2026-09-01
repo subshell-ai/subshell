@@ -46,6 +46,8 @@ export async function ensureLocalNode(db: Kysely<Database>): Promise<void> {
   if (!existing.some((s) => s.granteeUserId === null)) {
     // Replace-merge: replay the current entries so named grants survive the
     // transactional delete-then-insert, and add only the missing Everyone/edit.
+    // NOTE: replaying through replaceForNode re-stamps every replayed row's
+    // createdBy/createdAt — consumers must not treat those columns as immutable.
     await shares.replaceForNode(
       LOCAL_NODE_ID,
       [

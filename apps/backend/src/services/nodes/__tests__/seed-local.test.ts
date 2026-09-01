@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
@@ -37,6 +37,11 @@ beforeAll(async () => {
   await runMigrations();
   await runAuthMigrations();
 });
+
+// The tests here MUTATE the shared `local` row (wipe, rename, os edits) — wipe
+// it on the way out too, so a later suite in the same `bun test` invocation
+// doesn't inherit a "Renamed"/plan9 local node from this file.
+afterAll(wipeLocal);
 
 describe("ensureLocalNode", () => {
   it("seeds exactly one local row + one Everyone/edit share, and a double run changes nothing", async () => {
