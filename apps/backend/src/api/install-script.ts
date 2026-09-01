@@ -29,9 +29,17 @@ exit 2
  * through `$KEY`. It is safe to embed because `peekValid` just proved it
  * hashes to a live DB row, i.e. it matches the `nsk_<base64url>` mint shape;
  * no attacker-controlled string ever reaches this template.
+ *
+ * That safety argument leans on the CALLER, so the template also defends
+ * itself: the first line re-checks the mint shape (`nsk_` + 32 base64url
+ * chars, see `NodeSetupKeysRepository.create`) and falls back to the usage
+ * script otherwise. Today it can never fire; it exists so a future row
+ * writer (different mint format, imported keys) cannot silently regress the
+ * no-shell-metacharacters property of this template.
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
  */
 function renderInstallScript(key: string): string {
+  if (!/^nsk_[A-Za-z0-9_-]{32}$/.test(key)) return usageScript();
   return `#!/usr/bin/env bash
 # mote-agent installer — rendered by mote for this instance (spec 2026-08-31 §8).
 set -euo pipefail

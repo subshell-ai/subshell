@@ -2,23 +2,37 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { downloadsRoutes } from "@/api/downloads.route.js";
 import { installScriptRoute } from "@/api/install-script.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+
+// Assembled like createApp(): the GLOBAL error handler is mounted before the
+// routes, so any thrown validation would serialize as 400 INPUT_VALIDATION_ERROR
+// exactly as in production. The downloads contract (unknown target → 404) is
+// enforced IN-HANDLER, and these tests assert it at this level — the prod
+// answer IS the tested answer.
+const app = new Elysia().use(errorHandlerPlugin).use(downloadsRoutes).use(installScriptRoute);
+
+/** `bash` is near-universal but not guaranteed; tests needing it skip without it. */
+const BASH = Bun.which("bash");
 
 /**
  * `GET /api/downloads/node/:target[.sha256]` + `GET /install.sh` (spec
  * 2026-08-31 §8). The gate is cookie session OR a valid, unconsumed setup key;
- * targets are a closed enum validated before any path construction; sha reads
- * an on-disk sidecar when present and computes (and caches by mtime) otherwise.
- * Artifacts come from the real `NODE_ARTIFACTS_DIR` — under IS_TEST that is
- * inside this process's temp data dir, so fixtures are written straight there.
+ * the closed target set is enforced in-handler before any path construction
+ * (never as a params-schema throw — that would reach the global handler as a
+ * 400); sha reads an on-disk sidecar when present and computes (and caches by
+ * mtime) otherwise. Artifacts come from the real `NODE_ARTIFACTS_DIR` — under
+ * IS_TEST that is inside this process's temp data dir, so fixtures are written
+ * straight there.
  */
-describe("/api/downloads + /install.sh", () => {
+describe("/api/downloads + /install.sh (assembled app)", () => {
   const email = `dl-${crypto.randomUUID()}@mote.local`;
   const pw = "downloads-1";
   const TARGET = "linux-x64";
@@ -36,7 +50,7 @@ describe("/api/downloads + /install.sh", () => {
     const headers = new Headers();
     if (opts.cookie) headers.set("cookie", `better-auth.session_token=${opts.cookie}`);
     const q = opts.key ? `?setup_key=${encodeURIComponent(opts.key)}` : "";
-    return downloadsRoutes.fetch(new Request(`http://localhost:3080/api/downloads${path}${q}`, { headers }));
+    return app.fetch(new Request(`http://localhost:3080/api/downloads${path}${q}`, { headers }));
   }
 
   async function mkKey(ttlMs?: number): Promise<string> {
@@ -66,9 +80,12 @@ describe("/api/downloads + /install.sh", () => {
     for (const id of createdKeyIds) await repo.deleteById(id, userId);
   });
 
-  // ── target validation (before any filesystem path construction) ──────────
+  // ── target gating (in-handler, before any filesystem path construction) ───
 
-  it("unknown target → 404, even authenticated", async () => {
+  it("unknown target → 404 NOT_FOUND_ERROR at the assembled-app level, unauth and authed", async () => {
+    // 404 must survive composition with the GLOBAL error handler: if the gate
+    // were a t.Union params schema, the global VALIDATION branch would answer
+    // 400 INPUT_VALIDATION_ERROR here instead.
     for (const res of [await dl("/node/windows-x64"), await dl("/node/windows-x64", { cookie })]) {
       expect(res.status).toBe(404);
       const body = (await res.json()) as { code: string; statusCode: number };
@@ -77,11 +94,20 @@ describe("/api/downloads + /install.sh", () => {
     }
   });
 
-  it("path traversal in :target → 404 (enum rejects before path build)", async () => {
-    for (const p of ["/node/..%2F..%2Fetc%2Fpasswd", "/node/....256", "/node/linux-x64.txt"]) {
+  it("path traversal in :target → 404 (gate rejects before path build)", async () => {
+    // (Not `%2e%2e/x` — WHATWG URL parsing folds that into a dot-segment before
+    // routing; `%252e` survives the URL layer and fails the gate.)
+    for (const p of ["/node/..%2F..%2Fetc%2Fpasswd", "/node/....256", "/node/linux-x64.txt", "/node/%252e%252e"]) {
       const res = await dl(p, { cookie });
       expect(res.status).toBe(404);
+      expect(((await res.json()) as { code: string }).code).toBe("NOT_FOUND_ERROR");
     }
+  });
+
+  it("valid target with no file on disk → 404 ApiErrorResponse", async () => {
+    const res = await dl("/node/darwin-arm64", { cookie });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: string }).code).toBe("NOT_FOUND_ERROR");
   });
 
   it("unknown .sha256 target → 404", async () => {
@@ -98,6 +124,16 @@ describe("/api/downloads + /install.sh", () => {
       const body = (await res.json()) as { code: string; errId: string; statusCode: number };
       expect(typeof body.errId).toBe("string");
       expect(body.statusCode).toBe(401);
+    }
+  });
+
+  it("bogus cookie and no setup key → 401 (a PRESENT cookie must be valid; key path not tried)", async () => {
+    // Credential precedence: extractSessionToken sees a token, so resolveCookieSession
+    // decides — a stale/forged cookie 401s even though no setup_key was offered.
+    for (const path of [`/node/${TARGET}`, `/node/${TARGET}.sha256`]) {
+      const res = await dl(path, { cookie: "not-a-real-session-token-abcdefghij" });
+      expect(res.status).toBe(401);
+      expect(((await res.json()) as { code: string }).code).toBe("INVALID_CREDENTIALS");
     }
   });
 
@@ -132,15 +168,21 @@ describe("/api/downloads + /install.sh", () => {
     expect(res.status).toBe(200);
   });
 
-  it("known target but binary not on disk → 404 ApiErrorResponse", async () => {
-    const res = await dl("/node/darwin-arm64", { cookie });
-    expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: string }).code).toBe("NOT_FOUND_ERROR");
+  it("zero-length binary → 404 on BOTH the binary and the .sha256 route (shared empty-file rule)", async () => {
+    writeFileSync(fixturePath, "");
+    utimesSync(fixturePath, new Date(Date.now() + 6000), new Date(Date.now() + 6000));
+    try {
+      expect((await dl(`/node/${TARGET}`, { cookie })).status).toBe(404);
+      expect((await dl(`/node/${TARGET}.sha256`, { cookie })).status).toBe(404);
+    } finally {
+      writeFileSync(fixturePath, FIXTURE);
+      utimesSync(fixturePath, new Date(Date.now() + 8000), new Date(Date.now() + 8000));
+    }
   });
 
   // ── the .sha256 routes ────────────────────────────────────────────────────
 
-  it(".sha256 → 200 with the 64-hex digest of the binary", async () => {
+  it(".sha256 static route → 200 with the 64-hex digest of the binary", async () => {
     const res = await dl(`/node/${TARGET}.sha256`, { cookie });
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -175,7 +217,7 @@ describe("/api/downloads + /install.sh", () => {
 
   async function install(key?: string): Promise<Response> {
     const q = key ? `?setup_key=${encodeURIComponent(key)}` : "";
-    return installScriptRoute.fetch(new Request(`http://localhost:3080/install.sh${q}`));
+    return app.fetch(new Request(`http://localhost:3080/install.sh${q}`));
   }
 
   it("install.sh with no key → text/plain usage script that exits 2 (never 401 JSON)", async () => {
@@ -196,6 +238,18 @@ describe("/api/downloads + /install.sh", () => {
     const body = await res.text();
     expect(body).toContain("exit 2");
     expect(body).not.toContain(bogus);
+  });
+
+  it("install.sh with shell-metacharacters in setup_key → byte-identical usage script, zero reflection", async () => {
+    // Reflection would break out of the KEY="…" assignment in the real render.
+    // peekValid fails first, AND renderInstallScript's own shape guard would
+    // refuse — either way the answer must equal the no-key render exactly.
+    const evil = `x"; echo PWNED; \`id\``;
+    const body = await (await install(evil)).text();
+    expect(body).toBe(await (await install()).text());
+    expect(body).not.toContain("PWNED");
+    expect(body).not.toContain(evil);
+    expect(body).not.toContain("echo PWNED");
   });
 
   it("install.sh with a valid key → full pipeline; key appears ONLY in the KEY assignment", async () => {
@@ -222,5 +276,16 @@ describe("/api/downloads + /install.sh", () => {
     expect(body).toContain('./mote-agent enroll --server "$SERVER" --key "$KEY"');
     expect(body).toContain("./mote-agent run");
     expect(body).not.toContain("exit 2");
+  });
+
+  it.skipIf(!BASH)("both install.sh renders pass `bash -n` (syntax gate for future template edits)", async () => {
+    const usage = await (await install()).text();
+    const full = await (await install(await mkKey())).text();
+    for (const body of [usage, full]) {
+      expect(body.startsWith("#!/usr/bin/env bash")).toBe(true);
+      const proc = Bun.spawnSync(["bash", "-n"], { stdin: Buffer.from(body) });
+      expect(proc.stderr.toString()).toBe("");
+      expect(proc.exitCode).toBe(0);
+    }
   });
 });
