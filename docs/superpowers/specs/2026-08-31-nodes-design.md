@@ -705,3 +705,28 @@ spec 2026-08-31)"** section:
     Open if long-lived node disks complain.
 11. **Two-agent version rollout ordering** — protocol int is the blunt instrument; a
     `capabilities` string set gives finer gating for later features.
+
+## Errata (implementation, 2026-08-31)
+
+Deltas between this spec as written and what shipped in Phase 1, recorded so the
+body above stays legible as the original design:
+
+- **§8 "agent too old" warning state is deferred to Phase 2.** A
+  protocol-incompatible agent is closed `4406` at `ready`, so it genuinely
+  renders **offline** in the UI — the "update required" copy that distinguishes
+  it from an unreachable node is Phase 2 (the node view gains a persisted
+  `protocolVersion` then; today nothing distinguishes the two offline causes).
+- **§9 `GET /api/nodes` is cookie-only.** The table lists "cookie or bearer";
+  the bearer read is deferred until a machine consumer actually exists (YAGNI —
+  noted in the route's JSDoc).
+- **§9 force-terminates-first → Phase 1 refuses force on ONLINE nodes.** Remote
+  terminate is Phase 2, so `?force` deletes offline nodes only; an online node
+  with running sessions 409s unconditionally.
+- **§10 detail-page rename UI, plaintext-once rotate UI, the session node pill,
+  and the setup-wizard "…or register a Node" copy are narrowed to Phase 2.**
+  The backing routes (`PATCH /api/nodes/:id`, `POST /api/nodes/:id/rotate-key`)
+  shipped and are tested — usable via the API in the meantime.
+- **§2/§9 the local-launch switch is now persistent.** The seeded Everyone/edit
+  row is created only when the `local` node row itself is created (first boot);
+  `ensureLocalNode()` no longer re-adds it on later boots, so an admin's disable
+  survives restarts. Re-enable is the shares PUT (the settings-card toggle).

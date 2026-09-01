@@ -85,6 +85,49 @@ recipients. It does NOT protect:
   design — and the token is part of the tmux start command, so it is visible to
   any local process that can read `ps` output or tmux's pane metadata.
 
+## Nodes (remote execution hosts)
+
+Registering a node (spec 2026-08-31) delegates **arbitrary command execution
+under the agent's OS user** to the control plane, and delegates pane I/O for
+sessions launched there to everyone those *sessions* are shared with. Node
+shares and session shares are two independent axes:
+
+- **Any node share — even `view` — lets the grantee launch their own sessions
+  on it**; those sessions stay invisible to the node's owner unless separately
+  shared. `edit` (or owner) additionally configures the node (harness
+  toggles, re-checks); only the owner manages it (shares, rename) — admin for
+  `local`. The owner controls everything launched there; whoever owns the
+  node's OS user owns every pane the backend launches on it, including its
+  files.
+- Command signing (§4) proves authenticity, freshness and target — **not**
+  confidentiality (that is WSS/operator TLS) and **not** resilience to
+  control-plane compromise: the signing keypair rules every enrolled node, so
+  **a control-plane key compromise is all nodes** (the signing key lives on the
+  backend host — same local-user exposure as everywhere else here).
+- A **node API key can do nothing on REST** (explicit guard rejection, §5.5);
+  its blast radius is exactly "impersonate this node on `/ws/node`".
+- **New exposure:** session bearer keys ride in the launch command and are
+  **`ps`-visible on node hosts** — the known backend-host exposure now extends
+  to every enrolled machine. Node local users — and, in effect, anyone with
+  `edit` on a session running there — hold that session's bearer key. Sharing a
+  node does not hand out session keys, but anything launched there trusts the
+  machine.
+- **Setup keys**: single-use, 24 h expiry, shown once, hashed at rest,
+  revocable, audited. The install command embeds one in a URL, so it lands in
+  shell history and server/access logs — same posture as enrollment links
+  everywhere; revoke = delete the key.
+- **Disabling the control-plane host as a launch target** = an admin removing
+  `local`'s seeded Everyone/`edit` share row (the Settings toggle does exactly
+  this). The disable **survives restarts** — boot seeding creates that row only
+  when the `local` node row itself is created, never to "repair" a deliberate
+  removal. The row then vanishes from non-admin views like any invisible node —
+  no separate flag exists to drift out of sync with it.
+- Trusted-network posture is **unchanged**: node→control traffic is expected to
+  ride the same VPN/Tailscale; `wss://` termination is the operator's
+  deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-
+  ish, a remote node dutifully dials the wrong machine — the enroll flow and
+  Nodes page surface the resolved URL and warn on loopback.
+
 ## CORS
 
 Permissive CORS is acceptable **only** because the service is not exposed to the public
