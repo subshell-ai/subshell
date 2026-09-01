@@ -1366,9 +1366,19 @@ const defaultAudit: (event: AuditEventInput) => Promise<void> = async (event) =>
  * Reads the tail of a session's pane log (see the mover: `nodes/log-tail.ts`
  * + `LocalLauncher.readLogTail`). Kept as the import path every route/test
  * already uses; the read itself lives behind the launcher seam.
+ *
+ * Routed PER ROW (spec §6.5): callers with the session row in scope pass its
+ * `nodeId`, so an agent-node session tails through that node's
+ * `RemoteLauncher` (`log_read` size probe + window — byte-identical line
+ * math). The default keeps the local file read for rowless callers.
+ * @param sessionId - the session whose log to tail
+ * @param nodeId - where the log lives (default `local`, the control-plane host)
  */
-export async function readSessionLogTail(sessionId: string): Promise<{ lines: string[]; truncated: boolean }> {
-  return defaultLocalLauncher.readLogTail(sessionId);
+export async function readSessionLogTail(
+  sessionId: string,
+  nodeId: string = LOCAL_NODE_ID,
+): Promise<{ lines: string[]; truncated: boolean }> {
+  return launcherFor(nodeId).readLogTail(sessionId);
 }
 
 /** Rough liveness state of a session, derived from output recency. */

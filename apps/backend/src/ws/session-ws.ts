@@ -2,14 +2,17 @@ import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/session-protocol";
 import { TERMINAL_REPLAY_LINES } from "@/constants.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { LocalLauncher } from "@/services/nodes/local-launcher.js";
+import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { logReplayStartOffset } from "@/services/nodes/log-tail.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
+import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { logger } from "@/utils/logger.js";
+import { attachRemoteSessionWs } from "@/ws/remote-session-ws.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -24,6 +27,15 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  *
  * Output is streamed by tailing the per-session log file (written by
  * pipe-pane) with an initial `capture-pane` replay for current scrollback.
+ *
+ * A row whose `nodeId` names an agent node (spec §6.5) is delegated whole to
+ * `attachRemoteSessionWs` — the browser contract there is byte-identical;
+ * everything past the delegation below is the local path.
+ *
+ * Import note: `session-ws.ts` ↔ `remote-session-ws.ts` is a deliberate
+ * cycle (the relay reuses `stripSyncMarkers`/`persistOutput`/the `WsData`
+ * shape); both use each other's hoisted function declarations only at call
+ * time, so module evaluation order never matters.
  */
 export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
   const sessionId = url.searchParams.get("session");
@@ -67,7 +79,16 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
     return;
   }
 
-  const launcher = new LocalLauncher();
+  // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
+  // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row
+  // relays over its node socket and returns. `launcherFor` caches a
+  // RemoteLauncher for every non-local id, so the cast restates that registry
+  // invariant rather than guessing at the instance.
+  const launcher = launcherFor(row.nodeId);
+  if (row.nodeId !== LOCAL_NODE_ID) {
+    await attachRemoteSessionWs(ws, row, launcher as RemoteLauncher, access);
+    return;
+  }
   if (!row.tmuxSocket || !(await launcher.hasSession(row.tmuxSocket, row.id))) {
     ws.close(4004, "session not running");
     return;
@@ -122,7 +143,13 @@ export interface WsSocket {
   readonly raw?: { request?: { headers: Headers } };
 }
 
-interface WsData {
+/**
+ * Per-socket state both attach paths (local here, remote in
+ * `remote-session-ws.ts`) build and `Object.assign` onto `ws.data`, so
+ * `handleSessionMessage`/`cleanupSessionWs` serve either kind. Exported for
+ * the remote relay; the shape is the contract between the two files.
+ */
+export interface WsData {
   /** Machine handle for every pane touchpoint (spec §6.3 seam; local in phase 0). */
   launcher: NodeLauncher;
   socket: string;
@@ -167,8 +194,10 @@ export function stripSyncMarkers(s: string): string {
 /**
  * Persists the session's lastOutputAt when new output arrives, throttled to
  * at most one DB write per 2s (drives the active/idle heuristic).
+ * Exported so the remote relay (`remote-session-ws.ts`) keeps the heuristic
+ * byte-identical for agent-node sessions — one throttle, both paths.
  */
-function persistOutput(_ws: WsSocket, data: WsData): void {
+export function persistOutput(_ws: WsSocket, data: WsData): void {
   const now = Date.now();
   if (now - data.lastOutputWriteAt < 2000) return;
   data.lastOutputWriteAt = now;

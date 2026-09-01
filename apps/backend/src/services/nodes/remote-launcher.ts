@@ -406,7 +406,9 @@ export class RemoteLauncher implements NodeLauncher {
    * {@link LocalLauncher.tailStart}).
    *
    * @returns disposer: unsubscribes, disarms the relay, and fires `tail_stop`
-   * (5 s, fire-and-forget)
+   * (5 s, fire-and-forget). Idempotent — a second call is a no-op, so a
+   * double cleanup (close after an error-path teardown) never sends a
+   * duplicate `tail_stop` (local-twin parity, {@link LocalLauncher.tailStart}).
    */
   async tailStart(
     id: string,
@@ -447,6 +449,7 @@ export class RemoteLauncher implements NodeLauncher {
     });
     await this.#send({ type: "tail_start", sessionId: id, subId, fromByte }, TAIL_START_TIMEOUT_MS);
     return () => {
+      if (disposed) return; // idempotent: a double cleanup must not re-send tail_stop
       disposed = true;
       unsubscribe();
       void this.#send({ type: "tail_stop", subId }, TAIL_STOP_TIMEOUT_MS).catch(() => undefined);

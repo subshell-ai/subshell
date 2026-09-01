@@ -642,6 +642,19 @@ describe("tailStart relay", () => {
     expect(chunks).toEqual([]);
   });
 
+  it("the disposer is IDEMPOTENT: a double dispose fires exactly one tail_stop (local-twin parity)", async () => {
+    // Task 11 carry: the WS relay's cleanup can land twice (close after an
+    // error-path teardown). LocalLauncher.tailStart's disposer is documented
+    // idempotent — the remote one must match or the agent gets a duplicate
+    // tail_stop on the wire per browser close.
+    const h = makeHarness();
+    const dispose = await h.launcher.tailStart("s1", "sub-1", 0, () => {});
+    dispose();
+    dispose();
+    await flush();
+    expect(h.calls.filter((c) => c.cmd.type === "tail_stop")).toHaveLength(1);
+  });
+
   it("the disposer unsubscribes and fires tail_stop (5 s), swallowing failures", async () => {
     const h = makeHarness();
     const dispose = await h.launcher.tailStart("s1", "sub-1", 0, () => {});

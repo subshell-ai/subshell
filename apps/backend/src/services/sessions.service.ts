@@ -382,8 +382,10 @@ export class SessionsService extends BaseService {
     id: string,
     actor: GuardActor,
   ): Promise<{ lines: string[]; truncated: boolean }> {
-    await this.#gate(viewerId, id, "view", actor);
-    return await readSessionLogTail(id);
+    const { row } = await this.#gate(viewerId, id, "view", actor);
+    // Spec §6.5: the tail reads from the node that owns the pane — an
+    // agent-node row goes through its RemoteLauncher (`log_read` window).
+    return await readSessionLogTail(id, row.nodeId);
   }
 
   /**
