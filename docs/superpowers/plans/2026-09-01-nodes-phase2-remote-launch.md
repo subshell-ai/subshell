@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> Executed 2026-09-01 on `feat/nodes-phase2` (ledger: `.git/sdd/progress.md` "Nodes Phase 2" — Tasks 1–17 subagent-driven with per-task review + fix waves; Task 18 real-node parity run controller-executed on a scratch backend, which surfaced one production bug: `mote-agent mcp` exited after the transport connected — fixed with a failing-first entry test in `1a8218f`). Final whole-branch review (opus) landed its fix list in `1cc4c9d` and reworded one inaccurate checkpoint message; merge/push await the user's word. Spec-level divergences (512 KiB chunk budget et al.) are in the spec's Errata section.
+
 **Spec:** `docs/superpowers/specs/2026-08-31-nodes-design.md` (cite "spec 2026-08-31 §N"). Phase outline: `docs/superpowers/plans/2026-08-31-nodes.md` (Phase 2 tracks 2A/2B/2C — this plan executes them task-sequentially; 2B-first because the frozen wire answers are the backend's test fixtures). Where Phase 1 diverged from plan, the spec's **"Errata (implementation, 2026-08-31)"** section records it; this plan adds entries there when it diverges.
 
 **Goal:** A session created with `nodeId` = an enrolled agent node really runs there: launch, prompt delivery, live terminal (attach/replay/input/resize), preview, logs, uploads, restart/terminate/delete, reconcile and exit observation — full parity with `local`, delivered through the frozen `NodeLauncher` seam. A real Linux/macOS box enrolled in phase 1 becomes a first-class launch target; the phase-2 exit is the parity checklist on such a box.

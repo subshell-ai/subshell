@@ -58,7 +58,7 @@ src/
 ├── scripts/        # One-off dev tooling (e2e seed)
 ├── services/       # Business logic: session-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node agent can reuse it
 ├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens)
+├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; agent-node rows relay through remote-session-ws.ts with the browser contract byte-identical to the local path)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
