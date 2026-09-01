@@ -186,8 +186,26 @@ export class NodesRepository extends BaseRepository {
     return Number(res?.numUpdatedRows ?? 0);
   }
 
-  /** Bind the node's better-auth apikey id (the anti-forgery link, spec §5.2). */
-  async setApiKeyId(id: string, apiKeyId: string): Promise<void> {
+  /**
+   * Sessions still unfinished on this node — `status = 'running'`. The
+   * session status vocabulary is exactly `running | terminated` (there is no
+   * "starting"; a spawned-but-unconfirmed harness is `running` with `alive`
+   * 0→1 settling, and a parked auto-restart row is `running, alive: 0`), so
+   * `running` IS the live set and parked rows count — from the node's side
+   * they are work that has not ended. Used by the delete guard (spec §5.4).
+   */
+  async countRunningSessions(nodeId: string): Promise<number> {
+    const r = await this.db
+      .selectFrom("sessions")
+      .select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("nodeId", "=", nodeId)
+      .where("status", "=", "running")
+      .executeTakeFirst();
+    return Number(r?.n ?? 0);
+  }
+
+  /** Bind the node's better-auth apikey id (the anti-forgery link, spec §5.2); null clears it. */
+  async setApiKeyId(id: string, apiKeyId: string | null): Promise<void> {
     await this.db
       .updateTable("nodes")
       .set({ apiKeyId, updatedAt: new Date().toISOString() })

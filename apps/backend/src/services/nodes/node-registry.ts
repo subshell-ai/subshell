@@ -23,6 +23,13 @@ import type { NodeRpcError } from "./node-rpc.js";
 export const REPLACE_CLOSE_CODE = 4409;
 
 /**
+ * Close code sent when the node's credential just stopped working — rotate
+ * and delete revoke the key while its socket is still mapped (spec §5.4).
+ * 4401 mirrors the REST 401 the same dead key would get on an upgrade.
+ */
+export const REVOKED_CLOSE_CODE = 4401;
+
+/**
  * Minimal structural socket shim — same discipline as `WsSocket` in
  * `ws/session-ws.ts`: only what the registry/RPC actually touches, so tests
  * drive fakes and the Bun ws object satisfies it structurally.
@@ -126,6 +133,36 @@ export function detachConnection(nodeId: string, ws: NodeSocket): boolean {
 /** Ids of every node with a live connection (any order). */
 export function listOnline(): string[] {
   return [...live.keys()];
+}
+
+/**
+ * Forcibly evict + close `nodeId`'s live connection — the registry side of
+ * credential revocation (rotate-key / delete-node call this AFTER their DB
+ * changes, so the socket can never serve on a key that just died, T8 carry).
+ * Flags the record `closing` and detaches with the same identity guard the
+ * WS close handler uses; a throwing `close()` (already-dead socket) is
+ * swallowed — eviction is the point, the close is courtesy. In-flight
+ * commands are NOT failed here: the socket's real `close` event still fires
+ * and `handleNodeClose` drains exactly THAT record's pendings.
+ * @param nodeId - node id (no `node:` prefix)
+ * @param code - close code (default {@link REVOKED_CLOSE_CODE})
+ * @param reason - close reason sent on the wire
+ * @returns true when a live connection existed and was evicted
+ */
+export function disconnectNode(
+  nodeId: string,
+  code: number = REVOKED_CLOSE_CODE,
+  reason = "node access revoked",
+): boolean {
+  const conn = live.get(nodeId);
+  if (!conn) return false;
+  conn.closing = true;
+  try {
+    conn.ws.close(code, reason);
+  } catch {
+    // already dead — nothing to close; the eviction below still matters
+  }
+  return detachConnection(nodeId, conn.ws);
 }
 
 /**

@@ -10,6 +10,7 @@ import { IdentitiesRepository } from "@/db/repositories/identities.repository.js
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
+import { isUniqueNameViolation } from "@/lib/node-errors.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { controlPublicJwkJson } from "@/services/nodes/control-keys.js";
@@ -53,12 +54,6 @@ const EnrollResponseSchema = t.Object({
 function nodeWsUrl(): string {
   const url = new URL(APP_BASE_URL);
   return `${url.protocol === "https:" ? "wss" : "ws"}://${url.host}/ws/node`;
-}
-
-/** True when a failed insert hit the per-owner unique name index (idx_nodes_owner_name). */
-function isUniqueNameViolation(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes("UNIQUE constraint failed") && msg.includes("nodes");
 }
 
 /**

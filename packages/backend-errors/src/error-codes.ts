@@ -9,6 +9,8 @@ export enum BackendErrorCodes {
   NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
   NODE_OFFLINE = "NODE_OFFLINE",
+  NODE_ONLINE = "NODE_ONLINE",
+  NODE_RUNNING_SESSIONS = "NODE_RUNNING_SESSIONS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
@@ -54,6 +56,14 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_OFFLINE]: {
     message: "Node is offline",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_ONLINE]: {
+    message: "Node is online",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_RUNNING_SESSIONS]: {
+    message: "Node has running sessions",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_UNREACHABLE]: {

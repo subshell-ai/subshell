@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import {
   attachConnection,
   detachConnection,
+  disconnectNode,
   getLive,
   listOnline,
   type NodeSocket,
   REPLACE_CLOSE_CODE,
+  REVOKED_CLOSE_CODE,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
 
@@ -116,5 +118,52 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
 
   it("REPLACE_CLOSE_CODE is 4409 (spec §5.3)", () => {
     expect(REPLACE_CLOSE_CODE).toBe(4409);
+  });
+
+  // rotate-key / delete-node revoke the credential out from under a LIVE
+  // socket (T8 carry): the registry side of that teardown.
+  describe("disconnectNode", () => {
+    it("unknown node → false, nothing to close", () => {
+      expect(disconnectNode("ghost")).toBe(false);
+    });
+
+    it("closes with 4401 by default and evicts the entry (identity-guarded)", () => {
+      const sock = fakeSocket();
+      attachConnection("n1", sock);
+
+      expect(disconnectNode("n1")).toBe(true);
+      expect(sock.closed).toEqual([{ code: REVOKED_CLOSE_CODE, reason: expect.any(String) }]);
+      expect(sock.closed[0]?.code).toBe(4401);
+      expect(getLive("n1")).toBeUndefined();
+      expect(listOnline()).toEqual([]);
+    });
+
+    it("honours a custom code/reason and flags the record closing (late close must not evict a re-attach)", () => {
+      const sock = fakeSocket();
+      const conn = attachConnection("n1", sock);
+
+      disconnectNode("n1", 4410, "key rotated");
+      expect(sock.closed).toEqual([{ code: 4410, reason: "key rotated" }]);
+      expect(conn.closing).toBe(true);
+
+      // The socket's (simulated) late close event now finds no entry — and a
+      // re-attach followed by that stale detach is refused by the guard.
+      const fresh = fakeSocket();
+      attachConnection("n1", fresh);
+      expect(detachConnection("n1", sock)).toBe(false);
+      expect(getLive("n1")?.ws).toBe(fresh);
+    });
+
+    it("swallows a throwing close() and still evicts", () => {
+      const bad: NodeSocket = {
+        send: () => 0,
+        close: () => {
+          throw new Error("already dead");
+        },
+      };
+      attachConnection("n1", bad);
+      expect(disconnectNode("n1")).toBe(true);
+      expect(getLive("n1")).toBeUndefined();
+    });
   });
 });
