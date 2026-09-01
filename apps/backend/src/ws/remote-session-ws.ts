@@ -1,6 +1,5 @@
-import { TERMINAL_REPLAY_LINES } from "@/constants.js";
 import { type Access, accessAtLeast } from "@/lib/session-access.js";
-import { LOG_TAIL_BYTES, replayOffsetFromWindow } from "@/services/nodes/log-tail.js";
+import { LOG_TAIL_BYTES, replayLineCap, replayOffsetFromWindow } from "@/services/nodes/log-tail.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { logger } from "@/utils/logger.js";
@@ -52,8 +51,15 @@ type RawWithBackpressure = { getBufferedAmount?: () => number };
 /** Browser queue depth above which the client is dropped (spec §3.4: a lagging browser reconnects and replays). */
 const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
 
-/** UTF-8 decode of one relayed chunk (same decode the log-window math uses). */
-const decode = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8");
+/**
+ * UTF-8 decode of one relayed chunk — the same zero-copy `TextDecoder` usage
+ * as the local twin (`session-ws.ts` decodes every tail chunk with a fresh
+ * decoder; stream-less decode carries no state across calls, so results are
+ * byte-identical to `Buffer.toString("utf8")` on every chunk, including
+ * split multi-byte sequences).
+ */
+const utf8 = new TextDecoder();
+const decode = (bytes: Uint8Array): string => utf8.decode(bytes);
 
 /**
  * Attaches a browser socket to a session living on an agent node.
@@ -143,12 +149,10 @@ export async function attachRemoteSessionWs(
     // start costs one 1-byte probe. A missing/empty log reads size 0 → the
     // offset is 0 and the tail still arms (the agent tolerates a log that
     // pipe-pane has not created yet).
-    // N is per-session config, falling back to the instance default; clamped
-    // again (column predates the API; ceiling is a load guarantee) — the
-    // SAME clamp as local's, deliberately duplicated so the untouched local
-    // path stays byte-identical.
-    const stored = row.terminalReplayLines;
-    const cap = stored == null ? TERMINAL_REPLAY_LINES : Math.min(200, Math.max(1, Math.trunc(stored)));
+    // N is per-session config, falling back to the instance default; the
+    // clamp (column predates the API; ceiling is a load guarantee) is the
+    // SHARED {@link replayLineCap} — identical math on both attach paths.
+    const cap = replayLineCap(row.terminalReplayLines);
     const first = await launcher.readLogSized(row.id, 0, 1);
     const windowStart = Math.max(0, first.size - LOG_TAIL_BYTES);
     const win = await launcher.readLogSized(row.id, windowStart, LOG_TAIL_BYTES);

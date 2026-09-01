@@ -348,13 +348,39 @@ export class RemoteLauncher implements NodeLauncher {
    * A deliberate kill leaves this file behind on purpose: the manager feeds it
    * into the delete-time `remove_paths` (with the log and the MCP config), so
    * a deleted session unlinks all three artifacts it left on the node.
-   * Not on the {@link NodeLauncher} interface — the concept is agent-side
-   * only; {@link LocalLauncher} has no meta file and its delete path stays
-   * untouched. Throws {@link NoLiveConnectionError} offline (sync member,
-   * same shape as {@link logPath}).
+   * Class-local (not on {@link NodeLauncher}) — the concept is agent-side
+   * only; {@link LocalLauncher} has no meta file. Throws
+   * {@link NoLiveConnectionError} offline (sync member, same shape as
+   * {@link logPath}).
    */
   metaArtifactPath(id: string): string {
     return factsPath(this.#requireFacts(), `sessions/${id}.meta.json`);
+  }
+
+  /**
+   * The session's MCP registration ON THE NODE: `<agentDataDir>/mcp/<id>.json`
+   * (spec §6.4) — the delete-side twin of the launch-side path
+   * `mcp-launch.ts`'s `planRemoteSessionMcp` composes into the `launch`
+   * command from the same facts. The template is deliberately duplicated, not
+   * imported: `mcp-launch → remote-launcher → lib/context → sessions.service →
+   * session-manager → mcp-launch` is a cycle (pinned pair — change one, change
+   * both). Throws {@link NoLiveConnectionError} offline (sync member, same
+   * shape as {@link logPath}).
+   */
+  mcpArtifactPath(id: string): string {
+    return factsPath(this.#requireFacts(), `mcp/${id}.json`);
+  }
+
+  /**
+   * The three files a session leaves on the node — log + MCP config + the
+   * agent's own meta record, in the order the pre-seam `deleteSession` block
+   * pushed them (spec §6.4). Empty when the node has no live `ready` facts:
+   * no facts, no layout to name paths from, and the artifacts age out with
+   * the node — the same offline skip every pre-seam path made individually.
+   */
+  sessionArtifacts(id: string): string[] {
+    if (!this.#facts()) return [];
+    return [this.logPath(id), this.mcpArtifactPath(id), this.metaArtifactPath(id)];
   }
 
   /**
@@ -503,15 +529,16 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * Ships one artifact (the MCP config) as a SINGLE `write_file` chunk
-   * (chunk 0, eof) to `<agentDataDir>/mcp/<id>.json` (spec §6.4) — 30 s,
-   * returns the path on the target machine. The agent's path policy admits
-   * anything under its dataDir. The id is uuid-checked LOCALLY first
-   * (mirroring the agent's `isSessionId`): an empty or traversal-y path must
-   * never reach `write_file`, whose result validator echoes it back.
+   * (chunk 0, eof) to `<agentDataDir>/mcp/<id>.json` (spec §6.4; layout twin
+   * of {@link mcpArtifactPath}) — 30 s, returns the path on the target
+   * machine. The agent's path policy admits anything under its dataDir. The
+   * id is uuid-checked LOCALLY first (mirroring the agent's `isSessionId`):
+   * an empty or traversal-y path must never reach `write_file`, whose result
+   * validator echoes it back.
    */
   async writeArtifact(id: string, _kind: "mcp-config", content: string): Promise<string> {
     if (!SESSION_ID_RE.test(id)) throw new Error(`invalid session id "${id}"`);
-    const path = factsPath(this.#requireFacts(), `mcp/${id}.json`);
+    const path = this.mcpArtifactPath(id);
     await this.#send(
       { type: "write_file", path, chunk_b64: Buffer.from(content, "utf8").toString("base64"), chunk: 0, eof: true },
       WRITE_FILE_TIMEOUT_MS,

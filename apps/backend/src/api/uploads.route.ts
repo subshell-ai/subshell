@@ -8,7 +8,7 @@ import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
-import { getLive } from "@/services/nodes/node-registry.js";
+import { isNodeOffline } from "@/services/session-manager.service.js";
 import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/services/uploads.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -78,9 +78,11 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
       // copy of the path (or refusing because this host has no such dir)
       // would be meaningless.
       if (row.nodeId !== LOCAL_NODE_ID) {
-        // Pre-gate the live connection (§5.6): a dead node is 409 before a
-        // single chunk goes out. Mid-stream drops land in the catch below.
-        if (!getLive(row.nodeId)) {
+        // Pre-gate the live connection (§5.6 — the blessed `isNodeOffline`
+        // predicate, same deferral rule as the auto-restart): a dead node is
+        // 409 before a single chunk goes out. Mid-stream drops land in the
+        // catch below.
+        if (isNodeOffline(row)) {
           return status(
             409,
             apiErrorBody({

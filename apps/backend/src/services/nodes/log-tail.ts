@@ -1,9 +1,27 @@
 import { stripAnsi } from "@internal/backend-errors";
+import { TERMINAL_REPLAY_LINES } from "@/constants.js";
 
 /** Bytes read from the end of a pane log for {@link readLogTailFrom}. */
 export const LOG_TAIL_BYTES = 256 * 1024;
 /** Lines returned by {@link readLogTailFrom}, newest end of the log. */
 export const LOG_TAIL_LINES = 200;
+/** Hard ceiling on a per-session replay cap — a LOAD GUARANTEE, not a preference. */
+const REPLAY_LINE_CEILING = 200;
+
+/**
+ * Resolve the effective terminal-replay line cap for one attach: null/undefined
+ * (no per-session choice) falls back to the instance default; anything stored
+ * is coerced into [1, {@link REPLAY_LINE_CEILING}]. The clamp is re-applied at
+ * READ time because the column predates the API and could hold an out-of-band
+ * value — the ceiling keeps a bad row from turning one attach into a full-log
+ * parse. Both attach paths (local `session-ws.ts` and the remote relay
+ * `remote-session-ws.ts`) read through this so the guarantee cannot drift.
+ * (The WRITE path is separate by design: the route schema validates/rejects
+ * out-of-range input rather than clamping — different domain, not this helper.)
+ */
+export function replayLineCap(stored: number | null | undefined): number {
+  return stored == null ? TERMINAL_REPLAY_LINES : Math.min(REPLAY_LINE_CEILING, Math.max(1, Math.trunc(stored)));
+}
 
 /** Safety net for missed watch events (file replaced under the watch, quota). */
 export const TAIL_BACKSTOP_MS = 1000;

@@ -269,6 +269,26 @@ export const UPLOAD_CHUNK_BYTES = 512 * 1024;
 const WRITE_CHUNK_TIMEOUT_MS = 30_000;
 
 /**
+ * The ONE budget-disciplined name tagger behind every collision suffix:
+ * splits `name` on its last dot (extension re-capped to
+ * {@link MAX_EXT_BYTES}, defense in depth — not every caller pre-bounds it)
+ * and inserts `tag` before the extension, trimming the STEM — never the
+ * prefix or the tag — so the result fits {@link MAX_NAME_BYTES}. The suffix
+ * replaces stem bytes rather than pushing a maximal name past the limit.
+ * @param name - The base (sanitized, usually timestamp-prefixed) filename
+ * @param tag - The collision tag, including its leading `-`
+ */
+function suffixedName(name: string, tag: string): string {
+  const rawExt = extname(name);
+  const stem = name.slice(0, name.length - rawExt.length);
+  const extBody = rawExt.replace(/^\./, "").slice(0, MAX_EXT_BYTES);
+  const ext = extBody ? `.${extBody}` : "";
+  const budget = MAX_NAME_BYTES - tag.length - ext.length;
+  const trimmedStem = stem.length > budget ? stem.slice(0, Math.max(1, budget)) : stem;
+  return `${trimmedStem}${tag}${ext}`;
+}
+
+/**
  * Collision-safety stand-in for local {@link writeUnique} on the remote relay.
  *
  * The agent receiver overwrites by contract (a second-granularity
@@ -278,22 +298,15 @@ const WRITE_CHUNK_TIMEOUT_MS = 30_000;
  * 8 hex chars is plenty at human upload rates; name shape stays
  * timestamp-prefixed so recents still sort.
  *
- * Mirrors {@link withSuffix}'s budget discipline: the suffix replaces stem
- * bytes rather than pushing a maximal name past {@link MAX_NAME_BYTES}.
+ * Budget discipline via {@link suffixedName} (shared with {@link withSuffix}):
+ * the tag replaces stem bytes rather than pushing a maximal name past
+ * {@link MAX_NAME_BYTES}.
  *
  * @param name - The sanitized, timestamp-prefixed base name from {@link safeUploadName}
  * @returns The same name with a random `-<8hex>` tag before the extension
  */
 export function remoteUniqueName(name: string): string {
-  const rawExt = extname(name);
-  const stem = name.slice(0, name.length - rawExt.length);
-  // Re-cap the extension (defense in depth, same reasoning as withSuffix).
-  const extBody = rawExt.replace(/^\./, "").slice(0, MAX_EXT_BYTES);
-  const ext = extBody ? `.${extBody}` : "";
-  const suffixTag = `-${randomUUID().slice(0, 8)}`;
-  const budget = MAX_NAME_BYTES - suffixTag.length - ext.length;
-  const trimmedStem = stem.length > budget ? stem.slice(0, Math.max(1, budget)) : stem;
-  return `${trimmedStem}${suffixTag}${ext}`;
+  return suffixedName(name, `-${randomUUID().slice(0, 8)}`);
 }
 
 /**
@@ -328,22 +341,13 @@ export function remoteUniqueName(name: string): string {
  *   a mid-stream drop maps to `offline: true`)
  * @param workingRealPath - The session's working directory AS THERE (absolute)
  * @param file - The uploaded file
- * @param send - RPC seam; defaults to {@link sendCommand}. Injectable so a
- *   future isolated unit test can script the wire without a live node
- *   registry — no test injects it today (the route suite drives the real
- *   RPC through a fake agent socket instead).
  * @returns Path (on the node), final name, size and content type
  * @throws UploadError when the composed target is not an absolute path —
  *   checked BEFORE the first frame: the agent echoes the path it was given,
  *   and an empty/garbage echo wedges the result mapping (T6 finding #4)
  * @throws RemoteUploadError for any wire/agent failure
  */
-export async function writeUploadRemote(
-  nodeId: string,
-  workingRealPath: string,
-  file: File,
-  send: typeof sendCommand = sendCommand,
-): Promise<UploadResult> {
+export async function writeUploadRemote(nodeId: string, workingRealPath: string, file: File): Promise<UploadResult> {
   const { bytes, name: baseName, contentType } = await sniffedUpload(file);
   // The agent's eof rename replaces an existing file, and two uploads inside
   // one second otherwise share the timestamp-prefixed name — suffix before
@@ -364,12 +368,14 @@ export async function writeUploadRemote(
     const piece = bytes.subarray(off, Math.min(off + UPLOAD_CHUNK_BYTES, bytes.byteLength));
     let data: unknown;
     try {
-      data = await send(
+      data = await sendCommand(
         nodeId,
         {
           type: "write_file",
           path,
-          chunk_b64: Buffer.from(piece).toString("base64"),
+          // Zero-copy view of the slice (`piece` is a `bytes.subarray` view) —
+          // `Buffer.from(uint8array)` would clone the whole chunk first.
+          chunk_b64: Buffer.from(piece.buffer, piece.byteOffset, piece.byteLength).toString("base64"),
           chunk: i,
           eof: i === chunkCount - 1,
         },

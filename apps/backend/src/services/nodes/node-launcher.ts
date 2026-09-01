@@ -102,6 +102,12 @@ export interface NodeLauncher {
   canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean>;
   /** Persists a per-session artifact (e.g. MCP config); returns its path on the target machine. */
   writeArtifact(id: string, kind: "mcp-config", content: string): Promise<string>;
-  /** Best-effort deletion of artifact paths written by writeArtifact. */
+  /**
+   * The node-side files a session owns — what delete removes. `[]` when the
+   * machine cannot answer: an agent with no live `ready` facts has no readable
+   * layout to name paths from (its artifacts age out with the node, §5.6).
+   */
+  sessionArtifacts(id: string): string[];
+  /** Best-effort deletion of artifact paths from {@link sessionArtifacts}. */
   removeArtifacts(paths: string[]): Promise<void>;
 }

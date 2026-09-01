@@ -76,6 +76,14 @@ export class FakeNodeLauncher implements NodeLauncher {
   metaArtifactPath(id: string): string {
     return "/node-data/sessions/".concat(id, ".meta.json");
   }
+  /**
+   * Mirrors {@link RemoteLauncher.sessionArtifacts}: the delete-time triple,
+   * with the MCP path composed under `nodeOnline()`'s default `/node-data`
+   * dataDir (the same source the manager's inline delete reads).
+   */
+  sessionArtifacts(id: string): string[] {
+    return [this.logPath(id), `/node-data/mcp/${id}.json`, this.metaArtifactPath(id)];
+  }
   async readLogTail(): Promise<{ lines: string[]; truncated: boolean }> {
     return { lines: [], truncated: false };
   }

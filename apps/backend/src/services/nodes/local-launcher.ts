@@ -297,6 +297,15 @@ export class LocalLauncher implements NodeLauncher {
     return file;
   }
 
+  /**
+   * The local machine owns exactly one per-session file: the pipe-pane replay
+   * log (the MCP config under `sessionMcpConfigPath` is a control-plane file —
+   * `deleteSession` unlinks it directly for local and remote rows alike).
+   */
+  sessionArtifacts(id: string): string[] {
+    return [this.logPath(id)];
+  }
+
   /** Best-effort unlink of artifact paths (absent files are not errors). */
   async removeArtifacts(paths: string[]): Promise<void> {
     for (const p of paths) {

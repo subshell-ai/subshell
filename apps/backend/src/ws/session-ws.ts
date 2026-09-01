@@ -1,13 +1,12 @@
 import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/session-protocol";
-import { TERMINAL_REPLAY_LINES } from "@/constants.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
-import { logReplayStartOffset } from "@/services/nodes/log-tail.js";
+import { logReplayStartOffset, replayLineCap } from "@/services/nodes/log-tail.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
@@ -122,11 +121,10 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
   if (logExists) {
     // Start the tail at the offset where the last N replay lines begin instead
     // of byte 0 — the whole-log replay is what made long sessions crawl.
-    // N is per-session config, falling back to the instance default.
-    // Clamp again: the column is older than the API and could hold an
-    // out-of-band value; the ceiling is a load guarantee, not a preference.
-    const stored = row.terminalReplayLines;
-    const cap = stored == null ? TERMINAL_REPLAY_LINES : Math.min(200, Math.max(1, Math.trunc(stored)));
+    // N is per-session config, falling back to the instance default; the
+    // clamp — including the load-guarantee ceiling for an out-of-band stored
+    // value — lives in {@link replayLineCap}, shared with the remote relay.
+    const cap = replayLineCap(row.terminalReplayLines);
     data.lastSize = await logReplayStartOffset(data.logFile, cap);
     startLogTail(ws, data);
   } else {

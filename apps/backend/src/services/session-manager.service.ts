@@ -25,7 +25,7 @@ import {
   sessionMcpEnv,
 } from "@/services/mcp-launch.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
-import { defaultLocalLauncher, LocalLauncher } from "@/services/nodes/local-launcher.js";
+import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { getLive, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
@@ -96,14 +96,6 @@ export class SessionManagerService {
   readonly #sessions: SessionsRepository;
   readonly #profiles: ProfilesRepository;
   /**
-   * The machine for the paths that stay deliberately local: the sync
-   * `isAlive` probe, local view previews, and the LOCAL half of the reconcile
-   * sweep. Agent rows NEVER probe through it — the sweep batches their
-   * liveness into per-node `probe` commands (spec §6.3), so an online agent
-   * row can never false-crash against a local tmux lookup.
-   */
-  readonly #launcher: NodeLauncher;
-  /**
    * Constructor-injected launcher (or the deprecated `tmux` shim wrapped in
    * one). A TEST OVERRIDE: when set it answers for EVERY node id, so the
    * phase-0 session-manager suites keep working untouched.
@@ -154,7 +146,6 @@ export class SessionManagerService {
     this.#sessions = sessions;
     this.#profiles = profiles;
     this.#testLauncher = launcher ?? (tmux !== undefined ? new LocalLauncher({ tmux }) : undefined);
-    this.#launcher = this.#testLauncher ?? defaultLocalLauncher;
     this.#audit = audit;
     this.#tokens = tokens;
     this.#notify = notify;
@@ -170,6 +161,19 @@ export class SessionManagerService {
    */
   #launcherFor(nodeId: string): NodeLauncher {
     return this.#testLauncher ?? launcherFor(nodeId);
+  }
+
+  /**
+   * The machine for the paths that stay deliberately local: the sync
+   * `isAlive` probe, local view previews, and the LOCAL half of the reconcile
+   * sweep. Agent rows NEVER probe through it — the sweep batches their
+   * liveness into per-node `probe` commands (spec §6.3), so an online agent
+   * row can never false-crash against a local tmux lookup. Exactly
+   * `#launcherFor(LOCAL_NODE_ID)`: the test override wins, otherwise the
+   * registry's shared default LocalLauncher.
+   */
+  get #localLauncher(): NodeLauncher {
+    return this.#launcherFor(LOCAL_NODE_ID);
   }
 
   /**
@@ -469,7 +473,7 @@ export class SessionManagerService {
     if (row.status !== "running" || row.alive !== 1 || !row.tmuxSocket) return [];
     if (row.nodeId !== LOCAL_NODE_ID) return previewCacheGet(row.id) ?? [];
     try {
-      return screenTail(await this.#launcher.capture(row.tmuxSocket, row.id));
+      return screenTail(await this.#localLauncher.capture(row.tmuxSocket, row.id));
     } catch {
       // A pane that vanished between the liveness check and this call is a
       // normal race, not an error worth failing the whole list over.
@@ -711,33 +715,16 @@ export class SessionManagerService {
     await this.#sessions.delete(id);
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
     // attach-replay artifact; the MCP config holds no secrets but nothing
-    // should be left behind). An offline agent has no readable facts to
-    // compose its paths from — its artifacts age out with the node.
-    const artifacts: string[] = [];
-    try {
-      artifacts.push(launcher.logPath(id));
-    } catch {
-      // no live facts on an agent node — nothing to name
-    }
-    const facts = row.nodeId !== LOCAL_NODE_ID ? getLive(row.nodeId)?.agent : undefined;
-    if (facts) artifacts.push(`${facts.dataDir}/mcp/${id}.json`);
-    // The agent's per-session record `<dataDir>/sessions/<id>.meta.json`: a
-    // deliberate kill leaves it on purpose (the agent's executors read it to
-    // resolve the session), so the DELETE unlinks it — log + mcp + meta are
-    // the three artifacts a session leaves on a node, and they go together.
-    // Gated on the launcher exposing the path: {@link RemoteLauncher} does,
-    // {@link LocalLauncher} has no meta concept, so local rows' artifact list
-    // stays byte-identical to before.
-    if (row.nodeId !== LOCAL_NODE_ID) {
-      const metaLauncher = launcher as { metaArtifactPath?: (id: string) => string };
-      if (typeof metaLauncher.metaArtifactPath === "function") {
-        try {
-          artifacts.push(metaLauncher.metaArtifactPath(id));
-        } catch {
-          // node dropped offline between the fact reads — its artifacts age out with the node
-        }
-      }
-    }
+    // should be left behind). The layout lives behind the launcher seam
+    // (spec §6.4): a local row leaves exactly its replay log; an agent node
+    // names the triple (log + MCP config + the agent's own meta record —
+    // deliberately left behind by a kill, so the DELETE unlinks it) from its
+    // live `ready` facts, and an OFFLINE agent answers `[]`: no facts, no
+    // layout to name paths from, artifacts age out with the node (§5.6).
+    // The local short-circuit is row-keyed because a TEST launcher answers for
+    // EVERY node id (the phase-0 suites) — a fake standing in for `local`
+    // must keep receiving the local artifact set, never the agent triple.
+    const artifacts = row.nodeId === LOCAL_NODE_ID ? [launcher.logPath(id)] : launcher.sessionArtifacts(id);
     await launcher.removeArtifacts(artifacts);
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
@@ -768,8 +755,8 @@ export class SessionManagerService {
    */
   isAlive(row: { tmuxSocket: string | null; id: string }): boolean {
     if (!row.tmuxSocket) return false;
-    if (this.#launcher instanceof LocalLauncher) {
-      return this.#launcher.hasSessionSync(row.tmuxSocket, row.id);
+    if (this.#localLauncher instanceof LocalLauncher) {
+      return this.#localLauncher.hasSessionSync(row.tmuxSocket, row.id);
     }
     throw new Error("isAlive() is a local-launcher sync probe; remote liveness must await NodeLauncher.hasSession");
   }
@@ -826,7 +813,7 @@ export class SessionManagerService {
       // the socket is not absence of the process, and there is nothing to
       // launch through anyway. The backoff schedule set above re-tries on
       // the next tick; the node coming back is what unblocks the restart.
-      if (fresh.nodeId !== LOCAL_NODE_ID && !getLive(fresh.nodeId)) {
+      if (isNodeOffline(fresh)) {
         logger.debug(`session ${fresh.id}: auto-restart deferred — node "${fresh.nodeId}" has no live connection`);
         return false;
       }
@@ -1015,14 +1002,14 @@ export class SessionManagerService {
         }
         continue;
       }
-      if (!(await this.#launcher.hasSession(row.tmuxSocket, row.id))) {
+      if (!(await this.#localLauncher.hasSession(row.tmuxSocket, row.id))) {
         // Probe FIRST, decide after: paneExitCode is awaited just like
         // hasSession, so collect every async probe before touching state.
         // ── TOCTOU re-check (spec §6.3 async seam TOCTOU): the probes widen
         // the check→act window; #applyDeath re-reads the lease AND the fresh
         // row before touching anything (a restart that began mid-flight owns
         // the row now; a terminate/delete mid-await isn't ours to stamp).
-        const exitCode = row.alive === 1 ? await this.#launcher.paneExitCode(row.tmuxSocket, row.id) : null;
+        const exitCode = row.alive === 1 ? await this.#localLauncher.paneExitCode(row.tmuxSocket, row.id) : null;
         await this.#applyDeath(row, { exitCode, endedAt: now });
         continue;
       }
@@ -1046,7 +1033,7 @@ export class SessionManagerService {
       // 3.6). Locked names (an operator renamed or pinned) are never
       // touched, and the read is skipped entirely so the sweep stays cheap.
       if (row.nameLocked !== 1) {
-        const pane = await this.#launcher.paneTitle(row.tmuxSocket, row.id);
+        const pane = await this.#localLauncher.paneTitle(row.tmuxSocket, row.id);
         const title = pane ? normalizePaneTitle(pane.title) : "";
         if (pane && title && title !== pane.command && title !== HOST_NAME && title !== row.name) {
           patch.name = title;
