@@ -192,7 +192,7 @@ function NodeDetailPage() {
               {errMessage(recheck.error, "Re-check failed — the node may be offline.")}
             </p>
           )}
-          {recheck.isSuccess && <p className="text-success text-xs">Inventory refreshed.</p>}
+          {recheck.isSuccess && <p className="text-success text-xs">Re-check sent — inventory will refresh shortly.</p>}
         </div>
       )}
 

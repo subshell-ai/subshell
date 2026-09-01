@@ -53,10 +53,12 @@ export function useDeleteNode() {
 
 /**
  * Asks an agent node for a fresh harness inventory (`POST /api/nodes/:id/recheck`).
- * The fresh snapshot is persisted server-side before the route answers, so a
- * success just invalidates the node view. Expected failures stay in the 409
- * family (`NODE_OFFLINE` / `NODE_UNREACHABLE`) — the caller shows the message;
- * `local` 400s (its probe is live on every read, so the UI never offers it).
+ * A success means the server attests the agent ACKNOWLEDGED the command — the
+ * fresh snapshot lands asynchronously via the inventory event, so the
+ * invalidation here may refetch the previous inventory; a later refetch picks
+ * up the new one. Expected failures stay in the 409 family (`NODE_OFFLINE` /
+ * `NODE_UNREACHABLE`) — the caller shows the message; `local` 400s (its probe
+ * is live on every read, so the UI never offers it).
  */
 export function useRecheckNode(id: string) {
   const queryClient = useQueryClient();

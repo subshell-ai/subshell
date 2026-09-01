@@ -66,7 +66,7 @@ export const rotateNodeKeyRoute = new Elysia()
 
       await audit({
         actorUserId: user.id,
-        action: "node.rotate_key",
+        action: "node.key_rotate",
         targetType: "node",
         targetId: gate.row.id,
         metadataJson: JSON.stringify({ oldApiKeyId: gate.row.apiKeyId ?? null, newApiKeyId: created.id }),

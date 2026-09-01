@@ -6,6 +6,7 @@ import { NodeSharesResponseSchema, SetNodeSharesBodySchema, toNodeShareViews } f
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
@@ -49,7 +50,11 @@ export const setNodeSharesRoute = new Elysia()
       const rows = await new NodeSharesRepository(db).replaceForNode(gate.row.id, entries, user.id);
       await audit({
         actorUserId: user.id,
-        action: "node.shares_set",
+        // Spec §9 names only `node.local_share_changed` (the local-launch
+        // switch is exactly this route on `local`); it lists no generic
+        // shares action, so other nodes get `node.shares_set` as a documented
+        // extension of the spec's audit vocabulary.
+        action: gate.row.id === LOCAL_NODE_ID ? "node.local_share_changed" : "node.shares_set",
         targetType: "node",
         targetId: gate.row.id,
         metadataJson: JSON.stringify({ grants: entries.length }),
