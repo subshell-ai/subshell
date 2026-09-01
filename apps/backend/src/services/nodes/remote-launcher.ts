@@ -269,11 +269,14 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * Submits the pending line. The wire has no `press_enter`; a literal CR
-   * through `input` is what the pty reads as Enter — the same byte the pane
-   * process sees from tmux's `send-keys Enter`. (The main consumer,
+   * Submits the pending line. The wire has no `press_enter`; this sends a
+   * literal CR through `input`, which is BEHAVIOR-equivalent at the pane
+   * (raw-mode TUIs read CR as Enter; canonical shells map CR to NL via
+   * ICRNL) rather than byte-identical to tmux's `send-keys Enter` mapping.
+   * Today the only production path that presses Enter is local
+   * {@link LocalLauncher.deliverPrompt}; the remote prompt consumer,
    * {@link RemoteLauncher.deliverPrompt}, rides the one-round-trip
-   * `prompt_deliver` instead.)
+   * `prompt_deliver` instead.
    */
   async pressEnter(_socket: string, id: string): Promise<void> {
     await this.#send({ type: "input", sessionId: id, data: "\r" });
@@ -333,8 +336,10 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * Byte-range read of the node's pane log; `next` is where a sequential
-   * reader resumes. An offset at/after EOF reads as empty (the agent clamps
-   * `next` to `size`) — the same rule {@link LocalLauncher.readLog} gives.
+   * reader resumes. Reads AT EOF match {@link LocalLauncher.readLog} exactly
+   * (empty, `next == fromByte`); BEYOND EOF the answer differs by agent
+   * design — the agent clamps `next` to `size`, so a relay cursor parked
+   * past the end can step back once on its first read.
    */
   async readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }> {
     const { bytes, next } = await this.readLogSized(id, fromByte, maxBytes);
@@ -369,7 +374,13 @@ export class RemoteLauncher implements NodeLauncher {
    * - DUP (`ev.fromByte < cursor`): the already-delivered prefix is sliced
    *   off (a redelivery after a partial backfill is not a restart).
    *
-   * @returns disposer: unsubscribes and fires `tail_stop` (5 s, fire-and-forget)
+   * Once the disposer runs, `onChunk` never fires again — a task parked
+   * mid-backfill when disposal lands discards its bytes on resume (local's
+   * "disposed mid-read: the bytes belong to the next subscriber",
+   * {@link LocalLauncher.tailStart}).
+   *
+   * @returns disposer: unsubscribes, disarms the relay, and fires `tail_stop`
+   * (5 s, fire-and-forget)
    */
   async tailStart(
     id: string,
@@ -378,6 +389,7 @@ export class RemoteLauncher implements NodeLauncher {
     onChunk: (bytes: Uint8Array, next: number) => void,
   ): Promise<() => void> {
     let cursor = fromByte;
+    let disposed = false;
     let queue: Promise<void> = Promise.resolve();
     // Subscribe before the round-trip: the agent starts pumping as soon as
     // tail_start lands, and its result may arrive after the first frames.
@@ -385,11 +397,13 @@ export class RemoteLauncher implements NodeLauncher {
       if (ev.sessionId !== id) return;
       queue = queue
         .then(async () => {
+          if (disposed) return; // already disposed: queued bytes belong to the next subscriber
           if (ev.fromByte > cursor) {
             const backfill = await this.readLog(id, cursor, ev.fromByte - cursor).catch(() => ({
               bytes: new Uint8Array(0),
               next: cursor,
             }));
+            if (disposed) return; // disposed mid-backfill
             // Empty/clamped backfill ⇒ nothing to deliver; the event below still is.
             if (backfill.bytes.byteLength > 0 && backfill.next > cursor) {
               cursor = backfill.next;
@@ -399,6 +413,7 @@ export class RemoteLauncher implements NodeLauncher {
           let bytes: Uint8Array = Buffer.from(ev.data_b64, "base64");
           if (ev.fromByte < cursor) bytes = bytes.subarray(Math.max(0, cursor - ev.fromByte));
           if (bytes.byteLength === 0) return;
+          if (disposed) return; // last gate before the event-delivery onChunk
           cursor = ev.toByte;
           onChunk(bytes, cursor);
         })
@@ -406,6 +421,7 @@ export class RemoteLauncher implements NodeLauncher {
     });
     await this.#send({ type: "tail_start", sessionId: id, subId, fromByte }, TAIL_START_TIMEOUT_MS);
     return () => {
+      disposed = true;
       unsubscribe();
       void this.#send({ type: "tail_stop", subId }, TAIL_STOP_TIMEOUT_MS).catch(() => undefined);
     };

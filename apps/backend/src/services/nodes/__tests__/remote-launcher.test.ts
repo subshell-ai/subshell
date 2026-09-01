@@ -600,6 +600,36 @@ describe("tailStart relay", () => {
     dispose();
   });
 
+  it("DISPOSED mid-backfill: neither the backfill-resume nor a later event fires onChunk", async () => {
+    const h = makeHarness();
+    const chunks: Array<[string, number]> = [];
+    // A gap forces the queue task to park on a backfill whose resolution we
+    // control — dispose happens exactly while that responder is pending.
+    let resolveBackfill: ((v: unknown) => void) | undefined;
+    h.answer("log_read", () => {
+      return new Promise((resolve) => {
+        resolveBackfill = resolve;
+      });
+    });
+    const dispose = await h.launcher.tailStart("s1", "sub-1", 100, (b, next) =>
+      chunks.push([Buffer.from(b).toString(), next]),
+    );
+    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 107, toByte: 110, data_b64: b64("xyz") }));
+    await flush(); // the task is now parked mid-`await` on the backfill
+    dispose(); // disposed WHILE the backfill responder is pending
+    resolveBackfill?.({ bytes_b64: b64("gapfill"), next: 107, size: 200 });
+    await flush(); // backfill resolves: the guard must swallow BOTH deliveries
+    expect(chunks).toEqual([]);
+    // And a fresh dispatch finds no subscriber — the bus was unsubscribed.
+    expect(
+      dispatchOutput(
+        outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 110, toByte: 113, data_b64: b64("123") }),
+      ),
+    ).toBe(false);
+    await flush();
+    expect(chunks).toEqual([]);
+  });
+
   it("the disposer unsubscribes and fires tail_stop (5 s), swallowing failures", async () => {
     const h = makeHarness();
     const dispose = await h.launcher.tailStart("s1", "sub-1", 0, () => {});
