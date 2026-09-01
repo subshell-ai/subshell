@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiPost } from "@/lib/api";
 import { SESSIONS_QUERY_KEY } from "@/lib/query-keys";
 
-/** The three fields the shared new-session form collects. */
+/** The fields the shared new-session form collects. */
 export interface CreateSessionInput {
   /** Profile the session launches from */
   profileId: string;
@@ -10,21 +10,36 @@ export interface CreateSessionInput {
   workingDir: string;
   /** Optional display name; blank means "default to date/time" */
   name: string;
+  /**
+   * Node picked in the form; "" = no valid choice yet (blocks submit upstream).
+   * Optional so legacy callers keep compiling.
+   */
+  nodeId?: string;
 }
 
 /**
  * The POST body for a fresh session — built in one place because `/new` and
  * the workspace dialog used to duplicate it byte for byte. A blank name is
  * sent as `undefined` so the backend applies its date/time default.
+ * Phase-1 belt (spec 2026-08-31 §3): a remote node is NEVER posted — the
+ * backend 409s (`NODE_LAUNCH_NOT_READY`) anything but `"local"`/omitted — so
+ * any non-local pick is normalised to `"local"`; the form already told the
+ * user the session will start on the control-plane host.
  * @param input - The collected form values
  * @returns The JSON body for `POST /api/sessions`
  */
-export function toSessionCreateBody({ profileId, workingDir, name }: CreateSessionInput): {
+export function toSessionCreateBody({ profileId, workingDir, name, nodeId }: CreateSessionInput): {
   profileId: string;
   workingDir: string;
   name?: string;
+  nodeId?: string;
 } {
-  return { profileId, workingDir, name: name.trim() || undefined };
+  return {
+    profileId,
+    workingDir,
+    name: name.trim() || undefined,
+    nodeId: nodeId ? "local" : undefined,
+  };
 }
 
 /**

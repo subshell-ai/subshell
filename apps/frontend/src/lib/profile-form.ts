@@ -31,6 +31,11 @@ export interface ProfileFormValue {
   envRows: EnvRow[];
   flagRows: FlagRow[];
   restartOnExit: boolean;
+  /**
+   * Node pin: node id, or "" = "Any node (default)" — which serialises to
+   * `nodeId: null` on the wire (spec 2026-08-31 §6.2).
+   */
+  nodeId: string;
 }
 
 /** Empty form state — one blank row per section so typing can start immediately. */
@@ -41,6 +46,7 @@ export function emptyProfileForm(): ProfileFormValue {
     envRows: [{ key: "", value: "" }],
     flagRows: [{ flag: "", value: "" }],
     restartOnExit: false,
+    nodeId: "",
   };
 }
 
@@ -75,6 +81,7 @@ export function profileFormFromRow(row: ProfileRow): ProfileFormValue {
     envRows: envRows.length > 0 ? envRows : [{ key: "", value: "" }],
     flagRows: flagTokensToRows(tokens),
     restartOnExit: row.restartOnExit === 1,
+    nodeId: row.nodeId ?? "",
   };
 }
 
@@ -136,6 +143,8 @@ export interface ProfilePayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the session when the harness exits */
   restartOnExit: boolean;
+  /** Pinned launch node id; null = any node (the form's "" sentinel) */
+  nodeId: string | null;
 }
 
 /**
@@ -156,6 +165,7 @@ export function toProfilePayload(form: ProfileFormValue): ProfilePayload {
     // No harness consumes config isolation yet — see profile-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
+    nodeId: form.nodeId || null,
   };
 }
 
@@ -171,6 +181,8 @@ export interface ProfileUpdatePayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the session when the harness exits */
   restartOnExit: boolean;
+  /** Pinned launch node id; null unpins (any node) — the form's "" sentinel */
+  nodeId: string | null;
 }
 
 /**
@@ -193,6 +205,7 @@ export function toProfileUpdatePayload(form: ProfileFormValue): ProfileUpdatePay
     // No harness consumes config isolation yet — see profile-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
+    nodeId: form.nodeId || null,
   };
 }
 

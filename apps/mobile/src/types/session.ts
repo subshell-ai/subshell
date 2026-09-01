@@ -35,6 +35,12 @@ export interface SessionView {
   profileId: string;
   /** Harness plugin id, e.g. `claude-code`. */
   harnessId: string;
+  /**
+   * Node the session runs on ("local" = control-plane host, spec
+   * 2026-08-31 §3). The backend always sends it; optional so older payloads
+   * keep typechecking — no mobile UI reads it yet.
+   */
+  nodeId?: string;
   /** Display name; may be auto-mirrored from the pane title. */
   name: string;
   /** Absolute working directory on the instance's host. */

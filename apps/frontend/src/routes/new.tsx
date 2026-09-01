@@ -48,7 +48,7 @@ function NewSessionPage() {
           <NewSessionForm
             value={form}
             onChange={setForm}
-            ids={{ profile: "profile", workingDir: "working-dir", name: "name" }}
+            ids={{ profile: "profile", workingDir: "working-dir", name: "name", node: "node" }}
           />
 
           {create.error && (

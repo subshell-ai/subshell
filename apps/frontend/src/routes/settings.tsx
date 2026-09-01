@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { HarnessRow } from "@/components/harness-row";
+import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { NotificationsCard } from "@/components/notifications-card";
 import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
@@ -157,6 +158,9 @@ function SettingsPage() {
       <NotificationsCard />
 
       <SystemApiKeysCard />
+      {/* Gated on the server's canManage for `local` (owner/admin) — the card
+          renders nothing for everyone else, spec 2026-08-31 §10. */}
+      <LocalLaunchCard />
       {/* Self-service for ANY signed-in user (own passkeys only via the
           session), hence above the admin-scoped cards' concerns. */}
       <PasskeysCard />

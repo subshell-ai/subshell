@@ -34,6 +34,7 @@ describe("emptyProfileForm", () => {
       envRows: [{ key: "", value: "" }],
       flagRows: [{ flag: "", value: "" }],
       restartOnExit: false,
+      nodeId: "",
     });
   });
 });
@@ -58,6 +59,7 @@ describe("profileFormFromRow", () => {
         { flag: "--model", value: "sonnet" },
         { flag: "--verbose", value: "" },
       ],
+      nodeId: "",
       restartOnExit: true,
     });
   });
@@ -229,7 +231,17 @@ describe("toProfilePayload / toProfileUpdatePayload", () => {
       settings: {},
       configIsolation: false,
       restartOnExit: true,
+      nodeId: null,
     });
+  });
+
+  it('carries the node pin through the round-trip (form "" = wire null = any node)', () => {
+    const pinned = profileFormFromRow({ ...baseRow, nodeId: "n1" });
+    expect(pinned.nodeId).toBe("n1");
+    expect(toProfilePayload(pinned).nodeId).toBe("n1");
+    expect(toProfileUpdatePayload(pinned).nodeId).toBe("n1");
+    expect(toProfilePayload({ ...pinned, nodeId: "" }).nodeId).toBeNull();
+    expect(profileFormFromRow({ ...baseRow, nodeId: null }).nodeId).toBe("");
   });
 
   it("blank name falls back to Untitled in both builders", () => {
@@ -245,6 +257,7 @@ describe("toProfilePayload / toProfileUpdatePayload", () => {
       flags: ["--model", "sonnet"],
       configIsolation: false,
       restartOnExit: true,
+      nodeId: null,
     });
     expect(Object.keys(update).sort()).toEqual(
       Object.keys(toProfilePayload(form))

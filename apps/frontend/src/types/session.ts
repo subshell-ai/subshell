@@ -26,6 +26,12 @@ export interface SessionView {
   profileId: string;
   /** Harness the session runs on (e.g. claude/agent) */
   harnessId: string;
+  /**
+   * Node the session runs on ("local" = control-plane host). The backend now
+   * always sends it; optional so older cached payloads keep typechecking
+   * (same tolerance as `preview` below).
+   */
+  nodeId?: string;
   /** User-visible session name */
   name: string;
   /** True = the operator named/pinned it; false = the pane-title sweep owns it */

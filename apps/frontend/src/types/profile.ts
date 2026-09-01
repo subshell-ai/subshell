@@ -16,4 +16,10 @@ export interface ProfileRow {
   restartOnExit: number;
   /** 1 = auto-seeded default profile: editable, but the API refuses to delete it */
   isDefault: number;
+  /**
+   * Pinned launch node id (validated visible at pin time); null = any node.
+   * The backend always sends it; optional so older cached payloads keep
+   * typechecking.
+   */
+  nodeId?: string | null;
 }

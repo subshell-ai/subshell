@@ -14,6 +14,8 @@ export interface ProfileView {
   isDefault: number;
   /** 1 = new sessions auto-restart on exit */
   restartOnExit: number;
+  /** Pinned launch node id; null/absent = any node (mirror only — no UI yet). */
+  nodeId?: string | null;
 }
 
 /** One entry from `GET /api/files/explore` — one level per request by design. */

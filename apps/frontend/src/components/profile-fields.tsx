@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useHarnesses } from "@/hooks/use-harnesses";
+import { useNodes } from "@/hooks/use-nodes";
 import { type ProfileFormValue, parseEnvPaste, parseFlagsPaste } from "@/lib/profile-form";
 
 /**
@@ -44,6 +45,12 @@ export function ProfileFields({
   const { data: allHarnesses, isLoading: harnessesLoading, isError: harnessesFailed } = useHarnesses();
   const harnesses = useMemo(() => allHarnesses?.filter((h) => h.enabled), [allHarnesses]);
   const { data: schema } = useHarnessSchema(value.harnessId);
+  // Node pin options (spec 2026-08-31 §6.2): every node VISIBLE to the caller
+  // — any share level may host a profile's sessions, so this is the plain
+  // registry list; the server re-validates visibility at save time (404 for
+  // an invisible pin).
+  const { data: nodeData } = useNodes();
+  const nodes = nodeData?.nodes ?? [];
 
   // One usable harness is not a decision worth forcing — pick it. The
   // guard on value.harnessId makes this self-disarming after the pick.
@@ -153,6 +160,39 @@ export function ProfileFields({
               onChange={(e) => onChange({ ...value, name: e.target.value })}
               placeholder="e.g. Default"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="profile-node">Node</Label>
+            <Select
+              // "any" is the picker sentinel for "no pin" — the form state
+              // keeps "" and the wire gets null (see profile-form.ts).
+              value={value.nodeId || "any"}
+              onValueChange={(v) => v !== null && onChange({ ...value, nodeId: v === "any" ? "" : v })}
+              items={[
+                { value: "any", label: "Any node (default)" },
+                ...nodes.map((n) => ({
+                  value: n.id,
+                  label:
+                    n.kind === "local" ? "Local (this host)" : n.status === "online" ? n.name : `${n.name} — offline`,
+                })),
+              ]}
+            >
+              <SelectTrigger id="profile-node">
+                <SelectValue placeholder="Any node (default)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any node (default)</SelectItem>
+                {nodes.map((n) => (
+                  <SelectItem key={n.id} value={n.id}>
+                    {n.kind === "local" ? "Local (this host)" : n.status === "online" ? n.name : `${n.name} — offline`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-sm">
+              Pins sessions started from this profile to one machine. The pin is a preference: phase 1 still launches
+              everything on the control-plane host.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="profile-env">Env vars</Label>
