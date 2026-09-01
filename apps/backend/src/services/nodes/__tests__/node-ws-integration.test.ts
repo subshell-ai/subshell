@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { getLive, resetNodeRegistryForTests } from "../node-registry.js";
 import {
   authenticateNodeUpgrade,
@@ -43,13 +44,9 @@ const deps: NodeWsDeps = {
 };
 
 const app = new Elysia()
-  // Mirrors the global error handler's status-carrier branch (the real app's
-  // errorHandlerPlugin does exactly this).
-  .onError(({ error, set }) => {
-    const status = (error as { status?: unknown }).status;
-    set.status = typeof status === "number" ? status : 500;
-    return { refused: set.status };
-  })
+  // THE REAL global error handler — the refusal body the wire test below
+  // asserts is exactly what production sends for a status-carrying throw.
+  .use(errorHandlerPlugin)
   .ws("/ws/node", {
     async upgrade(context) {
       const request = (context as { request: Request }).request;
@@ -92,6 +89,22 @@ function connect(header: string | null): Promise<WebSocket> {
   });
 }
 
+/**
+ * A raw WS upgrade attempt over plain HTTP — a browser `WebSocket` hides the
+ * refusal response, this exposes it: status line AND the error body the
+ * server wrote pre-socket.
+ */
+function rawHandshake(header: string | null): Promise<Response> {
+  const headers: Record<string, string> = {
+    upgrade: "websocket",
+    connection: "Upgrade",
+    "sec-websocket-key": Buffer.from(crypto.randomUUID()).toString("base64"),
+    "sec-websocket-version": "13",
+  };
+  if (header) headers.authorization = header;
+  return fetch(`http://localhost:${port()}/ws/node`, { headers });
+}
+
 beforeAll(async () => {
   await runMigrations();
 });
@@ -105,6 +118,21 @@ describe("/ws/node over the real ws stack", () => {
   it("a bad key never gets a socket (handshake refused)", async () => {
     await expect(connect("Bearer nope")).rejects.toThrow("handshake refused");
     await expect(connect(null)).rejects.toThrow("handshake refused");
+  });
+
+  it("wire-level 401: refusal carries the real error body, not just a closed socket", async () => {
+    // The client-side error event above proves "no socket"; this proves WHAT
+    // the peer received pre-socket: 401 + INVALID_CREDENTIALS (spec §5.3),
+    // produced by the REAL errorHandlerPlugin from the upgrade-hook throw.
+    const res = await rawHandshake("Bearer nope");
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { code?: string; statusCode?: number };
+    expect(body.code).toBe("INVALID_CREDENTIALS");
+    expect(body.statusCode).toBe(401);
+
+    const missing = await rawHandshake(null);
+    expect(missing.status).toBe(401);
+    expect(((await missing.json()) as { code?: string }).code).toBe("INVALID_CREDENTIALS");
   });
 
   it("full lifecycle: authed open → ready marks online → close marks offline", async () => {
@@ -159,5 +187,13 @@ describe("/ws/node over the real ws stack", () => {
     await nodes.setApiKeyId(nodeId, "the-real-key-id");
     keyStore.set("stale", { id: "some-other-key", nodeId });
     await expect(connect("Bearer stale")).rejects.toThrow("handshake refused");
+
+    // Wire level: a valid NODE key aimed at the wrong binding is a 403
+    // ACCESS_DENIED (rotation/stale-key tier), distinct from the 401 above.
+    const res = await rawHandshake("Bearer stale");
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string; statusCode?: number };
+    expect(body.code).toBe("ACCESS_DENIED");
+    expect(body.statusCode).toBe(403);
   });
 });

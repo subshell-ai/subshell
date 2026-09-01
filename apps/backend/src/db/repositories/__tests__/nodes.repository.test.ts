@@ -183,6 +183,28 @@ describe("NodesRepository", () => {
     // Idempotent: a second run finds nothing of ours left to flip.
     const second = await repo.markStaleAgentsOffline(iso(45_000));
     expect(second).toBe(0);
+
+    // Empty exclude array behaves EXACTLY like none — the clause is skipped,
+    // not rendered as `not in ()` (which some builders turn into `(1=1)`/no-op
+    // or invalid SQL depending on path).
+    expect(await repo.markStaleAgentsOffline(iso(45_000), [])).toBe(0);
+
+    // Registry-aware sweep: an excluded node (caller: has a LIVE socket) keeps
+    // its `online` projection despite a stale lastSeenAt — a heartbeat-stalled
+    // but reachable agent must not desync the DB from the registry.
+    const stalledLive = await mkNode(repo, owner);
+    await repo.setStatus(stalledLive.id, "online");
+    await db
+      .updateTable("nodes")
+      .set({ lastSeenAt: iso(600_000) })
+      .where("id", "=", stalledLive.id)
+      .execute();
+    await repo.markStaleAgentsOffline(iso(45_000), [stalledLive.id, unique("n")]);
+    expect((await repo.findById(stalledLive.id))?.status).toBe("online");
+
+    // Once it drops out of the exclude set (socket gone), the sweep catches it.
+    expect(await repo.markStaleAgentsOffline(iso(45_000))).toBe(1);
+    expect((await repo.findById(stalledLive.id))?.status).toBe("offline");
   });
 
   it("deleteById unpins profiles and removes the node; countPinnedProfiles pre-counts", async () => {

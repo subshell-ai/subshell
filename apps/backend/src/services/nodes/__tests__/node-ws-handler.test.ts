@@ -3,7 +3,7 @@ import { NODE_MAX_FRAME_BYTES, NODE_PROTOCOL_VERSION, type NodeEvent } from "@in
 import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { getLive, resetNodeRegistryForTests } from "../node-registry.js";
+import { getLive, type NodeConnection, resetNodeRegistryForTests } from "../node-registry.js";
 import { NodeRpcError } from "../node-rpc.js";
 import {
   authenticateNodeUpgrade,
@@ -51,7 +51,8 @@ interface Harness {
   inventories: { id: string; json: string }[];
   touched: string[];
   statuses: { id: string; status: string }[];
-  results: Extract<NodeEvent, { type: "result" }>[];
+  /** what deps.resolveResult saw: the connection handed to it + the event */
+  results: { conn: NodeConnection; event: Extract<NodeEvent, { type: "result" }> }[];
   inventoryRequests: string[];
   /** when set, deps.resolveResult returns false instead of true */
   resultMiss: boolean;
@@ -88,8 +89,8 @@ function makeHarness(): Harness {
         h.statuses.push({ id, status });
       },
     } as unknown as NodeWsDeps["nodes"],
-    resolveResult: (event) => {
-      h.results.push(event);
+    resolveResult: (conn, event) => {
+      h.results.push({ conn, event });
       return !h.resultMiss;
     },
     requestInventory: (nodeId) => {
@@ -229,15 +230,35 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(h.inventories).toEqual([{ id: "n1", json: JSON.stringify(harnesses) }]);
   });
 
-  it("result → resolveResult; an unknown ref is a debug no-op, never fatal", async () => {
+  it("result → resolveResult on the socket's OWN connection; unknown ref is a debug no-op", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
+    handleNodeOpen(ws); // stashes ws.data.nodeConn — the connection-scoping anchor
     const ev: Extract<NodeEvent, { type: "result" }> = { type: "result", ref: "jti-1", ok: true, data: { pong: true } };
     await handleNodeMessage(h.deps, ws, JSON.stringify(ev));
-    expect(h.results).toEqual([ev]);
+    // The correlator receives THIS socket's record, not some registry-wide scan.
+    const own = ws.data.nodeConn;
+    if (!own) throw new Error("open must stash the registry record on ws.data");
+    expect(h.results).toEqual([{ conn: own, event: ev }]);
     h.resultMiss = true;
     await handleNodeMessage(h.deps, ws, JSON.stringify({ ...ev, ref: "gone" }));
     expect(ws.closed).toHaveLength(0);
+  });
+
+  it("result on a socket whose node was superseded still settles only ITS own record", async () => {
+    const h = makeHarness();
+    const first = fakeSocket("n1");
+    handleNodeOpen(first); // will be superseded, but its close hasn't fired
+    const second = fakeSocket("n1");
+    handleNodeOpen(second); // registry now maps the fresh record
+    const ev: Extract<NodeEvent, { type: "result" }> = { type: "result", ref: "jti-x", ok: true };
+    await handleNodeMessage(h.deps, first, JSON.stringify(ev));
+    // The superseded socket's frame goes to the superseded record — the
+    // replacement's pendings are structurally out of reach from this socket.
+    const oldConn = first.data.nodeConn;
+    if (!oldConn) throw new Error("open must stash the registry record on ws.data");
+    expect(h.results).toEqual([{ conn: oldConn, event: ev }]);
+    expect(h.results[0].conn).not.toBe(second.data.nodeConn);
   });
 
   it("phase-2 events and error frames are ingested without repo writes", async () => {

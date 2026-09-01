@@ -100,7 +100,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
   it("sends a signed envelope and resolves with result.data, correlated by jti", async () => {
     const fake = fakeSocket();
-    attachConnection("n1", fake);
+    const conn = attachConnection("n1", fake);
 
     const p = sendCommand("n1", { type: "ping" }, 5000);
     await waitFor(() => fake.sent.length === 1, "first frame");
@@ -118,34 +118,55 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     expect(typeof payload.exp).toBe("number");
     expect((payload.exp as number) - (payload.iat as number)).toBe(NODE_CMD_TTL_SEC);
 
-    // Reply as the WS handler would: parsed event → resolveResult.
+    // Reply as the WS handler would: parsed event → resolveResult(conn, ev).
     const ev = parseNodeEvent(JSON.stringify({ type: "result", ref: claims.jti, ok: true, data: { pong: true } }));
     if (ev?.type !== "result") throw new Error("reply should parse as a result event");
-    expect(resolveResult(ev)).toBe(true);
+    expect(resolveResult(conn, ev)).toBe(true);
     expect(await p).toEqual({ pong: true });
+  });
+
+  it("resolveResult is CONNECTION-scoped: a foreign conn cannot settle another node's jti", async () => {
+    const fakeA = fakeSocket();
+    const connA = attachConnection("nA", fakeA);
+    const fakeB = fakeSocket();
+    const connB = attachConnection("nB", fakeB);
+
+    const p = sendCommand("nA", { type: "ping" }, 5000);
+    await waitFor(() => fakeA.sent.length === 1, "frame on A");
+    const claims = await unwrap(jwsOf(fakeA.sent, 0), "nA", publicJwk, new JtiLru(), new SeqTracker());
+    const ev = { type: "result", ref: claims.jti, ok: true, data: "stolen" } satisfies NodeResultEvent;
+
+    // Even holding A's jti (leaked/observed), settling must go through A's
+    // connection — B's socket refuses, and A's pending survives the attempt.
+    expect(resolveResult(connB, ev)).toBe(false);
+    expect(connA.pending.size).toBe(1);
+
+    // The honest path still works: the SAME connection the command left on.
+    expect(resolveResult(connA, ev)).toBe(true);
+    expect(await p).toBe("stolen");
   });
 
   it("resolves with `undefined` data when the result omits it", async () => {
     const fake = fakeSocket();
-    attachConnection("n1", fake);
+    const conn = attachConnection("n1", fake);
     const p = sendCommand("n1", { type: "ping" }, 5000);
     await waitFor(() => fake.sent.length === 1, "frame");
 
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
-    resolveResult({ type: "result", ref: claims.jti, ok: true } satisfies NodeResultEvent);
+    resolveResult(conn, { type: "result", ref: claims.jti, ok: true } satisfies NodeResultEvent);
     expect(await p).toBeUndefined();
   });
 
   it("rejects `unsupported` when the node answers error=unsupported", async () => {
     const fake = fakeSocket();
-    attachConnection("n1", fake);
+    const conn = attachConnection("n1", fake);
     const p = sendCommand("n1", { type: "ping" }, 5000);
     await waitFor(() => fake.sent.length === 1, "frame");
 
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
     const ev = parseNodeEvent({ type: "result", ref: claims.jti, ok: false, error: "unsupported" });
     if (ev?.type !== "result") throw new Error("reply should parse");
-    resolveResult(ev);
+    resolveResult(conn, ev);
 
     const err = await rejection(p);
     expect(err.code).toBe("unsupported");
@@ -153,12 +174,17 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
   it("rejects `failed` carrying the node's error message for any other ok:false", async () => {
     const fake = fakeSocket();
-    attachConnection("n1", fake);
+    const conn = attachConnection("n1", fake);
     const p = sendCommand("n1", { type: "ping" }, 5000);
     await waitFor(() => fake.sent.length === 1, "frame");
 
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
-    resolveResult({ type: "result", ref: claims.jti, ok: false, error: "no such file" } satisfies NodeResultEvent);
+    resolveResult(conn, {
+      type: "result",
+      ref: claims.jti,
+      ok: false,
+      error: "no such file",
+    } satisfies NodeResultEvent);
 
     const err = await rejection(p);
     expect(err.code).toBe("failed");
@@ -178,12 +204,12 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
     // A late reply for the abandoned jti matches nothing.
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
-    expect(resolveResult({ type: "result", ref: claims.jti, ok: true } satisfies NodeResultEvent)).toBe(false);
+    expect(resolveResult(conn, { type: "result", ref: claims.jti, ok: true } satisfies NodeResultEvent)).toBe(false);
   });
 
   it("a concurrent burst keeps seq strictly increasing in SENT order, each promise on its own jti", async () => {
     const fake = fakeSocket();
-    attachConnection("n1", fake);
+    const conn = attachConnection("n1", fake);
 
     // Distinct cmd payloads identify each call even once they interleave.
     const promises = [0, 1, 2, 3, 4].map((i) => sendCommand("n1", { type: "stat_dir", path: `/p${i}` }, 5000));
@@ -203,7 +229,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
     // Answer every command, echoing its jti; each promise must resolve with ITS jti.
     for (const c of claims) {
-      resolveResult({ type: "result", ref: c.jti, ok: true, data: { jti: c.jti } });
+      resolveResult(conn, { type: "result", ref: c.jti, ok: true, data: { jti: c.jti } });
     }
     const results = (await Promise.all(promises)) as { jti: string }[];
     results.forEach((r, i) => {

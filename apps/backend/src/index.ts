@@ -11,6 +11,7 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
+import { listOnline } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
@@ -92,9 +93,12 @@ process.on("uncaughtException", (error) => {
     sweepWsTokens();
     void manager.reconcileAll();
     // Offline sweep (spec §5.3): a crashed/evicted agent may never produce a
-    // socket close here; staleness of `lastSeenAt` is the backstop.
+    // socket close here; staleness of `lastSeenAt` is the backstop. Nodes with
+    // a LIVE socket are exempt even when their heartbeat stream stalled — the
+    // registry is authoritative for reachability, and flipping their row
+    // would desync the DB projection from a registry an RPC still succeeds on.
     void nodes
-      .markStaleAgentsOffline(new Date(Date.now() - 45_000).toISOString())
+      .markStaleAgentsOffline(new Date(Date.now() - 45_000).toISOString(), listOnline())
       .catch((err: unknown) => getLogger().withError(err).warn("node offline sweep failed"));
   }, 60_000);
 

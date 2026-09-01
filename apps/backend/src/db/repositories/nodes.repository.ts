@@ -162,16 +162,25 @@ export class NodesRepository extends BaseRepository {
    * between socket-open and first frame). `local` is excluded by `kind` —
    * the control-plane host has no agent socket and no heartbeat stream.
    * @param olderThanIso - ISO 8601 cutoff; `lastSeenAt` strictly before it is stale
+   * @param excludeNodeIds - ids to spare regardless of staleness — the caller
+   * passes the LIVE-socket registry's ids so a heartbeat-stalled but
+   * socket-connected node keeps its `online` projection (the repository stays
+   * registry-agnostic; the wiring layer decides who is exempt). Empty/omitted
+   * means no exclusion — the clause is skipped rather than rendered as
+   * `not in ()`.
    * @returns the number of rows flipped
    */
-  async markStaleAgentsOffline(olderThanIso: string): Promise<number> {
-    const res = await this.db
+  async markStaleAgentsOffline(olderThanIso: string, excludeNodeIds?: string[]): Promise<number> {
+    let query = this.db
       .updateTable("nodes")
       .set({ status: "offline", updatedAt: new Date().toISOString() })
       .where("kind", "=", "agent")
       .where("status", "=", "online")
-      .where((eb) => eb.or([eb("lastSeenAt", "is", null), eb("lastSeenAt", "<", olderThanIso)]))
-      .executeTakeFirst();
+      .where((eb) => eb.or([eb("lastSeenAt", "is", null), eb("lastSeenAt", "<", olderThanIso)]));
+    if (excludeNodeIds && excludeNodeIds.length > 0) {
+      query = query.where("id", "not in", excludeNodeIds);
+    }
+    const res = await query.executeTakeFirst();
     // numUpdatedRows arrives bigint from bun:sqlite and number from some
     // Kysely paths — Number() normalizes both spellings.
     return Number(res?.numUpdatedRows ?? 0);

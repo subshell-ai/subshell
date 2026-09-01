@@ -99,8 +99,12 @@ export interface NodeWsDeps {
   verifyApiKey(rawKey: string): Promise<NodeVerifiedKey | null>;
   /** Node row writes (prod: the requestless context's `repos.nodes`). */
   nodes: NodeWsNodesRepo;
-  /** Feed a `result` frame to the RPC correlator (prod: `node-rpc.resolveResult`). */
-  resolveResult(event: Extract<NodeEvent, { type: "result" }>): boolean;
+  /**
+   * Feed a `result` frame to the RPC correlator (prod: `node-rpc.resolveResult`).
+   * Connection-scoped: only `conn`'s own pendings may settle — pass the
+   * socket's own record, never another node's.
+   */
+  resolveResult(conn: NodeConnection, event: Extract<NodeEvent, { type: "result" }>): boolean;
   /** Best-effort inventory refresh after a protocol-compatible `ready` (spec §5.3). */
   requestInventory(nodeId: string): void;
 }
@@ -130,7 +134,7 @@ export function getNodeWsDeps(): NodeWsDeps {
         }
       },
       nodes: getRequestlessContext().repos.nodes,
-      resolveResult: (event) => resolveResult(event),
+      resolveResult: (conn, event) => resolveResult(conn, event),
       requestInventory: (nodeId) => {
         void sendCommand(nodeId, { type: "inventory" }).catch((err: unknown) => {
           logger.withError(err).debug(`node ws: post-ready inventory request failed for ${nodeId}`);
@@ -260,11 +264,16 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "inventory":
       await deps.nodes.applyInventory(nodeId, JSON.stringify(event.harnesses));
       return;
-    case "result":
-      if (!deps.resolveResult(event)) {
+    case "result": {
+      // Connection-scoped settle: the frame can only resolve pendings on the
+      // socket it arrived on (same record the close path drains). Fall back to
+      // the registry mapping only if `open` never stashed one.
+      const conn = ws.data.nodeConn ?? getLive(nodeId);
+      if (!conn || !deps.resolveResult(conn, event)) {
         logger.debug(`node ws: result frame from ${nodeId} for unknown ref ${event.ref}`);
       }
       return;
+    }
     case "error":
       logger.withMetadata({ nodeId, code: event.code }).warn(`node agent reported error: ${event.message}`);
       return;

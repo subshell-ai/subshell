@@ -1,6 +1,6 @@
 import { type NodeCommandBody, type NodeEvent, signCommand } from "@internal/session-protocol";
 import { loadControlKeys } from "./control-keys.js";
-import { getLive, listLive, type NodeConnection } from "./node-registry.js";
+import { getLive, type NodeConnection } from "./node-registry.js";
 
 /**
  * Signed command RPC over the node registry (spec 2026-08-31 §4). This is the
@@ -148,29 +148,30 @@ export function sendCommand(
 
 /**
  * Feed a parsed `result` frame from the agent into the pending RPC it
- * belongs to. Scans live connections' pending maps by `ref` (a jti we minted,
- * so a match is unambiguous; unknown refs are late/foreign and ignored).
+ * belongs to. **Connection-scoped by design**: only `conn`'s own pending map
+ * is consulted — the connection the frame arrived on. A node can settle only
+ * commands it owns; even a leaked jti from another node's pending map cannot
+ * be resolved over this socket (containment is structural, not a bet on jti
+ * entropy). Unknown refs on THIS connection are late/foreign and ignored.
+ * Legitimate results always arrive on the socket the command left on, so
+ * this costs nothing in the honest-agent path.
+ * @param conn - the connection the `result` frame arrived on
  * @param event - the `result` event (from `parseNodeEvent`)
  * @returns true when a pending command was settled, false when nothing matched
  */
-export function resolveResult(event: NodeResultEvent): boolean {
-  for (const conn of listLive()) {
-    const pending = conn.pending.get(event.ref);
-    if (!pending) continue;
-    conn.pending.delete(event.ref);
-    clearTimeout(pending.timer);
-    if (event.ok) {
-      pending.resolve(event.data);
-    } else if (event.error === "unsupported") {
-      pending.reject(
-        new NodeRpcError("unsupported", `node "${conn.nodeId}" does not support this command`, conn.nodeId),
-      );
-    } else {
-      pending.reject(new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId));
-    }
-    return true;
+export function resolveResult(conn: NodeConnection, event: NodeResultEvent): boolean {
+  const pending = conn.pending.get(event.ref);
+  if (!pending) return false;
+  conn.pending.delete(event.ref);
+  clearTimeout(pending.timer);
+  if (event.ok) {
+    pending.resolve(event.data);
+  } else if (event.error === "unsupported") {
+    pending.reject(new NodeRpcError("unsupported", `node "${conn.nodeId}" does not support this command`, conn.nodeId));
+  } else {
+    pending.reject(new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId));
   }
-  return false;
+  return true;
 }
 
 /**

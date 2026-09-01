@@ -111,14 +111,6 @@ export function getLive(nodeId: string): NodeConnection | undefined {
 }
 
 /**
- * Snapshot of every live connection (used by `resolveResult` to scan
- * pending maps without exposing the registry's map).
- */
-export function listLive(): NodeConnection[] {
-  return [...live.values()];
-}
-
-/**
  * Remove `nodeId`'s entry ONLY when `ws` is still its current socket — the
  * identity guard is what keeps a superseded socket's late `close` event from
  * evicting the replacement.
