@@ -53,6 +53,10 @@ export function subscribeOutput(subId: string, handler: (ev: OutputEvent) => voi
 
 /**
  * Fan one `output` frame out to the subscribers of its `subId`.
+ * Routing is subId-only — the accepted trust boundary for §3.3 events: the
+ * frame arrived on a socket already authenticated as that node, and subIds
+ * are unguessable uuids minted by the subscriber, so nothing here re-checks
+ * the frame's `sessionId` against the subscription's session.
  * @param ev - the parsed `output` event
  * @returns true when at least one handler received it, false for an unknown subId
  */

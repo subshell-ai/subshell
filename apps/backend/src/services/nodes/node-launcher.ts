@@ -20,6 +20,13 @@ export interface LaunchPlan {
   moteEnv: Record<string, string>;
   /** MCP registration (dialect computed control-side) */
   mcp?: McpRegistration;
+  /**
+   * Absolute path ON THE TARGET machine where `RemoteLauncher` ships
+   * `mcp.fileContent` — composed by the caller from the node's `ready.dataDir`
+   * (spec §6.4). Additive phase-2 field; `LocalLauncher` ignores it, its file
+   * was already written by `registerSessionMcp`.
+   */
+  mcpConfigPath?: string;
   /** Resume pin */
   harnessSession?: { id: string; mode: "start" | "resume" };
   /**

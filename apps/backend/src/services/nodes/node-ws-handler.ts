@@ -319,7 +319,10 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "sessions_report": {
       const hooks = getNodeLifecycleHooks();
       if (hooks) await hooks.onSessionsReport(nodeId, event.sessions);
-      else logger.warn(`node ws: sessions_report (${event.sessions.length}) with no lifecycle hook`);
+      // Census frames arrive on every connect even before Task 10 installs the
+      // reconcile hooks — a routine no-op, so debug-drop (the `output` unknown-
+      // subId rule), not warn: a reconnecting fleet must not spam the log.
+      else logger.debug(`node ws: sessions_report (${event.sessions.length}) with no lifecycle hook`);
       return;
     }
     case "result": {
