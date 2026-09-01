@@ -77,7 +77,7 @@ export const patchNodeHarnessRoute = new Elysia()
           });
         }
       }
-      return await toNodeView(gate.row, gate.access);
+      return await toNodeView(gate.row, gate.access, gate.isAdmin);
     },
     {
       params: t.Object({

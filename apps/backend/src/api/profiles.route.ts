@@ -4,7 +4,11 @@ import { authGuard } from "@/api/auth-guard.js";
 import { getAllHarnessIds, harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
 import { HarnessSchemaResponseSchema, ProfileSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { loadNodeAccess } from "@/lib/node-access.js";
 import { resolveMcpLaunchForDisplay } from "@/services/mcp-launch.js";
 
 /** POSIX-style env var name; anything else is rejected before storage. */
@@ -29,7 +33,32 @@ const CreateProfileBodySchema = t.Object({
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
   restartOnExit: t.Optional(t.Boolean({ description: "New sessions auto-restart on exit" })),
+  nodeId: t.Optional(
+    t.Nullable(t.String({ minLength: 1, description: "Node id to pin this profile to" }), {
+      description: "Pinned launch node; null/omitted = any node",
+    }),
+  ),
 });
+
+/**
+ * Validate a pin target: the node must merely be VISIBLE to the caller
+ * (spec 2026-08-31 §6.2) — pinning is a preference, not a manage action.
+ * Invisible or unknown collapse to the same 404 (no existence leak, the
+ * node-routes discipline); an empty string was already rejected by the
+ * schema (`minLength: 1` → 400).
+ * @returns the caller's effective access when the node is visible
+ */
+async function assertNodeVisible(userId: string, nodeId: string): Promise<void> {
+  const { access } = await loadNodeAccess(
+    { nodes: new NodesRepository(db), shares: new NodeSharesRepository(db), userMeta: new UserMetaRepository(db) },
+    userId,
+    nodeId,
+  );
+  if (access === "none") {
+    // Same 404 for absent and invisible — ids cannot be probed through the pin.
+    throw new ProfileError("not_found", "Node not found", 404);
+  }
+}
 
 /**
  * Profile endpoints. Reads (list, harness ids, harness schema) stay open to
@@ -57,6 +86,11 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       if (!(await harnessUsable(body.harnessId))) {
         throw new ProfileError("harness_unavailable", "That harness is unavailable (disabled or not installed)", 409);
       }
+      // Pin validation happens BEFORE the row exists — a bad node never
+      // leaves a half-profile behind (and a null/absent pin = "any node").
+      if (body.nodeId !== undefined && body.nodeId !== null) {
+        await assertNodeVisible(user.id, body.nodeId);
+      }
       const repo = new ProfilesRepository(db);
       const created = await repo.create({
         id: crypto.randomUUID(),
@@ -69,6 +103,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
         settingsJson: body.settings ? JSON.stringify(body.settings) : null,
         configIsolation: body.configIsolation ? 1 : 0,
         restartOnExit: body.restartOnExit ? 1 : 0,
+        nodeId: body.nodeId ?? null,
       });
       return created;
     },
@@ -174,6 +209,11 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       if (!existing || existing.userId !== user.id) {
         throw new ProfileError("not_found", "Profile not found");
       }
+      // Same visibility rule as create; an explicit null UNPINS (any node),
+      // an omitted field keeps the existing pin (partial-update semantics).
+      if (body.nodeId !== undefined && body.nodeId !== null) {
+        await assertNodeVisible(user.id, body.nodeId);
+      }
       const updated = await repo.update(params.id, {
         name: body.name ?? existing.name,
         description: body.description ?? existing.description,
@@ -182,6 +222,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
         settingsJson: body.settings ? JSON.stringify(body.settings) : existing.settingsJson,
         configIsolation: body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
         restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
+        nodeId: body.nodeId !== undefined ? body.nodeId : existing.nodeId,
       });
       if (!updated) throw new ProfileError("not_found", "Profile not found");
       return updated;

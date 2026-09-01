@@ -5,7 +5,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { nodeCanManage, resolveNodeAccess } from "@/lib/node-access.js";
+import { nodeCanManageFor, resolveNodeAccess } from "@/lib/node-access.js";
 
 /**
  * Per-request authorization snapshot for one node — the shared front door of
@@ -50,6 +50,6 @@ export async function loadNodeGate(viewerId: string, nodeId: string): Promise<No
     access,
     isAdmin,
     shares,
-    canManage: nodeCanManage(access) || (row.kind === "local" && isAdmin),
+    canManage: nodeCanManageFor(row.kind, access, isAdmin),
   };
 }

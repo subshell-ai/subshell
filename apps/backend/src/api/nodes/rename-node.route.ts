@@ -65,7 +65,7 @@ export const renameNodeRoute = new Elysia()
         targetId: gate.row.id,
         metadataJson: JSON.stringify({ from: gate.row.name, to: body.name }),
       });
-      return await toNodeView(renamed ?? { ...gate.row, name: body.name }, gate.access);
+      return await toNodeView(renamed ?? { ...gate.row, name: body.name }, gate.access, gate.isAdmin);
     },
     {
       body: RenameBodySchema,

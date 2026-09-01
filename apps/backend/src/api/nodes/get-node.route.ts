@@ -30,7 +30,7 @@ export const getNodeRoute = new Elysia()
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
-      const view = await toNodeView(gate.row, gate.access);
+      const view = await toNodeView(gate.row, gate.access, gate.isAdmin);
       if (!nodeCanConfigure(gate.access)) return view;
       return { ...view, shares: await toNodeShareViews(gate.shares) };
     },

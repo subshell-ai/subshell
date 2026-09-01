@@ -2,7 +2,7 @@ import type { NodeSharesRepository } from "@/db/repositories/node-shares.reposit
 import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { NodeSharePermission } from "@/db/types/node-shares.db-types.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 
 /**
  * A viewer's effective access to one node (spec 2026-08-31 §2). Viewer-relative:
@@ -65,6 +65,21 @@ export function nodeCanConfigure(access: NodeAccess): boolean {
 /** True only for the real owner — delete and re-share (routes layer on the local-node admin exception). */
 export function nodeCanManage(access: NodeAccess): boolean {
   return access === "owner";
+}
+
+/**
+ * THE manage rule, in one place: the real owner, or an admin on the seeded
+ * `local` node (T3 ruling — the resolver ranks admins at `edit`, never
+ * `owner`, so the local-node admin exception is layered on here). Both the
+ * route gate (`loadNodeGate`) and the rendered views (`node-view.ts`) derive
+ * `canManage` from this call so the rule can never drift between them.
+ *
+ * @param rowKind - The node's kind (only `local` opens the admin exception)
+ * @param access - The viewer's resolved access on the row
+ * @param isAdmin - Whether the viewer holds the admin role
+ */
+export function nodeCanManageFor(rowKind: NodeKind, access: NodeAccess, isAdmin: boolean): boolean {
+  return nodeCanManage(access) || (rowKind === "local" && isAdmin);
 }
 
 /** The repositories `loadNodeAccess` needs — injected so tests use a scratch DB. */

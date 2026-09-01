@@ -36,7 +36,7 @@ export const listNodesRoute = new Elysia()
       const shares = await new NodeSharesRepository(db).listForNodes(rows.map((r) => r.id));
       const entries = rows.flatMap((row) => {
         const access = resolveNodeAccess(user.id, isAdmin, row, shares.get(row.id) ?? []);
-        return access === "none" ? [] : [{ row, access }];
+        return access === "none" ? [] : [{ row, access, isAdmin }];
       });
       return { nodes: await toNodeViews(entries) };
     },

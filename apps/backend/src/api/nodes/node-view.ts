@@ -3,7 +3,7 @@ import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import type { NodeAccess } from "@/lib/node-access.js";
+import { type NodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
 
 /**
@@ -75,6 +75,10 @@ export const NodeViewSchema = t.Object({
     description: "mote-agent version, null until first ready",
   }),
   access: NodeAccessSchema,
+  canManage: t.Boolean({
+    description:
+      "Whether the caller manages this node (delete/re-share/rotate): real owner, or an admin on `local` — same rule as the route gate",
+  }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
   }),
@@ -140,7 +144,7 @@ function parseCapabilities(json: string | null): string[] {
 }
 
 /** Everything but the harness merge — the one place row→view fields are mapped. */
-function nodeViewBase(row: NodeTable, access: NodeViewableAccess) {
+function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean) {
   return {
     id: row.id,
     name: row.name,
@@ -152,30 +156,43 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess) {
     lastSeenAt: row.lastSeenAt,
     agentVersion: row.agentVersion,
     access,
+    // The SAME rule the route gate applies — shared helper, so view and gate
+    // can never drift (T14 review carry: the frontend cannot derive admin identity).
+    canManage: nodeCanManageFor(row.kind, access, isAdmin),
     capabilities: parseCapabilities(row.capabilities),
   };
 }
 
-/** Render one node row for a viewer at a known access level. */
-export async function toNodeView(row: NodeTable, access: NodeViewableAccess): Promise<NodeView> {
+/**
+ * Render one node row for a viewer at a known access level.
+ * @param isAdmin - Whether the viewer holds the admin role (drives the
+ *  seeded-`local` exception inside `canManage`)
+ */
+export async function toNodeView(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
-  return { ...nodeViewBase(row, access), harnesses, inventoryStale: stale };
+  return { ...nodeViewBase(row, access, isAdmin), harnesses, inventoryStale: stale };
 }
 
 /**
- * Render rows already paired with the viewer's access. The local node's
- * install-probe report is computed at most once per call (a list is local +
- * N agents — one probe batch, not one per row).
+ * Render rows already paired with the viewer's access + admin flag. The local
+ * node's install-probe report is computed at most once per call (a list is
+ * local + N agents — one probe batch, not one per row).
  */
-export async function toNodeViews(entries: { row: NodeTable; access: NodeViewableAccess }[]): Promise<NodeView[]> {
+export async function toNodeViews(
+  entries: { row: NodeTable; access: NodeViewableAccess; isAdmin: boolean }[],
+): Promise<NodeView[]> {
   let localReport: EffectiveHarnessReport | undefined;
   const out: NodeView[] = [];
-  for (const { row, access } of entries) {
+  for (const { row, access, isAdmin } of entries) {
     if (row.kind === "local") {
       localReport ??= await effectiveHarnessStates(row);
-      out.push({ ...nodeViewBase(row, access), harnesses: localReport.harnesses, inventoryStale: localReport.stale });
+      out.push({
+        ...nodeViewBase(row, access, isAdmin),
+        harnesses: localReport.harnesses,
+        inventoryStale: localReport.stale,
+      });
     } else {
-      out.push(await toNodeView(row, access));
+      out.push(await toNodeView(row, access, isAdmin));
     }
   }
   return out;

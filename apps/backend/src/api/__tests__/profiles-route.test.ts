@@ -7,10 +7,12 @@ import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -359,5 +361,143 @@ describe("profile write routes (cookie only) + env name validation", () => {
     const lookalike = await seedProfile("Default", '{"hand":"made"}');
     const ok = await app.fetch(authedRequest(`/api/profiles/${lookalike}`, cookie, { method: "DELETE" }));
     expect(ok.status).toBe(200);
+  });
+});
+
+describe("profile node pinning (spec 2026-08-31 §6.2, T15a)", () => {
+  const app = new Elysia().use(errorHandlerPlugin).use(profileRoutes);
+  const pw = "pin-pass-1234";
+  const ownerEmail = `pin-owner-${crypto.randomUUID()}@mote.local`;
+  const nodes = new NodesRepository(db);
+  const repo = new ProfilesRepository(db);
+  let ownerId: string;
+  let ownerCookie: string;
+  let ownNodeId: string;
+  let foreignNodeId: string;
+  const createdProfileIds: string[] = [];
+  const createdNodeIds: string[] = [];
+
+  async function mkNode(ownerUserId: string): Promise<string> {
+    const id = crypto.randomUUID();
+    await nodes.create({ id, ownerUserId, name: `pin-${id}`, kind: "agent", status: "offline" });
+    createdNodeIds.push(id);
+    return id;
+  }
+
+  async function mkProfile(name: string, nodeId?: string | null): Promise<string> {
+    const id = crypto.randomUUID();
+    createdProfileIds.push(id);
+    await repo.create({
+      id,
+      userId: ownerId,
+      harnessId: "claude-code",
+      name,
+      description: null,
+      envJson: null,
+      flagsJson: null,
+      settingsJson: null,
+      configIsolation: 0,
+      restartOnExit: 0,
+      ...(nodeId !== undefined ? { nodeId } : {}),
+    });
+    return id;
+  }
+
+  beforeAll(async () => {
+    process.env.CLAUDE_PATH = "/bin/true";
+    await setupAuthTables();
+    ownerId = await new UsersRepository(db).createUser({
+      email: ownerEmail,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    ownerCookie = await signIn(ownerEmail, pw);
+    await ensureLocalNode(db);
+    ownNodeId = await mkNode(ownerId);
+    // A private foreign node — invisible to the owner (no share, not theirs).
+    foreignUserId = await new UsersRepository(db).createUser({
+      email: `pin-foreign-${crypto.randomUUID()}@mote.local`,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    foreignNodeId = await mkNode(foreignUserId);
+  });
+
+  let foreignUserId: string;
+
+  afterAll(async () => {
+    for (const id of createdProfileIds) await repo.delete(id);
+    for (const id of createdNodeIds) await nodes.deleteById(id);
+    await deleteUserByEmailOrId(foreignUserId);
+    await deleteUserByEmailOrId(ownerEmail);
+    delete process.env.CLAUDE_PATH;
+  });
+
+  function post(body: Record<string, unknown>, cookie = ownerCookie) {
+    return app.fetch(authedRequest("/api/profiles", cookie, { method: "POST", body: JSON.stringify(body) }));
+  }
+  function put(profileId: string, body: Record<string, unknown>, cookie = ownerCookie) {
+    return app.fetch(
+      authedRequest(`/api/profiles/${profileId}`, cookie, { method: "PUT", body: JSON.stringify(body) }),
+    );
+  }
+
+  it("POST with a visible (owned) nodeId stores it and the response echoes it", async () => {
+    const res = await post({ harnessId: "claude-code", name: "pin-create", nodeId: ownNodeId });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; nodeId: string };
+    createdProfileIds.push(body.id);
+    expect(body.nodeId).toBe(ownNodeId);
+    expect((await repo.findById(body.id))?.nodeId).toBe(ownNodeId);
+  });
+
+  it("GET (list) returns nodeId — pinned and unpinned rows", async () => {
+    const pinned = await mkProfile("pin-list-pinned", ownNodeId);
+    const loose = await mkProfile("pin-list-loose");
+    const res = await app.fetch(authedRequest("/api/profiles", ownerCookie));
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { id: string; nodeId: string | null }[];
+    expect(rows.find((r) => r.id === pinned)?.nodeId).toBe(ownNodeId);
+    expect(rows.find((r) => r.id === loose)?.nodeId).toBeNull();
+  });
+
+  it("PUT pins then unpins (null = any node) — round-trip through the row", async () => {
+    const id = await mkProfile("pin-roundtrip");
+    const pin = await put(id, { nodeId: ownNodeId });
+    expect(pin.status).toBe(200);
+    expect(((await pin.json()) as { nodeId: string }).nodeId).toBe(ownNodeId);
+
+    const unpin = await put(id, { nodeId: null });
+    expect(unpin.status).toBe(200);
+    expect(((await unpin.json()) as { nodeId: string | null }).nodeId).toBeNull();
+    expect((await repo.findById(id))?.nodeId).toBeNull();
+  });
+
+  it("pinning `local` works (Everyone/edit share makes it visible to all)", async () => {
+    const res = await post({ harnessId: "claude-code", name: "pin-local", nodeId: "local" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; nodeId: string };
+    createdProfileIds.push(body.id);
+    expect(body.nodeId).toBe("local");
+  });
+
+  it("an invisible (private foreign) node → 404, both POST and PUT; the row keeps its old pin", async () => {
+    const post = await app.fetch(
+      authedRequest("/api/profiles", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "pin-ghost", nodeId: foreignNodeId }),
+      }),
+    );
+    expect(post.status).toBe(404);
+
+    const id = await mkProfile("pin-keep", ownNodeId);
+    const bad = await put(id, { nodeId: foreignNodeId });
+    expect(bad.status).toBe(404);
+    expect((await repo.findById(id))?.nodeId).toBe(ownNodeId); // untouched
+  });
+
+  it("an empty nodeId → 400 (malformed)", async () => {
+    const res = await post({ harnessId: "claude-code", name: "pin-empty", nodeId: "" });
+    expect(res.status).toBe(400);
   });
 });

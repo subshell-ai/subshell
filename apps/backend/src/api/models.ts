@@ -21,6 +21,9 @@ export const ProfileSchema = t.Object({
   settingsJson: t.Union([t.String({ description: "JSON settings object" }), t.Null()]),
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
   restartOnExit: t.Number({ description: "1 = new sessions auto-restart on exit" }),
+  nodeId: t.Nullable(t.String({ description: "Node id this profile is pinned to" }), {
+    description: "Pinned launch node id (validated visible at pin time); null = any node",
+  }),
   isDefault: t.Number({ description: "1 = auto-seeded default profile (cannot be deleted)" }),
   createdAt: t.String({ description: "Created timestamp" }),
   updatedAt: t.String({ description: "Updated timestamp" }),

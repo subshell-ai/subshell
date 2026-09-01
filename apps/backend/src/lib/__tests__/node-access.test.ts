@@ -10,6 +10,7 @@ import {
   nodeCanConfigure,
   nodeCanLaunch,
   nodeCanManage,
+  nodeCanManageFor,
   resolveNodeAccess,
 } from "@/lib/node-access.js";
 
@@ -99,6 +100,26 @@ describe("capability predicates (spec §2 — NOT the session rule)", () => {
     expect(nodeCanLaunch(access)).toBe(true);
     expect(nodeCanConfigure(access)).toBe(false);
     expect(nodeCanManage(access)).toBe(false);
+  });
+});
+
+describe("nodeCanManageFor (ONE rule shared by the gate and the views)", () => {
+  it("owner always manages, on either kind", () => {
+    expect(nodeCanManageFor("agent", "owner", false)).toBe(true);
+    expect(nodeCanManageFor("local", "owner", false)).toBe(true);
+    expect(nodeCanManageFor("local", "owner", true)).toBe(true);
+  });
+
+  it("edit/view manage only via the seeded-`local` admin exception", () => {
+    // Admin on `local` manages (T3 ruling); admin on an agent node does not.
+    expect(nodeCanManageFor("local", "edit", true)).toBe(true);
+    expect(nodeCanManageFor("agent", "edit", true)).toBe(false);
+    expect(nodeCanManageFor("local", "view", true)).toBe(true); // local is Everyone/edit → admin resolves edit anyway
+    // A plain grantee never manages, whatever the kind.
+    expect(nodeCanManageFor("local", "edit", false)).toBe(false);
+    expect(nodeCanManageFor("agent", "edit", false)).toBe(false);
+    expect(nodeCanManageFor("agent", "view", false)).toBe(false);
+    expect(nodeCanManageFor("agent", "none", true)).toBe(false);
   });
 });
 

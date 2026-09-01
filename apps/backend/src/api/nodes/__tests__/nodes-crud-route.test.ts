@@ -27,6 +27,7 @@ type View = {
   kind: string;
   status: string;
   access: string;
+  canManage: boolean;
   capabilities: string[];
   harnesses: { harnessId: string; enabled: boolean; installed: boolean; version?: string }[];
   shares?: unknown[];
@@ -218,6 +219,53 @@ describe("/api/nodes registry CRUD", () => {
 
     expect((await req("GET", `/${n.id}`, { cookie: carolCookie })).status).toBe(404);
     expect((await req("GET", "/definitely-not-a-node", { cookie: aliceCookie })).status).toBe(404);
+  });
+
+  // ── canManage (T14 review carry: the frontend cannot derive admin identity) ──
+
+  it("canManage: owner row true; edit/view rows false (list + detail agree)", async () => {
+    const n = await mkNode(aliceId, `cm-${crypto.randomUUID().slice(0, 8)}`);
+    await nodeShares.replaceForNode(
+      n.id,
+      [
+        { granteeUserId: bobId, permission: "edit" },
+        { granteeUserId: carolId, permission: "view" },
+      ],
+      aliceId,
+    );
+
+    // Owner.
+    expect((await list(aliceCookie)).find((x) => x.id === n.id)?.canManage).toBe(true);
+    expect(((await (await req("GET", `/${n.id}`, { cookie: aliceCookie })).json()) as View).canManage).toBe(true);
+
+    // edit grantee (bob) — can configure, cannot manage.
+    expect((await list(bobCookie)).find((x) => x.id === n.id)?.canManage).toBe(false);
+    expect(((await (await req("GET", `/${n.id}`, { cookie: bobCookie })).json()) as View).canManage).toBe(false);
+
+    // view grantee (carol) — cannot manage.
+    expect((await list(carolCookie)).find((x) => x.id === n.id)?.canManage).toBe(false);
+  });
+
+  it("canManage on `local`: true for an admin, false for a plain viewer", async () => {
+    const adminView = (await list(adminCookie)).find((x) => x.id === "local");
+    expect(adminView?.canManage).toBe(true);
+    const aliceView = (await list(aliceCookie)).find((x) => x.id === "local");
+    expect(aliceView?.canManage).toBe(false);
+
+    // detail path agrees with list
+    expect(((await (await req("GET", "/local", { cookie: adminCookie })).json()) as View).canManage).toBe(true);
+    expect(((await (await req("GET", "/local", { cookie: aliceCookie })).json()) as View).canManage).toBe(false);
+  });
+
+  it("canManage: an admin on a FOREIGN agent node is false (admin boost = edit, not manage)", async () => {
+    const n = await mkNode(aliceId, `cm-ad-${crypto.randomUUID().slice(0, 8)}`);
+    // Detail path (the admin boost lives in the gate, not findAccessible):
+    // admin sees alice's node as edit — visible, but not manageable.
+    const res = await req("GET", `/${n.id}`, { cookie: adminCookie });
+    expect(res.status).toBe(200);
+    const seen = (await res.json()) as View;
+    expect(seen.access).toBe("edit");
+    expect(seen.canManage).toBe(false);
   });
 
   it("a session bearer key is refused on every registry route (cookie-only phase 1)", async () => {
