@@ -16,7 +16,7 @@ import {
 import { run as runCli } from "../cli.js";
 import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";
-import { type DaemonDeps, probeOnline, runDaemon, wsUrlFor } from "../daemon.js";
+import { type DaemonDeps, probeOnline, runDaemon, type WsConstructor, wsUrlFor } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
 import { SessionMetaStore } from "../session-meta.js";
 import { newHome } from "../test-preload.js";
@@ -248,6 +248,43 @@ test("wsUrlFor derives wss/ws + /ws/node from the server URL", () => {
   expect(wsUrlFor("https://mote.example")).toBe("wss://mote.example/ws/node");
   expect(wsUrlFor("https://mote.example:5173")).toBe("wss://mote.example:5173/ws/node");
   expect(wsUrlFor("http://localhost:4000")).toBe("ws://localhost:4000/ws/node");
+});
+
+// Ledger 17c (P1-T12 carry): enroll persists the SERVER-REPORTED ws URL; the
+// daemon must prefer it over the derived one (behind a divergent proxy the
+// derived URL targets the alias, not the plane that answered enroll). A
+// WebSocket ctor that records the dial URL and throws proves exactly what
+// `runDaemon` dials — no plane needed (the ctor throw unwinds the loop).
+test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derived URL", async () => {
+  newHome();
+  const [keys] = await Promise.all([keysReady]);
+  const dialed: string[] = [];
+  const RecordingWs = function (this: never, url: string) {
+    dialed.push(url);
+    throw new Error("dial intercepted");
+  } as unknown as WsConstructor;
+  const base = {
+    nodeId: NODE_ID,
+    nodeKey: NODE_KEY,
+    controlPublicKey: JSON.stringify(keys.publicJwk),
+    dataDir: "/tmp/mote-agent-test-data",
+    name: "test-node",
+  };
+
+  await expect(
+    runDaemon(
+      { ...base, serverUrl: "https://control.example", nodeWsUrl: "wss://pin.example/ws/node" },
+      { WebSocketImpl: RecordingWs },
+    ),
+  ).rejects.toThrow(/cannot open wss:\/\/pin\.example\/ws\/node/);
+  expect(dialed).toEqual(["wss://pin.example/ws/node"]);
+
+  // Absent persisted URL (config from before 17c) ⇒ the derived path, verbatim.
+  dialed.length = 0;
+  await expect(
+    runDaemon({ ...base, serverUrl: "https://control.example" }, { WebSocketImpl: RecordingWs }),
+  ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
+  expect(dialed).toEqual(["wss://control.example/ws/node"]);
 });
 
 test("sends a ready frame the real parseNodeEvent accepts, with protocol identity", async () => {
@@ -491,23 +528,69 @@ test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
 /* Fix wave 1: signal during backoff + non-destructive status          */
 /* ------------------------------------------------------------------ */
 
-test("SIGINT during the backoff sleep: exits 0 inside the slice budget and never dials again", async () => {
-  const h = await startDaemon({ rand: () => 1 }); // full jitter → first backoff sleep is 1000 ms
-  const opensBefore = h.plane.opens; // 1 (the initial connection only)
-  closeAllSockets(h.plane, 1001, "transient"); // non-terminal → daemon enters the sleep
-  const closeDeadline = Date.now() + 2000;
-  while (h.plane.closes === 0 && Date.now() < closeDeadline) await sleep(5);
-  expect(h.plane.closes).toBeGreaterThan(0); // we are inside the sleep now
-  const t0 = Date.now();
-  process.kill(process.pid, "SIGINT"); // the daemon's handler is registered in this very process
-  const exitDeadline = t0 + 900;
-  while (h.exits.length === 0 && Date.now() < exitDeadline) await sleep(5);
-  expect(h.exits).toEqual([0]); // first Ctrl-C wins — no second signal needed
-  expect(Date.now() - t0).toBeLessThan(750); // the ≤250 ms slice budget, NOT the ~1000 ms sleep
-  await h.stopped;
-  expect(h.fatal).toBeUndefined();
-  await sleep(400); // outlast the remainder of the original sleep window
-  expect(h.plane.opens).toBe(opensBefore); // the pre-dial check stopped the loop: no further dial
+// Ledger 17e (P1-T13 Minor 3, CI-flake watch). The old design: one plane close
+// → the FIRST backoff sleep, exactly 1000 ms (rand→1), asserting exit within
+// 750 ms — only a 500 ms margin over the ≤250 ms slice budget, which CI load can
+// eat. Determinism instead: a dead port means the loop never opens, so `attempt`
+// climbs and the injected rand pins the ladder to EXACT delays (1000, 2000, …).
+// The test parks in the 2000 ms step, so the raised 750→1500 ms window still
+// DISCRIMINATES: a sliced sleep answers SIGINT in ≲250 ms + slop; an
+// uninterruptible one would only exit at ~2000 ms — past every deadline here.
+test("SIGINT during the backoff sleep: exits 0 inside the raised slice budget and never dials again", async () => {
+  const [keys] = await Promise.all([keysReady]);
+  const lines: string[] = [];
+  const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+    lines.push(a.join(" ")); // every daemon log line doubles as the dial counter
+  });
+  const exits: number[] = [];
+  let fatal: unknown;
+  const stopped = runDaemon(
+    {
+      serverUrl: "http://localhost:1", // refused instantly (same dead-port fixture status --probe uses)
+      nodeId: NODE_ID,
+      nodeKey: NODE_KEY,
+      controlPublicKey: JSON.stringify(keys.publicJwk),
+      dataDir: "/tmp/mote-agent-test-data",
+      name: "test-node",
+    },
+    {
+      rand: () => 1, // full jitter at its max: delay = min(60 s, 1000·2^attempt), exact — no randomness
+      exit: (code: number): never => {
+        exits.push(code);
+        throw new DaemonStopped(code);
+      },
+    },
+  ).then(
+    () => undefined,
+    (err: unknown) => {
+      if (!(err instanceof DaemonStopped)) fatal = err;
+    },
+  );
+
+  try {
+    const inSecondSleep = "reconnecting in 2000 ms";
+    const sleepDeadline = Date.now() + 6000; // first rung (1000 ms) + two instant ECONNREFUSEDs
+    while (!lines.some((l) => l.includes(inSecondSleep)) && Date.now() < sleepDeadline) await sleep(10);
+    expect(lines.some((l) => l.includes(inSecondSleep))).toBe(true); // we ARE inside the 2000 ms sleep
+
+    const t0 = Date.now();
+    process.kill(process.pid, "SIGINT"); // the daemon's handler is registered in this very process
+    const exitDeadline = t0 + 1500;
+    while (exits.length === 0 && Date.now() < exitDeadline) await sleep(5);
+    expect(exits).toEqual([0]); // first Ctrl-C wins — the sliced sleep aborted the 2000 ms wait
+    expect(Date.now() - t0).toBeLessThan(1500); // the ≤250 ms slice budget + generous slop, NOT the 2000 ms sleep
+    await stopped;
+    expect(fatal).toBeUndefined();
+
+    // The loop is dead: no further dial/log after the exit. (The old plane.opens
+    // freeze, ported to the dial-free ladder; the sleep-based no-dial assertion
+    // is gone because exits[0] + a stopped loop already pin it — ledger 17e.)
+    const frozen = lines.length;
+    await sleep(300);
+    expect(lines.length).toBe(frozen);
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test("daemon.lock: written at startup, refreshed on heartbeat ticks, cleared on terminal exit", async () => {

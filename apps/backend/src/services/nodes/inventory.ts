@@ -85,19 +85,9 @@ export function readAgentInventory(node: NodeTable, now: number = Date.now()): A
   return { entries, fresh, stale: !fresh };
 }
 
-/**
- * The strict agent gate for one harness: a FRESH snapshot that explicitly
- * reports it installed. Absent entry, aged snapshot, or junk → false. (The
- * WRITE-side leniency on enable — stale/never-reported are allowed — is a
- * route rule, see `patch-node-harness.route.ts`; this function is the
- * launch-grade answer.)
- * @param node - the agent node row
- * @param harnessId - harness plugin id
- */
-export function agentInventoryInstalled(node: NodeTable, harnessId: string): boolean {
-  const inv = readAgentInventory(node);
-  return inv.fresh && inv.entries.get(harnessId)?.installed === true;
-}
+// NOTE (ledger 17b): the strict agent launch gate that used to live here as
+// `agentInventoryInstalled` is now the ONE predicate `agentHarnessUsable` in
+// `api/harness-utils.ts` (gate rule deduped with the batch path there).
 
 /**
  * Effective harness states for every registered plugin on one node — the

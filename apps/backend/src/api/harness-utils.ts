@@ -7,7 +7,7 @@ import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.reposi
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { ensureDefaultProfilesForHarness } from "@/services/default-profiles.js";
-import { agentInventoryInstalled, readAgentInventory } from "@/services/nodes/inventory.js";
+import { type AgentInventory, readAgentInventory } from "@/services/nodes/inventory.js";
 import { logger } from "@/utils/logger.js";
 
 /** All known harness plugin ids. */
@@ -130,7 +130,7 @@ export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID):
     if (!node) return false;
     // A local-kind row (defensively: only the seeded host is `local`) always
     // resolves through the instance store, never an inventory.
-    if (node.kind !== "local") return agentHarnessUsable(node, plugin);
+    if (node.kind !== "local") return agentHarnessUsableForNode(node, plugin);
   }
   const states = await harnessEnabledStates();
   if (!(states.get(id) ?? plugin.enabledByDefault)) return false;
@@ -138,15 +138,30 @@ export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID):
 }
 
 /**
- * The agent-branch rule for one resolved node row: per-node enabled lazy row
- * (else the plugin default) ∧ the strict fresh-inventory check. The single
- * home of that rule, shared by {@link harnessUsable} and
- * {@link usableHarnessIds}.
+ * The ONE spelling of the agent-node launch gate for one (plugin × node)
+ * pair (ledger 17b — dedups the rule previously spelled here AND in
+ * {@link usableHarnessIds}): per-node enabled lazy row (else the plugin
+ * default) ∧ a FRESH inventory that explicitly says installed. Pure — the
+ * caller supplies the state map and the parsed inventory, so the batch path
+ * reads the rows and parses the snapshot once for the whole set.
  */
-async function agentHarnessUsable(node: NodeTable, plugin: HarnessPlugin): Promise<boolean> {
+function agentHarnessUsable(
+  plugin: HarnessPlugin,
+  nodeStates: Map<string, boolean> | undefined,
+  inv: AgentInventory,
+): boolean {
+  if (!(nodeStates?.get(plugin.id) ?? plugin.enabledByDefault)) return false;
+  return inv.fresh && inv.entries.get(plugin.id)?.installed === true;
+}
+
+/**
+ * The agent-branch rule for one resolved node row: loads the two inputs
+ * (per-node enabled rows, parsed inventory) and defers every verdict to the
+ * single {@link agentHarnessUsable} predicate.
+ */
+async function agentHarnessUsableForNode(node: NodeTable, plugin: HarnessPlugin): Promise<boolean> {
   const states = await new NodeHarnessesRepository(db).enabledStates(node.id);
-  if (!(states.get(plugin.id) ?? plugin.enabledByDefault)) return false;
-  return agentInventoryInstalled(node, plugin.id);
+  return agentHarnessUsable(plugin, states, readAgentInventory(node));
 }
 
 /**
@@ -168,9 +183,7 @@ export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<
     const nodeStates = await new NodeHarnessesRepository(db).enabledStates(node.id);
     const inv = readAgentInventory(node);
     for (const h of ALL_HARNESSES) {
-      if ((nodeStates.get(h.id) ?? h.enabledByDefault) && inv.fresh && inv.entries.get(h.id)?.installed === true) {
-        usable.add(h.id);
-      }
+      if (agentHarnessUsable(h, nodeStates, inv)) usable.add(h.id);
     }
     return usable;
   }

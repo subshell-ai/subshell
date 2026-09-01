@@ -132,7 +132,7 @@ describe("/api/nodes/enroll", () => {
     expect(raw).not.toContain("keyHash");
   });
 
-  it("second redemption of the same key → 401 SETUP_KEY_INVALID", async () => {
+  it("second redemption of the same key → 401 SETUP_KEY_CONSUMED (ledger 17a)", async () => {
     const setupKey = await makeKey("reuse");
     const first = await enroll(bodyFor(setupKey));
     expect(first.status).toBe(201);
@@ -143,9 +143,10 @@ describe("/api/nodes/enroll", () => {
     const again = await enroll(bodyFor(setupKey, { name: secondName }));
     expect(again.status).toBe(401);
     const err = (await again.json()) as { code: string; message: string };
-    expect(err.code).toBe("SETUP_KEY_INVALID");
-    // One honest code for invalid/expired/used — the message says all three.
-    expect(err.message).toContain("invalid, expired, or already used");
+    // The state-distinction batch (task 17a): a spent key now reads CONSUMED,
+    // not the old one-honest-code-for-all-three INVALID.
+    expect(err.code).toBe("SETUP_KEY_CONSUMED");
+    expect(err.message).toContain("already been used");
     // The rejected redemption wrote nothing: the creator's node rows are unchanged
     // and the 401's name never became a node.
     const ownedAfter = await nodes.listByOwner(aliceId);
@@ -153,10 +154,31 @@ describe("/api/nodes/enroll", () => {
     expect(ownedAfter.some((n) => n.name === secondName)).toBe(false);
   });
 
-  it("unknown key → 401 (no row churn)", async () => {
+  it("expired key → 401 SETUP_KEY_EXPIRED (no row churn, ledger 17a)", async () => {
+    const { row, plaintext } = await repo.create("old", aliceId, -1000); // already expired
+    createdSetupKeyIds.push(row.id);
+    const expiredName = `expired-${crypto.randomUUID().slice(0, 8)}`;
+    const ownedBefore = await nodes.listByOwner(aliceId);
+    const res = await enroll(bodyFor(plaintext, { name: expiredName }));
+    expect(res.status).toBe(401);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("SETUP_KEY_EXPIRED");
+    expect(err.message).toContain("expired");
+    const ownedAfter = await nodes.listByOwner(aliceId);
+    expect(ownedAfter.length).toBe(ownedBefore.length);
+    expect(ownedAfter.some((n) => n.name === expiredName)).toBe(false);
+  });
+
+  it("unknown key → 401 SETUP_KEY_INVALID (no row churn)", async () => {
+    const ownedBefore = await nodes.listByOwner(aliceId);
     const res = await enroll(bodyFor("nsk_not_a_real_key_at_all"));
     expect(res.status).toBe(401);
-    expect(((await res.json()) as { code: string }).code).toBe("SETUP_KEY_INVALID");
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("SETUP_KEY_INVALID");
+    // The invalid case keeps its pre-17a wording verbatim (the three-state sentence).
+    expect(err.message).toContain("invalid, expired, or already used");
+    const ownedAfter = await nodes.listByOwner(aliceId);
+    expect(ownedAfter.length).toBe(ownedBefore.length);
   });
 
   it("bad publicKey fails BEFORE consume — key stays redeemable", async () => {

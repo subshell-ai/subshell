@@ -123,15 +123,29 @@ interface WsClose {
 /**
  * Derive the node websocket URL from the control plane's base URL.
  * `https → wss`, `http → ws` (the only schemes `normalizeServer` accepts),
- * path `/ws/node`. CAVEAT (phase-1 proxy divergence): a control plane served
- * under a reverse-proxy SUBPATH (`https://host/mote`) needs that prefix kept
- * on the ws path too; we append to the configured base verbatim, which is
- * correct for same-origin mounts and root-mounted proxies only.
+ * path `/ws/node`. RESOLUTION NOTE (ledger 17c, replaces the phase-1
+ * subpath-proxy caveat): enroll now persists the URL the SERVER reported
+ * (`config.nodeWsUrl`) and {@link resolveWsUrl} prefers it — a control plane
+ * mounted under a reverse-proxy subpath is dialed exactly as it described
+ * itself at enroll, never re-guessed. This derivation is the fallback only
+ * for pre-17c (or hand-written) configs that carry no server answer.
  * @param serverUrl - the `serverUrl` from the config file
- * @returns the dial target for the node socket
+ * @returns the derived dial target for the node socket
  */
 export function wsUrlFor(serverUrl: string): string {
   return `${serverUrl.replace(/^http/, "ws")}/ws/node`;
+}
+
+/**
+ * The ONE dial-URL resolution for the node socket (ledger 17c): the
+ * server-reported URL persisted at enroll when present, else the derivation
+ * from `serverUrl`. Both `runDaemon` and `probeOnline` resolve through here,
+ * so `run` and `status --probe` can never dial different endpoints for the
+ * same node.
+ * @param config - the enrolled node's config
+ */
+function resolveWsUrl(config: AgentConfig): string {
+  return config.nodeWsUrl ?? wsUrlFor(config.serverUrl);
 }
 
 /** Parse the config's pinned control key; a broken pin is fatal (commands could never verify). */
@@ -216,7 +230,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const WebSocketImpl = deps.WebSocketImpl ?? (globalThis.WebSocket as unknown as WsConstructor);
   const heartbeatMs = deps.heartbeatMs ?? HEARTBEAT_MS;
   const nowMs = deps.now ?? ((): number => Date.now());
-  const wsUrl = wsUrlFor(config.serverUrl);
+  const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
@@ -554,7 +568,7 @@ export function probeOnline(config: AgentConfig, deps: OnlineProbeDeps = {}): Pr
     const timer = setTimeout(() => done(false), timeoutMs);
     let ws: WsLike;
     try {
-      ws = new WebSocketImpl(wsUrlFor(config.serverUrl), { headers: { Authorization: `Bearer ${config.nodeKey}` } });
+      ws = new WebSocketImpl(resolveWsUrl(config), { headers: { Authorization: `Bearer ${config.nodeKey}` } });
     } catch {
       done(false);
       return;

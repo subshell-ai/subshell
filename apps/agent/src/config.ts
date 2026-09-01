@@ -21,6 +21,14 @@ export interface AgentConfig {
   dataDir: string;
   /** Node display name (defaults to the hostname). */
   name: string;
+  /**
+   * The WS endpoint the SERVER reported at enroll (ledger 17c). Persisted so
+   * the daemon dials exactly the URL the control plane named, not a locally
+   * re-derived guess (behind a divergent proxy the derivation targets the
+   * alias). Optional: configs written before 17c lack it and the daemon
+   * falls back to `wsUrlFor(serverUrl)`.
+   */
+  nodeWsUrl?: string;
 }
 
 /** Root the config + default data dir live under (`MOTE_AGENT_HOME` for tests). */
@@ -69,7 +77,7 @@ export async function loadConfig(): Promise<AgentConfig> {
   } catch {
     throw new Error(`config corrupt: '${file}' is not valid JSON — re-run mote-agent enroll to recreate it`);
   }
-  const obj = parsed as Record<(typeof REQUIRED_FIELDS)[number], unknown> | null;
+  const obj = parsed as Record<string, unknown> | null;
   if (typeof obj !== "object" || obj === null || REQUIRED_FIELDS.some((f) => typeof obj[f] !== "string")) {
     throw new Error(`config corrupt: '${file}' is missing required string fields — re-run mote-agent enroll`);
   }
@@ -81,5 +89,9 @@ export async function loadConfig(): Promise<AgentConfig> {
     controlPublicKey: cfg.controlPublicKey,
     dataDir: cfg.dataDir,
     name: cfg.name,
+    // Optional + tolerant (ledger 17c): absent ⇒ a pre-17c config, and the
+    // daemon dials the derived URL. Junk is treated the same as absent —
+    // never a corruption verdict, since nothing else in the file changed.
+    nodeWsUrl: typeof obj.nodeWsUrl === "string" ? obj.nodeWsUrl : undefined,
   };
 }

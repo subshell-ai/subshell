@@ -5,8 +5,12 @@ import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 /** 24 h default lifetime for a fresh setup key (spec §5.1). */
 export const SETUP_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** SHA-256 hex of a plaintext key — the only form ever stored or compared. */
-function hashKey(plaintext: string): string {
+/**
+ * SHA-256 hex of a plaintext key — the only form ever stored or compared.
+ * Exported so callers can hash before a {@link NodeSetupKeysRepository.peekByHash}
+ * lookup (the enroll route's state pre-check) without re-spelling the digest.
+ */
+export function hashKey(plaintext: string): string {
   return createHash("sha256").update(plaintext).digest("hex");
 }
 
@@ -97,6 +101,22 @@ export class NodeSetupKeysRepository extends BaseRepository {
       .where("expiresAt", ">", new Date().toISOString())
       .executeTakeFirst();
     return row !== undefined;
+  }
+
+  /**
+   * Read-only STATE probe by pre-computed hash (ledger 17a): lets the enroll
+   * route distinguish INVALID / CONSUMED / EXPIRED BEFORE the key is spent.
+   * Deliberately narrow — one SELECT, no transaction, flips nothing; `consume`
+   * stays the single-winner redemption step.
+   * @param sha256Hex - the SHA-256 hex of the presented plaintext (see {@link hashKey})
+   * @returns the key's state rows, or undefined when no key has this hash
+   */
+  async peekByHash(sha256Hex: string): Promise<{ usedAt: string | null; expiresAt: string } | undefined> {
+    return await this.db
+      .selectFrom("nodeSetupKeys")
+      .select(["usedAt", "expiresAt"])
+      .where("keyHash", "=", sha256Hex)
+      .executeTakeFirst();
   }
 
   /**

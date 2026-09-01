@@ -34,6 +34,20 @@ test("saveConfig re-applies the mode when umask interfered", async () => {
   expect((await loadConfig()).name).toBe("second");
 });
 
+test("nodeWsUrl round-trips when present; an old config loads without it (ledger 17c)", async () => {
+  newHome();
+  // Enroll now persists the server-reported ws URL; load must hand it back verbatim.
+  const pinned = { ...sample, nodeWsUrl: "wss://mote.example/ws/node" };
+  await saveConfig(pinned);
+  expect(await loadConfig()).toEqual(pinned);
+  // Old config on disk (no nodeWsUrl): tolerated — the field is simply absent and
+  // the daemon falls back to the derived URL.
+  writeFileSync(configPath(), JSON.stringify(sample));
+  const old = await loadConfig();
+  expect(old.nodeWsUrl).toBeUndefined();
+  expect(old).toEqual(sample);
+});
+
 test("loadConfig throws an actionable error when no config exists", async () => {
   newHome();
   await expect(loadConfig()).rejects.toThrow(/enroll/);

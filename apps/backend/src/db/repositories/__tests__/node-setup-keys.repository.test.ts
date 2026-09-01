@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
-import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { hashKey, NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 
 let seq = 0;
 // Salt per file: every test file in one `bun test` invocation shares one process
@@ -56,6 +56,26 @@ describe("NodeSetupKeysRepository", () => {
     expect(await repo.peekValid(plaintext)).toBe(false);
     const { plaintext: expired } = await repo.create("stale", unique("u"), -1000);
     expect(await repo.peekValid(expired)).toBe(false);
+  });
+
+  it("peekByHash: read-only state probe — absent/valid/consumed/expired (ledger 17a)", async () => {
+    // Unknown hash: undefined, never a throw.
+    expect(await repo.peekByHash("0".repeat(64))).toBeUndefined();
+    // Fresh key: unused, expires in the future.
+    const { plaintext } = await repo.create("peekhash", unique("u"), 60_000);
+    const h = hashKey(plaintext);
+    const fresh = await repo.peekByHash(h);
+    expect(fresh?.usedAt).toBeNull();
+    expect(Date.parse(fresh?.expiresAt ?? "")).toBeGreaterThan(Date.now());
+    // Read-only: repeatable, and the key still redeems afterwards.
+    expect(await repo.peekByHash(h)).toEqual(fresh);
+    await repo.consume(plaintext, "n1");
+    expect((await repo.peekByHash(h))?.usedAt).not.toBeNull();
+    // Expired key: still reported (with its past expiresAt) — the ROUTE decides the code.
+    const { plaintext: expired } = await repo.create("peekhash-old", unique("u"), -1000);
+    const past = await repo.peekByHash(hashKey(expired));
+    expect(past?.usedAt).toBeNull();
+    expect(Date.parse(past?.expiresAt ?? "")).toBeLessThanOrEqual(Date.now());
   });
 
   it("listByUser scoped to owner; deleteById only by owner", async () => {

@@ -74,12 +74,22 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
     controlPublicKey: CANNED.controlPublicKey,
     dataDir,
     name: hostname(),
+    // Ledger 17c: the SERVER-REPORTED dial URL is persisted alongside the rest.
+    nodeWsUrl: CANNED.wsUrl,
   });
   expect(existsSync(join(dataDir, "identity.json"))).toBe(true);
 
   // The secret never appears in CLI output.
   expect(`${res.out}${res.err}`).not.toInclude(CANNED.nodeKey);
   expect(`${res.out}${res.err}`).not.toInclude("nsk_test_");
+});
+
+test("a pre-17c server response (no wsUrl) still enrolls; config carries no nodeWsUrl", async () => {
+  const { wsUrl: _drop, ...oldShape } = CANNED;
+  const url = fakeControlPlane(() => Response.json(oldShape, { status: 201 }));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(0); // wsUrl absence is tolerated, never "malformed"
+  expect((await loadConfig()).nodeWsUrl).toBeUndefined(); // daemon will derive
 });
 
 test("401 maps to an actionable setup-key message and writes NO config", async () => {

@@ -7,7 +7,7 @@ import { auth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
-import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { hashKey, NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { isUniqueNameViolation } from "@/lib/node-errors.js";
@@ -63,9 +63,10 @@ function nodeWsUrl(): string {
  * authentication step — one winner per plaintext).
  *
  * Write order is crash-safe: EVERYTHING validates before the key is spent
- * (body caps → JWK importability), then `consume` → node row → identity →
- * api key → bind. Steps after `consume` are not atomic with it: if any of
- * them throws, the setup key stays CONSUMED (honest: retry needs a fresh
+ * (setup-key state peek → body caps → JWK importability), then `consume` →
+ * node row → identity → api key → bind. Steps after `consume` are not atomic
+ * with it: if any of them throws, the setup key stays CONSUMED (honest: retry
+ * needs a fresh
  * key) — partially created rows are deleted best-effort and the caller gets
  * a 500. A duplicate (owner, name) surfaces from the unique index as 409
  * `NODE_NAME_TAKEN`; the spent key is not refunded either.
@@ -73,6 +74,44 @@ function nodeWsUrl(): string {
 export const enrollRoute = new Elysia().use(apiModels).post(
   "/enroll",
   async ({ body, status }) => {
+    // ── Key state first (ledger 17a, the P1-T6 simplification undone): a read-only
+    // `peekByHash` BEFORE body validation maps the three 401 codes the spec lists —
+    // absent → SETUP_KEY_INVALID, spent → SETUP_KEY_CONSUMED, past expiry →
+    // SETUP_KEY_EXPIRED. The peek flips nothing (consume below stays the single-
+    // winner step), so ordering it ahead of the JWK checks cannot burn a key.
+    const peek = await new NodeSetupKeysRepository(db).peekByHash(hashKey(body.setupKey));
+    if (!peek) {
+      return status(
+        401,
+        apiErrorBody({
+          code: BackendErrorCodes.SETUP_KEY_INVALID,
+          // Wording preserved verbatim from the one-honest-code era (pinned by tests).
+          message: "Setup key is invalid, expired, or already used.",
+          doNotLog: true,
+        }),
+      );
+    }
+    if (peek.usedAt !== null) {
+      return status(
+        401,
+        apiErrorBody({
+          code: BackendErrorCodes.SETUP_KEY_CONSUMED,
+          message: "Setup key has already been used.",
+          doNotLog: true,
+        }),
+      );
+    }
+    if (peek.expiresAt <= new Date().toISOString()) {
+      return status(
+        401,
+        apiErrorBody({
+          code: BackendErrorCodes.SETUP_KEY_EXPIRED,
+          message: "Setup key has expired.",
+          doNotLog: true,
+        }),
+      );
+    }
+
     // ── Validate BEFORE consuming (pinned by tests: a bad body must leave the key redeemable).
     let parsed: unknown;
     try {
@@ -95,10 +134,10 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       );
     }
 
-    // ── Consume: single-winner redemption. Invalid, expired, and already-used
-    // all read as null from `consume()` — one honest code for all three (the
-    // spec lists SETUP_KEY_INVALID/EXPIRED/CONSUMED; distinguishing them from
-    // the response alone would probe key state for a holder of near-matching keys).
+    // ── Consume: single-winner redemption — the transactional flip is still the
+    // authentication step. The peek above already mapped invalid/consumed/expired,
+    // so a null here means the key changed state between peek and consume (a
+    // concurrent winner); that race answers with the generic SETUP_KEY_INVALID.
     const nodeId = crypto.randomUUID();
     const keyRow = await new NodeSetupKeysRepository(db).consume(body.setupKey, nodeId);
     if (!keyRow) {

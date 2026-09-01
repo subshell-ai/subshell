@@ -90,8 +90,12 @@ export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }
   if (!nodeId || !nodeKey || !controlPublicKey) {
     throw new Error("enroll succeeded but the response was malformed — the setup key is spent; contact the operator");
   }
+  // Ledger 17c (P1-T12 carry): persist the SERVER-REPORTED dial URL. Tolerant
+  // by design — a pre-17c control plane omits it and the daemon falls back to
+  // deriving from `serverUrl`; we never treat its absence as malformed.
+  const nodeWsUrl = typeof ok?.wsUrl === "string" ? ok.wsUrl : undefined;
 
-  await saveConfig({ serverUrl, nodeId, nodeKey, controlPublicKey, dataDir, name });
+  await saveConfig({ serverUrl, nodeId, nodeKey, controlPublicKey, dataDir, name, nodeWsUrl });
   return { nodeId };
 }
 
