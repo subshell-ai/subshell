@@ -468,6 +468,12 @@ describe("log-pipe attach strictness (LaunchPlan.bestEffortLog)", () => {
     await expect(manager.createSession({ userId: "u1", profileId: pid, workingDir: testDir })).rejects.toThrow(
       /pipe-pane/,
     );
+    // The pane DID spawn (pipePane throws after newSession) — the rollback
+    // must kill it, or a live harness orphans under a terminated row.
+    const row = (await sessions.listByUser("u1")).find((r) => r.profileId === pid);
+    if (!row) throw new Error("rolled-back row missing");
+    expect(row.status).toBe("terminated");
+    expect(tmux.kills).toContain(row.id);
     // Rollback like any other spawn failure: the token minted pre-spawn is retired.
     expect(tokens.revoked.length).toBe(1);
   });

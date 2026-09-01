@@ -41,8 +41,8 @@ export class LocalLauncher implements NodeLauncher {
    * compose the pane command (throws on a bad env key — before anything
    * spawns), create the detached session, make sure the log dir exists, then
    * pipe-pane the output log. With {@link LaunchPlan.bestEffortLog} set, only
-   * that last step degrades — a pipe-pane failure is logged (debug) and
-   * swallowed, exactly like the pre-seam revive did.
+   * the LOG ATTACH (dir mkdir + pipe-pane) degrades — a failure there is
+   * logged (debug) and swallowed, exactly like the pre-seam revive did.
    */
   async launch(plan: LaunchPlan): Promise<void> {
     const cmd = buildHarnessCommand(
@@ -58,21 +58,37 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.newSession(plan.socket, plan.id, plan.cwd, cmd);
     // Stream all pane output to a per-session log file for attach replay.
     const logFile = sessionLogPath(plan.id);
-    const logDir = logFile.slice(0, Math.max(0, logFile.lastIndexOf("/")));
-    if (logDir && logDir !== "." && !existsSync(logDir)) mkdirSync(logDir, { recursive: true });
     if (plan.bestEffortLog) {
+      // Revive-only (see LaunchPlan.bestEffortLog): the pane is live and the
+      // row must come back even when the replay log refuses to attach — and
+      // "attach" is BOTH steps: a mkdir throw (log dir wiped mid-flight and
+      // the re-create refused) escapes a revive just as fatally as a pipe-pane
+      // throw, so the guarded region wraps mkdir + pipePane together.
+      // buildHarnessCommand/newSession above stay strict by design.
       try {
+        this.#ensureLogDir(logFile);
         this.#tmux.pipePane(plan.socket, plan.id, logFile);
       } catch (err) {
-        // Revive-only (see LaunchPlan.bestEffortLog): the pane is live and the
-        // row must come back even when the replay log refuses to attach. The
-        // pre-seam revive swallowed this silently; one quiet debug line is
+        // The pre-seam revive swallowed this silently; one quiet debug line is
         // the improvement — loud enough to find, too soft to alarm a sweep.
-        logger.withError(err).debug(`pipe-pane attach failed for ${plan.id}; reviving without the log pipe`);
+        logger.withError(err).debug(`log attach (dir/pipe-pane) failed for ${plan.id}; reviving without the log pipe`);
       }
     } else {
+      this.#ensureLogDir(logFile);
       this.#tmux.pipePane(plan.socket, plan.id, logFile);
     }
+  }
+
+  /**
+   * Ensure the pane log's parent dir exists before pipe-pane: tmux runs
+   * `cat >> <path>` once, and a missing parent dir makes it die silently —
+   * every pane output from then on is lost. Single home for the strict and
+   * best-effort ({@link LaunchPlan.bestEffortLog}) attach paths so they can
+   * never drift apart.
+   */
+  #ensureLogDir(logFile: string): void {
+    const logDir = logFile.slice(0, Math.max(0, logFile.lastIndexOf("/")));
+    if (logDir && logDir !== "." && !existsSync(logDir)) mkdirSync(logDir, { recursive: true });
   }
 
   /**

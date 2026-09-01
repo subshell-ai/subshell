@@ -259,6 +259,16 @@ export class SessionManagerService {
         );
       }
     } catch (err) {
+      // A throw AFTER a successful newSession (the strict pipe-pane path, or
+      // anything else past the spawn) would otherwise orphan a live harness
+      // under the terminated row: best-effort kill FIRST. killSession
+      // swallows "already gone", and the try/catch keeps any other kill
+      // failure from masking the original error or skipping the rollback.
+      try {
+        await this.#launcher.killSession(socket, id);
+      } catch {
+        // kill is best-effort; the row + token rollback below must still run
+      }
       await this.#sessions.markTerminated(id, new Date().toISOString());
       await this.#revokeTokenOrUnlink(id);
       throw err;

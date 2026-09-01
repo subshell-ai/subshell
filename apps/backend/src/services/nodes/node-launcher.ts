@@ -23,9 +23,10 @@ export interface LaunchPlan {
   /** Resume pin */
   harnessSession?: { id: string; mode: "start" | "resume" };
   /**
-   * A pipe-pane attach failure is logged and ignored instead of failing the
-   * launch. Used by revive, where a live pane must survive a lost log pipe —
-   * restores the pre-seam semantics (createSession stays strict).
+   * A log-attach failure (log-dir mkdir or pipe-pane) is logged and ignored
+   * instead of failing the launch. Used by revive, where a live pane must
+   * survive a lost replay log — restores the pre-seam semantics
+   * (createSession stays strict).
    */
   bestEffortLog?: boolean;
 }

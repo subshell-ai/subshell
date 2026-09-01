@@ -2,8 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
+import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
 import { LocalLauncher } from "../local-launcher.js";
+import type { LaunchPlan } from "../node-launcher.js";
 import { sessionLogPath } from "../session-paths.js";
 
 const tmux = new TmuxRunner();
@@ -101,6 +102,60 @@ describe("LocalLauncher.deliverPrompt (real panes)", () => {
     tmux.killSession(bsock, bid);
     tmux.cleanSocket(bsock);
   }, 30_000);
+});
+
+describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)", () => {
+  /** Counts the spawn; pipePane always throws (simulated log-attach failure). */
+  class ScriptedTmux extends TmuxRunner {
+    spawns = 0;
+    pipes = 0;
+    override newSession(_socket: string, _sessionName: string, _cwd: string, _cmd: string): void {
+      this.spawns++;
+    }
+    override pipePane(): void {
+      this.pipes++;
+      throw new Error("pipe-pane attach failed (test)");
+    }
+  }
+  const scripted = new ScriptedTmux();
+  const launcher2 = new LocalLauncher({ tmux: scripted });
+  const pi = getHarness("pi");
+  if (!pi) throw new Error("pi harness plugin missing from ALL_HARNESSES");
+  const plan = (bestEffortLog: boolean): LaunchPlan => ({
+    id: `launch-besteffort-${process.pid}`,
+    socket: tmuxSocketFor(`launch-besteffort-${process.pid}`),
+    harness: pi,
+    binary: "/bin/true",
+    cwd: tmpdir(),
+    profile: {
+      name: "p",
+      description: null,
+      env: {},
+      flags: [],
+      settings: null,
+      configIsolation: false,
+      restartOnExit: false,
+    },
+    sessionName: "s",
+    moteEnv: {},
+    bestEffortLog,
+  });
+
+  it("bestEffortLog: a throwing pipe-pane inside the guarded region does not fail the launch", async () => {
+    // The log-dir mkdir lives in this SAME guarded region (launch(): a mkdir
+    // throw after the spawn must not escape a revive either); pipePane is the
+    // cheap throw seam that pins the region — the mkdir shares it by
+    // construction, both sit inside the one try block.
+    await expect(launcher2.launch(plan(true))).resolves.toBeUndefined();
+    expect(scripted.spawns).toBe(1);
+    expect(scripted.pipes).toBe(1); // attach was attempted…
+  });
+
+  it("strict path: the same throw escapes (createSession's semantics)", async () => {
+    await expect(launcher2.launch(plan(false))).rejects.toThrow(/pipe-pane/);
+    expect(scripted.spawns).toBe(2);
+    expect(scripted.pipes).toBe(2);
+  });
 });
 
 describe("LocalLauncher artifacts + validation", () => {
