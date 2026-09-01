@@ -92,8 +92,10 @@ export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }
   }
   // Ledger 17c (P1-T12 carry): persist the SERVER-REPORTED dial URL. Tolerant
   // by design — a pre-17c control plane omits it and the daemon falls back to
-  // deriving from `serverUrl`; we never treat its absence as malformed.
-  const nodeWsUrl = typeof ok?.wsUrl === "string" ? ok.wsUrl : undefined;
+  // deriving from `serverUrl`; we never treat its absence as malformed. An
+  // EMPTY string is treated like absence too: "" would pin the daemon to a
+  // dead dial target, while derivation from `serverUrl` at least dials home.
+  const nodeWsUrl = typeof ok?.wsUrl === "string" && ok.wsUrl !== "" ? ok.wsUrl : undefined;
 
   await saveConfig({ serverUrl, nodeId, nodeKey, controlPublicKey, dataDir, name, nodeWsUrl });
   return { nodeId };

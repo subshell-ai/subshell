@@ -1,9 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { exportJWK, generateKeyPair } from "jose";
+import { nodeWsUrl } from "@/api/nodes/enroll.route.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
+import * as constants from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -17,6 +19,13 @@ async function jwkString(withD = false): Promise<string> {
   const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", { crv: "P-256", extractable: true });
   return JSON.stringify(await exportJWK(withD ? privateKey : publicKey));
 }
+
+/**
+ * Snapshot of the constants module taken before any `mock.module` swap, so the
+ * wsUrl subpath test can restore the real values for the suites that share this
+ * process (`bun test` runs every file against one DB in one process).
+ */
+const constantsSnapshot = { ...constants };
 
 /**
  * `POST /api/nodes/enroll` — public redemption of a single-use setup key
@@ -123,13 +132,39 @@ describe("/api/nodes/enroll", () => {
     const cpk = JSON.parse(body.controlPublicKey) as { kty?: string; d?: string };
     expect(cpk.kty).toBe("EC");
     expect(cpk.d).toBeUndefined();
-    expect(body.wsUrl).toMatch(/^wss?:\/\//);
-    expect(body.wsUrl.endsWith("/ws/node")).toBe(true);
+    // Loopback/no-path default: the exact dial target, not just "ends with /ws/node".
+    expect(body.wsUrl).toBe(`ws://localhost:${constants.SERVER_PORT}/ws/node`);
 
     // No key internals on the wire.
     const raw = JSON.stringify(body);
     expect(raw).not.toContain("expiresAt");
     expect(raw).not.toContain("keyHash");
+  });
+
+  it("wsUrl preserves a subpath APP_BASE_URL (17c regression)", async () => {
+    // Under tests constants.ts pins APP_BASE_URL to the loopback default (env is
+    // ignored), so the subpath spelling has to be injected via a module mock;
+    // the snapshot is restored in finally so the rest of the suite is unaffected.
+    mock.module("@/constants.js", () => ({ ...constantsSnapshot, APP_BASE_URL: "https://mote.example/cloud" }));
+    try {
+      const setupKey = await makeKey("subpath");
+      const res = await enroll(bodyFor(setupKey, { name: "subpath-node" }));
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { nodeId: string; wsUrl: string };
+      createdNodeIds.push(body.nodeId);
+      // The 17c bug: origin-only derivation made this `wss://mote.example/ws/node`
+      // and the persisted dial target missed the mount point end-to-end.
+      expect(body.wsUrl).toBe("wss://mote.example/cloud/ws/node");
+    } finally {
+      mock.module("@/constants.js", () => constantsSnapshot);
+    }
+  });
+
+  it("nodeWsUrl: preserves multi-segment paths, trims trailing slashes, maps scheme", () => {
+    expect(nodeWsUrl("http://localhost:3080")).toBe("ws://localhost:3080/ws/node");
+    expect(nodeWsUrl("http://127.0.0.1:3080/")).toBe("ws://127.0.0.1:3080/ws/node");
+    expect(nodeWsUrl("https://mote.example/cloud/")).toBe("wss://mote.example/cloud/ws/node");
+    expect(nodeWsUrl("https://mote.example/a/b//")).toBe("wss://mote.example/a/b/ws/node");
   });
 
   it("second redemption of the same key → 401 SETUP_KEY_CONSUMED (ledger 17a)", async () => {

@@ -47,13 +47,25 @@ const EnrollResponseSchema = t.Object({
   controlPublicKey: t.String({
     description: "JSON-serialized control-plane signing public JWK; the agent pins it to verify commands",
   }),
-  wsUrl: t.String({ description: "WebSocket endpoint for this node (`wss://` when APP_BASE_URL is https)" }),
+  wsUrl: t.String({
+    description:
+      "WebSocket endpoint for this node — APP_BASE_URL's scheme (https → wss) and pathname (subpath mounts preserved) with `/ws/node` appended",
+  }),
 });
 
-/** The agent's connect endpoint, derived from the instance's canonical URL (https → wss). */
-function nodeWsUrl(): string {
-  const url = new URL(APP_BASE_URL);
-  return `${url.protocol === "https:" ? "wss" : "ws"}://${url.host}/ws/node`;
+/**
+ * The agent's connect endpoint, derived from the instance's canonical URL:
+ * `https → wss`, `http → ws`, with the APP_BASE_URL **pathname preserved**
+ * (minus any trailing slashes) so a reverse-proxy subpath mount
+ * (`https://host/mote`) yields `wss://host/mote/ws/node` — the 17c follow-up:
+ * this URL is persisted agent-side as the authoritative dial target, so
+ * dropping the path strands every node behind a subpath mount.
+ * @param baseUrl - the instance's canonical URL; defaults to {@link APP_BASE_URL}
+ * @internal the parameter exists for the unit test; callers pass nothing
+ */
+export function nodeWsUrl(baseUrl: string = APP_BASE_URL): string {
+  const url = new URL(baseUrl);
+  return `${url.protocol === "https:" ? "wss" : "ws"}://${url.host}${url.pathname.replace(/\/+$/, "")}/ws/node`;
 }
 
 /**
@@ -146,6 +158,9 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         apiErrorBody({
           code: BackendErrorCodes.SETUP_KEY_INVALID,
           message: "Setup key is invalid, expired, or already used.",
+          // The race sibling of the three peek 401s above — still an expected
+          // enrollment failure, so uniformly not logged (review wave consistency).
+          doNotLog: true,
         }),
       );
     }

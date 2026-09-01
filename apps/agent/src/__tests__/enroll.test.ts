@@ -92,6 +92,15 @@ test("a pre-17c server response (no wsUrl) still enrolls; config carries no node
   expect((await loadConfig()).nodeWsUrl).toBeUndefined(); // daemon will derive
 });
 
+test("an empty wsUrl in the 201 is ignored — config carries no nodeWsUrl (daemon derives)", async () => {
+  // Accept-a-junk hardening: "" satisfies `typeof === "string"`, but an empty
+  // dial target is config weirdness, not an answer — fall back to derivation.
+  const url = fakeControlPlane(() => Response.json({ ...CANNED, wsUrl: "" }, { status: 201 }));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(0);
+  expect((await loadConfig()).nodeWsUrl).toBeUndefined();
+});
+
 test("401 maps to an actionable setup-key message and writes NO config", async () => {
   const url = fakeControlPlane(() =>
     Response.json({ message: "Setup key is invalid, expired, or already used." }, { status: 401 }),
