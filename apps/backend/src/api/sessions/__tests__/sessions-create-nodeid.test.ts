@@ -261,9 +261,14 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
         | (Extract<NodeCommandBody, { type: "launch" }> & Record<string, unknown>)
         | undefined;
       expect(launch).toBeDefined();
-      // Gate fired: the pure plan never ran, so neither field rides the wire.
+      // Gate fired: the pure plan never ran, so no registration rides the wire.
+      // The wire discriminator is `mcp` (path + content ship as `mcp.path` /
+      // `mcp.fileContent` — remote-launcher.ts); `mcpConfigPath` is a
+      // LaunchPlan-side name that is never a wire field, so asserting its
+      // absence here would be vacuous. The positive wire shape (mcp.path under
+      // the node's dataDir) is pinned by `sessions-remote.integration.test.ts`.
       expect(launch?.mcp).toBeUndefined();
-      expect(launch?.mcpConfigPath).toBeUndefined();
+      expect(launch?.mcp?.path).toBeUndefined();
       // Env-only: the MOTE_* contract is shipped regardless — harnesses without
       // a registration file still reach mote (manual setup), and the identity/
       // pin stores of the ported MCP server key off these values.
