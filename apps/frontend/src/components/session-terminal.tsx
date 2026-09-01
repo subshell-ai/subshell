@@ -11,7 +11,7 @@ import { LogTail } from "@/components/log-tail";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
-import { isKeyboardUp, shouldResetForeignScroll } from "@/lib/app-scroll-pin";
+import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { sendInput } from "@/lib/session-frames.js";
 import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
@@ -312,11 +312,13 @@ export function SessionTerminal({
     // up and the terminal holds focus.
     const onAnyScroll = (e: Event) => {
       const t = e.target;
+      const focus = document.activeElement;
       if (
         shouldResetForeignScroll({
           touchUi: isTouchUi(),
-          keyboardUp: !!vv && isKeyboardUp(vv.height, window.innerHeight),
-          terminalFocused: container.contains(document.activeElement),
+          // Engaged = typing (focus in the terminal) or idle (focus nowhere) —
+          // the idle half undoes pans that survive the keyboard closing.
+          engaged: container.contains(focus) || !focus || focus === document.body,
           insideTerminal: t instanceof Element && container.contains(t),
         })
       ) {

@@ -2,26 +2,22 @@ import { describe, expect, it } from "bun:test";
 import { isKeyboardUp, shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 
 describe("shouldResetForeignScroll", () => {
-  const iosPan = { touchUi: true, keyboardUp: true, terminalFocused: true, insideTerminal: false };
+  const typing = { touchUi: true, engaged: true, insideTerminal: false };
 
-  it("undoes any scroll outside the terminal while keyboard is up and focused", () => {
-    expect(shouldResetForeignScroll(iosPan)).toBe(true);
+  it("undoes any scroll outside the terminal while it is engaged", () => {
+    expect(shouldResetForeignScroll(typing)).toBe(true);
   });
 
   it("never touches desktop scrolling", () => {
-    expect(shouldResetForeignScroll({ ...iosPan, touchUi: false })).toBe(false);
+    expect(shouldResetForeignScroll({ ...typing, touchUi: false })).toBe(false);
   });
 
-  it("leaves scrolls alone with no keyboard up (plain page/list scrolling)", () => {
-    expect(shouldResetForeignScroll({ ...iosPan, keyboardUp: false })).toBe(false);
-  });
-
-  it("leaves scrolls alone when another control holds focus", () => {
-    expect(shouldResetForeignScroll({ ...iosPan, terminalFocused: false })).toBe(false);
+  it("leaves scrolls alone while another control holds focus (dialogs, menus)", () => {
+    expect(shouldResetForeignScroll({ ...typing, engaged: false })).toBe(false);
   });
 
   it("always allows the terminal's own scrolling (swipe-to-read, scrollToBottom)", () => {
-    expect(shouldResetForeignScroll({ ...iosPan, insideTerminal: true })).toBe(false);
+    expect(shouldResetForeignScroll({ ...typing, insideTerminal: true })).toBe(false);
   });
 });
 

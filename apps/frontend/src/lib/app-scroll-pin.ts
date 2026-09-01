@@ -4,31 +4,33 @@
  * On the full-height terminal page that scroller is the shell's page wrapper,
  * and panning it slides the terminal off-screen while typing still works —
  * the "view goes blank / cursor is lost" report. The page is viewport-sized
- * on purpose: while the soft keyboard is up and the terminal holds focus, its
- * scroll position must stay pinned.
+ * on purpose: while the terminal is engaged its scroll position must stay
+ * pinned — including after the keyboard closes, when a residual pan would
+ * otherwise leave the shell off-screen (and off-height).
  */
 
 /**
  * Whether a scroll event should be undone (pure, tested). The rule: on a
- * touch UI, while the soft keyboard is up and the terminal holds focus, NO
- * scroll outside the terminal is the user's — it can only be iOS chasing the
- * helper textarea. Crucially, iOS pans `overflow: hidden` ancestors too
- * (scrollIntoView does not care), and those invisible pans are exactly the
- * ones a swipe can never undo. Inside-the-terminal scroll (swipe-to-read
- * scrollback, our own scrollToBottom) is always allowed.
+ * touch UI, while the terminal is engaged, NO scroll outside the terminal is
+ * the user's — it can only be iOS chasing the helper textarea. Crucially,
+ * iOS pans `overflow: hidden` ancestors too (scrollIntoView does not care),
+ * and those invisible pans are exactly the ones a swipe can never undo — and
+ * they SURVIVE the keyboard closing, which is why "engaged" covers the idle
+ * state too. Inside-the-terminal scroll (swipe-to-read scrollback, our own
+ * scrollToBottom) is always allowed.
  */
 export function shouldResetForeignScroll(args: {
   /** Coarse-pointer (touch) UI — desktop scrolling is always the user's. */
   touchUi: boolean;
-  /** Soft keyboard is up: the visual viewport is materially shorter than
-   * the layout viewport (iOS does not resize the layout viewport). */
-  keyboardUp: boolean;
-  /** Focus is inside the terminal (the input iOS is chasing). */
-  terminalFocused: boolean;
+  /** The terminal is engaged: focus sits inside it (mid-typing, iOS actively
+   * chasing the input) or nowhere at all (page idle — a residual pan left
+   * behind after the keyboard closed must be undone too). A control elsewhere
+   * (dialog, menu) holds focus → its scrolling is legitimate and untouched. */
+  engaged: boolean;
   /** The scrolled thing lives inside the terminal container. */
   insideTerminal: boolean;
 }): boolean {
-  return args.touchUi && args.keyboardUp && args.terminalFocused && !args.insideTerminal;
+  return args.touchUi && args.engaged && !args.insideTerminal;
 }
 
 /** How far the keyboard may cover before it counts as up (px of slack for

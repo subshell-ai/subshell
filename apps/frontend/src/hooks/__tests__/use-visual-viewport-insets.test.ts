@@ -42,6 +42,42 @@ describe("useVisualViewportInsets", () => {
     expect(renderHook(() => useVisualViewportInsets()).result.current).toBeNull();
   });
 
+  it("releases the pin (full-height fallback) when the keyboard is closed and unpanned", () => {
+    w.matchMedia = (q: string) => ({
+      matches: q === "(pointer: coarse)",
+      media: q,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    });
+    // happy-dom's innerHeight is 768 — a nearly-equal visualViewport means
+    // NO keyboard; the shell must fall back to h-dvh full height instead of
+    // shrinking to the (possibly chrome-reduced) viewport report.
+    w.visualViewport = {
+      height: 768,
+      offsetTop: 0,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+    expect(renderHook(() => useVisualViewportInsets()).result.current).toBeNull();
+    // ...but a genuine keyboard (or a residual pan) keeps the pin.
+    let _resize: (() => void) | null = null;
+    w.visualViewport = {
+      height: 400,
+      offsetTop: 0,
+      addEventListener: (_: string, fn: () => void) => {
+        if (_) _resize = fn;
+      },
+      removeEventListener: () => {},
+    };
+    const { result, rerender } = renderHook(() => useVisualViewportInsets());
+    expect(result.current).toEqual({ heightPx: 400, offsetYpx: 0 });
+    void rerender;
+  });
+
   it("tracks a coarse-pointer visualViewport, resize included", () => {
     w.matchMedia = (q: string) => ({
       matches: q === "(pointer: coarse)",
