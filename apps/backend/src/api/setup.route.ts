@@ -1,13 +1,12 @@
-import { ALL_HARNESSES, getHarness } from "@internal/harnesses";
+import { ALL_HARNESSES } from "@internal/harnesses";
 import { Elysia, t } from "elysia";
 import { ForbiddenError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
+import { harnessInfo, toggleLocalHarness } from "@/api/harness-utils.js";
 import { HarnessInfoSchema } from "@/api/models.js";
 import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
-import { ensureDefaultProfilesForHarness } from "@/services/default-profiles.js";
-import { logger } from "@/utils/logger.js";
 
 const SetupStatusSchema = t.Object({
   needsSetup: t.Boolean({ description: "True until the first user is registered" }),
@@ -17,39 +16,6 @@ const SetupStatusSchema = t.Object({
 const EnableBodySchema = t.Object({
   enabled: t.Boolean({ description: "Whether the harness should be available for profiles" }),
 });
-
-/** Route error with an HTTP status; Elysia maps `status` to the response code. */
-class SetupError extends Error {
-  readonly code: string;
-  readonly status: number;
-  constructor(code: string, message: string, status: number) {
-    super(message);
-    this.code = code;
-    this.status = status;
-  }
-}
-
-/**
- * Report one plugin with fresh detection: install state and version are
- * probed per request (a re-check is just another GET), enabled state comes
- * from the lazily-written `harnessPlugins` row.
- */
-async function harnessInfo(id: string, enabled: boolean) {
-  const h = getHarness(id);
-  if (!h) throw new SetupError("not_found", "Unknown harness", 404);
-  const installed = await h.isInstalled();
-  return {
-    id: h.id,
-    name: h.name,
-    binary: h.binaryName,
-    description: h.description,
-    icon: h.icon,
-    installed,
-    version: installed ? ((await h.getVersion()) ?? undefined) : undefined,
-    enabled,
-    install: h.installHint,
-  } as const;
-}
 
 async function enabledStatesById(): Promise<Map<string, boolean>> {
   const repo = new HarnessPluginsRepository(db);
@@ -180,27 +146,12 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
     "/harnesses/:id",
     async ({ request, params, body }) => {
       await requireHarnessAccess(request, true);
-      const h = getHarness(params.id);
-      if (!h) throw new SetupError("not_found", "Unknown harness", 404);
-      if (body.enabled && !(await h.isInstalled())) {
-        // Turning a harness on re-runs detection: the "I just installed it,
-        // make it usable" flow is exactly this toggle, with no separate
-        // check step to invent. Disabling never needs a check.
-        throw new SetupError("not_installed", `"${h.name}" is not installed on this machine`, 409);
-      }
-      await new HarnessPluginsRepository(db).setEnabled(h.id, body.enabled);
-      // Enabling a harness makes it usable for everyone, so guarantee each
-      // user has a Default profile for it (insert-only when they have none).
-      // Disabling is left alone — its profiles just hide until it returns.
-      // BEST-EFFORT: the enable itself already committed, so a seeding failure
-      // must not 500 (and flip the client's switch back) over an optional
-      // convenience — the boot sweep heals it; log so it is diagnosable.
-      if (body.enabled) {
-        await ensureDefaultProfilesForHarness(db, h.id).catch((err) => {
-          logger.withError(err).warn(`default-profile seeding failed on enabling harness ${h.id}`);
-        });
-      }
-      return await harnessInfo(h.id, body.enabled);
+      // The shared local-harness toggle — the SAME service function
+      // `PATCH /api/nodes/local/harnesses/:id` calls (spec 2026-08-31 §6.2),
+      // so `harness_plugins` stays the single authoritative store for the
+      // control-plane host: enable re-checks installation (409 when missing),
+      // disable never checks, and enabling best-effort seeds Default profiles.
+      return await toggleLocalHarness(params.id, body.enabled);
     },
     {
       params: t.Object({ id: t.String({ description: "Harness plugin id" }) }),

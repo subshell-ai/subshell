@@ -91,6 +91,10 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       // they are not listed anywhere (cards, new-session pickers), and
       // re-enabling/installing the harness brings them back — nothing here
       // is ever deleted.
+      // LOCAL-scoped by design in phase 1 (usableHarnessIds() probes this
+      // machine): a profile usable anywhere still gates on local. Per-node
+      // launch gating (harnessUsable(id, session.nodeId)) arrives with the
+      // phase-2 launch flow (spec 2026-08-31 §6.2/§6.6).
       const usable = await usableHarnessIds();
       const visible = rows.filter((p) => usable.has(p.harnessId));
       if (actor === "cookie") return visible;

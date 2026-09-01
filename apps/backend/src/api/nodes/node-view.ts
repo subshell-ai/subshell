@@ -1,22 +1,24 @@
-import { ALL_HARNESSES, type HarnessInventoryEntry } from "@internal/harnesses";
 import { type Static, t } from "elysia";
-import { harnessEnabledStates } from "@/api/harness-utils.js";
 import { db } from "@/db/index.js";
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NodeAccess } from "@/lib/node-access.js";
+import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
 
 /**
  * Node registry view schemas + mappers (spec 2026-08-31 §9) — the shared
  * rendering layer behind list/detail so the two never drift.
  *
- * `harnesses` is the PHASE-1 RAW merge (Task 10 refines it in its own
- * commit): enabled state from the per-node/per-instance lazy rows (absent
- * row → plugin default), installed/version from the local probe (`local`)
- * or the cached agent inventory (`agent`, false until the first inventory
- * lands).
+ * `harnesses` is the Task-10 inventory-backed merge:
+ * `services/nodes/inventory.ts → effectiveHarnessStates` resolves enabled
+ * state from the per-node/per-instance lazy rows (absent row → plugin
+ * default) and installed/version from the local probe (`local`) or the
+ * cached agent inventory (`agent`, false until the first inventory lands).
+ * Staleness is a PER-NODE flag (`inventoryStale`) — the inventory ages as a
+ * unit, so tagging individual entries would only repeat the same boolean
+ * across every row; a stale node still reports its last-known `installed`
+ * values (the view is informational — the launch gate is the strict one).
  */
 
 /**
@@ -38,6 +40,17 @@ export const NodeHarnessViewSchema = t.Object({
     description: "local: live binary probe; agent: cached inventory (false until the first inventory lands)",
   }),
   version: t.Optional(t.String({ description: "Installed version from the agent's inventory (agent nodes)" })),
+});
+
+/**
+ * True when this node's harness entries were resolved from data that may not
+ * match reality: an agent whose cached inventory is older than the 10-min
+ * TTL OR has never landed. Per-node (not per-entry) by design — the
+ * inventory ages as a unit. `local` is always false (live probe per read).
+ */
+export const InventoryStaleSchema = t.Boolean({
+  description:
+    "Agent: cached inventory older than the 10-min TTL (or never reported) — installed values are last-known, not live. local: always false",
 });
 
 /** One node as the registry routes render it — no secrets, no machine keys. */
@@ -66,6 +79,7 @@ export const NodeViewSchema = t.Object({
     description: "Capability strings from `ready` (empty when none reported)",
   }),
   harnesses: t.Array(NodeHarnessViewSchema, { description: "Every registered harness × this node's state" }),
+  inventoryStale: InventoryStaleSchema,
 });
 
 /** A node as rendered to one viewer. */
@@ -125,53 +139,8 @@ function parseCapabilities(json: string | null): string[] {
   }
 }
 
-/** The `NodeTable.inventoryJson` snapshot → harnessId → entry; junk reads as empty. */
-function parseInventory(json: string | null): Map<string, HarnessInventoryEntry> {
-  if (!json) return new Map();
-  try {
-    const parsed: unknown = JSON.parse(json);
-    if (!Array.isArray(parsed)) return new Map();
-    const out = new Map<string, HarnessInventoryEntry>();
-    for (const e of parsed) {
-      const entry = e as Partial<HarnessInventoryEntry>;
-      if (typeof entry?.harnessId === "string") out.set(entry.harnessId, entry as HarnessInventoryEntry);
-    }
-    return out;
-  } catch {
-    return new Map();
-  }
-}
-
-/** local node: instance-wide enable state × live install probe (no version — Task 10). */
-async function localHarnessViews(): Promise<NodeHarnessView[]> {
-  const states = await harnessEnabledStates();
-  return await Promise.all(
-    ALL_HARNESSES.map(async (h) => ({
-      harnessId: h.id,
-      enabled: states.get(h.id) ?? h.enabledByDefault,
-      installed: await h.isInstalled(),
-    })),
-  );
-}
-
-/** agent node: per-node enable state × the cached inventory snapshot (false until one lands). */
-async function agentHarnessViews(row: NodeTable): Promise<NodeHarnessView[]> {
-  const states = await new NodeHarnessesRepository(db).enabledStates(row.id);
-  const inv = parseInventory(row.inventoryJson);
-  return ALL_HARNESSES.map((h) => {
-    const e = inv.get(h.id);
-    const view: NodeHarnessView = {
-      harnessId: h.id,
-      enabled: states.get(h.id) ?? h.enabledByDefault,
-      installed: e?.installed === true,
-    };
-    if (e?.version) view.version = e.version;
-    return view;
-  });
-}
-
-/** Render one node row for a viewer at a known access level. */
-export async function toNodeView(row: NodeTable, access: NodeViewableAccess): Promise<NodeView> {
+/** Everything but the harness merge — the one place row→view fields are mapped. */
+function nodeViewBase(row: NodeTable, access: NodeViewableAccess) {
   return {
     id: row.id,
     name: row.name,
@@ -184,22 +153,27 @@ export async function toNodeView(row: NodeTable, access: NodeViewableAccess): Pr
     agentVersion: row.agentVersion,
     access,
     capabilities: parseCapabilities(row.capabilities),
-    harnesses: row.kind === "local" ? await localHarnessViews() : await agentHarnessViews(row),
   };
+}
+
+/** Render one node row for a viewer at a known access level. */
+export async function toNodeView(row: NodeTable, access: NodeViewableAccess): Promise<NodeView> {
+  const { harnesses, stale } = await effectiveHarnessStates(row);
+  return { ...nodeViewBase(row, access), harnesses, inventoryStale: stale };
 }
 
 /**
  * Render rows already paired with the viewer's access. The local node's
- * install-probe set is computed at most once per call (a list is local +
+ * install-probe report is computed at most once per call (a list is local +
  * N agents — one probe batch, not one per row).
  */
 export async function toNodeViews(entries: { row: NodeTable; access: NodeViewableAccess }[]): Promise<NodeView[]> {
-  let localViews: NodeHarnessView[] | undefined;
+  let localReport: EffectiveHarnessReport | undefined;
   const out: NodeView[] = [];
   for (const { row, access } of entries) {
     if (row.kind === "local") {
-      localViews ??= await localHarnessViews();
-      out.push({ ...(await toNodeView(row, access)), harnesses: localViews });
+      localReport ??= await effectiveHarnessStates(row);
+      out.push({ ...nodeViewBase(row, access), harnesses: localReport.harnesses, inventoryStale: localReport.stale });
     } else {
       out.push(await toNodeView(row, access));
     }
