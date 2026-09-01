@@ -60,8 +60,10 @@ describe("useTerminalUploads.openImagePicker", () => {
     );
     result.current.openImagePicker();
 
-    if (!input) throw new Error("openImagePicker never built an input");
-    const picked = input;
+    // `input` is assigned inside the createElement closure, which TS control
+    // flow cannot see — snapshot it through its declared type instead.
+    const picked = input as HTMLInputElement | null;
+    if (!picked) throw new Error("openImagePicker never built an input");
     const file = new File(["x"], "pic.png", { type: "image/png" });
     Object.defineProperty(picked, "files", { value: [file] });
     picked.dispatchEvent(new Event("change"));
