@@ -1,6 +1,7 @@
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { enforceMode } from "./fs-mode.js";
 
 /**
  * Everything mote-agent needs to live: where the control plane is, who this
@@ -44,12 +45,6 @@ export async function saveConfig(cfg: AgentConfig): Promise<void> {
   await enforceMode(dir, 0o700);
   await writeFile(file, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
   await enforceMode(file, 0o600);
-}
-
-/** chmods `path` to `want` if any group/other bit crept in despite the mode arg. */
-async function enforceMode(path: string, want: number): Promise<void> {
-  const st = await stat(path);
-  if ((st.mode & 0o077) !== 0) await chmod(path, want);
 }
 
 /**

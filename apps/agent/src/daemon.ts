@@ -17,7 +17,13 @@ import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
+import { log } from "./log.js";
 import { AGENT_VERSION } from "./version.js";
+
+// The definition moved to log.ts (downstream modules — session-meta.ts — need
+// it and sit below the daemon in the import graph); re-exported so existing
+// `import { log } from "./daemon.js"` paths keep working.
+export { log };
 
 /**
  * `mote-agent run` — the signed-frame execution loop (spec 2026-08-31 §7).
@@ -54,15 +60,6 @@ const IDEMPOTENCE_CAP = 256;
 
 /** Wall-clock cap for the `status` connect probe (brief T13: "5 s"). */
 const STATUS_PROBE_TIMEOUT_MS = 5_000;
-
-/**
- * Emit one timestamped daemon log line. stdout: `mote-agent run` is a
- * foreground process and its operator (or the phase-3 service unit) reads
- * both streams anyway.
- */
-export function log(...parts: unknown[]): void {
-  console.log(`[mote-agent ${new Date().toISOString()}]`, ...parts);
-}
 
 /** The client surface the daemon uses; Bun's `WebSocket` satisfies it structurally. */
 export interface WsLike {
