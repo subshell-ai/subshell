@@ -30,3 +30,6 @@ export const NODES_QUERY_KEY = ["nodes"] as const;
 
 /** Prefix of one node's detail query: `[...NODE_QUERY_KEY, id]`. */
 export const NODE_QUERY_KEY = ["node"] as const;
+
+/** Prefix of a node's sharing grants: `[...NODE_SHARES_QUERY_KEY, id]`. */
+export const NODE_SHARES_QUERY_KEY = ["node-shares"] as const;

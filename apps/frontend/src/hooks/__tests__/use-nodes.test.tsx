@@ -8,6 +8,7 @@ import {
   useDeleteSetupKey,
   useNode,
   useNodes,
+  useRecheckNode,
   useSetupKeys,
 } from "@/hooks/use-nodes";
 import { ApiError } from "@/lib/api";
@@ -25,6 +26,7 @@ const NODE: Node = {
   lastSeenAt: new Date().toISOString(),
   agentVersion: "0.1.0",
   access: "owner",
+  canManage: true,
   capabilities: ["launch"],
   harnesses: [{ harnessId: "claude", enabled: true, installed: true, version: "1.2.3" }],
   inventoryStale: false,
@@ -167,6 +169,32 @@ describe("node mutations", () => {
       const { result } = renderHook(() => useDeleteSetupKey(), { wrapper });
       await result.current.mutateAsync("k1");
       expect(calls.find((c) => c.method === "DELETE" && c.url === "/api/nodes/setup-keys/k1")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("useRecheckNode POSTs the RPC trigger and invalidates the node view", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidated: unknown[] = [];
+    const originalInvalidate = client.invalidateQueries.bind(client);
+    client.invalidateQueries = ((opts: unknown) => {
+      invalidated.push(opts);
+      return originalInvalidate(opts as Parameters<typeof originalInvalidate>[0]);
+    }) as typeof client.invalidateQueries;
+    const spyWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { calls, restore } = mockFetch({ "POST /api/nodes/n1/recheck": () => json({ ok: true }) });
+    try {
+      const { result } = renderHook(() => useRecheckNode("n1"), { wrapper: spyWrapper });
+      await result.current.mutateAsync();
+      expect(calls.find((c) => c.method === "POST" && c.url === "/api/nodes/n1/recheck")).toBeDefined();
+      // The fresh snapshot rode the WS event path into the DB — the view is
+      // re-read, not patched, so invalidation is the whole contract.
+      const keys = invalidated.map((o) => (o as { queryKey?: readonly unknown[] }).queryKey);
+      expect(keys).toContainEqual(["node", "n1"]);
+      expect(keys).toContainEqual(["nodes"]);
     } finally {
       restore();
     }

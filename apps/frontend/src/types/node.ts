@@ -49,6 +49,12 @@ export interface Node {
   agentVersion: string | null;
   /** The caller's effective access (drives which controls render) */
   access: NodeAccess;
+  /**
+   * Whether the caller manages this node (delete/re-share): real owner, or an
+   * admin on `local` — server-derived (the same rule the route gate applies),
+   * so the client must never re-derive admin identity.
+   */
+  canManage: boolean;
   /** Capability strings from `ready` (empty when none reported) */
   capabilities: string[];
   /** Every registered harness × this node's state */

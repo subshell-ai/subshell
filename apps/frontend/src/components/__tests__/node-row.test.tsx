@@ -14,6 +14,7 @@ const BASE: Node = {
   lastSeenAt: new Date().toISOString(),
   agentVersion: null,
   access: "owner",
+  canManage: true,
   capabilities: [],
   harnesses: [
     { harnessId: "claude", enabled: true, installed: true },
@@ -55,7 +56,7 @@ describe("NodeRow", () => {
   it("reads offline as a muted badge and shared access as a badge", () => {
     render(
       <NodeRow
-        node={{ ...BASE, status: "offline", access: "edit" }}
+        node={{ ...BASE, status: "offline", access: "edit", canManage: false }}
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
@@ -63,6 +64,21 @@ describe("NodeRow", () => {
     );
     expect(screen.getByText("offline")).toBeDefined();
     expect(screen.getByText("shared · edit")).toBeDefined();
+  });
+
+  it("enables Share for a non-owner manager (admin on local — server-derived canManage)", async () => {
+    render(
+      <NodeRow
+        node={{ ...BASE, id: "local", kind: "local", access: "edit", canManage: true }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    await openMenu("mac mini");
+    expect(screen.getByRole("menuitem", { name: "Share" }).getAttribute("aria-disabled")).not.toBe("true");
+    // `local` stays undeletable server-side, so its Delete is disabled even for a manager.
+    expect(screen.getByRole("menuitem", { name: "Delete" }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("offers owners enabled Delete/Share", async () => {
@@ -75,7 +91,12 @@ describe("NodeRow", () => {
 
   it("shows Delete and Share DISABLED (not hidden) for a non-owner", async () => {
     render(
-      <NodeRow node={{ ...BASE, access: "view" }} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />,
+      <NodeRow
+        node={{ ...BASE, access: "view", canManage: false }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+      />,
     );
     await openMenu("mac mini");
     expect(screen.getByRole("menuitem", { name: "Delete" }).getAttribute("aria-disabled")).toBe("true");

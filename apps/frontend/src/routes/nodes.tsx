@@ -32,15 +32,9 @@ function NodesPage() {
 
   const nodes = data?.nodes ?? [];
 
-  /**
-   * The config page (`/nodes/$id`) ships in the next task; until the route
-   * exists `navigate` rejects, and a hard navigation is the honest fallback
-   * (the router's own not-found, not an unhandled rejection).
-   */
+  /** The node's config page (`/nodes/$id`, spec §10). */
   function goDetail(id: string) {
-    void (navigate as (opts: never) => Promise<void>)({ to: "/nodes/$id", params: { id } } as never).catch(() => {
-      window.location.href = `/nodes/${id}`;
-    });
+    void navigate({ to: "/nodes/$id", params: { id } });
   }
 
   async function remove(node: Node) {

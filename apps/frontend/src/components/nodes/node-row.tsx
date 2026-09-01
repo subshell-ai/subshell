@@ -18,9 +18,11 @@ export function osLabel(os: string | null): string {
 /**
  * One row of the Nodes list: name + machine line, the OS/arch chip, the
  * status badge, installed-and-enabled harness chips, the access badge, and
- * the overflow menu. Delete/Share stay owner-only — shown DISABLED rather
- * than hidden for non-owners so the surface reads the same to everyone — and
- * `local` is undeletable server-side, so its Delete is disabled too.
+ * the overflow menu. Delete/Share are gated on `node.canManage` — the
+ * SERVER's answer (real owner, or admin on `local`) so admins keep the
+ * surfaces the routes actually let them use; shown DISABLED rather than
+ * hidden for non-managers so the row reads the same to everyone. `local` is
+ * undeletable server-side, so its Delete is disabled even for a manager.
  */
 export function NodeRow({
   node,
@@ -68,13 +70,13 @@ export function NodeRow({
         label={node.name}
         items={[
           { label: "Open config", icon: Settings, onSelect: onOpenConfig },
-          { label: "Share", icon: Share2, onSelect: onShare, disabled: !isOwner },
+          { label: "Share", icon: Share2, onSelect: onShare, disabled: !node.canManage },
           {
             label: "Delete",
             icon: Trash2,
             destructive: true,
             onSelect: onDelete,
-            disabled: !isOwner || node.kind === "local",
+            disabled: !node.canManage || node.kind === "local",
           },
         ]}
       />

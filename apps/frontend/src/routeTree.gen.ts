@@ -18,6 +18,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
+import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as ProfilesIdRouteImport } from './routes/profiles_.$id'
 import { Route as SessionsIdRouteImport } from './routes/sessions_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
@@ -67,6 +68,11 @@ const WorkspacesRoute = WorkspacesRouteImport.update({
   path: '/workspaces',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NodesIdRoute = NodesIdRouteImport.update({
+  id: '/nodes_/$id',
+  path: '/nodes/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProfilesIdRoute = ProfilesIdRouteImport.update({
   id: '/profiles_/$id',
   path: '/profiles/$id',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
+  '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
   '/sessions/$id': typeof SessionsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
+  '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
   '/sessions/$id': typeof SessionsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
+  '/nodes_/$id': typeof NodesIdRoute
   '/profiles_/$id': typeof ProfilesIdRoute
   '/sessions_/$id': typeof SessionsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
@@ -138,6 +147,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/users'
     | '/workspaces'
+    | '/nodes/$id'
     | '/profiles/$id'
     | '/sessions/$id'
     | '/workspaces/$id'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/users'
     | '/workspaces'
+    | '/nodes/$id'
     | '/profiles/$id'
     | '/sessions/$id'
     | '/workspaces/$id'
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/users'
     | '/workspaces'
+    | '/nodes_/$id'
     | '/profiles_/$id'
     | '/sessions_/$id'
     | '/workspaces_/$id'
@@ -181,6 +193,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   UsersRoute: typeof UsersRoute
   WorkspacesRoute: typeof WorkspacesRoute
+  NodesIdRoute: typeof NodesIdRoute
   ProfilesIdRoute: typeof ProfilesIdRoute
   SessionsIdRoute: typeof SessionsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
@@ -251,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nodes_/$id': {
+      id: '/nodes_/$id'
+      path: '/nodes/$id'
+      fullPath: '/nodes/$id'
+      preLoaderRoute: typeof NodesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profiles_/$id': {
       id: '/profiles_/$id'
       path: '/profiles/$id'
@@ -285,6 +305,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   UsersRoute: UsersRoute,
   WorkspacesRoute: WorkspacesRoute,
+  NodesIdRoute: NodesIdRoute,
   ProfilesIdRoute: ProfilesIdRoute,
   SessionsIdRoute: SessionsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,

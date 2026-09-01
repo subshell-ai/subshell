@@ -49,6 +49,9 @@ export function AddNodeDialog({
     setFormError(null);
     setCopied(false);
     setBaselineCount(null);
+    // Clear the mutation too — a failed create would otherwise flash its error
+    // through the fresh form on the next open (before the first submit).
+    create.reset();
   }
 
   async function submit(e: React.FormEvent) {

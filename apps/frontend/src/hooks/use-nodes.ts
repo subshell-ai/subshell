@@ -51,6 +51,24 @@ export function useDeleteNode() {
   });
 }
 
+/**
+ * Asks an agent node for a fresh harness inventory (`POST /api/nodes/:id/recheck`).
+ * The fresh snapshot is persisted server-side before the route answers, so a
+ * success just invalidates the node view. Expected failures stay in the 409
+ * family (`NODE_OFFLINE` / `NODE_UNREACHABLE`) — the caller shows the message;
+ * `local` 400s (its probe is live on every read, so the UI never offers it).
+ */
+export function useRecheckNode(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ ok: boolean }>(`/api/nodes/${id}/recheck`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+    },
+  });
+}
+
 /** The caller's setup keys, newest first — usage state only, never the secret. */
 export function useSetupKeys(enabled = true) {
   return useQuery({
