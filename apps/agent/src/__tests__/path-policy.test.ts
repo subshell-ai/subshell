@@ -33,4 +33,24 @@ describe("path policy (spec §7)", () => {
     expect(await pathAllowed(join(link, "x"), await roots())).toBe(false);
     expect(await pathAllowed(join(link, "x"), [tracked])).toBe(false); // un-normalized roots realpath'd inside
   });
+  it("refuses a `..` segment outright — resolve()-collapse is symlink-blind", async () => {
+    const link = join(tracked, "l");
+    symlinkSync(outside, link);
+    // Reviewer scenario: resolve() lexically collapses tracked/l/../evil to
+    // tracked/evil (inside), but the kernel walks l → outside and opens outside/evil.
+    // NB: string-built, not join() — join normalizes the `..` away before the gate sees it.
+    expect(await pathAllowed(`${link}/../evil`, await roots())).toBe(false);
+    // A plain `..` with no symlink anywhere still denies, as before.
+    expect(await pathAllowed(`${dataDir}/../x`, await roots())).toBe(false);
+  });
+  it("rejects a leaf symlink whose target exists (realpath-first-iteration regression pin)", async () => {
+    const link = join(tracked, "ext");
+    symlinkSync(outside, link);
+    expect(await pathAllowed(link, await roots())).toBe(false);
+  });
+  it("rejects a dangling leaf symlink — realpath fails, but a later open(O_CREAT) would follow it out", async () => {
+    const link = join(tracked, "dangling");
+    symlinkSync(join(outside, "ghost"), link);
+    expect(await pathAllowed(link, await roots())).toBe(false);
+  });
 });

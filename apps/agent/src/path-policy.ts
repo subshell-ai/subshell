@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 
 /**
@@ -21,6 +21,11 @@ export async function realpathRoots(roots: string[]): Promise<string[]> {
   return out;
 }
 
+/** True when the raw input carries a `..` path segment (the literal `..`, a leading `../`, or any interior one). */
+function hasDotDotSegment(raw: string): boolean {
+  return raw.split(sep).includes("..");
+}
+
 /** Deepest existing ancestor of `p`, realpath'd — a new file's parents may embed a symlink. */
 async function realpathExisting(p: string): Promise<string | null> {
   let cur = p;
@@ -29,7 +34,7 @@ async function realpathExisting(p: string): Promise<string | null> {
       return await realpath(cur);
     } catch {
       const parent = cur.lastIndexOf(sep);
-      if (parent <= 0) return null;
+      if (parent <= 0) return null; // stop never probes `/` itself — fail-closed, deliberate
       cur = cur.slice(0, parent);
     }
   }
@@ -37,13 +42,25 @@ async function realpathExisting(p: string): Promise<string | null> {
 
 /**
  * True when `rawPath` (existing or not) resolves inside one of the
- * `realpathRoots`-normalized `roots`. `..` segments are collapsed by
- * `resolve`; symlinked ancestors are caught via the ancestor walk.
+ * `realpathRoots`-normalized `roots`. `..` segments are refused outright —
+ * spec §7 says so, and resolve()-collapse is symlink-blind: `/root/l/../evil`
+ * collapses to `/root/evil` (inside) while the kernel opens `/outside/evil`
+ * through `l → /outside`. Symlinked ancestors are caught via the ancestor
+ * walk; a symlink LEAF is denied by lstat (a dangling one would otherwise
+ * pass the walk and be followed by a later open(O_CREAT)).
  * @param rawPath - the path to gate, relative or absolute; never throws on denies.
  * @param roots - allowed roots; realpath'd here, so callers may pass raw paths.
  */
 export async function pathAllowed(rawPath: string, roots: string[]): Promise<boolean> {
+  if (hasDotDotSegment(rawPath)) return false;
   const abs = resolve(rawPath);
+  try {
+    // Any leaf symlink is denied outright: an existing target is caught by
+    // realpath's first iteration anyway, and a dangling one is not (see above).
+    if ((await lstat(abs)).isSymbolicLink()) return false;
+  } catch {
+    // Leaf doesn't exist yet — fine; the ancestor walk covers its parents.
+  }
   const resolved = await realpathExisting(abs);
   if (resolved === null) return false;
   const normalized = await realpathRoots(roots);

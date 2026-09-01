@@ -27,6 +27,23 @@ export interface SessionMeta {
 /** Suffix identifying meta files in the sessions dir (pane logs live alongside them). */
 const META_SUFFIX = ".meta.json";
 
+/**
+ * Uuid-ish guard at the untrusted boundary: the backend mints session ids as
+ * uuids, so hex + hyphen (≤ 64 chars) is all a legitimate id ever contains.
+ * Ids arrive over a control-plane wire we do not fully trust, and the store
+ * interpolates them directly into paths — a hostile `../../../../x` would let
+ * Task 4's pipe-pane (`cat >> <logPath>`) write anywhere, bypassing the path
+ * policy entirely because tmux/shell, not us, opens the file.
+ */
+export function isSessionId(id: string): boolean {
+  return /^[0-9a-fA-F-]{1,64}$/.test(id);
+}
+
+/** Throws when `id` could not have come from our control plane; callers surface this as a command failure. */
+function assertSessionId(id: string): void {
+  if (!isSessionId(id)) throw new Error("invalid session id");
+}
+
 /** Every SessionMeta field must be present as a string for a file to load. */
 const META_FIELDS = ["sessionId", "cwd", "socket", "harnessId", "name", "startedAt"] as const;
 
@@ -80,28 +97,34 @@ export class SessionMetaStore {
     return join(this.dataDir, "sessions");
   }
 
-  /** Absolute path of one session's meta file. */
+  /**
+   * Absolute path of one session's meta file.
+   * @param id - must pass `isSessionId`; throws otherwise (a bad wire id is a
+   * command failure, not a silent miss — the path interpolation is the attack surface).
+   */
   private metaPath(id: string): string {
+    assertSessionId(id);
     return join(this.sessionsDir(), `${id}${META_SUFFIX}`);
   }
 
   /**
    * Persists (or overwrites) one session's meta, creating the sessions dir
    * with 0700 and re-tightening both dir and 0600 file modes after the write.
-   * @param meta - the full record to store under `meta.sessionId`.
+   * @param meta - the full record to store under `meta.sessionId`; a malformed
+   * id throws before any fs side effect.
    */
   async record(meta: SessionMeta): Promise<void> {
+    const file = this.metaPath(meta.sessionId);
     const dir = this.sessionsDir();
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await enforceMode(dir, 0o700);
-    const file = this.metaPath(meta.sessionId);
     await writeFile(file, `${JSON.stringify({ ...meta })}\n`, { mode: 0o600 });
     await enforceMode(file, 0o600);
   }
 
   /**
    * Reads one session's meta.
-   * @param id - session id.
+   * @param id - session id; throws on a malformed id (see `metaPath`).
    * @returns the record, or undefined when the file is missing or junk
    * (junk gets exactly one log line; missing is silent).
    */
@@ -136,6 +159,8 @@ export class SessionMetaStore {
     const out: SessionMeta[] = [];
     for (const name of names) {
       if (!name.endsWith(META_SUFFIX)) continue; // pane logs (*.log) and strays live in the same dir
+      const id = name.slice(0, -META_SUFFIX.length);
+      if (!isSessionId(id)) continue; // junk file names are skipped, never thrown (unlike the id-taking methods)
       const file = join(this.sessionsDir(), name);
       let raw: string;
       try {
@@ -152,14 +177,16 @@ export class SessionMetaStore {
 
   /**
    * Deletes one session's meta file.
-   * @param id - session id; forgetting a missing id is not an error.
+   * @param id - session id; forgetting a missing id is not an error, but a
+   * malformed id throws (see `metaPath`).
    */
   async forget(id: string): Promise<void> {
+    const file = this.metaPath(id);
     try {
-      await unlink(this.metaPath(id));
+      await unlink(file);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log(`session meta delete failed: ${this.metaPath(id)}: ${err instanceof Error ? err.message : String(err)}`);
+        log(`session meta delete failed: ${file}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -167,24 +194,27 @@ export class SessionMetaStore {
   /**
    * Pane log path — the agent-side twin of the backend's `sessionLogPath`;
    * pinned equal by the launch command echoing it back (Task 4/8).
-   * @param id - session id.
+   * @param id - session id; throws on a malformed id — this path is fed to
+   * `tmux pipe-pane`/`cat >>` outside the path policy's reach.
    */
   logPath(id: string): string {
+    assertSessionId(id);
     return join(this.sessionsDir(), `${id}.log`);
   }
 
   /**
    * MCP config path — the agent-side twin of the backend's
    * `sessionMcpConfigPath`; pinned equal by the launch command echoing it back.
-   * @param id - session id.
+   * @param id - session id; throws on a malformed id (as `logPath`).
    */
   mcpPath(id: string): string {
+    assertSessionId(id);
     return join(this.dataDir, "mcp", `${id}.json`);
   }
 
   /**
    * The session's launch cwd — the per-session root for the path policy.
-   * @param id - session id.
+   * @param id - session id; throws on a malformed id (via `get`).
    * @returns the recorded cwd, or undefined for unknown/junk records.
    */
   async cwdOf(id: string): Promise<string | undefined> {
