@@ -222,9 +222,14 @@ describe("manager createSession on an agent node (test launcher wins for all nod
       audit: async () => {},
     });
     const nodeId = "rmgr-node-c";
-    await expect(manager.createSession({ userId: "u1", profileId, workingDir: "/tmp", nodeId })).rejects.toThrow(
-      /has no live connection/,
-    );
+    // Class assertion, not the message text: the create-path offline throw here
+    // is the manager's own #planMcp guard (`NodeRpcError("offline")`), the RPC
+    // twin of the RemoteLauncher's NoLiveConnectionError.
+    const err = await manager
+      .createSession({ userId: "u1", profileId, workingDir: "/tmp", nodeId })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NodeRpcError);
+    expect((err as NodeRpcError).code).toBe("offline");
     expect(fake.plans).toHaveLength(0);
     const row = (await sessionsRepo.listByUser("u1")).find((r) => r.nodeId === nodeId);
     expect(row?.status).toBe("terminated");

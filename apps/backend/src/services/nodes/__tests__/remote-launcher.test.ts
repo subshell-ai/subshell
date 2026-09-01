@@ -7,7 +7,7 @@ import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
+import { NoLiveConnectionError, RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 
 /**
  * RemoteLauncher — the command-mapping table of spec §6.3 pinned call by
@@ -432,11 +432,11 @@ describe("deliverPrompt", () => {
 });
 
 describe("log paths and reads", () => {
-  it("logPath composes from facts; throws the offline line (and sends nothing) without them", () => {
+  it("logPath composes from facts; throws NoLiveConnectionError (and sends nothing) without them", () => {
     const h = makeHarness();
     expect(h.launcher.logPath("s1")).toBe("/home/u/.mote-agent/sessions/s1.log");
     h.setFacts(undefined);
-    expect(() => h.launcher.logPath("s1")).toThrow('node "node-1" has no live connection');
+    expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
   });
 
@@ -698,12 +698,10 @@ describe("writeArtifact / removeArtifacts", () => {
     }
   });
 
-  it("writeArtifact without facts throws without a send", async () => {
+  it("writeArtifact without facts throws NoLiveConnectionError without a send", async () => {
     const h = makeHarness();
     h.setFacts(undefined);
-    expect(((await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"))) as Error).message).toBe(
-      'node "node-1" has no live connection',
-    );
+    expect(await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"))).toBeInstanceOf(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
   });
 
@@ -731,7 +729,7 @@ describe("writeArtifact / removeArtifacts", () => {
 describe("offline short-circuit (no facts ⇒ no send)", () => {
   it("facts-dependent members fail before the wire; never-throws members stay soft", async () => {
     const h = makeHarness(null);
-    expect(() => h.launcher.logPath("s1")).toThrow('node "node-1" has no live connection');
+    expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
     await rejection(h.launcher.writeArtifact(UUID, "mcp-config", "{}"));
     expect(h.calls).toEqual([]);
 

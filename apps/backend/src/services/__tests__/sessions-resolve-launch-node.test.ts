@@ -17,8 +17,10 @@ import { resolveLaunchNode } from "@/services/sessions.service.js";
  * The §6.6 launch-node resolution matrix, asserted directly against
  * `resolveLaunchNode` (the HTTP half lives in `sessions-create-nodeid.test.ts`).
  * Dimensions: requested × pinned × share × online × machine-actor. Error
- * shapes are the contract: 404/403 ride the status-carrying class, 409
- * NODE_OFFLINE and 400 NODE_REQUIRED ride `ApiError` (throwApiError).
+ * shapes are the contract: absent AND invisible ride the status-carrying 404
+ * class (spec §2: 404-not-403 — a 403 here would be a node-id existence
+ * oracle); 409 NODE_OFFLINE and 400 NODE_REQUIRED ride `ApiError`
+ * (throwApiError).
  */
 
 const deps = {
@@ -99,12 +101,12 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
     expect(statusOf(err)).toBe(404);
   });
 
-  it("foreign private node → 403 (row present, no launch access)", async () => {
+  it("foreign private node → 404 (access 'none' ⇔ invisible; never 403 — spec §2)", async () => {
     const node = await mkAgent(otherId);
     const err = await grab(() =>
       resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node, profile: unpin }, deps),
     );
-    expect(statusOf(err)).toBe(403);
+    expect(statusOf(err)).toBe(404);
   });
 
   it("an Everyone VIEW grant launches (nodes rule: any share grants launch)", async () => {
@@ -163,19 +165,19 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
     }
   });
 
-  it("MACHINE actors get no admin boost and no shares: an admin user's bearer still 403s a foreign node", async () => {
+  it("MACHINE actors get no admin boost and no shares: an admin user's bearer still 404s a foreign node", async () => {
     const node = await mkAgent(otherId);
     const err = await grab(() =>
       resolveLaunchNode({ userId: adminId, machineActor: true, requestedNodeId: node, profile: unpin }, deps),
     );
-    expect(statusOf(err)).toBe(403);
+    expect(statusOf(err)).toBe(404);
   });
 
-  it("MACHINE actor on local → 403 for a regular user; only local's OWNER (the system user) keeps it (leaked harness keys must not spawn control-plane sessions)", async () => {
+  it("MACHINE actor on local → 404 for a regular user; only local's OWNER (the system user) keeps it (leaked harness keys must not spawn control-plane sessions)", async () => {
     const denied = await grab(() =>
       resolveLaunchNode({ userId: ownerId, machineActor: true, requestedNodeId: LOCAL_NODE_ID, profile: unpin }, deps),
     );
-    expect(statusOf(denied)).toBe(403);
+    expect(statusOf(denied)).toBe(404);
     expect(
       await resolveLaunchNode(
         { userId: systemId, machineActor: true, requestedNodeId: LOCAL_NODE_ID, profile: unpin },

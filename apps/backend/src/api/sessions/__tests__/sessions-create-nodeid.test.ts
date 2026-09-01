@@ -51,7 +51,6 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
   const sockets = new Set<string>();
   let bogusProfileId: string;
   let claudeProfileId: string;
-  let previousClaudePath: string | undefined;
   const testDir = mkdtempSync(join(tmpdir(), "mote-cnode-"));
 
   async function mkProfile(owner: string, harnessId: string, nodeId?: string): Promise<string> {
@@ -103,8 +102,6 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
     for (const socket of sockets) {
       spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
     }
-    if (previousClaudePath === undefined) delete process.env.CLAUDE_PATH;
-    else process.env.CLAUDE_PATH = previousClaudePath;
     rmSync(testDir, { recursive: true, force: true });
     await deleteUserByEmailOrId(email);
     await deleteUserByEmailOrId(otherEmail);
@@ -148,10 +145,11 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
     expect(body.message).toMatch(/node/i);
   });
 
-  it("foreign private node → 403", async () => {
+  it("foreign private node → 404 (invisible, never 403 — spec §2: no node-id existence oracle)", async () => {
     const node = await mkAgent(otherId);
     const res = await post({ ...base(bogusProfileId), nodeId: node });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { message: string }).message).toMatch(/node/i);
   });
 
   it("own agent with no live connection → 409 NODE_OFFLINE", async () => {
@@ -169,7 +167,7 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
     // this would proceed to a real launch instead of the 409.
     const stub = join(testDir, "claude-stub");
     writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
-    previousClaudePath = process.env.CLAUDE_PATH;
+    const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     const nodeId = crypto.randomUUID();
     createdNodeIds.push(nodeId);
@@ -180,14 +178,20 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
     try {
       // Requested explicitly: resolution passes the online gate, then the
       // per-node harness gate must reject it. A local-probe bug would fall
-      // through to a real launch (200) instead of this 409.
+      // through to a real launch (200) instead of this 409. The AGENT copy
+      // must name the node, not "this machine".
       const agentRes = await post({ ...base(claudeProfileId), nodeId });
       expect(agentRes.status).toBe(409);
-      expect(((await agentRes.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
+      expect(((await agentRes.json()) as { message: string }).message).toBe(
+        "That harness is disabled or not installed on that node",
+      );
     } finally {
       // Detach the fake socket: a leaked "online" node would hijack the
-      // later auto-pick cases.
+      // later auto-pick cases. Restore CLAUDE_PATH here (not only in the
+      // file-level afterAll) so no later-inserted case inherits the stub.
       detachConnection(nodeId, ws);
+      if (prev === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prev;
     }
   });
 

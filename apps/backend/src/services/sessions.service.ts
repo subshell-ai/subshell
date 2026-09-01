@@ -11,6 +11,7 @@ import { type Access, accessAtLeast, loadSessionAccess, resolveSessionAccess } f
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import { NoLiveConnectionError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSessionLogTail, SessionManagerService } from "@/services/session-manager.service.js";
 import { extendSessionToken, sessionTokenTtlSeconds } from "@/services/session-tokens.js";
@@ -55,15 +56,14 @@ class SessionError extends Error {
 }
 
 /**
- * True for either spelling of "that node has no live agent connection": the
- * `NodeRpcError("offline")` the RPC layer rejects with, and the plain Error
- * the RemoteLauncher's facts guard throws (identical message text —
- * both are owned by Task 8's shipped behavior, which this mapping may not
- * assume more of than the string it prints).
+ * True for either sentinel class of "that node has no live agent connection":
+ * {@link NoLiveConnectionError} (the sync throw the RemoteLauncher's facts
+ * guard raises) and the RPC-path twin `NodeRpcError("offline")`. `instanceof`
+ * only — the mapping is deliberately not text-coupled, so either message may
+ * be reworded without breaking the §5.6 409 mapping.
  */
 function isNodeOfflineError(err: unknown): boolean {
-  if (err instanceof NodeRpcError) return err.code === "offline";
-  return err instanceof Error && /has no live connection/.test(err.message);
+  return err instanceof NoLiveConnectionError || (err instanceof NodeRpcError && err.code === "offline");
 }
 
 /**
@@ -89,10 +89,10 @@ function rethrowUnlessNodeOffline(err: unknown): never {
  * strict precedence — a request that says where to run is never silently
  * relocated:
  *
- * 1. `requestedNodeId` (body) — gate it: row absent ⇒ 404 (absent and
- *    invisible are never distinguished beyond this); row present but no
- *    launch access ⇒ 403; an AGENT node with no live connection ⇒ 409
- *    NODE_OFFLINE. Any share level grants launch (the node rule).
+ * 1. `requestedNodeId` (body) — gate it: row absent OR invisible ⇒ 404,
+ *    never 403 (spec §2: any share level grants launch, so a visible node is
+ *    always launchable and a 403 would be a node-id existence oracle); an
+ *    AGENT node with no live connection ⇒ 409 NODE_OFFLINE.
  * 2. `profile.nodeId` (the pin) — the same gate, but every failure carries
  *    the "profile is pinned" message: a pin that cannot launch right now is
  *    an error, never a relocation.
@@ -112,8 +112,9 @@ function rethrowUnlessNodeOffline(err: unknown): never {
  * @param deps - the repositories the access resolver reads (nodes, shares,
  *               userMeta) — injected so tests drive a scratch DB
  * @returns the node id to launch on (`local` = control-plane host)
- * @throws SessionCreateError 404/403 (invisible/no-access); ApiError 409
- *         NODE_OFFLINE (offline gate) and 400 NODE_REQUIRED (auto-pick)
+ * @throws SessionCreateError 404 (absent/invisible — never 403, spec §2);
+ *         ApiError 409 NODE_OFFLINE (offline gate) and 400 NODE_REQUIRED
+ *         (auto-pick)
  */
 export async function resolveLaunchNode(
   {
@@ -137,9 +138,10 @@ export async function resolveLaunchNode(
   const gate = async (nodeId: string, pinned: boolean): Promise<{ nodeId: string }> => {
     const { row, access } = await loadNodeAccess(deps, userId, nodeId, { allowAdminAndShares: !machineActor });
     const why = pinned ? `Profile is pinned to node ${nodeId}, which can't launch right now` : undefined;
-    if (!row) throw new SessionCreateError("node_not_found", why ?? "Node not found", 404);
-    if (!nodeCanLaunch(access))
-      throw new SessionCreateError("node_forbidden", why ?? "You cannot launch on that node", 403);
+    // any share grants launch (spec §2): access "none" ⇔ invisible ⇒ 404; no visible-but-unlaunchable state exists
+    if (!row || !nodeCanLaunch(access)) {
+      throw new SessionCreateError("node_not_found", why ?? "Node not found", 404);
+    }
     if (row.kind === "agent" && !getLive(nodeId)) {
       throwApiError({
         code: BackendErrorCodes.NODE_OFFLINE,
@@ -197,8 +199,9 @@ export class SessionsService extends BaseService {
    * resolves — control-plane host unless stated otherwise) and returns only
    * the client-safe fields — the MCP apiKey is issued once inside the
    * manager for env injection and is NEVER echoed to the HTTP client.
-   * @throws SessionCreateError 404 when the profile or the requested node
-   *         is absent/invisible; 403 for a node without launch access.
+   * @throws SessionCreateError 404 when the profile is absent, or the
+   *         requested/pinned node is absent OR invisible (spec §2: 404-not-403
+   *         — an invisible node never answers 403).
    * @throws ApiError 409 NODE_OFFLINE (agent node unreachable), 400
    *         NODE_REQUIRED (no launch-eligible node), 409 when the profile's
    *         harness is disabled/unusable ON THE RESOLVED NODE.
@@ -245,7 +248,16 @@ export class SessionsService extends BaseService {
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
     if (!(await harnessUsable(profile.harnessId, resolvedNodeId))) {
-      throw new SessionCreateError("harness_disabled", "That harness is disabled on this machine", 409);
+      // Copy honesty: on an AGENT node "this machine" is a lie — the harness
+      // may simply not be installed there (spec §6.2 per-node inventory). The
+      // local wording stays verbatim — legacy tests pin it.
+      throw new SessionCreateError(
+        "harness_disabled",
+        resolvedNodeId === LOCAL_NODE_ID
+          ? "That harness is disabled on this machine"
+          : "That harness is disabled or not installed on that node",
+        409,
+      );
     }
     // The manager already rolled the row + token back; a node that dropped
     // offline between resolution and launch answers with the same structured

@@ -79,6 +79,15 @@ export interface RemoteLauncherDeps {
   facts?: (nodeId: string) => NodeAgentFacts | undefined;
 }
 
+/**
+ * Thrown synchronously when a facts-dependent method runs with no live
+ * connection — the RPC-path twin is `NodeRpcError("offline")`; both classes
+ * mean §5.6 NODE_OFFLINE to callers. Exported as the sentinel the create-path
+ * mapper checks (`instanceof`, never the message text) so Task 10 may reword
+ * the message without breaking the 409 mapping.
+ */
+export class NoLiveConnectionError extends Error {}
+
 /** Resolve one agent-facts-derived absolute path (spec §6.4 composes). */
 function factsPath(facts: NodeAgentFacts, rel: string): string {
   return `${facts.dataDir}/${rel}`;
@@ -109,10 +118,10 @@ export class RemoteLauncher implements NodeLauncher {
     return read(this.#nodeId);
   }
 
-  /** Facts or the same `offline`-flavored throw `sendCommand` gives with no socket. */
+  /** Facts or {@link NoLiveConnectionError} — the sync twin of the offline throw `sendCommand` gives with no socket. */
   #requireFacts(): NodeAgentFacts {
     const facts = this.#facts();
-    if (!facts) throw new Error(`node "${this.#nodeId}" has no live connection`);
+    if (!facts) throw new NoLiveConnectionError(`node "${this.#nodeId}" has no live connection`);
     return facts;
   }
 
@@ -308,9 +317,9 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * The pane log's path ON THE NODE (`<agentDataDir>/sessions/<id>.log`,
-   * spec §6.4) — composed from the `ready` facts, no round-trip. Throws the
-   * offline message when the node has no live `ready` (sync member; there is
-   * no honest path to answer without facts).
+   * spec §6.4) — composed from the `ready` facts, no round-trip. Throws
+   * {@link NoLiveConnectionError} when the node has no live `ready` (sync
+   * member; there is no honest path to answer without facts).
    */
   logPath(id: string): string {
     return factsPath(this.#requireFacts(), `sessions/${id}.log`);
