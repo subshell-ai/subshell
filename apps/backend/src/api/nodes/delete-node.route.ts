@@ -9,6 +9,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { disconnectNode, getLive, REVOKED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
+import { failConnPendings } from "@/services/nodes/node-rpc.js";
 
 /** `?force=true` skips the running-sessions guard (string form — no coercion surprises). */
 const QuerySchema = t.Object({
@@ -28,8 +29,9 @@ const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success
  * Teardown: disable + delete the node's api key, delete the row (profiles
  * un-pin via the repo transaction; shares/harness states ride the FK
  * cascade; the `node:<id>` E2EE identity row is dropped explicitly), then
- * evict + close a live socket (4401) — AFTER the DB changes, so the socket
- * can never outlive its credential by even one frame's worth of trust.
+ * evict + close a live socket (4401) and fail its in-flight commands —
+ * AFTER the DB changes, so the socket can never outlive its credential by
+ * even one frame's worth of trust.
  * Force-deleting an OFFLINE node deliberately leaves session rows alone:
  * the machines are gone; those rows crash/reconcile on their own.
  */
@@ -84,7 +86,12 @@ export const deleteNodeRoute = new Elysia()
       }
       await nodes.deleteById(gate.row.id);
       await db.deleteFrom("identities").where("principalId", "=", `node:${gate.row.id}`).execute();
+      // Capture the conn BEFORE evicting (disconnectNode drops the map entry)
+      // and drain its in-flight commands AFTER (P1-T9 carry: eviction must
+      // failConnPendings itself — no real socket close may ever fire).
+      const evicted = getLive(gate.row.id);
       disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node deleted");
+      if (evicted) failConnPendings(evicted, "offline", "node deleted");
 
       await audit({
         actorUserId: user.id,

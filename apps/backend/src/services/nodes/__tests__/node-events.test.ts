@@ -1,0 +1,325 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/session-protocol";
+import { dispatchOutput, resetNodeEventsForTests, setNodeLifecycleHooks, subscribeOutput } from "../node-events.js";
+import { resetNodeRegistryForTests } from "../node-registry.js";
+import {
+  handleNodeMessage,
+  handleNodeMessageQueued,
+  handleNodeOpen,
+  NODE_CLOSE_PROTOCOL,
+  type NodeWsDeps,
+  type NodeWsSocket,
+} from "../node-ws-handler.js";
+
+/**
+ * Task 7 event plane: the output bus (subscribe/dispose/dispatch), the agent
+ * facts stashed on the connection by `ready`, the lifecycle-hook slot fed by
+ * `exit`/`sessions_report`, and per-socket serialized dispatch (spec §3.3,
+ * P1-T10 carry).
+ */
+
+/* ---------------------------- fakes ----------------------------- */
+
+interface FakeNodeSocket extends NodeWsSocket {
+  sent: string[];
+  closed: { code?: number; reason?: string }[];
+}
+
+function fakeSocket(nodeId?: string): FakeNodeSocket {
+  return {
+    data: nodeId ? { nodeId, apiKeyId: "k-n1" } : {},
+    sent: [],
+    closed: [],
+    send(d: string) {
+      this.sent.push(d);
+      return d.length;
+    },
+    close(code?: number, reason?: string) {
+      this.closed.push({ code, reason });
+    },
+  };
+}
+
+/** Call-order log across the repo fakes; `touch` blocks on a deferred promise. */
+interface Harness {
+  deps: NodeWsDeps;
+  order: string[];
+  releaseTouch: () => void;
+}
+
+function makeHarness(): Harness {
+  const h: Harness = { deps: undefined as unknown as NodeWsDeps, order: [], releaseTouch: () => {} };
+  const resolvers: (() => void)[] = [];
+  h.deps = {
+    verifyApiKey: async () => null,
+    nodes: {
+      findById: async () => undefined,
+      applyReady: async (id: string) => {
+        h.order.push(`ready:${id}`);
+      },
+      applyInventory: async (id: string) => {
+        h.order.push(`inventory:${id}`);
+      },
+      // Heartbeat handler awaits this; the test releases it to unblock the queue.
+      touch: async (id: string) => {
+        h.order.push(`touch:${id}`);
+        await new Promise<void>((r) => {
+          resolvers.push(r);
+        });
+      },
+      setStatus: async () => {},
+    } as unknown as NodeWsDeps["nodes"],
+    resolveResult: () => false,
+    requestInventory: () => {},
+  };
+  h.releaseTouch = () => {
+    for (const r of resolvers.splice(0)) r();
+  };
+  return h;
+}
+
+const readyFrame = (over: Record<string, unknown> = {}) => ({
+  type: "ready",
+  agentVersion: "0.1.0",
+  protocolVersion: NODE_PROTOCOL_VERSION,
+  os: "linux",
+  arch: "x64",
+  hostname: "box",
+  dataDir: "/home/u/.local/share/mote-agent",
+  capabilities: ["uploads"],
+  ...over,
+});
+
+const outputFrame = (over: Record<string, unknown> = {}) => ({
+  type: "output",
+  sessionId: "s1",
+  subId: "sub-1",
+  fromByte: 0,
+  toByte: 2,
+  data_b64: "aGk=",
+  ...over,
+});
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+beforeEach(() => {
+  resetNodeRegistryForTests();
+  resetNodeEventsForTests();
+});
+
+afterEach(() => {
+  resetNodeEventsForTests();
+});
+
+/* ------------------------- output bus --------------------------- */
+
+describe("subscribeOutput / dispatchOutput (spec §3.3)", () => {
+  it("dispatch reaches the subscriber and returns true; the disposer unsubscribes", () => {
+    const seen: Extract<NodeEvent, { type: "output" }>[] = [];
+    const dispose = subscribeOutput("sub-1", (ev) => seen.push(ev));
+
+    expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.sessionId).toBe("s1");
+
+    dispose();
+    expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(false);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("unknown subId ⇒ false", () => {
+    expect(dispatchOutput(outputFrame({ subId: "nobody-home" }) as Extract<NodeEvent, { type: "output" }>)).toBe(false);
+  });
+
+  it("two subscribers on one subId both receive; a disposer only removes its own handler", () => {
+    const a: string[] = [];
+    const b: string[] = [];
+    const disposeA = subscribeOutput("sub-1", () => a.push("a"));
+    subscribeOutput("sub-1", () => b.push("b"));
+
+    expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(true);
+    expect(a).toEqual(["a"]);
+    expect(b).toEqual(["b"]);
+
+    disposeA();
+    expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(true);
+    expect(a).toEqual(["a"]); // untouched by the second dispatch
+    expect(b).toEqual(["b", "b"]);
+  });
+
+  it("a disposer is idempotent", () => {
+    const dispose = subscribeOutput("sub-1", () => {});
+    dispose();
+    expect(() => dispose()).not.toThrow();
+    expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(false);
+  });
+});
+
+/* ------------------- agent facts on `ready` ---------------------- */
+
+describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
+  it("sets ws.data.nodeConn.agent EXACTLY from the frame when executablePath is present", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    const conn = ws.data.nodeConn;
+    if (!conn) throw new Error("open must stash the registry record on ws.data");
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ executablePath: "/usr/local/bin/mote-agent" })));
+
+    expect(conn.agent).toEqual({
+      dataDir: "/home/u/.local/share/mote-agent",
+      capabilities: ["uploads"],
+      hostname: "box",
+      agentVersion: "0.1.0",
+      executablePath: "/usr/local/bin/mote-agent",
+    });
+  });
+
+  it("omits executablePath entirely for pre-phase-2 agents (no undefined key)", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    const conn = ws.data.nodeConn;
+    if (!conn) throw new Error("open must stash the registry record on ws.data");
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+
+    expect(conn.agent).toEqual({
+      dataDir: "/home/u/.local/share/mote-agent",
+      capabilities: ["uploads"],
+      hostname: "box",
+      agentVersion: "0.1.0",
+    });
+    expect(conn.agent && "executablePath" in conn.agent).toBe(false);
+  });
+
+  it("facts are recorded even for an INCOMPATIBLE agent (diagnosis, before the protocol floor)", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    const conn = ws.data.nodeConn;
+    if (!conn) throw new Error("open must stash the registry record on ws.data");
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
+
+    expect(conn.agent?.agentVersion).toBe("0.1.0");
+    expect(ws.closed).toEqual([{ code: NODE_CLOSE_PROTOCOL, reason: "agent update required" }]);
+  });
+});
+
+/* ------------------ lifecycle hook slot -------------------------- */
+
+describe("exit / sessions_report → lifecycle hooks (spec §3.3)", () => {
+  it("exit reaches the registered hook with the SOCKET's nodeId, never a frame-supplied one", async () => {
+    const seen: [string, string, number | null, string][] = [];
+    setNodeLifecycleHooks({
+      onExit: (nodeId, sessionId, exitCode, at) => {
+        seen.push([nodeId, sessionId, exitCode, at]);
+      },
+      onSessionsReport: () => {},
+    });
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+
+    // The frame carries a spoofed nodeId — it must be ignored entirely.
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify({ type: "exit", nodeId: "victim-node", sessionId: "s9", exitCode: 3, at: "2026-09-01T00:00:00Z" }),
+    );
+
+    expect(seen).toEqual([["n1", "s9", 3, "2026-09-01T00:00:00Z"]]);
+  });
+
+  it("sessions_report reaches the hook with the socket's nodeId and the session list", async () => {
+    const seen: { nodeId: string; report: unknown }[] = [];
+    setNodeLifecycleHooks({
+      onExit: () => {},
+      onSessionsReport: (nodeId, report) => {
+        seen.push({ nodeId, report });
+      },
+    });
+    const h = makeHarness();
+    const sessions = [{ sessionId: "s1", alive: false, exitCode: 0 }];
+
+    await handleNodeMessage(h.deps, fakeSocket("n7"), JSON.stringify({ type: "sessions_report", sessions }));
+
+    expect(seen).toEqual([{ nodeId: "n7", report: sessions }]);
+  });
+
+  it("no hook registered ⇒ frames are ingested with a warn line and nothing else", async () => {
+    setNodeLifecycleHooks(undefined);
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await expect(
+      handleNodeMessage(h.deps, ws, JSON.stringify({ type: "exit", sessionId: "s", exitCode: null, at: "now" })),
+    ).resolves.toBeUndefined();
+    await expect(
+      handleNodeMessage(h.deps, ws, JSON.stringify({ type: "sessions_report", sessions: [] })),
+    ).resolves.toBeUndefined();
+    expect(h.order).toEqual([]);
+    expect(ws.closed).toHaveLength(0);
+  });
+
+  it("output frames with no subscriber are dropped without closing the socket", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws, JSON.stringify(outputFrame()));
+    expect(ws.closed).toHaveLength(0);
+    expect(h.order).toEqual([]);
+  });
+});
+
+/* ---------------- serialized dispatch ---------------------------- */
+
+describe("handleNodeMessageQueued (P1-T10: per-socket serialization)", () => {
+  it("a frame behind a blocked heartbeat runs only after the block resolves", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+
+    const p1 = handleNodeMessageQueued(h.deps, ws, JSON.stringify({ type: "heartbeat", ts: "now" }));
+    const p2 = handleNodeMessageQueued(h.deps, ws, JSON.stringify({ type: "inventory", harnesses: [], ts: "now" }));
+    await flush();
+
+    // The inventory frame arrived second but its applyInventory must NOT have
+    // run yet: the queued heartbeat still holds the per-socket chain.
+    expect(h.order).toEqual(["touch:n1"]);
+    h.releaseTouch();
+    await Promise.all([p1, p2]);
+
+    expect(h.order).toEqual(["touch:n1", "inventory:n1"]);
+  });
+
+  it("a rejected frame does not poison the queue for later frames", async () => {
+    const h = makeHarness();
+    const boom = new Error("db on fire");
+    h.deps.nodes.applyReady = async () => {
+      throw boom;
+    };
+    const ws = fakeSocket("n1");
+
+    const p1 = handleNodeMessageQueued(h.deps, ws, JSON.stringify(readyFrame()));
+    const p2 = handleNodeMessageQueued(h.deps, ws, JSON.stringify({ type: "inventory", harnesses: [], ts: "now" }));
+
+    await expect(p1).rejects.toBe(boom);
+    await expect(p2).resolves.toBeUndefined();
+    expect(h.order).toEqual(["inventory:n1"]);
+  });
+
+  it("frames on DIFFERENT sockets do not wait on each other", async () => {
+    const h = makeHarness();
+    const slow = fakeSocket("n1");
+    const fast = fakeSocket("n2");
+
+    const p1 = handleNodeMessageQueued(h.deps, slow, JSON.stringify({ type: "heartbeat", ts: "now" }));
+    const p2 = handleNodeMessageQueued(h.deps, fast, JSON.stringify({ type: "heartbeat", ts: "now" }));
+    await flush();
+
+    // n1's heartbeat is stuck on the deferred touch; n2's ran through its own chain.
+    expect(h.order).toEqual(["touch:n1", "touch:n2"]);
+    h.releaseTouch();
+    await Promise.all([p1, p2]);
+    expect(h.order).toEqual(["touch:n1", "touch:n2"]);
+  });
+});

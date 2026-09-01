@@ -8,7 +8,8 @@ import { getLive, type NodeConnection } from "./node-registry.js";
  * JWS envelope with the control key, push it through the node's socket, and
  * await the agent's `{type:"result", ref}` frame — correlated by the `jti` we
  * assigned. The WS handler owns the two feed points: `resolveResult` (a
- * parsed result frame arrived) and `failAllFor` (the socket closed).
+ * parsed result frame arrived) and `failConnPendings` (the socket closed —
+ * and the eviction callers of `disconnectNode`, P1-T9 carry).
  *
  * Seq/send-order invariant: `seq` is a per-connection monotonic ordering hint
  * the agent validates, so it must increase in WIRE order. Signing is async
@@ -193,20 +194,4 @@ export function failConnPendings(conn: NodeConnection, code: NodeRpcErrorCode = 
     pending.reject(new NodeRpcError(code, message ?? fallback, conn.nodeId));
   }
   return entries.length;
-}
-
-/**
- * Fail every in-flight command for `nodeId`'s CURRENTLY MAPPED connection.
- * Delegates to {@link failConnPendings}; prefer that one from close handlers,
- * which know the exact connection that died (this lookup misses a superseded
- * socket whose entry the registry already replaced).
- * @param nodeId - node whose pendings should be settled as failures
- * @param code - rejection code (default `offline`)
- * @param message - optional override for the error message
- * @returns how many commands were failed
- */
-export function failAllFor(nodeId: string, code: NodeRpcErrorCode = "offline", message?: string): number {
-  const conn = getLive(nodeId);
-  if (!conn) return 0;
-  return failConnPendings(conn, code, message);
 }

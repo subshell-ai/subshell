@@ -11,6 +11,7 @@ import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.r
 import type { NodeStatus } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { logger } from "@/utils/logger.js";
+import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
 import { attachConnection, detachConnection, getLive, type NodeConnection, type NodeSocket } from "./node-registry.js";
 import { failConnPendings, resolveResult, sendCommand } from "./node-rpc.js";
 
@@ -62,6 +63,12 @@ export interface NodeWsData {
   apiKeyId?: string;
   /** Registry connection created at `open`; close teardown fails THIS record. */
   nodeConn?: NodeConnection;
+  /**
+   * Tail of this socket's serialized frame queue ({@link handleNodeMessageQueued}).
+   * Lives HERE because Elysia builds a fresh wrapper per event but shares this
+   * data object across all of them — the only per-connection scratch we get.
+   */
+  frameQueue?: Promise<void>;
 }
 
 /** The socket surface the handler uses (ElysiaWS satisfies it structurally). */
@@ -228,8 +235,14 @@ function frameBytes(raw: string | object): number {
  * Inbound event dispatch (agent → control, unsigned — the socket IS the
  * auth). Byte-capped per spec §3.1 (Bun's maxPayloadLength is global, so the
  * node cap is enforced in-handler); unrecognized frames are dropped, never
- * fatal. `exit`/`sessions_report`/`output` arrive in phase 2 and are ignored
- * with a debug line here.
+ * fatal. Phase-2 events land on their consumers: `output` on the
+ * {@link dispatchOutput} bus, `exit`/`sessions_report` on the lifecycle-hook
+ * slot (`node-events.ts`), `ready` additionally stashes the agent's facts on
+ * the connection (spec §3.3/§6.4).
+ *
+ * NOT serialized on its own — production dispatch goes through
+ * {@link handleNodeMessageQueued}; direct callers (unit tests) drive one
+ * frame at a time.
  * @param deps - injected dependencies
  * @param ws - the socket that produced the frame
  * @param raw - frame as Elysia delivered it (JSON text or pre-parsed object)
@@ -262,6 +275,19 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // Record FIRST (spec §5.3/§8): even an incompatible agent gets its
       // identity persisted so the Nodes page can show "agent too old".
       await deps.nodes.applyReady(nodeId, report);
+      // Same "record FIRST" spirit for the live connection: the agent-facts
+      // stash goes before the protocol floor, so an incompatible agent's
+      // facts are still on `conn.agent` for diagnosis (spec §6.4).
+      const conn = ws.data.nodeConn ?? getLive(nodeId);
+      if (conn) {
+        conn.agent = {
+          dataDir: event.dataDir,
+          capabilities: event.capabilities,
+          hostname: event.hostname,
+          agentVersion: event.agentVersion,
+          ...(event.executablePath ? { executablePath: event.executablePath } : {}),
+        };
+      }
       if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
         ws.close(NODE_CLOSE_PROTOCOL, "agent update required");
         return;
@@ -276,6 +302,26 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "inventory":
       await deps.nodes.applyInventory(nodeId, JSON.stringify(event.harnesses));
       return;
+    case "output":
+      // Tail subscribers (spec §3.3): unknown subId = nobody is watching that
+      // session anymore (detach raced a flush) — drop, never fatal.
+      if (!dispatchOutput(event)) {
+        logger.debug(`node ws: output for unknown subId ${event.subId} dropped`);
+      }
+      return;
+    case "exit": {
+      const hooks = getNodeLifecycleHooks();
+      // nodeId is the SOCKET identity — a frame-supplied nodeId is ignored.
+      if (hooks) await hooks.onExit(nodeId, event.sessionId, event.exitCode, event.at);
+      else logger.warn(`node ws: exit for ${event.sessionId} with no lifecycle hook`);
+      return;
+    }
+    case "sessions_report": {
+      const hooks = getNodeLifecycleHooks();
+      if (hooks) await hooks.onSessionsReport(nodeId, event.sessions);
+      else logger.warn(`node ws: sessions_report (${event.sessions.length}) with no lifecycle hook`);
+      return;
+    }
     case "result": {
       // Connection-scoped settle: the frame can only resolve pendings on the
       // socket it arrived on (same record the close path drains). Fall back to
@@ -289,10 +335,32 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "error":
       logger.withMetadata({ nodeId, code: event.code }).warn(`node agent reported error: ${event.message}`);
       return;
-    default:
-      // exit | sessions_report | output — phase-2 consumers (spec §3.3).
-      logger.debug(`node ws: phase-2 event "${event.type}" from ${nodeId} ignored`);
   }
+}
+
+/**
+ * Serialized per-socket entry point for inbound frames (P1-T10 carry:
+ * fire-and-forget dispatch deserialized event-vs-result ordering — an agent
+ * sends its `inventory` EVENT *before* the command's `result`, and with
+ * concurrent dispatch the result could settle the RPC before the event's
+ * write ran, so `POST /recheck` could answer `{ok:true}` on a stale row).
+ *
+ * The chain lives on `ws.data.frameQueue`: Elysia builds a fresh wrapper per
+ * event but shares the one `data` object across all of them, which is exactly
+ * the per-socket state a queue needs. A rejecting frame is logged by the
+ * caller via the returned promise and never poisons the chain behind it.
+ * @param deps - injected dependencies (same record as the raw handler)
+ * @param ws - the socket that produced the frame
+ * @param raw - frame as Elysia delivered it (JSON text or pre-parsed object)
+ * @returns settles when THIS frame's handling finished (success or error)
+ */
+export function handleNodeMessageQueued(deps: NodeWsDeps, ws: NodeWsSocket, raw: string | object): Promise<void> {
+  const prev = ws.data.frameQueue ?? Promise.resolve();
+  const run = prev.then(() => handleNodeMessage(deps, ws, raw));
+  // Store the *caught* tail so a rejected frame still lets queued frames run;
+  // the caller's .catch() logs this frame's own error from `run`.
+  ws.data.frameQueue = run.catch(() => {});
+  return run;
 }
 
 /**

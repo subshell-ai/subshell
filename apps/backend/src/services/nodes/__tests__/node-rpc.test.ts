@@ -9,15 +9,8 @@ import {
   verifyCommand,
 } from "@internal/session-protocol";
 import { loadControlKeys } from "../control-keys.js";
-import { attachConnection, getLive, type NodeSocket, resetNodeRegistryForTests } from "../node-registry.js";
-import {
-  failAllFor,
-  failConnPendings,
-  type NodeResultEvent,
-  NodeRpcError,
-  resolveResult,
-  sendCommand,
-} from "../node-rpc.js";
+import { attachConnection, type NodeSocket, resetNodeRegistryForTests } from "../node-registry.js";
+import { failConnPendings, type NodeResultEvent, NodeRpcError, resolveResult, sendCommand } from "../node-rpc.js";
 
 /** Fake agent socket: records every wire frame we send it. */
 interface FakeSocket extends NodeSocket {
@@ -250,20 +243,6 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     expect(conn.pending.size).toBe(0);
   });
 
-  it("failAllFor rejects every pending with `offline` and clears the map", async () => {
-    const fake = fakeSocket();
-    const conn = attachConnection("n1", fake);
-    const p1 = sendCommand("n1", { type: "ping" }, 5000);
-    const p2 = sendCommand("n1", { type: "inventory" }, 5000);
-    await waitFor(() => fake.sent.length === 2, "two frames");
-    expect(conn.pending.size).toBe(2);
-
-    expect(failAllFor("n1")).toBe(2);
-    expect((await rejection(p1)).code).toBe("offline");
-    expect((await rejection(p2)).code).toBe("offline");
-    expect(conn.pending.size).toBe(0);
-  });
-
   it("failConnPendings drains ONLY the given connection — the superseded-socket close path", async () => {
     const oldFake = fakeSocket();
     const oldConn = attachConnection("n1", oldFake);
@@ -286,18 +265,19 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     expect((await rejection(p2)).code).toBe("offline");
   });
 
-  it("failAllFor honors a custom code/message and is a no-op for unknown nodes", async () => {
+  it("failConnPendings honors a custom code/message and clears the map", async () => {
     const fake = fakeSocket();
-    attachConnection("n1", fake);
-    const p = sendCommand("n1", { type: "ping" }, 5000);
-    await waitFor(() => fake.sent.length === 1, "frame");
+    const conn = attachConnection("n1", fake);
+    const p1 = sendCommand("n1", { type: "ping" }, 5000);
+    const p2 = sendCommand("n1", { type: "inventory" }, 5000);
+    await waitFor(() => fake.sent.length === 2, "two frames");
+    expect(conn.pending.size).toBe(2);
 
-    expect(failAllFor("n1", "failed", "node went away")).toBe(1);
-    const err = await rejection(p);
+    expect(failConnPendings(conn, "failed", "node went away")).toBe(2);
+    const err = await rejection(p1);
     expect(err.code).toBe("failed");
     expect(err.message).toBe("node went away");
-
-    expect(failAllFor("ghost")).toBe(0);
-    expect(getLive("ghost")).toBeUndefined();
+    expect((await rejection(p2)).code).toBe("failed");
+    expect(conn.pending.size).toBe(0);
   });
 });

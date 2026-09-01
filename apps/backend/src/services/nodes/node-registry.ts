@@ -57,6 +57,24 @@ export interface PendingEntry {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * What the agent told us about itself in its `ready` frame (spec §6.4) —
+ * per-CONNECTION facts stashed by the WS handler so launch/attach paths can
+ * compose paths without another round trip. Refreshed on every `ready`.
+ */
+export interface NodeAgentFacts {
+  /** agent-side `<dataDir>` — composes log/mcp paths (spec §6.4) */
+  dataDir: string;
+  /** capability strings from ready ("uploads", "mcp") */
+  capabilities: string[];
+  /** hostname reported by the agent (display/diagnosis) */
+  hostname: string;
+  /** agent build version from the ready frame */
+  agentVersion: string;
+  /** agent `process.execPath` (Task 1 additive field) — MCP launch spec target */
+  executablePath?: string;
+}
+
 /** Live state for exactly one node's current connection. */
 export interface NodeConnection {
   /** Node id this socket belongs to (no `node:` prefix). */
@@ -83,6 +101,12 @@ export interface NodeConnection {
    * signing in between — see the invariant note in `node-rpc.ts`.
    */
   sendChain: Promise<void>;
+  /**
+   * Self-reported facts from the agent's `ready` frame (spec §6.4). Absent
+   * until `ready` lands — a socket that connects but never readies stays
+   * `agent: undefined` and reads as such to every consumer.
+   */
+  agent?: NodeAgentFacts;
 }
 
 const live = new Map<string, NodeConnection>();
@@ -148,8 +172,13 @@ export function listOnline(): string[] {
  * Flags the record `closing` and detaches with the same identity guard the
  * WS close handler uses; a throwing `close()` (already-dead socket) is
  * swallowed — eviction is the point, the close is courtesy. In-flight
- * commands are NOT failed here: the socket's real `close` event still fires
- * and `handleNodeClose` drains exactly THAT record's pendings.
+ * commands are NOT failed here: the registry stays dependency-free (it must
+ * never import `node-rpc`, which imports THIS module). CALLERS therefore own
+ * the drain (P1-T9 carry — "any eviction without real socket close must
+ * failConnPendings itself"): capture the record with {@link getLive} BEFORE
+ * disconnecting and call `failConnPendings(conn, ...)` AFTER (see the
+ * rotate/delete routes). On a real socket the close event drains them too —
+ * the second drain is a no-op.
  * @param nodeId - node id (no `node:` prefix)
  * @param code - close code (default {@link REVOKED_CLOSE_CODE})
  * @param reason - close reason sent on the wire

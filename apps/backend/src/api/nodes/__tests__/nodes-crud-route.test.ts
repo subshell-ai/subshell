@@ -13,9 +13,11 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import {
   attachConnection,
   getLive,
+  type NodeConnection,
   type NodeSocket,
   resetNodeRegistryForTests,
 } from "@/services/nodes/node-registry.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
@@ -44,6 +46,24 @@ function fakeSocket(): NodeSocket & { closed: { code?: number; reason?: string }
       this.closed.push({ code, reason });
     },
   };
+}
+
+/**
+ * Plant a fake in-flight command on `conn` and return a getter for its
+ * rejection. Eviction (rotate/delete) must fail the captured connection's
+ * pendings itself (P1-T9 carry) — nothing else drains them when no real
+ * socket-close event ever fires.
+ */
+function plantPending(conn: NodeConnection): () => unknown {
+  let rejected: unknown;
+  conn.pending.set("jti-evicted", {
+    resolve: () => {},
+    reject: (err) => {
+      rejected = err;
+    },
+    timer: setTimeout(() => {}, 30_000),
+  });
+  return () => rejected;
 }
 
 /**
@@ -367,6 +387,21 @@ describe("/api/nodes registry CRUD", () => {
     expect(getLive(n.id)).toBeUndefined();
   });
 
+  it("delete: an in-flight command on the evicted connection rejects `offline` (P1-T9 carry)", async () => {
+    const n = await mkNode(aliceId, `del-fail-${crypto.randomUUID().slice(0, 8)}`);
+    const sock = fakeSocket();
+    const conn = attachConnection(n.id, sock);
+    const rejected = plantPending(conn);
+
+    expect((await req("DELETE", `/${n.id}`, { cookie: aliceCookie })).status).toBe(200);
+
+    const err = rejected();
+    expect(err).toBeInstanceOf(NodeRpcError);
+    expect((err as NodeRpcError).code).toBe("offline");
+    expect(conn.pending.size).toBe(0);
+    resetNodeRegistryForTests();
+  });
+
   // ── rotate ────────────────────────────────────────────────────────────────
 
   it("rotate: new key verifies, old key fails, apiKeyId flipped, live socket closed 4401", async () => {
@@ -388,6 +423,21 @@ describe("/api/nodes registry CRUD", () => {
 
     expect(sock.closed.some((c) => c.code === 4401)).toBe(true);
     expect(getLive(n.id)).toBeUndefined();
+    resetNodeRegistryForTests();
+  });
+
+  it("rotate: an in-flight command on the evicted connection rejects `offline` (P1-T9 carry)", async () => {
+    const n = await mkNode(aliceId, `rot-fail-${crypto.randomUUID().slice(0, 8)}`);
+    const sock = fakeSocket();
+    const conn = attachConnection(n.id, sock);
+    const rejected = plantPending(conn);
+
+    expect((await req("POST", `/${n.id}/rotate-key`, { cookie: aliceCookie })).status).toBe(200);
+
+    const err = rejected();
+    expect(err).toBeInstanceOf(NodeRpcError);
+    expect((err as NodeRpcError).code).toBe("offline");
+    expect(conn.pending.size).toBe(0);
     resetNodeRegistryForTests();
   });
 

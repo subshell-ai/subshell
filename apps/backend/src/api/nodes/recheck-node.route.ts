@@ -11,7 +11,7 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 const RecheckResponseSchema = t.Object({
   ok: t.Boolean({
     description:
-      "True once the agent acknowledged the inventory command. Persistence is asynchronous: the snapshot lands via the inventory EVENT, and per-socket dispatch is not serialized until phase 2 — an immediate refetch may still show the previous inventory",
+      "True once the agent acknowledged the inventory command AND the fresh snapshot is stored: the inventory EVENT precedes the result on the wire, and per-socket dispatch is serialized (phase 2), so an immediate refetch sees the new inventory",
   }),
 });
 
@@ -22,9 +22,10 @@ const RecheckResponseSchema = t.Object({
  *
  * Sends the signed `{type:"inventory"}` command and waits for the agent's
  * `result`; the agent's `inventory` EVENT is persisted by the `/ws/node`
- * handler's `applyInventory` path (agents send the event before the answer),
- * so this route returns `{ ok: true }` once the RPC resolves — the client
- * refetches the node view to see the fresh chips.
+ * handler's `applyInventory` path. Agents send the event before the answer
+ * and per-socket dispatch is serialized (phase 2, `handleNodeMessageQueued`),
+ * so `{ ok: true }` truthfully attests "inventory stored" — the client's
+ * refetch can never read the previous snapshot off this response.
  *
  * Error mapping from `NodeRpcError.code` (the actual enum): `offline` → 409
  * `NODE_OFFLINE`; `timeout` / `unsupported` / `failed` → 409

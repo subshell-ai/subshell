@@ -10,7 +10,8 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
-import { disconnectNode, REVOKED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
+import { disconnectNode, getLive, REVOKED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
+import { failConnPendings } from "@/services/nodes/node-rpc.js";
 
 /** One-time key reveal + the manual step the operator still owns. */
 const RotateResponseSchema = t.Object({
@@ -62,7 +63,12 @@ export const rotateNodeKeyRoute = new Elysia()
 
       // 4. The live socket authenticated with the OLD key — evict it after
       //    the DB truth changed (no post-revoke frames get even one beat).
+      //    Capture the conn BEFORE disconnecting (the map entry dies with it)
+      //    and drain its in-flight commands AFTER (P1-T9 carry: an eviction
+      //    must failConnPendings itself — no real socket close may ever fire).
+      const evicted = getLive(gate.row.id);
       disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node key rotated");
+      if (evicted) failConnPendings(evicted, "offline", "node key rotated");
 
       await audit({
         actorUserId: user.id,

@@ -3,7 +3,7 @@ import {
   authenticateNodeUpgrade,
   getNodeWsDeps,
   handleNodeClose,
-  handleNodeMessage,
+  handleNodeMessageQueued,
   handleNodeOpen,
   type NodeWsSocket,
 } from "@/services/nodes/node-ws-handler.js";
@@ -67,8 +67,10 @@ wsPlugin.ws("/ws/node", {
   },
   message(ws, message) {
     // Same JSON pre-parse behavior as /ws: frames arrive as text or objects.
+    // Queued variant (P1-T10): frames serialize per socket so an inventory
+    // EVENT is stored before its command's result settles the waiting RPC.
     if (typeof message !== "string" && !(message && typeof message === "object")) return;
-    void handleNodeMessage(getNodeWsDeps(), ws as unknown as NodeWsSocket, message).catch((err: unknown) => {
+    void handleNodeMessageQueued(getNodeWsDeps(), ws as unknown as NodeWsSocket, message).catch((err: unknown) => {
       logger.withError(err).warn("node ws: frame handling failed");
     });
   },
