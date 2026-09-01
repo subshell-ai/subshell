@@ -5,7 +5,6 @@ import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
-import { ViewportDebug } from "@/components/viewport-debug";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
@@ -111,8 +110,6 @@ function Shell() {
           <Outlet />
         </div>
       </div>
-      {(new URLSearchParams(location.search).has("viewport-debug") ||
-        window.matchMedia("(display-mode: standalone)").matches) && <ViewportDebug />}
     </div>
   );
 }

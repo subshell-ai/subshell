@@ -9,6 +9,7 @@ import { NotificationsMasterCard } from "@/components/notifications-master-card"
 import { PageHeader } from "@/components/page-header";
 import { PasskeysCard } from "@/components/passkeys-card";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
+import { TerminalFontCard } from "@/components/terminal-font-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -155,6 +156,7 @@ function SettingsPage() {
       {/* Account-wide switch first: it gates every device, so it reads as the
           parent of the per-device opt-in below it. */}
       <NotificationsMasterCard />
+      <TerminalFontCard />
       <NotificationsCard />
 
       <SystemApiKeysCard />

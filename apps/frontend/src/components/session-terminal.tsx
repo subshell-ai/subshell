@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { sendInput } from "@/lib/session-frames.js";
+import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
 import type { SessionView } from "@/types/session";
@@ -219,7 +220,9 @@ export function SessionTerminal({
     // for as long as the workspace is open.
     setSnapshot("");
     if (!containerRef.current || termRef.current) return;
-    const term = new Terminal(TERMINAL_OPTIONS);
+    // Per-device text size (see lib/terminal-font-size): phones and desktops
+    // keep their own choice; TERMINAL_OPTIONS carries the rest verbatim.
+    const term = new Terminal({ ...TERMINAL_OPTIONS, fontSize: terminalFontSize() });
     const fit = new FitAddon();
     term.loadAddon(fit);
     const serialize = new SerializeAddon();
@@ -281,6 +284,16 @@ export function SessionTerminal({
       fit.fit();
       repairCursorVisibility();
     });
+    // Live re-apply when the Settings card changes the size: xterm takes
+    // option changes without a grid rebuild; the refit re-derives columns.
+    const onFontSetting = (e: Event) => {
+      const size = (e as CustomEvent<number>).detail;
+      if (typeof size === "number" && size > 0) {
+        term.options.fontSize = size;
+        fit.fit();
+      }
+    };
+    window.addEventListener(TERM_FONT_EVENT, onFontSetting);
     ro.observe(container);
     // iOS pans the visual viewport mid-typing WITHOUT resizing any container
     // (no RO event), and that pan is exactly when it likes to drop focus.
@@ -359,6 +372,7 @@ export function SessionTerminal({
         vv.removeEventListener("scroll", repairCursorVisibility);
       }
       window.removeEventListener("scroll", onAnyScroll, true);
+      window.removeEventListener(TERM_FONT_EVENT, onFontSetting);
       container.removeEventListener("focusout", onFocusOut);
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a
