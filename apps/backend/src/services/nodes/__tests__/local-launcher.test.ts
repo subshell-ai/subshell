@@ -79,6 +79,30 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
   });
 });
 
+describe("LocalLauncher.deliverPrompt (real panes)", () => {
+  it("types + submits once the pane shows output, and gives up on a never-settling pane", async () => {
+    const pid = `${id}-prompt`;
+    const psock = tmuxSocketFor(pid);
+    // An interactive shell that prints a banner: capture settles, Enter runs
+    // the typed echo, and the marker lands back in the pane.
+    tmux.newSession(psock, pid, tmpdir(), "echo ready; exec sh");
+    const delivered = await launcher.deliverPrompt(psock, pid, "echo delivered-marker", 5_000, 50);
+    expect(delivered).toBe(true);
+    await sleep(400); // the pane's shell needs a beat to run the echo
+    expect(await launcher.capture(psock, pid)).toContain("delivered-marker");
+    tmux.killSession(psock, pid);
+    tmux.cleanSocket(psock);
+
+    // A plain `sleep` pane never prints → capture stays blank → give up false.
+    const bid = `${id}-blank`;
+    const bsock = tmuxSocketFor(bid);
+    tmux.newSession(bsock, bid, tmpdir(), "sleep 30");
+    expect(await launcher.deliverPrompt(bsock, bid, "echo never", 250, 50)).toBe(false);
+    tmux.killSession(bsock, bid);
+    tmux.cleanSocket(bsock);
+  }, 30_000);
+});
+
 describe("LocalLauncher artifacts + validation", () => {
   const tmp = mkdtempSync(join(tmpdir(), "launcher-"));
   afterAll(() => rmSync(tmp, { recursive: true, force: true }));

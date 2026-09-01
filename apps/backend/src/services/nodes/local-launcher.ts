@@ -1,5 +1,6 @@
 import { existsSync, type FSWatcher, mkdirSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { stripAnsi } from "@internal/backend-errors";
 import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/harnesses";
 import { sessionMcpConfigPath } from "@/services/mcp-launch.js";
 import { readLogTailFrom, TAIL_BACKSTOP_MS } from "./log-tail.js";
@@ -109,6 +110,43 @@ export class LocalLauncher implements NodeLauncher {
 
   async pressEnter(socket: string, id: string): Promise<void> {
     this.#tmux.pressEnter(socket, id);
+  }
+
+  /**
+   * Types `text` into a freshly-spawned pane once it shows output, then
+   * submits with Enter — the verbatim pre-seam `#deliverPrompt` sequence:
+   * poll `capture-pane` (a blank pane = harness still booting) up to the
+   * settle window; never settled, or an input failure, reports delivery as
+   * false rather than typing blind. No throws, no side effects on timeout.
+   */
+  async deliverPrompt(
+    socket: string,
+    id: string,
+    text: string,
+    settleTimeoutMs: number,
+    pollMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + settleTimeoutMs;
+    let settled = false;
+    while (Date.now() < deadline) {
+      try {
+        if (stripAnsi(await this.capture(socket, id)).trim()) {
+          settled = true;
+          break;
+        }
+      } catch {
+        // pane not queryable yet; keep polling
+      }
+      await Bun.sleep(pollMs);
+    }
+    if (!settled) return false;
+    try {
+      await this.sendInput(socket, id, text);
+      await this.pressEnter(socket, id);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   logPath(id: string): string {

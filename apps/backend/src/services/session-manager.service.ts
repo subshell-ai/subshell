@@ -278,10 +278,9 @@ export class SessionManagerService {
 
   /**
    * Types a creation prompt into a freshly-spawned pane once the harness has
-   * produced output, then submits with Enter. Polls `capture-pane` (blank pane
-   * = harness still booting) up to the settle window; if it never settles the
-   * session stays up and delivery is reported as failed rather than typing
-   * blind into a not-yet-ready prompt.
+   * produced output. The settle loop itself lives behind the launcher seam
+   * ({@link NodeLauncher.deliverPrompt}) — it mirrors the phase-2
+   * `prompt_deliver` command so a remote agent runs it as one round-trip.
    */
   async #deliverPrompt(
     socket: string,
@@ -290,27 +289,7 @@ export class SessionManagerService {
     settleTimeoutMs: number,
     pollMs: number,
   ): Promise<boolean> {
-    const deadline = Date.now() + settleTimeoutMs;
-    let settled = false;
-    while (Date.now() < deadline) {
-      try {
-        if (stripAnsi(await this.#launcher.capture(socket, id)).trim()) {
-          settled = true;
-          break;
-        }
-      } catch {
-        // pane not queryable yet; keep polling
-      }
-      await Bun.sleep(pollMs);
-    }
-    if (!settled) return false;
-    try {
-      await this.#launcher.sendInput(socket, id, prompt);
-      await this.#launcher.pressEnter(socket, id);
-      return true;
-    } catch {
-      return false;
-    }
+    return this.#launcher.deliverPrompt(socket, id, prompt, settleTimeoutMs, pollMs);
   }
 
   /**

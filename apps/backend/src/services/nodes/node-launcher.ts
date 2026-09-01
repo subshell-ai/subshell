@@ -42,6 +42,13 @@ export interface NodeLauncher {
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   sendInput(socket: string, id: string, input: string): Promise<void>;
   pressEnter(socket: string, id: string): Promise<void>;
+  /**
+   * Types `text` into a fresh pane once it shows output and submits it — the
+   * mirror of the phase-2 `prompt_deliver` command, so a remote agent runs
+   * the whole settle loop as ONE round-trip. Returns `promptDelivered`
+   * (false on settle timeout or failed input; never throws).
+   */
+  deliverPrompt(socket: string, id: string, text: string, settleTimeoutMs: number, pollMs: number): Promise<boolean>;
   logPath(id: string): string;
   readLogTail(id: string): Promise<{ lines: string[]; truncated: boolean }>;
   readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }>;
