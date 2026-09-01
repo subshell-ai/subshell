@@ -11,7 +11,7 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 const RecheckResponseSchema = t.Object({
   ok: t.Boolean({
     description:
-      "True once the agent answered the inventory command (the fresh snapshot was persisted by the socket handler before the answer)",
+      "True once the agent acknowledged the inventory command. Persistence is asynchronous: the snapshot lands via the inventory EVENT, and per-socket dispatch is not serialized until phase 2 — an immediate refetch may still show the previous inventory",
   }),
 });
 

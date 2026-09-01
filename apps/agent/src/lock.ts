@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentHome } from "./config.js";
 
@@ -39,15 +39,32 @@ export function lockPath(): string {
 
 /**
  * Persist (create or refresh) the lock. Creates the home dir if missing.
+ * Mode 0600 is explicit (project convention for anything under the agent
+ * home): the 0700 dir guards the path, the mode guards the file once any
+ * tool widens the dir — and it matches the config/identity stores next door.
  * @throws whatever fs throws — callers treat the lock as best-effort and log.
  */
 export function writeLock(lock: DaemonLock): void {
   mkdirSync(agentHome(), { recursive: true, mode: 0o700 });
-  writeFileSync(lockPath(), `${JSON.stringify(lock, null, 2)}\n`);
+  writeFileSync(lockPath(), `${JSON.stringify(lock, null, 2)}\n`, { mode: 0o600 });
+  // Same re-tightening pass config.saveConfig does: write mode is umask-masked
+  // AND applies only on create, so this also pulls a lock left at 644 by an
+  // older agent down to 600 on the next heartbeat tick.
+  if ((statSync(lockPath()).mode & 0o077) !== 0) chmodSync(lockPath(), 0o600);
 }
 
-/** Remove the lock; absence counts as success (`force`). */
-export function clearLock(): void {
+/**
+ * Remove the lock, but ONLY while `ownerPid` still owns it: read the current
+ * lock and delete only when its pid matches. Dual-daemon same-home: two
+ * `mote-agent run` processes share one `daemon.lock` (last writer wins), and
+ * the first one to exit must not delete the survivor's lock — a missing lock
+ * would read as OFFLINE while a daemon is happily running. A lock we cannot
+ * parse or that names another pid is therefore left alone; `readLock` treats
+ * a corrupt lock as absent, so a stale corrupt lock never fakes liveness.
+ * @param ownerPid - pid of the daemon claiming ownership (usually `process.pid`)
+ */
+export function clearLock(ownerPid: number): void {
+  if (readLock()?.pid !== ownerPid) return;
   rmSync(lockPath(), { force: true });
 }
 

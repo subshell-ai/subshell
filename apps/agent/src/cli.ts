@@ -138,7 +138,9 @@ export async function run(argv: string[]): Promise<CliResult> {
         if (lock && lock.nodeId !== cfg.nodeId) {
           lock = null; // another node's lock in this home: never trust, never delete
         } else if (lock && !isPidAlive(lock.pid)) {
-          clearLock(); // ours, but the daemon is gone: stale — clean up
+          clearLock(lock.pid); // ours, but the daemon is gone: stale — clean up
+          // (pid-keyed: if a daemon re-wrote the lock between read and clear, the
+          // pids diverge and the live lock survives this cleanup.)
           lock = null;
         }
         let online = false;

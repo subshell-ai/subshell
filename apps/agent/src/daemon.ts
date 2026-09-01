@@ -237,7 +237,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   /** The ONE exit path: clears `daemon.lock` FIRST (the real `exit` never returns), then defers. */
   const stop = (code: number): never => {
     try {
-      clearLock();
+      clearLock(process.pid); // ownership-checked: never deletes a survivor's lock
     } catch (err) {
       log(`cannot clear daemon.lock: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -422,7 +422,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
     try {
-      clearLock(); // every unwind path (incl. the test seams that throw through exit)
+      clearLock(process.pid); // every unwind path (incl. the test seams that throw through exit)
     } catch {
       /* best-effort */
     }

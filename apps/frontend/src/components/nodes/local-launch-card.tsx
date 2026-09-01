@@ -37,6 +37,10 @@ export function LocalLaunchCard() {
   const on = (existing ?? []).some((s) => s.granteeUserId === null && s.permission === "edit");
 
   function toggle(checked: boolean) {
+    // The handler owns the same guard the `disabled` prop draws: no grant set
+    // yet, or a write in flight → a draft built here would full-replace onto
+    // stale truth (belt beyond Base UI's internal disabled guard).
+    if (existing === undefined || setShares.isPending) return;
     setError(null);
     // Only the Everyone row(s) move; per-user grants survive both directions.
     const perUser: ShareWrite[] = (existing ?? [])
