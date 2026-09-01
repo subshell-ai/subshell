@@ -1,0 +1,195 @@
+import { type NodeCommandBody, type NodeEvent, signCommand } from "@internal/session-protocol";
+import { loadControlKeys } from "./control-keys.js";
+import { getLive, listLive } from "./node-registry.js";
+
+/**
+ * Signed command RPC over the node registry (spec 2026-08-31 §4). This is the
+ * only way to talk to a live agent: build a `NodeCommandBody`, sign it into a
+ * JWS envelope with the control key, push it through the node's socket, and
+ * await the agent's `{type:"result", ref}` frame — correlated by the `jti` we
+ * assigned. The WS handler owns the two feed points: `resolveResult` (a
+ * parsed result frame arrived) and `failAllFor` (the socket closed).
+ *
+ * Seq/send-order invariant: `seq` is a per-connection monotonic ordering hint
+ * the agent validates, so it must increase in WIRE order. Signing is async
+ * (`signCommand` awaits WebCrypto), which means two back-to-back `sendCommand`
+ * calls could otherwise interleave `seq++` and `ws.send` and emit
+ * `seq 2 before seq 1`. Fix: a per-connection promise-chain mutex
+ * (`conn.sendChain`) — each command's step (seq++, sign, register pending,
+ * send) is appended in call order and runs alone, so sequence assignment and
+ * frame emission can never disagree.
+ */
+
+/** Machine-readable failure kinds for {@link NodeRpcError}. */
+export type NodeRpcErrorCode = "offline" | "unsupported" | "failed" | "timeout";
+
+/**
+ * Rejection for any command that did not resolve. Carries the node it was
+ * aimed at so routes can map it to a structured API error.
+ */
+export class NodeRpcError extends Error {
+  /** Why the command failed (see {@link NodeRpcErrorCode}). */
+  readonly code: NodeRpcErrorCode;
+  /** Node the command was addressed to. */
+  readonly nodeId: string;
+
+  constructor(code: NodeRpcErrorCode, message: string, nodeId: string) {
+    super(message);
+    this.name = "NodeRpcError";
+    this.code = code;
+    this.nodeId = nodeId;
+  }
+}
+
+/** A `result` frame — what the WS handler feeds into {@link resolveResult}. */
+export type NodeResultEvent = Extract<NodeEvent, { type: "result" }>;
+
+/** Default per-command deadline (spec §4: commands are socket-open-only). */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
+
+/**
+ * Sign `cmd` for `nodeId`, push it through the node's live socket, and await
+ * the correlated result.
+ *
+ * Resolution/rejection paths:
+ * - agent answers `ok:true` → resolves with `event.data` (possibly `undefined`)
+ * - agent answers `error:"unsupported"` → rejects `NodeRpcError("unsupported")`
+ * - any other `ok:false` → rejects `NodeRpcError("failed")` carrying the message
+ * - no answer within `timeoutMs` → rejects `NodeRpcError("timeout")`
+ * - node not connected now, or gone by the time the queued step runs →
+ *   rejects `NodeRpcError("offline")`
+ *
+ * @param nodeId - target node (must have a live connection)
+ * @param cmd - command payload (validated wire shape)
+ * @param timeoutMs - deadline measured from the frame hitting the socket
+ * @returns the result frame's `data`
+ */
+export function sendCommand(
+  nodeId: string,
+  cmd: NodeCommandBody,
+  timeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS,
+): Promise<unknown> {
+  const conn = getLive(nodeId);
+  if (!conn) {
+    return Promise.reject(new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId));
+  }
+
+  let onResolve: (data: unknown) => void;
+  let onReject: (err: NodeRpcError) => void;
+  const result = new Promise<unknown>((resolve, reject) => {
+    onResolve = resolve;
+    onReject = reject;
+  });
+
+  const jti = crypto.randomUUID();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Single settle-as-failure path: disarm, deregister, reject. */
+  const fail = (err: NodeRpcError): void => {
+    if (timer) clearTimeout(timer);
+    conn.pending.delete(jti);
+    onReject(err);
+  };
+
+  const step = async (): Promise<void> => {
+    // Re-check inside the chain: while we queued, the socket may have been
+    // detached or superseded by a newer connection for the same node.
+    if (conn.closing || getLive(nodeId) !== conn) {
+      throw new NodeRpcError("offline", `node "${nodeId}" disconnected before the command was sent`, nodeId);
+    }
+    const { privateJwk } = await loadControlKeys();
+    const seq = ++conn.seq;
+    const jws = await signCommand(privateJwk, { nodeId, jti, seq, cmd });
+
+    // From here the command is in flight: arm the deadline and register the
+    // correlation entry BEFORE the frame can be answered, then emit. `send`
+    // stays the step's last statement so a thrown socket error never leaves
+    // a phantom pending behind (the catch below removes it).
+    timer = setTimeout(() => {
+      if (conn.pending.delete(jti)) {
+        onReject(
+          new NodeRpcError(
+            "timeout",
+            `command "${cmd.type}" to node "${nodeId}" timed out after ${timeoutMs}ms`,
+            nodeId,
+          ),
+        );
+      }
+    }, timeoutMs);
+    timer.unref?.(); // a pending RPC must not hold the process open
+    conn.pending.set(jti, {
+      resolve: (data) => {
+        if (timer) clearTimeout(timer);
+        onResolve(data);
+      },
+      reject: fail,
+      timer,
+    });
+    conn.ws.send(JSON.stringify({ jws }));
+  };
+
+  // Serialize per connection (the seq/send-order invariant, see header). Each
+  // link's `.catch` settles THIS command on failure and returns fulfilled, so
+  // one broken send never poisons the chain for the commands behind it.
+  conn.sendChain = conn.sendChain.then(step, step).catch((err: unknown) => {
+    fail(
+      err instanceof NodeRpcError
+        ? err
+        : new NodeRpcError(
+            "failed",
+            `command "${cmd.type}" to node "${nodeId}" failed to send: ${String(err)}`,
+            nodeId,
+          ),
+    );
+  });
+
+  return result;
+}
+
+/**
+ * Feed a parsed `result` frame from the agent into the pending RPC it
+ * belongs to. Scans live connections' pending maps by `ref` (a jti we minted,
+ * so a match is unambiguous; unknown refs are late/foreign and ignored).
+ * @param event - the `result` event (from `parseNodeEvent`)
+ * @returns true when a pending command was settled, false when nothing matched
+ */
+export function resolveResult(event: NodeResultEvent): boolean {
+  for (const conn of listLive()) {
+    const pending = conn.pending.get(event.ref);
+    if (!pending) continue;
+    conn.pending.delete(event.ref);
+    clearTimeout(pending.timer);
+    if (event.ok) {
+      pending.resolve(event.data);
+    } else if (event.error === "unsupported") {
+      pending.reject(
+        new NodeRpcError("unsupported", `node "${conn.nodeId}" does not support this command`, conn.nodeId),
+      );
+    } else {
+      pending.reject(new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId));
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Fail every in-flight command for `nodeId` — call from the WS close handler
+ * BEFORE {@link detachConnection}, since it targets the still-mapped entry.
+ * @param nodeId - node whose pendings should be settled as failures
+ * @param code - rejection code (default `offline`)
+ * @param message - optional override for the error message
+ * @returns how many commands were failed
+ */
+export function failAllFor(nodeId: string, code: NodeRpcErrorCode = "offline", message?: string): number {
+  const conn = getLive(nodeId);
+  if (!conn) return 0;
+  const entries = [...conn.pending.values()];
+  conn.pending.clear();
+  const fallback = `node "${nodeId}" connection closed with ${entries.length} in-flight command(s)`;
+  for (const pending of entries) {
+    clearTimeout(pending.timer);
+    pending.reject(new NodeRpcError(code, message ?? fallback, nodeId));
+  }
+  return entries.length;
+}
