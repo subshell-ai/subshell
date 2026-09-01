@@ -52,6 +52,18 @@ export function ProfileFields({
   const { data: nodeData } = useNodes();
   const nodes = nodeData?.nodes ?? [];
 
+  // Dead-pin fallback: a profile can outlive its pin (node deleted, or the
+  // share revoked since). An id missing from the caller's visible list is
+  // unselectable in the picker AND refused at save (the server re-validates
+  // visibility), so normalize the form value to "" — the "Any node" sentinel
+  // — once the list has answered. Editing any other field then PUTs
+  // `nodeId: null` instead of the ghost id. Only judged after a successful
+  // load: against the in-flight empty list this would unpin live pins.
+  useEffect(() => {
+    if (!nodeData || !value.nodeId) return;
+    if (!nodeData.nodes.some((n) => n.id === value.nodeId)) onChange({ ...value, nodeId: "" });
+  }, [nodeData, value, onChange]);
+
   // One usable harness is not a decision worth forcing — pick it. The
   // guard on value.harnessId makes this self-disarming after the pick.
   useEffect(() => {

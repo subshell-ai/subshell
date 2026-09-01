@@ -24,9 +24,10 @@ export const Route = createFileRoute("/nodes_/$id")({
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
  * error, never a leak), `view` grantees get a fully read-only page (harness
- * switches disabled, no Share/Delete — `nodeCanConfigure` semantics), and
- * Share/Delete enable on `Node.canManage` (owner, or admin on `local` — the
- * frontend must not re-derive admin identity).
+ * switches and the Re-check button disabled, no Share/Delete —
+ * `nodeCanConfigure` semantics), and Share/Delete enable on `Node.canManage`
+ * (owner, or admin on `local` — the frontend must not re-derive admin
+ * identity).
  */
 function NodeDetailPage() {
   const { id } = Route.useParams();
@@ -175,7 +176,15 @@ function NodeDetailPage() {
 
       {n.kind === "agent" && (
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" onClick={() => recheck.mutate()} disabled={recheck.isPending}>
+          {/* The recheck route gates on `nodeCanConfigure` (owner|edit) — the
+              same rule `canConfigure` mirrors above, so a `view` grantee gets
+              the button disabled, matching the read-only harness toggles. */}
+          <Button
+            variant="outline"
+            onClick={() => recheck.mutate()}
+            disabled={!canConfigure || recheck.isPending}
+            title={canConfigure ? undefined : "Only the node's owner or an edit grantee can re-check it"}
+          >
             <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
           </Button>
           {recheck.isError && (

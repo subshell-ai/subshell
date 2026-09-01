@@ -9,13 +9,14 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
-import type { NodeDetail } from "@/types/node";
+import type { NodeDetail, NodeShare } from "@/types/node";
 
 /**
  * The settings-page local-launch switch (spec 2026-08-31 §10): visible only
  * when the caller can manage `local` (server-derived `canManage` — no client
- * admin re-derivation), and the PUT body shape is pinned exactly:
- * on = the Everyone/edit row alone, off = the empty set.
+ * admin re-derivation), and the PUT body is read-modify-write over the node
+ * detail's embedded `shares`: only the Everyone row is added/dropped, every
+ * per-user grant survives both directions.
  */
 function localNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
   return {
@@ -60,6 +61,43 @@ function mockFetch(node: NodeDetail | null) {
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
+/**
+ * A live shares store: the GET detail echoes the CURRENT grant set and the PUT
+ * replaces it, so the switch reflects a toggle's refetch instead of a frozen
+ * fixture — the only way to exercise both directions (and the read-modify-
+ * write carry-over) in one render.
+ */
+function mockLiveFetch(initialShares: Partial<NodeShare>[]) {
+  const calls: Call[] = [];
+  let shares = [...initialShares];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    const method = init?.method ?? "GET";
+    calls.push({ method, url: url.pathname, body: init?.body as string | undefined });
+    if (url.pathname === "/api/nodes/local" && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify(localNode({ shares: shares as NodeShare[] }))));
+    }
+    if (url.pathname === "/api/nodes/local/shares" && method === "PUT") {
+      shares = JSON.parse(String(init?.body)).shares;
+      return Promise.resolve(new Response(JSON.stringify({ shares })));
+    }
+    return Promise.resolve(new Response(JSON.stringify({})));
+  }) as typeof fetch;
+  return { calls, restore: () => (globalThis.fetch = original) };
+}
+
+/** PUT bodies sort null (Everyone) first, so both directions compare stably. */
+function putBodies(calls: Call[]) {
+  return calls
+    .filter((c) => c.method === "PUT" && c.url === "/api/nodes/local/shares")
+    .map((c) =>
+      (JSON.parse(String(c.body)).shares as { granteeUserId: string | null; permission: string }[]).sort((a, b) =>
+        (a.granteeUserId ?? "").localeCompare(b.granteeUserId ?? ""),
+      ),
+    );
+}
+
 // The card renders a `<Link>` (a router context is required) — the same
 // minimal memory-router wrapper the session-actions-menu test uses.
 function renderCard() {
@@ -95,9 +133,7 @@ describe("LocalLaunchCard", () => {
       expect(toggle.getAttribute("aria-checked")).toBe("true");
       fireEvent.click(toggle);
       await waitFor(() => {
-        const put = calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/local/shares");
-        expect(put).toBeDefined();
-        expect(JSON.parse(put?.body ?? "{}")).toEqual({ shares: [] });
+        expect(putBodies(calls)[0]).toEqual([]);
       });
     } finally {
       restore();
@@ -112,10 +148,55 @@ describe("LocalLaunchCard", () => {
       expect(toggle.getAttribute("aria-checked")).toBe("false");
       fireEvent.click(toggle);
       await waitFor(() => {
-        const put = calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/local/shares");
-        expect(put).toBeDefined();
-        expect(JSON.parse(put?.body ?? "{}")).toEqual({ shares: [{ granteeUserId: null, permission: "edit" }] });
+        expect(putBodies(calls)[0]).toEqual([{ granteeUserId: null, permission: "edit" }]);
       });
+    } finally {
+      restore();
+    }
+  });
+
+  it("preserves per-user grants in both directions (read-modify-write, order-insensitive)", async () => {
+    const { calls, restore } = mockLiveFetch([
+      { granteeUserId: null, permission: "edit" },
+      { granteeUserId: "userB", permission: "view" },
+    ]);
+    try {
+      renderCard();
+      const toggle = await screen.findByRole("switch");
+      expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+      // OFF: drops ONLY the Everyone row — userB's view grant rides along.
+      fireEvent.click(toggle);
+      await waitFor(() => {
+        expect(putBodies(calls)[0]).toEqual([{ granteeUserId: "userB", permission: "view" }]);
+      });
+      await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+
+      // ON: reinstalls the Everyone row WITHOUT losing userB.
+      fireEvent.click(toggle);
+      await waitFor(() => {
+        expect(putBodies(calls)).toHaveLength(2);
+        expect(putBodies(calls)[1]).toEqual([
+          { granteeUserId: null, permission: "edit" },
+          { granteeUserId: "userB", permission: "view" },
+        ]);
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("disables the toggle while the grant set is unknown, so no []-draft PUT can wipe shares", async () => {
+    const { calls, restore } = mockFetch(localNode({ shares: undefined }));
+    try {
+      renderCard();
+      const toggle = await screen.findByRole("switch");
+      // Base UI's span-root carries disabled as `aria-disabled` (no native attr).
+      expect(toggle.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(toggle);
+      // Give any (wrongly) queued mutation a chance to fire before asserting.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(putBodies(calls)).toEqual([]);
     } finally {
       restore();
     }
