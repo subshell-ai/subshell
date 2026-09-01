@@ -113,9 +113,32 @@ export function useTerminalUploads({
     },
   });
 
+  /**
+   * Opens the OS image picker (camera/photos on phones and tablets, a normal
+   * filtered dialog on desktop) and feeds the picks through the SAME
+   * upload-and-inject path as a drag-and-drop. The dropzone's `open()` is not
+   * used: react-dropzone v20 takes no per-open accept override, and filtering
+   * the dropzone itself would narrow paste/drop too — images-only belongs to
+   * THIS button, not to the desktop gestures.
+   */
+  const openImagePicker = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    // The element is disposable: once the picker resolves (or is cancelled)
+    // it is dropped; the File objects it produced outlive it via handleFiles.
+    input.addEventListener("change", () => {
+      const files = input.files ? Array.from(input.files) : [];
+      void handleFiles(files, "");
+    });
+    input.click();
+  }, [handleFiles]);
+
   return {
     getRootProps,
     isDragActive,
+    openImagePicker,
     pending,
     error,
     dismissError: useCallback(() => setError(null), []),

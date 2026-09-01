@@ -51,4 +51,22 @@ describe("TerminalKeyBar", () => {
     for (const btn of screen.getAllByRole("button")) fireEvent.click(btn);
     expect(clicks).toBe(0);
   });
+
+  it("shows no image button without onPickImage, and a working one with it", () => {
+    const { unmount } = render(<TerminalKeyBar disabled={false} onBytes={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Attach image" })).toBeNull();
+    unmount();
+
+    let picked = 0;
+    render(<TerminalKeyBar disabled={false} onBytes={() => {}} onPickImage={() => picked++} />);
+    const img = screen.getByRole("button", { name: "Attach image" });
+    fireEvent.click(img);
+    expect(picked).toBe(1);
+  });
+
+  it("the image button is disabled with the rest of the bar", () => {
+    render(<TerminalKeyBar disabled onBytes={() => {}} onPickImage={() => {}} />);
+    const img = screen.getByRole("button", { name: "Attach image" }) as HTMLButtonElement;
+    expect(img.disabled).toBe(true);
+  });
 });

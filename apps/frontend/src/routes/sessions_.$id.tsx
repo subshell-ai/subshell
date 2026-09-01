@@ -32,6 +32,7 @@ function SessionPage() {
   // terminal through them.
   const termRef = useRef<Terminal | null>(null);
   const sendInputRef = useRef<((data: string) => void) | null>(null);
+  const openImagePickerRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
   const [closed, setClosed] = useState(false);
@@ -69,6 +70,7 @@ function SessionPage() {
   function handleTerminalReady(handles: SessionTerminalHandles) {
     termRef.current = handles.term;
     sendInputRef.current = handles.sendInput;
+    openImagePickerRef.current = handles.openImagePicker;
     setSearch(handles.search);
   }
 
@@ -76,6 +78,7 @@ function SessionPage() {
   function handleTerminalDispose() {
     termRef.current = null;
     sendInputRef.current = null;
+    openImagePickerRef.current = null;
     setSearch(null);
   }
 
@@ -186,7 +189,15 @@ function SessionPage() {
 
       {/* The accessory key bar is an input affordance — a `view` grantee has
           none (the terminal itself is read-only for them, spec §4.1). */}
-      {coarse && session?.access !== "view" && <TerminalKeyBar disabled={!connected} onBytes={handleKeyBarBytes} />}
+      {/* The image button doubles as the touch upload gesture: dropping or
+        clipboard-pasting files has no equivalent on a phone. */}
+      {coarse && session?.access !== "view" && (
+        <TerminalKeyBar
+          disabled={!connected}
+          onBytes={handleKeyBarBytes}
+          onPickImage={() => openImagePickerRef.current?.()}
+        />
+      )}
     </main>
   );
 }

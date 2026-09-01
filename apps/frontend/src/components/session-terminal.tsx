@@ -67,6 +67,8 @@ export interface SessionTerminalHandles {
   search: SearchAddon;
   /** Sends raw bytes to the session as if typed (e.g. Ctrl-D) */
   sendInput: (data: string) => void;
+  /** Opens the OS image picker; picks upload and inject like a dropped file */
+  openImagePicker: () => void;
 }
 
 /** Props for {@link SessionTerminal}. */
@@ -192,6 +194,9 @@ export function SessionTerminal({
   // re-create the terminal on every reconnect); it is re-pointed at the
   // current socket ref on every render, and reads it at call time.
   const sendToSessionRef = useRef<(data: string) => void>(() => {});
+  // Assigned every render below the uploads hook; the onReady handle forwards
+  // to it so the closure captured at terminal-setup time never goes stale.
+  const openImagePickerRef = useRef<() => void>(() => {});
   // Distinguishes an `active` flip (the component stays mounted, so the
   // snapshot has somewhere to render) from a real unmount. Declared before
   // the terminal effect so its cleanup runs first on unmount.
@@ -266,6 +271,7 @@ export function SessionTerminal({
       serialize,
       search: searchAddon,
       sendInput: (data) => sendToSessionRef.current(data),
+      openImagePicker: () => openImagePickerRef.current(),
     });
 
     return () => {
@@ -328,6 +334,7 @@ export function SessionTerminal({
   sendToSessionRef.current = (data) => sendInput(wsRef.current, data);
 
   const uploads = useTerminalUploads({ sessionId, wsRef, termRef });
+  openImagePickerRef.current = uploads.openImagePicker;
 
   if (!active) {
     return (

@@ -1,3 +1,4 @@
+import { ImagePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** One key-bar button — every button sends raw bytes, like a physical key. */
@@ -37,18 +38,27 @@ export interface TerminalKeyBarProps {
   disabled: boolean;
   /** Write raw bytes to the pane */
   onBytes: (bytes: string) => void;
+  /**
+   * When set, the bar gains a trailing image button: it opens the OS image
+   * picker (camera/photos on touch devices) and the picks ride the normal
+   * upload-and-inject path. This is the one non-byte control on the bar, and
+   * it exists because drag-and-drop and clipboard-file paste — the desktop
+   * upload gestures — have no touch equivalent.
+   */
+  onPickImage?: () => void;
 }
 
 /** Accessory special-key row for touch devices (spec §5). Buttons are
  * min-h-11 (44px) and touch-manipulation (no double-tap zoom). Every button
  * is a plain byte sender — mote intercepts no characters; the pane's own
- * program decides what `/` or anything else means.
+ * program decides what `/` or anything else means. The one exception is the
+ * optional trailing image button (see {@link TerminalKeyBarProps.onPickImage}).
  *
  * `onPointerDown` preventDefault pins focus wherever it is (the terminal's
  * hidden textarea) when a button is tapped — a native button would take
  * focus, and xterm stops routing keystrokes once its textarea is blurred,
  * so the next hardware key would go missing. `click` still fires normally. */
-export function TerminalKeyBar({ disabled, onBytes }: TerminalKeyBarProps) {
+export function TerminalKeyBar({ disabled, onBytes, onPickImage }: TerminalKeyBarProps) {
   return (
     <div
       role="toolbar"
@@ -70,6 +80,20 @@ export function TerminalKeyBar({ disabled, onBytes }: TerminalKeyBarProps) {
           {b.label}
         </button>
       ))}
+      {onPickImage && (
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label="Attach image"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={onPickImage}
+          className={cn(
+            "min-h-11 flex-1 basis-11 touch-manipulation select-none border-border/60 border-l bg-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40",
+          )}
+        >
+          <ImagePlus className="mx-auto size-4" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
