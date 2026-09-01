@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ensureGitExcluded,
+  remoteUniqueName,
   resolveUploadPath,
   safeUploadName,
   UploadError,
@@ -25,6 +26,11 @@ afterEach(() => {
 });
 
 const NOW = new Date("2026-08-27T14:32:10Z");
+
+/** Byte length, not UTF-16 code units — the filesystem limit is in bytes. */
+function byteLength(s: string): number {
+  return new TextEncoder().encode(s).byteLength;
+}
 
 describe("uploadsDirFor", () => {
   it("nests uploads under .mote in the working directory", () => {
@@ -74,11 +80,6 @@ describe("safeUploadName", () => {
     expect(safeUploadName(`${"a".repeat(400)}.png`, null, NOW).length).toBeLessThanOrEqual(255);
   });
 
-  /** Byte length, not UTF-16 code units — the filesystem limit is in bytes. */
-  function byteLength(s: string): number {
-    return new TextEncoder().encode(s).byteLength;
-  }
-
   it("bounds a pathologically long extension to the 255-byte limit", () => {
     const name = safeUploadName(`a.${"x".repeat(300)}`, null, NOW);
     expect(byteLength(name)).toBeLessThanOrEqual(255);
@@ -92,6 +93,33 @@ describe("safeUploadName", () => {
   it("bounds an extension exactly at the old (unbounded) limit", () => {
     const name = safeUploadName(`a.${"x".repeat(255)}`, null, NOW);
     expect(byteLength(name)).toBeLessThanOrEqual(255);
+  });
+});
+
+describe("remoteUniqueName", () => {
+  it("appends an 8-hex suffix before the extension, keeping the timestamp prefix", () => {
+    expect(remoteUniqueName("20260827-143210-photo.jpeg")).toMatch(/^20260827-143210-photo-[0-9a-f]{8}\.jpeg$/);
+  });
+
+  it("never repeats a suffix — two same-second relays get distinct names", () => {
+    // The deterministic core of the fix: the agent receiver overwrites by
+    // contract, and two uploads inside one second share the timestamp
+    // prefix, so only the random tag can keep the second from clobbering
+    // the first. Same input string ⇒ different outputs, no clock involved.
+    expect(remoteUniqueName("20260827-143210-dup.bin")).not.toBe(remoteUniqueName("20260827-143210-dup.bin"));
+  });
+
+  it("appends at the end when the name has no extension", () => {
+    expect(remoteUniqueName("20260827-143210-noext")).toMatch(/^20260827-143210-noext-[0-9a-f]{8}$/);
+  });
+
+  it("truncates the stem so the suffixed name still fits the 255-byte component limit", () => {
+    // 255 spelled as a literal (same discipline as the route test's CHUNK):
+    // the helper must respect the budget, not tack 9 chars onto a maximal name.
+    const stem = "x".repeat(255 - "20260827-143210-".length - ".bin".length);
+    const got = remoteUniqueName(`${stem}.bin`);
+    expect(byteLength(got)).toBeLessThanOrEqual(255);
+    expect(got).toMatch(/-[0-9a-f]{8}\.bin$/);
   });
 });
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
@@ -267,6 +268,34 @@ export const UPLOAD_CHUNK_BYTES = 512 * 1024;
 const WRITE_CHUNK_TIMEOUT_MS = 30_000;
 
 /**
+ * Collision-safety stand-in for local {@link writeUnique} on the remote relay.
+ *
+ * The agent receiver overwrites by contract (a second-granularity
+ * timestamp-prefixed name reused within one second silently replaces the
+ * first upload), and the relay cannot see node-side collisions to suffix
+ * around them, so it appends `-<8 hex>` before the extension instead.
+ * 8 hex chars is plenty at human upload rates; name shape stays
+ * timestamp-prefixed so recents still sort.
+ *
+ * Mirrors {@link withSuffix}'s budget discipline: the suffix replaces stem
+ * bytes rather than pushing a maximal name past {@link MAX_NAME_BYTES}.
+ *
+ * @param name - The sanitized, timestamp-prefixed base name from {@link safeUploadName}
+ * @returns The same name with a random `-<8hex>` tag before the extension
+ */
+export function remoteUniqueName(name: string): string {
+  const rawExt = extname(name);
+  const stem = name.slice(0, name.length - rawExt.length);
+  // Re-cap the extension (defense in depth, same reasoning as withSuffix).
+  const extBody = rawExt.replace(/^\./, "").slice(0, MAX_EXT_BYTES);
+  const ext = extBody ? `.${extBody}` : "";
+  const suffixTag = `-${randomUUID().slice(0, 8)}`;
+  const budget = MAX_NAME_BYTES - suffixTag.length - ext.length;
+  const trimmedStem = stem.length > budget ? stem.slice(0, Math.max(1, budget)) : stem;
+  return `${trimmedStem}${suffixTag}${ext}`;
+}
+
+/**
  * Relays an uploaded file to an agent node as ordered `write_file` chunks
  * (spec §3.4) and returns the path ON THE NODE.
  *
@@ -298,7 +327,10 @@ const WRITE_CHUNK_TIMEOUT_MS = 30_000;
  *   a mid-stream drop maps to `offline: true`)
  * @param workingRealPath - The session's working directory AS THERE (absolute)
  * @param file - The uploaded file
- * @param send - RPC seam (default {@link sendCommand}; tests inject fakes)
+ * @param send - RPC seam; defaults to {@link sendCommand}. Injectable so a
+ *   future isolated unit test can script the wire without a live node
+ *   registry — no test injects it today (the route suite drives the real
+ *   RPC through a fake agent socket instead).
  * @returns Path (on the node), final name, size and content type
  * @throws UploadError when the composed target is not an absolute path —
  *   checked BEFORE the first frame: the agent echoes the path it was given,
@@ -311,7 +343,11 @@ export async function writeUploadRemote(
   file: File,
   send: typeof sendCommand = sendCommand,
 ): Promise<UploadResult> {
-  const { bytes, name, contentType } = await sniffedUpload(file);
+  const { bytes, name: baseName, contentType } = await sniffedUpload(file);
+  // The agent's eof rename replaces an existing file, and two uploads inside
+  // one second otherwise share the timestamp-prefixed name — suffix before
+  // composing the target so a collision becomes two files, not one lost file.
+  const name = remoteUniqueName(baseName);
   const path = `${uploadsDirFor(workingRealPath)}/${name}`;
   if (!name || !path.startsWith("/")) {
     throw new UploadError("Upload target must be an absolute path on the node");

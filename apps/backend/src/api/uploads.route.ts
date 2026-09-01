@@ -10,6 +10,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/services/uploads.service.js";
+import { logger } from "@/utils/logger.js";
 
 /** Multipart body: exactly one file per request. */
 const UploadBodySchema = t.Object({
@@ -92,6 +93,17 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
           return await writeUploadRemote(row.nodeId, workingDir, body.file);
         } catch (err) {
           if (err instanceof RemoteUploadError) {
+            // The browser only ever sees the generic mapping below, so the
+            // details (which chunk died, the agent's refusal text, the
+            // byte-count disagreement) must be captured SERVER-side or the
+            // failure is undebuggable — err.message already names the chunk
+            // index, and `child()` first because withContext mutates the
+            // logger it is called on (see error-handler.plugin.ts).
+            logger
+              .child()
+              .withContext({ sessionId: params.id, nodeId: row.nodeId })
+              .withError(err)
+              .warn(`remote upload relay to node "${row.nodeId}" failed for session ${params.id}`);
             // Map on the class + `offline` flag ONLY — agent refusal strings
             // are unpinned protocol-side (T6 ruling), so no agent text is
             // echoed; the details ride the server-side error, not the body.

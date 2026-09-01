@@ -213,7 +213,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(reassembled.equals(payload(1048576))).toBe(true);
       expect(agent.cmds.every((c) => c.path === json.path)).toBe(true);
 
-      expect(json.name).toMatch(/^\d{8}-\d{6}-big\.bin$/);
+      expect(json.name).toMatch(/^\d{8}-\d{6}-big-[0-9a-f]{8}\.bin$/);
       expect(json.path).toBe(join(ws, ".mote", "uploads", json.name));
       expect(json.size).toBe(1048576);
       expect(json.contentType).toBe("application/octet-stream");
@@ -222,6 +222,45 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(existsSync(join(ws, ".mote"))).toBe(false);
     } finally {
       agent.detach();
+    }
+  });
+
+  it("gives two same-second relays of the same file distinct paths, each echoed by its own response", async () => {
+    const nodeId = await mkAgentNode();
+    const ws = tempWorkDir();
+    const id = await makeSession(ws, nodeId);
+    // Fresh fake agent per upload: its `received` total is stream-running,
+    // and each relay is a fresh stream the agent restarts at 0.
+    const agentA = attachFakeAgent(nodeId);
+    const resA = await uploadsRoutes.fetch(
+      uploadRequest(id, ownerToken, new File([payload(8)], "dup.bin", { type: "application/octet-stream" })),
+    );
+    agentA.detach();
+    const agentB = attachFakeAgent(nodeId);
+    try {
+      const resB = await uploadsRoutes.fetch(
+        uploadRequest(id, ownerToken, new File([payload(8)], "dup.bin", { type: "application/octet-stream" })),
+      );
+      expect(resA.status).toBe(200);
+      expect(resB.status).toBe(200);
+      const a = (await resA.json()) as { path: string; name: string };
+      const b = (await resB.json()) as { path: string; name: string };
+
+      // Suffix shape pinned: `YYYYMMDD-HHmmss-stem-<8hex>.ext` — still
+      // timestamp-prefixed so recents sort, random-tagged before the ext.
+      const shape = /^\d{8}-\d{6}-dup-[0-9a-f]{8}\.bin$/;
+      expect(a.name).toMatch(shape);
+      expect(b.name).toMatch(shape);
+      // The agent receiver overwrites by contract, so within one second the
+      // timestamp prefix alone collides — the two targets must differ, and
+      // every frame of an upload must carry ITS OWN path.
+      expect(a.path).not.toBe(b.path);
+      expect(a.path).toBe(join(ws, ".mote", "uploads", a.name));
+      expect(b.path).toBe(join(ws, ".mote", "uploads", b.name));
+      expect(agentA.cmds.map((c) => c.path)).toEqual([a.path]);
+      expect(agentB.cmds.map((c) => c.path)).toEqual([b.path]);
+    } finally {
+      agentB.detach();
     }
   });
 
