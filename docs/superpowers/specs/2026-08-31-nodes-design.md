@@ -431,7 +431,7 @@ export interface NodeLauncher {
             onChunk: (bytes: Uint8Array, next: number) => void): Promise<() => void>;
   canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean>;
   writeArtifact(id: string, kind: "mcp-config", content: string): Promise<string>;
-  removeArtifacts(id: string, paths: string[]): Promise<void>;
+  removeArtifacts(paths: string[]): Promise<void>;
 }
 ```
 
