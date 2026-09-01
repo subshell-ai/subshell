@@ -261,8 +261,9 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
     hostname: hostname(),
     dataDir: h.config.dataDir,
     // Phase 2 (Task 4): the capability set advertises the phase-2 command
-    // surface; `mcp` joins in Task 13 when the subcommand ships.
-    capabilities: ["uploads"],
+    // surface; Task 13 shipped the `mcp` subcommand, so `mcp` is advertised
+    // alongside `uploads` (this list is what the backend's capability gate reads).
+    capabilities: ["uploads", "mcp"],
     // Task 1's additive field: the control plane composes the MCP spec against it.
     executablePath: process.execPath,
   });

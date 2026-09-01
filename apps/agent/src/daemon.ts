@@ -163,11 +163,14 @@ function jtiOfUnverified(jws: string): string | undefined {
 }
 
 /**
- * Capability gate for the `mote-agent mcp` subcommand. This build does NOT
- * ship it — Task 13 flips the constant to true together with the `mcp` CLI
- * command, and `readyEvent` then advertises `mcp` alongside `uploads`.
+ * Capability gate for the `mote-agent mcp` subcommand — shipped since Task 13
+ * (the MCP server port under `src/mcp/`), so this build advertises `mcp`
+ * alongside `uploads` in `readyEvent` and the control plane registers the
+ * per-session MCP config for launches on this node. The constant is the kill
+ * switch: flip it false (with the command removed from `cli.ts`) and the
+ * backend's capability gate skips registration for every session launched here.
  */
-const HAS_MCP = false;
+const HAS_MCP = true;
 
 /** The `ready` frame: machine identity + protocol version (spec §3.3/§5.3). */
 function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
@@ -180,9 +183,9 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     hostname: hostname(),
     dataDir: config.dataDir,
     // Phase 2 (Task 4): the capability set advertises the phase-2 command
-    // surface. `uploads` names the terminal-upload relay pipeline (the
-    // write_file receiver lands in Task 6); `mcp` joins only when the
-    // subcommand ships (HAS_MCP, Task 13).
+    // surface. `uploads` names the terminal-upload relay pipeline; `mcp`
+    // (HAS_MCP, shipped in Task 13) is what lets the control plane register
+    // `mote-agent mcp` for sessions launched here.
     capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
     // Task 1's additive field: the control plane composes the MCP launch spec
     // against this path (the agent re-runs the dialect locally regardless —

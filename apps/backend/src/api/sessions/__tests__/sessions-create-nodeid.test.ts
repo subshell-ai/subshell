@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { NodeCommandBody } from "@internal/session-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { spawnSync } from "bun";
 import { Elysia } from "elysia";
@@ -15,7 +16,14 @@ import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { attachConnection, detachConnection, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import {
+  attachConnection,
+  detachConnection,
+  type NodeConnection,
+  type NodeSocket,
+  resetNodeRegistryForTests,
+} from "@/services/nodes/node-registry.js";
+import { resolveResult } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
@@ -192,6 +200,82 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
       detachConnection(nodeId, ws);
       if (prev === undefined) delete process.env.CLAUDE_PATH;
       else process.env.CLAUDE_PATH = prev;
+    }
+  });
+
+  it('an agent node WITHOUT the "mcp" capability launches ENV-ONLY — no mcp registration on the wire (Task 13 gate)', async () => {
+    // The capability gate (Task 9) + the agent-side MCP port (Task 13) land in
+    // one commit, so this route-level test pins their handshake: a node that
+    // advertises today's pre-13 capability set (`["uploads"]` — the exact list
+    // the shipped `ready` frames carry) still gets a full launch, with the
+    // MOTE_* pane env present and NO `mcp` registration / config path on the
+    // wire — `planRemoteSessionMcp` was SKIPPED (control-side compose never ran;
+    // the manager logged the debug note). The scripted agent socket answers the
+    // real RemoteLauncher's RPCs (stat_dir + launch) by unwrapping each signed
+    // envelope — decode-only, the uploads-remote.route pattern — and records
+    // every command for the assertions.
+    const nodeId = crypto.randomUUID();
+    createdNodeIds.push(nodeId);
+    const nodes = new NodesRepository(db);
+    await nodes.create({ id: nodeId, ownerUserId: userId, name: `cnode-${nodeId}`, kind: "agent" });
+    // Fresh inventory is what passes the strict agent launch gate for the
+    // claude-code profile (CLAUDE_PATH / local probes are irrelevant here).
+    await nodes.applyInventory(
+      nodeId,
+      JSON.stringify([{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude" }]),
+    );
+    const cmds: NodeCommandBody[] = [];
+    let conn: NodeConnection;
+    const ws: NodeSocket = {
+      send(data) {
+        const frame = JSON.parse(String(data)) as { jws: string };
+        const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1] ?? "", "base64url").toString("utf8")) as {
+          jti: string;
+          cmd: NodeCommandBody;
+        };
+        cmds.push(claims.cmd);
+        const result: Parameters<typeof resolveResult>[1] = { type: "result", ref: claims.jti, ok: true };
+        if (claims.cmd.type === "stat_dir") {
+          result.data = { path: claims.cmd.path, isDirectory: true };
+        }
+        resolveResult(conn, result);
+        return 0;
+      },
+      close: () => {},
+    };
+    conn = attachConnection(nodeId, ws);
+    conn.agent = {
+      dataDir: "/node-data",
+      capabilities: ["uploads"], // ← no "mcp": the pre-Task-13 agent, byte-for-byte
+      hostname: "h",
+      agentVersion: "1.0.0",
+      executablePath: "/usr/bin/mote-agent",
+    };
+    try {
+      const res = await post({ ...base(claudeProfileId), nodeId, name: "cnode-gate" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string };
+      createdSessionIds.push(body.id);
+
+      const launch = cmds.find((c) => c.type === "launch") as
+        | (Extract<NodeCommandBody, { type: "launch" }> & Record<string, unknown>)
+        | undefined;
+      expect(launch).toBeDefined();
+      // Gate fired: the pure plan never ran, so neither field rides the wire.
+      expect(launch?.mcp).toBeUndefined();
+      expect(launch?.mcpConfigPath).toBeUndefined();
+      // Env-only: the MOTE_* contract is shipped regardless — harnesses without
+      // a registration file still reach mote (manual setup), and the identity/
+      // pin stores of the ported MCP server key off these values.
+      const moteEnv = launch?.moteEnv as Record<string, string>;
+      expect(moteEnv.MOTE_API_KEY).toBeTruthy();
+      expect(moteEnv.MOTE_SESSION_ID).toBe(body.id);
+      expect(moteEnv.MOTE_BASE_URL).toBeTruthy();
+      // The node's own dataDir wins over the backend's SESSION_DATA_DIR (Task 9)
+      // — where the ported identity-store/pin-store write under MOTE_DATA_DIR.
+      expect(moteEnv.MOTE_DATA_DIR).toBe("/node-data");
+    } finally {
+      detachConnection(nodeId, ws);
     }
   });
 

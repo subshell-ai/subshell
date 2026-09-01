@@ -3,6 +3,8 @@ import { type AgentConfig, loadConfig } from "./config.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, readLock } from "./lock.js";
+import { readMcpEnv } from "./mcp/env.js";
+import { runAgentMcp } from "./mcp/main.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -22,12 +24,13 @@ usage:
   mote-agent run
   mote-agent status [--json] [--probe]
   mote-agent version
+  mote-agent mcp            (stdio MCP server for a mote session pane — internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["enroll", "run", "status", "version"]);
+const COMMANDS = new Set(["enroll", "mcp", "run", "status", "version"]);
 /** Known flag → does it take a value? */
 const FLAGS: Record<string, boolean> = {
   "--server": true,
@@ -39,6 +42,7 @@ const FLAGS: Record<string, boolean> = {
 };
 const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir"],
+  mcp: [], // no flags — everything comes from the MOTE_* pane env (mcp/env.ts contract)
   run: [],
   status: ["--json", "--probe"],
   version: [],
@@ -94,6 +98,20 @@ export async function run(argv: string[]): Promise<CliResult> {
     switch (parsed.command) {
       case "version":
         return { code: 0, out: `mote-agent ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
+      case "mcp": {
+        // The stdio MCP server for a mote session pane (spec §6.4). It is NOT
+        // an enrolled-daemon command: no config, no lock, no socket — just the
+        // MOTE_* env the launch injected. Missing env is a usage error: exit 2
+        // with the actionable line (readMcpEnv's message names the variable),
+        // before a single byte touches stdio.
+        try {
+          readMcpEnv();
+        } catch (err) {
+          return fail(2, err);
+        }
+        await runAgentMcp();
+        return { code: 0, out: "", err: "" }; // unreachable: the stdio connection holds the process (test seam only)
+      }
       case "run": {
         // The daemon is a foreground process that owns its own lifetime: it
         // logs its one-line entries (plain console, not CliResult) and exits
