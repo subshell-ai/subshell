@@ -40,6 +40,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { SessionManagerService } from "@/services/session-manager.service.js";
 import {
@@ -90,7 +91,6 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
   let cookie: string;
   let profileId: string;
   let nodeId: string;
-  const testDir = mkdtempSync(join(tmpdir(), "mote-it-rem-"));
   const createdSessionIds: string[] = [];
 
   const sessionsRepo = new SessionsRepository(db);
@@ -137,7 +137,6 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
     await nodesRepo.deleteById(nodeId);
     await db.deleteFrom("profiles").where("id", "=", profileId).execute();
     await deleteUserByEmailOrId(email);
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   it("happy full lifecycle: launch frame on the wire, prompt delivered, nodeOffline across a detach, sweep partition", async () => {
@@ -213,17 +212,32 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
 
       // §5.6 sweep partition: the offline node's rows are SKIPPED — not one
       // command fires, and the row keeps its alive stamp (absence of the
-      // socket is not absence of the process).
-      const manager = new SessionManagerService({ sessions: sessionsRepo, profiles: profilesRepo });
+      // socket is not absence of the process). The sim-side zero checks are
+      // NOT enough here: the socket is detached, so a regression removing the
+      // manager's `!getLive` guard would reject inside `sendCommand` (the
+      // offline pre-check in node-rpc.ts) before any frame is written — the
+      // sim would stay silent and green. The injectable `sendNode` seam sees
+      // the ATTEMPT, so zero counted sends is what actually pins the skip.
+      const probeSends: NodeCommandBody[] = [];
+      const manager = new SessionManagerService({
+        sessions: sessionsRepo,
+        profiles: profilesRepo,
+        sendNode: (nodeId, cmd, timeoutMs) => {
+          probeSends.push(cmd);
+          return sendCommand(nodeId, cmd, timeoutMs); // delegate — the re-attach sweep below still fires
+        },
+      });
       await manager.reconcile(userId);
       expect(sim.cmdTypes()).toHaveLength(3); // the create trio; nothing since
       expect(sim.countOf("probe")).toBe(0);
+      expect(probeSends).toHaveLength(0);
       expect((await sessionsRepo.findById(id))?.alive).toBe(1);
 
       // Re-attach ⇒ the sweep's batched probe arrives for the row.
       sim2 = attachScriptedNode(nodeId, LIFECYCLE);
       await manager.reconcile(userId);
       expect(sim2.cmdsOf("probe")).toEqual([{ type: "probe", sessionIds: [id] }]);
+      expect(probeSends).toHaveLength(1); // the stub is live — the offline zero was not an unwired stub
       expect((await view()).nodeOffline).toBe(false);
 
       // Leave the row terminated for a tidy afterAll.
