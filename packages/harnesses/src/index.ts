@@ -1,4 +1,5 @@
 import { ClaudeCodePlugin } from "./claude-code.js";
+import { CodexPlugin } from "./codex.js";
 import { HermesPlugin } from "./hermes.js";
 import { OpencodePlugin } from "./opencode.js";
 import { PiPlugin } from "./pi.js";
@@ -13,6 +14,7 @@ export const ALL_HARNESSES: HarnessPlugin[] = [
   new OpencodePlugin(),
   new HermesPlugin(),
   new PiPlugin(),
+  new CodexPlugin(),
 ];
 
 /** The app's display list/registry helper. */
@@ -21,6 +23,7 @@ export function getHarness(id: string): HarnessPlugin | undefined {
 }
 
 export { ClaudeCodePlugin } from "./claude-code.js";
+export { CodexPlugin } from "./codex.js";
 export { HermesPlugin } from "./hermes.js";
 export { type HarnessInventoryEntry, scanHarnesses } from "./inventory.js";
 export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";

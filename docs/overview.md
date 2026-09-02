@@ -1,7 +1,7 @@
 # Subshell — Project Overview
 
 **Subshell** is a web application for creating, viewing, and managing interactive **agent harness
-sessions** — real CLI coding agents (Claude Code today; hermes, pi, opencode later) that you
+sessions** — real CLI coding agents (Claude Code, opencode, codex, hermes, pi) that you
 launch from the browser, attach/detach via a terminal UI, and terminate. It's **local-first**:
 sessions spawn as tmux-backed PTYs on the machine running the app; Docker is secondary.
 
@@ -37,7 +37,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-session tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-session comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage sessions/channels through 14 `subshell_*` MCP tools |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/frontend/.migration/`) |
-| Harnesses | Code-time **plugin interface** (`packages/harnesses`); four plugins ship: claude-code & opencode (MCP auto-registered per session), hermes & pi (one-time manual registration, steps shown in the profile editor) |
+| Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per session), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/session-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |

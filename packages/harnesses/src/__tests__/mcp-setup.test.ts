@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { ClaudeCodePlugin } from "../claude-code.js";
+import { CodexPlugin } from "../codex.js";
 import { HermesPlugin } from "../hermes.js";
 import { OpencodePlugin } from "../opencode.js";
 import { PiPlugin } from "../pi.js";
@@ -51,6 +52,33 @@ describe("OpencodePlugin MCP registration", () => {
   });
   it("reports auto setup", () => {
     expect(new OpencodePlugin().mcpSetup(launch).mode).toBe("auto");
+  });
+});
+
+describe("CodexPlugin MCP registration", () => {
+  it("renders per-invocation -c config overrides (TOML values) and no wiring env", () => {
+    const reg = new CodexPlugin().mcpRegistration?.(bunLaunch, "/data/sess.json");
+    // The -c argv IS the wiring: codex reads ~/.codex/config.toml under
+    // CODEX_HOME (the user's auth.json lives there), and mote never touches
+    // it — so no env is returned and the user's own servers are untouched.
+    expect(reg?.env).toBeUndefined();
+    expect(reg?.args).toEqual([
+      "-c",
+      'mcp_servers.mote.command="/usr/bin/bun"',
+      "-c",
+      'mcp_servers.mote.args=["/opt/mote/dist/mcp/main.js"]',
+    ]);
+    // The written file is a manual-setup reference only — its shape is the
+    // exact [mcp_servers.NAME] block codex's config.toml expects.
+    expect(reg?.fileContent).toContain("[mcp_servers.mote]");
+    expect(reg?.fileContent).toContain('command = "/usr/bin/bun"');
+  });
+  it("carries no secrets in the generated file", () => {
+    const reg = new CodexPlugin().mcpRegistration?.(launch, "/x.json");
+    expect(reg?.fileContent).not.toMatch(/KEY|TOKEN/);
+  });
+  it("reports auto setup", () => {
+    expect(new CodexPlugin().mcpSetup(launch).mode).toBe("auto");
   });
 });
 

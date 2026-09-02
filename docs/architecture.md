@@ -201,6 +201,13 @@ How the child gets spawned is the harness plugin's dialect decision
   backend bakes the wiring env LAST in the pane precedence (curated host env <
   `SUBSHELL_*` < profile env < wiring env), so a profile setting `OPENCODE_CONFIG`
   cannot silently drop the session's comms.
+- **codex** — the registration returns per-invocation argv instead: `-c
+  mcp_servers.mote.command="…" -c mcp_servers.mote.args=[…]` (dotted config
+  paths, values parsed as TOML), which codex merges over the user's
+  `~/.codex/config.toml` for that run only. There is no wiring env — the `-c`
+  argv IS the wiring, and `CODEX_HOME` (which holds the user's auth.json) is
+  never redirected; the file the backend still writes is a manual-setup
+  reference codex never reads.
 - **hermes, pi** — no per-session config format exists (hermes reads only the
   fixed `~/.hermes/config.yaml`; pi needs the community `pi-mcp-adapter`).
   They register once, manually: the profile editor renders the plugin's
