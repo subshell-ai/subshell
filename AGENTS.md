@@ -18,7 +18,8 @@ mote/
 │   ├── backend-errors/             # Error emission and handling for the backend
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
 │   ├── session-protocol/           # Session contract shared by backend and frontend: WS frames, upload limits
-│   └── harnesses/                  # Harness plugin interface and built-in agent harness plugins
+│   ├── harnesses/                  # Harness plugin interface and built-in agent harness plugins
+│   └── mcp-core/                   # The `mote mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── turbo.json                      # Turbo task configuration
 ├── package.json                    # Root workspace definition
 ├── biome.json                      # Linting and formatting
@@ -128,8 +129,8 @@ bun run clean:dist         # Remove dist directories only
 
 The Turbo pipeline ensures correct build order:
 
-1. `@internal/backend-errors` and `@internal/session-protocol` build first (no internal deps)
-2. `@internal/backend` depends on backend-errors, session-protocol, and harnesses
+1. `@internal/backend-errors`, `@internal/session-protocol`, and `@internal/mcp-core` build first (no internal deps)
+2. `@internal/backend` depends on backend-errors, session-protocol, harnesses, and mcp-core
 3. `@internal/backend-client` depends on backend (imports the `App` type for Eden Treaty)
 4. `apps/frontend` depends on backend-client and session-protocol
 

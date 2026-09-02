@@ -144,6 +144,12 @@ export default function NewSession() {
                   <Pressable
                     key={p.id}
                     onPress={() => {
+                      // Re-tapping the already-selected profile is a no-op:
+                      // clearing the explicit-pick flag without a profile
+                      // CHANGE would drop the user's override and let the
+                      // anchor silently re-assert on the next nodes refetch
+                      // (no state change fires the anchor effect).
+                      if (p.id === profileId) return;
                       // A profile change restarts the anchor game: the new
                       // profile's pin (if any) anchors until a fresh pick.
                       nodeExplicitRef.current = false;

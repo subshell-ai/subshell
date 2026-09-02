@@ -767,3 +767,12 @@ body above stays legible as the original design:
   not change watcher/meta lifetime semantics. The browser-facing copy that
   promised "the agent self-heals the partial file" was replaced with restart
   guidance (`api/uploads.route.ts`).
+
+- **§3.2 the exit watcher is a SHARED tick, not per-session loops** (follow-up
+  batch, perf). §6's "Pane-exit watcher per launched session (2 s
+  `has-session`/… loop)" describes the phase-1 shape; it spawned one tmux
+  subprocess per supervised pane per tick. The watcher is now one interval
+  over the supervised set per tmux socket, doing a single `list-sessions`
+  liveness sweep and probing `pane_dead_status` only for the panes that
+  vanished. Emission semantics are unchanged (exactly-once per registration,
+  within one tick, null exit code for signal deaths / unreachable server).

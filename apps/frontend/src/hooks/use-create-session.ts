@@ -58,6 +58,10 @@ export function useCreateSession() {
     mutationFn: (input: CreateSessionInput) => apiPost<{ id: string }>("/api/sessions", toSessionCreateBody(input)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
+      // The create touched the recent-paths row for its launch node — every
+      // scoped recents cache (["recent-paths"] and ["recent-paths", nodeId])
+      // is stale the moment a session launches somewhere.
+      void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
     },
   });
 }

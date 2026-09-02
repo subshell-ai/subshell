@@ -67,7 +67,8 @@ export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env): McpLaunc
 }
 
 /**
- * The MOTE_* env the `mote mcp` child reads (contract: `src/mcp/env.ts`).
+ * The MOTE_* env the `mote mcp` child reads (contract: `env.ts` in
+ * `@internal/mcp-core`).
  * Single producer so the create path and the auto-restart path can never
  * drift apart on the variables the child depends on.
  */
