@@ -272,10 +272,37 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("$TARGET.sha256");
     expect(body).toContain("sha256sum -c");
     expect(body).toContain("shasum -a 256 -c");
-    expect(body).toContain("chmod +x mote-agent");
-    expect(body).toContain('./mote-agent enroll --server "$SERVER" --key "$KEY"');
-    expect(body).toContain("./mote-agent run");
+    // ALTERED expectations (nodes phase 3): the binary lives under $DATA_DIR
+    // (default $PWD — same file as the old CWD spelling for the no-env path).
+    expect(body).toContain('chmod +x "$DATA_DIR/mote-agent"');
+    expect(body).toContain('"$DATA_DIR/mote-agent" enroll --server "$SERVER" --key "$KEY" --data-dir "$DATA_DIR"');
+    expect(body).toContain('start the agent with:  \\"$DATA_DIR/mote-agent\\" run');
     expect(body).not.toContain("exit 2");
+  });
+
+  it("install.sh honors MOTE_DATA_DIR: default $PWD, download dest, enroll --data-dir, absolute final echo", async () => {
+    const body = await (await install(await mkKey())).text();
+    // Env knob: `curl … | MOTE_DATA_DIR=/opt/mote bash`; unset keeps today's CWD behavior.
+    expect(body).toContain('DATA_DIR="${MOTE_DATA_DIR:-$PWD}"');
+    expect(body).toContain('--output "$DATA_DIR/mote-agent"');
+    expect(body).toContain('--data-dir "$DATA_DIR"'); // real agent flag (apps/agent/src/cli.ts)
+    // Every post-download use goes through the data dir, never a bare ./mote-agent.
+    expect(body).toContain('chmod +x "$DATA_DIR/mote-agent"');
+    expect(body).toContain('start the agent with:  \\"$DATA_DIR/mote-agent\\" run'); // echo shows the quoted absolute path
+    expect(body).not.toContain("./mote-agent");
+  });
+
+  it("install.sh carries a runtime loopback guard and the non-root note as script text", async () => {
+    // The RUNTIME conditional is pinned here (uname/the dialer are only known
+    // on the target) — and the `[::1]` arm must be QUOTED in the case pattern,
+    // else it is a character class that matches no real IPv6 literal.
+    const body = await (await install(await mkKey())).text();
+    expect(body).toContain('case "$SERVER" in');
+    expect(body).toContain('*://localhost*|*://127.*|*"://[::1]"*');
+    expect(body).toMatch(/localhost[\s\S]*VPN\/LAN/); // the branch echoes the warning
+    expect(body).toContain("runs as the invoking user; no sudo needed");
+    // The usage render (no key) has no pipeline to guard.
+    expect(await (await install()).text()).not.toContain("MOTE_DATA_DIR");
   });
 
   it.skipIf(!BASH)("both install.sh renders pass `bash -n` (syntax gate for future template edits)", async () => {

@@ -36,6 +36,11 @@ exit 2
  * script otherwise. Today it can never fire; it exists so a future row
  * writer (different mint format, imported keys) cannot silently regress the
  * no-shell-metacharacters property of this template.
+ *
+ * Data dir: the script installs and enrolls under `$DATA_DIR`, which defaults
+ * to the invoking CWD and is overridden by the `MOTE_DATA_DIR` env knob —
+ * `curl … | MOTE_DATA_DIR=/opt/mote bash` (`curl | bash` has no argv). The
+ * same dir is handed to `enroll --data-dir`, so binary and state stay together.
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
  */
 function renderInstallScript(key: string): string {
@@ -46,6 +51,21 @@ set -euo pipefail
 
 SERVER="${APP_BASE_URL}"
 KEY="${key}"
+
+# Install dest + agent data dir; unset MOTE_DATA_DIR keeps the historical
+# "files land in the CWD" behavior byte-for-byte.
+DATA_DIR="\${MOTE_DATA_DIR:-$PWD}"
+mkdir -p "$DATA_DIR"
+
+# Runtime loopback guard (the enroll-time trap): the URL is baked at render
+# time, but whether "localhost" is the WRONG machine is only known on the
+# target. The [::1] arm stays quoted — unquoted it is a character class.
+case "$SERVER" in
+  *://localhost*|*://127.*|*"://[::1]"*)
+    echo "mote-agent: WARNING — SERVER is a loopback address; a remote node" >&2
+    echo "    must dial this machine's VPN/LAN address instead (Nodes page)." >&2
+    ;;
+esac
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -63,30 +83,31 @@ esac
 echo "==> downloading mote-agent ($TARGET) from $SERVER"
 curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
-  --output mote-agent
+  --output "$DATA_DIR/mote-agent"
 
 # Verify the digest BEFORE the file is ever executed. The endpoint answers
 # with the bare 64-hex; sha256sum -c / shasum -a 256 -c both take the
 # "<hash>  <file>" spelling.
 EXPECTED="$(curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"
-printf '%s  mote-agent\\n' "$EXPECTED" > mote-agent.sha256
+printf '%s  %s\\n' "$EXPECTED" "$DATA_DIR/mote-agent" > "$DATA_DIR/mote-agent.sha256"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum -c mote-agent.sha256
+  sha256sum -c "$DATA_DIR/mote-agent.sha256"
 elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 -c mote-agent.sha256
+  shasum -a 256 -c "$DATA_DIR/mote-agent.sha256"
 else
   echo "mote-agent: need sha256sum or shasum to verify the download" >&2
   exit 1
 fi
-rm -f mote-agent.sha256
+rm -f "$DATA_DIR/mote-agent.sha256"
 
-chmod +x mote-agent
+chmod +x "$DATA_DIR/mote-agent"
 
 echo "==> enrolling with $SERVER"
-./mote-agent enroll --server "$SERVER" --key "$KEY"
+"$DATA_DIR/mote-agent" enroll --server "$SERVER" --key "$KEY" --data-dir "$DATA_DIR"
 
-echo "==> installed and enrolled. start the agent with:  ./mote-agent run"
+echo "==> installed and enrolled. start the agent with:  \\"$DATA_DIR/mote-agent\\" run"
+echo "    the agent runs as the invoking user; no sudo needed (data lives in $DATA_DIR)."
 `;
 }
 
