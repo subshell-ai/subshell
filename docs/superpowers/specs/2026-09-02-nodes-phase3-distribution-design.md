@@ -215,3 +215,16 @@ the linux-x64 artifact + matching sha).
   whose triple is served (the host build wins its own triple — `buildTargets()`
   in `src/scripts/release.ts`), and §9's "Mobile node picker (stays deferred)"
   shipped in Phase 2 (`apps/mobile/app/(tabs)/new.tsx` + `src/lib/node-anchor.ts`).
+- **§6's "no systemd user session" check narrowed.** The design asked for a
+  pre-write `DBUS_SESSION_BUS_ADDRESS`/`XDG_RUNTIME_DIR` probe that refuses
+  "before writing anything." Shipped instead: the unit is written, then the
+  `systemctl --user daemon-reload` failure is caught and reported with
+  systemctl's own stderr plus the "no systemd user session (container/SSH
+  without loginctl)" hint and the leftover file path. The pre-probe was a
+  heuristic (a var can be set yet the bus dead) while the reload result is
+  ground truth — so the shipped form is both simpler and more accurate, at the
+  cost of a written-but-unstarted unit file on the failure path (harmless; the
+  message names it and uninstall removes it). The service unit/plist also bake
+  the installing shell's `PATH` (added in the final review) so a
+  Homebrew/Nix tmux found at enroll is still found when the manager starts the
+  daemon — the design predated that realization.

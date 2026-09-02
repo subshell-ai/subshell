@@ -269,3 +269,56 @@ describe("uninstallService — guards", () => {
     expect(s.removed.length).toBe(0);
   });
 });
+
+describe("unit/plist environment hardening (final-review minors)", () => {
+  test("systemd ExecStart QUOTES tokens containing spaces (no word-split 203/EXEC)", async () => {
+    const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/home/john smith/repos/mote/apps/agent/src/main.ts" });
+    const res = await installService(s.deps);
+    expect(res.code).toBe(0);
+    const unit = s.files.get(UNIT) ?? "";
+    expect(unit).toInclude(
+      `ExecStart=/usr/local/bin/bun "${resolve("/home/john smith/repos/mote/apps/agent/src/main.ts")}" run`,
+    );
+    expect(unit).not.toInclude("ExecStart=/usr/local/bin/bun /home/john smith"); // unquoted split-form is the bug
+  });
+
+  test("clean paths stay byte-identical (no gratuitous quoting)", async () => {
+    const s = stub();
+    await installService(s.deps);
+    expect(s.files.get(UNIT) ?? "").toInclude("ExecStart=/usr/local/bin/mote-agent run");
+  });
+
+  test("servicePath bakes Environment=PATH= before ExecStart; absent → no line (historical byte-exact)", async () => {
+    const withPath = stub({ servicePath: "/usr/bin:/opt/homebrew/bin" });
+    await installService(withPath.deps);
+    const unit = withPath.files.get(UNIT) ?? "";
+    expect(unit).toInclude("Environment=PATH=/usr/bin:/opt/homebrew/bin\nExecStart=");
+
+    const without = stub();
+    await installService(without.deps);
+    expect(without.files.get(UNIT) ?? "").not.toInclude("Environment=");
+  });
+
+  test("a spaced servicePath is quoted too", async () => {
+    const s = stub({ servicePath: "/usr/bin:/opt/my tools/bin" });
+    await installService(s.deps);
+    expect(s.files.get(UNIT) ?? "").toInclude('Environment=PATH="/usr/bin:/opt/my tools/bin"');
+  });
+
+  test("launchd: servicePath adds an EnvironmentVariables/PATH dict; absent → byte-exact plist", async () => {
+    const s = stub({ platform: "darwin", servicePath: "/usr/bin:/opt/homebrew/bin" });
+    const res = await installService(s.deps);
+    expect(res.code).toBe(0);
+    const plist = s.files.get(PLIST) ?? "";
+    expect(plist).toInclude("<key>EnvironmentVariables</key>");
+    expect(plist).toInclude("<key>PATH</key>");
+    expect(plist).toInclude("<string>/usr/bin:/opt/homebrew/bin</string>");
+    // PATH sits between ProgramArguments and RunAtLoad (valid plist order).
+    expect(plist.indexOf("EnvironmentVariables")).toBeGreaterThan(plist.indexOf("</array>"));
+    expect(plist.indexOf("EnvironmentVariables")).toBeLessThan(plist.indexOf("RunAtLoad"));
+
+    const without = stub({ platform: "darwin" });
+    await installService(without.deps);
+    expect(without.files.get(PLIST) ?? "").not.toInclude("EnvironmentVariables");
+  });
+});

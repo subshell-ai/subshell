@@ -59,7 +59,11 @@ export interface UploadState {
 export interface WatcherRegistration {
   /** The tmux socket the pane was created on (from the launch wire — `cmd.socket`). */
   socket: string;
-  /** Unique identity of this registration; every `startExitWatcher` call mints a new `Symbol()`. */
+  /**
+   * Unique identity of this registration; every `startExitWatcher` call mints
+   * a new `Symbol()`. The exit tick guards ownership on the registration
+   * OBJECT reference — this symbol is the explicit handle for callers/tests.
+   */
   token: symbol;
 }
 

@@ -60,8 +60,9 @@ export function stopWatcher(ctx: CommandContext, sessionId: string): void {
  * @param sessionId - the mote session (already format-validated by the caller)
  * @param socket - the tmux socket the pane was created on (`cmd.socket`)
  * @param intervalMs - tick period for the shared loop; production default 2 s
- * @returns the registration token — identity of THIS registration, compared
- * by the tick's post-await rechecks (callers otherwise discard it)
+ * @returns the registration object — the tick compares it BY REFERENCE for
+ * ownership (the `.token` inside gives callers/tests an explicit identity
+ * handle; the tick itself never reads the symbol)
  */
 export function startExitWatcher(
   ctx: CommandContext,

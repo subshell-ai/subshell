@@ -52,6 +52,10 @@ linger hint (`loginctl enable-linger $USER` keeps the daemon across logout).
 macOS: `~/Library/LaunchAgents/dev.mote.agent.plist` (KeepAlive, log at
 `~/Library/Logs/mote-agent.log`) + `launchctl bootstrap gui/<uid>`. Other
 platforms: explicit refusal pointing at `mote-agent run` inside tmux/screen.
+The unit/plist bake the installing shell's `PATH` (`Environment=PATH=` /
+`EnvironmentVariables`) so a Homebrew/Nix tmux that passed the enroll preflight
+is still found when the service manager — which starts units with a stock PATH —
+runs the daemon; spaced paths are quoted in the systemd `ExecStart=`.
 Everything is DI'd through `ServiceDeps` (`src/service.ts`) so tests pin the
 exact unit/plist text and command sequences without touching systemd.
 

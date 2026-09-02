@@ -63,7 +63,9 @@ export interface BuildTarget {
 /**
  * The build schedule: the four cross targets plus the host build. One artifact
  * per triple — when the host arch duplicates a cross triple the HOST entry wins
- * it (4 entries on a linux-x64 box); a foreign host triple is force-added (5).
+ * it (4 entries on a linux-x64 box). A foreign host yields 4 too (cross builds
+ * only — `hostTriple()` returns null and `main()` warns); a 5th entry exists
+ * only through an explicit override, which never happens in production.
  * @param host - host triple override (tests; null = unsupported host)
  */
 export function buildTargets(host: string | null = hostTriple()): BuildTarget[] {
@@ -144,6 +146,12 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
  * the downloads route's mtime-keyed sha cache can never observe a half-written
  * binary, plus a freshly generated `.sha256` sidecar (64-hex + `\n`) per
  * target — a stale sidecar is always overwritten, never reused.
+ *
+ * ATOMICITY IS PER-FILE: the binary swap is atomic, the sidecar write is not,
+ * so a download landing in the window between them can pair a new binary with
+ * the previous digest. That fails SAFE (install.sh's digest check refuses the
+ * exec; a retry gets the pair) on a rare operator-published path — noted so
+ * the atomicity claim is never stronger than the mechanism.
  * @param artifacts - triple → built artifact map from {@link buildAll}
  * @param destDir - directory to publish into (created when missing)
  */
@@ -213,6 +221,16 @@ async function main(): Promise<void> {
     );
   }
   const destDir = resolveArtifactsDir();
+  // #8 (final review): the default ladder resolves against THIS script's cwd,
+  // while the backend resolves the same ladder against ITS cwd — equal only
+  // for absolute inputs. With nothing set in the environment, say so loudly
+  // instead of silently publishing where the server may not look.
+  if (!process.env.MOTE_NODE_ARTIFACTS_DIR && !process.env.SESSION_DATA_DIR && !process.env.DATABASE_PATH) {
+    process.stderr.write(
+      `note: destination derived from the DEFAULT ladder against this script's cwd — if the backend runs ` +
+        `with a different cwd or its own .env, confirm it serves:\n      ${destDir}\n`,
+    );
+  }
   const outDir = join(AGENT_DIR, "dist", "release");
   await mkdir(outDir, { recursive: true });
 

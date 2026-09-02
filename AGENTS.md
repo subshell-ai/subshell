@@ -142,7 +142,9 @@ systemctl --user restart mote.service     # 3. the backend serves the new files
 - `release:agent` runs `apps/agent`'s `compile:release` (`src/scripts/release.ts`):
   the four served triples (`linux|darwin × x64|arm64`) plus a host build with
   `--bytecode` — the host build wins its own triple, so a hosted-arch machine
-  publishes 4 artifacts and a foreign host publishes 5 — each digested and
+  publishes 4 artifacts (the host build replaces that triple's cross build); a
+  machine whose arch isn't one of the four publishes the 4 cross builds only
+  (with a warning — its own binary isn't servable anyway) — each digested and
   published as `mote-agent-<triple>` + a fresh `.sha256` sidecar via temp-file
   + `rename()` (the atomic swap the downloads route's mtime-keyed cache
   requires). See `apps/agent/AGENTS.md` for the app itself.

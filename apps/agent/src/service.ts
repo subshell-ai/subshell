@@ -32,6 +32,14 @@ export interface ServiceDeps {
   removeFile(path: string): Promise<void>;
   /** Existence check for the unit/plist path (drives reinstall bootout + uninstall no-op). */
   fileExists(path: string): Promise<boolean>;
+  /**
+   * PATH to bake into the service (systemd `Environment=PATH=` / launchd
+   * `EnvironmentVariables`). Service managers start units with a stock PATH,
+   * so without this a tmux that made the enroll preflight pass (Homebrew/Nix)
+   * is "not found" once the manager runs the daemon. The CLI wires
+   * `process.env.PATH`; tests omit it to keep the historical unit byte-exact.
+   */
+  servicePath?: string;
 }
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
@@ -55,15 +63,38 @@ export function execLine(deps: Pick<ServiceDeps, "execPath" | "argv1">): string[
   return [deps.execPath, resolve(deps.argv1), "run"];
 }
 
+/**
+ * Quote one argv token for a systemd `ExecStart=` line. systemd word-splits
+ * the line itself (it is NOT run through a shell), so a path containing
+ * whitespace — a macOS "Application Support" home, a dev-form `bun …/my
+ * dir/main.ts`, a spaced `MOTE_DATA_DIR` — must be double-quoted or the unit
+ * 203/EXECs at start. Backslash and `"` are the only in-quote escapes systemd
+ * honours here; a clean token is emitted verbatim so the common path stays
+ * byte-identical to the tests' pinned text.
+ */
+function systemdQuote(arg: string): string {
+  if (!/[\s"\\]/.test(arg)) return arg;
+  return `"${arg.replace(/["\\]/g, (c) => `\\${c}`)}"`;
+}
+
+/** Join an exec line into a systemd-safe `ExecStart=` value. */
+const systemdExecStart = (line: string[]): string => line.map(systemdQuote).join(" ");
+
 /** systemd user-unit body — the exact lines the tests pin. */
-function systemdUnit(exec: string): string {
+function systemdUnit(exec: string, pathEnv?: string): string {
+  // systemd user units get a stock PATH (`/usr/bin:/bin:…`), NOT the
+  // installer's shell PATH — so a tmux from Homebrew/Nix that made the enroll
+  // preflight pass would be "not found" when the service starts the daemon.
+  // Baking the installing shell's PATH (when supplied) keeps preflight and
+  // runtime agreeing. Omitted when absent → the historical byte-exact unit.
+  const environment = pathEnv ? `Environment=PATH=${systemdQuote(pathEnv)}\n` : "";
   return `[Unit]
 Description=mote-agent (mote node daemon)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=${exec}
+${environment}ExecStart=${exec}
 Restart=always
 RestartSec=5
 
@@ -76,8 +107,15 @@ const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** launchd plist body: keep-alive agent logging to ~/Library/Logs/mote-agent.log. */
-function launchdPlist(args: string[], logPath: string): string {
+function launchdPlist(args: string[], logPath: string, pathEnv?: string): string {
   const argLines = args.map((a) => `\t\t<string>${xmlEscape(a)}</string>`).join("\n");
+  // launchd also starts agents with a stock PATH, so a Homebrew tmux
+  // (`/opt/homebrew/bin`, Apple Silicon) that passed the enroll preflight is
+  // "not found" when the agent runs. Bake the installing shell's PATH.
+  // Omitted when absent → the historical byte-exact plist.
+  const envBlock = pathEnv
+    ? `\t<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>PATH</key>\n\t\t<string>${xmlEscape(pathEnv)}</string>\n\t</dict>\n`
+    : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -88,7 +126,7 @@ function launchdPlist(args: string[], logPath: string): string {
 \t<array>
 ${argLines}
 \t</array>
-\t<key>RunAtLoad</key>
+${envBlock}\t<key>RunAtLoad</key>
 \t<true/>
 \t<key>KeepAlive</key>
 \t<true/>
@@ -129,7 +167,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
 
   if (deps.platform === "linux") {
     const path = unitPath(deps.home);
-    await deps.writeFile(path, systemdUnit(execLine(deps).join(" ")));
+    await deps.writeFile(path, systemdUnit(systemdExecStart(execLine(deps)), deps.servicePath));
     const reload = await deps.runCmd(["systemctl", "--user", "daemon-reload"]);
     if (reload.code !== 0) {
       return errLine(
@@ -156,7 +194,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
   if (deps.platform === "darwin") {
     const path = plistPath(deps.home);
     const reinstall = await deps.fileExists(path); // must be sampled BEFORE the overwrite
-    await deps.writeFile(path, launchdPlist(execLine(deps), launchLogPath(deps.home)));
+    await deps.writeFile(path, launchdPlist(execLine(deps), launchLogPath(deps.home), deps.servicePath));
     if (reinstall) {
       // Tolerated: bootout on a not-loaded service errors, and the fresh
       // bootstrap below is what actually carries the new definition.
@@ -222,7 +260,7 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
     await deps.removeFile(path);
     if (unload.code !== 0) {
       return errLine(
-        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)} — ` + "the plist was removed anyway",
+        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)} — the plist was removed anyway`,
       );
     }
     return {
@@ -272,5 +310,8 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
         return false;
       }
     },
+    // The installing shell's PATH, baked into the unit/plist so the daemon
+    // finds the same tmux the enroll preflight found (see ServiceDeps).
+    servicePath: process.env.PATH,
   };
 }
