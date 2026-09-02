@@ -108,8 +108,10 @@ describe("ProfileFields node pin", () => {
       const seen: ProfileFormValue[] = [];
       renderEditor({ ...emptyProfileForm(), harnessId: "claude", name: "P", nodeId: "agent1" }, seen);
       // The mapped label only renders after the list resolved the id — proof
-      // the effect had its chance and correctly did nothing.
-      await screen.findByText("Alpha Box");
+      // the effect had its chance and correctly did nothing. The label carries
+      // the ` · {os}/{arch}` platform suffix (49553b2) from the fixture's
+      // linux/x64.
+      await screen.findByText("Alpha Box · linux/x64");
       expect(seen).toHaveLength(0);
     } finally {
       restore();
