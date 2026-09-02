@@ -16,12 +16,17 @@ const runner = new TmuxRunner();
  */
 const spawnedSockets = new Set<string>();
 
+let socketSeq = 0;
+
 /**
  * Returns a fresh unique socket name, already registered for the afterAll
- * reaper.
+ * reaper. mktemp `-u`-style uniqueness (pid + ms + per-file counter): two
+ * suites running in parallel — or two `freshSocket` calls inside one
+ * millisecond — can never collide on a live server.
  */
 function freshSocket(kind: string): string {
-  const socket = `mote-test-${kind}-${Date.now()}`;
+  socketSeq += 1;
+  const socket = `mote-test-${kind}-${process.pid}-${Date.now()}-${socketSeq}`;
   spawnedSockets.add(socket);
   return socket;
 }
@@ -82,6 +87,41 @@ describe("TmuxRunner", () => {
     // Server gone / no sessions: swallow-errors like hasSession — just empty.
     expect(runner.listSessionNames(socket)).toEqual([]);
     expect(runner.listSessionNames("mote-no-such-server")).toEqual([]);
+  });
+
+  // Tri-state probe (design 2026-09-02 §1): the exit watcher must be able to
+  // tell "socket answered, pane missing" (death) from "socket did not answer"
+  // (blip-or-death — indistinguishable from here; the threshold decides).
+
+  it("listSessionsChecked: live socket ⇒ ok:true with every name", () => {
+    const socket = freshSocket("checked");
+    runner.newSession(socket, "ck-a", "/tmp", "exec sleep 30");
+    const probe = runner.listSessionsChecked(socket);
+    expect(probe).toEqual({ ok: true, names: ["ck-a"] });
+    runner.killSession(socket, "ck-a");
+  });
+
+  it("listSessionsChecked: absent socket ⇒ ok:false whose detail names the socket/connection error", () => {
+    const socket = freshSocket("checked-absent"); // never started — no server, no socket file
+    const probe = runner.listSessionsChecked(socket);
+    expect(probe.ok).toBe(false);
+    if (!probe.ok) {
+      // Real tmux 3.x answers "error connecting to /tmp/tmux-<uid>/<name>
+      // (No such file or directory)" — the detail must carry enough for the
+      // escalation log line to be diagnosable.
+      expect(probe.detail).toContain(socket);
+      expect(probe.detail).toMatch(/error connecting|no server/i);
+    }
+  });
+
+  it("listSessionsChecked: after the server dies ⇒ ok:false (where listSessionNames lies with [])", () => {
+    const socket = freshSocket("checked-dead");
+    runner.newSession(socket, "ck-d", "/tmp", "exec sleep 30");
+    expect(runner.listSessionsChecked(socket).ok).toBe(true);
+    spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
+    const probe = runner.listSessionsChecked(socket);
+    expect(probe.ok).toBe(false);
+    if (!probe.ok) expect(probe.detail.length).toBeGreaterThan(0);
   });
 
   it("streams output to a pipe-pane file", async () => {

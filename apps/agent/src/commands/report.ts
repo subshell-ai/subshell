@@ -21,6 +21,17 @@ import type { CommandContext, WatcherRegistration } from "./context.js";
 /** Production watcher cadence (spec §7: 2 s liveness/`pane_dead_status` loop). */
 export const EXIT_WATCH_INTERVAL_MS = 2_000;
 
+/**
+ * Consecutive failed probes (ok:false ticks) a registration must absorb before
+ * the watcher reports its pane dead (design 2026-09-02 §1). One tick ≈ 2 s, so
+ * 2 means ≈ 4 s of sustained unreachability: a client-side blip (fork failure,
+ * EINTR, overloaded server) costs nothing, genuine death costs +2 s, and
+ * sustained tmux breakage still converges — no zombie rows. RULING: a
+ * threshold, not failure-classification — "server gone" and "probe blip" are
+ * both rc=1 from one CLI call, only stderr differs.
+ */
+export const NODE_EXIT_UNREACHABLE_TICKS = 2;
+
 /** Stop the shared tick if one is running (idempotent). */
 function stopLoop(ctx: CommandContext): void {
   if (ctx.watchTick !== undefined) {
@@ -46,7 +57,9 @@ export function stopWatcher(ctx: CommandContext, sessionId: string): void {
 
 /**
  * Put one launched pane under exit supervision: when its socket stops listing
- * it, the shared tick emits exactly one `exit` event and cleans up (unregister,
+ * it — or stops ANSWERING for {@link NODE_EXIT_UNREACHABLE_TICKS} consecutive
+ * ticks (design §1: one blip never reports a live pane dead) — the shared tick
+ * emits exactly one `exit` event and cleans up (unregister,
  * forget the meta record, drop the session's tail pumps). Re-registering for
  * the same id REPLACES the old entry with a fresh registration token — a
  * relaunch on a restarted row rotates its socket, and the tick that
@@ -71,7 +84,7 @@ export function startExitWatcher(
   intervalMs = EXIT_WATCH_INTERVAL_MS,
 ): symbol {
   const token = Symbol(sessionId);
-  ctx.watchers.set(sessionId, { socket, token });
+  ctx.watchers.set(sessionId, { socket, token, unreachable: 0 });
   if (ctx.watchTick !== undefined) return token; // loop already running for the existing set
   const timer = setInterval(() => {
     // TOTAL per tick: a throwing tmux probe must not become an unhandled
@@ -86,12 +99,16 @@ export function startExitWatcher(
 }
 
 /**
- * Run ONE tick of the shared exit watch: every supervised socket is asked for
- * its session names ONCE (one spawn per socket, not per pane), and each pane
- * missing from its socket's answer goes through the per-pane exit path —
- * identical to the old loop's semantics (exit code read before unregistering,
- * at most one event per registration, meta forgotten, tails dropped).
- * Exposed for tests; production only ever runs it from the shared interval.
+ * Run ONE tick of the shared exit watch: every supervised socket is probed
+ * ONCE with `tmux.listSessionsChecked` (one spawn per socket, not per pane).
+ * `ok:true` is authoritative — a pane missing from the answer goes
+ * through the per-pane exit path immediately (identical to the old loop's
+ * semantics: exit code read before unregistering, at most one event per
+ * registration, meta forgotten, tails dropped). `ok:false` counts: a
+ * registration reports only after {@link NODE_EXIT_UNREACHABLE_TICKS}
+ * CONSECUTIVE failed probes, via the SAME death sequence — one transient
+ * probe blip never reports a live pane dead (design 2026-09-02 §1). Exposed
+ * for tests; production only ever runs it from the shared interval.
  * @param ctx - the daemon's command context
  */
 export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
@@ -112,30 +129,40 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
   }
   for (const [socket, entries] of bySocket) {
     try {
-      const alive = new Set(ctx.tmux.listSessionNames(socket));
-      for (const { sessionId, reg } of entries) {
-        if (alive.has(sessionId)) continue;
-        // Re-check OWNERSHIP, not just membership: execKill/execTerminate may
-        // have dropped this pane since the snapshot (the forget await below
-        // yields to the dispatcher) — a deliberately killed pane must never
-        // report death — AND a relaunch of the same id may have REPLACED the
-        // entry. A token mismatch means a newer registration owns the id now:
-        // this stale tick reports nothing and cleans nothing of theirs.
-        if (ctx.watchers.get(sessionId) !== reg) continue;
-        // Read the death BEFORE unregistering: paneExitCode is a separate tmux
-        // call and a cleared watcher must never swallow the code it was built
-        // to report.
-        const exitCode = ctx.tmux.paneExitCode(socket, sessionId) ?? null;
-        ctx.watchers.delete(sessionId); // stop-first: at most one event per registration
-        ctx.ws.send({ type: "exit", sessionId, exitCode, at: new Date(ctx.nowMs()).toISOString() });
-        await ctx.meta.forget(sessionId);
-        // Post-await re-check: a relaunch that armed a fresh registration
-        // while this forget was in flight owns its own tails now — never drop
-        // them. (Residual window: forget's own internal fs await; a relaunch
-        // landing in that microsecond keeps its watchers entry and re-asserts
-        // meta — launch writes meta BEFORE watchSession, so the record's
-        // ordering self-heals, and this recheck covers the tails sweep.)
-        if (ctx.watchers.get(sessionId) === undefined) dropTailsFor(ctx, sessionId);
+      // Tri-state probe (design §1): ok:true is AUTHORITATIVE — a pane the
+      // socket answered without is confirmed dead. ok:false is a BLIP OR a
+      // dead server — indistinguishable from one CLI call (both are rc=1,
+      // only stderr differs), so it costs a counter tick, not a death report.
+      const probe = ctx.tmux.listSessionsChecked(socket);
+      if (probe.ok) {
+        const alive = new Set(probe.names);
+        for (const { sessionId, reg } of entries) {
+          if (alive.has(sessionId)) {
+            reg.unreachable = 0; // an authoritative answer breaks any unreachable streak
+            continue;
+          }
+          // Re-check OWNERSHIP, not just membership: execKill/execTerminate may
+          // have dropped this pane since the snapshot (the forget await below
+          // yields to the dispatcher) — a deliberately killed pane must never
+          // report death — AND a relaunch of the same id may have REPLACED the
+          // entry. A token mismatch means a newer registration owns the id now:
+          // this stale tick reports nothing and cleans nothing of theirs.
+          if (ctx.watchers.get(sessionId) !== reg) continue;
+          await reportDeath(ctx, socket, sessionId);
+        }
+      } else {
+        for (const { sessionId, reg } of entries) {
+          // Ownership re-check BEFORE any counting: a replaced registration is
+          // another tick's problem (and starts its budget fresh at 0).
+          if (ctx.watchers.get(sessionId) !== reg) continue;
+          reg.unreachable += 1;
+          if (reg.unreachable < NODE_EXIT_UNREACHABLE_TICKS) continue; // blip: stay watched, silently
+          log(
+            `exit watcher: socket ${socket} unreachable for ${reg.unreachable} consecutive ticks ` +
+              `(threshold ${NODE_EXIT_UNREACHABLE_TICKS}; last probe: ${probe.detail}) — reporting ${sessionId} dead`,
+          );
+          await reportDeath(ctx, socket, sessionId);
+        }
       }
     } catch (err) {
       // One socket's failing probe must not starve the other sockets' panes.
@@ -143,6 +170,34 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
     }
   }
   if (ctx.watchers.size === 0) stopLoop(ctx); // last pane left the building — no idle tick
+}
+
+/**
+ * The per-pane death sequence — SHARED by both report paths (confirmed-absent
+ * on an ok:true probe, and threshold-escalated unreachable) so a blip that
+ * aged out reports EXACTLY what the old immediate report did. Ownership was
+ * re-checked by the caller; the post-await tails guard re-checks for a
+ * relaunch that lands while the forget is in flight.
+ * @param ctx - the daemon's command context
+ * @param socket - the tmux socket the pane was supervised on
+ * @param sessionId - the pane this registration covers, now reported dead
+ */
+async function reportDeath(ctx: CommandContext, socket: string, sessionId: string): Promise<void> {
+  // Read the death BEFORE unregistering: paneExitCode is a separate tmux
+  // call and a cleared watcher must never swallow the code it was built
+  // to report. (On the unreachable path the socket is not answering, so
+  // this reads null — the same shape a dead server always produced.)
+  const exitCode = ctx.tmux.paneExitCode(socket, sessionId) ?? null;
+  ctx.watchers.delete(sessionId); // stop-first: at most one event per registration
+  ctx.ws.send({ type: "exit", sessionId, exitCode, at: new Date(ctx.nowMs()).toISOString() });
+  await ctx.meta.forget(sessionId);
+  // Post-await re-check: a relaunch that armed a fresh registration
+  // while this forget was in flight owns its own tails now — never drop
+  // them. (Residual window: forget's own internal fs await; a relaunch
+  // landing in that microsecond keeps its watchers entry and re-asserts
+  // meta — launch writes meta BEFORE watchSession, so the record's
+  // ordering self-heals, and this recheck covers the tails sweep.)
+  if (ctx.watchers.get(sessionId) === undefined) dropTailsFor(ctx, sessionId);
 }
 
 /**

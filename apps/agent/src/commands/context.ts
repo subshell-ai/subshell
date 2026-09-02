@@ -65,6 +65,15 @@ export interface WatcherRegistration {
    * OBJECT reference — this symbol is the explicit handle for callers/tests.
    */
   token: symbol;
+  /**
+   * Consecutive ticks on which this registration's socket probe FAILED to
+   * answer (`listSessionsChecked` ok:false). An authoritative ok:true answer
+   * resets it; the threshold that finally reports death is
+   * `NODE_EXIT_UNREACHABLE_TICKS` in report.ts (design 2026-09-02 §1 — a live
+   * pane must not die from one tmux blip). A relaunch mints a fresh
+   * registration, hence a fresh budget: a replaced entry counts from 0.
+   */
+  unreachable: number;
 }
 
 /** Everything `dispatchCommand` (index.ts) hands an executor. */
@@ -81,7 +90,8 @@ export interface CommandContext {
   ws: CommandWs;
   /**
    * The panes supervised for natural death, keyed by sessionId →
-   * {@link WatcherRegistration} (socket + registration token; filled by
+   * {@link WatcherRegistration} (socket + registration token + unreachable
+   * counter; filled by
    * launch/report.ts since Task 4; re-keyed from per-session timers to the
    * shared-tick set by the exit-watcher batching — ONE interval now ticks for
    * every entry, probing each distinct socket once per tick). Re-arming the

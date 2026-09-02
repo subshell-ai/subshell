@@ -68,6 +68,15 @@ interface Spec {
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
   hasSession?: (socket: string, id: string) => boolean;
   listSessionNames?: (socket: string) => string[];
+  /**
+   * Tri-state probe script (design 2026-09-02 §1). When UNSTUBBED, the fake
+   * derives `{ ok: true, names: listSessionNames(socket) }` from the switch
+   * above — so a pre-threshold test's `[]` keeps its old meaning (a socket
+   * that ANSWERED with the pane missing, i.e. confirmed death), and its
+   * spawn-count assertions still see the call recorded under
+   * "listSessionNames" (the derivation runs through that wrapper).
+   */
+  listSessionsChecked?: (socket: string) => { ok: true; names: string[] } | { ok: false; detail: string };
   paneExitCode?: (socket: string, id: string) => number | null;
   killSession?: (socket: string, id: string) => void;
   run?: (args: string[]) => { stdout: string; stderr: string };
@@ -119,12 +128,21 @@ function makeCtx(
       return (impl as (...a: unknown[]) => unknown)(...args);
     };
   };
+  const listSessionNames = method("listSessionNames");
   const raw = {
     newSession: method("newSession"),
     pipePane: method("pipePane"),
     resizeWindow: method("resizeWindow"),
     hasSession: method("hasSession"),
-    listSessionNames: method("listSessionNames"),
+    listSessionNames,
+    listSessionsChecked: (socket: string): { ok: true; names: string[] } | { ok: false; detail: string } => {
+      calls.push({ method: "listSessionsChecked", args: [socket] });
+      const scripted = spec.listSessionsChecked;
+      if (scripted) return scripted(socket);
+      // Unscripted: answer through the listSessionNames switch, always as a
+      // SUCCESSFUL probe — pre-threshold tests keep their exact meaning.
+      return { ok: true, names: listSessionNames(socket) as string[] };
+    },
     paneExitCode: method("paneExitCode"),
     killSession: method("killSession"),
     run: method("run"),
@@ -803,6 +821,129 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     expect(await ctx.meta.get(S1)).toBeUndefined();
     expect(ctx.watchers.size).toBe(0);
     expect(ctx.watchTick).toBeUndefined(); // the shared loop stops when the set empties
+  });
+});
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Design 2026-09-02 §1: a single failed probe must not report a LIVE pane
+ * dead. ok:false ticks count toward a consecutive-unreachable threshold
+ * (NODE_EXIT_UNREACHABLE_TICKS); ok:true stays authoritative. Each test also
+ * scripts the legacy `listSessionNames` switch with the `[]`-via-error answer
+ * the old swallow-everything probe produced — the RED marker: against the old
+ * tick those fixtures fire an exit event on the FIRST blip.
+ */
+describe("exit watcher — unreachable threshold (design §1)", () => {
+  it("blip: ok:false then ok:true-with-pane ⇒ ZERO exit events, counter reset by the ok tick", async () => {
+    const dataDir = freshDataDir("watcher-blip");
+    const events: NodeEvent[] = [];
+    let tick = 0;
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      {
+        listSessionsChecked: () =>
+          tick++ === 0
+            ? { ok: false, detail: "error connecting to /tmp/tmux-1000/b-sock (No such file or directory)" }
+            : { ok: true, names: [S1] }, // probe recovered; the pane is RIGHT THERE
+        listSessionNames: () => [], // what the old probe returned for a blip — and what the old tick treated as death
+        paneExitCode: () => 42,
+      },
+      events,
+    );
+    await recordMeta(ctx.meta, S1, "b-sock");
+    startExitWatcher(ctx, S1, "b-sock", 10_000); // timer never fires; ticks run manually
+
+    await runExitWatchTick(ctx); // tick 1: blip — below threshold, stay watched
+    expect(events).toEqual([]);
+    expect(ctx.watchers.get(S1)?.unreachable).toBe(1);
+
+    await runExitWatchTick(ctx); // tick 2: alive on an authoritative answer
+    expect(events).toEqual([]);
+    expect(ctx.watchers.get(S1)?.unreachable).toBe(0); // streak broken
+    expect(calls.some((c) => c.method === "paneExitCode")).toBe(false); // the death path was never entered
+    expect(await ctx.meta.get(S1)).toBeDefined(); // meta untouched
+
+    stopWatcher(ctx, S1);
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("sustained: two consecutive ok:false ticks ⇒ EXACTLY ONE exit {exitCode: null}, forgotten + tails dropped", async () => {
+    const dataDir = freshDataDir("watcher-sustained");
+    const events: NodeEvent[] = [];
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        listSessionsChecked: () => ({ ok: false, detail: "no server running on /tmp/tmux-1000/u-sock" }),
+        listSessionNames: () => [], // old-probe answer: the old tick reported death on tick 1 (RED marker)
+        paneExitCode: () => null, // unreachable server ⇒ no status to read (the shape a dead socket always gave)
+      },
+      events,
+    );
+    await recordMeta(ctx.meta, S1, "u-sock");
+    startExitWatcher(ctx, S1, "u-sock", 10_000);
+    let stops = 0;
+    ctx.tails.set("sub-u", { sessionId: S1, stop: () => (stops += 1) });
+
+    await runExitWatchTick(ctx); // first unreachable tick — silent, below threshold
+    expect(events).toEqual([]);
+    expect(ctx.watchers.get(S1)?.unreachable).toBe(1);
+
+    await runExitWatchTick(ctx); // second consecutive ⇒ at threshold: the SAME death sequence as confirmed
+    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: null, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(ctx.watchers.size).toBe(0); // registration dropped — at most one event
+    expect(stops).toBe(1); // the escalation runs the tail sweep too
+    expect(await ctx.meta.get(S1)).toBeUndefined(); // and the forget
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("confirmed death unchanged: ok:true with the pane absent ⇒ immediate exit on the FIRST tick", async () => {
+    const dataDir = freshDataDir("watcher-confirmed");
+    const events: NodeEvent[] = [];
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        listSessionsChecked: () => ({ ok: true, names: [] }), // socket ANSWERED; the pane is gone — authoritative
+        paneExitCode: () => 6,
+      },
+      events,
+    );
+    await recordMeta(ctx.meta, S1, "c-sock");
+    startExitWatcher(ctx, S1, "c-sock", 10_000);
+    await runExitWatchTick(ctx);
+    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 6, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(ctx.watchers.size).toBe(0);
+    expect(await ctx.meta.get(S1)).toBeUndefined();
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("relaunch resets the budget: blip (1) ⇒ same-id re-registration (fresh 0) ⇒ blip again ⇒ still zero exits", async () => {
+    const dataDir = freshDataDir("watcher-relaunch-budget");
+    const events: NodeEvent[] = [];
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        listSessionsChecked: () => ({ ok: false, detail: "no server running" }),
+        listSessionNames: () => [], // old-probe answer — RED marker: the old tick died on tick 1
+        paneExitCode: () => null,
+      },
+      events,
+    );
+    startExitWatcher(ctx, S1, "r-sock", 10_000);
+    await runExitWatchTick(ctx);
+    expect(events).toEqual([]);
+    expect(ctx.watchers.get(S1)?.unreachable).toBe(1);
+
+    const t2 = startExitWatcher(ctx, S1, "r-sock", 10_000); // relaunch on the same row ⇒ new registration
+    expect(ctx.watchers.get(S1)?.token).toBe(t2);
+    expect(ctx.watchers.get(S1)?.unreachable).toBe(0); // a replaced registration starts fresh — budget reset
+
+    await runExitWatchTick(ctx); // one unreachable tick on the NEW reg: 0→1, still below threshold
+    expect(events).toEqual([]);
+    expect(ctx.watchers.get(S1)?.unreachable).toBe(1);
+
+    stopWatcher(ctx, S1);
+    expect(ctx.watchTick).toBeUndefined();
   });
 });
 

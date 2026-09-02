@@ -87,6 +87,30 @@ export class TmuxRunner {
   }
 
   /**
+   * {@link listSessionNames} with the failure kept: the SAME `list-sessions`
+   * probe, but the answer is tri-state — `{ ok: true; names }` only when tmux
+   * actually answered, `{ ok: false; detail }` on spawn failure, signal, or
+   * non-zero exit (`detail` carries tmux's stderr, or an exit-code summary
+   * when stderr was empty).
+   *
+   * WHY it exists (design 2026-09-02 §1): swallowing errors into `[]` makes a
+   * probe BLIP (fork failure, EINTR, overloaded server) indistinguishable
+   * from a dead server, and the exit watcher cannot tell a live pane from a
+   * gone one on that answer alone — a blip used to report live panes dead.
+   * The watcher counts consecutive `ok:false` ticks instead. `listSessionNames`
+   * stays for the connect-time census, whose documented posture is fail-closed
+   * one-shot (`[]` ⇒ re-derive from rows, converge via the watcher after).
+   */
+  listSessionsChecked(socket: string): { ok: true; names: string[] } | { ok: false; detail: string } {
+    try {
+      const out = this.run(["-L", socket, "list-sessions", "-F", "#{session_name}"], {});
+      return { ok: true, names: out.stdout.split("\n").filter((line) => line !== "") };
+    } catch (err) {
+      return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
    * Reads the main pane's exit status; null when not dead/unknown.
    *
    * tmux 3.6 exposes the dead-pane exit status as `#{pane_dead_status}`
