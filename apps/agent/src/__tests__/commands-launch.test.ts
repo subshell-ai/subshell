@@ -73,11 +73,42 @@ interface Spec {
   run?: (args: string[]) => { stdout: string; stderr: string };
 }
 
+/** A one-shot promise plus its resolver (the gated-forget fixtures drive these). */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/**
+ * A real {@link SessionMetaStore} that models a tick stuck INSIDE
+ * `await ctx.meta.forget(...)`: the underlying forget work (mirror eviction +
+ * unlink) runs first, then the returned promise is held on a test-resolved
+ * gate. This is the production ordering the fix documents as self-healing —
+ * a relaunch landing in the window writes its meta AFTER the old unlink and
+ * before the watcher entry is re-checked — so the surviving record is proof
+ * the tick's post-await sweep respected the newer registration, not proof
+ * forget never ran.
+ */
+class GateHeldMetaStore extends SessionMetaStore {
+  /** Resolves once the tick's first `forget` has done its underlying work and entered the held window. */
+  readonly forgetEntered = deferred();
+  /** While pending, every `forget` promise is held here — the relaunch interleaving window. */
+  readonly forgetGate = deferred();
+
+  override async forget(id: string): Promise<void> {
+    await super.forget(id);
+    this.forgetEntered.resolve();
+    await this.forgetGate.promise;
+  }
+}
+
 /** Build a CommandContext over a scripted double on `dataDir`; unstubbed calls throw. */
 function makeCtx(
   dataDir: string,
   spec: Spec,
   events: NodeEvent[],
+  meta?: SessionMetaStore,
 ): { ctx: CommandContext; calls: Array<{ method: string; args: unknown[] }> } {
   const calls: Array<{ method: string; args: unknown[] }> = [];
   const method = (name: keyof Spec) => {
@@ -109,7 +140,7 @@ function makeCtx(
   const ctx: CommandContext = {
     config,
     tmux: raw as unknown as CommandContext["tmux"],
-    meta: new SessionMetaStore(dataDir),
+    meta: meta ?? new SessionMetaStore(dataDir),
     nowMs: () => FIXED_NOW,
     ws: { send: (ev) => events.push(ev) },
     watchers: new Map(),
@@ -518,7 +549,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     await recordMeta(ctx.meta, S1, "w-sock");
     expect(EXIT_WATCH_INTERVAL_MS).toBe(2_000); // production cadence (spec §7)
     startExitWatcher(ctx, S1, "w-sock", 20); // short interval, real timers (daemon-test polling style)
-    expect(ctx.watchers.get(S1)).toBe("w-sock"); // supervised on the LAUNCH socket — no meta re-read
+    expect(ctx.watchers.get(S1)?.socket).toBe("w-sock"); // supervised on the LAUNCH socket — no meta re-read
     await waitFor(() => events.length > 0, "exit event");
     expect(events[0]).toEqual({ type: "exit", sessionId: S1, exitCode: 7, at: new Date(FIXED_NOW).toISOString() });
     expect(ctx.watchers.size).toBe(0); // unregistered on fire
@@ -643,6 +674,135 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     await runExitWatchTick(ctx); // supervision already drained — a third tick reports nothing
     expect(events.length).toBe(2);
     expect(ctx.watchTick).toBeUndefined(); // last pane left ⇒ shared loop stopped itself
+  });
+
+  /* Phase-3 debt (P2 review): a relaunch of the SAME id must survive a tick
+     that snapshotted the old pane — the forget/drop tail of the exit path may
+     only run for the registration the tick actually owned. */
+
+  it("relaunch DURING the tick's gated forget ⇒ the newer registration survives: one exit event, meta kept, tails not swept, supervision kept", async () => {
+    const dataDir = freshDataDir("watcher-relaunch");
+    const events: NodeEvent[] = [];
+    const gated = new GateHeldMetaStore(dataDir);
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        listSessionNames: (socket) => (socket === "w-sock" ? [] : [S1]), // old pane dead; relaunched pane alive
+        paneExitCode: () => 5,
+        newSession: () => {},
+        pipePane: () => {},
+      },
+      events,
+      gated,
+    );
+    await recordMeta(gated, S1, "w-sock");
+    startExitWatcher(ctx, S1, "w-sock", 10_000); // the timer never fires; the tick runs manually and deterministically
+    let tailStopped = false;
+
+    const tick = runExitWatchTick(ctx);
+    try {
+      await gated.forgetEntered.promise; // the tick is suspended inside `await ctx.meta.forget(S1)`
+      // Relaunch the same row through the REAL launch path: execLaunch writes
+      // the fresh meta (step 4) before it re-arms the watcher (step 9).
+      const relaunch = await dispatchCommand(
+        ctx,
+        launchCmd({ socket: "w-sock-2", sessionName: "relaunched", cols: undefined, rows: undefined }),
+      );
+      expect(relaunch).toEqual({ ok: true });
+      // A tail of the relaunched pane attaches before the old forget returns.
+      ctx.tails.set("sub-relaunch", { sessionId: S1, stop: () => (tailStopped = true) });
+    } finally {
+      gated.forgetGate.resolve();
+    }
+    await tick;
+
+    // The old pane got its ONE death event; the relaunch keeps everything the
+    // blind cleanup used to steal.
+    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 5, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(ctx.watchers.has(S1)).toBe(true); // the NEWER registration still supervises
+    expect(await ctx.meta.get(S1)).toMatchObject({ sessionId: S1, socket: "w-sock-2", name: "relaunched" }); // new record intact
+    expect(tailStopped).toBe(false); // the death sweep must not stop a live relaunch's tail pumps
+    await runExitWatchTick(ctx); // the new socket lists S1 alive — no second event ever
+    expect(events.length).toBe(1);
+    stopWatcher(ctx, S1);
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("execKill landing mid-tick (while the batched answer is being processed) ⇒ the deliberately killed id reports nothing", async () => {
+    const dataDir = freshDataDir("watcher-kill-midt");
+    const events: NodeEvent[] = [];
+    const gated = new GateHeldMetaStore(dataDir);
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        listSessionNames: () => [], // BOTH panes are gone per the batch answer
+        paneExitCode: () => 8,
+        killSession: () => {},
+        run: () => ({ stdout: "", stderr: "" }),
+      },
+      events,
+      gated,
+    );
+    await recordMeta(gated, S1, "k-sock");
+    await recordMeta(gated, S2, "k-sock");
+    startExitWatcher(ctx, S1, "k-sock", 10_000);
+    startExitWatcher(ctx, S2, "k-sock", 10_000);
+
+    const tick = runExitWatchTick(ctx);
+    try {
+      await gated.forgetEntered.promise; // inside S1's forget — S2's branch has NOT run since the list-sessions answer
+      expect(await dispatchCommand(ctx, { type: "kill", sessionId: S2 })).toEqual({ ok: true });
+    } finally {
+      gated.forgetGate.resolve();
+    }
+    await tick;
+
+    // S1 died naturally (one event); S2 was deliberately killed after the
+    // snapshot and must never arrive as a surprise death (re-check pin).
+    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 8, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(ctx.watchers.size).toBe(0);
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("arm-once + tokens: re-registration mints a fresh token and replaces the entry, but never re-arms the shared interval", () => {
+    const dataDir = freshDataDir("watcher-armonce");
+    const { ctx } = makeCtx(dataDir, {}, []);
+    const spy = spyOn(globalThis, "setInterval");
+    try {
+      const t1 = startExitWatcher(ctx, S1, "a-sock", 10_000); // arms the ONE loop
+      startExitWatcher(ctx, S2, "a-sock", 10_000); // second pane rides it
+      const t2 = startExitWatcher(ctx, S1, "a-sock-2", 30_000); // relaunch: new entry, same loop, intervalMs ignored
+      expect(spy.mock.calls).toHaveLength(1); // arm-once (intervalMs applies to the FIRST call only)
+      expect(typeof t1).toBe("symbol");
+      expect(typeof t2).toBe("symbol");
+      expect(t2).not.toBe(t1); // the re-registration is a NEW identity, not the old one
+      expect(ctx.watchers.get(S1)?.token).toBe(t2);
+      expect(ctx.watchers.get(S1)?.socket).toBe("a-sock-2"); // supervised on the RELAUNCH socket
+      expect(ctx.watchers.size).toBe(2);
+    } finally {
+      spy.mockRestore();
+      for (const id of [...ctx.watchers.keys()]) stopWatcher(ctx, id);
+      expect(ctx.watchTick).toBeUndefined();
+    }
+  });
+
+  it("regression: plain natural death with a live tail ⇒ exactly ONE exit event, meta forgotten, tail stopped, loop drains when empty", async () => {
+    const dataDir = freshDataDir("watcher-natural");
+    const events: NodeEvent[] = [];
+    const { ctx } = makeCtx(dataDir, { listSessionNames: () => [], paneExitCode: () => 6 }, events);
+    await recordMeta(ctx.meta, S1, "n-sock");
+    startExitWatcher(ctx, S1, "n-sock", 10_000);
+    let stops = 0;
+    ctx.tails.set("sub-n", { sessionId: S1, stop: () => (stops += 1) });
+
+    await runExitWatchTick(ctx);
+
+    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 6, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(stops).toBe(1); // the owned registration's death STILL sweeps its tails
+    expect(ctx.tails.size).toBe(0);
+    expect(await ctx.meta.get(S1)).toBeUndefined();
+    expect(ctx.watchers.size).toBe(0);
+    expect(ctx.watchTick).toBeUndefined(); // the shared loop stops when the set empties
   });
 });
 

@@ -49,6 +49,20 @@ export interface UploadState {
   expectedChunk: number;
 }
 
+/**
+ * One entry in {@link CommandContext.watchers}: the socket the shared tick
+ * probes, plus the identity of THIS registration. A relaunch of the same id
+ * (auto-restart on the same row) re-arms with a fresh token, so a tick that
+ * snapshotted the old pane can tell "still mine" from "a newer registration
+ * owns this id now" and never clobber the live relaunch.
+ */
+export interface WatcherRegistration {
+  /** The tmux socket the pane was created on (from the launch wire — `cmd.socket`). */
+  socket: string;
+  /** Unique identity of this registration; every `startExitWatcher` call mints a new `Symbol()`. */
+  token: symbol;
+}
+
 /** Everything `dispatchCommand` (index.ts) hands an executor. */
 export interface CommandContext {
   /** The enrolled config — `dataDir` is the root of the path policy (spec §7). */
@@ -62,13 +76,17 @@ export interface CommandContext {
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
   /**
-   * The panes supervised for natural death, keyed by sessionId → the tmux
-   * socket their pane lives on (filled by launch/report.ts since Task 4;
-   * re-keyed from per-session timers to the shared-tick set by the
-   * exit-watcher batching — ONE interval now ticks for every entry, probing
-   * each distinct socket once per tick). `stopWatcher` removes one entry.
+   * The panes supervised for natural death, keyed by sessionId →
+   * {@link WatcherRegistration} (socket + registration token; filled by
+   * launch/report.ts since Task 4; re-keyed from per-session timers to the
+   * shared-tick set by the exit-watcher batching — ONE interval now ticks for
+   * every entry, probing each distinct socket once per tick). Re-arming the
+   * same id (a relaunch on a restarted row) REPLACES the entry with a fresh
+   * token, and the tick's forget/drop tail only runs while its snapshotted
+   * registration is still the map's current one — a relaunch mid-forget keeps
+   * its meta record and tail pumps. `stopWatcher` removes one entry.
    */
-  watchers: Map<string, string>;
+  watchers: Map<string, WatcherRegistration>;
   /**
    * The ONE shared exit-watcher interval, live while `watchers` is non-empty
    * and cleared (set to undefined) the moment it drains. Unref'd — it must

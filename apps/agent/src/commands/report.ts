@@ -1,6 +1,6 @@
 import type { NodeEvent } from "@internal/session-protocol";
 import { log } from "../log.js";
-import type { CommandContext } from "./context.js";
+import type { CommandContext, WatcherRegistration } from "./context.js";
 
 /**
  * The shared exit watcher and the connect-time `sessions_report` scan
@@ -13,8 +13,9 @@ import type { CommandContext } from "./context.js";
  * pattern applied to the death watch): a per-pane `setInterval` + `has-session`
  * meant K tmux subprocess spawns per tick forever. The shared tick instead
  * groups the supervised set by socket and asks each socket ONCE per tick
- * (`list-sessions -F '#{session_name}'`), then runs the unchanged per-pane
- * exit path for the panes that vanished.
+ * (`list-sessions -F '#{session_name}'`), then runs the per-pane exit path
+ * for the panes that vanished — gated on the snapshotted registration token,
+ * so a tick never reports or cleans up an id a newer registration owns.
  */
 
 /** Production watcher cadence (spec §7: 2 s liveness/`pane_dead_status` loop). */
@@ -47,24 +48,30 @@ export function stopWatcher(ctx: CommandContext, sessionId: string): void {
  * Put one launched pane under exit supervision: when its socket stops listing
  * it, the shared tick emits exactly one `exit` event and cleans up (unregister,
  * forget the meta record, drop the session's tail pumps). Re-registering for
- * the same id replaces the old entry — a relaunch on a restarted row rotates
- * its socket. Starting the first watcher arms the ONE shared interval; later
- * registrations ride it, so `intervalMs` only takes effect on that first call
- * (production is always {@link EXIT_WATCH_INTERVAL_MS}; tests pass a short one
- * into a fresh ctx). The socket arrives from the launch wire — no meta re-read.
+ * the same id REPLACES the old entry with a fresh registration token — a
+ * relaunch on a restarted row rotates its socket, and the tick that
+ * snapshotted the old pane sees the token mismatch and never reports the live
+ * relaunch dead or sweeps its meta/tails. Starting the first watcher arms the
+ * ONE shared interval; later registrations ride it, so `intervalMs` only takes
+ * effect on that first call (production is always
+ * {@link EXIT_WATCH_INTERVAL_MS}; tests pass a short one into a fresh ctx).
+ * The socket arrives from the launch wire — no meta re-read.
  * @param ctx - the daemon's command context
  * @param sessionId - the mote session (already format-validated by the caller)
  * @param socket - the tmux socket the pane was created on (`cmd.socket`)
  * @param intervalMs - tick period for the shared loop; production default 2 s
+ * @returns the registration token — identity of THIS registration, compared
+ * by the tick's post-await rechecks (callers otherwise discard it)
  */
 export function startExitWatcher(
   ctx: CommandContext,
   sessionId: string,
   socket: string,
   intervalMs = EXIT_WATCH_INTERVAL_MS,
-): void {
-  ctx.watchers.set(sessionId, socket);
-  if (ctx.watchTick !== undefined) return; // loop already running for the existing set
+): symbol {
+  const token = Symbol(sessionId);
+  ctx.watchers.set(sessionId, { socket, token });
+  if (ctx.watchTick !== undefined) return token; // loop already running for the existing set
   const timer = setInterval(() => {
     // TOTAL per tick: a throwing tmux probe must not become an unhandled
     // rejection (nor silently kill the loop on the next throw).
@@ -74,6 +81,7 @@ export function startExitWatcher(
   }, intervalMs);
   timer.unref?.(); // a watcher must never hold the daemon (or a test process) open
   ctx.watchTick = timer;
+  return token;
 }
 
 /**
@@ -93,21 +101,26 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
   // Group the supervised set by socket — watchers CAN span sockets (the wire
   // carries a per-launch socket; production mints one per session, but a
   // shared socket is legal), so the batch unit is the socket, not the node.
-  const bySocket = new Map<string, string[]>();
-  for (const [sessionId, socket] of ctx.watchers) {
-    const ids = bySocket.get(socket);
-    if (ids) ids.push(sessionId);
-    else bySocket.set(socket, [sessionId]);
+  // The group carries each entry's registration object: the per-id exit path
+  // only proceeds while the map still holds THAT registration (see below).
+  const bySocket = new Map<string, Array<{ sessionId: string; reg: WatcherRegistration }>>();
+  for (const [sessionId, reg] of ctx.watchers) {
+    const entries = bySocket.get(reg.socket);
+    if (entries) entries.push({ sessionId, reg });
+    else bySocket.set(reg.socket, [{ sessionId, reg }]);
   }
-  for (const [socket, ids] of bySocket) {
+  for (const [socket, entries] of bySocket) {
     try {
       const alive = new Set(ctx.tmux.listSessionNames(socket));
-      for (const sessionId of ids) {
+      for (const { sessionId, reg } of entries) {
         if (alive.has(sessionId)) continue;
-        // Re-check membership: execKill/execTerminate may have dropped this
-        // pane since the snapshot (the forget await below yields to the
-        // dispatcher) — a deliberately killed pane must never report death.
-        if (!ctx.watchers.has(sessionId)) continue;
+        // Re-check OWNERSHIP, not just membership: execKill/execTerminate may
+        // have dropped this pane since the snapshot (the forget await below
+        // yields to the dispatcher) — a deliberately killed pane must never
+        // report death — AND a relaunch of the same id may have REPLACED the
+        // entry. A token mismatch means a newer registration owns the id now:
+        // this stale tick reports nothing and cleans nothing of theirs.
+        if (ctx.watchers.get(sessionId) !== reg) continue;
         // Read the death BEFORE unregistering: paneExitCode is a separate tmux
         // call and a cleared watcher must never swallow the code it was built
         // to report.
@@ -115,7 +128,13 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
         ctx.watchers.delete(sessionId); // stop-first: at most one event per registration
         ctx.ws.send({ type: "exit", sessionId, exitCode, at: new Date(ctx.nowMs()).toISOString() });
         await ctx.meta.forget(sessionId);
-        dropTailsFor(ctx, sessionId);
+        // Post-await re-check: a relaunch that armed a fresh registration
+        // while this forget was in flight owns its own tails now — never drop
+        // them. (Residual window: forget's own internal fs await; a relaunch
+        // landing in that microsecond keeps its watchers entry and re-asserts
+        // meta — launch writes meta BEFORE watchSession, so the record's
+        // ordering self-heals, and this recheck covers the tails sweep.)
+        if (ctx.watchers.get(sessionId) === undefined) dropTailsFor(ctx, sessionId);
       }
     } catch (err) {
       // One socket's failing probe must not starve the other sockets' panes.
