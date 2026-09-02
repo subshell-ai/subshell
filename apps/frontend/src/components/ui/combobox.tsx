@@ -2,14 +2,7 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import type { JSX } from "react";
 import { cn } from "@/lib/utils";
 
-/**
- * Searchable single-select on Base UI Combobox — the launch pickers'
- * primitive (spec 2026-09-02 §1). Unlike `select.tsx` the closed state is a
- * real <input> (type-to-filter), so callers pass their e2e-pinned id there.
- * Options are `{ value, label, disabled?, reason? }`; the Root filters by
- * label (case-insensitive contains), disabled rows stay listed with their
- * muted reason — greying out explains rather than hides.
- */
+/** One row in a {@link SearchableSelect} list. */
 export interface ComboboxOption {
   /** Stable option id — the picker's value */
   value: string;
@@ -26,7 +19,11 @@ export interface SearchableSelectProps {
   id: string;
   /** Selected option id; "" renders the placeholder */
   value: string;
-  /** Fired with the new option id ("" never — disabled rows are inert) */
+  /**
+   * Fired with the newly picked option's id. Disabled rows never fire it
+   * (inert). `""` arrives only when Base UI reports a null selection value —
+   * the primitive renders no clear affordance, so this is not a normal pick.
+   */
   onValueChange: (value: string) => void;
   /** Input placeholder, also the unselected closed state */
   placeholder: string;
@@ -37,6 +34,14 @@ export interface SearchableSelectProps {
   className?: string;
 }
 
+/**
+ * Searchable single-select on Base UI Combobox — the launch pickers'
+ * primitive (spec 2026-09-02 §1). Unlike `select.tsx` the closed state is a
+ * real <input> (type-to-filter), so callers pass their e2e-pinned id there.
+ * Options are `{ value, label, disabled?, reason? }`; the Root filters by
+ * label (case-insensitive contains), disabled rows stay listed with their
+ * muted reason — greying out explains rather than hides.
+ */
 export function SearchableSelect({
   id,
   value,
