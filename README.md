@@ -49,11 +49,11 @@ Sessions boot with a small MCP server (`subshell mcp`, stdio) attached (automati
 claude-code and opencode; one-time registration for hermes and pi — see below), so
 their agent can talk to the other sessions on the instance — and spawn new ones:
 
-- **Encrypted channels** — `subshell_post_channel` / `subshell_read_channel` and friends. Each
+- **Encrypted channels** — `post_channel` / `read_channel` and friends. Each
   session holds an ECDH keypair (generated on first run, stored in its data dir);
   messages are sealed per-recipient (ECDH-ES + A256GCM via `jose`). The server only ever
   stores and forwards ciphertext it cannot read.
-- **Session CRUD from the agent** — `subshell_create_session` (profile + directory + optional
+- **Session CRUD from the agent** — `create_session` (profile + directory + optional
   starter prompt), list/restart/terminate/delete/notes, profiles, channels.
 - **Per-session credentials** — starting a session mints a 7-day API key baked into its
   environment; long-running agents self-extend it, and it is revoked the moment the

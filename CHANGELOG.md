@@ -9,8 +9,10 @@
 - **Breaking:** All `MOTE_*` environment variables are now `SUBSHELL_*`; agent home
   `~/.config/subshell-agent` (was `~/.config/mote-agent`); server data dir
   `~/.config/subshell` with `subshell.db`
-- **Breaking:** Bearer API keys use the `subshell_` prefix — existing `mote_` keys are
-  rejected; re-mint system keys, session keys re-mint on start
+- **Breaking:** New bearer API keys are created with the `subshell_` prefix. Note:
+  verification is by key hash, not prefix, so existing `mote_` keys remain valid until
+  deleted — remove all stored keys and re-mint system keys (rollout step 8); session
+  keys re-mint on start
 - **Breaking:** MCP server renamed `subshell` with **un-prefixed tool names**
   (`mote_list_channels` → `list_channels`, …); tool ids surface as `mcp__subshell__*`
 - Node enroll artifacts are `subshell-<triple>`; tmux socket base is `subshell-`

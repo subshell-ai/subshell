@@ -8,9 +8,9 @@ must move in one pass.
 **Read first:**
 
 - Do this from a **plain shell / SSH session**, not from a Subshell-managed pane —
-  step 4 kills every harness pane (tmux sockets are renamed `mote-<hash>` →
+  step 3 kills every harness pane (tmux sockets are renamed `mote-<hash>` →
   `subshell-<hash>`; the new backend cannot attach old sockets, so running panes
-  end here. Accepted, per the rename spec).
+  end here). Accepted, per the rename spec.
 - The last step renames the repo directory — nothing can be running with that cwd.
 - Keep old units stopped but their files readable until step 12 smoke passes.
 
@@ -42,12 +42,11 @@ must move in one pass.
    mv ~/.config/subshell/mote.db-shm ~/.config/subshell/subshell.db-shm 2>/dev/null || true
    ```
 
-5. **Reset E2EE/identity stores** (they re-mint on next boot; channel history
-   sealed to the old identities becomes unreadable — accepted clean cut):
-
-   ```bash
-   rm -rf ~/.local/share/mote
-   ```
+5. **E2EE/identity stores need nothing**: they live under the session data dir —
+   `dirname(DATABASE_PATH)` — so step 4's `mv` carries `identities/` and
+   `peers.json` along, and channel history stays readable. (To rotate identities
+   instead of keeping them: `rm -rf ~/.config/subshell/identities ~/.config/subshell/peers.json`
+   — old sealed posts then become unreadable and peers must re-pin.)
 
 6. **Rewrite `MOTE_*` in every env file the service reads** (the unit's
    `EnvironmentFile` under `~/.config/subshell/`, plus any local `.env`):
@@ -55,7 +54,7 @@ must move in one pass.
    ```bash
    grep -rl "MOTE_\|mote\.db\|\.config/mote\|mote\.service" ~/.config/subshell .env* 2>/dev/null \
      | xargs -r sed -i -e 's/MOTE_/SUBSHELL_/g' -e 's/mote\.db/subshell.db/g' \
-         -e 's|\.config/mote|/.config/subshell|g' -e 's/mote\.service/subshell-server.service/g'
+         -e 's|\.config/mote|.config/subshell|g' -e 's/mote\.service/subshell-server.service/g'
    ```
 
 7. **Fix session working dirs that point at the old repo path** (run AFTER step 11's
@@ -66,16 +65,21 @@ must move in one pass.
      "UPDATE sessions SET working_dir = replace(working_dir, '/home/theo/projects/mote', '/home/theo/projects/subshell') WHERE working_dir LIKE '/home/theo/projects/mote%';"
    ```
 
-8. **Drop old-prefix API keys** — the bearer validation now requires `subshell_`,
-   so every stored `mote_` key is dead weight (session keys re-mint on session
-   start; system keys you re-create in Settings → System API keys):
+8. **Drop ALL stored API keys — this step is mandatory, not cosmetic.**
+   better-auth's api-key plugin applies the prefix only at *creation*;
+   verification is a plain hash lookup, so old `mote_` keys **still authenticate**
+   until deleted. This is also the opportunity to clear them wholesale:
 
    ```bash
    sqlite3 ~/.config/subshell/subshell.db '.schema apiKey'   # inspect first
    sqlite3 ~/.config/subshell/subshell.db 'DELETE FROM apiKey;'
+   sqlite3 ~/.config/subshell/subshell.db "DELETE FROM \"user\" WHERE email='system@mote.local';"
    ```
+
    (`sessions.api_key_id` is a plain text column — no FK — so no reference
-   cleanup is needed. Live sessions re-mint their key on restart.)
+   cleanup is needed; live sessions re-mint their key on restart. The `user`
+   delete drops the orphaned service user — boot creates `system@subshell.local`
+   fresh, and the old row's keys are already gone with the DELETE above.)
 
 9. **Install and start the new unit** (svc.sh now writes `subshell-server.service`
    with `DATABASE_PATH=$HOME/.config/subshell/subshell.db`):
@@ -101,7 +105,15 @@ must move in one pass.
     ```bash
     cd ~ && mv projects/mote projects/subshell
     mv ~/.claude/projects/-home-theo-projects-mote ~/.claude/projects/-home-theo-projects-subshell
+    cd ~/projects/subshell && ./svc.sh install && systemctl --user daemon-reload \
+      && systemctl --user restart subshell-server.service
     ```
+
+    The `svc.sh install` re-run is NOT optional: the script bakes its own
+    directory into the unit's `WorkingDirectory` and `EnvironmentFile`
+    (`svc.sh:19,72-73`), so the step-9 unit points at the OLD path after the
+    rename — the running service survives, but the next restart would fail on
+    the missing `WorkingDirectory`.
 
     The GitHub repo `disaresta-org/mote` was renamed to `disaresta-org/subshell`
     and the local remote URL updated at merge time (plan Task 8) — after step 11,

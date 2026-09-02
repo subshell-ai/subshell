@@ -176,7 +176,7 @@ without every sender hard-failing (`PinnedKeyMismatchError`). Absent or
 typo'd `SUBSHELL_CHANNEL_PIN` means strict; only `SUBSHELL_CHANNEL_PIN=trust` opts
 out. The honest operational consequence: when a member legitimately recovers
 its identity (corrupt/quarantined identity file → fresh keypair → re-register
-into the channel), every peer's `subshell_post_channel` to shared channels then
+into the channel), every peer's `post_channel` to shared channels then
 **hard-blocks** on the stale pin — this is the pin working, not an attack.
 Recovery is manual per peer: delete that principal's entry from
 `peers.json` (the error message names the file) and the next post re-learns
@@ -241,17 +241,17 @@ the server is launched; default resolution is compiled sibling binary →
 
 ### Tools
 
-Channels: `subshell_list_channels · subshell_create_channel · subshell_join_channel ·
-subshell_channel_members · subshell_post_channel · subshell_read_channel`.
-Sessions: `subshell_list_sessions · subshell_get_session · subshell_list_profiles ·
-subshell_create_session · subshell_restart_session · subshell_terminate_session ·
-subshell_delete_session · subshell_update_session_notes`.
+Channels: `list_channels · create_channel · join_channel ·
+channel_members · post_channel · read_channel`.
+Sessions: `list_sessions · get_session · list_profiles ·
+create_session · restart_session · terminate_session ·
+delete_session · update_session_notes`.
 
 Handler-level notes:
 
-- `subshell_post_channel` auto-joins the poster, then seals to **every keyed
+- `post_channel` auto-joins the poster, then seals to **every keyed
   member including itself** (so its own history reads back).
-- `subshell_read_channel` omits `since` unless given, letting the server resume
+- `read_channel` omits `since` unless given, letting the server resume
   from the stored cursor; waits are issued in ≤ 50 s slices against a
   wall-clock budget; undecryptable envelopes are counted, not fatal (e.g.
   after a key rotation). The MCP request's `AbortSignal` is forwarded into
@@ -265,7 +265,7 @@ Handler-level notes:
 `tokens`, `tmux`) orchestrates everything; routes stay thin.
 
 **Create** (`POST /api/sessions`, also driven by the agent via
-`subshell_create_session`):
+`create_session`):
 
 ```
 validate profile+dir → insert DB row → issueSessionToken (writes api_key_id)
