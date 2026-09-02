@@ -277,10 +277,13 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     const pane = sessionId;
     await pollUntil(`no tmux pane "${pane}" on the node`, agent, async () => nodeHasPane(tmuxBase, pane));
     // …and the log relay (log_read over the node socket) carries its output.
-    await pollUntil("relayed log never showed the stub banner", agent, async () => {
+    // The one-shot startup banner can scroll out before pipe-pane attaches
+    // (the agent pipes the pane only after new-session), so any `tick <n>` —
+    // the stub's every-5s liveness line — is an equally valid signal.
+    await pollUntil("relayed log never showed the stub banner or a tick line", agent, async () => {
       const res = await request.get(`/api/sessions/${pane}/log`);
       if (!res.ok()) return false;
-      return ((await res.json()) as { lines: string[] }).lines.join("\n").includes("stub harness ready");
+      return /(stub harness ready|\btick \d+)/.test(((await res.json()) as { lines: string[] }).lines.join("\n"));
     });
 
     // ── 7. Terminate from the sessions list (spec 06's idiom): the card
