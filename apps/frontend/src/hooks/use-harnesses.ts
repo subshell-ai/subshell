@@ -6,7 +6,7 @@ import { NODE_QUERY_KEY } from "@/lib/query-keys";
 import type { HarnessInfo } from "@/types/harness";
 import type { Node, NodeHarness } from "@/types/node";
 
-/** Shared key: the settings page, the wizard and the profile editor agree. */
+/** Shared key: the wizard, the profile editor and the per-node card agree. */
 export const HARNESS_QUERY_KEY = ["harnesses"];
 
 /**

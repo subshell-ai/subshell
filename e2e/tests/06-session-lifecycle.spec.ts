@@ -24,12 +24,11 @@ test("session: create -> attach -> terminate -> delete", async ({ page }) => {
   // list locators and mask the real failure.
   const name = `e2e-lifecycle-${test.info().retry}`;
 
-  // Create from the /new page. role=combobox carries NO accessible name here
-  // (name-from-content isn't computed for combobox — the placeholder renders as
-  // an unlabelled child), so the trigger is found by its placeholder text.
+  // Create from the /new page. The searchable picker's closed state is an
+  // <input>, so it is found by its placeholder attribute.
   // Options render as "{name} ({harnessId})".
   await page.goto("/new");
-  await page.getByText("Choose a profile").click();
+  await page.getByPlaceholder("Choose a profile").click();
   await page.getByRole("option", { name: "Default (pi)" }).click();
   await page.fill("#working-dir", "/tmp");
   await page.fill("#name", name);

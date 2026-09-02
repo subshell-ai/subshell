@@ -247,11 +247,33 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // the e2e node, a temp cwd. Terminal truth stays server-side (AGENTS.md):
     // ws-token + /ws upgrade + no reconnecting pill — never canvas text.
     const workingDir = mkdtempSync(path.join(home, "cwd"));
-    await page.goto("/new");
-    await page.getByText("Choose a profile").click();
+
+    // The pairing gate (spec 2026-09-02 §1): with pi DISABLED on the node,
+    // the node picker must grey it with the reason instead of hiding it —
+    // then re-enable and launch for real. (`nodeId` is the id the online poll
+    // captured above; the PATCHes here reuse it.)
+    expect(nodeId).toBeDefined();
+    await page.request.patch(`/api/nodes/${nodeId}/harnesses/pi`, { data: { enabled: false } });
+
+    const nodeOption = page.getByRole("option", { name: nodeName }); // substring: survives the " · linux/x64" suffix
+    await page.goto("/new"); // fresh load — the client fetches the DISABLED state
+    await page.getByPlaceholder("Choose a profile").click();
     await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
-    await page.locator("#node").click();
-    await page.getByRole("option", { name: nodeName, exact: true }).click();
+    await page.getByPlaceholder("Choose a node").click();
+    await expect(nodeOption).toHaveCount(1); // greyed ≠ gone
+    await expect(nodeOption).toBeDisabled(); // aria-disabled row (Base UI item)
+    await expect(nodeOption.getByText("no pi here")).toBeVisible(); // node-side reason copy
+    await page.keyboard.press("Escape");
+
+    await page.request.patch(`/api/nodes/${nodeId}/harnesses/pi`, { data: { enabled: true } });
+    // The re-enable is out-of-band (no mutation to invalidate the query) and
+    // /new does not poll nodes — reload so the pickers refetch and see pi
+    // enabled again (an aria-disabled row would swallow the real pick).
+    await page.goto("/new");
+    await page.getByPlaceholder("Choose a profile").click();
+    await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
+    await page.getByPlaceholder("Choose a node").click();
+    await nodeOption.click();
     await page.fill("#working-dir", workingDir);
     await page.fill("#name", sessionName);
     // The directory-picker panel opens on focus and covers the fields below;

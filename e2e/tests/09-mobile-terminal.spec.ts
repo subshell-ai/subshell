@@ -16,7 +16,7 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   const name = `e2e-keybar-${test.info().retry}`;
 
   await page.goto("/new");
-  await page.getByText("Choose a profile").click();
+  await page.getByPlaceholder("Choose a profile").click();
   await page.getByRole("option", { name: "Default (pi)" }).click();
   await page.fill("#working-dir", "/tmp");
   await page.fill("#name", name);

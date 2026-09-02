@@ -70,7 +70,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   const p1 = await wide.newPage();
   await armWsRecorder(p1);
   await p1.goto("/new");
-  await p1.getByText("Choose a profile").click();
+  await p1.getByPlaceholder("Choose a profile").click();
   await p1.getByRole("option", { name: "Default (pi)" }).click();
   await p1.fill("#working-dir", "/tmp");
   await p1.fill("#name", name);
