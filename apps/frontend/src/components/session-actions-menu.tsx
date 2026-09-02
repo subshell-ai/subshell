@@ -10,6 +10,7 @@ import {
   Share2,
   SlidersHorizontal,
   SquareStop,
+  TextCursorInput,
   Trash2,
 } from "lucide-react";
 import { type JSX, useState } from "react";
@@ -17,6 +18,7 @@ import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { NotesDialog } from "@/components/ui/notes-dialog";
 import { ReplayLinesDialog } from "@/components/ui/replay-lines-dialog";
+import { TitleDialog } from "@/components/ui/title-dialog";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSessionMutations } from "@/hooks/use-session-mutations";
 import type { SessionView } from "@/types/session";
@@ -41,6 +43,7 @@ export function SessionActionsMenu({
   /** Called after the session is deleted, e.g. to leave a now-dead detail page. */
   onDeleted?: () => void;
 }): JSX.Element | null {
+  const [titleOpen, setTitleOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -65,6 +68,14 @@ export function SessionActionsMenu({
   const items: ActionItem[] = [
     ...(canEdit
       ? [
+          // The modal is also how a phone renames: below the tiling
+          // breakpoint the header's second row shows the title as
+          // display-only text (no room for an inline editor there).
+          {
+            icon: TextCursorInput,
+            label: "Edit title",
+            onSelect: () => setTitleOpen(true),
+          },
           {
             icon: NotebookPen,
             label: session.notes ? "Edit note" : "Add note",
@@ -130,6 +141,13 @@ export function SessionActionsMenu({
     <>
       <ActionsMenu label={session.name} items={items} disabled={disabled || busy} />
 
+      <TitleDialog
+        key={`${session.id}-title`}
+        sessionId={session.id}
+        currentName={session.name}
+        open={titleOpen}
+        onOpenChange={setTitleOpen}
+      />
       {/* Keyed by session id (suffixed — the dialogs are siblings in one
           fragment, so bare ids would collide) so each session gets a fresh
           note draft. */}

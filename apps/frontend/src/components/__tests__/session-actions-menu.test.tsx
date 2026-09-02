@@ -147,9 +147,31 @@ describe("SessionActionsMenu — access gating (spec §4.1)", () => {
       await openMenu("session");
       expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Add note" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
       expect(screen.queryByRole("menuitem", { name: "Notify when done" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Delete session" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("Edit title opens the rename dialog and a save PATCHes the trimmed name", async () => {
+    const { calls, restore } = mockFetch();
+    try {
+      await renderMenu(makeSession({ id: "abc" }));
+      await openMenu("session");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Edit title" }));
+      const input = await screen.findByRole("textbox", { name: "New session title" });
+      fireEvent.change(input, { target: { value: " Renamed " } });
+      fireEvent.click(screen.getByRole("button", { name: "Save title" }));
+      await waitFor(() =>
+        expect(calls).toContainEqual({
+          method: "PATCH",
+          url: "/api/sessions/abc/name",
+          body: JSON.stringify({ name: "Renamed" }),
+        }),
+      );
     } finally {
       restore();
     }
