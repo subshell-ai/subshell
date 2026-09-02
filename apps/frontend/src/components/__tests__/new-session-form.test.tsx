@@ -92,6 +92,15 @@ function mockFetch(nodes: Node[], profiles: unknown[] = []) {
   return () => (globalThis.fetch = original);
 }
 
+/** Flush pending query/effect updates inside act() — 50 ms is generous for
+ *  these Promise.resolve-backed mocks, and it keeps "not wrapped in act" out
+ *  of the log (see the ffe50bc warning-flood fix). */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+}
+
 /**
  * The form is fully caller-controlled; this harness owns the state it would.
  * `holdValue` ignores onChange instead — pinning the render to `initial` so a
@@ -125,9 +134,7 @@ async function renderForm(initial: NewSessionFormValue = emptyNewSessionForm(), 
   // Let the initial queries (nodes, profiles) land inside act(): their
   // results rebuild the combobox items and fire Base UI internal state syncs
   // that would otherwise apply outside act and flood the log with warnings.
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 50));
-  });
+  await settle();
   return { latest: () => latest };
 }
 
@@ -231,12 +238,9 @@ describe("NewSessionForm pairing + defaults", () => {
   it("a suggestion is never earned by an offline node — Local stands", async () => {
     const restore = mockFetch([LOCAL, AGENT_OFFLINE], [profile({ nodeId: "a2" })]);
     try {
+      // renderForm already settles queries/effects inside act(); the
+      // assertion below is that the suggestion was NOT applied by them.
       const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
-      // Settle the async queries/effects inside act() so the late state
-      // updates flush before we assert the suggestion was NOT applied.
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 50));
-      });
       expect(latest().nodeId).toBe("local");
       expect(toSessionCreateBody(latest()).nodeId).toBe("local");
     } finally {
@@ -247,12 +251,8 @@ describe("NewSessionForm pairing + defaults", () => {
   it("a suggestion is never earned by an incompatible node — Local stands", async () => {
     const restore = mockFetch([LOCAL, AGENT_INCOMPAT], [profile({ nodeId: "a3" })]);
     try {
+      // renderForm settles for us — see the offline-suggestion test above.
       const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
-      // Settle the async queries/effects inside act() so the late state
-      // updates flush before we assert the suggestion was NOT applied.
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 50));
-      });
       expect(latest().nodeId).toBe("local");
     } finally {
       restore();

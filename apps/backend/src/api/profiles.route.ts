@@ -151,8 +151,11 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
     {
       query: t.Object({
         harnessId: t.Optional(t.String({ description: "Filter by harness id" })),
+        // Closed one-value set (spec 2026-09-02 §4a): a literal, not a free
+        // string — typos and future `?node=<id>` guesses 400 instead of
+        // silently returning the LOCAL-filtered list.
         node: t.Optional(
-          t.String({
+          t.Literal("any", {
             description:
               'Pass "any" to skip the local harness-usability filter (the launch picker pairs profiles per node client-side)',
           }),

@@ -567,4 +567,16 @@ describe("GET /api/profiles — node=any", () => {
     const rows = (await res.json()) as { id: string }[];
     expect(rows.map((r) => r.id)).toContain(profileId);
   });
+
+  /**
+   * `node` is a closed one-value set (t.Literal, spec 2026-09-02 §4a): a
+   * misspelling must 400 loudly, never silently degrade to the local-filtered
+   * list — the exact bug class the param exists to remove.
+   */
+  it("400s a node value outside {any} instead of silently filtering", async () => {
+    for (const bad of ["ANY", "anyy", "mac-mini"]) {
+      const res = await app.fetch(authedRequest(`/api/profiles?node=${bad}`, cookie));
+      expect(res.status, `node=${bad}`).toBe(400);
+    }
+  });
 });

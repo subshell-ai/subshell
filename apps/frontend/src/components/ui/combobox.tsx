@@ -1,6 +1,5 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import type { JSX } from "react";
-import { cn } from "@/lib/utils";
 
 /** One row in a {@link SearchableSelect} list. */
 export interface ComboboxOption {
@@ -28,10 +27,6 @@ export interface SearchableSelectProps {
   /** Input placeholder, also the unselected closed state */
   placeholder: string;
   options: readonly ComboboxOption[];
-  /** Shown when the typed query matches nothing */
-  emptyText?: string;
-  /** Extra classes on the input (the visible control) */
-  className?: string;
 }
 
 /**
@@ -48,8 +43,6 @@ export function SearchableSelect({
   onValueChange,
   placeholder,
   options,
-  emptyText = "No matches",
-  className,
 }: SearchableSelectProps): JSX.Element {
   // Item values are the option objects; the external contract stays the
   // plain id string. Object identity would break under rebuilt arrays, so
@@ -66,10 +59,7 @@ export function SearchableSelect({
       <ComboboxPrimitive.Input
         id={id}
         placeholder={placeholder}
-        className={cn(
-          "flex h-9 w-full items-center whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-          className,
-        )}
+        className="flex h-9 w-full items-center whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
       <ComboboxPrimitive.Portal>
         <ComboboxPrimitive.Positioner align="start" sideOffset={4} className="isolate z-50">
@@ -95,7 +85,7 @@ export function SearchableSelect({
               )}
             </ComboboxPrimitive.List>
             <ComboboxPrimitive.Empty className="px-2 py-1.5 text-muted-foreground text-sm">
-              {emptyText}
+              No matches
             </ComboboxPrimitive.Empty>
           </ComboboxPrimitive.Popup>
         </ComboboxPrimitive.Positioner>

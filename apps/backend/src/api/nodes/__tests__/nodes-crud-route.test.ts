@@ -18,7 +18,7 @@ import {
   resetNodeRegistryForTests,
 } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { ensureLocalNode, localPlatform } from "@/services/nodes/seed-local.js";
 import { issueSessionToken } from "@/services/session-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -295,8 +295,8 @@ describe("/api/nodes registry CRUD", () => {
     await db.updateTable("nodes").set({ os: null, arch: null }).where("id", "=", "local").execute();
     try {
       const local = (await list(aliceCookie)).find((n) => n.id === "local");
-      expect(local?.os).toBe(process.platform);
-      expect(local?.arch).toBe(process.arch);
+      expect(local?.os).toBe(localPlatform().os);
+      expect(local?.arch).toBe(localPlatform().arch);
       // the view is honest, not a write-back — the row itself stays null
       const row = await nodes.findById("local");
       expect(row?.os).toBeNull();

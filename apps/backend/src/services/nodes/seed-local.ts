@@ -7,6 +7,16 @@ import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 
 /**
+ * The control-plane host's own platform, in the vocabulary nodes speak
+ * (`linux|darwin` × `process.arch`). The ONE mapping for "local's platform":
+ * the seed writes it, the node view falls back to it (spec 2026-09-02 §4b),
+ * so a future platform rule is edited in exactly one place.
+ */
+export function localPlatform(): { os: string; arch: string } {
+  return { os: process.platform === "darwin" ? "darwin" : "linux", arch: process.arch };
+}
+
+/**
  * Seeds the `local` node row + its Everyone/edit share — the control-plane
  * host as a first-class node (spec 2026-08-31 §2). Boot-time, idempotent.
  *
@@ -34,8 +44,7 @@ export async function ensureLocalNode(db: Kysely<Database>): Promise<void> {
       ownerUserId,
       name: "Local",
       kind: "local",
-      os: process.platform === "darwin" ? "darwin" : "linux",
-      arch: process.arch,
+      ...localPlatform(),
       // No Bun.hostname exists (the `hostname` in bun-types is on
       // TCPSocketListener); node:os is what session-manager already uses.
       // Drop the mDNS `.local` suffix — it clashes with the node's id spelling

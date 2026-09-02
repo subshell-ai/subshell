@@ -1,5 +1,5 @@
 import type { ComboboxOption } from "@/components/ui/combobox";
-import { nodeOptionLabel } from "@/lib/node-label";
+import { isOfflineAgent, nodeOptionLabel } from "@/lib/node-label";
 import type { Node } from "@/types/node";
 import type { ProfileRow } from "@/types/profile";
 
@@ -25,18 +25,26 @@ export type IncompatReason = "offline" | "not-installed" | "disabled";
  * @returns null when usable, else the reason code
  */
 export function harnessFitsNode(node: Node, harnessId: string): IncompatReason | null {
-  if (node.kind === "agent" && node.status === "offline") return "offline";
+  if (isOfflineAgent(node)) return "offline";
   const entry = node.harnesses.find((h) => h.harnessId === harnessId);
   if (!entry?.installed) return "not-installed";
   if (!entry.enabled) return "disabled";
   return null;
 }
 
+/**
+ * The hedge both sides of the matrix append when a grey rests on STALE
+ * inventory: a missing entry there is last-known state, not a confirmed
+ * fact — while a present-but-disabled entry IS confirmed (enablement is
+ * server-side config, never inventory-reported).
+ */
+const STALE_HEDGE = " (inventory may be outdated)";
+
 /** The muted reason text on a greyed profile row (node must be non-null). */
 function profileReasonText(node: Node, reason: IncompatReason): string {
   if (reason === "offline") return "node offline";
   if (reason === "disabled") return "disabled on this node";
-  return node.inventoryStale ? "not installed here (inventory may be outdated)" : "not installed on this node";
+  return node.inventoryStale ? `not installed here${STALE_HEDGE}` : "not installed on this node";
 }
 
 /**
@@ -64,18 +72,13 @@ export function buildNodeOptions(
   suggestionId: string | null,
 ): ComboboxOption[] {
   return nodes.map((n) => {
-    const offline = n.kind === "agent" && n.status === "offline";
+    const offline = isOfflineAgent(n);
     const fit = !offline && profile !== null ? harnessFitsNode(n, profile.harnessId) : null;
     const label = nodeOptionLabel(n, "Local") + (n.id === suggestionId ? " · default for this profile" : "");
     const opt: ComboboxOption = { value: n.id, label, disabled: offline || fit !== null };
     if (fit !== null && profile !== null) {
-      // Same stale hedge the profile side applies (`profileReasonText`): on a
-      // stale inventory a missing entry is last-known state, not a confirmed
-      // fact — while a present-but-disabled entry IS confirmed.
-      opt.reason =
-        fit === "not-installed" && n.inventoryStale
-          ? `no ${profile.harnessId} here (inventory may be outdated)`
-          : `no ${profile.harnessId} here`;
+      const stale = fit === "not-installed" && n.inventoryStale;
+      opt.reason = `no ${profile.harnessId} here${stale ? STALE_HEDGE : ""}`;
     }
     return opt;
   });

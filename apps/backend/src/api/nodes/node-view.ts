@@ -5,6 +5,7 @@ import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { type NodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
+import { localPlatform } from "@/services/nodes/seed-local.js";
 
 /**
  * Node registry view schemas + mappers (spec 2026-08-31 §9) — the shared
@@ -161,9 +162,9 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boole
     // `local` never sends `ready`, so its row CAN hold null os/arch (the seed
     // fills them only at creation) — report the control-plane host's real
     // platform from the view (spec 2026-09-02 §4b) so launch-picker labels
-    // never read "null/null".
-    os: row.kind === "local" ? (row.os ?? process.platform) : row.os,
-    arch: row.kind === "local" ? (row.arch ?? process.arch) : row.arch,
+    // never read "null/null". Same canonical mapping the seed writes.
+    os: row.kind === "local" ? (row.os ?? localPlatform().os) : row.os,
+    arch: row.kind === "local" ? (row.arch ?? localPlatform().arch) : row.arch,
     hostname: row.hostname,
     status: row.status,
     lastSeenAt: row.lastSeenAt,

@@ -9,6 +9,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
+import { isOfflineAgent } from "@/lib/node-label";
 import { buildNodeOptions, buildProfileOptions, harnessFitsNode, type LaunchProfile } from "@/lib/session-compat";
 import type { Node } from "@/types/node";
 
@@ -49,7 +50,7 @@ export function canSubmit(value: NewSessionFormValue): boolean {
  * `buildNodeOptions`. Mirrored in mobile `src/lib/node-anchor.ts`.
  */
 function isSelectable(n: Node): boolean {
-  return n.kind === "local" || n.status === "online";
+  return !isOfflineAgent(n);
 }
 
 /**
@@ -77,8 +78,9 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
  * offline pin selected; the override era ended with the hint that carried
  * it). An unearned suggestion releases back to "local" only while it still
  * owns the pick; anything the user touched stays touched. Pure, like
- * `pickNodeDefault`. Mirrored in mobile `src/lib/node-anchor.ts` (minus the
- * earned-gating — mobile has no pairing).
+ * `pickNodeDefault`. NOT mirrored 1:1 on mobile: `src/lib/node-anchor.ts`
+ * keeps the pre-rename `anchorDecision` semantics deliberately (spec §6
+ * non-goal) — do not blind-sync.
  */
 export function suggestDecision(p: {
   /** The earned suggestion row (pinned node, visible, selectable, compatible); null otherwise */
@@ -200,17 +202,20 @@ export function NewSessionForm({
       anchoredRef.current = d.anchoredTo;
       if (d.nodeId !== next.nodeId) next = { ...next, nodeId: d.nodeId };
       // Re-home the pick when what it pointed at vanished (e.g. an admin
-      // turned off local launching). Suppressed while a suggestion owns it.
-      if (!(suggestion !== null && !value.nodeExplicit)) {
-        const pick = pickNodeDefault(nodes, next.nodeId);
-        if (pick !== next.nodeId) next = { ...next, nodeId: pick };
-      }
+      // turned off local launching). Unconditional since the earned-gate:
+      // a suggestion owning the pick is by construction selectable and in
+      // `nodes`, so `pickNodeDefault` keeps it (the anchor era needed a
+      // suppression here because an offline pin could hold the pick).
+      const pick = pickNodeDefault(nodes, next.nodeId);
+      if (pick !== next.nodeId) next = { ...next, nodeId: pick };
     }
     if (next !== value) onChange(next);
   }, [recent, nodes, suggestion, value, onChange]);
 
   const nodeOptions = buildNodeOptions(nodes ?? [], selectedProfile ?? null, suggestion?.id ?? null);
-  const profileOptions = buildProfileOptions(profiles ?? [], value.nodeId === "" ? null : selectedNode);
+  // An unmade pick ("" ) never matches a row id, so selectedNode is already
+  // null there — nothing extra to guard.
+  const profileOptions = buildProfileOptions(profiles ?? [], selectedNode);
 
   // Honest dead-ends (spec §1): the pick stands, the pair cannot — say what
   // to fix and link there. Gate on LOADED, not non-empty: a loaded-zero list
@@ -224,7 +229,7 @@ export function NewSessionForm({
     nodes !== null &&
     selectedNode !== null &&
     profiles !== undefined &&
-    !(selectedNode.kind === "agent" && selectedNode.status === "offline") &&
+    !isOfflineAgent(selectedNode) &&
     profileOptions.every((o) => o.disabled);
   const noNodeHere = nodes !== null && selectedProfile !== undefined && nodeOptions.every((o) => o.disabled);
 

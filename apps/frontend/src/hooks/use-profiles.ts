@@ -15,10 +15,11 @@ export const PROFILES_QUERY_KEY = ["profiles"] as const;
  *   views; spec 2026-09-02 §4a). Default: the local filter.
  */
 export function useProfiles(opts: { node?: "any" } = {}) {
+  // One local so the cache-key segment and the wire string can never drift.
+  const node = opts.node;
   return useQuery({
-    queryKey: opts.node === undefined ? PROFILES_QUERY_KEY : ([...PROFILES_QUERY_KEY, "node", opts.node] as const),
-    queryFn: () =>
-      apiFetch<ProfileRow[]>(opts.node === undefined ? "/api/profiles" : `/api/profiles?node=${opts.node}`),
+    queryKey: node === undefined ? PROFILES_QUERY_KEY : ([...PROFILES_QUERY_KEY, "node", node] as const),
+    queryFn: () => apiFetch<ProfileRow[]>(node === undefined ? "/api/profiles" : `/api/profiles?node=${node}`),
   });
 }
 

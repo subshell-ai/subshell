@@ -39,7 +39,7 @@ export function toSessionCreateBody({ profileId, workingDir, name, nodeId }: Cre
     profileId,
     workingDir,
     name: name.trim() || undefined,
-    nodeId: nodeId && nodeId !== "" ? nodeId : undefined,
+    nodeId: nodeId ? nodeId : undefined,
   };
 }
 
