@@ -7,6 +7,7 @@ import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
@@ -499,5 +500,71 @@ describe("profile node pinning (spec 2026-08-31 §6.2, T15a)", () => {
   it("an empty nodeId → 400 (malformed)", async () => {
     const res = await post({ harnessId: "claude-code", name: "pin-empty", nodeId: "" });
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * `?node=any` (spec 2026-09-02 node-profile-pairing §4a): the new-session
+ * form pairs profiles against EVERY node client-side, so it must see profiles
+ * whose harness is off here. The default listing keeps its local gate —
+ * mobile and the profiles page rely on the hiding.
+ */
+describe("GET /api/profiles — node=any", () => {
+  let userId: string;
+  let cookie: string;
+  let profileId: string;
+  const email = `profany-${crypto.randomUUID()}@subshell.local`;
+  const password = "profany-pass-1234";
+  const profiles = new ProfilesRepository(db);
+  const plugins = new HarnessPluginsRepository(db);
+
+  beforeAll(async () => {
+    // claude-code must read as INSTALLED so the row's absence under the
+    // default listing can only come from the disabled state (same technique
+    // as the file's first describe).
+    process.env.CLAUDE_PATH = "/bin/true";
+    await setupAuthTables();
+    userId = await new UsersRepository(db).createUser({
+      email,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    cookie = await signIn(email, password);
+    profileId = (
+      await profiles.create({
+        id: crypto.randomUUID(),
+        userId,
+        harnessId: "claude-code",
+        name: `any-${crypto.randomUUID()}`,
+        description: null,
+        envJson: null,
+        flagsJson: null,
+        settingsJson: null,
+        configIsolation: 0,
+        restartOnExit: 0,
+      })
+    ).id;
+    await plugins.setEnabled("claude-code", false);
+  });
+
+  afterAll(async () => {
+    // Restore the lazy-default state so sibling suites see the plugin's own
+    // enabledByDefault again.
+    await plugins.setEnabled("claude-code", true);
+    await deleteUserByEmailOrId(email);
+  });
+
+  it("hides the disabled-harness profile without the param", async () => {
+    const res = await app.fetch(authedRequest("/api/profiles", cookie));
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { id: string }[];
+    expect(rows.map((r) => r.id)).not.toContain(profileId);
+  });
+
+  it("returns it when node=any is passed", async () => {
+    const res = await app.fetch(authedRequest("/api/profiles?node=any", cookie));
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { id: string }[];
+    expect(rows.map((r) => r.id)).toContain(profileId);
   });
 });

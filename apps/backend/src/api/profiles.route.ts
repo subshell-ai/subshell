@@ -126,12 +126,17 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       // they are not listed anywhere (cards, new-session pickers), and
       // re-enabling/installing the harness brings them back — nothing here
       // is ever deleted.
-      // LOCAL-scoped by design in phase 1 (usableHarnessIds() probes this
-      // machine): a profile usable anywhere still gates on local. Per-node
-      // launch gating (harnessUsable(id, session.nodeId)) arrives with the
-      // phase-2 launch flow (spec 2026-08-31 §6.2/§6.6).
-      const usable = await usableHarnessIds();
-      const visible = rows.filter((p) => usable.has(p.harnessId));
+      // The gate is LOCAL by nature (usableHarnessIds() probes this machine).
+      // `?node=any` skips it entirely (spec 2026-09-02 node-profile-pairing
+      // §4a): the launch picker pairs profiles against every node from the
+      // per-node states on the node views, so it must see rows this host
+      // would hide. Per-NODE server filtering is deliberately not offered —
+      // the matrix needs the full list anyway.
+      let visible = rows;
+      if (query.node !== "any") {
+        const usable = await usableHarnessIds();
+        visible = rows.filter((p) => usable.has(p.harnessId));
+      }
       if (actor === "cookie") return visible;
       // Reads stay open to bearer actors for `list_profiles`, but that
       // tool only projects {id,name,harnessId} — the REST body's `envJson`
@@ -146,13 +151,19 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
     {
       query: t.Object({
         harnessId: t.Optional(t.String({ description: "Filter by harness id" })),
+        node: t.Optional(
+          t.String({
+            description:
+              'Pass "any" to skip the local harness-usability filter (the launch picker pairs profiles per node client-side)',
+          }),
+        ),
       }),
       response: t.Array(ProfileSchema, { description: "User's profiles" }),
       detail: {
         operationId: "listProfiles",
         tags: ["profiles"],
         description:
-          "Lists the authenticated user's profiles (bearer/machine actors get envJson redacted to null; cookie sessions see full rows)",
+          "Lists the authenticated user's profiles (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Pass node=any to skip the local harness-usability filter",
       },
     },
   )
