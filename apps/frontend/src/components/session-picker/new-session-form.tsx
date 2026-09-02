@@ -213,12 +213,20 @@ export function NewSessionForm({
   const profileOptions = buildProfileOptions(profiles ?? [], value.nodeId === "" ? null : selectedNode);
 
   // Honest dead-ends (spec §1): the pick stands, the pair cannot — say what
-  // to fix and link there. Only after BOTH lists actually loaded, and never
-  // while a side is unchosen.
+  // to fix and link there. Gate on LOADED, not non-empty: a loaded-zero list
+  // is exactly the dead-end the hint names, while a still-loading one
+  // (undefined/null) stays quiet — `every` on empty options is vacuously
+  // true, so the loaded checks are load-bearing. Never while a side is
+  // unchosen, and never for an offline agent: the row reasons already say
+  // "node offline", so "no profiles run here" would misdiagnose a down host
+  // as an empty one.
   const noProfilesHere =
-    nodes !== null && selectedNode !== null && (profiles ?? []).length > 0 && profileOptions.every((o) => o.disabled);
-  const noNodeHere =
-    nodes !== null && nodes.length > 0 && selectedProfile !== undefined && nodeOptions.every((o) => o.disabled);
+    nodes !== null &&
+    selectedNode !== null &&
+    profiles !== undefined &&
+    !(selectedNode.kind === "agent" && selectedNode.status === "offline") &&
+    profileOptions.every((o) => o.disabled);
+  const noNodeHere = nodes !== null && selectedProfile !== undefined && nodeOptions.every((o) => o.disabled);
 
   return (
     <div className="space-y-4">

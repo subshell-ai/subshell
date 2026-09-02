@@ -68,7 +68,15 @@ export function buildNodeOptions(
     const fit = !offline && profile !== null ? harnessFitsNode(n, profile.harnessId) : null;
     const label = nodeOptionLabel(n, "Local") + (n.id === suggestionId ? " · default for this profile" : "");
     const opt: ComboboxOption = { value: n.id, label, disabled: offline || fit !== null };
-    if (fit !== null && profile !== null) opt.reason = `no ${profile.harnessId} here`;
+    if (fit !== null && profile !== null) {
+      // Same stale hedge the profile side applies (`profileReasonText`): on a
+      // stale inventory a missing entry is last-known state, not a confirmed
+      // fact — while a present-but-disabled entry IS confirmed.
+      opt.reason =
+        fit === "not-installed" && n.inventoryStale
+          ? `no ${profile.harnessId} here (inventory may be outdated)`
+          : `no ${profile.harnessId} here`;
+    }
     return opt;
   });
 }
