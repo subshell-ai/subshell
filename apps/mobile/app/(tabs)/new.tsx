@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import { PrimaryButton } from "@/components/primary-button";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { errMessage } from "@/lib/api-error";
+import { anchorDecision } from "@/lib/node-anchor";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { useMote } from "@/providers/mote-provider";
 import type { ExploreResult } from "@/types/profile";
@@ -48,6 +49,26 @@ export default function NewSession() {
   useEffect(() => {
     if (!profileId && profiles.data?.length) setProfileId(profiles.data[0].id);
   }, [profiles.data, profileId]);
+
+  // Pinned-profile re-anchor (mirror of the web `anchorDecision`): the
+  // selected profile's pin holds the node pick until the user overrides it
+  // via the chip row; an anchor that stops being earned falls back to Local.
+  // A pin to `local` is the default anyway — treated as no pin.
+  const pinnedNodeId = (profiles.data ?? []).find((p) => p.id === profileId)?.nodeId ?? null;
+  const pinRow =
+    pinnedNodeId && pinnedNodeId !== "local" ? ((nodes.data ?? []).find((n) => n.id === pinnedNodeId) ?? null) : null;
+  const nodeExplicitRef = useRef(false);
+  const anchoredRef = useRef<string | null>(null);
+  useEffect(() => {
+    const d = anchorDecision({
+      pinRow,
+      explicit: nodeExplicitRef.current,
+      current: nodeId,
+      anchoredTo: anchoredRef.current,
+    });
+    anchoredRef.current = d.anchoredTo;
+    if (d.nodeId !== nodeId) setNodeId(d.nodeId);
+  }, [pinRow, nodeId]);
 
   async function openDir(path?: string) {
     if (!client || dirBusy) return;
@@ -122,7 +143,12 @@ export default function NewSession() {
                 {(profiles.data ?? []).map((p) => (
                   <Pressable
                     key={p.id}
-                    onPress={() => setProfileId(p.id)}
+                    onPress={() => {
+                      // A profile change restarts the anchor game: the new
+                      // profile's pin (if any) anchors until a fresh pick.
+                      nodeExplicitRef.current = false;
+                      setProfileId(p.id);
+                    }}
                     style={{
                       padding: 10,
                       borderRadius: radius,
@@ -153,7 +179,12 @@ export default function NewSession() {
                   return (
                     <Pressable
                       key={n.id}
-                      onPress={() => setNodeId(n.id)}
+                      onPress={() => {
+                        // The user's own pick outranks the profile pin's
+                        // anchor until the next profile change.
+                        nodeExplicitRef.current = true;
+                        setNodeId(n.id);
+                      }}
                       disabled={!pickable}
                       style={{
                         padding: 10,
@@ -173,6 +204,16 @@ export default function NewSession() {
               </View>
             </ScrollView>
           </View>
+        ) : null}
+
+        {/* The pin is invisible only while it is not the pick: Local on a
+            pinned profile means the server re-applies the pin — say so
+            instead of letting the picker lie by omission (web mirror). The
+            pinned row may be gone from the list; fall back to prose. */}
+        {pinnedNodeId && pinnedNodeId !== "local" && nodeId === "local" ? (
+          <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
+            {`This profile runs on ${pinRow?.name ?? "another node"} — it overrides Local.`}
+          </Text>
         ) : null}
 
         <View style={{ gap: 6 }}>

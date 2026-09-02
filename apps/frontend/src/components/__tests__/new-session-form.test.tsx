@@ -3,12 +3,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import {
+  anchorDecision,
   canSubmit,
   emptyNewSessionForm,
   NewSessionForm,
   type NewSessionFormValue,
   pickNodeDefault,
 } from "@/components/session-picker/new-session-form";
+import { toSessionCreateBody } from "@/hooks/use-create-session";
 import type { Node } from "@/types/node";
 
 /**
@@ -43,12 +45,29 @@ const LOCAL = node({ id: "local", name: "this host", kind: "local", access: "vie
 const AGENT_ONLINE = node({ id: "a1", name: "mac mini", status: "online" });
 const AGENT_OFFLINE = node({ id: "a2", name: "old laptop", status: "offline" });
 
-function mockFetch(nodes: Node[]) {
+/** One pinned-profile row; only the fields the form reads. */
+function pinnedProfile(nodeId: string | null, name = "pinned prof") {
+  return {
+    id: "p1",
+    harnessId: "claude-code",
+    name,
+    description: null,
+    envJson: null,
+    flagsJson: null,
+    settingsJson: null,
+    configIsolation: 0,
+    restartOnExit: 0,
+    isDefault: 0,
+    nodeId,
+  };
+}
+
+function mockFetch(nodes: Node[], profiles: unknown[] = []) {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes })));
-    if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify([])));
+    if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify(profiles)));
     if (path === "/api/files/recent") return Promise.resolve(new Response(JSON.stringify({ paths: [] })));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
@@ -124,6 +143,84 @@ describe("NewSessionForm node picker", () => {
       await waitFor(() => expect(latest().nodeId).toBe(""));
       expect(screen.getByText("Choose a node")).toBeDefined();
       expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "" })).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+});
+
+/**
+ * The pinned-profile re-anchor: profile.nodeId drags the picker onto its
+ * node until the user overrides it, so the picker never reads "Local" while
+ * the pin lands the session elsewhere. Wire rule untouched (spec §6.6):
+ * anchored → forwarded id; explicit Local → omitted (the pin re-applies
+ * server-side — visibly).
+ */
+describe("anchorDecision", () => {
+  it("anchors to the pinned node while the user stays silent", () => {
+    const d = anchorDecision({ pinRow: AGENT_ONLINE, explicit: false, current: "local", anchoredTo: null });
+    expect(d).toEqual({ nodeId: "a1", anchoredTo: "a1" });
+  });
+
+  it("an explicit pick — Local included — outranks the anchor", () => {
+    const d = anchorDecision({ pinRow: AGENT_ONLINE, explicit: true, current: "local", anchoredTo: "a1" });
+    expect(d).toEqual({ nodeId: "local", anchoredTo: "a1" });
+  });
+
+  it("releases an unearned anchor back to local (only while it still owns the pick)", () => {
+    expect(anchorDecision({ pinRow: null, explicit: false, current: "a1", anchoredTo: "a1" }).nodeId).toBe("local");
+    // The user touched a node (or moved on) — the pick is theirs, not the
+    // stale anchor's, and stays put.
+    expect(anchorDecision({ pinRow: null, explicit: true, current: "a1", anchoredTo: "a1" }).nodeId).toBe("a1");
+    expect(anchorDecision({ pinRow: null, explicit: false, current: "local", anchoredTo: "a1" }).nodeId).toBe("local");
+  });
+});
+
+describe("NewSessionForm pinned-profile re-anchor", () => {
+  it("anchors the selection to the pinned node and forwards its id on the wire", async () => {
+    const restore = mockFetch([LOCAL, AGENT_ONLINE], [pinnedProfile("a1")]);
+    try {
+      const { latest } = renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
+      await waitFor(() => expect(latest().nodeId).toBe("a1"));
+      // The trigger shows the pin (honest picker) and the body forwards the
+      // pinned id — explicit beats pin, same landing spot.
+      expect(await screen.findByText("mac mini")).toBeDefined();
+      expect(toSessionCreateBody(latest()).nodeId).toBe("a1");
+      // No override warning: the picker already tells the truth.
+      expect(screen.queryByText(/overrides Local/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("an explicit Local pick survives the anchor, goes omitted on the wire, and warns", async () => {
+    const restore = mockFetch([LOCAL, AGENT_ONLINE], [pinnedProfile("a1")]);
+    try {
+      const { latest } = renderForm({
+        profileId: "p1",
+        workingDir: "/tmp/x",
+        name: "",
+        nodeId: "local",
+        nodeExplicit: true, // a user pick since this profile change
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(latest().nodeId).toBe("local");
+      expect(toSessionCreateBody(latest()).nodeId).toBeUndefined();
+      expect(screen.getByText("This profile runs on mac mini — it overrides Local.")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("an offline pinned node stays selected — the 409 will match the display", async () => {
+    const restore = mockFetch([LOCAL, AGENT_OFFLINE], [pinnedProfile("a2")]);
+    try {
+      const { latest } = renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
+      await waitFor(() => expect(latest().nodeId).toBe("a2"));
+      // Not re-homed to local by the vanish rule: the disabled-but-selected
+      // chip IS the honest launch target.
+      expect(screen.getByText("old laptop — offline")).toBeDefined();
+      expect(screen.queryByText(/overrides Local/)).toBeNull();
     } finally {
       restore();
     }

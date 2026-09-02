@@ -18,9 +18,18 @@ export interface NewSessionFormValue {
   /**
    * Launch node — defaults to "local" (the control-plane host). "" means no
    * valid choice is made yet (local vanished from the list with several other
-   * nodes around), which blocks submit until the user picks one.
+   * nodes around), which blocks submit until the user picks one. A pinned
+   * profile re-anchors this to its node until the user makes an explicit pick
+   * (see `anchorDecision`).
    */
   nodeId: string;
+  /**
+   * True once the user picks a node through the picker; cleared on every
+   * profile change. Distinguishes a user's own pick from an auto-anchor —
+   * a user who deliberately picks Local stays on Local (the server then
+   * re-applies the pin; the inline hint says so).
+   */
+  nodeExplicit?: boolean;
 }
 
 export function emptyNewSessionForm(): NewSessionFormValue {
@@ -55,6 +64,37 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
   const selectable = nodes.filter(isSelectable);
   if (selectable.length === 1) return selectable[0].id;
   return "";
+}
+
+/**
+ * Pinned-profile re-anchor (spec §6.6, UI side): when the selected profile
+ * pins a launch node and the user has NOT picked a node since the profile
+ * change, the picker holds the pinned node — shown as selected, offline and
+ * all, so a pinned-offline launch 409s exactly where the picker points.
+ * The wire rule is unchanged (`toSessionCreateBody`): this merely makes the
+ * explicit pick honest — a pinned launch now forwards the pinned id instead
+ * of omitting it and letting the pin land invisibly. An anchor the user's
+ * pick replaces stays replaced (Local included); an anchor that stops being
+ * earned — profile switched to an unpinned one, or the pin vanished from the
+ * list — releases the pick back to "local", because it was never the user's.
+ * Pure, like `pickNodeDefault`, so the matrix is testable without opening a
+ * Base UI dropdown. Mirrored in mobile `src/lib/node-anchor.ts`.
+ */
+export function anchorDecision(p: {
+  /** The profile's pinned node row (list loaded, id present, not `local`); null otherwise */
+  pinRow: Node | null;
+  /** The user picked a node through the picker since the last profile change */
+  explicit: boolean;
+  /** The pick currently held by the form */
+  current: string;
+  /** What the anchor auto-selected last, if it still owns the pick */
+  anchoredTo: string | null;
+}): { nodeId: string; anchoredTo: string | null } {
+  if (p.pinRow && !p.explicit) return { nodeId: p.pinRow.id, anchoredTo: p.pinRow.id };
+  if (!p.pinRow && !p.explicit && p.anchoredTo !== null && p.current === p.anchoredTo) {
+    return { nodeId: "local", anchoredTo: null };
+  }
+  return { nodeId: p.current, anchoredTo: p.anchoredTo };
 }
 
 /** Element ids of the form fields, for `htmlFor`/`id` association. */
@@ -93,7 +133,13 @@ const DIALOG_IDS: NewSessionFormIds = {
  * real (spec §6.6) — the id rides the POST and the server resolves it against
  * the registry, so the picker is a launch-target chooser, not a hint. An
  * offline agent is disabled; a node that went down since the list loaded
- * surfaces as the caller's inline 409 copy.
+ * surfaces as the caller's inline 409 copy. A profile that pins a node
+ * re-anchors the picker to that node until the user overrides it (`anchorDecision`)
+ * — with one exception kept visible on purpose: an anchored OFFLINE pin stays
+ * selected, so the launch 409 matches the displayed target; and if the user
+ * goes back to Local on a pinned profile, the inline hint says the pin will
+ * override it (the wire stays honest: Local is sent as an omission and the
+ * server re-applies the pin).
  */
 export function NewSessionForm({
   value,
@@ -123,10 +169,20 @@ export function NewSessionForm({
   // error body, an older stub) leaves the current pick untouched.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
 
-  // ONE effect for both automatic corrections. They used to be two effects,
-  // and when the two queries landed on the same commit the node re-anchor
-  // (computed from the same stale `value`) clobbered the working-dir
-  // pre-fill — composing the final value once here makes that impossible.
+  // The selected profile's pin, resolved to a row when the list carries it.
+  // A pin to `local` is the default anyway — treated as no pin everywhere.
+  const pinnedNodeId = (profiles ?? []).find((p) => p.id === value.profileId)?.nodeId ?? null;
+  const pinRow =
+    nodes && pinnedNodeId && pinnedNodeId !== "local" ? (nodes.find((n) => n.id === pinnedNodeId) ?? null) : null;
+  // What the anchor auto-selected last; owned by the component, cleared by
+  // `anchorDecision` when the anchor stops being earned.
+  const anchoredRef = useRef<string | null>(null);
+
+  // ONE effect for all automatic corrections. They used to be separate
+  // effects, and when the two queries landed on the same commit the node
+  // re-anchor (computed from the same stale `value`) clobbered the
+  // working-dir pre-fill — composing the final value once here makes that
+  // impossible.
   useEffect(() => {
     let next = value;
     if (!prefillDoneRef.current) {
@@ -136,16 +192,36 @@ export function NewSessionForm({
         if (next.workingDir === "") next = { ...next, workingDir: first };
       }
     }
-    // Re-home the pick when what it pointed at vanished (e.g. an admin turned
-    // off local launching). Only once the list actually loaded.
     if (nodes) {
-      const pick = pickNodeDefault(nodes, next.nodeId);
-      if (pick !== next.nodeId) next = { ...next, nodeId: pick };
+      // Pinned-profile re-anchor: hold the pick on the profile's node until
+      // the user overrides it. Runs BEFORE the vanish re-home below, and
+      // suppresses it while active: a pinned OFFLINE row is not "selectable"
+      // by `isSelectable`, but dropping it would hide the very target the
+      // launch will 409 on — show it selected instead.
+      const d = anchorDecision({
+        pinRow,
+        explicit: Boolean(value.nodeExplicit),
+        current: next.nodeId,
+        anchoredTo: anchoredRef.current,
+      });
+      anchoredRef.current = d.anchoredTo;
+      if (d.nodeId !== next.nodeId) next = { ...next, nodeId: d.nodeId };
+      // Re-home the pick when what it pointed at vanished (e.g. an admin
+      // turned off local launching). Only once the list actually loaded.
+      if (!(pinRow && !value.nodeExplicit)) {
+        const pick = pickNodeDefault(nodes, next.nodeId);
+        if (pick !== next.nodeId) next = { ...next, nodeId: pick };
+      }
     }
     if (next !== value) onChange(next);
-  }, [recent, nodes, value, onChange]);
+  }, [recent, nodes, pinRow, value, onChange]);
 
   const options = nodes ?? [];
+
+  // The pin is invisible only while it is not the pick: Local (or an
+  // unmade pick) on a pinned profile means the server will re-apply the
+  // pin — say so rather than let the picker lie by omission.
+  const pinOverridesLocal = pinnedNodeId !== null && pinnedNodeId !== "local" && value.nodeId === "local";
 
   return (
     <div className="space-y-4">
@@ -154,7 +230,9 @@ export function NewSessionForm({
         <Select
           value={value.profileId}
           // Base UI select values widen to `Value | null`; never null here.
-          onValueChange={(profileId) => profileId !== null && onChange({ ...value, profileId })}
+          // A profile change clears the explicit-node flag: every pin starts
+          // with a fresh anchor ("explicit pick SINCE the profile change").
+          onValueChange={(profileId) => profileId !== null && onChange({ ...value, profileId, nodeExplicit: false })}
           // Base UI's Value prints the raw value without this map; the label
           // format must match the item text below (e2e asserts on it).
           items={(profiles ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.harnessId})` }))}
@@ -176,7 +254,9 @@ export function NewSessionForm({
         <Label htmlFor={ids.node}>Node</Label>
         <Select
           value={value.nodeId}
-          onValueChange={(nodeId) => nodeId !== null && onChange({ ...value, nodeId })}
+          // A pick through this control is the user's own — it outranks the
+          // profile pin's anchor until the next profile change.
+          onValueChange={(nodeId) => nodeId !== null && onChange({ ...value, nodeId, nodeExplicit: true })}
           items={options.map((n) => ({
             value: n.id,
             label: nodeOptionLabel(n, "Local"),
@@ -193,6 +273,14 @@ export function NewSessionForm({
             ))}
           </SelectContent>
         </Select>
+        {pinOverridesLocal ? (
+          // One template literal so the hint is a single text node (test- and
+          // screen-reader-friendly). The node may be gone from the list (pin
+          // id still drives the server's resolve path) — fall back to prose.
+          <p className="text-muted-foreground text-xs">
+            {`This profile runs on ${pinRow?.name ?? "another node"} — it overrides Local.`}
+          </p>
+        ) : null}
       </div>
 
       <div className="space-y-2">
