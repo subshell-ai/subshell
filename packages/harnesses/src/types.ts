@@ -202,3 +202,12 @@ export interface HarnessPlugin {
   /** Maps a harness exit code to a human label (null = unknown). */
   exitStatus?(code: number): string | null;
 }
+
+/**
+ * The MCP server name every harness registers the built-in `subshell mcp`
+ * server under — the `mcpServers`/`mcp` config object key and the
+ * `hermes mcp add|remove` argument alike. The server itself reports the same
+ * name in its MCP handshake (`@internal/mcp-core` server.ts), which is what
+ * harnesses surface in wire tool ids (`mcp__<name>__<tool>`).
+ */
+export const MCP_SERVER_NAME = "subshell";

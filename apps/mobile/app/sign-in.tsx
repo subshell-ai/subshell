@@ -7,12 +7,12 @@ import { PrimaryButton } from "@/components/primary-button";
 import { ApiError, errMessage } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { colors } from "@/lib/tokens";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /** Sign in as the cookie actor (spec §Auth). Rate-limit copy included. */
 export default function SignIn() {
   const insets = useSafeAreaInsets();
-  const { client } = useMote();
+  const { client } = useSubshell();
   const { instances, activeId, setEmail } = useApp();
   const instance = instances.find((r) => r.id === activeId) ?? null;
   const [email, setEmailInput] = useState(instance?.email ?? "");

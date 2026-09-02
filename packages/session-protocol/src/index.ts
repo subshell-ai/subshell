@@ -51,10 +51,12 @@ export {
   verifyCommand,
 } from "./node-signing.js";
 export {
+  DEFAULT_DATABASE_PATH,
   defaultSessionDataDir,
   NODE_TARGETS,
   type NodeArtifactsEnv,
   type NodeTarget,
+  nodeArtifactFileName,
   resolveNodeArtifactsDir,
 } from "./paths.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";

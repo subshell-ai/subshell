@@ -10,6 +10,8 @@
  *    binaries are published/served. Drift means the release publishes to a
  *    directory the running backend never serves — invisible until an install
  *    404s.
+ * 3. {@link nodeArtifactFileName} — the artifact NAME each side writes/reads.
+ *    Same failure shape as 2: publish under one name, serve under another.
  *
  * Apps never import each other, so cross-boundary contracts live in
  * `@internal/session-protocol` (precedent: WS frames, upload limits).
@@ -20,6 +22,21 @@ export type NodeTarget = (typeof NODE_TARGETS)[number];
 
 /** The closed set of platform triples the `subshell` is published for (spec §8). */
 export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
+
+/**
+ * The file name a built binary is published as and served under:
+ * `subshell-<target>` (plus a `.sha256` sidecar written/read alongside it).
+ * The agent's release pipeline and the backend's downloads route must agree —
+ * drift is a 404 on install. `target` is normally a {@link NodeTarget}; the
+ * parameter stays a plain string because the release pipeline's host-override
+ * path schedules arbitrary `platform-arch` strings through the same naming.
+ */
+export function nodeArtifactFileName(target: string): string {
+  return `subshell-${target}`;
+}
+
+/** Fallback SQLite path when `DATABASE_PATH` is unset — the data dir derives from it. */
+export const DEFAULT_DATABASE_PATH = "./data/subshell.db";
 
 /** The three env vars that steer the artifacts location (raw strings, as found on `process.env`). */
 export interface NodeArtifactsEnv {
@@ -37,7 +54,7 @@ export interface NodeArtifactsEnv {
  * @param env - raw environment values (only `DATABASE_PATH` is read)
  */
 export function defaultSessionDataDir(env: NodeArtifactsEnv): string {
-  const raw = env.DATABASE_PATH || "./data/subshell.db";
+  const raw = env.DATABASE_PATH || DEFAULT_DATABASE_PATH;
   if (raw.startsWith("file:") || raw.includes(":memory:") || !raw.includes("/")) return "./data";
   return raw.slice(0, Math.max(0, raw.lastIndexOf("/"))) || ".";
 }

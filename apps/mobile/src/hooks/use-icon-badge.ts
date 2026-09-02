@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useWaitingState } from "@/hooks/use-summary";
 import { setIconBadge } from "@/native/push";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * App-icon badge reconciliation (spec §Push acceptance: "badge equals the
@@ -21,7 +21,7 @@ import { useMote } from "@/providers/subshell-provider";
  * poll loop is the icon's ONLY writer while the app can see the truth.
  */
 export function useIconBadge(): void {
-  const { client } = useMote();
+  const { client } = useSubshell();
   const { waiting, loading } = useWaitingState();
   useEffect(() => {
     if (!client) {

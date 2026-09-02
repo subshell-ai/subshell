@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 import { polledInterval } from "@/hooks/polled-interval";
 import { SESSIONS_KEY, SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * The list poll (spec §Transport): 3 s while anything runs/waits, 15 s
@@ -12,7 +12,7 @@ import { useMote } from "@/providers/subshell-provider";
  * source of truth for every screen; nothing else re-fetches.
  */
 export function useSessions() {
-  const { client } = useMote();
+  const { client } = useSubshell();
   const qc = useQueryClient();
   const foreground = useForeground();
 

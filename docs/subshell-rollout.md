@@ -11,8 +11,15 @@ must move in one pass.
   step 3 kills every harness pane (tmux sockets are renamed `mote-<hash>` →
   `subshell-<hash>`; the new backend cannot attach old sockets, so running panes
   end here). Accepted, per the rename spec.
-- The last step renames the repo directory — nothing can be running with that cwd.
-- Keep old units stopped but their files readable until step 12 smoke passes.
+- Step 11 renames the repo directory — nothing can be running with that cwd
+  (step 12's smoke test runs from the new path).
+- Keep old units stopped but their files readable until step 12 smoke passes —
+  the unit-file deletion happens only in the final cleanup note after it.
+- `docker-compose.override.yaml` is untracked by design, so the rename never
+  touched it: if you use Docker on this host, open it now — it still keys the
+  service `mote:` while `docker-compose.yaml` now says `subshell:`, and
+  `docker compose config` fails on the mismatch. (Fixed on this host during
+  the rename; check any other machine.)
 
 1. **Build fresh artifacts** (repo root):
 
@@ -68,7 +75,8 @@ must move in one pass.
 8. **Drop ALL stored API keys — this step is mandatory, not cosmetic.**
    better-auth's api-key plugin applies the prefix only at *creation*;
    verification is a plain hash lookup, so old `mote_` keys **still authenticate**
-   until deleted. This is also the opportunity to clear them wholesale:
+   until deleted. This is also the opportunity to clear them wholesale (it is
+   also the one irreversible step here — see Rollback):
 
    ```bash
    sqlite3 ~/.config/subshell/subshell.db '.schema apiKey'   # inspect first
@@ -89,15 +97,21 @@ must move in one pass.
    systemctl --user daemon-reload
    systemctl --user enable --now subshell-server.service
    systemctl --user disable mote.service
-   rm -f ~/.config/systemd/user/mote.service
    ```
+
+   The `disable` is load-bearing, not tidiness: while `mote.service` stays
+   enabled it also starts at login, and the two backends then fight over the
+   same sessions/nodes (WS supersede kicks → a permanent dial/reconnect loop
+   until one is disabled). The old unit FILE stays until post-smoke cleanup.
 
 10. **Re-enroll node hosts**: on each node, run the new enroll command from the
     Nodes page (fresh setup key). The old `mote-agent` binaries still dial in,
     but their rows can be deleted in the Nodes page once the new enrollments
-    check out. On a macOS node, `subshell service install` replaces the
-    `dev.mote.agent` launchd job — remove the old one first (step 2 covers the
-    control-plane host; on the node itself: `launchctl remove dev.mote.agent`).
+    check out. On a macOS node, `subshell service install` creates a NEW
+    `dev.subshell.agent` launchd job — it does NOT touch the old `dev.mote.agent`
+    KeepAlive job, which would respawn the old agent alongside the new one;
+    remove it explicitly (step 2 covers the control-plane host; on the node:
+    `launchctl remove dev.mote.agent`).
 
 11. **Rename the repo directory and the Claude memory folder — the only steps that
     must run from OUTSIDE the repo, with no Claude session open in it:**
@@ -125,6 +139,16 @@ must move in one pass.
     `subshell` with tools `list_channels`, `create_session`, … (no prefix);
     fire a push notification and confirm the title reads `subshell`.
 
+**Post-smoke cleanup** (only after step 12 passes):
+
+```bash
+rm -f ~/.config/systemd/user/mote.service
+systemctl --user daemon-reload
+```
+
 **Rollback**: there is none in code. Restoring means checking out the pre-rename
 commit, moving the data dir/DB names back (steps 4–6 reversed), and reinstalling
-`mote.service`. Do step 8's DELETE only once you're confident.
+`mote.service` (run the old tree's `svc.sh`, or recreate the unit from
+`git show HEAD~:svc.sh` if you already deleted the file — which is why cleanup
+above waits for smoke). Step 8's key deletion does NOT roll back: every system
+key must be re-created regardless.

@@ -42,4 +42,5 @@ export type {
   ProfileValidationResult,
   SettingsField,
 } from "./types.js";
+export { MCP_SERVER_NAME } from "./types.js";
 export { validateGenericProfile } from "./validate.js";

@@ -1,7 +1,7 @@
 import { type Stats, statSync } from "node:fs";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { NODE_TARGETS, type NodeTarget } from "@internal/session-protocol";
+import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/session-protocol";
 import { Elysia, t } from "elysia";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
@@ -64,7 +64,7 @@ function unauthorized() {
 
 /** Absolute path of a target's binary. `target` is {@link isNodeTarget}-gated upstream. */
 function artifactPath(target: NodeTarget): string {
-  return join(NODE_ARTIFACTS_DIR, `subshell-${target}`);
+  return join(NODE_ARTIFACTS_DIR, nodeArtifactFileName(target));
 }
 
 /**
@@ -178,7 +178,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     return new Response(file, {
       headers: {
         "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="subshell-${params.target}"`,
+        "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
         "Cache-Control": "private, no-cache",
       },
     });

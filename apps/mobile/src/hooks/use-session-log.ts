@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * The Log tab source (spec §Rendering): the already-stripAnsi-ed native tail.
@@ -7,7 +7,7 @@ import { useMote } from "@/providers/subshell-provider";
  * tail, not a stream, so the 3 s loop would be theatre.
  */
 export function useSessionLog(id: string, enabled: boolean) {
-  const { client } = useMote();
+  const { client } = useSubshell();
   return useQuery({
     enabled: Boolean(client && id && enabled),
     queryKey: ["session-log", id],

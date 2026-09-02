@@ -5,7 +5,7 @@ import { colors } from "@/lib/tokens";
 import { PushBridge } from "@/providers/push-bridge";
 import { SubshellProvider } from "@/providers/subshell-provider";
 
-/** Root: dark chrome, providers once, every route below sees useMote()/queries. */
+/** Root: dark chrome, providers once, every route below sees useSubshell()/queries. */
 export default function RootLayout() {
   return (
     <SafeAreaProvider>

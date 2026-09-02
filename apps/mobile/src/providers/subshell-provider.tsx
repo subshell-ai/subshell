@@ -83,6 +83,6 @@ export function SubshellProvider({ children }: { children: ReactNode }) {
 }
 
 /** The active client or null (pre-connect / no instance). */
-export function useMote(): { client: SubshellClient | null } {
+export function useSubshell(): { client: SubshellClient | null } {
   return useContext(SubshellContext);
 }

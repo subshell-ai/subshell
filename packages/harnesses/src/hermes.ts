@@ -9,6 +9,7 @@ import type {
   ProfileValidationResult,
   SettingsField,
 } from "./types.js";
+import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
 
 /** Hermes per-invocation overrides, applied as CLI flags (no config file writes). */
@@ -162,10 +163,10 @@ export class HermesPlugin implements HarnessPlugin {
       mode: "manual",
       steps: [
         {
-          label: "Register subshell once (adds it to ~/.hermes/config.yaml):",
-          command: `hermes mcp add subshell --command ${shellQuote(launch.command)}${argsPart}`,
+          label: `Register ${MCP_SERVER_NAME} once (adds it to ~/.hermes/config.yaml):`,
+          command: `hermes mcp add ${MCP_SERVER_NAME} --command ${shellQuote(launch.command)}${argsPart}`,
         },
-        { label: "Remove later with:", command: "hermes mcp remove subshell" },
+        { label: "Remove later with:", command: `hermes mcp remove ${MCP_SERVER_NAME}` },
       ],
     };
   }

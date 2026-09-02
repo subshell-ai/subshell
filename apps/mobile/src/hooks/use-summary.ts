@@ -4,7 +4,7 @@ import { SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
 import { useSessions } from "@/hooks/use-sessions";
 import { waitingCount } from "@/lib/session-order";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * Badge number (spec §Screens): the summary endpoint when the instance has
@@ -16,7 +16,7 @@ import { useMote } from "@/providers/subshell-provider";
  * review found exactly that, 2026-08-31).
  */
 export function useWaitingState(): { waiting: number; loading: boolean } {
-  const { client } = useMote();
+  const { client } = useSubshell();
   const sessions = useSessions();
   const foreground = useForeground();
   const summary = useQuery({

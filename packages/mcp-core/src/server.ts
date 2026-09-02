@@ -232,7 +232,11 @@ export async function runSubshellMcp(): Promise<void> {
   }, EXTEND_INTERVAL_MS);
   timer.unref(); // the stdio connection keeps the process alive, not this timer
 
-  const server = new McpServer({ name: "subshell", version: "1.0.0" });
+  const server = new McpServer({
+    // Keep in sync with MCP_SERVER_NAME in @internal/harnesses (the config registration key every adapter uses).
+    name: "subshell",
+    version: "1.0.0",
+  });
   registerTools(server, { api, own });
 
   await server.connect(new StdioServerTransport());

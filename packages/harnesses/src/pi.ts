@@ -8,6 +8,7 @@ import type {
   ProfileValidationResult,
   SettingsField,
 } from "./types.js";
+import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
 
 /** pi per-invocation overrides, applied as CLI flags. */
@@ -139,7 +140,7 @@ export class PiPlugin implements HarnessPlugin {
    */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo {
     const snippet = JSON.stringify(
-      { mcpServers: { subshell: { command: launch.command, args: launch.args } } },
+      { mcpServers: { [MCP_SERVER_NAME]: { command: launch.command, args: launch.args } } },
       null,
       2,
     );
@@ -148,7 +149,7 @@ export class PiPlugin implements HarnessPlugin {
       steps: [
         { label: "Install the MCP adapter extension once:", command: "pi install npm:pi-mcp-adapter" },
         {
-          label: "Register subshell in ~/.config/mcp/mcp.json (or a project .mcp.json):",
+          label: `Register ${MCP_SERVER_NAME} in ~/.config/mcp/mcp.json (or a project .mcp.json):`,
           command: snippet,
         },
       ],

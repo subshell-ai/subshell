@@ -26,7 +26,7 @@ export interface CliResult {
   keepAlive?: boolean;
 }
 
-const USAGE = `subshell — subshell node daemon
+const USAGE = `subshell — node agent daemon
 
 usage:
   subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
@@ -34,7 +34,7 @@ usage:
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell status [--json] [--probe]
   subshell version
-  subshell mcp            (stdio MCP server for a subshell session pane — internal)
+  subshell mcp            (stdio MCP server for a session pane — internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */

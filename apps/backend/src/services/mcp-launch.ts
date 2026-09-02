@@ -18,10 +18,16 @@ import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 
 /**
  * What the compiled MCP binary is called (`bun run compile` emits it beside
- * the backend). Used as the display fallback when resolution fails — it names
- * a real artifact of this repo, unlike an invented command.
+ * the backend) — the sibling lookup and the display fallback below share it.
  */
-export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: "subshell-mcp", args: [] };
+export const MCP_BINARY = "subshell-mcp";
+
+/**
+ * Fallback launch spec used only for DISPLAY when the real one cannot be
+ * resolved — named after the compile artifact (apps/backend/package.json
+ * `compile` --outfile); keep the two spellings in sync.
+ */
+export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: MCP_BINARY, args: [] };
 
 /**
  * Display-only variant for editor surfaces: never throws. If the launch can't
@@ -51,7 +57,7 @@ export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env): McpLaunc
       args: env.SUBSHELL_MCP_ARGS ? (JSON.parse(env.SUBSHELL_MCP_ARGS) as string[]) : [],
     };
   }
-  const sibling = join(dirname(process.execPath), "subshell-mcp");
+  const sibling = join(dirname(process.execPath), MCP_BINARY);
   if (basename(process.execPath) === "backend" && existsSync(sibling)) {
     return { command: sibling, args: [] };
   }
@@ -63,7 +69,7 @@ export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env): McpLaunc
       // a non-file import.meta.url (exotic bundler) → try the next candidate
     }
   }
-  throw new Error("cannot locate the subshell-mcp entrypoint; set SUBSHELL_MCP_COMMAND");
+  throw new Error(`cannot locate the ${MCP_BINARY} entrypoint; set SUBSHELL_MCP_COMMAND`);
 }
 
 /**

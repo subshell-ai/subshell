@@ -3,7 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "@dotenvx/dotenvx";
-import { defaultSessionDataDir as sharedDefaultSessionDataDir } from "@internal/session-protocol";
+import {
+  DEFAULT_DATABASE_PATH,
+  defaultSessionDataDir as sharedDefaultSessionDataDir,
+} from "@internal/session-protocol";
 import { default as envVar } from "env-var";
 
 // A missing .env is not an error: deployments (Docker, systemd, CI) inject
@@ -78,7 +81,7 @@ const TEST_DATABASE_PATH = join(tmpdir(), `subshell-test-${process.pid}-${random
  */
 export const DATABASE_PATH = IS_TEST
   ? TEST_DATABASE_PATH
-  : env.get("DATABASE_PATH").default("./data/subshell.db").asString();
+  : env.get("DATABASE_PATH").default(DEFAULT_DATABASE_PATH).asString();
 
 /**
  * Directory holding per-session output logs (see `sessionLogPath`).

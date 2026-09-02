@@ -16,7 +16,7 @@ import { sessionActionFlags } from "@/lib/session-access";
 import { isNodeOffline, isWaiting } from "@/lib/session-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * The detail body (spec §Screens Detail): status pill from the poll, the
@@ -28,7 +28,7 @@ import { useMote } from "@/providers/subshell-provider";
 export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack?: () => void }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { client } = useMote();
+  const { client } = useSubshell();
   const qc = useQueryClient();
   const wsBlocked = useApp((s) => s.instances.find((r) => r.id === s.activeId)?.wsBlocked ?? false);
   const { data: session, refetch, error } = useSession(sessionId);

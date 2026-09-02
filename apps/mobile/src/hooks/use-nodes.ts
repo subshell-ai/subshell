@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { NODES_KEY } from "@/hooks/query-keys";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * Nodes for the launch picker (spec 2026-08-31 §9). Freshness is loose on
@@ -10,7 +10,7 @@ import { useMote } from "@/providers/subshell-provider";
  * undefined and the picker hides, so single-machine users see no change.
  */
 export function useNodes() {
-  const { client } = useMote();
+  const { client } = useSubshell();
   return useQuery({
     enabled: Boolean(client),
     queryKey: NODES_KEY,

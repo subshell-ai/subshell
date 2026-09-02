@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { polledInterval } from "@/hooks/polled-interval";
 import { sessionKey } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * One session on the same cadence as the list (spec §Rendering: session truth
@@ -10,7 +10,7 @@ import { useMote } from "@/providers/subshell-provider";
  * the background stop, which hardcoded `foreground: true` used to ignore).
  */
 export function useSession(id: string) {
-  const { client } = useMote();
+  const { client } = useSubshell();
   const foreground = useForeground();
   return useQuery({
     enabled: Boolean(client && id),

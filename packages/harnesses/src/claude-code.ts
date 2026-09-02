@@ -13,6 +13,7 @@ import type {
   ProfileValidationResult,
   SettingsField,
 } from "./types.js";
+import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
 
 /** Known claude-code settings editor fields (top-level `--settings` keys). */
@@ -232,7 +233,7 @@ export class ClaudeCodePlugin implements HarnessPlugin {
   /** Claude Code's `--mcp-config` document: `{ mcpServers: { subshell: {...} } }`. */
   mcpRegistration(launch: McpLaunchSpec, configPath: string): McpRegistration {
     return {
-      fileContent: `${JSON.stringify({ mcpServers: { subshell: { command: launch.command, args: launch.args } } }, null, 2)}\n`,
+      fileContent: `${JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: launch.command, args: launch.args } } }, null, 2)}\n`,
       args: ["--mcp-config", configPath],
     };
   }

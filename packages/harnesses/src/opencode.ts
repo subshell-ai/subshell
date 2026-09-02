@@ -9,6 +9,7 @@ import type {
   ProfileValidationResult,
   SettingsField,
 } from "./types.js";
+import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
 
 /** Known opencode settings, applied as per-invocation CLI flags. */
@@ -143,7 +144,7 @@ export class OpencodePlugin implements HarnessPlugin {
     const doc = {
       $schema: "https://opencode.ai/config.json",
       mcp: {
-        subshell: { type: "local", command: [launch.command, ...launch.args], enabled: true },
+        [MCP_SERVER_NAME]: { type: "local", command: [launch.command, ...launch.args], enabled: true },
       },
     };
     return { fileContent: `${JSON.stringify(doc, null, 2)}\n`, env: { OPENCODE_CONFIG: configPath } };

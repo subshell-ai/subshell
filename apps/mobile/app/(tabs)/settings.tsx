@@ -13,7 +13,7 @@ import { biometricEnabled, requireBiometric, setBiometricEnabled } from "@/nativ
 import { deregisterPush, setIconBadge } from "@/native/push";
 import { secureTokenStore } from "@/native/secure-token-store";
 import { clientForOrigin } from "@/native/subshell-client-factory";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * Settings tab (spec §Screens): switch instance, re-probe (wsBlocked is a
@@ -23,7 +23,7 @@ import { useMote } from "@/providers/subshell-provider";
  */
 export default function Settings() {
   const insets = useSafeAreaInsets();
-  const { client } = useMote();
+  const { client } = useSubshell();
   const { instances, activeId, setActive, forgetInstance, setWsBlocked } = useApp();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bioOn, setBioOn] = useState<boolean | null>(null);

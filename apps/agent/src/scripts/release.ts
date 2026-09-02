@@ -19,7 +19,7 @@ import { copyFile, mkdir, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { NODE_TARGETS, resolveNodeArtifactsDir } from "@internal/session-protocol";
+import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/session-protocol";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -100,7 +100,7 @@ export function buildArgs(triple: string, isHost: boolean, outDir: string): stri
     "./src/main.ts",
     ...(isHost ? [] : [`--target=bun-${triple}`]),
     "--outfile",
-    join(outDir, `subshell-${triple}`),
+    join(outDir, nodeArtifactFileName(triple)),
   ];
 }
 
@@ -134,7 +134,7 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
   for (const target of buildTargets()) {
     const code = await deps.runBuild(buildArgs(target.triple, target.isHost, deps.outDir));
     if (code !== 0) return { ok: false, failed: target.triple };
-    const path = join(deps.outDir, `subshell-${target.triple}`);
+    const path = join(deps.outDir, nodeArtifactFileName(target.triple));
     try {
       artifacts.set(target.triple, { path, digest: await digestFile(path) });
     } catch {
@@ -163,7 +163,7 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
 export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, destDir: string): Promise<void> {
   await mkdir(destDir, { recursive: true });
   for (const [triple, { path, digest }] of artifacts) {
-    const dest = join(destDir, `subshell-${triple}`);
+    const dest = join(destDir, nodeArtifactFileName(triple));
     const tmp = `${dest}.tmp-${process.pid}`;
     await copyFile(path, tmp);
     await rename(tmp, dest);

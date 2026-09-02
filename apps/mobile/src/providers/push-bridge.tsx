@@ -8,7 +8,7 @@ import { useApp } from "@/lib/app-state";
 import type { SessionNotifData } from "@/lib/notif-data";
 import { configureNotifications, enrollPush } from "@/native/push";
 import { clientForOrigin } from "@/native/subshell-client-factory";
-import { useMote } from "@/providers/subshell-provider";
+import { useSubshell } from "@/providers/subshell-provider";
 
 /**
  * Notification lifecycle in one place (rendered by the root layout, mounted
@@ -33,7 +33,7 @@ import { useMote } from "@/providers/subshell-provider";
  * time (review, efficiency #3).
  */
 export function PushBridge() {
-  const { client } = useMote();
+  const { client } = useSubshell();
   const qc = useQueryClient();
   useIconBadge(); // icon = waiting count while foregrounded (spec §Push)
 
