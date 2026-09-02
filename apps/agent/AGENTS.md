@@ -64,7 +64,8 @@ exact unit/plist text and command sequences without touching systemd.
 - **Data dir** (`--data-dir` at enroll; default under the home): `identity.json`
   (node keypair — fail-closed: a present-but-corrupt file is quarantined, never
   silently rotated), `sessions/<id>.meta.json` + `<id>.log` per supervised
-  session (the meta's cwd is the `write_file` path-policy root), `mcp/<id>.json`
+  session (each meta's cwd is a `write_file` path-policy root alongside the data
+  dir itself), `mcp/<id>.json`
   per-session MCP configs, and the MCP children's `identities/sess-<id>.json` +
   `peers.json` (they run with `MOTE_DATA_DIR` = the agent data dir).
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
@@ -75,6 +76,8 @@ exact unit/plist text and command sequences without touching systemd.
 `bunfig.toml` preloads `src/test-preload.ts`: `MOTE_AGENT_HOME` points at a
 throwaway temp dir (suites NEVER touch `~/.config/mote-agent`),
 `MOTE_TEST_MODE=1`, and the tmux preflight is skipped (the tmux-absent refusal
-is covered explicitly by clearing the var). `src/scripts/release.ts` and
-`src/service.ts` export their CLI mains behind `import.meta.main` guards so
-tests import the pure logic without building or spawning.
+is covered explicitly by clearing the var). `src/scripts/release.ts` guards its
+CLI main behind `import.meta.main` so tests import the pure publish/build logic
+without building or spawning; `src/service.ts` needs no such guard — it is
+side-effect-free by DI design (everything arrives through `ServiceDeps`; the CLI
+entry lives in `cli.ts`).

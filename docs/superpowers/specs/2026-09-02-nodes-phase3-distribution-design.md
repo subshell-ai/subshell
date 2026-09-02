@@ -207,7 +207,7 @@ the linux-x64 artifact + matching sha).
   (`bun apps/agent/src/main.ts enroll|run`, `MOTE_AGENT_HOME` at a temp dir)
   via `e2e/stub/agent.ts` — the same "no compiled binary required" property,
   zero drift, real crypto. Recorded in the parent spec's
-  "Errata (implementation, 2026-08-31)". The spec-07 story gained a
+  "Errata (implementation, 2026-08-31)". The spec-12 story gained a
   connect-time inventory push along the way (plan tasks T8b/T8c; also an
   erratum bullet) — without it a fresh node was ONLINE yet 409'd every launch.
 - Two statements here were already stale at writing, corrected by note rather
