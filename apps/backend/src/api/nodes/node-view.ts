@@ -58,9 +58,11 @@ export const NodeViewSchema = t.Object({
   id: t.String({ description: "Node id (the control-plane host is literally 'local')" }),
   name: t.String({ description: "Display name (unique per owner)" }),
   kind: t.Union([t.Literal("local"), t.Literal("agent")], { description: "Control-plane host vs enrolled agent" }),
-  os: t.Nullable(t.String({ description: "Reported OS" }), { description: "Reported OS, null until first ready" }),
+  os: t.Nullable(t.String({ description: "Reported OS" }), {
+    description: "Reported OS (local: the server's own platform in the view), null until first ready",
+  }),
   arch: t.Nullable(t.String({ description: "Reported CPU architecture" }), {
-    description: "Reported CPU architecture, null until first ready",
+    description: "Reported CPU architecture (local: the server's own platform in the view), null until first ready",
   }),
   hostname: t.Nullable(t.String({ description: "Reported hostname" }), {
     description: "Reported hostname, null until first ready",
@@ -156,9 +158,10 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boole
     id: row.id,
     name: row.name,
     kind: row.kind,
-    // `local` never sends `ready`, so its row keeps null os/arch — but the
-    // control-plane host IS this process; report it from the view (spec
-    // 2026-09-02 §4b) so launch-picker labels never read "null/null".
+    // `local` never sends `ready`, so its row CAN hold null os/arch (the seed
+    // fills them only at creation) — report the control-plane host's real
+    // platform from the view (spec 2026-09-02 §4b) so launch-picker labels
+    // never read "null/null".
     os: row.kind === "local" ? (row.os ?? process.platform) : row.os,
     arch: row.kind === "local" ? (row.arch ?? process.arch) : row.arch,
     hostname: row.hostname,
