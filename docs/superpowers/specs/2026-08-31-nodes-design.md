@@ -832,8 +832,8 @@ fixed one liveness-semantics bug; the body above stays frozen:
   carries `code:null`, an unanswering socket leaving no exit code to read
   (the immediate `ok:true`-absence path carries the pane's real
   `pane_dead_status` when one exists). A fresh registration carries a fresh
-  budget (a relaunch resets the
-  counter), and at most one exit event per registration holds on either path.
+  budget (a relaunch resets the counter), and at most one exit event per
+  registration holds on either path.
 - **§12 #3 (offline > N days → mark `crashed`): DECLINED (for now).** A
   crashed-marking sweep would fight a node that returns with live panes — the
   connect-time census exists precisely to re-adopt — and the `nodeOffline`

@@ -61,10 +61,11 @@ exact unit/plist text and command sequences without touching systemd.
 
 ## Exit watch
 
-The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once via
-`listSessionsChecked`: an authoritative `ok:true` answer lacking the pane
-reports the death IMMEDIATELY with the pane's real exit code (tests pin 6),
-while the escalated path — `NODE_EXIT_UNREACHABLE_TICKS` (2 — ≈4 s) CONSECUTIVE
+The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once
+via `listSessionsChecked`: an authoritative `ok:true` answer lacking the pane
+reports the death IMMEDIATELY with the pane's real exit code when one is
+readable (tests pin 6), while the escalated path —
+`NODE_EXIT_UNREACHABLE_TICKS` (2 — ≈4 s) CONSECUTIVE
 `ok:false` probes on one registration — reads `null` because the socket is not
 answering, so it is THAT report that carries `exit{code:null}`; a transient
 tmux blip never kills a live pane, and a fresh registration carries a fresh
