@@ -151,10 +151,10 @@ describe("NewSessionForm node picker", () => {
 
 /**
  * The pinned-profile re-anchor: profile.nodeId drags the picker onto its
- * node until the user overrides it, so the picker never reads "Local" while
- * the pin lands the session elsewhere. Wire rule untouched (spec §6.6):
- * anchored → forwarded id; explicit Local → omitted (the pin re-applies
- * server-side — visibly).
+ * node until the user overrides it, so the picker always names the launch
+ * target. Wire rule (spec 2026-09-02 §3): the visible pick is forwarded
+ * as-is, "local" included — the server puts body nodeId above the pin, so
+ * an explicit Local pick really does land on Local.
  */
 describe("anchorDecision", () => {
   it("anchors to the pinned node while the user stays silent", () => {
@@ -193,7 +193,7 @@ describe("NewSessionForm pinned-profile re-anchor", () => {
     }
   });
 
-  it("an explicit Local pick survives the anchor, goes omitted on the wire, and warns", async () => {
+  it("an explicit Local pick survives the anchor and goes explicit on the wire", async () => {
     const restore = mockFetch([LOCAL, AGENT_ONLINE], [pinnedProfile("a1")]);
     try {
       const { latest } = renderForm({
@@ -205,7 +205,10 @@ describe("NewSessionForm pinned-profile re-anchor", () => {
       });
       await new Promise((r) => setTimeout(r, 50));
       expect(latest().nodeId).toBe("local");
-      expect(toSessionCreateBody(latest()).nodeId).toBeUndefined();
+      expect(toSessionCreateBody(latest()).nodeId).toBe("local");
+      // Legacy UI: this warning's premise inverted with the §3 wire change
+      // (an explicit Local now wins over the pin). The form rebuild removes
+      // it; asserted here only to pin current rendering until then.
       expect(screen.getByText("This profile runs on mac mini — it overrides Local.")).toBeDefined();
     } finally {
       restore();

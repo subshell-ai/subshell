@@ -8,12 +8,17 @@ export const PROFILES_QUERY_KEY = ["profiles"] as const;
 /**
  * Shared query for the authenticated user's profiles. Every page that lists
  * profiles reads through this hook so a single `PROFILES_QUERY_KEY`
- * invalidation refreshes them all.
+ * invalidation refreshes them all (prefix match covers the `node=any`
+ * variant's key too).
+ * @param opts.node - `"any"` lists profiles regardless of LOCAL harness
+ *   state (the launch picker pairs them against every node from the node
+ *   views; spec 2026-09-02 §4a). Default: the local filter.
  */
-export function useProfiles() {
+export function useProfiles(opts: { node?: "any" } = {}) {
   return useQuery({
-    queryKey: PROFILES_QUERY_KEY,
-    queryFn: () => apiFetch<ProfileRow[]>("/api/profiles"),
+    queryKey: opts.node === undefined ? PROFILES_QUERY_KEY : ([...PROFILES_QUERY_KEY, "node", opts.node] as const),
+    queryFn: () =>
+      apiFetch<ProfileRow[]>(opts.node === undefined ? "/api/profiles" : `/api/profiles?node=${opts.node}`),
   });
 }
 

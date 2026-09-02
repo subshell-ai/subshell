@@ -35,14 +35,19 @@ describe("toSessionCreateBody", () => {
     });
   });
 
-  it("omits nodeId for 'local' and for an absent/unmade pick — the server's own resolve path", () => {
-    // "local" stays legal on the wire but needs no explicit statement:
-    // omission = resolve (pin → local → lone-online auto-pick).
-    expect(
-      toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" }).nodeId,
-    ).toBeUndefined();
-    expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "" }).nodeId).toBeUndefined();
+  it("sends 'local' explicitly — the visible pick is the launch target (spec 2026-09-02 §3)", () => {
+    const body = toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "n", nodeId: "local" });
+    expect(JSON.parse(JSON.stringify(body))).toEqual({
+      profileId: "p1",
+      workingDir: "/tmp/x",
+      name: "n",
+      nodeId: "local",
+    });
+  });
+
+  it("omits nodeId only for an absent/unmade pick", () => {
     // An unmade selection blocks submit upstream (canSubmit), never leaks "".
+    expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "" }).nodeId).toBeUndefined();
     expect(toSessionCreateBody({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "" }).nodeId).toBeUndefined();
   });
 });
