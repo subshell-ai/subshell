@@ -79,6 +79,35 @@ describe("waitingCount", () => {
   });
 });
 
+// Web parity (spec §5.6, mirroring the frontend session-card accessory rule):
+// an unreachable node's stamps are last-known facts, so the Waiting bucket and
+// the badge count must not advertise them — the "node unreachable" copy on the
+// row owns the state instead. (The chip/border/dot gate itself is live in
+// components/session-card.tsx; these two are the list-level markers.)
+describe("nodeOffline suppresses waiting markers", () => {
+  const STAMP = "2026-08-31T00:00:00.000Z";
+
+  it("keeps an offline waiting row out of the Waiting bucket", () => {
+    const offline = make({ name: "o", waitingSince: STAMP, nodeOffline: true });
+    const s = sectionize([offline]);
+    expect(s.waiting).toHaveLength(0);
+    // Its `alive` is last-known, so it groups like the web's Running section.
+    expect(s.running.map((x) => x.name)).toEqual(["o"]);
+  });
+
+  it("still buckets an offline row whose last-known pane was dead under exited", () => {
+    const s = sectionize([make({ name: "o", alive: false, exitCode: 1, waitingSince: STAMP, nodeOffline: true })]);
+    expect(s.waiting).toHaveLength(0);
+    expect(s.exited.map((x) => x.name)).toEqual(["o"]);
+  });
+
+  it("waitingCount (the tab/icon-badge fallback) never counts offline rows", () => {
+    expect(waitingCount([make({ waitingSince: STAMP, nodeOffline: true })])).toBe(0);
+    // `=== true` posture: an older payload without the field reads online.
+    expect(waitingCount([make({ waitingSince: STAMP })])).toBe(1);
+  });
+});
+
 describe("lifecycle predicates", () => {
   // The scalars behind sectionize/hasActivity — pinned so the pill, the
   // buckets and the poll cannot drift apart silently (review, reuse #3).

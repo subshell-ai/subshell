@@ -849,10 +849,18 @@ fixed one liveness-semantics bug; the body above stays frozen:
   key to already-enrolled agents — needs a dual-key keychain in the agent plus
   a protocol addition: a feature, not hardening, and wrong to rush on a crypto
   path.
-- **Mobile parity for the `nodeOffline` waiting markers — LANDS IN THIS PHASE**
-  (hardening design §2). A session on an unreachable node must not advertise
-  "waiting for you" on the phone: the mobile waiting chip / border / dot gate
-  on `nodeOffline` exactly like web already does.
+- **Mobile parity for the `nodeOffline` waiting markers — the card part
+  shipped PRE-PHASE, the list markers land here** (hardening design §2). A
+  session on an unreachable node must not advertise "waiting for you" on the
+  phone. The waiting chip / border / dot gate and the unreachable-copy
+  precedence on the session card shipped pre-phase in 97df087 (mobile
+  offline-state parity); the detail pill predates it. This phase's verification
+  sweep found the two markers that commit missed — the "Waiting for you"
+  section bucket and the tab/icon-badge `waitingCount` fallback, both in
+  `apps/mobile/src/lib/session-order.ts` — and gates them on `nodeOffline` the
+  same way (web accessory rule, spec §5.6), so no surface still counts an
+  unreachable row as waiting. `apps/mobile/src/lib/__tests__/session-order.test.ts`
+  pins the sectioning and count rules.
 - **Precision fix on the hardening design §1 census parenthetical** — recorded
   here because this spec is where the census is described. Design §1 says
   `listSessionNames` stays because "census keeps its documented fail-closed

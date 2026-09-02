@@ -30,10 +30,25 @@ export function isCompleted(s: Pick<SessionView, "status">): boolean {
 }
 
 /**
+ * True when the session's node is currently unreachable (spec 2026-08-31
+ * §5.6). With no live agent, `alive`/`waitingSince` are last-known facts, so
+ * no waiting marker (section, chip, border, dot, badge) may assert them — the
+ * web accessory rule (`nodeOffline` beats waiting, `session-card.tsx`) ported
+ * to the shared predicate's call sites. `=== true` so older payloads without
+ * the field read online-ish, never spuriously unreachable.
+ */
+export function isNodeOffline(session: Pick<SessionView, "nodeOffline">): boolean {
+  return session.nodeOffline === true;
+}
+
+/**
  * True when the session is alive and the attention watcher has stamped it as
  * waiting for the operator. The `status`/`alive` guards are deliberate (same
  * stale-stamp reasoning as the web predicate): a dead session is never
- * "waiting for you".
+ * "waiting for you". Deliberately mirrors the web predicate, which knows
+ * nothing about nodes — the offline suppression is applied at each marker
+ * site (see {@link isNodeOffline}), exactly as the web gates it at the
+ * accessory, not inside this predicate.
  */
 export function isWaiting(session: WaitingProbe): boolean {
   return session.status === "running" && session.alive && session.waitingSince != null;
@@ -58,13 +73,19 @@ export function sectionize(sessions: SessionView[]): SessionSections {
   for (const s of sessions) {
     if (isCompleted(s)) out.completed.push(s);
     else if (isExited(s)) out.exited.push(s);
-    else if (isWaiting(s)) out.waiting.push(s);
+    // Offline rows never join Waiting (web parity): the unreachable copy on
+    // the card owns the row; its last-known `alive` groups it like Running.
+    else if (!isNodeOffline(s) && isWaiting(s)) out.waiting.push(s);
     else if (isRunning(s)) out.running.push(s);
   }
   return out;
 }
 
-/** Foreground fallback for the badge when `summary()` is unreachable (older instance). */
+/**
+ * Foreground fallback for the badge when `summary()` is unreachable (older
+ * instance). Offline rows are excluded — same rule as {@link sectionize}, so
+ * the badge and the Waiting section keep agreeing on one number.
+ */
 export function waitingCount(sessions: SessionView[]): number {
-  return sessions.filter(isWaiting).length;
+  return sessions.filter((s) => !isNodeOffline(s) && isWaiting(s)).length;
 }

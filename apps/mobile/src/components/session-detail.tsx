@@ -13,7 +13,7 @@ import type { MoteClient } from "@/lib/api";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { sessionActionFlags } from "@/lib/session-access";
-import { isWaiting } from "@/lib/session-order";
+import { isNodeOffline, isWaiting } from "@/lib/session-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 import { useMote } from "@/providers/mote-provider";
@@ -77,10 +77,11 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
   // `node unreachable` outranks every other reading (web detail badge, spec
   // §5.6): with no live agent, alive/waitingSince are last-known facts.
-  // `=== true` so older payloads without the field never read as unreachable.
+  // (`isNodeOffline` carries the `=== true` posture — older payloads
+  // without the field never read as unreachable.)
   const pill = !session
     ? { text: "…", color: colors.mutedFg }
-    : session.nodeOffline === true
+    : isNodeOffline(session)
       ? { text: "node unreachable", color: colors.warning }
       : isWaiting(session)
         ? { text: "waiting for you", color: colors.warning }
