@@ -129,13 +129,15 @@ test("nodes: Local renders online; Add-node mints a setup key + install command"
  * `test.info().retry` (spec 06's idiom) so a CI retry never collides with
  * attempt 0's row (the temp DB survives attempts within a run).
  *
- * Protocol friction found (this story's point, recorded for the errata):
- * inventory is PULL-ONLY. The agent pushes `ready` + `sessions_report` at
- * connect but never an inventory, and the create-time harness gate is strict
- * (FRESH snapshot saying installed), so a freshly enrolled node is ONLINE yet
- * rejects every launch with 409 "disabled or not installed" until something
- * sends the `inventory` command (the Re-check button / this spec's POST).
- * A first-inventory push on connect would close the gap.
+ * Protocol friction found (recorded for the errata; SINCE FIXED by P3-T8b):
+ * inventory used to be PULL-ONLY — the agent pushed `ready` + `sessions_report`
+ * at connect but never an inventory, and the create-time harness gate is strict
+ * (FRESH snapshot saying installed), so a freshly enrolled node was ONLINE yet
+ * rejected every launch with 409 "disabled or not installed" until something
+ * sent the `inventory` command (the Re-check button / the POST this spec used
+ * to make). The agent now PUSHES its first inventory after `ready` (after the
+ * census — the backend reconcile applies exits first), so this spec waits for
+ * the pushed snapshot instead of ordering a recheck.
  */
 test("nodes: real agent from source enrolls, comes online, and hosts a remote launch", async ({ page, request }) => {
   // Agent boot + enrollment + a real tmux spawn on the node, all through the
@@ -208,12 +210,19 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     }
     nodeId = row.id;
 
-    // Inventory is pull-only (header note): ask for the snapshot (the Re-check
-    // route), then drive the harness card's PATCH through the REAL gate —
-    // with a fresh snapshot in hand, enable is inventory-checked, and pi must
-    // read installed because the agent was spawned with PI_PATH (stub/agent.ts).
-    const recheck = await request.post(`/api/nodes/${nodeId}/recheck`);
-    expect(recheck.ok(), await recheck.text()).toBe(true);
+    // P3-T8b: the agent PUSHES its first inventory after `ready` — no manual
+    // Re-check POST here any more. Wait for the snapshot to land on the row,
+    // then drive the harness card's PATCH through the REAL gate — with a fresh
+    // snapshot in hand, enable is inventory-checked, and pi must read installed
+    // because the agent was spawned with PI_PATH (stub/agent.ts).
+    await pollUntil("the connect-time inventory push never reached the node row", agent, async () => {
+      const res = await request.get("/api/nodes");
+      if (!res.ok()) return false;
+      const fresh = ((await res.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
+      return (
+        fresh !== undefined && !fresh.inventoryStale && fresh.harnesses.some((h) => h.harnessId === "pi" && h.installed)
+      );
+    });
     const patch = await request.patch(`/api/nodes/${nodeId}/harnesses/pi`, { data: { enabled: true } });
     expect(patch.ok(), await patch.text()).toBe(true);
     const patched = (await patch.json()) as NodeRow;

@@ -166,9 +166,19 @@ describe("/ws/node over the real ws stack", () => {
     );
     await waitFor(async () => (await nodes.findById(nodeId))?.status === "online", "ready → online");
 
+    // UNSOLICITED inventory (P3-T8b): no `inventory` command was ever sent — the
+    // agent pushes its first snapshot right after `ready`. The handler's
+    // `inventory` case is command-agnostic BY CONSTRUCTION (no RPC correlation on
+    // this path), so the frame must land on the row exactly like a command answer.
     const old = new Date(Date.now() - 10_000).toISOString();
     ws.send(JSON.stringify({ type: "inventory", harnesses: [{ harnessId: "pi", installed: true }], ts: old }));
     await waitFor(async () => (await nodes.findById(nodeId))?.inventoryJson !== null, "inventory persisted");
+    const stocked = await nodes.findById(nodeId);
+    if (!stocked?.inventoryJson || !stocked.inventoryAt) throw new Error("unreachable: waitFor proved both set");
+    expect(JSON.parse(stocked.inventoryJson)).toEqual([{ harnessId: "pi", installed: true }]);
+    // The row stamps ITS OWN arrival time, never the frame's (stale) ts —
+    // this is what makes the create-time freshness gate read the snapshot as new.
+    expect(Date.parse(stocked.inventoryAt)).toBeGreaterThan(Date.parse(old));
 
     ws.close();
     await waitFor(async () => (await nodes.findById(nodeId))?.status === "offline", "close → offline");

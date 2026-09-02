@@ -353,6 +353,7 @@ test("launch (valid wire, hostile session id) → result ok:false invalid sessio
 
 test("inventory command: inventory EVENT first, then result ok; harness list well-formed", async () => {
   const h = await startDaemon();
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push"); // P3-T8b: the push precedes the command
   const jti = await signAndSend(h, { type: "inventory" }, { jti: "inv-1", seq: 1 });
   const result = await waitFor<Extract<NodeEvent, { type: "result" }>>(
     h,
@@ -360,9 +361,10 @@ test("inventory command: inventory EVENT first, then result ok; harness list wel
     "inventory result",
   );
   const types = eventTypes(h);
-  const invIdx = types.indexOf("inventory");
+  const invIdx = types.lastIndexOf("inventory"); // the COMMAND's event (the connect push already landed earlier)
   expect(invIdx).toBeGreaterThanOrEqual(0);
-  expect(types.indexOf("result")).toBeGreaterThan(invIdx); // event-then-result ordering
+  expect(types.indexOf("result", invIdx)).toBeGreaterThan(invIdx); // event-then-result ordering
+  expect(count(h, (e) => e.type === "inventory")).toBe(2); // connect push + command answer
   const inv = h.plane.events[invIdx] as Extract<NodeEvent, { type: "inventory" }>;
   expect(Array.isArray(inv.harnesses)).toBe(true);
   expect(inv.harnesses.length).toBeGreaterThan(0);
@@ -375,12 +377,14 @@ test("replayed jti (same connection): ONE execution (spy), verify/replay error e
   // Sign ONE envelope and deliver it twice — the jti LRU must drop the second EXECUTION,
   // but the brief (§4) wants the anomaly VISIBLE: every verify failure, replay included,
   // answers the error event (fix wave 1; this replaces the old "replay → silence" ruling).
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push"); // P3-T8b: baseline past the connect beat
   const frame = await signEnvelope(h, { type: "inventory" }, "replay-1", 1);
+  const invBefore = count(h, (e) => e.type === "inventory");
   h.plane.socket?.send(frame);
-  await waitFor(h, (e) => e.type === "inventory", "first inventory execution");
+  await waitFor(h, (e) => e.type === "result" && e.ref === "replay-1", "first inventory execution");
   h.plane.socket?.send(frame);
   await sleep(150); // give a double execution every chance to show up
-  expect(count(h, (e) => e.type === "inventory")).toBe(1); // handler spy: executed ONCE
+  expect(count(h, (e) => e.type === "inventory")).toBe(invBefore + 1); // handler spy: executed ONCE
   const errs = eventsAs(h, "error");
   expect(errs.length).toBe(1);
   expect(errs[0]).toMatchObject({ code: "verify", message: "replay" });
@@ -393,14 +397,17 @@ test("replayed jti (same connection): ONE execution (spy), verify/replay error e
 
 test("per-process jti LRU survives a reconnect: replay on the NEW socket → verify/replay telemetry, never a second execution", async () => {
   const h = await startDaemon();
+  await waitFor(h, (e) => e.type === "inventory", "conn-1 connect push"); // P3-T8b: the beat precedes the command
   // conn 1: execute a signed inventory (jti "recon-1").
   const frame = await signEnvelope(h, { type: "inventory" }, "recon-1", 1);
   h.plane.socket?.send(frame);
-  await waitFor(h, (e) => e.type === "inventory", "conn-1 inventory execution");
   await waitFor(h, (e) => e.type === "result" && e.ref === "recon-1", "conn-1 result");
+  expect(count(h, (e) => e.type === "inventory")).toBe(2); // conn-1 push + one command execution
   // NON-terminal close (1001) → the daemon reconnects (rand 0 → immediate).
   closeAllSockets(h.plane, 1001, "server restart");
   await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+  // The connect push RE-ARMS on the new socket (freshness gate re-applies after a reconnect).
+  await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 3, "conn-2 connect push");
   // conn 2: the plane REPLAYS the exact same signed envelope.
   h.plane.socket?.send(frame);
   await sleep(150);
@@ -409,7 +416,7 @@ test("per-process jti LRU survives a reconnect: replay on the NEW socket → ver
   const errs = eventsAs(h, "error");
   expect(errs.length).toBe(1);
   expect(errs[0]).toMatchObject({ code: "verify", message: "replay" });
-  expect(count(h, (e) => e.type === "inventory")).toBe(1); // spy: no second evaluation on conn 2
+  expect(count(h, (e) => e.type === "inventory")).toBe(3); // spy: no second evaluation on conn 2 (2 pushes + 1 execution)
   const results = eventsAs(h, "result").filter((e) => e.ref === "recon-1");
   expect(results.length).toBe(2); // first execution + idempotence-map re-send
   expect(h.plane.unparsed).toEqual([]);
@@ -781,6 +788,47 @@ test("sessions_report lands AFTER ready: one row per recorded meta, re-projectio
   }
 });
 
+/* ------------------------------------------------------------------ */
+/* P3-T8b: connect-time initial inventory push (spec §7)                */
+/* ------------------------------------------------------------------ */
+
+test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node launches without a manual recheck", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-invpush-"));
+  const store = new SessionMetaStore(dataDir);
+  await store.record({
+    sessionId: HEX_A,
+    cwd: dataDir,
+    socket: "inv-sock",
+    harnessId: "pi",
+    name: "a",
+    startedAt: "2026-09-01T00:00:00.000Z",
+  });
+  const fakeTmux = {
+    hasSession: () => true,
+    paneExitCode: () => null,
+  } as unknown as TmuxRunner;
+  try {
+    const h = await startDaemon({ tmux: fakeTmux, meta: store });
+    const inv = await waitFor<Extract<NodeEvent, { type: "inventory" }>>(
+      h,
+      (e) => e.type === "inventory",
+      "connect inventory frame",
+    );
+    // The beat pinned (P3-T8b): ready → sessions_report → inventory. The backend
+    // reconcile applies the census's exits BEFORE the snapshot lands, so the
+    // inventory must never overtake the report.
+    const types = eventTypes(h);
+    expect(types.indexOf("sessions_report")).toBeGreaterThan(types.indexOf("ready"));
+    expect(types.indexOf("inventory")).toBeGreaterThan(types.indexOf("sessions_report"));
+    expect(Array.isArray(inv.harnesses)).toBe(true);
+    expect(inv.harnesses.length).toBeGreaterThan(0); // same builder the `inventory` command answers with
+    expect(typeof inv.ts).toBe("string");
+    expect(h.plane.unparsed).toEqual([]);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("a throwing sessions_report scan is catch-logged, never fatal to the connection", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-report-fail-"));
   const store = new SessionMetaStore(dataDir);
@@ -802,6 +850,10 @@ test("a throwing sessions_report scan is catch-logged, never fatal to the connec
     const jti = await signAndSend(h, { type: "ping" }, { jti: "after-report-fail", seq: 1 });
     await waitFor(h, (e) => e.type === "result" && e.ref === jti, "ping result after a failed report scan");
     expect(count(h, (e) => e.type === "sessions_report")).toBe(0); // the scan failed, so no frame — and no close
+    // P3-T8b: the initial inventory push is INDEPENDENT of the census outcome —
+    // a failed scan must still leave the node launchable (the push chains after
+    // the report's catch, not after its success).
+    await waitFor(h, (e) => e.type === "inventory", "inventory after a failed report scan");
     expect(h.plane.closes).toBe(0);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });

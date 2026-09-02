@@ -19,6 +19,7 @@ import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
+import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { SessionMetaStore } from "./session-meta.js";
@@ -470,7 +471,25 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // refusing) must never cost the connection.
         void buildSessionsReport(ctx)
           .then((report) => send(ws, report))
-          .catch((err: unknown) => log(`sessions_report failed: ${err instanceof Error ? err.message : String(err)}`));
+          .catch((err: unknown) => log(`sessions_report failed: ${err instanceof Error ? err.message : String(err)}`))
+          // Connect-time initial `inventory` push (spec §7 "inventory every 5 min
+          // + on demand"; P3-T8b closed the missing first beat): the create-time
+          // harness gate demands a FRESH snapshot, so without this a freshly
+          // enrolled node was ONLINE yet 409'd every launch until a human hit
+          // Re-check. ORDER IS LOAD-BEARING: the push chains AFTER the census
+          // (success or failure) because the backend reconcile applies the
+          // report's exits first. Same never-fatal posture; one push per
+          // connection — a reconnect re-arms freshness, like the census. The
+          // backend additionally PULLS via the `inventory` command on `ready`
+          // (spec §5.3); the two are idempotent, the unsolicited event needs no
+          // command correlation on either side.
+          .then(() =>
+            buildInventoryEvent(nowMs())
+              .then((inv) => send(ws, inv))
+              .catch((err: unknown) =>
+                log(`inventory push failed: ${err instanceof Error ? err.message : String(err)}`),
+              ),
+          );
         heartbeat = setInterval(() => {
           send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
