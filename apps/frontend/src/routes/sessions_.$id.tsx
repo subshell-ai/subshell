@@ -14,12 +14,14 @@ import { TranscriptSearch } from "@/components/transcript-search";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
+import { useIsWide } from "@/hooks/use-is-wide";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSessionData } from "@/hooks/use-session-data";
 import { useSessionLog } from "@/hooks/use-session-log";
 import { useSessionMutations } from "@/hooks/use-session-mutations";
 import { apiFetch } from "@/lib/api";
 import { SESSION_QUERY_KEY, SESSIONS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/sessions_/$id")({
   component: SessionPage,
@@ -69,6 +71,10 @@ function SessionPage() {
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
   const coarse = useIsCoarsePointer();
+  // On phones the title moves to the header's second row as a display-only
+  // line — editing lives in the actions menu ("Edit title"). Desktop keeps
+  // click-to-edit inline. Same signal DetailBackHeader uses for the reflow.
+  const wide = useIsWide();
 
   /** Takes ownership of a freshly created terminal and its addons. */
   function handleTerminalReady(handles: SessionTerminalHandles) {
@@ -120,8 +126,8 @@ function SessionPage() {
         to="/"
         backLabel="Back to sessions"
         title={
-          <>
-            {/* Click to rename; the id stands in, muted, until the record loads. */}
+          wide ? (
+            /* Click to rename; the id stands in, muted, until the record loads. */
             <EditableText
               value={session?.name ?? ""}
               placeholder={id}
@@ -130,9 +136,11 @@ function SessionPage() {
               className="font-medium"
               inputClassName="w-56"
             />
-            <span className="ml-2 hidden truncate text-muted-foreground text-xs sm:inline">{session?.workingDir}</span>
-          </>
+          ) : (
+            <span className={cn("truncate", !session?.name && "text-muted-foreground")}>{session?.name || id}</span>
+          )
         }
+        subtitle={session?.workingDir}
         actions={
           <>
             {/* Node-offline outranks `exited` (spec §5.6): with no live agent

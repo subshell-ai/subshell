@@ -15,7 +15,7 @@
 - Spec doc: `docs/superpowers/specs/2026-09-02-phone-header-title-edit-design.md` — read it before starting; it is the contract.
 - No `apps/mobile` (RN app), no backend changes.
 - No dynamic imports anywhere (`.claude/rules/code-style.md`).
-- Tests run with `bun test` from `apps/frontend` (bunfig preloads `src/test-setup.ts`, which stubs `matchMedia` with `matches: false` — the **default test environment is therefore narrow/phone**).
+- Tests run with `bun test` from `apps/frontend` (bunfig preloads `src/test-setup.ts`). CORRECTION FOUND DURING EXECUTION: happy-dom ships its own `matchMedia` that answers width queries against a 1024px window — the ambient test environment is therefore **wide**, and any width-sensitive test must override `matchMedia` explicitly (see `detail-back-header.test.tsx`'s `forceViewport`).
 - Verification trio after the last task, from the repo root: `bun run verify-types && bun run lint:check && bun run test` — all must pass (same trio the pre-push hook runs).
 - Error/validation copy exactly as written in this plan (tests assert on it).
 - Every task ends with a commit; scope `git add` to the files that task touched.
