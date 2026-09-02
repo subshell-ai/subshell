@@ -1,6 +1,36 @@
 import type { Node } from "@/types/node";
 
 /**
+ * Whether a node is pickable right now — the mobile mirror of the web
+ * `new-session-form.tsx` `isSelectable`; change one, change both. ANY visible
+ * node grants launch (`nodeCanLaunch` — deliberately not the session rule,
+ * spec §2), but an OFFLINE agent is shown disabled: launching there 409s
+ * `NODE_OFFLINE`, and offering a target we know is down would only invite a
+ * confusing failure. (The pick list can always be stale — the 409 path covers
+ * the race.) Shared by the chip row and `pickNodeDefault` so "selectable" is
+ * defined exactly once.
+ */
+export function isSelectable(n: Node): boolean {
+  return n.kind === "local" || n.status === "online";
+}
+
+/**
+ * The node the picker should hold once the list has loaded — the mobile
+ * mirror of the web `new-session-form.tsx` `pickNodeDefault`; change one,
+ * change both. Keep the current pick while it stays selectable; else the
+ * pick vanished (or went unselectable) and exactly one option remains
+ * (auto-pick — not a decision worth forcing); else `""` — an explicit choice
+ * is due and Start stays blocked until it happens. Pure so the fallback
+ * matrix is testable without a device, like `anchorDecision`.
+ */
+export function pickNodeDefault(nodes: Node[], current: string): string {
+  if (nodes.some((n) => n.id === current && isSelectable(n))) return current;
+  const selectable = nodes.filter(isSelectable);
+  if (selectable.length === 1) return selectable[0].id;
+  return "";
+}
+
+/**
  * Pinned-profile re-anchor (spec §6.6, UI side) — the mobile mirror of the
  * web `new-session-form.tsx` decision of the same shape; change one, change
  * both (same posture as the label/selectability mirroring in `(tabs)/new.tsx`).

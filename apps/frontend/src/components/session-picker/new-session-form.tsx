@@ -47,6 +47,7 @@ export function canSubmit(value: NewSessionFormValue): boolean {
  * OFFLINE agent is shown disabled: launching there 409s `NODE_OFFLINE`, and
  * offering a target we know is down would only invite a confusing failure.
  * (The pick list can always be stale — the 409 path covers the race.)
+ * Mirrored in mobile `src/lib/node-anchor.ts`.
  */
 function isSelectable(n: Node): boolean {
   return n.kind === "local" || n.status === "online";
@@ -58,6 +59,7 @@ function isSelectable(n: Node): boolean {
  * exactly one option remains (auto-pick — not a decision worth forcing); else
  * "" — an explicit choice is due (submit stays blocked until it happens).
  * Pure so the fallback matrix is testable without opening a Base UI dropdown.
+ * Mirrored in mobile `src/lib/node-anchor.ts`.
  */
 export function pickNodeDefault(nodes: Node[], current: string): string {
   if (nodes.some((n) => n.id === current && isSelectable(n))) return current;

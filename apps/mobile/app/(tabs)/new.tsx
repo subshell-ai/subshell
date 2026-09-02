@@ -18,7 +18,7 @@ import { PrimaryButton } from "@/components/primary-button";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { errMessage } from "@/lib/api-error";
-import { anchorDecision } from "@/lib/node-anchor";
+import { anchorDecision, isSelectable, pickNodeDefault } from "@/lib/node-anchor";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { useMote } from "@/providers/mote-provider";
 import type { ExploreResult } from "@/types/profile";
@@ -53,7 +53,11 @@ export default function NewSession() {
   // Pinned-profile re-anchor (mirror of the web `anchorDecision`): the
   // selected profile's pin holds the node pick until the user overrides it
   // via the chip row; an anchor that stops being earned falls back to Local.
-  // A pin to `local` is the default anyway — treated as no pin.
+  // A pin to `local` is the default anyway — treated as no pin. Then the web
+  // `pickNodeDefault` re-home: a pick whose node vanished (e.g. an admin
+  // turned off Local launching) or went unselectable is moved — auto-picked
+  // when exactly one option remains, else cleared to "" (Start blocks until
+  // the user picks). One effect composes both, anchor first (web parity).
   const pinnedNodeId = (profiles.data ?? []).find((p) => p.id === profileId)?.nodeId ?? null;
   const pinRow =
     pinnedNodeId && pinnedNodeId !== "local" ? ((nodes.data ?? []).find((n) => n.id === pinnedNodeId) ?? null) : null;
@@ -67,8 +71,18 @@ export default function NewSession() {
       anchoredTo: anchoredRef.current,
     });
     anchoredRef.current = d.anchoredTo;
-    if (d.nodeId !== nodeId) setNodeId(d.nodeId);
-  }, [pinRow, nodeId]);
+    // Re-home only when the anchor is NOT holding — the exact web guard: a
+    // pinned OFFLINE row fails `isSelectable`, but dropping it would hide the
+    // very target the launch will 409 on, so the held pin is the deliberate
+    // exception. Runs only once the list actually loaded: a 404s (pre-nodes)
+    // instance leaves `data` undefined and the default "local" simply stands
+    // (web's `if (nodes)`).
+    let next = d.nodeId;
+    if (!(pinRow && !nodeExplicitRef.current) && nodes.data) {
+      next = pickNodeDefault(nodes.data, next);
+    }
+    if (next !== nodeId) setNodeId(next);
+  }, [pinRow, nodeId, nodes.data]);
 
   async function openDir(path?: string) {
     if (!client || dirBusy) return;
@@ -84,7 +98,7 @@ export default function NewSession() {
   }
 
   async function start() {
-    if (!client || !profileId || !workingDir || busy) return;
+    if (!client || !profileId || !workingDir || !nodeId || busy) return;
     setBusy(true);
     try {
       const res = await client.createSession({
@@ -94,6 +108,8 @@ export default function NewSession() {
         prompt: prompt.trim() || undefined,
         // "local" stays off the wire — omitting nodeId is the server default
         // and keeps single-machine payloads byte-identical to pre-nodes ones.
+        // "" can never reach here: the guard above blocks submit (this is the
+        // close of the P2-T16 "chip-less submit" debt).
         nodeId: nodeId === "local" ? undefined : nodeId,
       });
       await qc.invalidateQueries({ queryKey: ["sessions"] });
@@ -180,7 +196,7 @@ export default function NewSession() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {nodeOptions.map((n) => {
-                  const pickable = n.kind === "local" || n.status === "online";
+                  const pickable = isSelectable(n);
                   const sel = nodeId === n.id;
                   return (
                     <Pressable
@@ -211,6 +227,13 @@ export default function NewSession() {
             </ScrollView>
           </View>
         ) : null}
+
+        {/* No-pick state (web `pickNodeDefault` → ""): the pick vanished and
+            no single option could be chosen for the user. Mirrors web's
+            "Choose a node" placeholder — here as a hint line under the chip
+            row (which can be hidden while ≤1 node is listed), because Start
+            is blocked until a pick happens. */}
+        {nodeId === "" ? <Text style={{ color: colors.mutedFg, fontSize: 12 }}>Choose a node</Text> : null}
 
         {/* The pin is invisible only while it is not the pick: Local on a
             pinned profile means the server re-applies the pin — say so
@@ -262,7 +285,7 @@ export default function NewSession() {
           onPress={() => void start()}
           label="Start session"
           bold
-          disabled={!profileId || !workingDir}
+          disabled={!profileId || !workingDir || !nodeId}
           busy={busy}
         />
       </ScrollView>
