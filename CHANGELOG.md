@@ -1,4 +1,21 @@
-# fastify-starter-turbo-monorepo
+# subshell
+
+## Sep-02-2026
+
+- **Breaking:** Renamed the project from "mote" to "subshell" (clean cut, no aliases —
+  see `docs/subshell-rollout.md`): binaries `subshell` (node agent, was `mote-agent`)
+  and `subshell-mcp` (was `mote-mcp`); control-plane service `subshell-server.service`
+  (was `mote.service`), agent unit `subshell.service`
+- **Breaking:** All `MOTE_*` environment variables are now `SUBSHELL_*`; agent home
+  `~/.config/subshell-agent` (was `~/.config/mote-agent`); server data dir
+  `~/.config/subshell` with `subshell.db`
+- **Breaking:** Bearer API keys use the `subshell_` prefix — existing `mote_` keys are
+  rejected; re-mint system keys, session keys re-mint on start
+- **Breaking:** MCP server renamed `subshell` with **un-prefixed tool names**
+  (`mote_list_channels` → `list_channels`, …); tool ids surface as `mcp__subshell__*`
+- Node enroll artifacts are `subshell-<triple>`; tmux socket base is `subshell-`
+  (running panes do not survive the upgrade); frontend/mobile branding, manifest,
+  push title, and passkey rp name are now "Subshell"/"subshell"
 
 ## Aug-28-2026
 
