@@ -36,7 +36,7 @@
   - `NAME_MAX_DEFAULT = 120`, `NODE_NAME_MAX = 64` (from `@/lib/name-limits`).
   - `EditableText` gains prop `maxLength?: number` (default `NAME_MAX_DEFAULT`); commit now trims, keeps a blank draft open with error `"A name is required"`, rejects over-length with `` `Keep it under ${maxLength} characters` ``, and puts `maxLength` on the `Input`. Silent-revert on **unchanged** draft is kept. Task 2 renders its own errors (does not reuse these strings from EditableText), Task 5 passes `NODE_NAME_MAX`.
 
-- [ ] **Step 1: Write the failing test adjustments**
+- [x] **Step 1: Write the failing test adjustments**
 
 In `apps/frontend/src/components/__tests__/editable-text.test.tsx`, REPLACE the test `"an empty or unchanged draft reverts instead of saving"` (its current body asserts empty silently reverts — the new behavior says why) with these two tests:
 
@@ -79,12 +79,12 @@ In `apps/frontend/src/components/__tests__/editable-text.test.tsx`, REPLACE the 
 
 Add `render` to the import from `@testing-library/react` (the file currently imports `cleanup, fireEvent, render, screen, waitFor` — `render` is already there; verify).
 
-- [ ] **Step 2: Run to verify the new tests fail**
+- [x] **Step 2: Run to verify the new tests fail**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/editable-text.test.tsx`
 Expected: FAIL on `"A name is required"` not found (old code silently reverts) and on the over-length test. The unchanged-draft test passes before and after.
 
-- [ ] **Step 3: Create `apps/frontend/src/lib/name-limits.ts`**
+- [x] **Step 3: Create `apps/frontend/src/lib/name-limits.ts`**
 
 ```ts
 /**
@@ -103,7 +103,7 @@ export const NAME_MAX_DEFAULT = 120;
 export const NODE_NAME_MAX = 64;
 ```
 
-- [ ] **Step 4: Implement in `editable-text.tsx`**
+- [x] **Step 4: Implement in `editable-text.tsx`**
 
 Add the import at the top: `import { NAME_MAX_DEFAULT } from "@/lib/name-limits";`
 
@@ -146,12 +146,12 @@ with:
 
 Add `maxLength={maxLength}` to the `<Input>` element.
 
-- [ ] **Step 5: Run to verify all pass**
+- [x] **Step 5: Run to verify all pass**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/editable-text.test.tsx`
 Expected: all PASS (the pre-existing five plus the two new/renamed ones and the over-length one).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/theo/projects/mote
@@ -171,7 +171,7 @@ git commit -m "feat(frontend): EditableText validates length/blank before saving
 - Consumes: `NAME_MAX_DEFAULT` (Task 1), `apiFetch`, `SESSION_QUERY_KEY` / `SESSIONS_QUERY_KEY` / `WORKSPACE_QUERY_KEY` from `@/lib/query-keys`.
 - Produces: `TitleDialog({ sessionId, currentName, open, onOpenChange }: { sessionId: string; currentName: string; open: boolean; onOpenChange: (open: boolean) => void })` — controlled like `NotesDialog`, keyed by the CALLER. PATCHes `/api/sessions/:id/name` with `{ name }`; closes on success. Save button label `"Save title"`, input `aria-label="New session title"`. Task 3 mounts it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/frontend/src/components/ui/__tests__/title-dialog.test.tsx`:
 
@@ -265,12 +265,12 @@ describe("TitleDialog", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/ui/__tests__/title-dialog.test.tsx`
 Expected: FAIL — cannot resolve `@/components/ui/title-dialog`.
 
-- [ ] **Step 3: Implement `apps/frontend/src/components/ui/title-dialog.tsx`**
+- [x] **Step 3: Implement `apps/frontend/src/components/ui/title-dialog.tsx`**
 
 ```tsx
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -379,12 +379,12 @@ export function TitleDialog({
 
 If `mutation.error` needs narrowing, `useMutation` types it as `Error` by default in TanStack Query 5 — no cast required; adjust only if `verify-types` complains.
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/ui/__tests__/title-dialog.test.tsx`
 Expected: 3 PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/theo/projects/mote
@@ -404,7 +404,7 @@ git commit -m "feat(frontend): TitleDialog — validated session rename modal"
 - Consumes: `TitleDialog` (Task 2).
 - Produces: a menu item labelled `"Edit title"` in the `canEdit` block for every surface that renders `SessionActionsMenu` (page header, cards, rows).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `session-actions-menu.test.tsx`, inside `describe("SessionActionsMenu — access gating (spec §4.1)")`, extend the `"an edit grantee can manage…"` test: add these two lines right after its `expect(screen.getByRole("menuitem", { name: "Add note" })).toBeDefined();` line:
 
@@ -439,12 +439,12 @@ and after the `expect(screen.queryByRole("menuitem", { name: "Delete session" })
 
 (The view-grantee case is already covered: the existing "renders no actions menu at all for a view grantee" test fails if the menu itself appears, and the item lives inside the `canEdit` block.)
 
-- [ ] **Step 2: Run to verify the new tests fail**
+- [x] **Step 2: Run to verify the new tests fail**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/session-actions-menu.test.tsx`
 Expected: FAIL — no menuitem named "Edit title".
 
-- [ ] **Step 3: Wire it up**
+- [x] **Step 3: Wire it up**
 
 In `session-actions-menu.tsx`:
 
@@ -473,12 +473,12 @@ In `session-actions-menu.tsx`:
       />
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/session-actions-menu.test.tsx`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/theo/projects/mote
@@ -499,7 +499,7 @@ git commit -m "feat(frontend): Edit title (validated modal) in the shared sessio
 - Consumes: `useIsWide` (`@/hooks/use-is-wide`).
 - Produces: `DetailBackHeader` gains `subtitle?: ReactNode` (renders inline after the title when wide; on row 2 under the wide breakpoint). Narrow header element carries `flex-col` in its class list (the test asserts on it). The workspace header passes no `subtitle` and needs NO change — verify it still compiles.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/frontend/src/components/__tests__/detail-back-header.test.tsx`:
 
@@ -581,12 +581,12 @@ describe("DetailBackHeader", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/detail-back-header.test.tsx`
 Expected: FAIL — `subtitle` is not a known prop (typecheck error surfaces at run too) and/or no `flex-col`.
 
-- [ ] **Step 3: Rewrite `detail-back-header.tsx`**
+- [x] **Step 3: Rewrite `detail-back-header.tsx`**
 
 Full new content:
 
@@ -676,7 +676,7 @@ export function DetailBackHeader({
 
 Note: the wide layout wraps `title` in a flex child rather than the old bare `flex-1 truncate` div — the old session-page inline `hidden sm:inline` workingDir span is GONE (replaced by this `subtitle`), and workspace titles (which carried `min-w-0 font-medium` on their `EditableText`) keep rendering identically.
 
-- [ ] **Step 4: Wire the session page**
+- [x] **Step 4: Wire the session page**
 
 In `apps/frontend/src/routes/sessions_.$id.tsx`:
 
@@ -714,12 +714,12 @@ Replace the `title={...}` prop of `<DetailBackHeader>` (the fragment with `Edita
 
 (`session?.workingDir` is `string | undefined` while loading — `subtitle` is optional, so `undefined` renders nothing.)
 
-- [ ] **Step 5: Run the header tests + typecheck**
+- [x] **Step 5: Run the header tests + typecheck**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/detail-back-header.test.tsx && bunx tsc --noEmit -p .`
 Expected: 3 PASS, no type errors (workspace header compiles unchanged).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/theo/projects/mote
@@ -740,7 +740,7 @@ git commit -m "feat(frontend): two-row phone header with title + working-dir sub
 - Consumes: `NODE_NAME_MAX` / `NAME_MAX_DEFAULT` (Task 1), `maxLength` prop (Task 1).
 - Produces: no new exports.
 
-- [ ] **Step 1: Write the failing assertion**
+- [x] **Step 1: Write the failing assertion**
 
 In `new-session-form.test.tsx`, add a test inside the top-level `describe` (uses the existing `renderForm` helper — it renders the form with a value; `emptyNewSessionForm()` is the initial value):
 
@@ -762,7 +762,7 @@ Read the existing tests first: if `mockFetch` in that file takes different argum
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/new-session-form.test.tsx`
 Expected: FAIL — `maxLength` is `-1` (no cap today).
 
-- [ ] **Step 2: Apply the caps**
+- [x] **Step 2: Apply the caps**
 
 `new-session-form.tsx` — import `NAME_MAX_DEFAULT` from `@/lib/name-limits` and add `maxLength={NAME_MAX_DEFAULT}` to the optional-name `<Input>` (the one with `placeholder="Defaults to date/time"`).
 
@@ -782,12 +782,12 @@ Expected: FAIL — `maxLength` is `-1` (no cap today).
           )
 ```
 
-- [ ] **Step 3: Run to verify it passes**
+- [x] **Step 3: Run to verify it passes**
 
 Run: `cd /home/theo/projects/mote/apps/frontend && bun test src/components/__tests__/new-session-form.test.tsx`
 Expected: all PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/theo/projects/mote
@@ -801,7 +801,7 @@ git commit -m "feat(frontend): length caps on node rename and new-session name i
 
 **Files:** none new.
 
-- [ ] **Step 1: Repo-wide verification (the pre-push trio)**
+- [x] **Step 1: Repo-wide verification (the pre-push trio)**
 
 Run from `/home/theo/projects/mote`:
 
@@ -813,16 +813,16 @@ bun run test
 
 Expected: all green. `lint:check` is read-only — if it flags formatting, run `bun run lint` to fix, re-check, and amend the relevant commit (or commit the fixes separately).
 
-- [ ] **Step 2: Build the frontend (bundle-integrity check)**
+- [x] **Step 2: Build the frontend (bundle-integrity check)**
 
 Run: `cd /home/theo/projects/mote && bunx turbo build`
 Expected: all tasks successful.
 
-- [ ] **Step 3: Manual phone-width smoke (optional but recommended if a dev backend is up)**
+- [ ] **Step 3: Manual phone-width smoke (optional but recommended if a dev backend is up)** — NOT RUN (headless session; component tests cover the reflow logic)
 
 Serve the app, open a session page at ~400px width (devtools device mode): row 2 shows title + path legibly; ⋯ menu → Edit title → rename → header + list update; blank draft → Save disabled; node page rename input caps at 64.
 
-- [ ] **Step 4: If anything changed during smoke fixes, re-run Step 1 and commit.**
+- [x] **Step 4: If anything changed during smoke fixes, re-run Step 1 and commit.**
 
 ---
 
