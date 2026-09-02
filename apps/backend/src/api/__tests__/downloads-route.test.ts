@@ -1,5 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
@@ -272,25 +283,190 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("$TARGET.sha256");
     expect(body).toContain("sha256sum -c");
     expect(body).toContain("shasum -a 256 -c");
-    // ALTERED expectations (nodes phase 3): the binary lives under $DATA_DIR
-    // (default $PWD — same file as the old CWD spelling for the no-env path).
-    expect(body).toContain('chmod +x "$DATA_DIR/mote-agent"');
-    expect(body).toContain('"$DATA_DIR/mote-agent" enroll --server "$SERVER" --key "$KEY" --data-dir "$DATA_DIR"');
-    expect(body).toContain('start the agent with:  \\"$DATA_DIR/mote-agent\\" run');
+    // Branch-aware spellings (fix wave 1): $DEST holds the install path —
+    // ./mote-agent by default, $MOTE_DATA_DIR/mote-agent when the knob is set.
+    expect(body).toContain('chmod +x "$DEST"');
+    expect(body).toContain('"$DEST" enroll --server "$SERVER" --key "$KEY"');
+    expect(body).toContain('start the agent with:  \\"$DEST\\" run');
     expect(body).not.toContain("exit 2");
   });
 
-  it("install.sh honors MOTE_DATA_DIR: default $PWD, download dest, enroll --data-dir, absolute final echo", async () => {
+  it("install.sh MOTE_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ./mote-agent + empty arg array", async () => {
     const body = await (await install(await mkKey())).text();
-    // Env knob: `curl … | MOTE_DATA_DIR=/opt/mote bash`; unset keeps today's CWD behavior.
-    expect(body).toContain('DATA_DIR="${MOTE_DATA_DIR:-$PWD}"');
-    expect(body).toContain('--output "$DATA_DIR/mote-agent"');
-    expect(body).toContain('--data-dir "$DATA_DIR"'); // real agent flag (apps/agent/src/cli.ts)
-    // Every post-download use goes through the data dir, never a bare ./mote-agent.
-    expect(body).toContain('chmod +x "$DATA_DIR/mote-agent"');
-    expect(body).toContain('start the agent with:  \\"$DATA_DIR/mote-agent\\" run'); // echo shows the quoted absolute path
-    expect(body).not.toContain("./mote-agent");
+    // Env knob: `curl … | MOTE_DATA_DIR=/opt/mote bash`; UNSET keeps the
+    // historical CWD install and never passes --data-dir (fix wave 1).
+    expect(body).toContain('if [ -n "${MOTE_DATA_DIR:-}" ]; then');
+    expect(body).toContain('DATA_DIR="$MOTE_DATA_DIR"');
+    // Installer-created dirs are private (also on a shared /opt).
+    expect(body).toContain('(umask 077; mkdir -p "$DATA_DIR")');
+    expect(body).toContain('DEST="$DATA_DIR/mote-agent"');
+    expect(body).toContain('ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real agent flag (apps/agent/src/cli.ts)
+    // Default branch: CWD binary, NO --data-dir arg, guarded against `set -u`.
+    expect(body).toContain('DEST="./mote-agent"');
+    expect(body).toContain("ENROLL_DATA_DIR_ARGS=()");
+    expect(body).toContain('${ENROLL_DATA_DIR_ARGS[@]+"${ENROLL_DATA_DIR_ARGS[@]}"}');
+    // One download/verify/chmod/enroll pipeline, parameterized by $DEST.
+    expect(body).toContain('--output "$DEST"');
+    expect(body).toContain('chmod +x "$DEST"');
+    expect(body).toContain('start the agent with:  \\"$DEST\\" run'); // echo names the right path
   });
+
+  /**
+   * Some sandboxes silently no-op SCRIPT-FILE execution (`bash ./file` exits 0
+   * without running it) — then the stubbed "mote-agent" binary never runs and
+   * the full-pipeline test proves nothing. Probe once; skip that test where
+   * file exec does not verifiably work.
+   */
+  const FILE_EXEC = (() => {
+    if (!BASH) return false;
+    const dir = mkdtempSync(join(tmpdir(), "mote-exec-probe-"));
+    try {
+      const probe = join(dir, "probe.sh");
+      writeFileSync(probe, "#!/usr/bin/env bash\necho MOTE_EXEC_PROBE\n");
+      chmodSync(probe, 0o755);
+      return Bun.spawnSync(["bash", probe]).stdout.toString().includes("MOTE_EXEC_PROBE");
+    } catch {
+      return false;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  })();
+
+  it.skipIf(!BASH)(
+    "install.sh MOTE_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=./mote-agent, enroll args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
+    async () => {
+      // The rendered script contains BOTH branches, so text assertions cannot
+      // show which one runs. Slice the real rendered block out of the body and
+      // exec it inline (`bash -c`), reproducing the script's own enroll
+      // expansion — the output IS the argv enroll would receive on each branch.
+      const body = await (await install(await mkKey())).text();
+      const block = body.match(/^if \[ -n "\$\{MOTE_DATA_DIR:-\}" \]; then[\s\S]*?^fi$/m)?.[0];
+      expect(block).toBeDefined();
+      const prog = [
+        "set -euo pipefail",
+        block as string,
+        "printf '%s\\n' DEST=\"$DEST\"",
+        // The exact expansion the script's enroll line uses (pinned by the text test).
+        "printf '%s\\n' enroll --server SRV --key KEY ${ENROLL_DATA_DIR_ARGS[@]+\"${ENROLL_DATA_DIR_ARGS[@]}\"}",
+      ].join("\n");
+
+      const work = mkdtempSync(join(tmpdir(), "mote-branch-exec-"));
+      try {
+        function runBranch(extraEnv: Record<string, string>) {
+          const env: Record<string, string> = { ...(process.env as Record<string, string>), ...extraEnv };
+          // The default run must see the knob GENUINELY unset, whatever the
+          // machine running the suite happens to have exported.
+          if (extraEnv.MOTE_DATA_DIR === undefined) delete env.MOTE_DATA_DIR;
+          const proc = Bun.spawnSync(["bash", "-c", prog], { cwd: work, env });
+          expect(proc.stderr.toString()).toBe("");
+          expect(proc.exitCode).toBe(0);
+          return proc.stdout.toString().trimEnd().split("\n");
+        }
+
+        // ── default (env unset): pre-knob behavior — CWD dest, no --data-dir ──
+        const def = runBranch({});
+        expect(def).toContain("DEST=./mote-agent");
+        expect(def).toContain("enroll");
+        expect(def).not.toContain("--data-dir"); // the agent keeps its own default data dir
+
+        // ── opt-in (env set): relocated dest, state follows the binary ──
+        const dest = join(work, "deep", "mote-data"); // missing parents also pin `mkdir -p`
+        const opt = runBranch({ MOTE_DATA_DIR: dest });
+        expect(opt).toContain(`DEST=${dest}/mote-agent`);
+        expect(opt).toContain("--data-dir");
+        expect(opt[opt.indexOf("--data-dir") + 1]).toBe(dest);
+        expect(statSync(dest).mode & 0o777).toBe(0o700); // umask-077 mkdir
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+  );
+
+  const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
+
+  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
+    "install.sh EXECUTED end-to-end with stub curl/uname: default → ./mote-agent in CWD and enroll WITHOUT --data-dir; MOTE_DATA_DIR → relocated dest + --data-dir",
+    async () => {
+      const key = await mkKey();
+      const body = await (await install(key)).text();
+
+      // Full-pipeline twin of the branch test above: stub `curl` serves a fake
+      // agent that logs its argv (and the digest its stub verifier accepts), so
+      // the assertions read what enroll ACTUALLY RECEIVED through the real
+      // download → verify → chmod → enroll chain.
+      const work = mkdtempSync(join(tmpdir(), "mote-install-exec-"));
+      try {
+        const bin = join(work, "bin");
+        mkdirSync(bin);
+        writeFileSync(
+          join(bin, "curl"),
+          [
+            "#!/usr/bin/env bash",
+            'out=""',
+            'prev=""',
+            'for a in "$@"; do',
+            '  [ "$prev" = "--output" ] && out="$a"',
+            '  prev="$a"',
+            "done",
+            'if [ -n "$out" ]; then',
+            '  printf \'%s\\n\' \'#!/usr/bin/env bash\' \'for a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\' > "$out"',
+            "else",
+            "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"", // 64 zeros; the verifier is stubbed too
+            "fi",
+            "",
+          ].join("\n"),
+        );
+        writeFileSync(
+          join(bin, "uname"),
+          '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
+        );
+        for (const tool of ["sha256sum", "shasum"]) writeFileSync(join(bin, tool), "#!/usr/bin/env bash\nexit 0\n");
+        for (const tool of ["curl", "uname", "sha256sum", "shasum"]) chmodSync(join(bin, tool), 0o755);
+
+        function runBranch(cwd: string, extraEnv: Record<string, string>) {
+          mkdirSync(cwd, { recursive: true });
+          const logPath = join(work, `enroll-${cwd.split("/").pop()}.log`);
+          const env: Record<string, string> = {
+            ...(process.env as Record<string, string>),
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            ENROLL_LOG: logPath,
+            ...extraEnv,
+          };
+          if (extraEnv.MOTE_DATA_DIR === undefined) delete env.MOTE_DATA_DIR;
+          // `bash -c <body>` — exactly what `curl … | bash` hands the shell.
+          const proc = Bun.spawnSync(["bash", "-c", body], { cwd, env });
+          return {
+            exitCode: proc.exitCode,
+            stderr: proc.stderr.toString(),
+            args: existsSync(logPath) ? readFileSync(logPath, "utf8").trimEnd().split("\n") : [],
+          };
+        }
+
+        // ── default (env unset): the pre-knob behavior, exactly ──
+        const cwd1 = join(work, "cwd-default");
+        const def = runBranch(cwd1, {});
+        expect(def.exitCode).toBe(0); // stderr may carry the (expected) loopback WARNING
+        expect(def.args[0]).toBe("enroll");
+        expect(def.args).toContain("--key");
+        expect(def.args).toContain(key);
+        expect(def.args).not.toContain("--data-dir"); // the whole point: the agent keeps its own default data dir
+        expect(existsSync(join(cwd1, "mote-agent"))).toBe(true); // binary lands in the CWD
+        expect(existsSync(join(cwd1, "mote-agent.sha256"))).toBe(false); // sidecar cleaned up
+
+        // ── opt-in (env set): relocated dest, state follows the binary ──
+        const cwd2 = join(work, "cwd-relocated");
+        const dest = join(cwd2, "deep", "mote-data"); // missing parents also pin `mkdir -p`
+        const opt = runBranch(cwd2, { MOTE_DATA_DIR: dest });
+        expect(opt.exitCode).toBe(0);
+        expect(opt.args).toContain("--data-dir");
+        expect(opt.args[opt.args.indexOf("--data-dir") + 1]).toBe(dest);
+        expect(existsSync(join(dest, "mote-agent"))).toBe(true);
+        expect(existsSync(join(cwd2, "mote-agent"))).toBe(false); // nothing lands in the CWD
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("install.sh carries a runtime loopback guard and the non-root note as script text", async () => {
     // The RUNTIME conditional is pinned here (uname/the dialer are only known

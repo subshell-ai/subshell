@@ -37,10 +37,14 @@ exit 2
  * writer (different mint format, imported keys) cannot silently regress the
  * no-shell-metacharacters property of this template.
  *
- * Data dir: the script installs and enrolls under `$DATA_DIR`, which defaults
- * to the invoking CWD and is overridden by the `MOTE_DATA_DIR` env knob —
- * `curl … | MOTE_DATA_DIR=/opt/mote bash` (`curl | bash` has no argv). The
- * same dir is handed to `enroll --data-dir`, so binary and state stay together.
+ * Install dest / data dir: the DEFAULT install keeps the pre-knob behavior
+ * exactly — the binary lands in the invoking CWD (`./mote-agent`) and enroll
+ * runs WITHOUT `--data-dir`, so the agent keeps its own default data dir and
+ * a stray `curl | bash` from $HOME (or anywhere) never relocates agent state.
+ * The `MOTE_DATA_DIR` env knob OPTS into a relocated install: dest
+ * `$MOTE_DATA_DIR/mote-agent`, installer-created dirs at 0700, and
+ * `enroll --data-dir "$MOTE_DATA_DIR"` so binary and state stay together —
+ * `curl … | MOTE_DATA_DIR=/opt/mote bash` (`curl | bash` has no argv).
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
  */
 function renderInstallScript(key: string): string {
@@ -52,10 +56,23 @@ set -euo pipefail
 SERVER="${APP_BASE_URL}"
 KEY="${key}"
 
-# Install dest + agent data dir; unset MOTE_DATA_DIR keeps the historical
-# "files land in the CWD" behavior byte-for-byte.
-DATA_DIR="\${MOTE_DATA_DIR:-$PWD}"
-mkdir -p "$DATA_DIR"
+# Install dest + enroll --data-dir. Unset/empty MOTE_DATA_DIR keeps the
+# historical behavior exactly: binary in the CWD, enroll WITHOUT --data-dir
+# (the agent keeps its own default data dir). Setting the knob OPTS INTO a
+# relocated install: everything lands under $MOTE_DATA_DIR, which the
+# installer creates (0700, with any missing parents). The ENROLL_DATA_DIR_ARGS
+# expansion below is guarded ("+word" form) so the empty array stays clean
+# under set -u even on bash 3.2 (macOS default), where a bare empty-array
+# expansion would abort as "unbound variable".
+if [ -n "\${MOTE_DATA_DIR:-}" ]; then
+  DATA_DIR="$MOTE_DATA_DIR"
+  (umask 077; mkdir -p "$DATA_DIR")
+  DEST="$DATA_DIR/mote-agent"
+  ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")
+else
+  DEST="./mote-agent"
+  ENROLL_DATA_DIR_ARGS=()
+fi
 
 # Runtime loopback guard (the enroll-time trap): the URL is baked at render
 # time, but whether "localhost" is the WRONG machine is only known on the
@@ -83,31 +100,31 @@ esac
 echo "==> downloading mote-agent ($TARGET) from $SERVER"
 curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
-  --output "$DATA_DIR/mote-agent"
+  --output "$DEST"
 
 # Verify the digest BEFORE the file is ever executed. The endpoint answers
 # with the bare 64-hex; sha256sum -c / shasum -a 256 -c both take the
 # "<hash>  <file>" spelling.
 EXPECTED="$(curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"
-printf '%s  %s\\n' "$EXPECTED" "$DATA_DIR/mote-agent" > "$DATA_DIR/mote-agent.sha256"
+printf '%s  %s\\n' "$EXPECTED" "$DEST" > "$DEST.sha256"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum -c "$DATA_DIR/mote-agent.sha256"
+  sha256sum -c "$DEST.sha256"
 elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 -c "$DATA_DIR/mote-agent.sha256"
+  shasum -a 256 -c "$DEST.sha256"
 else
   echo "mote-agent: need sha256sum or shasum to verify the download" >&2
   exit 1
 fi
-rm -f "$DATA_DIR/mote-agent.sha256"
+rm -f "$DEST.sha256"
 
-chmod +x "$DATA_DIR/mote-agent"
+chmod +x "$DEST"
 
 echo "==> enrolling with $SERVER"
-"$DATA_DIR/mote-agent" enroll --server "$SERVER" --key "$KEY" --data-dir "$DATA_DIR"
+"$DEST" enroll --server "$SERVER" --key "$KEY" \${ENROLL_DATA_DIR_ARGS[@]+"\${ENROLL_DATA_DIR_ARGS[@]}"}
 
-echo "==> installed and enrolled. start the agent with:  \\"$DATA_DIR/mote-agent\\" run"
-echo "    the agent runs as the invoking user; no sudo needed (data lives in $DATA_DIR)."
+echo "==> installed and enrolled. start the agent with:  \\"$DEST\\" run"
+echo "    the agent runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default agent data dir})."
 `;
 }
 
