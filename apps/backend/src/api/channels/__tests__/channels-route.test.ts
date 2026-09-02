@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { TmuxRunner } from "@internal/harnesses";
+import { generateKeypair } from "@internal/mcp-core";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { channelRoutes } from "@/api/channels/index.js";
@@ -8,7 +9,6 @@ import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { generateKeypair } from "@/mcp/crypto.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setNudgeTransportForTests } from "@/services/channels/nudge.js";
 import { issueSessionToken } from "@/services/session-tokens.js";

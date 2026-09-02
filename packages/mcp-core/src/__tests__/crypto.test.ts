@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { generateKeypair, open, seal } from "@/mcp/crypto.js";
+import { generateKeypair, open, seal } from "../crypto.js";
 
 /**
  * Sealed delivery per the spike-verified jose recipe: one shared ciphertext,

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { generateKeypair } from "@internal/mcp-core";
 import { hashPassword } from "better-auth/crypto";
 import { identityRoutes } from "@/api/identities.route.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { generateKeypair } from "@/mcp/crypto.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /** Identity registration is self-only by principal derivation; rotation works. */

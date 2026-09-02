@@ -74,7 +74,7 @@ function isIdentity(v: unknown): v is AgentIdentity {
 
 async function writeFresh(file: string): Promise<AgentIdentity> {
   // Bun's crypto.subtle lacks ECDH generateKey; jose falls back to node:crypto
-  // internally (same path the backend's mcp/crypto.ts documents).
+  // internally (same path @internal/mcp-core's crypto.ts documents).
   const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", { crv: "P-256", extractable: true });
   const identity: AgentIdentity = {
     publicJwk: JSON.stringify(await exportJWK(publicKey)),

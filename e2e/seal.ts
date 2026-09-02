@@ -1,10 +1,11 @@
 import { exportJWK, flattenedDecrypt, GeneralEncrypt, generateKeyPair, importJWK } from "jose";
 
 /**
- * E2E-side mirror of `apps/backend/src/mcp/crypto.ts` (source of truth): the
- * same jose import line, the same header conventions, the same seal/open
- * logic, so the specs produce and consume the exact General-JWE envelopes the
- * backend stores and relays. Keep in sync by hand when the backend changes.
+ * E2E-side mirror of `packages/mcp-core/src/crypto.ts` (source of truth,
+ * shared via `@internal/mcp-core`): the same jose import line, the same header
+ * conventions, the same seal/open logic, so the specs produce and consume the
+ * exact General-JWE envelopes the backend stores and relays. Keep in sync by
+ * hand when that package changes.
  *
  * Sealed delivery for channel posts, built entirely on jose (no hand-rolled
  * primitives): one random content key encrypts the body with AES-256-GCM, and

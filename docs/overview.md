@@ -48,13 +48,14 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 
 ```
 apps/backend      Elysia app: api routes, ws, auth, session manager, tmux runner,
-                  static serving (built SPA), migrations; src/mcp/ is the stdio
-                  `mote mcp` server (own compile target, never opens the app DB)
+                  static serving (built SPA), migrations; src/mcp/main.ts is the
+                  stdio `mote mcp` entry (own compile target, never opens the app DB)
 apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
 packages/harnesses         HarnessPlugin interface + four built-in harness plugins
 packages/backend-errors    shared error handler (scaffold)
 packages/backend-client    Eden Treaty client (scaffold; types inferred from backend's `App` type)
 packages/session-protocol  WS frame contract shared by backend + frontend
+packages/mcp-core          stdio `mote mcp` server, shared by backend's mote-mcp binary and the agent
 packages/tsconfig          shared TS config (scaffold)
 ```
 

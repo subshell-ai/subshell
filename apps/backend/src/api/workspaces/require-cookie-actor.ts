@@ -4,7 +4,7 @@ import { ForbiddenError, type GuardActor } from "@/api/auth-guard.js";
  * Every `/api/workspaces` endpoint is a browser-only surface: the `mote mcp`
  * binary calls exactly `/api/sessions…`, `/api/channels…`, `/api/profiles`
  * (GET), `/api/identities` (POST) and `…/extend-token` — never workspaces
- * (census: `src/mcp/tools.ts` + `src/mcp/server.ts` `deps.api.req` calls),
+ * (census: `packages/mcp-core/src/tools.ts` + `packages/mcp-core/src/server.ts` `deps.api.req` calls),
  * and the frontend reaches these cookie-only through `apiFetch`
  * (`credentials: "include"`).
  *

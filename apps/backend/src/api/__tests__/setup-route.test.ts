@@ -19,7 +19,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * - No users yet (needsSetup): all three stay public so the boot wizard works.
  * - Once a user exists: GET requires ANY authenticated actor (cookie or
  *   bearer); PATCH (a machine-config write — the MCP binary never calls it,
- *   confirmed by grepping src/mcp/tools.ts for its endpoint census) requires
+ *   confirmed by grepping packages/mcp-core/src/tools.ts for its endpoint census) requires
  *   a COOKIE actor.
  *
  * Isolation note: the test DB is a per-process temp FILE that every other

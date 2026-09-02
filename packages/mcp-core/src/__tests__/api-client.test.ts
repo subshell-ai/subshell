@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { ApiError, MoteApi } from "@/mcp/api-client.js";
+import { ApiError, MoteApi } from "../api-client.js";
 
 /** REST client behavior, with globalThis.fetch stubbed (no server involved). */
 describe("MoteApi", () => {

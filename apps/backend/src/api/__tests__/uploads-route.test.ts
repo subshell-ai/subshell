@@ -192,7 +192,7 @@ describe("session uploads route", () => {
 
   // F4 (security audit 2026-08): uploads write into the session's working
   // directory and are browser-only — the `mote mcp` binary never calls this
-  // endpoint (see the endpoint census in src/mcp/tools.ts), and the frontend
+  // endpoint (see the endpoint census in packages/mcp-core/src/tools.ts), and the frontend
   // posts with `credentials: "include"`. A bearer key must not act as owner.
   it("bearer session key -> 403 and nothing written", async () => {
     const ws = tempWorkDir();

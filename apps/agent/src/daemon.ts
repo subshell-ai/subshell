@@ -171,7 +171,7 @@ function jtiOfUnverified(jws: string): string | undefined {
 
 /**
  * Capability gate for the `mote-agent mcp` subcommand — shipped since Task 13
- * (the MCP server port under `src/mcp/`), so this build advertises `mcp`
+ * (the `@internal/mcp-core` server behind `mote-agent mcp`), so this build advertises `mcp`
  * alongside `uploads` in `readyEvent` and the control plane registers the
  * per-session MCP config for launches on this node. The constant is the kill
  * switch: flip it false (with the command removed from `cli.ts`) and the

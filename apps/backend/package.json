@@ -35,10 +35,10 @@
     "@elysiajs/openapi": "1.4.15",
     "@internal/backend-errors": "workspace:*",
     "@internal/harnesses": "workspace:*",
+    "@internal/mcp-core": "workspace:*",
     "@internal/session-protocol": "workspace:*",
     "@loglayer/elysia": "2.4.0",
     "@loglayer/transport-simple-pretty-terminal": "3.3.0",
-    "@modelcontextprotocol/server": "2.0.0",
     "better-auth": "1.7.1",
     "better-auth-ui": "3.2.27",
     "dotenv": "17.4.2",
@@ -53,8 +53,7 @@
     "nanoid": "6.0.1",
     "sanitize-filename": "1.6.4",
     "serialize-error": "13.0.1",
-    "web-push": "3.6.7",
-    "zod": "4.4.3"
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@elysiajs/eden": "1.4.9",

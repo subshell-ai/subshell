@@ -1,9 +1,9 @@
+import { readMcpEnv } from "@internal/mcp-core";
 import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
 import { type AgentConfig, loadConfig } from "./config.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, readLock } from "./lock.js";
-import { readMcpEnv } from "./mcp/env.js";
 import { runAgentMcp } from "./mcp/main.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -50,7 +50,7 @@ const FLAGS: Record<string, boolean> = {
 };
 const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir"],
-  mcp: [], // no flags — everything comes from the MOTE_* pane env (mcp/env.ts contract)
+  mcp: [], // no flags — everything comes from the MOTE_* pane env (the @internal/mcp-core env.ts contract)
   run: [],
   status: ["--json", "--probe"],
   version: [],

@@ -58,5 +58,5 @@ and status chips (`working` / `running` on the detail badge / `ended` /
 "Terminal gotchas", and spec `06` for the pattern.
 
 Channels are machine-facing (no browser UI): spec `07` is API-only, seals with
-real `jose` crypto from `seal.ts` (verbatim mirror of the backend
-`mcp/crypto.ts`), and asserts recipient-filtered reads.
+real `jose` crypto from `seal.ts` (verbatim mirror of
+`@internal/mcp-core`'s `crypto.ts`), and asserts recipient-filtered reads.

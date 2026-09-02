@@ -32,10 +32,9 @@
       "dependencies": {
         "@internal/backend-errors": "workspace:*",
         "@internal/harnesses": "workspace:*",
+        "@internal/mcp-core": "workspace:*",
         "@internal/session-protocol": "workspace:*",
-        "@modelcontextprotocol/server": "2.0.0",
         "jose": "6.2.9",
-        "zod": "4.4.3",
       },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
@@ -56,10 +55,10 @@
         "@elysiajs/openapi": "1.4.15",
         "@internal/backend-errors": "workspace:*",
         "@internal/harnesses": "workspace:*",
+        "@internal/mcp-core": "workspace:*",
         "@internal/session-protocol": "workspace:*",
         "@loglayer/elysia": "2.4.0",
         "@loglayer/transport-simple-pretty-terminal": "3.3.0",
-        "@modelcontextprotocol/server": "2.0.0",
         "better-auth": "1.7.1",
         "better-auth-ui": "3.2.27",
         "dotenv": "17.4.2",
@@ -75,7 +74,6 @@
         "sanitize-filename": "1.6.4",
         "serialize-error": "13.0.1",
         "web-push": "3.6.7",
-        "zod": "4.4.3",
       },
       "devDependencies": {
         "@elysiajs/eden": "1.4.9",
@@ -229,6 +227,21 @@
         "hash-runner": "4.0.0",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
+      },
+    },
+    "packages/mcp-core": {
+      "name": "@internal/mcp-core",
+      "version": "1.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/server": "2.0.0",
+        "jose": "6.2.9",
+        "zod": "4.4.3",
+      },
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "4.0.0",
+        "tsdown": "0.22.14",
       },
     },
     "packages/session-protocol": {
@@ -743,6 +756,8 @@
     "@internal/frontend": ["@internal/frontend@workspace:apps/frontend"],
 
     "@internal/harnesses": ["@internal/harnesses@workspace:packages/harnesses"],
+
+    "@internal/mcp-core": ["@internal/mcp-core@workspace:packages/mcp-core"],
 
     "@internal/mobile": ["@internal/mobile@workspace:apps/mobile"],
 

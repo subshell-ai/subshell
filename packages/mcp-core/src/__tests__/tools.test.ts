@@ -2,9 +2,9 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApiError } from "@/mcp/api-client.js";
-import { generateKeypair, open, seal } from "@/mcp/crypto.js";
-import { reloadPinSettingsForTests } from "@/mcp/pin-store.js";
+import { ApiError, MoteApi } from "../api-client.js";
+import { generateKeypair, open, seal } from "../crypto.js";
+import { reloadPinSettingsForTests } from "../pin-store.js";
 import {
   createSession,
   describeToolError,
@@ -13,7 +13,7 @@ import {
   readChannel,
   type ToolApi,
   type ToolDeps,
-} from "@/mcp/tools.js";
+} from "../tools.js";
 
 /** In-memory fake: tools talk to this, never to a server. */
 interface Recorded {
@@ -171,6 +171,43 @@ describe("mcp tools (handler-level, real crypto)", () => {
     const create = calls.find((c) => c.path === "/api/sessions");
     expect(create?.body?.profileId).toBe("prof-1");
     expect(create?.body?.prompt).toBe("do it");
+  });
+
+  it("create_session over the REAL MoteApi with fetch stubbed makes the expected REST calls", async () => {
+    // Folded in from the agent's port-parity suite (which this package replaced):
+    // no fakeApi — a stubbed global fetch (api-client.test pattern), so the full
+    // client path (MoteApi.req → fetch) is proven: GET /api/profiles (bearer),
+    // then POST /api/sessions with the NAME-resolved profileId and the prompt.
+    const savedFetch = globalThis.fetch;
+    const seen: Request[] = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const req = new Request(String(input), init);
+      seen.push(req);
+      if (req.url === "http://h:3080/api/profiles") {
+        return new Response(JSON.stringify([{ id: "prof-1", name: "Dev", harnessId: "claude-code" }]));
+      }
+      return new Response(JSON.stringify({ id: "s1", promptDelivered: true }));
+    }) as never;
+    try {
+      const own = await generateKeypair();
+      const deps: ToolDeps = {
+        api: new MoteApi({ apiKey: "mote_key123", baseUrl: "http://h:3080" }),
+        own: { principalId: "sess:me", ...own },
+      };
+      const res = await createSession(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
+      expect(res).toEqual({ id: "s1", promptDelivered: true });
+      expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual([
+        "GET http://h:3080/api/profiles",
+        "POST http://h:3080/api/sessions",
+      ]);
+      expect(seen[0]?.headers.get("authorization")).toBe("Bearer mote_key123");
+      const body = (await seen[1]?.json()) as Record<string, unknown>;
+      expect(body.profileId).toBe("prof-1");
+      expect(body.prompt).toBe("do it");
+      expect(body.workingDir).toBe("/tmp");
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
   });
 
   it("create_session with an unknown profile name gives guidance, not a stack trace", async () => {

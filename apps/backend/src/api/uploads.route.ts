@@ -57,7 +57,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
     "/:id/uploads",
     async ({ params, body, user, actor, status }) => {
       // F4 (security audit 2026-08): browser-only surface — the `mote mcp`
-      // binary never uploads (endpoint census: src/mcp/tools.ts), and the
+      // binary never uploads (endpoint census: packages/mcp-core/src/tools.ts), and the
       // frontend posts cookie-only with `credentials: "include"`. A bearer
       // key writing files into the owner's working directory would feed the
       // agent's cwd, so machine actors get 403 before anything is resolved.

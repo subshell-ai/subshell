@@ -53,7 +53,7 @@ Key properties:
 - **tmux is the source of truth for liveness**; the DB row is a record of
   intent, reconciled every 60 s (`SessionManagerService.reconcileAll`).
 - **`mote mcp` never opens the app database.** It is its own compile target
-  (`dist/mote-mcp`, entry `src/mcp/main.ts`) importing only `src/mcp/*` —
+  (`dist/mote-mcp`, entry `src/mcp/main.ts`) importing only `@internal/mcp-core` —
   a compromised agent process cannot reach SQLite or auth secrets directly.
 - **The terminal transport does not fork for mobile.** The accessory key
   bar sends the same JSON `input` WS frames defined in
@@ -169,7 +169,7 @@ auto-submits anything into a shell and never fails the post.
 ### Peer-key pinning (TOFU) — and what a key recovery costs
 
 The sealing side pins each peer's exact public JWK on first post
-(`<dataDir>/peers.json`, mode 0600, `mcp/pin-store.ts`) and requires
+(`<dataDir>/peers.json`, mode 0600, `@internal/mcp-core` pin-store) and requires
 byte-equality thereafter — a compromised relay cannot swap a roster key
 without every sender hard-failing (`PinnedKeyMismatchError`). Absent or
 typo'd `MOTE_CHANNEL_PIN` means strict; only `MOTE_CHANNEL_PIN=trust` opts
@@ -210,7 +210,7 @@ How the child gets spawned is the harness plugin's dialect decision
 `services/mcp-launch.ts:registerSessionMcp` drives all of this on both the
 create and auto-restart paths; manual harnesses write no file at all.
 
-### Boot sequence (`src/mcp/server.ts:runMoteMcp`)
+### Boot sequence (`packages/mcp-core/src/server.ts:runMoteMcp`)
 
 1. Read + validate env (below) — hard-fail with a clear message if missing.
 2. Load-or-create the session's identity keypair under
@@ -224,7 +224,7 @@ create and auto-restart paths; manual harnesses write no file at all.
 5. Serve 14 tools over stdio. **Stdout is the MCP channel** — diagnostics go
    to stderr only.
 
-### Env contract (producer: `services/mcp-launch.ts:sessionMcpEnv`; consumer: `src/mcp/env.ts`)
+### Env contract (producer: `services/mcp-launch.ts:sessionMcpEnv`; consumer: `packages/mcp-core/src/env.ts`)
 
 | Var | Meaning |
 |---|---|
@@ -316,15 +316,19 @@ apps/backend/src/
 │       ├── post-bus.ts        in-process append notifier (single-process scale is fine)
 │       ├── read-wait.ts       long-park primitive (event-driven + timeout)
 │       └── nudge.ts           best-effort tmux send-keys, injectable transport for tests
-├── mcp/                       the `mote mcp` child — imports NOTHING outside here
-│   ├── main.ts                standalone entry (own compile target)
-│   ├── env.ts                 env contract consumer (mirror of mcp-launch's producer)
-│   ├── server.ts              boot + tool registration + AbortSignal plumbing
-│   ├── tools.ts               the 14 handlers (pure over an injectable api client)
-│   ├── api-client.ts          tiny fetch wrapper (Bearer + ApiError{status})
-│   ├── crypto.ts              seal/open (jose), DecryptError
-│   └── identity-store.ts      keypair persistence + principal-stamp guard
+├── mcp/main.ts                standalone entry ONLY (own compile target) — imports just @internal/mcp-core
 └── db/migrations/0009-channels.ts   the six tables + sessions.api_key_id
+
+packages/mcp-core/src/         the `mote mcp` child implementation (shared with the
+                               agent's `mote-agent mcp`); imports NOTHING outside
+                               node builtins + jose + zod + @modelcontextprotocol/*
+├── env.ts                 env contract consumer (mirror of mcp-launch's producer)
+├── server.ts              boot + tool registration + AbortSignal plumbing (runMoteMcp)
+├── tools.ts               the 14 handlers (pure over an injectable api client)
+├── api-client.ts          tiny fetch wrapper (Bearer + ApiError{status})
+├── crypto.ts              seal/open (jose), DecryptError
+├── identity-store.ts      keypair persistence + principal-stamp guard
+└── pin-store.ts           TOFU peer pins (peers.json)
 
 apps/frontend/src/
 ├── components/system-api-keys-card.tsx   the only new UI (Settings page)

@@ -52,7 +52,7 @@ src/
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
-├── mcp/            # The `mote mcp` stdio server (separate compiled binary)
+├── mcp/            # `mote-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the agent's `mote-agent mcp`, per the TmuxRunner precedent)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
