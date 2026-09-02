@@ -3,18 +3,19 @@ import { recentSessionLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents"
 import type { SessionView } from "@/types/session";
 import type { WorkspaceRow } from "@/types/workspace";
 
-/** The sidebar only reads id/name/updatedAt — cast the fixtures. */
-const session = (id: string, name: string): SessionView => ({ id, name }) as SessionView;
+/** The sidebar only reads id/name/workingDir/updatedAt — cast the fixtures. */
+const session = (id: string, name: string, workingDir = `/home/theo/${id}`): SessionView =>
+  ({ id, name, workingDir }) as SessionView;
 const workspace = (id: string, name: string, updatedAt: string): WorkspaceRow =>
   ({ id, name, updatedAt }) as WorkspaceRow;
 
 describe("recentSessionLinks", () => {
-  it("takes the first three of the (already newest-first) list", () => {
+  it("takes the first three of the (already newest-first) list, with the working dir", () => {
     const links = recentSessionLinks([session("a", "A"), session("b", "B"), session("c", "C"), session("d", "D")]);
     expect(links).toEqual([
-      { id: "a", label: "A" },
-      { id: "b", label: "B" },
-      { id: "c", label: "C" },
+      { id: "a", label: "A", path: "/home/theo/a" },
+      { id: "b", label: "B", path: "/home/theo/b" },
+      { id: "c", label: "C", path: "/home/theo/c" },
     ]);
   });
 
@@ -46,5 +47,10 @@ describe("recentWorkspaceLinks", () => {
 
   it("is empty while the list is loading", () => {
     expect(recentWorkspaceLinks(undefined)).toEqual([]);
+  });
+
+  it("workspaces carry no path (the row renders one line)", () => {
+    const links = recentWorkspaceLinks([workspace("w", "W", "2026-08-30T00:00:00.000Z")]);
+    expect(links[0]?.path).toBeUndefined();
   });
 });

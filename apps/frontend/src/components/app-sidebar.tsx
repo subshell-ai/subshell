@@ -170,9 +170,14 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                     key={r.id}
                     to="/sessions/$id"
                     params={{ id: r.id }}
+                    title={r.path ? `${r.label} — ${r.path}` : undefined}
                     className={recentClass(location.pathname === `/sessions/${r.id}`)}
                   >
-                    {r.label}
+                    <span className="block truncate">{r.label}</span>
+                    {/* Working dir under the name — the same reading posture
+                        the phone header took: the path is what locates a
+                        session, the name alone does not. */}
+                    {r.path ? <span className="block truncate text-[10px] opacity-70">{r.path}</span> : null}
                   </Link>
                 ))}
               {!collapsed &&

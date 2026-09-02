@@ -7,6 +7,8 @@ export interface SidebarRecentLink {
   id: string;
   /** The entity's name, shown as the row label */
   label: string;
+  /** Sessions: absolute working dir, rendered under the label. Undefined for workspaces. */
+  path?: string;
 }
 
 /** How many entries each sub-list shows. */
@@ -19,7 +21,7 @@ const RECENT_LIMIT = 3;
  * @returns Up to {@link RECENT_LIMIT} links, newest first
  */
 export function recentSessionLinks(sessions: SessionView[] | undefined): SidebarRecentLink[] {
-  return (sessions ?? []).slice(0, RECENT_LIMIT).map((s) => ({ id: s.id, label: s.name }));
+  return (sessions ?? []).slice(0, RECENT_LIMIT).map((s) => ({ id: s.id, label: s.name, path: s.workingDir }));
 }
 
 /**
