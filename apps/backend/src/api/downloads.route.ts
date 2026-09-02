@@ -1,6 +1,7 @@
 import { type Stats, statSync } from "node:fs";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { NODE_TARGETS, type NodeTarget } from "@internal/session-protocol";
 import { Elysia, t } from "elysia";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
@@ -8,12 +9,6 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
 import { apiErrorBody } from "@/lib/api-error.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
-
-/** The closed set of platform triples the agent is published for (spec §8). */
-export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
-
-/** One {@link NODE_TARGETS} entry. */
-export type NodeTarget = (typeof NODE_TARGETS)[number];
 
 /**
  * The PATH-SAFETY gate, checked IN-HANDLER as the first statement of every
@@ -191,8 +186,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
   {
     params: t.Object({
       target: t.String({
-        description:
-          "Platform triple — one of linux-x64, linux-arm64, darwin-x64, darwin-arm64 (gated in-handler; any other value → 404)",
+        description: `Platform triple — one of ${NODE_TARGETS.join(", ")} (gated in-handler; any other value → 404)`,
       }),
     }),
     query: DownloadQuerySchema,

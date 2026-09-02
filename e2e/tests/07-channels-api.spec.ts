@@ -56,7 +56,8 @@ interface PostView {
  * API-level E2EE round-trip (channels have no browser UI): Alice seals a post
  * to Bob (+self), the server relays the opaque General JWE, Bob reads it back
  * and actually decrypts "hello bob", and Carol — neither member nor recipient
- * — sees an empty log. Sealing is real jose crypto from ../seal.ts.
+ * — sees an empty log. Sealing uses the real crypto from ../seal.ts (a thin
+ * re-export of @internal/mcp-core — the same module the backend and agent run).
  */
 test("sealed channel posts reach the recipient only", async ({ playwright, request }) => {
   // Three users + three sign-ins + the crypto round-trip; all HTTP, no browser.

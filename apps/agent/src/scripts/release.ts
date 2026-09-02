@@ -19,7 +19,7 @@ import { copyFile, mkdir, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { resolveNodeArtifactsDir } from "@internal/session-protocol";
+import { NODE_TARGETS, resolveNodeArtifactsDir } from "@internal/session-protocol";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -38,8 +38,13 @@ const AGENT_DIR = resolve(SCRIPT_DIR, "..", "..");
 /** The monorepo root — where the `packages` dist outputs and hoisted workspace links live. */
 const REPO_ROOT = resolve(AGENT_DIR, "..", "..");
 
-/** The closed set of cross-compiled platform triples (spec §8 `NODE_TARGETS`). */
-export const CROSS_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
+/**
+ * The closed set of cross-compiled platform triples — the SAME served set
+ * the backend's downloads route gates on (single source of truth in
+ * `@internal/session-protocol`). Named `CROSS_TARGETS` here because in the
+ * build schedule every entry is a cross build UNLESS the host wins it.
+ */
+export const CROSS_TARGETS = NODE_TARGETS;
 
 /**
  * Maps a platform/arch pair to its served triple.

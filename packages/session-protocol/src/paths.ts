@@ -1,12 +1,25 @@
 /**
- * The node-artifacts on-disk contract (spec 2026-08-31 §8) — ONE home for
- * the env ladder the backend's downloads route and the agent's release
- * pipeline must agree on. Before this module the default expression was
- * duplicated across `apps/backend/src/constants.ts` and
- * `apps/agent/src/scripts/release.ts` (a keep-in-sync comment where an import
- * belongs); drift meant the release publishing to a directory the running
- * backend never serves — invisible until an install 404'd.
+ * The node DISTRIBUTION contract (spec 2026-08-31 §8) — the two facts the
+ * backend's downloads route and the agent's release pipeline must agree on,
+ * duplicated until this module owned them:
+ *
+ * 1. {@link NODE_TARGETS} — the closed set of served/built platform triples.
+ *    Drift here means publishing a triple the route refuses (a 404 on install)
+ *    or advertising a triple nobody builds.
+ * 2. {@link resolveNodeArtifactsDir} — the env ladder deciding WHERE those
+ *    binaries are published/served. Drift means the release publishes to a
+ *    directory the running backend never serves — invisible until an install
+ *    404s.
+ *
+ * Apps never import each other, so cross-boundary contracts live in
+ * `@internal/session-protocol` (precedent: WS frames, upload limits).
  */
+
+/** One {@link NODE_TARGETS} entry. */
+export type NodeTarget = (typeof NODE_TARGETS)[number];
+
+/** The closed set of platform triples the `mote-agent` is published for (spec §8). */
+export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
 
 /** The three env vars that steer the artifacts location (raw strings, as found on `process.env`). */
 export interface NodeArtifactsEnv {
