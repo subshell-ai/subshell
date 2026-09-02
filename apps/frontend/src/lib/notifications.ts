@@ -107,6 +107,18 @@ export async function enablePush(): Promise<PushState> {
   const reg = await navigator.serviceWorker.register("/sw.js");
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return "blocked";
+  // Force a RE-BIND: browsers hand back the EXISTING subscription from
+  // subscribe() even when applicationServerKey has changed, so after a
+  // server VAPID rotation the stale binding would 403 at the gateway
+  // forever. Tear any old one down first — locally and server-side, the
+  // disablePush teardown — so subscribe() mints a fresh binding against
+  // the current key.
+  const stale = await reg.pushManager.getSubscription();
+  if (stale) {
+    const { endpoint } = stale;
+    await stale.unsubscribe();
+    await apiPost("/api/notifications/unsubscribe", { endpoint });
+  }
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(config.publicKey),

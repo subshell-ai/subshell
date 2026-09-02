@@ -167,7 +167,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
      * and native devices alike — but only if the session's bell is on. The
      * bell check is the SINGLE policy point above both transports (spec
      * §Push): flipping it takes effect on the next event with nothing to
-     * invalidate. A dead web endpoint (404/410) or a DeviceNotRegistered
+     * invalidate. A dead web endpoint (403/404/410) or a DeviceNotRegistered
      * ticket prunes its row; every other failure keeps it (transient).
      */
     async notifySession(sessionId: string, kind: NotifyKind): Promise<void> {
@@ -190,7 +190,13 @@ export function createNotifyService(deps: NotifyServiceDeps) {
               await send({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, payload);
             } catch (err) {
               const status = (err as { statusCode?: number }).statusCode;
-              if (status === 404 || status === 410) {
+              // 404/410 = the endpoint is gone. 403 = the gateway rejects our
+              // VAPID JWT for this binding (Apple's BadJwtToken: the
+              // subscription was made against a different server key — e.g.
+              // after vapid.json rotation). Nothing we sign can ever heal it,
+              // so it joins the prune set; the client re-subscribes on its
+              // next enablePush (which now re-binds unconditionally).
+              if (status === 403 || status === 404 || status === 410) {
                 await deps.subs.deleteByEndpoint(sub.endpoint);
               } else {
                 logger.withError(err).warn(`push send failed (kept): ${sub.endpoint.slice(0, 60)}…`);

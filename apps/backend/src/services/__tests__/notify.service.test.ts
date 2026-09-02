@@ -122,7 +122,7 @@ describe("notifySession", () => {
     await db.destroy();
   });
 
-  it("prunes subscriptions whose endpoint 404/410s, keeps others", async () => {
+  it("prunes subscriptions whose endpoint 403/404/410s, keeps others", async () => {
     const db = await freshDb();
     await (db as Kysely<any>)
       .insertInto("sessions")
@@ -139,12 +139,18 @@ describe("notifySession", () => {
       .execute();
     const repo = new NotificationsRepository(db);
     await repo.upsertForUser("u1", "https://push/dead", "k", "a");
+    await repo.upsertForUser("u1", "https://push/badjwt", "k", "a");
     await repo.upsertForUser("u1", "https://push/alive", "k", "a");
     const svc = createNotifyService({
       sessions: db,
       subs: repo,
       sender: async (sub) => {
         if (sub.endpoint.endsWith("dead")) throw Object.assign(new Error("gone"), { statusCode: 410 });
+        // A 403 means the gateway rejects our VAPID JWT for THIS subscription —
+        // the binding (the server key chosen at subscribe time) no longer
+        // matches what we sign with. Permanent; retrying never heals.
+        if (sub.endpoint.endsWith("badjwt"))
+          throw Object.assign(new Error("forbidden"), { statusCode: 403, body: '{"reason":"BadJwtToken"}' });
         return { statusCode: 201 };
       },
       vapid: { publicKey: "pk", privateKey: "sk", subject: "mailto:x@x" },

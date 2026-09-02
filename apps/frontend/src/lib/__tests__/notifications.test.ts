@@ -130,6 +130,31 @@ describe("enablePush", () => {
     expect(post?.body).toEqual({ endpoint: fakeSub.endpoint, p256dh: "P256DH", auth: "AUTHE" });
   });
 
+  it("re-binds a stale subscription: tears it down (local + server) before subscribing with the current key", async () => {
+    // The real-world failure this guards: the server rotated its VAPID key,
+    // but pushManager.subscribe() returns the EXISTING subscription even
+    // though applicationServerKey changed — every send then 403s at the
+    // gateway forever. enablePush must unsubscribe first, both locally and
+    // server-side (the disablePush teardown), then subscribe fresh.
+    let unsubscribed = false;
+    const staleSub = {
+      endpoint: "https://push.example/stale",
+      toJSON: () => ({ endpoint: "https://push.example/stale", keys: { p256dh: "P", auth: "A" } }),
+      unsubscribe: () => {
+        unsubscribed = true;
+        return Promise.resolve(true);
+      },
+    };
+    const { fetchLog } = installBrowser({ subscription: staleSub });
+    expect(await enablePush()).toBe("on");
+    expect(unsubscribed).toBe(true);
+    const paths = fetchLog.map((c) => c.path);
+    expect(paths.indexOf("/api/notifications/unsubscribe")).toBeLessThan(paths.indexOf("/api/notifications/subscribe"));
+    expect(fetchLog.find((c) => c.path === "/api/notifications/unsubscribe")?.body).toEqual({
+      endpoint: "https://push.example/stale",
+    });
+  });
+
   it("returns 'blocked' when the permission prompt is refused (no subscribe POST)", async () => {
     const { fetchLog, subscribeCalls } = installBrowser({ permission: "denied" });
     expect(await enablePush()).toBe("blocked");
