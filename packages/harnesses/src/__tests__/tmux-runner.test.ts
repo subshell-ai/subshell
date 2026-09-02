@@ -70,6 +70,20 @@ describe("TmuxRunner", () => {
     expect(runner.hasSession(socket, "s1")).toBe(false);
   });
 
+  it("lists session names on a socket in one spawn (batched liveness)", async () => {
+    const socket = freshSocket("list");
+    runner.newSession(socket, "ls-a", "/tmp", "exec sleep 30");
+    runner.newSession(socket, "ls-b", "/tmp", "exec sleep 30");
+    expect(runner.listSessionNames(socket).sort()).toEqual(["ls-a", "ls-b"]);
+
+    runner.killSession(socket, "ls-a");
+    expect(runner.listSessionNames(socket)).toEqual(["ls-b"]);
+    runner.killSession(socket, "ls-b");
+    // Server gone / no sessions: swallow-errors like hasSession — just empty.
+    expect(runner.listSessionNames(socket)).toEqual([]);
+    expect(runner.listSessionNames("mote-no-such-server")).toEqual([]);
+  });
+
   it("streams output to a pipe-pane file", async () => {
     const socket = freshSocket("pipe");
     const outFile = `/tmp/mote-pipe-${Date.now()}.txt`;

@@ -61,8 +61,21 @@ export interface CommandContext {
   nowMs: () => number;
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
-  /** Live pane-exit watcher intervals by sessionId (filled by launch/report.ts since Task 4). */
-  watchers: Map<string, ReturnType<typeof setInterval>>;
+  /**
+   * The panes supervised for natural death, keyed by sessionId → the tmux
+   * socket their pane lives on (filled by launch/report.ts since Task 4;
+   * re-keyed from per-session timers to the shared-tick set by the
+   * exit-watcher batching — ONE interval now ticks for every entry, probing
+   * each distinct socket once per tick). `stopWatcher` removes one entry.
+   */
+  watchers: Map<string, string>;
+  /**
+   * The ONE shared exit-watcher interval, live while `watchers` is non-empty
+   * and cleared (set to undefined) the moment it drains. Unref'd — it must
+   * never hold the daemon (or a test process) open. report.ts owns its
+   * lifecycle; nothing else may touch it.
+   */
+  watchTick?: ReturnType<typeof setInterval>;
   /** Live log-tail pumps by subId (filled by tail.ts; drained by `stopAllTails` on socket close). */
   tails: Map<string, TailHandle>;
   /** In-flight `write_file` streams by resolved final path (filled by write-file.ts; survives reconnects). */

@@ -151,7 +151,9 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     }
   }
 
-  // (9) Death reporting from here on is the watcher's job (report.ts).
-  await startExitWatcher(ctx, cmd.sessionId);
+  // (9) Death reporting from here on is the shared watcher's job (report.ts).
+  // The socket rides straight in from the wire — no meta re-read microseconds
+  // after step (4) wrote it.
+  startExitWatcher(ctx, cmd.sessionId, cmd.socket);
   return { ok: true };
 }

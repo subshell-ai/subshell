@@ -51,6 +51,26 @@ export class TmuxRunner {
   }
 
   /**
+   * Lists every session name on the socket in ONE spawn — the batched
+   * liveness check behind the agent's shared exit watcher (one call per
+   * socket per tick replaces K `has-session` calls).
+   *
+   * Swallows errors like {@link hasSession}: a socket whose server died (or
+   * never existed) simply has no live sessions, so `[]` — callers reading it
+   * as "everything on this socket is gone" get exactly the answer a failed
+   * `has-session` would give. Session names cannot contain newlines, so the
+   * line split is unambiguous.
+   */
+  listSessionNames(socket: string): string[] {
+    try {
+      const out = this.run(["-L", socket, "list-sessions", "-F", "#{session_name}"], {});
+      return out.stdout.split("\n").filter((line) => line !== "");
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Reads the main pane's exit status; null when not dead/unknown.
    *
    * tmux 3.6 exposes the dead-pane exit status as `#{pane_dead_status}`

@@ -8,7 +8,13 @@ import { spawnSync } from "bun";
 import type { CommandContext, CommandResult } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { execLaunch } from "../commands/launch.js";
-import { buildSessionsReport, EXIT_WATCH_INTERVAL_MS, startExitWatcher, stopWatcher } from "../commands/report.js";
+import {
+  buildSessionsReport,
+  EXIT_WATCH_INTERVAL_MS,
+  runExitWatchTick,
+  startExitWatcher,
+  stopWatcher,
+} from "../commands/report.js";
 import type { AgentConfig } from "../config.js";
 import { type SessionMeta, SessionMetaStore } from "../session-meta.js";
 
@@ -25,6 +31,7 @@ import { type SessionMeta, SessionMetaStore } from "../session-meta.js";
 
 const S1 = "11111111-1111-4111-8111-111111111111";
 const S2 = "22222222-2222-4222-8222-222222222222";
+const S3 = "33333333-3333-4333-8333-333333333333";
 const FIXED_NOW = 1_700_000_000_000;
 
 let base: string;
@@ -60,6 +67,7 @@ interface Spec {
   pipePane?: (socket: string, id: string, out: string) => void;
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
   hasSession?: (socket: string, id: string) => boolean;
+  listSessionNames?: (socket: string) => string[];
   paneExitCode?: (socket: string, id: string) => number | null;
   killSession?: (socket: string, id: string) => void;
   run?: (args: string[]) => { stdout: string; stderr: string };
@@ -85,6 +93,7 @@ function makeCtx(
     pipePane: method("pipePane"),
     resizeWindow: method("resizeWindow"),
     hasSession: method("hasSession"),
+    listSessionNames: method("listSessionNames"),
     paneExitCode: method("paneExitCode"),
     killSession: method("killSession"),
     run: method("run"),
@@ -493,50 +502,52 @@ async function launchWithSabotagedSessionsDir(
 
 /* ------------------------------------------------------------------ */
 
-describe("exit watcher (report.ts)", () => {
-  it("pane death ⇒ ONE exit event {exitCode, at}, interval cleared, meta forgotten", async () => {
+describe("exit watcher (report.ts) — one shared tick", () => {
+  it("pane death ⇒ ONE exit event {exitCode, at}, supervision dropped, meta forgotten", async () => {
     const dataDir = freshDataDir("watcher-death");
     const events: NodeEvent[] = [];
     let ticks = 0;
     const { ctx, calls } = makeCtx(
       dataDir,
       {
-        hasSession: () => ticks++ === 0, // alive on the first tick, gone after
+        listSessionNames: () => (ticks++ === 0 ? [S1] : []), // alive on the first tick, gone after
         paneExitCode: () => 7,
       },
       events,
     );
     await recordMeta(ctx.meta, S1, "w-sock");
     expect(EXIT_WATCH_INTERVAL_MS).toBe(2_000); // production cadence (spec §7)
-    await startExitWatcher(ctx, S1, 20); // short interval, real timers (daemon-test polling style)
-    expect(ctx.watchers.has(S1)).toBe(true);
+    startExitWatcher(ctx, S1, "w-sock", 20); // short interval, real timers (daemon-test polling style)
+    expect(ctx.watchers.get(S1)).toBe("w-sock"); // supervised on the LAUNCH socket — no meta re-read
     await waitFor(() => events.length > 0, "exit event");
     expect(events[0]).toEqual({ type: "exit", sessionId: S1, exitCode: 7, at: new Date(FIXED_NOW).toISOString() });
-    expect(ctx.watchers.size).toBe(0); // cleared on fire
+    expect(ctx.watchers.size).toBe(0); // unregistered on fire
     await waitForAsync(async () => (await ctx.meta.get(S1)) === undefined, "meta forgotten");
     expect(calls.some((c) => c.method === "paneExitCode" && c.args[0] === "w-sock" && c.args[1] === S1)).toBe(true);
     await new Promise((r) => setTimeout(r, 80)); // an extra beat: never a second event
     expect(events.length).toBe(1);
+    expect(ctx.watchTick).toBeUndefined(); // the shared loop stops when the last pane leaves
   });
 
   it("paneExitCode null (server gone before a status was read) ⇒ exitCode null rides the event", async () => {
     const dataDir = freshDataDir("watcher-null");
     const events: NodeEvent[] = [];
-    let ticks = 0;
-    const { ctx } = makeCtx(dataDir, { hasSession: () => ticks++ === 0, paneExitCode: () => null }, events);
-    await recordMeta(ctx.meta, S1, "w2");
-    await startExitWatcher(ctx, S1, 20);
+    const { ctx, calls } = makeCtx(dataDir, { listSessionNames: () => [], paneExitCode: () => null }, events);
+    // NO meta record on purpose: the watcher must probe the socket it was
+    // PASSED (launch's cmd.socket), not one recovered from the store.
+    startExitWatcher(ctx, S1, "w2", 20);
     await waitFor(() => events.length > 0, "exit event");
     expect(events[0]).toMatchObject({ type: "exit", sessionId: S1, exitCode: null });
+    expect(calls.find((c) => c.method === "paneExitCode")?.args).toEqual(["w2", S1]);
   });
 
-  it("execKill and execTerminate STOP the watcher — a dead-on-arrival pane never reports after a deliberate kill", async () => {
+  it("execKill and execTerminate STOP supervision — a dead-on-arrival pane never reports after a deliberate kill", async () => {
     const dataDir = freshDataDir("watcher-kill");
     const events: NodeEvent[] = [];
     const { ctx } = makeCtx(
       dataDir,
       {
-        hasSession: () => false, // an UNSUPPRESSED watcher would fire on its very first tick
+        listSessionNames: () => [], // an UNSUPPRESSED watcher would fire on its very next tick
         paneExitCode: () => 9,
         killSession: () => {},
         run: () => ({ stdout: "", stderr: "" }),
@@ -544,19 +555,94 @@ describe("exit watcher (report.ts)", () => {
       events,
     );
     await recordMeta(ctx.meta, S1, "k-sock");
-    await startExitWatcher(ctx, S1, 20);
+    startExitWatcher(ctx, S1, "k-sock", 20);
     expect(await dispatchCommand(ctx, { type: "kill", sessionId: S1 })).toEqual({ ok: true });
     expect(ctx.watchers.size).toBe(0);
     await recordMeta(ctx.meta, S2, "k-sock-2");
-    await startExitWatcher(ctx, S2, 20);
+    startExitWatcher(ctx, S2, "k-sock-2", 20);
     expect(await dispatchCommand(ctx, { type: "terminate", sessionId: S2 })).toEqual({ ok: true });
     expect(ctx.watchers.size).toBe(0);
+    expect(ctx.watchTick).toBeUndefined(); // the second stop drained the set and killed the loop
     await new Promise((r) => setTimeout(r, 120)); // several 20 ms beats
     // The real contract: a deliberate kill answers before the next tick can
     // fire, so NO `exit` event ever appears. (Probe COUNTS are not asserted —
-    // a `hasSession` tick landing in the tiny window between watcher start
+    // a `list-sessions` tick landing in the tiny window between watcher start
     // and the executor's stop is a timing race on a loaded host, not a bug.)
     expect(events.filter((e) => e.type === "exit")).toEqual([]); // neither deliberate kill produced an exit event
+  });
+
+  it("batching: 3 supervised panes on ONE socket ⇒ one list-sessions per tick, zero per-pane has-sessions", async () => {
+    const dataDir = freshDataDir("watcher-batch");
+    const events: NodeEvent[] = [];
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      { listSessionNames: (socket) => (socket === "b-sock" ? [S1, S2, S3] : []) },
+      events,
+    );
+    startExitWatcher(ctx, S1, "b-sock", 20);
+    startExitWatcher(ctx, S2, "b-sock", 20);
+    startExitWatcher(ctx, S3, "b-sock", 20);
+    const lists = () => calls.filter((c) => c.method === "listSessionNames");
+    await waitFor(() => lists().length >= 2, "two batched ticks");
+    const spawnCount = lists().length;
+    // The claim under test: 3 panes × 2+ ticks is ≥6 spawns per-pane (the old
+    // loop), but ONE spawn per socket per tick for the shared loop — and the
+    // per-pane probe is gone entirely.
+    expect(calls.filter((c) => c.method === "hasSession")).toHaveLength(0);
+    expect(spawnCount).toBeLessThan(6);
+    for (const l of lists()) expect(l.args).toEqual(["b-sock"]);
+    expect(events).toEqual([]); // all three stayed alive
+    for (const id of [S1, S2, S3]) stopWatcher(ctx, id);
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("grouping: 2 panes on sock-a + 1 on sock-b ⇒ one spawn PER SOCKET per tick — exactly 4 over 2 ticks, not 6", async () => {
+    const dataDir = freshDataDir("watcher-group");
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      { listSessionNames: (socket) => (socket === "sock-a" ? [S1, S2] : [S3]) },
+      [],
+    );
+    // 10 s interval: the timer never fires inside this test — the shared tick
+    // runs twice, deterministically, so the SPAWN COUNT is exact.
+    startExitWatcher(ctx, S1, "sock-a", 10_000);
+    startExitWatcher(ctx, S2, "sock-a", 10_000);
+    startExitWatcher(ctx, S3, "sock-b", 10_000);
+    await runExitWatchTick(ctx);
+    await runExitWatchTick(ctx);
+    expect(calls.filter((c) => c.method === "hasSession")).toHaveLength(0);
+    // The per-pane loop would have spawned 3 probes per tick (6 here); the
+    // shared loop asks each socket ONCE per tick, grouped by socket.
+    expect(calls.filter((c) => c.method === "listSessionNames").map((c) => c.args[0])).toEqual([
+      "sock-a",
+      "sock-b",
+      "sock-a",
+      "sock-b",
+    ]);
+    for (const id of [S1, S2, S3]) stopWatcher(ctx, id);
+    expect(ctx.watchTick).toBeUndefined();
+  });
+
+  it("two panes vanish on ONE tick ⇒ two independent exit events, each exactly once", async () => {
+    const dataDir = freshDataDir("watcher-double");
+    const events: NodeEvent[] = [];
+    let tick = 0;
+    const { ctx } = makeCtx(
+      dataDir,
+      { listSessionNames: () => (tick++ === 0 ? [S1, S2] : []), paneExitCode: (_s, id) => (id === S1 ? 3 : 4) },
+      events,
+    );
+    startExitWatcher(ctx, S1, "d-sock", 10_000);
+    startExitWatcher(ctx, S2, "d-sock", 10_000);
+    await runExitWatchTick(ctx); // both alive
+    await runExitWatchTick(ctx); // both gone in ONE batched answer
+    expect(events).toEqual([
+      { type: "exit", sessionId: S1, exitCode: 3, at: new Date(FIXED_NOW).toISOString() },
+      { type: "exit", sessionId: S2, exitCode: 4, at: new Date(FIXED_NOW).toISOString() },
+    ]);
+    await runExitWatchTick(ctx); // supervision already drained — a third tick reports nothing
+    expect(events.length).toBe(2);
+    expect(ctx.watchTick).toBeUndefined(); // last pane left ⇒ shared loop stopped itself
   });
 });
 
@@ -644,8 +730,7 @@ it.skipIf(!HAS_TMUX)(
       runner.killSession(socket, sessionId);
       spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
       runner.cleanSocket(socket);
-      for (const w of ctx.watchers.values()) clearInterval(w);
-      ctx.watchers.clear();
+      for (const id of [...ctx.watchers.keys()]) stopWatcher(ctx, id); // drains the set + stops the shared loop
     }
   },
   30_000,
