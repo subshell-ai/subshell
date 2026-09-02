@@ -28,6 +28,8 @@ type View = {
   name: string;
   kind: string;
   status: string;
+  os: string | null;
+  arch: string | null;
   access: string;
   canManage: boolean;
   capabilities: string[];
@@ -275,6 +277,37 @@ describe("/api/nodes registry CRUD", () => {
     // detail path agrees with list
     expect(((await (await req("GET", "/local", { cookie: adminCookie })).json()) as View).canManage).toBe(true);
     expect(((await (await req("GET", "/local", { cookie: aliceCookie })).json()) as View).canManage).toBe(false);
+  });
+
+  /**
+   * `local` never sends `ready`, so its row can hold null os/arch (the seed
+   * pre-fills them today, but never repairs an edited/reset row) — the control-
+   * plane host IS this process, so the launch picker's platform suffix
+   * (spec 2026-09-02 §4b) must never read "Local · null/null". The DB row
+   * stays null; the VIEW is honest. The null state is planted here because
+   * fresh-seed values would pass through the mapper unchanged (no fallback
+   * coverage). The row is restored on the way out — suites share one DB.
+   */
+  it("renders local's os/arch from the server's own platform", async () => {
+    await ensureLocalNode(db);
+    const original = await nodes.findById("local");
+    expect(original).toBeDefined();
+    await db.updateTable("nodes").set({ os: null, arch: null }).where("id", "=", "local").execute();
+    try {
+      const local = (await list(aliceCookie)).find((n) => n.id === "local");
+      expect(local?.os).toBe(process.platform);
+      expect(local?.arch).toBe(process.arch);
+      // the view is honest, not a write-back — the row itself stays null
+      const row = await nodes.findById("local");
+      expect(row?.os).toBeNull();
+      expect(row?.arch).toBeNull();
+    } finally {
+      await db
+        .updateTable("nodes")
+        .set({ os: original?.os ?? null, arch: original?.arch ?? null })
+        .where("id", "=", "local")
+        .execute();
+    }
   });
 
   it("canManage: an admin on a FOREIGN agent node is false (admin boost = edit, not manage)", async () => {

@@ -146,14 +146,21 @@ function parseCapabilities(json: string | null): string[] {
   }
 }
 
-/** Everything but the harness merge — the one place row→view fields are mapped. */
+/**
+ * Everything but the harness merge — the one place row→view fields are mapped.
+ * `local`'s os/arch fall back to this process (see the inline note) — the only
+ * row where the view is permitted to know more than the table.
+ */
 function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean) {
   return {
     id: row.id,
     name: row.name,
     kind: row.kind,
-    os: row.os,
-    arch: row.arch,
+    // `local` never sends `ready`, so its row keeps null os/arch — but the
+    // control-plane host IS this process; report it from the view (spec
+    // 2026-09-02 §4b) so launch-picker labels never read "null/null".
+    os: row.kind === "local" ? (row.os ?? process.platform) : row.os,
+    arch: row.kind === "local" ? (row.arch ?? process.arch) : row.arch,
     hostname: row.hostname,
     status: row.status,
     lastSeenAt: row.lastSeenAt,
