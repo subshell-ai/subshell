@@ -67,9 +67,11 @@ export class TmuxRunner {
   }
 
   /**
-   * Lists every session name on the socket in ONE spawn — the batched
-   * liveness check behind the agent's shared exit watcher (one call per
-   * socket per tick replaces K `has-session` calls).
+   * Lists every session name on the socket in ONE spawn. KEPT as a public
+   * `TmuxRunner` API with no production caller (tests only): the agent's
+   * shared exit watcher batches through {@link listSessionsChecked} — the
+   * same probe with the failure kept — and the connect-time `sessions_report`
+   * census probes per recorded row via {@link hasSession}.
    *
    * Swallows errors like {@link hasSession}: a socket whose server died (or
    * never existed) simply has no live sessions, so `[]` — callers reading it
@@ -98,8 +100,9 @@ export class TmuxRunner {
    * from a dead server, and the exit watcher cannot tell a live pane from a
    * gone one on that answer alone — a blip used to report live panes dead.
    * The watcher counts consecutive `ok:false` ticks instead. `listSessionNames`
-   * stays for the connect-time census, whose documented posture is fail-closed
-   * one-shot (`[]` ⇒ re-derive from rows, converge via the watcher after).
+   * stays as a public API (its only callers are tests); the connect-time
+   * census is not a list probe — `buildSessionsReport` checks each recorded
+   * row via {@link hasSession}.
    */
   listSessionsChecked(socket: string): { ok: true; names: string[] } | { ok: false; detail: string } {
     try {

@@ -869,3 +869,11 @@ fixed one liveness-semantics bug; the body above stays frozen:
   `buildSessionsReport`). `listSessionNames` has NO production caller after
   this phase (tests only) and is intentionally KEPT as a public `TmuxRunner`
   API.
+- **Late-exit healing boundary (pre-existing, unchanged by the threshold).**
+  When a pane dies while the node's WS is down, the watcher's `send` drops the
+  `exit` event (catch-and-log, no queue — `apps/agent/src/daemon.ts`) and the
+  registration is forgotten, so the row is healed by the backend's 60 s
+  reconcile sweep (`reconcileAll`, `src/index.ts`) — not by `sessions_report`,
+  whose row the watcher already forgot. The hardening design §1 "no zombie
+  rows" claim holds via the sweep for that edge; via the watcher (≤4 s) for
+  its stated scenario (live agent, broken tmux).

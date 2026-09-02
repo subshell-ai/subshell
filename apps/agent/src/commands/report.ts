@@ -14,8 +14,9 @@ import type { CommandContext, WatcherRegistration } from "./context.js";
  * meant K tmux subprocess spawns per tick forever. The shared tick instead
  * groups the supervised set by socket and asks each socket ONCE per tick
  * (`list-sessions -F '#{session_name}'`), then runs the per-pane exit path
- * for the panes that vanished — gated on the snapshotted registration token,
- * so a tick never reports or cleans up an id a newer registration owns.
+ * for the panes that vanished — or whose socket stayed silent past the
+ * unreachable threshold — gated on the snapshotted registration token, so a
+ * tick never reports or cleans up an id a newer registration owns.
  */
 
 /** Production watcher cadence (spec §7: 2 s liveness/`pane_dead_status` loop). */
