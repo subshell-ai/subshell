@@ -130,18 +130,21 @@ export function SessionActionsMenu({
     <>
       <ActionsMenu label={session.name} items={items} disabled={disabled || busy} />
 
-      {/* Keyed by session id so each session gets a fresh note draft. */}
+      {/* Keyed by session id (suffixed — the dialogs are siblings in one
+          fragment, so bare ids would collide) so each session gets a fresh
+          note draft. */}
       <NotesDialog
-        key={session.id}
+        key={`${session.id}-notes`}
         sessionId={session.id}
         note={session.notes}
         open={notesOpen}
         onOpenChange={setNotesOpen}
       />
       {isOwner && <SharingDialog sessionId={session.id} open={shareOpen} onOpenChange={setShareOpen} />}
-      {/* Keyed by session id so each session opens with its own stored cap. */}
+      {/* Keyed by session id (suffixed, see NotesDialog above) so each
+          session opens with its own stored cap. */}
       <ReplayLinesDialog
-        key={session.id}
+        key={`${session.id}-replay`}
         sessionId={session.id}
         current={session.terminalReplayLines}
         open={replayOpen}

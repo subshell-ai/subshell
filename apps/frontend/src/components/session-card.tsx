@@ -42,12 +42,24 @@ function accessoryFor(session: SessionView, exited: boolean, nodeOffline: boolea
  * The subtitle node pill for a REMOTE session — where the process runs when
  * that isn't the control-plane host. The name rides the shared `useNodes()`
  * cache (one query, names only); an id the registry no longer holds is a
- * deleted node, said plainly. Identity only: the offline STATE renders as
- * the corner badge (see {@link accessoryFor}), so a downed node's card
- * spells "node unreachable" exactly once.
+ * deleted node, said plainly — but only once the registry has ANSWERED.
+ * While the list is still in flight, absence proves nothing, so the pill
+ * wears the raw short id (a cold `/` must not flash "deleted node" at every
+ * remote card before the fetch lands). A FAILED list is indistinguishable
+ * from a vanished one from here, so it still reads "deleted node".
+ * Identity only: the offline STATE renders as the corner badge (see
+ * {@link accessoryFor}), so a downed node's card spells "node unreachable"
+ * exactly once.
  */
-function nodePill(session: SessionView, known: Node | undefined): ReactNode {
+function nodePill(session: SessionView, known: Node | undefined, pending: boolean): ReactNode {
   if (!session.nodeId || session.nodeId === "local") return null;
+  if (!known && pending) {
+    return (
+      <Badge variant="muted" title={session.nodeId}>
+        {session.nodeId.slice(0, 8)}
+      </Badge>
+    );
+  }
   return <Badge variant="muted">{known ? known.name : "deleted node"}</Badge>;
 }
 
@@ -72,9 +84,10 @@ export function SessionCard({ session }: { session: SessionView }) {
   // right now (spec §5.6), so the offline reading supersedes it everywhere.
   const nodeOffline = session.nodeOffline === true;
   // Names-only lookup over the shared nodes query (already cached for the
-  // pickers) — a not-yet-loaded or failed list reads as "unknown id", the
-  // same as a genuinely deleted node, and the pill refreshes when it lands.
-  const { data: nodeData } = useNodes();
+  // pickers). While it's in flight the pill shows the raw id, not a verdict;
+  // a failed list still reads as "unknown id", the same as a genuinely
+  // deleted node, and the pill refreshes when data lands.
+  const { data: nodeData, isPending } = useNodes();
   const knownNode = session.nodeId ? nodeData?.nodes.find((n) => n.id === session.nodeId) : undefined;
 
   return (
@@ -93,7 +106,7 @@ export function SessionCard({ session }: { session: SessionView }) {
           <p className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-xs" title={session.workingDir}>
             {session.workingDir}
           </p>
-          {nodePill(session, knownNode)}
+          {nodePill(session, knownNode, isPending)}
         </div>
       }
     >

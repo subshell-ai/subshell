@@ -14,7 +14,14 @@ export const SessionCard = memo(function SessionCard({
   /** Stable identity, id-taking — keeps the memo honest when the list re-renders. */
   onOpen: (id: string) => void;
 }) {
-  const waiting = isWaiting(session);
+  // Offline gate (web posture, spec §5.6 — T16 review (2)): with no live
+  // agent, `alive`/`activity`/`waitingSince` are last-known facts, so nothing
+  // on the row may claim CURRENT observable state — unreachable outranks
+  // waiting/activity. The subtitle's "node unreachable" (below) is the only
+  // state an offline card asserts. `=== true` keeps older payloads without
+  // the field online-ish.
+  const offline = session.nodeOffline === true;
+  const waiting = !offline && isWaiting(session);
   const preview = stripAnsi(session.preview.at(-1) ?? "").trim();
   return (
     <Pressable
@@ -34,11 +41,14 @@ export const SessionCard = memo(function SessionCard({
             width: 8,
             height: 8,
             borderRadius: 4,
-            backgroundColor: !session.alive
-              ? colors.mutedFg
-              : session.activity === "active"
-                ? colors.success
-                : colors.warning,
+            backgroundColor: offline
+              ? // Unreachable asserts nothing: not working, not idle, not dead.
+                colors.border
+              : !session.alive
+                ? colors.mutedFg
+                : session.activity === "active"
+                  ? colors.success
+                  : colors.warning,
           }}
         />
         <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 16, fontWeight: "600", flex: 1 }}>

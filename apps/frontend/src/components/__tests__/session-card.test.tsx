@@ -139,6 +139,26 @@ describe("SessionCard node pill", () => {
       restore();
     }
   });
+
+  it("shows the raw id, not 'deleted node', while the nodes query is in flight", async () => {
+    // The cold `/`: /api/nodes never answers, freezing the in-flight window.
+    // A remote card must not flash a deletion verdict the fetch hasn't earned.
+    const original = globalThis.fetch;
+    globalThis.fetch = ((input: unknown) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (path === "/api/nodes") return new Promise<Response>(() => {});
+      if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify([])));
+      return Promise.resolve(new Response(JSON.stringify({})));
+    }) as typeof fetch;
+    try {
+      renderCard(makeSession({ nodeId: "mac" }));
+      await screen.findByText("session");
+      expect(screen.queryByText("deleted node")).toBeNull();
+      expect(screen.getByText("mac")).toBeDefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("SessionCard node-offline precedence", () => {
