@@ -19,7 +19,7 @@ import type { SessionMetaStore } from "../session-meta.js";
 export interface TailHandle {
   /** Stops the pump and releases its watcher/timer. Must be idempotent. */
   stop(): void;
-  /** The mote session whose pane log this pump streams (death-sweep key). */
+  /** The subshell session whose pane log this pump streams (death-sweep key). */
   readonly sessionId: string;
 }
 

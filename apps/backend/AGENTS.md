@@ -15,7 +15,7 @@ Backend-specific documentation for the ElysiaJS API server.
 ```bash
 bun run dev                # Watch-mode dev server (bun run --watch src/index.ts)
 bun run build              # tsc + tsc-alias -> dist/ (plain JS, what `turbo build` runs)
-bun run compile            # bun build --compile binaries (backend + mote-mcp)
+bun run compile            # bun build --compile binaries (backend + subshell-mcp)
 bun run prod               # Run ./dist/index.js
 bun run test               # bun test src (see Testing below)
 bun run verify-types       # tsc --noEmit
@@ -54,7 +54,7 @@ src/
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
-├── mcp/            # `mote-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the agent's `subshell mcp`, per the TmuxRunner precedent)
+├── mcp/            # `subshell-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the agent's `subshell mcp`, per the TmuxRunner precedent)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
@@ -66,14 +66,14 @@ src/
 
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries from
-`NODE_ARTIFACTS_DIR` (`MOTE_NODE_ARTIFACTS_DIR`, default
+`NODE_ARTIFACTS_DIR` (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
 `<SESSION_DATA_DIR>/node-artifacts` — populated by `bun run release:agent`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous;
 and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SESSION_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
 every enrolled node.
 
-Cross-session comms (`mote mcp`) is registered per harness by the plugin
+Cross-session comms (`subshell mcp`) is registered per harness by the plugin
 itself: `services/mcp-launch.ts:registerSessionMcp` asks the plugin for its
 dialect (claude: `--mcp-config` file; opencode: merged config layer +
 `OPENCODE_CONFIG`), while harnesses without a per-session format (hermes, pi)
@@ -107,8 +107,8 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   own state; `repainted=true` means a freshly painted frame was shipped and
   anything still wrong is downstream of the capture.
 
-`MOTE_ATTACH_DEBUG=1` additionally dumps
-`/tmp/mote-attach-debug/<session>/<timestamp>/{pre-resize,replay}.txt` — the
+`SUBSHELL_ATTACH_DEBUG=1` additionally dumps
+`/tmp/subshell-attach-debug/<session>/<timestamp>/{pre-resize,replay}.txt` — the
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 
@@ -150,8 +150,8 @@ in the schema but only populated once request-scoped logging attaches it.
 
 `bun test` only (vitest was removed — its node worker cannot import
 `bun:sqlite`). `bunfig.toml` preloads `src/test-preload.ts`, which sets
-`MOTE_TEST_MODE`; `src/constants.ts` turns that into a **per-process
-temp-file database** (`$TMPDIR/mote-test-<pid>-<uuid>.db`, unlinked on exit —
+`SUBSHELL_TEST_MODE`; `src/constants.ts` turns that into a **per-process
+temp-file database** (`$TMPDIR/subshell-test-<pid>-<uuid>.db`, unlinked on exit —
 one path string per process, so the app's Kysely connection and better-auth's
 handle share one DB, and concurrent `bun test` invocations cannot contend)
 and a throwaway log directory. `NODE_ARTIFACTS_DIR` derives from that temp
@@ -170,7 +170,7 @@ Route tests live in `__tests__/` next to the route and share
 - `deleteUserByEmailOrId(...)` — per-test cleanup
 
 Migrations must be applied by the code under test or the helper — never
-assumed from a developer's local `data/mote.db`.
+assumed from a developer's local `data/subshell.db`.
 
 Separately, the repo-root `e2e/` suite drives this server as a real subprocess
 (`bun src/index.ts` with `NODE_ENV=development` against a temp-file DB and a

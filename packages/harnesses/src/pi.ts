@@ -62,13 +62,13 @@ const PLUGIN_KNOWN_PATHS = [".bun/bin/pi"];
  *   pi [--model <m>] [--provider <p>] [--thinking <l>] --name <session> \
  *      [profile flags] [extra flags]
  * A bare launch opens the TUI. Unlike the other harnesses, pi supports a
- * create-time session name (`--name`), so the mote session name is forwarded.
+ * create-time session name (`--name`), so the subshell session name is forwarded.
  *
- * NOTE: mote MCP is NOT auto-injected. pi deliberately has no built-in MCP —
+ * NOTE: subshell MCP is NOT auto-injected. pi deliberately has no built-in MCP —
  * it comes from the community `pi-mcp-adapter` extension, which must be
  * installed once per host. mcpSetup() surfaces the exact steps (install +
  * the standard mcpServers snippet the adapter reads from ~/.config/mcp/mcp.json
- * or a project .mcp.json); the spawned child inherits each session's MOTE_* env.
+ * or a project .mcp.json); the spawned child inherits each session's SUBSHELL_* env.
  */
 export class PiPlugin implements HarnessPlugin {
   readonly id = "pi";
@@ -133,18 +133,22 @@ export class PiPlugin implements HarnessPlugin {
 
   /**
    * Manual, two-step setup: pi has no built-in MCP, so the community
-   * `pi-mcp-adapter` extension must be installed once, then mote registered in
+   * `pi-mcp-adapter` extension must be installed once, then subshell registered in
    * the adapter's standard `mcpServers` file. Steps carry the resolved launch
    * so the snippet is copy-paste correct.
    */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo {
-    const snippet = JSON.stringify({ mcpServers: { mote: { command: launch.command, args: launch.args } } }, null, 2);
+    const snippet = JSON.stringify(
+      { mcpServers: { subshell: { command: launch.command, args: launch.args } } },
+      null,
+      2,
+    );
     return {
       mode: "manual",
       steps: [
         { label: "Install the MCP adapter extension once:", command: "pi install npm:pi-mcp-adapter" },
         {
-          label: "Register mote in ~/.config/mcp/mcp.json (or a project .mcp.json):",
+          label: "Register subshell in ~/.config/mcp/mcp.json (or a project .mcp.json):",
           command: snippet,
         },
       ],

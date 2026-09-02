@@ -20,7 +20,7 @@ export interface FavoriteTable {
   kind: FavoriteKind;
   /** What is favorited: absolute path for "directory", entity id later */
   ref: string;
-  /** Optional friendly label (e.g. "mote repo") */
+  /** Optional friendly label (e.g. "subshell repo") */
   label: string | null;
   /** ISO 8601 timestamp when it was starred */
   createdAt: string;

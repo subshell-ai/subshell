@@ -4,12 +4,12 @@ import { DecryptError, open, seal } from "./crypto.js";
 import { checkAndPinRecipients } from "./pin-store.js";
 
 /**
- * The tool implementations of `mote mcp`, factored out of the MCP layer so
+ * The tool implementations of `subshell mcp`, factored out of the MCP layer so
  * they are testable without stdio: everything they touch goes through the
  * narrow {@link ToolApi} seam plus the pure crypto module.
  */
 
-/** The request surface the tools need (satisfied by MoteApi; stubbed in tests). */
+/** The request surface the tools need (satisfied by SubshellApi; stubbed in tests). */
 export interface ToolApi {
   req<T>(
     path: string,
@@ -61,12 +61,14 @@ export interface PlainPost {
 export function describeToolError(err: unknown): Error {
   if (err instanceof ApiError) {
     if (err.status === 401) {
-      return new Error("mote: session token rejected (revoked or expired) — restart this session to mint a new one");
+      return new Error(
+        "subshell: session token rejected (revoked or expired) — restart this session to mint a new one",
+      );
     }
-    if (err.status === 403) return new Error(`mote: permission denied — ${err.message}`);
-    if (err.status === 404) return new Error(`mote: not found — ${err.message}`);
-    if (err.status === 409) return new Error(`mote: conflict — ${err.message}`);
-    return new Error(`mote: API error ${err.status} — ${err.message}`);
+    if (err.status === 403) return new Error(`subshell: permission denied — ${err.message}`);
+    if (err.status === 404) return new Error(`subshell: not found — ${err.message}`);
+    if (err.status === 409) return new Error(`subshell: conflict — ${err.message}`);
+    return new Error(`subshell: API error ${err.status} — ${err.message}`);
   }
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -99,7 +101,7 @@ export async function channelMembers(deps: ToolDeps, name: string): Promise<Omit
  * (including the author, so their own history reads back) and appends.
  * Joins first when not already a member. Peer keys are TOFU-pinned before
  * sealing: a roster key that changed since a previous post throws rather
- * than letting a hostile relay substitute its own key (`MOTE_CHANNEL_PIN=
+ * than letting a hostile relay substitute its own key (`SUBSHELL_CHANNEL_PIN=
  * trust` opts out; see mcp/pin-store.ts).
  */
 export async function postChannel(
@@ -115,7 +117,7 @@ export async function postChannel(
   const recipients = members
     .filter((m): m is MemberRow & { publicKey: string } => m.publicKey !== null)
     .map((m) => ({ principalId: m.principalId, publicJwk: m.publicKey }));
-  if (recipients.length === 0) throw new Error(`mote: channel #${args.name} has no key-bearing members to address`);
+  if (recipients.length === 0) throw new Error(`subshell: channel #${args.name} has no key-bearing members to address`);
   // TOFU pin-check BEFORE sealing: the roster comes from the relay we do not
   // trust, so a peer key that differs from the pinned one aborts the post
   // (a first-seen principal is pinned and proceeds). Pure policy — crypto.ts
@@ -214,7 +216,7 @@ export async function createSession(
   const profiles = await deps.api.req<ProfileRow[]>("/api/profiles");
   const match = profiles.find((p) => p.name.toLowerCase() === args.profile.toLowerCase());
   if (!match) {
-    throw new Error(`mote: no profile named '${args.profile}' — call list_profiles for options`);
+    throw new Error(`subshell: no profile named '${args.profile}' — call list_profiles for options`);
   }
   return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/sessions", {
     method: "POST",

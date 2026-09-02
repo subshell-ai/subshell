@@ -31,7 +31,7 @@ import { AGENT_VERSION } from "../version.js";
  */
 
 const NODE_ID = "test-node-1";
-const NODE_KEY = "mote_node_key_never_printed";
+const NODE_KEY = "subshell_node_key_never_printed";
 
 /** Thrown by the injected `exit` so `runDaemon` returns instead of killing the test process. */
 class DaemonStopped extends Error {
@@ -246,8 +246,8 @@ afterEach(async () => {
 /* ------------------------------------------------------------------ */
 
 test("wsUrlFor derives wss/ws + /ws/node from the server URL", () => {
-  expect(wsUrlFor("https://mote.example")).toBe("wss://mote.example/ws/node");
-  expect(wsUrlFor("https://mote.example:5173")).toBe("wss://mote.example:5173/ws/node");
+  expect(wsUrlFor("https://subshell.example")).toBe("wss://subshell.example/ws/node");
+  expect(wsUrlFor("https://subshell.example:5173")).toBe("wss://subshell.example:5173/ws/node");
   expect(wsUrlFor("http://localhost:4000")).toBe("ws://localhost:4000/ws/node");
 });
 
@@ -339,11 +339,11 @@ test("launch (valid wire, hostile session id) → result ok:false invalid sessio
   const launch: NodeCommandBody = {
     type: "launch",
     sessionId: "s1",
-    socket: "mote-s1",
+    socket: "subshell-s1",
     cwd: "/tmp",
     harnessId: "claude-code",
     profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
-    moteEnv: {},
+    subshellEnv: {},
     sessionName: "s1",
   };
   const jti = await signAndSend(h, launch, { jti: "launch-1", seq: 1 });
@@ -748,7 +748,7 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
 /* ------------------------------------------------------------------ */
 
 test("sessions_report lands AFTER ready: one row per recorded meta, re-projection on connect", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-report-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-report-"));
   const store = new SessionMetaStore(dataDir); // simulates panes that survived an agent restart
   await store.record({
     sessionId: HEX_A,
@@ -794,7 +794,7 @@ test("sessions_report lands AFTER ready: one row per recorded meta, re-projectio
 /* ------------------------------------------------------------------ */
 
 test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node launches without a manual recheck", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-invpush-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-invpush-"));
   const store = new SessionMetaStore(dataDir);
   await store.record({
     sessionId: HEX_A,
@@ -831,7 +831,7 @@ test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node l
 });
 
 test("a throwing sessions_report scan is catch-logged, never fatal to the connection", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-report-fail-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-report-fail-"));
   const store = new SessionMetaStore(dataDir);
   await store.record({
     sessionId: HEX_A,
@@ -985,7 +985,7 @@ test("outbound guard: an oversize result is suppressed + logged, never sent; the
 /* ------------------------------------------------------------------ */
 
 test("socket close stops every live tail: no output into the dead ws, none resurrected on reconnect", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "mote-daemon-tail-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-tail-"));
   mkdirSync(join(dataDir, "sessions"), { recursive: true });
   const store = new SessionMetaStore(dataDir);
   const file = store.logPath(HEX_A);

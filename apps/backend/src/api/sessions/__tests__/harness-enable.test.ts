@@ -33,7 +33,7 @@ describe("harness enable/disable", () => {
     // POSIX runner and answers `--version` with exit 0.
     process.env.CLAUDE_PATH = "/bin/true";
     await setupAuthTables();
-    email = `enable-${crypto.randomUUID()}@mote.local`;
+    email = `enable-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(password), role: "user" });
     token = await signIn(email, password);
   });

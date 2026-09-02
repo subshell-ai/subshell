@@ -40,7 +40,7 @@ async function enabledIds(): Promise<string[]> {
 /** A fresh user with no profiles, distinct email per call. */
 async function freshUser(): Promise<string> {
   return new UsersRepository(db).createUser({
-    email: `dprof-${crypto.randomUUID()}@mote.local`,
+    email: `dprof-${crypto.randomUUID()}@subshell.local`,
     passwordHash: await hashPassword("pw-123456"),
     role: "user",
   });

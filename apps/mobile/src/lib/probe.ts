@@ -38,7 +38,7 @@ export async function probeInstance(origin: string, deps: ProbeDeps): Promise<Pr
     return { ok: false, needsSetup: false, wsBlocked: false };
   }
   const ws = await deps.openProbeSocket(origin);
-  // Any close code means the upgrade reached mote's WS server and was answered;
+  // Any close code means the upgrade reached subshell's WS server and was answered;
   // a bare timeout/error with REST up means a proxy dropped it.
   const reachable = ws.opened || ws.closeCode !== null;
   return { ok: true, needsSetup, wsBlocked: !reachable };

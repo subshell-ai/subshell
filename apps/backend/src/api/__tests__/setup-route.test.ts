@@ -35,7 +35,7 @@ const app = new Elysia().use(errorHandlerPlugin).use(setupRoutes);
 const HARNESS_ID = "claude-code";
 
 describe("/api/setup/harnesses conditional auth", () => {
-  const email = `setup-${crypto.randomUUID()}@mote.local`;
+  const email = `setup-${crypto.randomUUID()}@subshell.local`;
   const password = "setup-pass-1234";
   let userId: string;
   let cookie: string;

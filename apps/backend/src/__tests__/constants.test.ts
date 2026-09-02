@@ -26,7 +26,7 @@ interface ProbeResult {
  * passed explicitly.
  */
 function probeConstants(env: Record<string, string | undefined>): ProbeResult {
-  const dir = mkdtempSync(join(tmpdir(), "mote-constants-probe-"));
+  const dir = mkdtempSync(join(tmpdir(), "subshell-constants-probe-"));
   const script = join(dir, "probe.ts");
   writeFileSync(
     script,
@@ -37,7 +37,7 @@ function probeConstants(env: Record<string, string | undefined>): ProbeResult {
   const proc = Bun.spawnSync(["bun", "run", script], {
     cwd: dir,
     // A bare object, not a spread of process.env: the parent is itself a test
-    // run (NODE_ENV=test, MOTE_TEST_MODE=1), and inheriting either would make
+    // run (NODE_ENV=test, SUBSHELL_TEST_MODE=1), and inheriting either would make
     // every probe look like test mode regardless of what it was asked.
     env: {
       PATH: process.env.PATH,
@@ -64,7 +64,7 @@ describe("test-mode database resolution", () => {
   // interpret SQLite URIs, so the old `file::memory:?cache=shared` was a
   // literal CWD file shared by every test process. The suite DB must be a
   // real file under the temp dir, unique per process.
-  const TEST_DB_SHAPE = /mote-test-\d+-[0-9a-f-]{36}\.db$/;
+  const TEST_DB_SHAPE = /subshell-test-\d+-[0-9a-f-]{36}\.db$/;
 
   test("this very suite is pointed at a per-process temp database file", () => {
     expect(IS_TEST).toBe(true);
@@ -77,11 +77,11 @@ describe("test-mode database resolution", () => {
   // DATABASE_PATH line, Bun loads `.env` before the test preload runs, and the
   // old "set it only when absent" rule therefore handed the suites the
   // developer's live database to create and delete rows in.
-  test("MOTE_TEST_MODE overrides a configured DATABASE_PATH rather than deferring to it", () => {
+  test("SUBSHELL_TEST_MODE overrides a configured DATABASE_PATH rather than deferring to it", () => {
     const result = probeConstants({
-      MOTE_TEST_MODE: "1",
+      SUBSHELL_TEST_MODE: "1",
       NODE_ENV: "development",
-      DATABASE_PATH: "./data/mote.db",
+      DATABASE_PATH: "./data/subshell.db",
       SESSION_DATA_DIR: "./data",
     });
 
@@ -93,7 +93,7 @@ describe("test-mode database resolution", () => {
   });
 
   test("NODE_ENV=test alone is enough, without the preload's flag", () => {
-    const result = probeConstants({ NODE_ENV: "test", DATABASE_PATH: "./data/mote.db" });
+    const result = probeConstants({ NODE_ENV: "test", DATABASE_PATH: "./data/subshell.db" });
 
     expect(result.IS_TEST).toBe(true);
     expect(result.DATABASE_PATH).toMatch(TEST_DB_SHAPE);
@@ -102,7 +102,7 @@ describe("test-mode database resolution", () => {
   test("two test processes get DIFFERENT temp database files", () => {
     // Regression guard for the SQLITE_BUSY wars: the old shared URI string
     // made every test process open one literal file concurrently.
-    const env = { MOTE_TEST_MODE: "1", NODE_ENV: "development" };
+    const env = { SUBSHELL_TEST_MODE: "1", NODE_ENV: "development" };
     const a = probeConstants(env).DATABASE_PATH;
     const b = probeConstants(env).DATABASE_PATH;
 
@@ -112,20 +112,20 @@ describe("test-mode database resolution", () => {
   });
 
   test("outside test mode the configured DATABASE_PATH is honoured", () => {
-    const result = probeConstants({ NODE_ENV: "development", DATABASE_PATH: "/srv/mote/mote.db" });
+    const result = probeConstants({ NODE_ENV: "development", DATABASE_PATH: "/srv/subshell/subshell.db" });
 
     expect(result.IS_TEST).toBe(false);
-    expect(result.DATABASE_PATH).toBe("/srv/mote/mote.db");
-    expect(result.SESSION_DATA_DIR).toBe("/srv/mote");
+    expect(result.DATABASE_PATH).toBe("/srv/subshell/subshell.db");
+    expect(result.SESSION_DATA_DIR).toBe("/srv/subshell");
   });
 
-  test("outside test mode an unset DATABASE_PATH still defaults to ./data/mote.db", () => {
+  test("outside test mode an unset DATABASE_PATH still defaults to ./data/subshell.db", () => {
     const result = probeConstants({ NODE_ENV: "development" });
 
     expect(result.IS_TEST).toBe(false);
-    expect(result.DATABASE_PATH).toBe("./data/mote.db");
+    expect(result.DATABASE_PATH).toBe("./data/subshell.db");
     // The derived data dir must be ABSOLUTE: it is handed to harness
-    // processes (`--mcp-config`, MOTE_DATA_DIR) and to tmux's pipe-pane
+    // processes (`--mcp-config`, SUBSHELL_DATA_DIR) and to tmux's pipe-pane
     // shell, all of which resolve paths against a *different* cwd than the
     // backend's. A relative "./data" pointed claude at
     // <session-cwd>/data/mcp/<id>.json, which never exists — sessions died
@@ -134,15 +134,15 @@ describe("test-mode database resolution", () => {
   });
 
   test("a relative SESSION_DATA_DIR override is resolved against the process cwd", () => {
-    const result = probeConstants({ NODE_ENV: "development", SESSION_DATA_DIR: "var/mote" });
+    const result = probeConstants({ NODE_ENV: "development", SESSION_DATA_DIR: "var/subshell" });
 
     expect(result.IS_TEST).toBe(false);
-    expect(result.SESSION_DATA_DIR).toBe(join(result.cwd, "var/mote"));
+    expect(result.SESSION_DATA_DIR).toBe(join(result.cwd, "var/subshell"));
   });
 
   test("an absolute SESSION_DATA_DIR passes through untouched", () => {
-    const result = probeConstants({ NODE_ENV: "development", SESSION_DATA_DIR: "/srv/mote-data" });
+    const result = probeConstants({ NODE_ENV: "development", SESSION_DATA_DIR: "/srv/subshell-data" });
 
-    expect(result.SESSION_DATA_DIR).toBe("/srv/mote-data");
+    expect(result.SESSION_DATA_DIR).toBe("/srv/subshell-data");
   });
 });

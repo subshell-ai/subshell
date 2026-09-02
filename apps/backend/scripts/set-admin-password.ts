@@ -6,10 +6,10 @@ import { hashPassword } from "better-auth/crypto";
 import { openSqliteDatabase } from "@/db/open-database.js";
 
 const [, , emailArg, passwordArg] = process.argv;
-const email = emailArg ?? "admin@mote.local";
+const email = emailArg ?? "admin@subshell.local";
 const password = passwordArg ?? "admin123";
 
-const db = openSqliteDatabase("./data/mote.db");
+const db = openSqliteDatabase("./data/subshell.db");
 const user = db.prepare("SELECT id FROM user WHERE email = ?").get(email) as { id: string } | undefined;
 if (!user) {
   console.error(`No user found with email ${email}`);

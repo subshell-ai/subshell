@@ -19,7 +19,7 @@
  * sign-out against an https instance.
  */
 
-/** Cookie name used over http (and accepted everywhere by mote's guard). */
+/** Cookie name used over http (and accepted everywhere by subshell's guard). */
 export const SESSION_COOKIE = "better-auth.session_token";
 /** Cookie name better-auth itself issues under an https baseURL. */
 export const SECURE_SESSION_COOKIE = `__Secure-${SESSION_COOKIE}`;

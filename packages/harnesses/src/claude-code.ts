@@ -100,14 +100,14 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/claude", ".local/share/claude/versions/c
  * on the session's bell and derives the "waiting for you" state. The env
  * vars are baked into the pane by the backend (`sessionMcpEnv`), and every
  * failure path is swallowed: a missing hook event costs one notification,
- * never a broken session turn. MOTE_BASE_URL must be reachable from inside
+ * never a broken session turn. SUBSHELL_BASE_URL must be reachable from inside
  * the pane's network — in the container that means the published port, which
  * compose already passes via APP_BASE_URL.
  */
 const attentionPing = (kind: string): string =>
   `bun -e '` +
-  `fetch(process.env.MOTE_BASE_URL+"/api/sessions/"+process.env.MOTE_SESSION_ID+"/attention",` +
-  `{method:"POST",headers:{authorization:"Bearer "+process.env.MOTE_API_KEY,"content-type":"application/json"},` +
+  `fetch(process.env.SUBSHELL_BASE_URL+"/api/sessions/"+process.env.SUBSHELL_SESSION_ID+"/attention",` +
+  `{method:"POST",headers:{authorization:"Bearer "+process.env.SUBSHELL_API_KEY,"content-type":"application/json"},` +
   `body:JSON.stringify({kind:${JSON.stringify(kind)}}),signal:AbortSignal.timeout(5000)})` +
   `.catch(()=>{}).finally(()=>process.exit(0))'`;
 
@@ -182,10 +182,10 @@ export class ClaudeCodePlugin implements HarnessPlugin {
 
   /**
    * Restart-resume: conversations are PINNED at start (`--session-id <uuid>`)
-   * so mote always knows the exact id to resume by, and resume mode adds
+   * so subshell always knows the exact id to resume by, and resume mode adds
    * `--resume <id>` (Claude appends to the same transcript, so one id
    * survives repeated restarts). Pinning is what avoids both `--continue`'s
-   * "most recent in this directory" ambiguity — several mote sessions can
+   * "most recent in this directory" ambiguity — several subshell sessions can
    * share a cwd — and parsing the exit banner back out of the pane log.
    */
   readonly resume: HarnessResume = {
@@ -199,7 +199,7 @@ export class ClaudeCodePlugin implements HarnessPlugin {
 
     const args: string[] = [binary];
 
-    // Mote channels + session orchestration: the registration's own argv
+    // Subshell channels + session orchestration: the registration's own argv
     // (--mcp-config <per-session file>) lands right after the binary.
     if (mcp?.args) args.push(...mcp.args);
 
@@ -210,7 +210,7 @@ export class ClaudeCodePlugin implements HarnessPlugin {
 
     // Settings JSON is passed via --settings so profiles never touch the
     // user's real ~/.claude files. The attention hooks ride along on EVERY
-    // launch (mote's signal wins if a profile set its own `hooks` key —
+    // launch (subshell's signal wins if a profile set its own `hooks` key —
     // documented limitation, the alternative is no notifications).
     const settings = { ...(profile.settings ?? {}), hooks: ATTENTION_HOOKS };
     args.push("--settings", JSON.stringify(settings));
@@ -229,10 +229,10 @@ export class ClaudeCodePlugin implements HarnessPlugin {
     return args;
   }
 
-  /** Claude Code's `--mcp-config` document: `{ mcpServers: { mote: {...} } }`. */
+  /** Claude Code's `--mcp-config` document: `{ mcpServers: { subshell: {...} } }`. */
   mcpRegistration(launch: McpLaunchSpec, configPath: string): McpRegistration {
     return {
-      fileContent: `${JSON.stringify({ mcpServers: { mote: { command: launch.command, args: launch.args } } }, null, 2)}\n`,
+      fileContent: `${JSON.stringify({ mcpServers: { subshell: { command: launch.command, args: launch.args } } }, null, 2)}\n`,
       args: ["--mcp-config", configPath],
     };
   }
@@ -241,7 +241,7 @@ export class ClaudeCodePlugin implements HarnessPlugin {
   mcpSetup(_launch: McpLaunchSpec): McpSetupInfo {
     return {
       mode: "auto",
-      summary: "Mote registers itself with every Claude Code session automatically (via --mcp-config).",
+      summary: "Subshell registers itself with every Claude Code session automatically (via --mcp-config).",
     };
   }
 

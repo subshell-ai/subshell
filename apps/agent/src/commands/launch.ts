@@ -11,7 +11,7 @@ import { startExitWatcher } from "./report.js";
 /**
  * The `launch` executor (spec 2026-08-31 §6.4/§7) — the agent-side twin of
  * `LocalLauncher.launch`. Byte-parity rule: local and remote panes are
- * assembled by the SAME `buildHarnessCommand` (curatedEnv ⊕ moteEnv ⊕
+ * assembled by the SAME `buildHarnessCommand` (curatedEnv ⊕ subshellEnv ⊕
  * profile.env ⊕ mcp.env, plugin argv, resume pin), so the wire carries only
  * the INPUTS and the plugin code runs on the machine the pane lives on.
  */
@@ -104,7 +104,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
       cmd.cwd,
       profile,
       cmd.sessionName,
-      cmd.moteEnv,
+      cmd.subshellEnv,
       reg,
       cmd.harnessSession,
     );

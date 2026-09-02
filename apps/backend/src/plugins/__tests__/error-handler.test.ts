@@ -5,7 +5,7 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 
 /**
  * The global error handler is tested against a minimal probe app rather than
- * mote's real routes: the handler duck-types on `.status`, so locally declared
+ * subshell's real routes: the handler duck-types on `.status`, so locally declared
  * carrier classes exercise exactly the same branch the real `FilesError`
  * and friends hit in production. The three classes auth-guard actually throws
  * (HttpError / UnauthorizedError / ForbiddenError) ARE imported for real — they

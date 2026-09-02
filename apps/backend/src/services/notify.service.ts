@@ -293,7 +293,7 @@ function loadOrGenerateVapid(): VapidPair {
       pair = {
         publicKey: parsed.publicKey,
         privateKey: parsed.privateKey,
-        subject: typeof parsed.subject === "string" && parsed.subject ? parsed.subject : "mailto:mote@localhost",
+        subject: typeof parsed.subject === "string" && parsed.subject ? parsed.subject : "mailto:subshell@localhost",
       };
     }
   } catch {
@@ -301,7 +301,7 @@ function loadOrGenerateVapid(): VapidPair {
   }
   if (!pair) {
     const g = webpush.generateVAPIDKeys();
-    pair = { publicKey: g.publicKey, privateKey: g.privateKey, subject: "mailto:mote@localhost" };
+    pair = { publicKey: g.publicKey, privateKey: g.privateKey, subject: "mailto:subshell@localhost" };
     writeFileSync(file, JSON.stringify(pair), { mode: 0o600 });
     logger.info(`generated VAPID keys → ${file}`);
   }

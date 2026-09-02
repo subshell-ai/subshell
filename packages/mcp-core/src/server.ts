@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
-import { MoteApi } from "./api-client.js";
+import { SubshellApi } from "./api-client.js";
 import type { IdentityKeyPair } from "./crypto.js";
 import { readMcpEnv } from "./env.js";
 import { loadOrCreateIdentity } from "./identity-store.js";
@@ -29,7 +29,7 @@ function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-/** Registers every mote tool on `server`, bound to `api` + `own`. */
+/** Registers every subshell tool on `server`, bound to `api` + `own`. */
 export function registerTools(server: McpServer, deps: { api: ToolApi; own: IdentityKeyPair }): void {
   // The SDK hands each handler a ServerContext whose `mcpReq.signal` aborts
   // when the client cancels; forwarding it lets a long-poll read release its
@@ -50,7 +50,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     "list_channels",
     {
       title: "List channels",
-      description: "List all cross-session channels on this mote instance.",
+      description: "List all cross-session channels on this subshell instance.",
       inputSchema: z.object({}),
     },
     guard(() => listChannels(deps)),
@@ -201,15 +201,15 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
 const EXTEND_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 /**
- * Boots the `mote mcp` stdio server: reads env, persists this session's
+ * Boots the `subshell mcp` stdio server: reads env, persists this session's
  * identity, registers its public key with the backend, arms a token-extension
  * timer, and serves the tools over stdio until the client disconnects.
  *
  * Never writes to stdout (the MCP channel) — diagnostics go to stderr.
  */
-export async function runMoteMcp(): Promise<void> {
+export async function runSubshellMcp(): Promise<void> {
   const env = readMcpEnv();
-  const api = new MoteApi({ baseUrl: env.baseUrl, apiKey: env.apiKey });
+  const api = new SubshellApi({ baseUrl: env.baseUrl, apiKey: env.apiKey });
   const own = await loadOrCreateIdentity(env.dataDir, `sess:${env.sessionId}`);
   // Register/rotate our key so members can seal replies to us. Best-effort: a
   // 409 (identity_required handled server-side only gates create/join) must
@@ -220,19 +220,21 @@ export async function runMoteMcp(): Promise<void> {
       body: { publicKey: own.publicJwk, displayName: env.sessionName },
     });
   } catch (err) {
-    process.stderr.write(`mote mcp: identity registration failed: ${describeToolError(err).message}\n`);
+    process.stderr.write(`subshell mcp: identity registration failed: ${describeToolError(err).message}\n`);
   }
 
   const timer = setInterval(() => {
     void api
       .req(`/api/sessions/${env.sessionId}/extend-token`, { method: "POST" })
-      .catch((e: unknown) => process.stderr.write(`mote mcp: token extend failed: ${describeToolError(e).message}\n`));
+      .catch((e: unknown) =>
+        process.stderr.write(`subshell mcp: token extend failed: ${describeToolError(e).message}\n`),
+      );
   }, EXTEND_INTERVAL_MS);
   timer.unref(); // the stdio connection keeps the process alive, not this timer
 
-  const server = new McpServer({ name: "mote", version: "1.0.0" });
+  const server = new McpServer({ name: "subshell", version: "1.0.0" });
   registerTools(server, { api, own });
 
   await server.connect(new StdioServerTransport());
-  process.stderr.write(`mote mcp: ready (session ${env.sessionId})\n`);
+  process.stderr.write(`subshell mcp: ready (session ${env.sessionId})\n`);
 }

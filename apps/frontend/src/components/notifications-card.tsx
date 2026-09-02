@@ -15,7 +15,7 @@ import { disablePush, enablePush, getPushState, type PushState } from "@/lib/not
 
 /** Helper lines the state union already implies, one per dead-end state. */
 const STATE_HELP: Partial<Record<PushState, string>> = {
-  blocked: "Allow notifications for mote in your browser/OS settings.",
+  blocked: "Allow notifications for subshell in your browser/OS settings.",
   unconfigured: "This instance cannot issue push keys (data directory not writable).",
   unsupported: "This browser does not support push notifications.",
 };

@@ -10,45 +10,47 @@ import { defaultSessionDataDir, resolveNodeArtifactsDir } from "../paths.js";
 
 describe("defaultSessionDataDir", () => {
   test("file-backed DATABASE_PATH → its dirname", () => {
-    expect(defaultSessionDataDir({ DATABASE_PATH: "/srv/mote/data/mote.db" })).toBe("/srv/mote/data");
+    expect(defaultSessionDataDir({ DATABASE_PATH: "/srv/subshell/data/subshell.db" })).toBe("/srv/subshell/data");
   });
 
   test("non-file-backed paths fall back to ./data (URI, memory, bare filename)", () => {
     expect(defaultSessionDataDir({ DATABASE_PATH: "file:/srv/db.sqlite?mode=rw" })).toBe("./data");
     expect(defaultSessionDataDir({ DATABASE_PATH: "file::memory:?cache=shared" })).toBe("./data");
-    expect(defaultSessionDataDir({ DATABASE_PATH: "mote.db" })).toBe("./data");
+    expect(defaultSessionDataDir({ DATABASE_PATH: "subshell.db" })).toBe("./data");
   });
 
-  test("unset DATABASE_PATH uses the ./data/mote.db default (→ ./data)", () => {
+  test("unset DATABASE_PATH uses the ./data/subshell.db default (→ ./data)", () => {
     expect(defaultSessionDataDir({})).toBe("./data");
   });
 
   test("root-level db path yields '.' not the empty string", () => {
-    expect(defaultSessionDataDir({ DATABASE_PATH: "/mote.db" })).toBe(".");
+    expect(defaultSessionDataDir({ DATABASE_PATH: "/subshell.db" })).toBe(".");
   });
 });
 
 describe("resolveNodeArtifactsDir", () => {
-  test("MOTE_NODE_ARTIFACTS_DIR wins outright (no join, no defaulting)", () => {
-    expect(resolveNodeArtifactsDir({ MOTE_NODE_ARTIFACTS_DIR: "/opt/artifacts", SESSION_DATA_DIR: "/sd" })).toBe(
+  test("SUBSHELL_NODE_ARTIFACTS_DIR wins outright (no join, no defaulting)", () => {
+    expect(resolveNodeArtifactsDir({ SUBSHELL_NODE_ARTIFACTS_DIR: "/opt/artifacts", SESSION_DATA_DIR: "/sd" })).toBe(
       "/opt/artifacts",
     );
   });
 
   test("empty-string overrides count as UNSET (both apps treat '' as absent)", () => {
-    expect(resolveNodeArtifactsDir({ MOTE_NODE_ARTIFACTS_DIR: "", SESSION_DATA_DIR: "/sd" })).toBe(
+    expect(resolveNodeArtifactsDir({ SUBSHELL_NODE_ARTIFACTS_DIR: "", SESSION_DATA_DIR: "/sd" })).toBe(
       "/sd/node-artifacts",
     );
   });
 
   test("SESSION_DATA_DIR → <it>/node-artifacts", () => {
-    expect(resolveNodeArtifactsDir({ SESSION_DATA_DIR: "/srv/mote/sessions" })).toBe(
-      "/srv/mote/sessions/node-artifacts",
+    expect(resolveNodeArtifactsDir({ SESSION_DATA_DIR: "/srv/subshell/sessions" })).toBe(
+      "/srv/subshell/sessions/node-artifacts",
     );
   });
 
   test("nothing set → derived from DATABASE_PATH", () => {
-    expect(resolveNodeArtifactsDir({ DATABASE_PATH: "/srv/mote/data/mote.db" })).toBe("/srv/mote/data/node-artifacts");
+    expect(resolveNodeArtifactsDir({ DATABASE_PATH: "/srv/subshell/data/subshell.db" })).toBe(
+      "/srv/subshell/data/node-artifacts",
+    );
     expect(resolveNodeArtifactsDir({})).toBe("./data/node-artifacts");
   });
 });

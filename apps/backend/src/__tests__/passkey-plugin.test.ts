@@ -19,7 +19,7 @@ describe("passkey plugin (server)", () => {
 
   beforeAll(async () => {
     await setupAuthTables();
-    email = `passkey-${crypto.randomUUID()}@mote.local`;
+    email = `passkey-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({
       email,
       passwordHash: await hashPassword(password),
@@ -53,7 +53,7 @@ describe("passkey plugin (server)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { challenge?: string; rp?: { name?: string; id?: string } };
     expect(typeof body.challenge).toBe("string");
-    expect(body.rp?.name).toBe("mote");
+    expect(body.rp?.name).toBe("subshell");
     // rpID regression pin (code-review 2026-08-31): better-auth 1.7.1 derives
     // it from the CONFIGURED baseURL (new URL(baseURL).hostname), never the
     // request host — under tests APP_BASE_URL is forced to localhost:3080, so

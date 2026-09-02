@@ -1,6 +1,6 @@
 # E2E AGENTS.md
 
-Playwright end-to-end suite for mote: a real browser against the backend
+Playwright end-to-end suite for subshell: a real browser against the backend
 serving the built SPA, a real temp-file SQLite DB, and real tmux sessions.
 
 ## Commands
@@ -19,7 +19,7 @@ pre-push hook — CI runs it as its own job.
 ## How the stack boots
 
 `global-setup.ts` calls `stack.ts`, which spawns `bun src/index.ts` (the real
-backend, `NODE_ENV=development`, `MOTE_TEST_MODE=false`) with:
+backend, `NODE_ENV=development`, `SUBSHELL_TEST_MODE=false`) with:
 
 - `SERVER_PORT=3199` (see `ports.ts`) — far from the dev 3080, no collision
   with a running `turbo watch dev`.
@@ -34,7 +34,7 @@ specs use `baseURL` from `ports.ts`.
 
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/agent/src/main.ts enroll|run` via `stub/agent.ts`, with
-`MOTE_AGENT_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
+`SUBSHELL_AGENT_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
 daemonised tmux servers are quarantined). No hand-written fake agent exists —
 the master plan's `subshell-fake.ts` was superseded before it was written
 (plan deviation #1, recorded in the nodes spec's Errata).

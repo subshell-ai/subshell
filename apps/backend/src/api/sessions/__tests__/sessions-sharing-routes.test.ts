@@ -17,9 +17,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  */
 describe("session sharing — access matrix over routes", () => {
   const pw = "share-matrix-1";
-  const aliceEmail = `sm-alice-${crypto.randomUUID()}@mote.local`;
-  const bobEmail = `sm-bob-${crypto.randomUUID()}@mote.local`;
-  const carolEmail = `sm-carol-${crypto.randomUUID()}@mote.local`;
+  const aliceEmail = `sm-alice-${crypto.randomUUID()}@subshell.local`;
+  const bobEmail = `sm-bob-${crypto.randomUUID()}@subshell.local`;
+  const carolEmail = `sm-carol-${crypto.randomUUID()}@subshell.local`;
   let aliceId: string;
   let bobId: string;
   let carolId: string;
@@ -115,7 +115,7 @@ describe("session sharing — access matrix over routes", () => {
   });
 
   it("an admin (not owner, not shared to) gets effective edit — read + rename — but not owner-only acts", async () => {
-    const adminEmail = `sm-admin-${crypto.randomUUID()}@mote.local`;
+    const adminEmail = `sm-admin-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({
       email: adminEmail,
       passwordHash: await hashPassword(pw),

@@ -1,7 +1,7 @@
 import { Stack, useLocalSearchParams } from "expo-router";
 import { SessionDetail } from "@/components/session-detail";
 
-/** Deep-linkable full-screen detail: mote://session/<id> lands here. */
+/** Deep-linkable full-screen detail: subshell://session/<id> lands here. */
 export default function SessionRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
   return (

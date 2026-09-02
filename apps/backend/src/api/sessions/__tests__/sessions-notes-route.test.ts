@@ -16,7 +16,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  */
 describe("PATCH /api/sessions/:id/notes (self-only)", () => {
   let userId: string;
-  const email = `notes-${crypto.randomUUID()}@mote.local`;
+  const email = `notes-${crypto.randomUUID()}@subshell.local`;
   const pw = "notes-pass-1";
   const createdSessions: string[] = [];
   const createdKeys: string[] = [];

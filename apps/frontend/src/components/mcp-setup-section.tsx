@@ -3,11 +3,11 @@ import type { McpSetupInfo } from "@/types/harness";
 
 /**
  * The "Cross-session comms" block in the profile form: how sessions from this
- * harness reach the mote MCP tools (channels + session orchestration). Auto
+ * harness reach the subshell MCP tools (channels + session orchestration). Auto
  * harnesses (claude-code, opencode) need nothing — one quiet line says so.
  * Harnesses with no per-session config (hermes, pi) get their one-time
  * registration steps with copy buttons: after that single registration the
- * mote-spawned child inherits each session's credentials and works per-session.
+ * subshell-spawned child inherits each session's credentials and works per-session.
  */
 export function McpSetupSection({ mcp }: { mcp: McpSetupInfo }) {
   return (
@@ -18,8 +18,8 @@ export function McpSetupSection({ mcp }: { mcp: McpSetupInfo }) {
       ) : (
         <>
           <p className="text-muted-foreground text-xs">
-            This harness has no per-session config, so register mote once on this machine — every session then picks up
-            its own credentials automatically:
+            This harness has no per-session config, so register subshell once on this machine — every session then picks
+            up its own credentials automatically:
           </p>
           <div className="space-y-2">
             {mcp.steps.map((step) => (

@@ -69,7 +69,7 @@ function LoginPage() {
     <main className="flex min-h-dvh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Sign in to Mote</CardTitle>
+          <CardTitle>Sign in to Subshell</CardTitle>
           <CardDescription>Manage your agent harness sessions.</CardDescription>
         </CardHeader>
         <CardContent>

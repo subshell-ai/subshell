@@ -17,7 +17,7 @@ describe("harness schema route", () => {
 
   beforeAll(async () => {
     await setupAuthTables();
-    email = `schema-${crypto.randomUUID()}@mote.local`;
+    email = `schema-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({
       email,
       passwordHash: await hashPassword(password),
@@ -63,9 +63,9 @@ describe("harness schema route", () => {
     const steps = body.mcp.steps ?? [];
     expect(steps.length).toBeGreaterThan(0);
     // The add command must embed the launch RESOLVED BY THE BACKEND (under
-    // bun test that is the dev entrypoint) — not the degraded "mote mcp"
+    // bun test that is the dev entrypoint) — not the degraded "subshell mcp"
     // display placeholder, which the prefix check alone cannot tell apart.
-    expect(steps[0].command).toContain("hermes mcp add mote --command ");
+    expect(steps[0].command).toContain("hermes mcp add subshell --command ");
     expect(steps[0].command).toContain("mcp/main.");
     for (const s of steps) expect(s.label.length).toBeGreaterThan(0);
   });

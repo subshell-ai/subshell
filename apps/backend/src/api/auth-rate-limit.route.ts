@@ -86,7 +86,7 @@ type SignInBody = { email?: string; password?: string };
  * been consumed, so passing the consumed request through would fail.
  */
 /**
- * Break-glass admin login (spec 2026-08-31 §6): when MOTE_EMERGENCY_PASSWORD
+ * Break-glass admin login (spec 2026-08-31 §6): when SUBSHELL_EMERGENCY_PASSWORD
  * is set and the submitted password equals it EXACTLY for an existing account
  * whose user_meta role is "admin", overwrite that account's credential hash
  * with the env value's hash. The caller then forwards the ordinary sign-in:
@@ -136,7 +136,9 @@ async function rewriteAdminCredentialToEnvPassword(lookupEmail: string, password
     targetId: row.id,
     metadataJson: JSON.stringify({ email: lookupEmail }),
   });
-  logger.warn(`emergency login: admin credential for ${lookupEmail} rewritten to the MOTE_EMERGENCY_PASSWORD value`);
+  logger.warn(
+    `emergency login: admin credential for ${lookupEmail} rewritten to the SUBSHELL_EMERGENCY_PASSWORD value`,
+  );
   return true;
 }
 

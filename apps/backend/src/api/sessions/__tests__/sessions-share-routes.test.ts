@@ -18,9 +18,9 @@ type ShareRow = { id: string; granteeUserId: string | null; granteeName: string 
  */
 describe("/api/sessions/:id/shares", () => {
   const pw = "share-crud-1";
-  const aliceEmail = `sc-alice-${crypto.randomUUID()}@mote.local`;
-  const bobEmail = `sc-bob-${crypto.randomUUID()}@mote.local`;
-  const carolEmail = `sc-carol-${crypto.randomUUID()}@mote.local`;
+  const aliceEmail = `sc-alice-${crypto.randomUUID()}@subshell.local`;
+  const bobEmail = `sc-bob-${crypto.randomUUID()}@subshell.local`;
+  const carolEmail = `sc-carol-${crypto.randomUUID()}@subshell.local`;
   let aliceId: string;
   let bobId: string;
   let aliceCookie: string;

@@ -14,7 +14,8 @@ const SettingsSchema = t.Object({
 const PublicSettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
   emergencyLoginActive: t.Boolean({
-    description: "True while MOTE_EMERGENCY_PASSWORD is set (break-glass admin login armed; drives the warning banner)",
+    description:
+      "True while SUBSHELL_EMERGENCY_PASSWORD is set (break-glass admin login armed; drives the warning banner)",
   }),
   // Not a leak: the keyless `install.sh` usage script already embeds this exact
   // value, so it is public by construction. The Nodes dialog needs the SERVER's

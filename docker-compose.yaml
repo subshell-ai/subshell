@@ -1,10 +1,10 @@
 services:
-  mote:
+  subshell:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mote:latest
-    container_name: mote
+    image: subshell:latest
+    container_name: subshell
     # Run as the host user so bind mounts stay uid-aligned (SQLite, session
     # logs and harness file edits all keep sane ownership without fixups).
     user: ${UID:-1000}:${GID:-1000}
@@ -16,7 +16,7 @@ services:
     volumes:
       # App data (SQLite, session logs, channel keypairs) — a plain bind so
       # the host uid owns it from day one.
-      - ${MOTE_DATA_HOST_DIR:-$HOME/.config/mote}:/data
+      - ${SUBSHELL_DATA_HOST_DIR:-$HOME/.config/subshell}:/data
       # Session working dirs, mounted at their REAL host path so bookmarks,
       # recent paths and session paths stored in the DB resolve unchanged.
       - ${PROJECTS_DIR:-$HOME/projects}:${PROJECTS_DIR:-$HOME/projects}:rw
@@ -25,15 +25,15 @@ services:
       # ~/.claude, so these are rw — same-uid sharing matches running the
       # CLI natively).
       #
-      # DESTINATIONS ARE THE CONTAINER'S HOME (/home/mote), not the host's:
-      # the Dockerfile pins HOME=/home/mote (the runtime uid has no passwd
+      # DESTINATIONS ARE THE CONTAINER'S HOME (/home/subshell), not the host's:
+      # the Dockerfile pins HOME=/home/subshell (the runtime uid has no passwd
       # entry) and panes inherit it, so that is the only place claude will
       # ever look. Mounting at the host path instead left every pane reading
-      # an empty /home/mote/.claude.json — the first-run theme picker on
+      # an empty /home/subshell/.claude.json — the first-run theme picker on
       # every launch, with the state reset again on each redeploy.
       - ${CLAUDE_BIN:-$HOME/.local/bin/claude}:/usr/local/bin/claude:ro
-      - ${HOME}/.claude:/home/mote/.claude:rw
-      - ${HOME}/.claude.json:/home/mote/.claude.json:rw
+      - ${HOME}/.claude:/home/subshell/.claude:rw
+      - ${HOME}/.claude.json:/home/subshell/.claude.json:rw
       # git push / signed commits from harness panes: the host's SSH keys,
       # read-only at the container HOME. ro is fully functional because the
       # keys are passphrase-free and known_hosts is populated; a NEW git host
@@ -42,11 +42,11 @@ services:
       # ssh falls back to on-disk keys when the agent socket is missing.
       # Keys are readable by any harness pane: deliberate, same posture as
       # the ~/.claude mount, on a trusted-network host.
-      - ${HOME}/.ssh:/home/mote/.ssh:ro
+      - ${HOME}/.ssh:/home/subshell/.ssh:ro
       # Over the host config: its 1Password IdentityAgent socket does not
       # exist in here, and git's ssh-format signing dies on the unreachable
       # agent instead of falling back to the on-disk keys.
-      - ./docker/ssh-config:/home/mote/.ssh/config:ro
+      - ./docker/ssh-config:/home/subshell/.ssh/config:ro
       # Container git identity + ssh-format signing — personal and untracked:
       # `cp docker/gitconfig.example docker/gitconfig` and edit BEFORE
       # `up` (Docker silently creates a missing bind source as an empty
@@ -54,13 +54,13 @@ services:
       # program does not exist in the image and breaks commits where
       # commit.gpgsign=true. Recreate after editing (single-file bind
       # mounts pin the inode).
-      - ./docker/gitconfig:/home/mote/.gitconfig:ro
+      - ./docker/gitconfig:/home/subshell/.gitconfig:ro
       # Host-specific extras (e.g. ~/.config/gh) go in
       # docker-compose.override.yaml — gitignored, merged automatically by
       # every `docker compose` command, so no base-file edit needed.
     environment:
       # SQLite + per-session logs (logs derive from this path).
-      DATABASE_PATH: /data/mote.db
+      DATABASE_PATH: /data/subshell.db
       # Auth cookies/redirects; this origin is trusted automatically. Set it
       # to the URL users actually open (behind a TLS-terminating proxy).
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3080}

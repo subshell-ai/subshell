@@ -22,7 +22,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * list — list_profiles).
  *
  * The regression these pin: a bearer key could create/update/delete the
- * owner's profiles, and profile.env OUTRANKS the MOTE_* credential layer when
+ * owner's profiles, and profile.env OUTRANKS the SUBSHELL_* credential layer when
  * a session starts — rewriting the owner's default profile was a harvest path
  * for every future session's bearer token. Additionally, env var KEYS are
  * validated server-side on create and update (they reach the tmux start
@@ -35,7 +35,7 @@ const validBody = { harnessId: "claude-code", name: "writetest", env: { GOOD_KEY
 
 describe("profile write routes (cookie only) + env name validation", () => {
   let userId: string;
-  const email = `profw-${crypto.randomUUID()}@mote.local`;
+  const email = `profw-${crypto.randomUUID()}@subshell.local`;
   const password = "profw-pass-1234";
   let cookie: string;
   let sessionKey: string;
@@ -201,7 +201,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
     const put = await app.fetch(
       bearerRequest(`/api/profiles/${ownedId}`, sessionKey, {
         method: "PUT",
-        body: JSON.stringify({ env: { MOTE_API_KEY: "attacker" } }),
+        body: JSON.stringify({ env: { SUBSHELL_API_KEY: "attacker" } }),
       }),
     );
     expect(put.status).toBe(403);
@@ -220,7 +220,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
     const put = await app.fetch(
       bearerRequest(`/api/profiles/${ownedId}`, systemKey, {
         method: "PUT",
-        body: JSON.stringify({ env: { MOTE_BASE_URL: "http://evil" } }),
+        body: JSON.stringify({ env: { SUBSHELL_BASE_URL: "http://evil" } }),
       }),
     );
     expect(put.status).toBe(403);
@@ -367,7 +367,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
 describe("profile node pinning (spec 2026-08-31 §6.2, T15a)", () => {
   const app = new Elysia().use(errorHandlerPlugin).use(profileRoutes);
   const pw = "pin-pass-1234";
-  const ownerEmail = `pin-owner-${crypto.randomUUID()}@mote.local`;
+  const ownerEmail = `pin-owner-${crypto.randomUUID()}@subshell.local`;
   const nodes = new NodesRepository(db);
   const repo = new ProfilesRepository(db);
   let ownerId: string;
@@ -416,7 +416,7 @@ describe("profile node pinning (spec 2026-08-31 §6.2, T15a)", () => {
     ownNodeId = await mkNode(ownerId);
     // A private foreign node — invisible to the owner (no share, not theirs).
     foreignUserId = await new UsersRepository(db).createUser({
-      email: `pin-foreign-${crypto.randomUUID()}@mote.local`,
+      email: `pin-foreign-${crypto.randomUUID()}@subshell.local`,
       passwordHash: await hashPassword(pw),
       role: "user",
     });

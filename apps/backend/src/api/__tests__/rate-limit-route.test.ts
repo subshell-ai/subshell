@@ -29,7 +29,7 @@ describe("rate-limit route (redirect-off sign-in)", () => {
   };
 
   it("delegates to better-auth and records a failed attempt (401)", async () => {
-    const email = `route-test-${crypto.randomUUID()}@mote.local`;
+    const email = `route-test-${crypto.randomUUID()}@subshell.local`;
     const res = await authRateLimitRoutes.fetch(makeRequest(email));
     expect(res.status).toBe(401);
     const row = await db

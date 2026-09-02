@@ -2,14 +2,14 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors } from "@/lib/tokens";
-import { MoteProvider } from "@/providers/mote-provider";
 import { PushBridge } from "@/providers/push-bridge";
+import { SubshellProvider } from "@/providers/subshell-provider";
 
 /** Root: dark chrome, providers once, every route below sees useMote()/queries. */
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <MoteProvider>
+      <SubshellProvider>
         <PushBridge />
         <StatusBar style="light" />
         <Stack
@@ -18,7 +18,7 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: colors.bg },
           }}
         />
-      </MoteProvider>
+      </SubshellProvider>
     </SafeAreaProvider>
   );
 }

@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 import { polledInterval } from "@/hooks/polled-interval";
 import { SESSIONS_KEY, SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * The list poll (spec §Transport): 3 s while anything runs/waits, 15 s

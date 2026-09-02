@@ -9,21 +9,24 @@ import { staticPlugin } from "@/plugins/static.plugin.js";
  * Static plugin unit tests. Serves from a temp dir that mimics a Vite
  * build output (index.html + content-hashed assets).
  */
-const root = mkdtempSync(join(tmpdir(), "mote-static-test-"));
+const root = mkdtempSync(join(tmpdir(), "subshell-static-test-"));
 
 // Fixtures mimic a Vite build output. Written before the app is composed,
 // because the plugin reads index.html eagerly at construction time.
 mkdirSync(join(root, "assets"), { recursive: true });
-writeFileSync(join(root, "index.html"), "<!doctype html><html><head><title>mote</title></head><body></body></html>");
+writeFileSync(
+  join(root, "index.html"),
+  "<!doctype html><html><head><title>subshell</title></head><body></body></html>",
+);
 writeFileSync(join(root, "assets/app.js"), 'console.log("hi");');
 writeFileSync(join(root, "assets/app.css"), "body{color:red}");
 writeFileSync(join(root, "assets/logo.svg"), "<svg></svg>");
 mkdirSync(join(root, "icons"), { recursive: true });
-writeFileSync(join(root, "manifest.webmanifest"), '{"name":"Mote","display":"standalone"}');
+writeFileSync(join(root, "manifest.webmanifest"), '{"name":"Subshell","display":"standalone"}');
 writeFileSync(join(root, "icons/icon-192.png"), "PNGBYTES");
 // Service workers: must never be cached (see the no-cache branch in the plugin).
 writeFileSync(join(root, "sw.js"), "importScripts('/sw-handlers.js');");
-writeFileSync(join(root, "sw-handlers.js"), "self.MoteSw={};");
+writeFileSync(join(root, "sw-handlers.js"), "self.SubshellSw={};");
 
 /** App under test: static plugin composed with a representative API route. */
 const app = new Elysia().use(staticPlugin(root)).get(
@@ -53,7 +56,7 @@ describe("static plugin", () => {
       const res = await get(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
-      expect(await res.text()).toContain("<title>mote</title>");
+      expect(await res.text()).toContain("<title>subshell</title>");
     }
   });
 
@@ -77,7 +80,7 @@ describe("static plugin", () => {
     const res = await get("/profiles", { accept: "text/html" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
-    expect(await res.text()).toContain("<title>mote</title>");
+    expect(await res.text()).toContain("<title>subshell</title>");
   });
 
   it("returns 404 for non-HTML requests that match no file", async () => {

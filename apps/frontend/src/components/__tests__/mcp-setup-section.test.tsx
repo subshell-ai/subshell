@@ -24,15 +24,15 @@ describe("McpSetupSection", () => {
         mcp={{
           mode: "manual",
           steps: [
-            { label: "Register mote once:", command: "hermes mcp add mote --command 'bun'" },
-            { label: "Remove later with:", command: "hermes mcp remove mote" },
+            { label: "Register subshell once:", command: "hermes mcp add subshell --command 'bun'" },
+            { label: "Remove later with:", command: "hermes mcp remove subshell" },
           ],
         }}
       />,
     );
     expect(screen.getByText(/no per-session config/)).toBeDefined();
-    expect(screen.getByText("Register mote once:")).toBeDefined();
-    expect(screen.getByText("hermes mcp add mote --command 'bun'")).toBeDefined();
+    expect(screen.getByText("Register subshell once:")).toBeDefined();
+    expect(screen.getByText("hermes mcp add subshell --command 'bun'")).toBeDefined();
     expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);
   });
 });

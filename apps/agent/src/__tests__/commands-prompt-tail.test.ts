@@ -32,7 +32,7 @@ const FIXED_NOW = 1_700_000_000_000;
 
 let base: string;
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "mote-prompt-tail-")));
+  base = realpathSync(mkdtempSync(join(tmpdir(), "subshell-prompt-tail-")));
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 

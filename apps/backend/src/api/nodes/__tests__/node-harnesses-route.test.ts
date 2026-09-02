@@ -82,10 +82,10 @@ function entry(harnessId: string, installed: boolean, version?: string): Record<
 describe("/api/nodes harness state + recheck", () => {
   const pw = "node-harness-1";
   const emails = {
-    alice: `nh-alice-${crypto.randomUUID()}@mote.local`,
-    bob: `nh-bob-${crypto.randomUUID()}@mote.local`,
-    carol: `nh-carol-${crypto.randomUUID()}@mote.local`,
-    out: `nh-out-${crypto.randomUUID()}@mote.local`,
+    alice: `nh-alice-${crypto.randomUUID()}@subshell.local`,
+    bob: `nh-bob-${crypto.randomUUID()}@subshell.local`,
+    carol: `nh-carol-${crypto.randomUUID()}@subshell.local`,
+    out: `nh-out-${crypto.randomUUID()}@subshell.local`,
   };
   let aliceId: string;
   let bobId: string;

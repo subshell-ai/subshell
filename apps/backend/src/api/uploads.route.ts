@@ -41,7 +41,7 @@ const UploadResponseSchema = t.Object({
 /**
  * Session file uploads.
  *
- * Files land in `<workingDir>/.mote/uploads/` — inside the harness's cwd, so
+ * Files land in `<workingDir>/.subshell/uploads/` — inside the harness's cwd, so
  * an agent can read them without a permission prompt, and on a read-write
  * host mount under Docker so they are visible from the host too. The client
  * then injects the returned path into the terminal.
@@ -56,7 +56,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
   .post(
     "/:id/uploads",
     async ({ params, body, user, actor, status }) => {
-      // F4 (security audit 2026-08): browser-only surface — the `mote mcp`
+      // F4 (security audit 2026-08): browser-only surface — the `subshell mcp`
       // binary never uploads (endpoint census: packages/mcp-core/src/tools.ts), and the
       // frontend posts cookie-only with `credentials: "include"`. A bearer
       // key writing files into the owner's working directory would feed the

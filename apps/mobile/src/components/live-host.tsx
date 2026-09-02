@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { KeyBar } from "@/components/key-bar";
-import type { MoteClient } from "@/lib/api";
+import type { SubshellClient } from "@/lib/api";
 import { wrapPaste } from "@/lib/key-bar";
 import { type SocketStatus, useSessionSocket } from "@/lib/session-socket";
 import { colors, radius, touchTarget } from "@/lib/tokens";
@@ -30,7 +30,7 @@ export function LiveHost({
   active,
   readOnly = false,
 }: {
-  client: MoteClient;
+  client: SubshellClient;
   sessionId: string;
   active: boolean;
   /** A `view` grantee: output streams but keystrokes/paste are dropped and the key bar is hidden (spec §4.1). */

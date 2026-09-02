@@ -283,7 +283,7 @@ export class TmuxRunner {
 /** Derives a stable, unique tmux socket name for a session id. */
 export function tmuxSocketFor(sessionId: string): string {
   const hash = createHash("sha1").update(sessionId).digest("hex").slice(0, 12);
-  return `mote-${hash}`;
+  return `subshell-${hash}`;
 }
 
 class TmuxError extends Error {

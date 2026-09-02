@@ -69,9 +69,9 @@ test("sealed channel posts reach the recipient only", async ({ playwright, reque
   const nonce = test.info().retry;
   const room = `e2e-room-${nonce}`;
 
-  const alice = await makePerson(playwright, request, `alice${nonce}@mote.test`);
-  const bob = await makePerson(playwright, request, `bob${nonce}@mote.test`);
-  const carol = await makePerson(playwright, request, `carol${nonce}@mote.test`);
+  const alice = await makePerson(playwright, request, `alice${nonce}@subshell.test`);
+  const bob = await makePerson(playwright, request, `bob${nonce}@subshell.test`);
+  const carol = await makePerson(playwright, request, `carol${nonce}@subshell.test`);
 
   try {
     // Creating a channel auto-enrolls the creator (channels.route.ts), so

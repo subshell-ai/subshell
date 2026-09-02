@@ -1,4 +1,4 @@
-# Mote
+# Subshell
 
 A web application for creating, viewing, and managing interactive **agent harness sessions**
 (Claude Code today; hermes, pi, opencode later). Launch real interactive CLI agents from the
@@ -18,7 +18,7 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
   Screen for a standalone app. No service worker — it always talks to your
   server.
 - **Channels** — end-to-end-encrypted cross-session messaging and agent orchestration
-  through the bundled `mote mcp` MCP server (auto-wired into claude-code and opencode
+  through the bundled `subshell mcp` MCP server (auto-wired into claude-code and opencode
   sessions; hermes and pi register with one copy-pasted command).
 
 ## Requirements
@@ -45,15 +45,15 @@ pick harness → first profile), then you can create sessions.
 
 ## Channels & cross-session orchestration
 
-Sessions boot with a small MCP server (`mote mcp`, stdio) attached (automatically for
+Sessions boot with a small MCP server (`subshell mcp`, stdio) attached (automatically for
 claude-code and opencode; one-time registration for hermes and pi — see below), so
 their agent can talk to the other sessions on the instance — and spawn new ones:
 
-- **Encrypted channels** — `mote_post_channel` / `mote_read_channel` and friends. Each
+- **Encrypted channels** — `subshell_post_channel` / `subshell_read_channel` and friends. Each
   session holds an ECDH keypair (generated on first run, stored in its data dir);
   messages are sealed per-recipient (ECDH-ES + A256GCM via `jose`). The server only ever
   stores and forwards ciphertext it cannot read.
-- **Session CRUD from the agent** — `mote_create_session` (profile + directory + optional
+- **Session CRUD from the agent** — `subshell_create_session` (profile + directory + optional
   starter prompt), list/restart/terminate/delete/notes, profiles, channels.
 - **Per-session credentials** — starting a session mints a 7-day API key baked into its
   environment; long-running agents self-extend it, and it is revoked the moment the
@@ -67,15 +67,15 @@ the generated file via `--mcp-config`; **opencode** gets a merged config layer p
 at by `OPENCODE_CONFIG` (your own opencode config stays intact). **hermes** and **pi**
 have no per-session config — their profile editor shows the one-time registration
 command; after that, every session authenticates through its own baked credentials.
-Override how the server is launched with `MOTE_MCP_COMMAND` and `MOTE_MCP_ARGS`
-(JSON array) — by default the backend finds its sibling `mote-mcp` binary (or runs
+Override how the server is launched with `SUBSHELL_MCP_COMMAND` and `SUBSHELL_MCP_ARGS`
+(JSON array) — by default the backend finds its sibling `subshell-mcp` binary (or runs
 the TS entry with Bun in dev).
 
 ## Production (single port)
 
 ```bash
 turbo build          # builds frontend/dist + backend/dist
-DATABASE_PATH=./data/mote.db HOST=0.0.0.0 NODE_ENV=production \
+DATABASE_PATH=./data/subshell.db HOST=0.0.0.0 NODE_ENV=production \
   bun run --cwd apps/backend prod
 ```
 
@@ -86,15 +86,15 @@ The backend serves the built SPA at `/` plus the API, WebSocket and `/docs`.
 ```bash
 cp .env.example .env         # set BETTER_AUTH_SECRET (>= 32 chars) + APP_BASE_URL
 cp docker/gitconfig.example docker/gitconfig   # your git identity + signing key
-mkdir -p ~/.config/mote
+mkdir -p ~/.config/subshell
 docker compose build
 docker compose up -d         # http://localhost:3080
 ```
 
-- **Data lives in `~/.config/mote`** (bind-mounted to `/data`: SQLite, session
+- **Data lives in `~/.config/subshell`** (bind-mounted to `/data`: SQLite, session
   logs, channel keypairs). `~/projects` is mounted at its real path, so
   recent/session paths in the DB resolve unchanged. Override either
-  with `MOTE_DATA_HOST_DIR=` / `PROJECTS_DIR=` in `.env`.
+  with `SUBSHELL_DATA_HOST_DIR=` / `PROJECTS_DIR=` in `.env`.
 - **Restarts on boot** via `restart: unless-stopped` — requires the Docker
   daemon itself enabled: `systemctl is-enabled docker || sudo systemctl enable docker`.
 - **Port `3080` is published** (not loopback-bound): reverse proxies reach
@@ -103,8 +103,8 @@ docker compose up -d         # http://localhost:3080
   `claude` (read-only) plus `~/.claude` / `~/.claude.json` (read-write, where
   claude keeps session records). Adjust those mounts for a different harness.
 - Migrating from a host-run dev instance: stop the dev backend (it holds
-  `:3080`), then `sqlite3 data/mote.db ".backup ~/.config/mote/mote.db"` and
-  `cp -a data/sessions ~/.config/mote/` from `apps/backend/`. Keep
+  `:3080`), then `sqlite3 data/subshell.db ".backup ~/.config/subshell/subshell.db"` and
+  `cp -a data/sessions ~/.config/subshell/` from `apps/backend/`. Keep
   `BETTER_AUTH_SECRET` identical and existing browser sessions survive.
 - Container restarts end tmux state — running sessions die with the container
   and surface as dead rows; restart them from the UI.
@@ -120,7 +120,7 @@ docker compose up -d         # http://localhost:3080
 
 ### Host service (no Docker)
 
-`svc.sh` (repo root) runs mote as a systemd **user** service at boot — the
+`svc.sh` (repo root) runs subshell as a systemd **user** service at boot — the
 panes then get native host tools instead of the image's package set. No sudo
 is involved; the one-time `sudo loginctl enable-linger $USER` (so user
 services start without a login) is checked for you.
@@ -131,7 +131,7 @@ turbo build            # fresh dist artifacts (prerequisite of install)
 ./svc.sh start         # stop / restart / status / uninstall also exist
 ```
 
-The service reads the same `.env` and the same data dir (`~/.config/mote`) as
+The service reads the same `.env` and the same data dir (`~/.config/subshell`) as
 the Docker deployment — switching over is just `docker compose down`, then
 install + start (guard the container against resurrection with a
 `restart: "no"` override if you keep the compose files around). `:3080` must
@@ -146,16 +146,16 @@ Environment variables (see `apps/backend/src/constants.ts`):
 |---|---|---|
 | `SERVER_PORT` | `3080` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address (`0.0.0.0` in Docker) |
-| `DATABASE_PATH` | `./data/mote.db` | SQLite file; per-session logs are `data/sessions/`. Ignored under `MOTE_TEST_MODE` |
-| `MOTE_TEST_MODE` | unset | Set by the test preload. Forces an in-memory database and a temp log dir, so a test run can never write to real data |
+| `DATABASE_PATH` | `./data/subshell.db` | SQLite file; per-session logs are `data/sessions/`. Ignored under `SUBSHELL_TEST_MODE` |
+| `SUBSHELL_TEST_MODE` | unset | Set by the test preload. Forces an in-memory database and a temp log dir, so a test run can never write to real data |
 | `APP_BASE_URL` | `http://localhost:$SERVER_PORT` | Auth cookies / redirects; its origin is trusted automatically |
 | `TRUSTED_ORIGINS` | `http://localhost:5174,http://localhost:5173` | Comma-separated **additional** allowed origins (dev Vite server). The instance always trusts its own: both loopback spellings of `SERVER_PORT`, plus `HOST` when it is a concrete address |
-| `MOTE_MCP_COMMAND` | (sibling `mote-mcp` binary) | Override how the `mote mcp` stdio server is launched for a session |
-| `MOTE_MCP_ARGS` | `[]` | JSON array of args for `MOTE_MCP_COMMAND` |
+| `SUBSHELL_MCP_COMMAND` | (sibling `subshell-mcp` binary) | Override how the `subshell mcp` stdio server is launched for a session |
+| `SUBSHELL_MCP_ARGS` | `[]` | JSON array of args for `SUBSHELL_MCP_COMMAND` |
 
 Per-session MCP env (injected by the backend into each harness, not set by you):
-`MOTE_API_KEY` (the session's bearer token), `MOTE_BASE_URL`, `MOTE_SESSION_ID`,
-`MOTE_SESSION_NAME`, `MOTE_DATA_DIR` (where the session's ECDH keypair is persisted).
+`SUBSHELL_API_KEY` (the session's bearer token), `SUBSHELL_BASE_URL`, `SUBSHELL_SESSION_ID`,
+`SUBSHELL_SESSION_NAME`, `SUBSHELL_DATA_DIR` (where the session's ECDH keypair is persisted).
 
 ## Security notes
 
@@ -175,7 +175,7 @@ Per-session MCP env (injected by the backend into each harness, not set by you):
 
 ## Remote / trusted-network operation
 
-For operating Mote from a machine that is not the box (e.g. from a laptop over
+For operating Subshell from a machine that is not the box (e.g. from a laptop over
 your VPN):
 
 - Bind `HOST=0.0.0.0` and set `APP_BASE_URL=https://<your-vpn-host>` — that
@@ -194,9 +194,9 @@ your VPN):
 ## Docs / API
 
 - **[Architecture reference](docs/architecture.md)** — processes, credentials, encrypted
-  channels, the `mote mcp` protocol, session/token choreography, and the invariants
+  channels, the `subshell mcp` protocol, session/token choreography, and the invariants
   that hold them together. Start here to work on the backend.
-- [Project overview](docs/overview.md) — what Mote is and the workspace layout.
+- [Project overview](docs/overview.md) — what Subshell is and the workspace layout.
 - Design rationale lives in `docs/superpowers/specs/`; the cross-session build plan in
   `docs/superpowers/plans/`.
 - OpenAPI docs at `/docs` (Scalar UI).

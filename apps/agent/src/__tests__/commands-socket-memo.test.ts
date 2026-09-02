@@ -24,7 +24,7 @@ const S = "3f3f3f3f-3f3f-4f3f-8f3f-3f3f3f3f3f3f";
 let base: string;
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "mote-socket-memo-")));
+  base = realpathSync(mkdtempSync(join(tmpdir(), "subshell-socket-memo-")));
 });
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));

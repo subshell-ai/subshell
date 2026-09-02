@@ -137,7 +137,7 @@ dist
 .turbo/
 .hashes.json
 
-# Mote runtime data (SQLite DB + session logs)
+# Subshell runtime data (SQLite DB + session logs)
 data/
 apps/backend/data/
 apps/backend/.bun/

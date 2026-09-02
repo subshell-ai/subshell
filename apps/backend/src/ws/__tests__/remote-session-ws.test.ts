@@ -167,7 +167,7 @@ function fakeBrowser(lag?: () => number): FakeBrowser {
 }
 
 function attachRow(over: Partial<RemoteAttachRow> = {}): RemoteAttachRow {
-  return { id: SID, nodeId: NODE_ID, tmuxSocket: "mote-relay", terminalReplayLines: null, ...over };
+  return { id: SID, nodeId: NODE_ID, tmuxSocket: "subshell-relay", terminalReplayLines: null, ...over };
 }
 
 /** tail_start's subId as it went on the wire (the relay mints a uuid). */

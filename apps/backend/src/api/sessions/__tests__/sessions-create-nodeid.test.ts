@@ -48,8 +48,8 @@ const app = new Elysia().use(errorHandlerPlugin).use(sessionRoutes);
 
 describe("POST /api/sessions node resolution (phase 2)", () => {
   const pw = "cnode-pass-1";
-  const email = `cnode-${crypto.randomUUID()}@mote.local`;
-  const otherEmail = `cnode-o-${crypto.randomUUID()}@mote.local`;
+  const email = `cnode-${crypto.randomUUID()}@subshell.local`;
+  const otherEmail = `cnode-o-${crypto.randomUUID()}@subshell.local`;
   let userId: string;
   let otherId: string;
   let cookie: string;
@@ -59,7 +59,7 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
   const sockets = new Set<string>();
   let bogusProfileId: string;
   let claudeProfileId: string;
-  const testDir = mkdtempSync(join(tmpdir(), "mote-cnode-"));
+  const testDir = mkdtempSync(join(tmpdir(), "subshell-cnode-"));
 
   async function mkProfile(owner: string, harnessId: string, nodeId?: string): Promise<string> {
     const row = await new ProfilesRepository(db).create({
@@ -209,7 +209,7 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
     // one commit, so this route-level test pins their handshake: a node that
     // advertises today's pre-13 capability set (`["uploads"]` — the exact list
     // the shipped `ready` frames carry) still gets a full launch, with the
-    // MOTE_* pane env present and NO `mcp` registration / config path on the
+    // SUBSHELL_* pane env present and NO `mcp` registration / config path on the
     // wire — `planRemoteSessionMcp` was SKIPPED (control-side compose never ran;
     // the manager logged the debug note). The scripted agent socket answers the
     // real RemoteLauncher's RPCs (stat_dir + launch) by unwrapping each signed
@@ -270,16 +270,16 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
       // the node's dataDir) is pinned by `sessions-remote.integration.test.ts`.
       expect(launch?.mcp).toBeUndefined();
       expect(launch?.mcp?.path).toBeUndefined();
-      // Env-only: the MOTE_* contract is shipped regardless — harnesses without
-      // a registration file still reach mote (manual setup), and the identity/
+      // Env-only: the SUBSHELL_* contract is shipped regardless — harnesses without
+      // a registration file still reach subshell (manual setup), and the identity/
       // pin stores of the ported MCP server key off these values.
-      const moteEnv = launch?.moteEnv as Record<string, string>;
-      expect(moteEnv.MOTE_API_KEY).toBeTruthy();
-      expect(moteEnv.MOTE_SESSION_ID).toBe(body.id);
-      expect(moteEnv.MOTE_BASE_URL).toBeTruthy();
+      const subshellEnv = launch?.subshellEnv as Record<string, string>;
+      expect(subshellEnv.SUBSHELL_API_KEY).toBeTruthy();
+      expect(subshellEnv.SUBSHELL_SESSION_ID).toBe(body.id);
+      expect(subshellEnv.SUBSHELL_BASE_URL).toBeTruthy();
       // The node's own dataDir wins over the backend's SESSION_DATA_DIR (Task 9)
-      // — where the ported identity-store/pin-store write under MOTE_DATA_DIR.
-      expect(moteEnv.MOTE_DATA_DIR).toBe("/node-data");
+      // — where the ported identity-store/pin-store write under SUBSHELL_DATA_DIR.
+      expect(subshellEnv.SUBSHELL_DATA_DIR).toBe("/node-data");
 
       // Write-site per-node scoping: the recent-path touch that follows a
       // successful launch must carry the RESOLVED node, not silently default
@@ -421,7 +421,7 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
 
 describe("POST /api/sessions/:id/restart onto an offline node (spec §5.6)", () => {
   const pw = "conode-pass-1";
-  const email = `conode-${crypto.randomUUID()}@mote.local`;
+  const email = `conode-${crypto.randomUUID()}@subshell.local`;
   let userId: string;
   let cookie: string;
   const createdNodeIds: string[] = [];

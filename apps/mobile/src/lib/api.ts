@@ -18,8 +18,8 @@ export interface TokenStore {
   clear(): Promise<void>;
 }
 
-/** Construction options for {@link MoteClient}. */
-export interface MoteClientOptions {
+/** Construction options for {@link SubshellClient}. */
+export interface SubshellClientOptions {
   /** Base URL from `normalizeInstanceOrigin`, no trailing slash. */
   baseUrl: string;
   /** Where the session token lives. */
@@ -31,7 +31,7 @@ export interface MoteClientOptions {
 }
 
 /**
- * Authenticated REST client for one mote instance.
+ * Authenticated REST client for one subshell instance.
  *
  * Authenticates as the **better-auth cookie actor** — not a bearer key. That is
  * a design constraint, not a preference: `api/ws-token.route.ts:26` and
@@ -43,13 +43,13 @@ export interface MoteClientOptions {
  * spellings (see `src/lib/cookie.ts`), and picks up better-auth's rotation from
  * each response's `Set-Cookie`.
  */
-export class MoteClient {
+export class SubshellClient {
   private readonly fetchImpl: typeof fetch;
 
   /**
    * @param opts - Base URL, token store and optional fetch override
    */
-  constructor(private readonly opts: MoteClientOptions) {
+  constructor(private readonly opts: SubshellClientOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 

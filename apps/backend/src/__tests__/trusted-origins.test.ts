@@ -49,7 +49,9 @@ describe("TRUSTED_ORIGINS", () => {
     });
 
     it("adds the base URL origin and ignores a malformed one", () => {
-      expect(localOriginsFor(3080, "127.0.0.1", "https://mote.example:8443/x")).toContain("https://mote.example:8443");
+      expect(localOriginsFor(3080, "127.0.0.1", "https://subshell.example:8443/x")).toContain(
+        "https://subshell.example:8443",
+      );
       expect(localOriginsFor(3080, "127.0.0.1", "not a url")).toEqual([
         "http://localhost:3080",
         "http://127.0.0.1:3080",

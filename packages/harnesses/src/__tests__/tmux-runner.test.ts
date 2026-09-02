@@ -26,7 +26,7 @@ let socketSeq = 0;
  */
 function freshSocket(kind: string): string {
   socketSeq += 1;
-  const socket = `mote-test-${kind}-${process.pid}-${Date.now()}-${socketSeq}`;
+  const socket = `subshell-test-${kind}-${process.pid}-${Date.now()}-${socketSeq}`;
   spawnedSockets.add(socket);
   return socket;
 }
@@ -58,7 +58,7 @@ describe("TmuxRunner", () => {
     const c = tmuxSocketFor("def");
     expect(a).toBe(b);
     expect(a).not.toBe(c);
-    expect(a).toMatch(/^mote-/);
+    expect(a).toMatch(/^subshell-/);
   });
 
   it("creates and kills a session", async () => {
@@ -86,7 +86,7 @@ describe("TmuxRunner", () => {
     runner.killSession(socket, "ls-b");
     // Server gone / no sessions: swallow-errors like hasSession — just empty.
     expect(runner.listSessionNames(socket)).toEqual([]);
-    expect(runner.listSessionNames("mote-no-such-server")).toEqual([]);
+    expect(runner.listSessionNames("subshell-no-such-server")).toEqual([]);
   });
 
   // Tri-state probe (design 2026-09-02 §1): the exit watcher must be able to
@@ -126,7 +126,7 @@ describe("TmuxRunner", () => {
 
   it("streams output to a pipe-pane file", async () => {
     const socket = freshSocket("pipe");
-    const outFile = `/tmp/mote-pipe-${Date.now()}.txt`;
+    const outFile = `/tmp/subshell-pipe-${Date.now()}.txt`;
     // pipe-pane only captures output written AFTER it attaches. This test used
     // to echo at session start and then attach, so it raced the attach and
     // usually captured nothing. Start a pane that stays quiet until it is fed
@@ -160,7 +160,7 @@ describe("TmuxRunner", () => {
     // JSON.stringify-based escaping neutralized `"` but not `$`, backticks or
     // `;`. Assert on the exact argv tmux would receive, via a stub binary that
     // dumps its arguments (no real tmux, nothing executed).
-    const stubDir = mkdtempSync(join(tmpdir(), "mote-tmux-stub-"));
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
     const argvFile = join(stubDir, "argv.txt");
     const stub = join(stubDir, "tmux-stub");
     writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`, { mode: 0o755 });
@@ -211,7 +211,7 @@ describe("TmuxRunner", () => {
   // could kill `cat` before its tail flushed \u2014 a flake with no diagnostic.
   it("forwards input byte-exactly (control bytes, escapes, UTF-8, literal text)", async () => {
     const socket = freshSocket("raw");
-    const outFile = `/tmp/mote-raw-${Date.now()}.bin`;
+    const outFile = `/tmp/subshell-raw-${Date.now()}.bin`;
     const readyFile = `${outFile}.ready`;
     // Raw mode + no echo so the pty adds no translation of its own; whatever
     // arrives in the file is exactly what tmux delivered to the process. The
@@ -260,7 +260,7 @@ describe("TmuxRunner", () => {
     // restart button that throws and rolls the row back to `terminated`.
     const socket = freshSocket("revive-race");
     runner.newSession(socket, "s1", "/tmp", "exec sleep 30");
-    runner.pipePane(socket, "s1", `/tmp/mote-revive-race-${Date.now()}.log`);
+    runner.pipePane(socket, "s1", `/tmp/subshell-revive-race-${Date.now()}.log`);
     runner.killSession(socket, "s1"); // last session ⇒ the server starts exiting
     // Back-to-back, exactly as #reviveRow does — no sleep to paper over it.
     runner.newSession(socket, "s1", "/tmp", "exec sleep 30");
@@ -272,7 +272,7 @@ describe("TmuxRunner", () => {
     // The retry must not swallow genuine failures (bad cwd, duplicate name):
     // those are answers the caller needs immediately, not after a stall. A
     // stub tmux counts its invocations, so "did not retry" is observable.
-    const stubDir = mkdtempSync(join(tmpdir(), "mote-tmux-race-stub-"));
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-race-stub-"));
     const countFile = join(stubDir, "count.txt");
     const stub = join(stubDir, "tmux-stub");
     // Fails twice with the race message, then succeeds — and prints a
@@ -305,7 +305,7 @@ exit 0
   });
 
   it("gives up (rather than hanging) when the race never clears", async () => {
-    const stubDir = mkdtempSync(join(tmpdir(), "mote-tmux-race-forever-"));
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-race-forever-"));
     const countFile = join(stubDir, "count.txt");
     const stub = join(stubDir, "tmux-stub");
     writeFileSync(

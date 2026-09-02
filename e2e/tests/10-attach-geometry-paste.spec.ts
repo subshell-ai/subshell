@@ -191,7 +191,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await p2.waitForFunction(
     () =>
       ((window as any).__wsFrames ?? []).some(
-        (f: Frame) => f.data.startsWith("SENT ") && f.data.includes('"input"') && f.data.includes(".mote/uploads"),
+        (f: Frame) => f.data.startsWith("SENT ") && f.data.includes('"input"') && f.data.includes(".subshell/uploads"),
       ),
     undefined,
     { timeout: 30_000 },

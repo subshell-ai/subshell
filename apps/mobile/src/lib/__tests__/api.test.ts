@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { MoteClient, type TokenStore } from "@/lib/api";
+import { SubshellClient, type TokenStore } from "@/lib/api";
 import { ApiError } from "@/lib/api-error";
 import { SECURE_SESSION_COOKIE, SESSION_COOKIE } from "@/lib/cookie";
 import type { Node } from "@/types/node";
@@ -46,13 +46,13 @@ function recordingFetch(handler: (url: string, init: RequestInit) => Response) {
   return { fn, calls };
 }
 
-const BASE = "https://mote.example";
+const BASE = "https://subshell.example";
 
-describe("MoteClient.signIn", () => {
+describe("SubshellClient.signIn", () => {
   it("stores the token returned in the response body", async () => {
     const { store, peek } = memoryStore();
     const { fn } = recordingFetch(() => fakeResponse(JSON.stringify({ token: "srv-token", user: {} })));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.signIn("a@b.c", "pw");
 
@@ -69,7 +69,7 @@ describe("MoteClient.signIn", () => {
         setCookies: [`${SESSION_COOKIE}=raw32.signedsig; Path=/; HttpOnly`],
       }),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.signIn("a@b.c", "pw");
 
@@ -81,7 +81,7 @@ describe("MoteClient.signIn", () => {
     const { fn } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ token: "srv-token", user: {} }), { setCookies: [] }),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.signIn("a@b.c", "pw");
 
@@ -91,7 +91,7 @@ describe("MoteClient.signIn", () => {
   it("sends an explicit Origin on better-auth routes, because RN sends none", async () => {
     const { store } = memoryStore();
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ token: "t" })));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.signIn("a@b.c", "pw");
 
@@ -101,11 +101,11 @@ describe("MoteClient.signIn", () => {
   });
 });
 
-describe("MoteClient.request", () => {
+describe("SubshellClient.request", () => {
   it("presents the cookie under both spellings on guarded routes", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() => fakeResponse("[]"));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.sessions();
 
@@ -119,7 +119,7 @@ describe("MoteClient.request", () => {
     const { fn } = recordingFetch(() =>
       fakeResponse("[]", { setCookies: [`${SECURE_SESSION_COOKIE}=rotated; Path=/; HttpOnly`] }),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.sessions();
     await Promise.resolve();
@@ -138,7 +138,7 @@ describe("MoteClient.request", () => {
         setCookies: [`${SESSION_COOKIE}=rotated; Path=/; HttpOnly`],
       }),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await expect(client.sessions()).rejects.toBeInstanceOf(ApiError);
     await Promise.resolve();
@@ -153,7 +153,7 @@ describe("MoteClient.request", () => {
         status: 403,
       }),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     const err = await client.wsToken().catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
@@ -165,7 +165,7 @@ describe("MoteClient.request", () => {
   it("survives a non-JSON body, e.g. a proxy error page", async () => {
     const { store } = memoryStore("tok");
     const { fn } = recordingFetch(() => fakeResponse("<html>502 Bad Gateway</html>", { status: 502 }));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     const err = (await client.sessions().catch((e) => e)) as ApiError;
     expect(err.message).toContain("502 Bad Gateway");
@@ -176,7 +176,7 @@ describe("MoteClient.request", () => {
     const { store, peek } = memoryStore("expired");
     let fired = 0;
     const { fn } = recordingFetch(() => fakeResponse(JSON.stringify({ message: "unauthorized" }), { status: 401 }));
-    const client = new MoteClient({
+    const client = new SubshellClient({
       baseUrl: BASE,
       store,
       fetchImpl: fn,
@@ -191,11 +191,11 @@ describe("MoteClient.request", () => {
   });
 });
 
-describe("MoteClient device enrollment", () => {
+describe("SubshellClient device enrollment", () => {
   it("enrollDevice POSTs the token and platform to /api/devices", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ ok: true })));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await expect(client.enrollDevice("ExponentPushToken[X]", "ios")).resolves.toEqual({ ok: true });
     expect(calls[0]?.url).toBe(`${BASE}/api/devices`);
@@ -206,7 +206,7 @@ describe("MoteClient device enrollment", () => {
   it("forgetDevice DELETEs with the token in the body", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ ok: true })));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await expect(client.forgetDevice("ExponentPushToken[X]")).resolves.toEqual({ ok: true });
     expect(calls[0]?.url).toBe(`${BASE}/api/devices`);
@@ -217,15 +217,15 @@ describe("MoteClient device enrollment", () => {
   it("summary throws 404 on instances without the route (caller derives client-side)", async () => {
     const { store } = memoryStore("tok");
     const { fn } = recordingFetch(() => fakeResponse(JSON.stringify({ message: "not found" }), { status: 404 }));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
     const err = (await client.summary().catch((e) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
 });
 
-describe("MoteClient session verbs", () => {
-  const cases: [string, (c: MoteClient) => Promise<unknown>, string, string][] = [
+describe("SubshellClient session verbs", () => {
+  const cases: [string, (c: SubshellClient) => Promise<unknown>, string, string][] = [
     ["rename", (c) => c.rename("s 1", "New Name"), "PATCH", `${BASE}/api/sessions/s%201/name`],
     ["setNotes", (c) => c.setNotes("s1", null), "PATCH", `${BASE}/api/sessions/s1/notes`],
     ["restart", (c) => c.restart("s1"), "POST", `${BASE}/api/sessions/s1/restart`],
@@ -236,7 +236,7 @@ describe("MoteClient session verbs", () => {
     it(`${name} hits ${method} ${url.replace(BASE, "")}`, async () => {
       const { store } = memoryStore("tok");
       const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ ok: true })));
-      const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+      const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
       await call(client);
       expect(calls[0]?.url).toBe(url);
       expect(calls[0]?.init.method).toBe(method);
@@ -244,11 +244,11 @@ describe("MoteClient session verbs", () => {
   }
 });
 
-describe("MoteClient new-session surface", () => {
+describe("SubshellClient new-session surface", () => {
   it("profiles() GETs /api/profiles", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify([])));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
     await client.profiles();
     expect(calls[0]?.url).toBe(`${BASE}/api/profiles`);
     expect(calls[0]?.init.method).toBeUndefined();
@@ -259,7 +259,7 @@ describe("MoteClient new-session surface", () => {
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ path: "/a b", parent: "/", entries: [], recent: [], favorites: [] })),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
     const res = await client.filesExplore("/a b");
     expect(calls[0]?.url).toBe(`${BASE}/api/files/explore?path=%2Fa%20b`);
     expect(res.path).toBe("/a b");
@@ -270,7 +270,7 @@ describe("MoteClient new-session surface", () => {
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: true })),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
     const res = await client.createSession({ profileId: "p1", workingDir: "/w", prompt: "hi" });
     expect(calls[0]?.url).toBe(`${BASE}/api/sessions`);
     expect(calls[0]?.init.method).toBe("POST");
@@ -283,7 +283,7 @@ describe("MoteClient new-session surface", () => {
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: false })),
     );
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await client.createSession({ profileId: "p1", workingDir: "/w", nodeId: "n1" });
     expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", nodeId: "n1" }));
@@ -293,7 +293,7 @@ describe("MoteClient new-session surface", () => {
   });
 });
 
-describe("MoteClient.nodes", () => {
+describe("SubshellClient.nodes", () => {
   it("GETs /api/nodes and unwraps the { nodes } envelope", async () => {
     const { store } = memoryStore("tok");
     const node: Node = {
@@ -306,7 +306,7 @@ describe("MoteClient.nodes", () => {
       protocolVersion: 1,
     };
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ nodes: [node] })));
-    const client = new MoteClient({ baseUrl: BASE, store, fetchImpl: fn });
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
     await expect(client.nodes()).resolves.toEqual([node]);
     expect(calls[0]?.url).toBe(`${BASE}/api/nodes`);

@@ -180,20 +180,20 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await dialog.getByRole("button", { name: "Done" }).click();
 
   // ── 3. The install script AS SERVED by this instance (Task 4 pins, through
-  // the live route — not the template file): the MOTE_DATA_DIR knob and the
+  // the live route — not the template file): the SUBSHELL_DATA_DIR knob and the
   // runtime loopback case branch. Asserted BEFORE enrollment: the key spends
   // there and `peekValid` would downgrade this response to the usage script.
   const sh = await request.get(`/install.sh?setup_key=${setupKey}`);
   expect(sh.ok(), await sh.text()).toBe(true);
   const script = await sh.text();
-  expect(script).toContain("MOTE_DATA_DIR");
+  expect(script).toContain("SUBSHELL_DATA_DIR");
   expect(script).toMatch(/\*:\/\/localhost\*/); // the loopback warning's case branch
   expect(script).toContain(`SERVER="${BASE_URL}"`);
 
   // ── 4–7. The agent's lifetime is fully inside try/finally: a mid-story
   // failure must never leave a daemon, a node row, a spent key, or a tmux
   // server under the default socket dir for the rest of the run.
-  const home = mkdtempSync(path.join(tmpdir(), "mote-e2e-agent-"));
+  const home = mkdtempSync(path.join(tmpdir(), "subshell-e2e-agent-"));
   const dataDir = path.join(home, "data");
   const tmuxBase = path.join(home, "tmux");
   mkdirSync(tmuxBase, { recursive: true }); // tmux will not mkdir the TMUX_TMPDIR base itself (stack.ts)

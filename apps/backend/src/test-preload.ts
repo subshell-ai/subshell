@@ -10,7 +10,7 @@ import { join } from "node:path";
  * Registered via `bunfig.toml`'s `[test] preload`, so it applies to every
  * `bun test` invocation — `bun run test`, `turbo test`, and a bare `bun test`
  * typed by hand. That breadth is the point: the suites create and delete
- * users, sessions and paths, and must never do it in `./data/mote.db`,
+ * users, sessions and paths, and must never do it in `./data/subshell.db`,
  * the developer's real database. Putting the override in the `test` script alone
  * would have left the bare invocation pointed at live data.
  *
@@ -23,11 +23,11 @@ import { join } from "node:path";
  * developer's `.env` is already present here, and "set it only if absent"
  * silently hands the suites the live database.
  */
-process.env.MOTE_TEST_MODE = "1";
+process.env.SUBSHELL_TEST_MODE = "1";
 
 /**
  * Best-effort removal of this process's temp test databases once the run is
- * over — `constants.ts` creates `mote-test-<pid>-<uuid>.db` (plus WAL
+ * over — `constants.ts` creates `subshell-test-<pid>-<uuid>.db` (plus WAL
  * sidecars) under the OS temp dir.
  *
  * This must be the runner's own `afterAll` rather than a `process.on("exit")`
@@ -37,14 +37,14 @@ process.env.MOTE_TEST_MODE = "1";
  * after every test file's own `afterAll` hooks — no suite loses its DB
  * mid-run — and it also fires on a failing run.
  *
- * The file is matched by this process's `mote-test-<pid>-` prefix instead of
+ * The file is matched by this process's `subshell-test-<pid>-` prefix instead of
  * importing `TEST_DATABASE_PATH`: static imports hoist above the flag
  * assignment above, and `constants.ts` must not read the environment before
  * the flag is set. Errors are ignored — cleanup may never mask the results.
  */
 afterAll(() => {
   const dir = tmpdir();
-  const prefix = `mote-test-${process.pid}-`;
+  const prefix = `subshell-test-${process.pid}-`;
   let names: string[];
   try {
     names = readdirSync(dir);

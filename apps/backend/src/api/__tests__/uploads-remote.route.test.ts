@@ -133,7 +133,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
 
   beforeAll(async () => {
     await setupAuthTables();
-    ownerEmail = `uprem-${crypto.randomUUID()}@mote.local`;
+    ownerEmail = `uprem-${crypto.randomUUID()}@subshell.local`;
     ownerId = await new UsersRepository(db).createUser({
       email: ownerEmail,
       passwordHash: await hashPassword(password),
@@ -182,14 +182,14 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       harnessId: "claude-code",
       profileId: crypto.randomUUID(),
       status: "running",
-      tmuxSocket: `mote-uprem-${id.slice(0, 8)}`,
+      tmuxSocket: `subshell-uprem-${id.slice(0, 8)}`,
       nodeId,
     });
     return id;
   }
 
   function tempWorkDir(): string {
-    const dir = mkdtempSync(join(tmpdir(), "mote-uprem-route-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-uprem-route-"));
     workDirs.push(dir);
     return dir;
   }
@@ -214,12 +214,12 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(agent.cmds.every((c) => c.path === json.path)).toBe(true);
 
       expect(json.name).toMatch(/^\d{8}-\d{6}-big-[0-9a-f]{8}\.bin$/);
-      expect(json.path).toBe(join(ws, ".mote", "uploads", json.name));
+      expect(json.path).toBe(join(ws, ".subshell", "uploads", json.name));
       expect(json.size).toBe(1048576);
       expect(json.contentType).toBe("application/octet-stream");
       // The relay composes the target as a STRING — the backend's own fs
       // (and the node-side git bookkeeping it would trigger) stays untouched.
-      expect(existsSync(join(ws, ".mote"))).toBe(false);
+      expect(existsSync(join(ws, ".subshell"))).toBe(false);
     } finally {
       agent.detach();
     }
@@ -255,8 +255,8 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       // timestamp prefix alone collides — the two targets must differ, and
       // every frame of an upload must carry ITS OWN path.
       expect(a.path).not.toBe(b.path);
-      expect(a.path).toBe(join(ws, ".mote", "uploads", a.name));
-      expect(b.path).toBe(join(ws, ".mote", "uploads", b.name));
+      expect(a.path).toBe(join(ws, ".subshell", "uploads", a.name));
+      expect(b.path).toBe(join(ws, ".subshell", "uploads", b.name));
       expect(agentA.cmds.map((c) => c.path)).toEqual([a.path]);
       expect(agentB.cmds.map((c) => c.path)).toEqual([b.path]);
     } finally {
@@ -366,7 +366,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
 
   it("rejects a target that is not an absolute path with 400 and zero frames (never sign an empty path)", async () => {
     const nodeId = await mkAgentNode();
-    const id = await makeSession("", nodeId); // composes ".mote/uploads/<name>" — a relative target
+    const id = await makeSession("", nodeId); // composes ".subshell/uploads/<name>" — a relative target
     const agent = attachFakeAgent(nodeId);
     try {
       const res = await uploadsRoutes.fetch(

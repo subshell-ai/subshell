@@ -4,7 +4,7 @@ import { SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
 import { useSessions } from "@/hooks/use-sessions";
 import { waitingCount } from "@/lib/session-order";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * Badge number (spec §Screens): the summary endpoint when the instance has

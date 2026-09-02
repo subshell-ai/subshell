@@ -15,7 +15,7 @@ declare module "@tanstack/react-router" {
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Root element not found");
 
-// Mote is dark-only (no light theme exists).
+// Subshell is dark-only (no light theme exists).
 document.documentElement.classList.add("dark");
 
 createRoot(rootElement).render(

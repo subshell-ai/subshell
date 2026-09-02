@@ -49,7 +49,7 @@ export class LocalLauncher implements NodeLauncher {
       plan.cwd,
       plan.profile,
       plan.sessionName,
-      plan.moteEnv,
+      plan.subshellEnv,
       plan.mcp,
       plan.harnessSession,
     );

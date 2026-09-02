@@ -13,11 +13,11 @@ import {
 
 describe("insertionTextFor", () => {
   it("returns a single path with a trailing space when not multiline", () => {
-    expect(insertionTextFor(["/ws/.mote/uploads/a.png"], false)).toBe("/ws/.mote/uploads/a.png ");
+    expect(insertionTextFor(["/ws/.subshell/uploads/a.png"], false)).toBe("/ws/.subshell/uploads/a.png ");
   });
 
   it("returns a single path with a trailing space when multiline", () => {
-    expect(insertionTextFor(["/ws/.mote/uploads/a.png"], true)).toBe("/ws/.mote/uploads/a.png ");
+    expect(insertionTextFor(["/ws/.subshell/uploads/a.png"], true)).toBe("/ws/.subshell/uploads/a.png ");
   });
 
   it("space-joins several paths when not multiline (no bracketed paste)", () => {
@@ -167,9 +167,9 @@ describe("uploadSessionFile (XHR transport)", () => {
     expect(xhr.sentBody?.get("file")).toBe(file);
     xhr.respond(
       200,
-      JSON.stringify({ path: "/ws/.mote/uploads/a.txt", name: "a.txt", size: 5, contentType: "text/plain" }),
+      JSON.stringify({ path: "/ws/.subshell/uploads/a.txt", name: "a.txt", size: 5, contentType: "text/plain" }),
     );
-    expect(await p).toBe("/ws/.mote/uploads/a.txt");
+    expect(await p).toBe("/ws/.subshell/uploads/a.txt");
   });
 
   it("reports byte progress through the callback", async () => {

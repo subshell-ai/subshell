@@ -32,7 +32,7 @@ describe("0003 remote-ops migration", () => {
   let dbFile: string;
   let db: Kysely<unknown>;
   beforeAll(async () => {
-    dbFile = `/tmp/mote-003-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-003-${Math.random().toString(36).slice(2)}.db`;
     db = new Kysely({ dialect: new BunSqliteDialect({ database: openSqliteDatabase(dbFile) }) });
     await db.schema
       .createTable("sessions")

@@ -31,7 +31,7 @@ let dbCleanup: (() => void) | undefined;
 let sessionManager: SessionManagerService;
 let profilesRepo: ProfilesRepository;
 let sessionsRepo: SessionsRepository;
-const testDir = mkdtempSync(join(tmpdir(), "mote-test-"));
+const testDir = mkdtempSync(join(tmpdir(), "subshell-test-"));
 
 /**
  * `/tmp` as the service reports it back.
@@ -96,7 +96,7 @@ beforeAll(async () => {
     // These tests exercise session/tmux mechanics against a hermetic DB that
     // better-auth knows nothing about; stub the token lifecycle (the real one
     // is covered by session-tokens.test.ts and session-manager-mcp.test.ts).
-    tokens: { issue: async () => "mote_stub", revoke: async () => {} },
+    tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
     // Unit isolation: the default audit sink writes to the app's dev DB
     // singleton; these tests exercise session mechanics, not the audit trail.
     audit: async () => {},
@@ -139,7 +139,7 @@ describe("SessionManagerService", () => {
     trackTmuxSocket(created.tmuxSocket);
 
     expect(created.id).toBeTruthy();
-    expect(created.tmuxSocket).toMatch(/^mote-/);
+    expect(created.tmuxSocket).toMatch(/^subshell-/);
     expect(tmuxSocketFor(created.id)).toBe(created.tmuxSocket);
 
     // The tmux session should actually be alive (real tmux on this host).
@@ -303,7 +303,7 @@ describe("SessionManagerService notes + restart", () => {
           issue: async () => {
             tally();
             if (gateOnIssue) await gate; // hold A inside #reviveRow, post-park
-            return "mote_stub";
+            return "subshell_stub";
           },
           revoke: async () => {},
         },
@@ -446,7 +446,7 @@ describe("reconcile notifications", () => {
       sessions: sessionsRepo,
       profiles: profilesRepo,
       tmux: new TmuxRunner(),
-      tokens: { issue: async () => "mote_stub", revoke: async () => {} },
+      tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
       audit: async () => {},
       notify: async (id, kind) => {
         calls.push([id, kind]);
@@ -932,7 +932,7 @@ function remoteFixture(
     tokens: {
       issue: async () => {
         issued++;
-        return "mote_stub";
+        return "subshell_stub";
       },
       revoke: async (id: string) => {
         revoked.push(id);
@@ -1314,7 +1314,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
         issue: async () => {
           reachedIssue = true;
           await gate;
-          return "mote_stub";
+          return "subshell_stub";
         },
         revoke: async () => {},
       },
@@ -1431,7 +1431,7 @@ describe("terminateSession on an offline agent node — best-effort stop (O2 rul
       sessions: sessionsRepo,
       profiles: profilesRepo,
       tokens: {
-        issue: async () => "mote_stub",
+        issue: async () => "subshell_stub",
         revoke: async (id: string) => {
           revoked.push(id);
         },

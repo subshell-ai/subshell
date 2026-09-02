@@ -1,6 +1,6 @@
 /*
- * mote service worker — classic worker, event plumbing only.
- * The decision logic lives in sw-handlers.js (self.MoteSw) so it can be
+ * subshell service worker — classic worker, event plumbing only.
+ * The decision logic lives in sw-handlers.js (self.SubshellSw) so it can be
  * unit-tested by eval'ing that file into a fake `self`.
  */
 importScripts("/sw-handlers.js");
@@ -17,8 +17,8 @@ self.addEventListener("push", (event) => {
       if (!data) return;
       const list = await self.clients.matchAll({ type: "window" });
       const focusedClient = list.find((c) => c.focused);
-      if (!self.MoteSw.shouldShow(data, focusedClient ? focusedClient.url : null)) return;
-      const [title, options] = self.MoteSw.noteArgs(data);
+      if (!self.SubshellSw.shouldShow(data, focusedClient ? focusedClient.url : null)) return;
+      const [title, options] = self.SubshellSw.noteArgs(data);
       await self.registration.showNotification(title, options);
     })(),
   );
@@ -30,7 +30,7 @@ self.addEventListener("notificationclick", (event) => {
     (async () => {
       const data = event.notification.data;
       if (!data || typeof data.url !== "string") return;
-      const target = self.MoteSw.clickTarget(data);
+      const target = self.SubshellSw.clickTarget(data);
       const list = await self.clients.matchAll({ type: "window" });
       const match = list.find((c) => c.url.includes(data.url));
       if (match) return match.focus();

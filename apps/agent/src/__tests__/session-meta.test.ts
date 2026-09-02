@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isSessionId, type SessionMeta, SessionMetaStore } from "../session-meta.js";
 
-const base = mkdtempSync(join(tmpdir(), "mote-meta-"));
+const base = mkdtempSync(join(tmpdir(), "subshell-meta-"));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
 /** Fresh store over a throwaway dataDir; each test gets its own to stay isolated. */
@@ -18,7 +18,7 @@ function meta(id: string): SessionMeta {
   return {
     sessionId: id,
     cwd: `/work/${id}`,
-    socket: `/run/mote/${id}.sock`,
+    socket: `/run/subshell/${id}.sock`,
     harnessId: "claude-code",
     name: `sess-${id}`,
     startedAt: "2026-09-01T00:00:00.000Z",

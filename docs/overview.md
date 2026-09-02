@@ -1,12 +1,12 @@
-# Mote — Project Overview
+# Subshell — Project Overview
 
-**Mote** is a web application for creating, viewing, and managing interactive **agent harness
+**Subshell** is a web application for creating, viewing, and managing interactive **agent harness
 sessions** — real CLI coding agents (Claude Code today; hermes, pi, opencode later) that you
 launch from the browser, attach/detach via a terminal UI, and terminate. It's **local-first**:
 sessions spawn as tmux-backed PTYs on the machine running the app; Docker is secondary.
 
 > This page is the quick orientation. The full system design — credential model,
-> encrypted-channel protocol, the `mote mcp` contract, session/token choreography and the
+> encrypted-channel protocol, the `subshell mcp` contract, session/token choreography and the
 > invariants that bind them — lives in the **[architecture reference](architecture.md)**,
 > which is authoritative when anything here disagrees with it.
 
@@ -19,9 +19,9 @@ browser ──•── /                   Elysia serves built frontend (SPA)
           ├─ /ws                  session attach WebSocket (?session=&token=)
           └─ /docs                OpenAPI (Scalar UI)
                │
-               └─ spawns ──► tmux server (per-session socket: mote-<sha1[:12]>)
+               └─ spawns ──► tmux server (per-session socket: subshell-<sha1[:12]>)
                               └──► claude / harness (in PTY, env -i curated env)
-                                    └──► `mote mcp` (stdio MCP server, registered in
+                                    └──► `subshell mcp` (stdio MCP server, registered in
                                          the harness's own dialect — see arch §4)
                                          └── talks back over /api as the session's
                                              bearer token (channels + session CRUD)
@@ -35,12 +35,12 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/backend/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
 | Sessions | **tmux 3.6+ backed, detachable** (survive browser close); pipe-pane → per-session log file |
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-session tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
-| Cross-session comms | **E2EE channels + `mote mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage sessions/channels through 14 `mote_*` MCP tools |
+| Cross-session comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage sessions/channels through 14 `subshell_*` MCP tools |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/frontend/.migration/`) |
 | Harnesses | Code-time **plugin interface** (`packages/harnesses`); four plugins ship: claude-code & opencode (MCP auto-registered per session), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/session-protocol` |
-| Uploads | Dropped/pasted files → `<workingDir>/.mote/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
+| Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
 | Workspaces | Per-user tiling layout of session panes via `dockview-react`; `layout_json` holds the split tree. Below 1024px it renders as tabs and never writes the layout, so a phone visit cannot flatten a desktop arrangement |
 | Mobile | <1024px = drawer shell + tab workspaces (`useIsWide`, `WORKSPACE_TILING_MIN_WIDTH`); ≥1024px = today's desktop shell; accessory terminal key bar sends raw WS `input` frames (same path as desktop keystrokes); PWA manifest, no service worker — spec [`superpowers/specs/2026-08-30-mobile-support-design.md`](superpowers/specs/2026-08-30-mobile-support-design.md) |
 
@@ -49,13 +49,13 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 ```
 apps/backend      Elysia app: api routes, ws, auth, session manager, tmux runner,
                   static serving (built SPA), migrations; src/mcp/main.ts is the
-                  stdio `mote mcp` entry (own compile target, never opens the app DB)
+                  stdio `subshell mcp` entry (own compile target, never opens the app DB)
 apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
 packages/harnesses         HarnessPlugin interface + four built-in harness plugins
 packages/backend-errors    shared error handler (scaffold)
 packages/backend-client    Eden Treaty client (scaffold; types inferred from backend's `App` type)
 packages/session-protocol  WS frame contract shared by backend + frontend
-packages/mcp-core          stdio `mote mcp` server, shared by backend's mote-mcp binary and the agent
+packages/mcp-core          stdio `subshell mcp` server, shared by backend's subshell-mcp binary and the agent
 packages/tsconfig          shared TS config (scaffold)
 ```
 
@@ -81,7 +81,7 @@ packages/tsconfig          shared TS config (scaffold)
    below it; every panel renders with `renderer: "always"` so moving, splitting or hiding
    a pane relocates its terminal in place rather than unmounting and remounting it
 7. **Cross-session comms**: session start mints a bearer token + MCP config → the harness
-   spawns `mote mcp` (stdio) with that token in its inherited env → agents create/join
+   spawns `subshell mcp` (stdio) with that token in its inherited env → agents create/join
    **channels**, post E2EE messages (sealed to every member's keypair), long-poll reads
    with a per-session cursor, and can spawn/manage other sessions. On terminate/delete the
    token is revoked; auto-restart rotates it. See
@@ -123,8 +123,8 @@ packages/tsconfig          shared TS config (scaffold)
 
 Backend fully functional; frontend pages and the WS terminal attach work E2E; single-port
 prod serving (built SPA + API + WS + docs on one port) works. **Cross-session comms** —
-E2EE channels and the `mote mcp` server (channels + full session CRUD) — shipped: verified
-by a two-process end-to-end test (real backend + two `mote mcp` children; ciphertext-only
+E2EE channels and the `subshell mcp` server (channels + full session CRUD) — shipped: verified
+by a two-process end-to-end test (real backend + two `subshell mcp` children; ciphertext-only
 storage asserted at the byte level) and a live-browser pass over the admin key lifecycle.
 **Mobile support** shipped alongside it, proven by the Playwright suite grown to 22 green
 tests (plus one intentional device-project skip) across three projects — desktop plus two

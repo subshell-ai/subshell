@@ -16,7 +16,7 @@ function usageScript(): string {
 set -euo pipefail
 
 echo "usage: curl -fsSL \\"${APP_BASE_URL}/install.sh?setup_key=SETUP_KEY\\" | bash" >&2
-echo "       mint a key first: Settings → Node setup keys in the mote web UI." >&2
+echo "       mint a key first: Settings → Node setup keys in the subshell web UI." >&2
 exit 2
 `;
 }
@@ -41,31 +41,31 @@ exit 2
  * exactly — the binary lands in the invoking CWD (`./subshell`) and enroll
  * runs WITHOUT `--data-dir`, so the agent keeps its own default data dir and
  * a stray `curl | bash` from $HOME (or anywhere) never relocates agent state.
- * The `MOTE_DATA_DIR` env knob OPTS into a relocated install: dest
- * `$MOTE_DATA_DIR/subshell`, installer-created dirs at 0700, and
- * `enroll --data-dir "$MOTE_DATA_DIR"` so binary and state stay together —
- * `curl … | MOTE_DATA_DIR=/opt/mote bash` (`curl | bash` has no argv).
+ * The `SUBSHELL_DATA_DIR` env knob OPTS into a relocated install: dest
+ * `$SUBSHELL_DATA_DIR/subshell`, installer-created dirs at 0700, and
+ * `enroll --data-dir "$SUBSHELL_DATA_DIR"` so binary and state stay together —
+ * `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash` (`curl | bash` has no argv).
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
  */
 function renderInstallScript(key: string): string {
   if (!/^nsk_[A-Za-z0-9_-]{32}$/.test(key)) return usageScript();
   return `#!/usr/bin/env bash
-# subshell installer — rendered by mote for this instance (spec 2026-08-31 §8).
+# subshell installer — rendered by subshell for this instance (spec 2026-08-31 §8).
 set -euo pipefail
 
 SERVER="${APP_BASE_URL}"
 KEY="${key}"
 
-# Install dest + enroll --data-dir. Unset/empty MOTE_DATA_DIR keeps the
+# Install dest + enroll --data-dir. Unset/empty SUBSHELL_DATA_DIR keeps the
 # historical behavior exactly: binary in the CWD, enroll WITHOUT --data-dir
 # (the agent keeps its own default data dir). Setting the knob OPTS INTO a
-# relocated install: everything lands under $MOTE_DATA_DIR, which the
+# relocated install: everything lands under $SUBSHELL_DATA_DIR, which the
 # installer creates (0700, with any missing parents). The ENROLL_DATA_DIR_ARGS
 # expansion below is guarded ("+word" form) so the empty array stays clean
 # under set -u even on bash 3.2 (macOS default), where a bare empty-array
 # expansion would abort as "unbound variable".
-if [ -n "\${MOTE_DATA_DIR:-}" ]; then
-  DATA_DIR="$MOTE_DATA_DIR"
+if [ -n "\${SUBSHELL_DATA_DIR:-}" ]; then
+  DATA_DIR="$SUBSHELL_DATA_DIR"
   (umask 077; mkdir -p "$DATA_DIR")
   DEST="$DATA_DIR/subshell"
   ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")

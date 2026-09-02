@@ -19,11 +19,11 @@ import { __setVapidDirForTests } from "@/services/notify.service.js";
 const app = new Elysia().use(errorHandlerPlugin).use(notificationsRoutes);
 
 describe("notifications route", () => {
-  const email = `notif-${crypto.randomUUID()}@mote.local`;
+  const email = `notif-${crypto.randomUUID()}@subshell.local`;
   const password = "notif-pass-1234";
   let cookie: string;
   let userId: string;
-  const vapidDir = mkdtempSync(join(tmpdir(), "mote-vapid-"));
+  const vapidDir = mkdtempSync(join(tmpdir(), "subshell-vapid-"));
   const createdKeyIds: string[] = [];
 
   beforeAll(async () => {

@@ -12,7 +12,7 @@ import { AGENT_VERSION } from "../version.js";
 /** The canned 201 the real route sends (spec §5.2). */
 const CANNED = {
   nodeId: "node_test_1",
-  nodeKey: "mote_key_never_printed",
+  nodeKey: "subshell_key_never_printed",
   controlPublicKey: '{"kty":"EC","crv":"P-256","x":"x","y":"y"}',
   wsUrl: "ws://localhost/ws/node",
 };
@@ -188,8 +188,8 @@ test("tmux preflight fails BEFORE any network call (ENOENT path), with a hint", 
     hits++;
     return Response.json(CANNED, { status: 201 });
   });
-  const savedSkip = process.env.MOTE_AGENT_SKIP_TMUX_CHECK;
-  delete process.env.MOTE_AGENT_SKIP_TMUX_CHECK;
+  const savedSkip = process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK;
+  delete process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK;
   // Deterministic ENOENT regardless of what the host has installed (Bun falls
   // back to a default search path when PATH is empty, so the PATH trick lies).
   const realSpawnSync = Bun.spawnSync;
@@ -213,13 +213,13 @@ test("tmux preflight fails BEFORE any network call (ENOENT path), with a hint", 
     expect(existsSync(configPath())).toBe(false);
   } finally {
     Bun.spawnSync = realSpawnSync;
-    if (savedSkip !== undefined) process.env.MOTE_AGENT_SKIP_TMUX_CHECK = savedSkip;
+    if (savedSkip !== undefined) process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK = savedSkip;
   }
 });
 
 test("tmux preflight passes when the probe succeeds", async () => {
-  const savedSkip = process.env.MOTE_AGENT_SKIP_TMUX_CHECK;
-  delete process.env.MOTE_AGENT_SKIP_TMUX_CHECK;
+  const savedSkip = process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK;
+  delete process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK;
   const realSpawnSync = Bun.spawnSync;
   try {
     Bun.spawnSync = (() => ({
@@ -232,7 +232,7 @@ test("tmux preflight passes when the probe succeeds", async () => {
     expect(res.code).toBe(0);
   } finally {
     Bun.spawnSync = realSpawnSync;
-    if (savedSkip !== undefined) process.env.MOTE_AGENT_SKIP_TMUX_CHECK = savedSkip;
+    if (savedSkip !== undefined) process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK = savedSkip;
   }
 });
 

@@ -32,7 +32,7 @@ function mockFetch(initial: { granteeUserId: string | null; permission: string }
     }
     if (url.pathname === "/api/users") {
       return Promise.resolve(
-        new Response(JSON.stringify({ viewerIsAdmin: true, users: [{ id: "u2", email: "bob@mote.local" }] })),
+        new Response(JSON.stringify({ viewerIsAdmin: true, users: [{ id: "u2", email: "bob@subshell.local" }] })),
       );
     }
     return Promise.resolve(new Response(JSON.stringify({ shares: [] })));
@@ -73,7 +73,7 @@ describe("SharingDialog", () => {
       // Choose bob from the roster, then Add.
       fireEvent.change(screen.getByLabelText("Share with"), { target: { value: "u2" } });
       fireEvent.click(screen.getByRole("button", { name: "Add" }));
-      expect(await screen.findByText("bob@mote.local")).toBeDefined();
+      expect(await screen.findByText("bob@subshell.local")).toBeDefined();
 
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() => {

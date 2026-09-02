@@ -18,7 +18,7 @@ test("sharing: view is read-only, edit manages, private sessions are invisible",
   test.setTimeout(120_000);
   const admin = await browser.newContext({ storageState: ADMIN_STATE });
 
-  const member = { email: `share-${Date.now()}@mote.test`, password: PASSWORD, role: "user" };
+  const member = { email: `share-${Date.now()}@subshell.test`, password: PASSWORD, role: "user" };
   const created = await admin.request.post("/api/users", { data: member });
   expect(created.ok(), await created.text()).toBe(true);
 

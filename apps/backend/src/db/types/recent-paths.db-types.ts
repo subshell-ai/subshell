@@ -9,7 +9,7 @@ export interface RecentPathTable {
   userId: string;
   /** Absolute path used before */
   path: string;
-  /** Optional friendly label (e.g. "mote repo") */
+  /** Optional friendly label (e.g. "subshell repo") */
   label: string | null;
   /** Machine the path belongs to (recent paths are per-node) */
   nodeId: string;

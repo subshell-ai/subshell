@@ -99,7 +99,7 @@ export type NodeCommandBody =
   | {
       /** Start a harness pane: cwd + env + argv inputs, MCP file, output log path */
       type: "launch";
-      /** mote session id */
+      /** subshell session id */
       sessionId: string;
       /** tmux socket name (tmuxSocketFor(sessionId)) */
       socket: string;
@@ -109,8 +109,8 @@ export type NodeCommandBody =
       harnessId: string;
       /** Launch config (mirror of harnesses ProfileDefinition) */
       profile: ProfileDefinitionWire;
-      /** MOTE_* credential env, supplied by the control plane */
-      moteEnv: Record<string, string>;
+      /** SUBSHELL_* credential env, supplied by the control plane */
+      subshellEnv: Record<string, string>;
       /** MCP registration file the agent writes (0600) before spawning */
       mcp?: { path: string; fileContent: string };
       /** Resume pin for harnesses that support it */
@@ -258,7 +258,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
   switch (value.type) {
     case "launch": {
       if (!isStr(value.sessionId) || !isStr(value.socket) || !isStr(value.cwd) || !isStr(value.harnessId)) return null;
-      if (!validProfileWire(value.profile) || !isStringMap(value.moteEnv)) return null;
+      if (!validProfileWire(value.profile) || !isStringMap(value.subshellEnv)) return null;
       if (!isStr(value.sessionName)) return null;
       if ("mcp" in value) {
         const m = value.mcp;

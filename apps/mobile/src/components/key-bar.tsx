@@ -8,7 +8,7 @@ const REPEAT_RATE_MS = 90;
 
 /**
  * The accessory row (spec §Screens key bar; web terminal-key-bar.tsx rules):
- * every button is a plain byte sender — mote intercepts nothing. Arrows
+ * every button is a plain byte sender — subshell intercepts nothing. Arrows
  * press-repeat; `⋯` flips to the Ctrl/Pg page; the paste button sends the
  * clipboard wrapped in bracketed-paste markers (wired by the host).
  */

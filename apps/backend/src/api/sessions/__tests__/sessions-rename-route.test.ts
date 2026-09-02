@@ -16,7 +16,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 describe("PATCH /api/sessions/:id/name", () => {
   let userId: string;
   let token: string;
-  const email = `rename-${crypto.randomUUID()}@mote.local`;
+  const email = `rename-${crypto.randomUUID()}@subshell.local`;
   const pw = "rename-pass-1";
   const createdSessions: string[] = [];
   const createdKeys: string[] = [];

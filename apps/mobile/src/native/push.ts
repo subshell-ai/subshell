@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import type { MoteClient } from "@/lib/api";
+import type { SubshellClient } from "@/lib/api";
 import { PUSH_TOKEN_KEY } from "@/native/push-token";
 
 /**
@@ -11,7 +11,7 @@ import { PUSH_TOKEN_KEY } from "@/native/push-token";
  * authenticated session.
  */
 
-const CHANNEL_ID = "mote-sessions";
+const CHANNEL_ID = "subshell-sessions";
 
 /** Foreground presentation: banners only, no sound storm over the 3 s poll. */
 export function configureNotifications(): void {
@@ -59,7 +59,7 @@ export function configureNotifications(): void {
  * instance must never block app start.
  * @returns The enrolled token, or null when permission/device/relay refused.
  */
-export async function enrollPush(client: MoteClient): Promise<string | null> {
+export async function enrollPush(client: SubshellClient): Promise<string | null> {
   try {
     const cur = await Notifications.getPermissionsAsync();
     const perm = cur.granted ? cur : await Notifications.requestPermissionsAsync();
@@ -100,7 +100,7 @@ export async function setIconBadge(count: number): Promise<void> {
  * operator just untrusted (review #4: each call site hand-rolled this dance).
  * Never throws: a dead instance must not block a local sign-out.
  */
-export async function deregisterPush(client: MoteClient): Promise<void> {
+export async function deregisterPush(client: SubshellClient): Promise<void> {
   try {
     const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
     if (!token) return;

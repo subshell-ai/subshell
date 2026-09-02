@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /** Profiles for the picker — static enough that 60 s freshness is fine. */
 export function useProfiles() {

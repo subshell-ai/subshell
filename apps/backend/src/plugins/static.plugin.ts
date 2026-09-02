@@ -28,7 +28,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /** Marker used to re-export the static plugin for tests and docs. */
-const STATIC_PLUGIN_NAME = "mote-static";
+const STATIC_PLUGIN_NAME = "subshell-static";
 
 /**
  * Minimal static file server for the built SPA, replacing `@elysiajs/static`

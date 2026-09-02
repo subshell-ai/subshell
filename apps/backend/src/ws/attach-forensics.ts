@@ -12,10 +12,10 @@ import { logger } from "@/utils/logger.js";
  * prove the first two — the pane's contents at attach time and the exact
  * bytes it sent. That is what this dumps:
  *
- *   /tmp/mote-attach-debug/<session>/<timestamp>/pre-resize.txt  the pane
+ *   /tmp/subshell-attach-debug/<session>/<timestamp>/pre-resize.txt  the pane
  *     grid BEFORE the pre-capture resize (the state the pane was in when the
  *     viewer arrived)
- *   /tmp/mote-attach-debug/<session>/<timestamp>/replay.txt      the EXACT
+ *   /tmp/subshell-attach-debug/<session>/<timestamp>/replay.txt      the EXACT
  *     `replay` frame the client was sent (post marker-strip, post-resize
  *     capture)
  *
@@ -28,14 +28,14 @@ import { logger } from "@/utils/logger.js";
  *
  * OFF by default — the dumps are real terminal output (potentially secrets on
  * screen) and writing them on every attach would churn `/tmp`. Enable per
- * instance with `MOTE_ATTACH_DEBUG=1` (a systemd drop-in env line for the
+ * instance with `SUBSHELL_ATTACH_DEBUG=1` (a systemd drop-in env line for the
  * live service; {@link setForensicsEnabledForTests} in suites).
  */
 
 /** Mutable so tests can toggle; read from the environment once at module load. */
-let enabled = process.env.MOTE_ATTACH_DEBUG === "1" || process.env.MOTE_ATTACH_DEBUG === "true";
+let enabled = process.env.SUBSHELL_ATTACH_DEBUG === "1" || process.env.SUBSHELL_ATTACH_DEBUG === "true";
 /** Where per-attach dumps are written. */
-const FORENSICS_ROOT = "/tmp/mote-attach-debug";
+const FORENSICS_ROOT = "/tmp/subshell-attach-debug";
 
 /**
  * Turn forensics on/off for this process. Tests flip it around a case so the

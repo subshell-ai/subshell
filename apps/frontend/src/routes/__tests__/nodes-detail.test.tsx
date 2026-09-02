@@ -54,7 +54,7 @@ function mockFetch(node: NodeDetail) {
     }
     if (url.pathname === `/api/nodes/${node.id}/rotate-key` && method === "POST") {
       return Promise.resolve(
-        new Response(JSON.stringify({ nodeKey: "mote_new_secret", message: "re-config by hand" })),
+        new Response(JSON.stringify({ nodeKey: "subshell_new_secret", message: "re-config by hand" })),
       );
     }
     if (url.pathname === `/api/nodes/${node.id}` && method === "PATCH") {
@@ -200,12 +200,12 @@ describe("NodeDetailPage rotate-key", () => {
       });
       // POST exactly once — the reveal must not re-fire the rotation.
       expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key").length).toBe(1);
-      const revealed = await screen.findByText("mote_new_secret");
-      expect(revealed.textContent).toBe("mote_new_secret");
+      const revealed = await screen.findByText("subshell_new_secret");
+      expect(revealed.textContent).toBe("subshell_new_secret");
       expect(screen.getByText(/shown once/i)).toBeDefined();
       // Done retires the plaintext from the DOM.
       fireEvent.click(screen.getByRole("button", { name: /Done — hide the key/ }));
-      await waitFor(() => expect(screen.queryByText("mote_new_secret")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("subshell_new_secret")).toBeNull());
     } finally {
       restore();
     }

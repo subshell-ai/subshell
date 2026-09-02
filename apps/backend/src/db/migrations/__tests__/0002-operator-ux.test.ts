@@ -18,7 +18,7 @@ describe("0002 operator-ux migration", () => {
   let db: Kysely<MigrationDatabase>;
 
   beforeAll(async () => {
-    dbFile = `/tmp/mote-002-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-002-${Math.random().toString(36).slice(2)}.db`;
     const sqlite = openSqliteDatabase(dbFile);
     db = new Kysely<MigrationDatabase>({
       dialect: new BunSqliteDialect({ database: sqlite }),

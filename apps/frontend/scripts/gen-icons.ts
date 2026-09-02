@@ -8,7 +8,7 @@ import sharp from "sharp";
 const out = new URL("../public/icons/", import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 
-await sharp(join(out, "mote-source.svg")).resize(192, 192).png().toFile(join(out, "icon-192.png"));
-await sharp(join(out, "mote-maskable.svg")).resize(512, 512).png().toFile(join(out, "icon-512.png"));
-await sharp(join(out, "mote-source.svg")).resize(180, 180).png().toFile(join(out, "apple-touch-icon.png"));
+await sharp(join(out, "subshell-source.svg")).resize(192, 192).png().toFile(join(out, "icon-192.png"));
+await sharp(join(out, "subshell-maskable.svg")).resize(512, 512).png().toFile(join(out, "icon-512.png"));
+await sharp(join(out, "subshell-source.svg")).resize(180, 180).png().toFile(join(out, "apple-touch-icon.png"));
 console.log("icons written to", out);

@@ -7,16 +7,16 @@ import { checkAndPinRecipients, PinnedKeyMismatchError, reloadPinSettingsForTest
 /**
  * The pin store is the anti-relay-substitution layer: first-seen peer keys
  * are pinned (TOFU), changed keys abort the post. Every test gets its own
- * tmp MOTE_DATA_DIR (via the @internal reload hook — the real process reads
- * env once at module init); nothing touches the developer's mote-mcp dir.
+ * tmp SUBSHELL_DATA_DIR (via the @internal reload hook — the real process reads
+ * env once at module init); nothing touches the developer's subshell-mcp dir.
  */
 let dir: string;
 const pinsFile = () => join(dir, "peers.json");
 const peer = (principalId: string, key: string) => ({ principalId, publicJwk: key });
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "mote-pins-"));
-  reloadPinSettingsForTests({ MOTE_DATA_DIR: dir });
+  dir = mkdtempSync(join(tmpdir(), "subshell-pins-"));
+  reloadPinSettingsForTests({ SUBSHELL_DATA_DIR: dir });
 });
 
 afterAll(() => {
@@ -62,20 +62,20 @@ describe("mcp pin-store (TOFU peer keys)", () => {
     expect(raw).toEqual({ "sess:a": "A1", "sess:b": "B1" });
   });
 
-  it("MOTE_CHANNEL_PIN=trust skips checks entirely and never touches the file", () => {
+  it("SUBSHELL_CHANNEL_PIN=trust skips checks entirely and never touches the file", () => {
     // Strict first: pin A, then A-substitution would throw.
     checkAndPinRecipients([peer("sess:a", "KEY-1")]);
     expect(() => checkAndPinRecipients([peer("sess:a", "KEY-2")])).toThrow(PinnedKeyMismatchError);
-    reloadPinSettingsForTests({ MOTE_DATA_DIR: dir, MOTE_CHANNEL_PIN: "trust" });
+    reloadPinSettingsForTests({ SUBSHELL_DATA_DIR: dir, SUBSHELL_CHANNEL_PIN: "trust" });
     // The substituted key now sails through — and nothing is read or written.
     expect(() => checkAndPinRecipients([peer("sess:z", "OTHER")])).not.toThrow();
     expect(() => checkAndPinRecipients([peer("sess:a", "KEY-2")])).not.toThrow();
     const raw = JSON.parse(readFileSync(pinsFile(), "utf8")) as Record<string, string>;
     expect(raw).toEqual({ "sess:a": "KEY-1" }); // untouched by trust mode
     // Fresh dir under trust: no pin file is created at all.
-    const bare = mkdtempSync(join(tmpdir(), "mote-pins-trust-"));
+    const bare = mkdtempSync(join(tmpdir(), "subshell-pins-trust-"));
     try {
-      reloadPinSettingsForTests({ MOTE_DATA_DIR: bare, MOTE_CHANNEL_PIN: "trust" });
+      reloadPinSettingsForTests({ SUBSHELL_DATA_DIR: bare, SUBSHELL_CHANNEL_PIN: "trust" });
       checkAndPinRecipients([peer("sess:a", "KEY-1")]);
       expect(existsSync(join(bare, "peers.json"))).toBe(false);
     } finally {

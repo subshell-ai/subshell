@@ -5,7 +5,7 @@
  */
 export const ADMIN = {
   name: "E2E Admin",
-  email: "admin@mote.test",
+  email: "admin@subshell.test",
   password: "e2e-admin-pass-1",
 } as const;
 

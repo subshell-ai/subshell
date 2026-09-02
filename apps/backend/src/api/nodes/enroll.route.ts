@@ -57,7 +57,7 @@ const EnrollResponseSchema = t.Object({
  * The agent's connect endpoint, derived from the instance's canonical URL:
  * `https → wss`, `http → ws`, with the APP_BASE_URL **pathname preserved**
  * (minus any trailing slashes) so a reverse-proxy subpath mount
- * (`https://host/mote`) yields `wss://host/mote/ws/node` — the 17c follow-up:
+ * (`https://host/subshell`) yields `wss://host/subshell/ws/node` — the 17c follow-up:
  * this URL is persisted agent-side as the authoritative dial target, so
  * dropping the path strands every node behind a subpath mount.
  * @param baseUrl - the instance's canonical URL; defaults to {@link APP_BASE_URL}

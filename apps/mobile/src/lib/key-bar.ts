@@ -24,7 +24,7 @@ export const KEY_BAR_BUTTONS: KeyBarButton[] = [
   // The touch stand-in for Shift+Enter: ESC+CR, which the harnesses read as
   // "insert a newline".
   { label: "⇧⏎", bytes: "\x1b\r" },
-  // A plain "/" byte — the pane's program owns the character; mote intercepts nothing.
+  // A plain "/" byte — the pane's program owns the character; subshell intercepts nothing.
   { label: "/", bytes: "/" },
   { label: "←", bytes: "\x1b[D" },
   { label: "↑", bytes: "\x1b[A" },

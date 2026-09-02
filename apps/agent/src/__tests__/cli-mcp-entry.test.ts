@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 /**
  * End-to-end liveness of the `subshell mcp` ENTRY (the regression T18 parity
- * found): `runMoteMcp()` RESOLVES once the stdio transport is connected — the
+ * found): `runSubshellMcp()` RESOLVES once the stdio transport is connected — the
  * connection itself (the SDK's stdin listener) is what keeps the process
  * alive. If the entry treats that resolution as "command finished" and calls
  * `process.exit`, the live transport dies milliseconds after `ready` and every
@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
  * writing the ready line and never answers `initialize`; the assertion on the
  * JSON-RPC response is the proof of life (and of a working handshake).
  *
- * No live backend: the only REST call `runMoteMcp` makes BEFORE connect is the
+ * No live backend: the only REST call `runSubshellMcp` makes BEFORE connect is the
  * best-effort `POST /api/identities` (server.ts) — a 2xx JSON stub answers it
  * cleanly. The 12 h token-extension timer is unref'd and never fires here.
  */
@@ -29,7 +29,7 @@ test("`subshell mcp` stays alive after connect and answers initialize", async ()
     // server.ts only needs a 2xx JSON body back from POST /api/identities.
     fetch: () => Response.json({ ok: true }),
   });
-  const dataDir = mkdtempSync(join(tmpdir(), "mote-mcp-entry-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-mcp-entry-"));
   const child = Bun.spawn([process.execPath, AGENT_MAIN, "mcp"], {
     cwd: dataDir,
     stdin: "pipe",
@@ -37,11 +37,11 @@ test("`subshell mcp` stays alive after connect and answers initialize", async ()
     stderr: "pipe",
     env: {
       ...process.env,
-      MOTE_API_KEY: "mote_entry_test",
-      MOTE_BASE_URL: `http://127.0.0.1:${stub.port}`,
-      MOTE_SESSION_ID: "entry-test-1",
-      MOTE_SESSION_NAME: "entry-test",
-      MOTE_DATA_DIR: dataDir,
+      SUBSHELL_API_KEY: "subshell_entry_test",
+      SUBSHELL_BASE_URL: `http://127.0.0.1:${stub.port}`,
+      SUBSHELL_SESSION_ID: "entry-test-1",
+      SUBSHELL_SESSION_NAME: "entry-test",
+      SUBSHELL_DATA_DIR: dataDir,
     },
   });
 
@@ -66,7 +66,7 @@ test("`subshell mcp` stays alive after connect and answers initialize", async ()
       ),
     ]);
 
-    expect(response.result.serverInfo.name).toBe("mote");
+    expect(response.result.serverInfo.name).toBe("subshell");
   } finally {
     child.kill();
     stub.stop();

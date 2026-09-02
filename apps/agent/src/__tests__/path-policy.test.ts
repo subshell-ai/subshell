@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
 
-const base = realpathSync(mkdtempSync(join(tmpdir(), "mote-policy-")));
+const base = realpathSync(mkdtempSync(join(tmpdir(), "subshell-policy-")));
 const dataDir = join(base, "data");
 const tracked = join(base, "work", "proj");
 const outside = join(base, "elsewhere");

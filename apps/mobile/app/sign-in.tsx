@@ -7,7 +7,7 @@ import { PrimaryButton } from "@/components/primary-button";
 import { ApiError, errMessage } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { colors } from "@/lib/tokens";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /** Sign in as the cookie actor (spec §Auth). Rate-limit copy included. */
 export default function SignIn() {
@@ -29,7 +29,7 @@ export default function SignIn() {
     setBusy(true);
     setNote(null);
     try {
-      // MoteClient.signIn persists the signed Set-Cookie token (b0743b8).
+      // SubshellClient.signIn persists the signed Set-Cookie token (b0743b8).
       await client.signIn(email.trim(), password);
       setEmail(email.trim());
       router.replace("/(tabs)");
@@ -47,7 +47,7 @@ export default function SignIn() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <View style={{ flex: 1, padding: 24, paddingTop: insets.top + 48, gap: 16, justifyContent: "center" }}>
-        <Text style={{ color: colors.fg, fontSize: 24, fontWeight: "700" }}>{instance?.label ?? "mote"}</Text>
+        <Text style={{ color: colors.fg, fontSize: 24, fontWeight: "700" }}>{instance?.label ?? "subshell"}</Text>
         <Field
           label="Email"
           value={email}

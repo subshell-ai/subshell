@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { generateKeypair, type IdentityKeyPair } from "./crypto.js";
 
 /**
- * File-backed persistence for the local `mote mcp` process's keypair, so a
+ * File-backed persistence for the local `subshell mcp` process's keypair, so a
  * session keeps the SAME principal identity across MCP restarts (the channel
  * roster addresses it by `sess:<id>`, and sealed posts must stay readable).
  *

@@ -36,8 +36,8 @@ describe("users-admin + audit routes", () => {
   beforeAll(async () => {
     await setupAuthTables();
     usersRepo = new UsersRepository(db);
-    adminEmail = `admin-${crypto.randomUUID()}@mote.local`;
-    nonAdminEmail = `user-${crypto.randomUUID()}@mote.local`;
+    adminEmail = `admin-${crypto.randomUUID()}@subshell.local`;
+    nonAdminEmail = `user-${crypto.randomUUID()}@subshell.local`;
     adminId = await usersRepo.createUser({
       email: adminEmail,
       passwordHash: await hashPassword(adminPassword),
@@ -102,7 +102,7 @@ describe("users-admin + audit routes", () => {
       authedRequest("/api/users", token, {
         method: "POST",
         body: JSON.stringify({
-          email: `member-post-${crypto.randomUUID()}@mote.local`,
+          email: `member-post-${crypto.randomUUID()}@subshell.local`,
           password: "member-pass-123",
           role: "user",
         }),
@@ -127,7 +127,7 @@ describe("users-admin + audit routes", () => {
 
   it("admin creates a user (POST /api/users) and they can sign in", async () => {
     const token = await signIn(adminEmail, adminPassword);
-    const email = `created-${crypto.randomUUID()}@mote.local`;
+    const email = `created-${crypto.randomUUID()}@subshell.local`;
     const password = "created-pass-123";
     const res = await usersRoutes.fetch(
       authedRequest("/api/users", token, {

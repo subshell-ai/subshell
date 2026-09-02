@@ -26,7 +26,7 @@ import { SessionManagerService, type SessionTokenProvider } from "@/services/ses
 /**
  * Per-node launcher routing in the manager (spec §6.3/§6.6): createSession
  * resolves its launcher from the node id, agent rows get the pure remote MCP
- * plan + node-side `MOTE_DATA_DIR`, offline nodes throw the offline-flavored
+ * plan + node-side `SUBSHELL_DATA_DIR`, offline nodes throw the offline-flavored
  * error, and views stamp `nodeOffline` from the live-connection registry.
  * A scripted {@link FakeNodeLauncher} stands in for every node (the
  * constructor launcher is the TEST override and wins for all nodes), while one
@@ -34,7 +34,7 @@ import { SessionManagerService, type SessionTokenProvider } from "@/services/ses
  * behavior.
  */
 
-const testDir = mkdtempSync(join(tmpdir(), "mote-rmgr-"));
+const testDir = mkdtempSync(join(tmpdir(), "subshell-rmgr-"));
 let dbHandle: Kysely<Database>;
 let profilesRepo: ProfilesRepository;
 let sessionsRepo: SessionsRepository;
@@ -43,7 +43,7 @@ let _issued = 0;
 const tokens: SessionTokenProvider = {
   issue: async () => {
     _issued++;
-    return "mote_stub";
+    return "subshell_stub";
   },
   revoke: async () => {},
 };
@@ -73,7 +73,7 @@ afterAll(async () => {
 });
 
 describe("manager createSession on an agent node (test launcher wins for all nodes)", () => {
-  it("routes the launch through the node's launcher, persists nodeId, ships the remote MCP plan + node MOTE_DATA_DIR", async () => {
+  it("routes the launch through the node's launcher, persists nodeId, ships the remote MCP plan + node SUBSHELL_DATA_DIR", async () => {
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SessionManagerService({
       sessions: sessionsRepo,
@@ -105,8 +105,8 @@ describe("manager createSession on an agent node (test launcher wins for all nod
       expect(plan.mcp?.fileContent).toContain('"mcp"');
       // sessionMcpEnv bakes the BACKEND's SESSION_DATA_DIR — meaningless on
       // the node; the manager must override it with the agent's dataDir.
-      expect(plan.moteEnv.MOTE_DATA_DIR).toBe("/node-data");
-      expect(plan.moteEnv.MOTE_API_KEY).toBe("mote_stub");
+      expect(plan.subshellEnv.SUBSHELL_DATA_DIR).toBe("/node-data");
+      expect(plan.subshellEnv.SUBSHELL_API_KEY).toBe("subshell_stub");
 
       await sessionsRepo.delete(created.id);
     } finally {

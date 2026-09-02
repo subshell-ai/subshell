@@ -18,9 +18,9 @@ export const TERM_FONT_MIN = 11;
 export const TERM_FONT_MAX = 22;
 
 /** The event fired on the window when the size changes (live re-apply). */
-export const TERM_FONT_EVENT = "mote:term-font";
+export const TERM_FONT_EVENT = "subshell:term-font";
 
-const KEY = "mote.termFontSize";
+const KEY = "subshell.termFontSize";
 
 export function clampTermFont(n: number): number {
   if (!Number.isFinite(n)) return TERM_FONT_DEFAULT;

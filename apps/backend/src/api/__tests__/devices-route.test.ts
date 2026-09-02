@@ -18,9 +18,9 @@ const app = new Elysia().use(errorHandlerPlugin).use(devicesRoutes);
 const json = (b: unknown) => JSON.stringify(b);
 
 describe("devices route", () => {
-  const email = `devices-${crypto.randomUUID()}@mote.local`;
+  const email = `devices-${crypto.randomUUID()}@subshell.local`;
   const password = "devices-pass-1234";
-  const otherEmail = `devices-other-${crypto.randomUUID()}@mote.local`;
+  const otherEmail = `devices-other-${crypto.randomUUID()}@subshell.local`;
   let userId: string;
   let cookie: string;
   let otherUserId: string;
@@ -148,7 +148,7 @@ describe("devices route", () => {
   });
 
   it("enrolls even when VAPID is unconfigured — the Expo transport is independent", async () => {
-    __setVapidDirForTests("/proc/mote-definitely-not-writable");
+    __setVapidDirForTests("/proc/subshell-definitely-not-writable");
     try {
       const res = await req("/", postBody("ExponentPushToken[NoVapid0001]"), cookie);
       expect(res.status).toBe(200);

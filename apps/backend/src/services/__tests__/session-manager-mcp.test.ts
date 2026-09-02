@@ -26,7 +26,7 @@ import { SessionManagerService, type SessionTokenProvider } from "@/services/ses
 /**
  * The MCP-facing half of the session lifecycle, hermetically: a scripted
  * TmuxRunner records what tmux WOULD receive (no real tmux), and a stub
- * token provider replaces better-auth. Covers: MOTE_* env baking, prompt
+ * token provider replaces better-auth. Covers: SUBSHELL_* env baking, prompt
  * delivery after pane-settle (and the not-delivered path), token revoke on
  * the lifecycle hooks, the bounded auto-restart under persistent spawn
  * failure, and the restart-vs-terminate race (including the revoke-failure
@@ -82,14 +82,14 @@ class StubTokens implements SessionTokenProvider {
   revoked: string[] = [];
   async issue(sessionId: string): Promise<string> {
     this.issued.push(sessionId);
-    return `mote_stub_${sessionId.slice(0, 8)}`;
+    return `subshell_stub_${sessionId.slice(0, 8)}`;
   }
   async revoke(sessionId: string): Promise<void> {
     this.revoked.push(sessionId);
   }
 }
 
-const testDir = mkdtempSync(join(tmpdir(), "mote-mcp-test-"));
+const testDir = mkdtempSync(join(tmpdir(), "subshell-mcp-test-"));
 let db: Kysely<Database>;
 let profiles: ProfilesRepository;
 let sessions: SessionsRepository;
@@ -141,13 +141,13 @@ afterAll(() => {
 });
 
 describe("createSession MCP integration", () => {
-  it("bakes MOTE_API_KEY / MOTE_BASE_URL / MOTE_SESSION_ID into the tmux command", async () => {
+  it("bakes SUBSHELL_API_KEY / SUBSHELL_BASE_URL / SUBSHELL_SESSION_ID into the tmux command", async () => {
     const created = await manager.createSession({ userId: "u1", profileId, workingDir: testDir });
     expect(tokens.issued).toEqual([created.id]);
     const cmd = tmux.newSessionCmds[0] ?? "";
-    expect(cmd).toContain(`MOTE_API_KEY='mote_stub_${created.id.slice(0, 8)}'`);
-    expect(cmd).toContain(`MOTE_SESSION_ID='${created.id}'`);
-    expect(cmd).toMatch(/MOTE_BASE_URL='http/);
+    expect(cmd).toContain(`SUBSHELL_API_KEY='subshell_stub_${created.id.slice(0, 8)}'`);
+    expect(cmd).toContain(`SUBSHELL_SESSION_ID='${created.id}'`);
+    expect(cmd).toMatch(/SUBSHELL_BASE_URL='http/);
     await manager.terminateSession("u1", created.id);
   });
 
@@ -184,15 +184,15 @@ describe("createSession MCP integration", () => {
     await manager.terminateSession("u1", created.id);
   });
 
-  it("renders the mote-mcp config, registers it with the harness, and cleans up on delete", async () => {
+  it("renders the subshell-mcp config, registers it with the harness, and cleans up on delete", async () => {
     const created = await manager.createSession({ userId: "u1", profileId, workingDir: testDir });
     const cfg = JSON.parse(readFileSync(sessionMcpConfigPath(created.id), "utf8")) as {
-      mcpServers: { mote: { command: string; args: string[] } };
+      mcpServers: { subshell: { command: string; args: string[] } };
     };
-    expect(cfg.mcpServers.mote.command).toBeTruthy();
-    expect(cfg.mcpServers.mote.args[0]).toMatch(/main\.(ts|js)$/);
-    // No secrets in the on-disk config (the child inherits MOTE_* from the pane).
-    expect(readFileSync(sessionMcpConfigPath(created.id), "utf8")).not.toContain("mote_stub");
+    expect(cfg.mcpServers.subshell.command).toBeTruthy();
+    expect(cfg.mcpServers.subshell.args[0]).toMatch(/main\.(ts|js)$/);
+    // No secrets in the on-disk config (the child inherits SUBSHELL_* from the pane).
+    expect(readFileSync(sessionMcpConfigPath(created.id), "utf8")).not.toContain("subshell_stub");
     // claude-code adds the flag pointing at exactly this file.
     expect(tmux.newSessionCmds[0]).toContain(`'--mcp-config' '${sessionMcpConfigPath(created.id)}'`);
     await manager.deleteSession("u1", created.id);
@@ -255,8 +255,8 @@ describe("createSession MCP registration per harness dialect", () => {
       mcp: Record<string, { type: string; command: string[] }>;
     };
     // opencode's own dialect: `mcp` + argv ARRAY — not claude's mcpServers.
-    expect(doc.mcp.mote?.type).toBe("local");
-    expect(Array.isArray(doc.mcp.mote?.command)).toBe(true);
+    expect(doc.mcp.subshell?.type).toBe("local");
+    expect(Array.isArray(doc.mcp.subshell?.command)).toBe(true);
     expect(cmd).not.toContain("--mcp-config");
     await manager.deleteSession("u1", created.id);
   });
@@ -264,7 +264,7 @@ describe("createSession MCP registration per harness dialect", () => {
   it("opencode: the wiring env beats a profile that sets OPENCODE_CONFIG itself", async () => {
     // Regression: OPENCODE_CONFIG carried only one path, and profile env used
     // to spread last — a profile setting it (the CLI documents the var!)
-    // silently dropped the session's mote tools while the UI promised auto.
+    // silently dropped the session's subshell tools while the UI promised auto.
     const pid = await harnessProfile("opencode", "OPENCODE_PATH", { OPENCODE_CONFIG: "/home/user/my.json" });
     const created = await manager.createSession({ userId: "u1", profileId: pid, workingDir: testDir });
     const cmd = tmux.newSessionCmds[0] ?? "";
@@ -279,9 +279,9 @@ describe("createSession MCP registration per harness dialect", () => {
     const cmd = tmux.newSessionCmds[0] ?? "";
     expect(cmd).not.toContain("--mcp-config");
     expect(existsSync(sessionMcpConfigPath(created.id))).toBe(false);
-    // Manual harnesses rely on the one-time registration; the MOTE_* env is
+    // Manual harnesses rely on the one-time registration; the SUBSHELL_* env is
     // still baked so the globally-registered child authenticates per session.
-    expect(cmd).toContain("MOTE_API_KEY=");
+    expect(cmd).toContain("SUBSHELL_API_KEY=");
     await manager.deleteSession("u1", created.id);
   });
 
@@ -305,12 +305,12 @@ describe("createSession MCP registration per harness dialect", () => {
     await manager.reconcileAll();
     // A second pane command was built, with the token rotated through revoke+issue.
     expect(tmux.newSessionCmds.length).toBe(2);
-    expect(tmux.newSessionCmds[1]).toContain("MOTE_API_KEY=");
+    expect(tmux.newSessionCmds[1]).toContain("SUBSHELL_API_KEY=");
     expect(tokens.issued).toEqual([created.id, created.id]);
     expect(tokens.revoked).toContain(created.id);
     // The config was rewritten before the respawn, not left stale.
     expect(readFileSync(cfgPath, "utf8")).not.toContain("STALE ON DISK");
-    expect(JSON.parse(readFileSync(cfgPath, "utf8")).mcpServers.mote).toBeTruthy();
+    expect(JSON.parse(readFileSync(cfgPath, "utf8")).mcpServers.subshell).toBeTruthy();
     await manager.deleteSession("u1", created.id);
   });
 });
@@ -387,7 +387,7 @@ describe("auto-restart failure bounds + terminate race", () => {
       issue: async (sessionId) => {
         await sessions.markTerminated(sessionId, new Date().toISOString());
         await sessions.update(sessionId, { alive: 0 });
-        return "mote_late";
+        return "subshell_late";
       },
       revoke: async (sessionId) => {
         revoked.push(sessionId);
@@ -468,7 +468,7 @@ describe("auto-restart failure bounds + terminate race", () => {
       harnessId: "claude-code",
       name: "Racy",
       workingDir: testDir,
-      tmuxSocket: "mote-race-test",
+      tmuxSocket: "subshell-race-test",
       alive: 0,
       backoffCount: 0,
       restartOnExit: 1,
@@ -555,7 +555,7 @@ describe("revoke-failure cleanup (unlink fallback)", () => {
       // Mirrors the real issueSessionToken: it writes the key id onto the row.
       issue: async (sessionId) => {
         await sessions.update(sessionId, { apiKeyId: `key_${sessionId}` });
-        return "mote_x";
+        return "subshell_x";
       },
       revoke: async () => {
         throw new Error("key store down");
@@ -582,7 +582,7 @@ describe("revoke-failure cleanup (unlink fallback)", () => {
     return {
       issue: async (sessionId) => {
         await sessions.update(sessionId, { apiKeyId: `key_${sessionId}` });
-        return "mote_x";
+        return "subshell_x";
       },
       revoke: async () => {
         throw new Error("key store down");

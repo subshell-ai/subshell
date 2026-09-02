@@ -10,7 +10,7 @@ import { type NodeCommandBody, parseNodeCommandBody } from "./node-frames.js";
  */
 
 /** `iss` claim every command carries. */
-export const NODE_CMD_ISSUER = "mote-control";
+export const NODE_CMD_ISSUER = "subshell-control";
 
 /** Default command lifetime in seconds (spec §4: uniform, socket-open-only). */
 export const NODE_CMD_TTL_SEC = 30;

@@ -1,7 +1,7 @@
 import { ForbiddenError, type GuardActor } from "@/api/auth-guard.js";
 
 /**
- * Every `/api/workspaces` endpoint is a browser-only surface: the `mote mcp`
+ * Every `/api/workspaces` endpoint is a browser-only surface: the `subshell mcp`
  * binary calls exactly `/api/sessions…`, `/api/channels…`, `/api/profiles`
  * (GET), `/api/identities` (POST) and `…/extend-token` — never workspaces
  * (census: `packages/mcp-core/src/tools.ts` + `packages/mcp-core/src/server.ts` `deps.api.req` calls),

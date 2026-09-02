@@ -432,7 +432,7 @@ export class SessionsService extends BaseService {
    * Sets how many trailing log lines a terminal replays when attaching to
    * this session — an `edit` act (it is session config, like rename/notes).
    * `null` clears the per-session choice so the instance default
-   * (`MOTE_TERMINAL_REPLAY_LINES`) applies again. Clamping [1, 200] is the
+   * (`SUBSHELL_TERMINAL_REPLAY_LINES`) applies again. Clamping [1, 200] is the
    * route's schema job; this stores what it validated.
    * @throws SessionError 404 when absent or invisible to the caller.
    * @throws HttpError 403 when the caller holds only `view`.

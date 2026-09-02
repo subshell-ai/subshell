@@ -12,7 +12,7 @@ export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
  * Builds the shell command tmux runs for a harness session. Env precedence,
- * lowest to highest: curated host env (`curatedEnv()`) < MOTE_* credentials <
+ * lowest to highest: curated host env (`curatedEnv()`) < SUBSHELL_* credentials <
  * profile env < the MCP registration's wiring env (see the inline note — the
  * wiring layer wins on purpose). The harness argv itself is built by the
  * plugin, but the final assembly IS a shell string (tmux runs it through
@@ -33,18 +33,18 @@ export function buildHarnessCommand(
   cwd: string,
   profile: ProfileDefinition,
   sessionName: string,
-  moteEnv: Record<string, string> = {},
+  subshellEnv: Record<string, string> = {},
   mcp?: McpRegistration,
   harnessSession?: { id: string; mode: "start" | "resume" },
 ): string {
   const argv = harness.buildCommand({ binary, cwd, profile, sessionName, mcp, harnessSession });
-  // Precedence, lowest to highest: curated host env < MOTE_* credentials
-  // (a profile may deliberately override MOTE_BASE_URL) < the profile's own
+  // Precedence, lowest to highest: curated host env < SUBSHELL_* credentials
+  // (a profile may deliberately override SUBSHELL_BASE_URL) < the profile's own
   // env < the registration's wiring env. Wiring env goes LAST on purpose:
   // a key like OPENCODE_CONFIG is transport plumbing, not a user knob — a
-  // profile setting it would otherwise silently drop the session's mote
+  // profile setting it would otherwise silently drop the session's subshell
   // tools while the UI still promised automatic registration.
-  const env = { ...curatedEnv(), ...moteEnv, ...profile.env, ...(mcp?.env ?? {}) };
+  const env = { ...curatedEnv(), ...subshellEnv, ...profile.env, ...(mcp?.env ?? {}) };
   // Defense-in-depth at the last chokepoint before the shell string exists:
   // this catches legacy DB rows and any other env source merged above,
   // regardless of what the entry-point (profile-save) validation allowed.

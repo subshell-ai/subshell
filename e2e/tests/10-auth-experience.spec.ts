@@ -31,7 +31,7 @@ test("members see the roster but no management UI", async ({ browser }) => {
   // Admin mints the member through the API (admin context closes right after).
   const adminCtx = await browser.newContext({ storageState: ADMIN_STATE });
   const member = {
-    email: `member-${Date.now()}@mote.test`,
+    email: `member-${Date.now()}@subshell.test`,
     password: "member-pass-123",
     role: "user",
   } as const;
@@ -69,7 +69,7 @@ test("members see the roster but no management UI", async ({ browser }) => {
 
   // And unreachable: the API keeps enforcing, not just the UI hiding.
   const post = await ctx.request.post("/api/users", {
-    data: { email: `sneaky-${Date.now()}@mote.test`, password: "sneaky-pass-123", role: "user" },
+    data: { email: `sneaky-${Date.now()}@subshell.test`, password: "sneaky-pass-123", role: "user" },
   });
   expect(post.status()).toBe(403);
   await ctx.close();

@@ -23,7 +23,7 @@ const app = new Elysia().use(errorHandlerPlugin).use(sessionRoutes);
 
 describe("GET /api/sessions/:id/log onto an offline node (spec §5.6)", () => {
   const pw = "logoff-pass-1";
-  const email = `logoff-${crypto.randomUUID()}@mote.local`;
+  const email = `logoff-${crypto.randomUUID()}@subshell.local`;
   let userId: string;
   let cookie: string;
   const nodeId = crypto.randomUUID();

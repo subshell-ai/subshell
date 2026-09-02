@@ -236,12 +236,12 @@ describe("node mutations", () => {
   it("useRotateNodeKey POSTs rotate-key and hands back the plaintext once", async () => {
     const { calls, restore } = mockFetch({
       "POST /api/nodes/n1/rotate-key": () =>
-        json({ nodeKey: "mote_rotated_secret", message: "Re-configure the agent by hand." }),
+        json({ nodeKey: "subshell_rotated_secret", message: "Re-configure the agent by hand." }),
     });
     try {
       const { result } = renderHook(() => useRotateNodeKey("n1"), { wrapper });
       const rotated = await result.current.mutateAsync();
-      expect(rotated.nodeKey).toBe("mote_rotated_secret");
+      expect(rotated.nodeKey).toBe("subshell_rotated_secret");
       expect(rotated.message).toContain("Re-configure");
       expect(calls.find((c) => c.method === "POST" && c.url === "/api/nodes/n1/rotate-key")).toBeDefined();
     } finally {

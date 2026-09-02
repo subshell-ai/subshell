@@ -6,13 +6,13 @@ import { PiPlugin } from "../pi.js";
 import type { McpLaunchSpec } from "../types.js";
 
 /**
- * Per-harness MCP registration contract (the mechanism behind mote's
+ * Per-harness MCP registration contract (the mechanism behind subshell's
  * cross-session comms): auto harnesses render a per-session config file in
  * their native dialect; manual harnesses expose copy-paste one-time steps.
  */
 
-const launch: McpLaunchSpec = { command: "/opt/mote/mote-mcp", args: [] };
-const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/mote/dist/mcp/main.js"] };
+const launch: McpLaunchSpec = { command: "/opt/subshell/subshell-mcp", args: [] };
+const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/subshell/dist/mcp/main.js"] };
 
 describe("ClaudeCodePlugin MCP registration", () => {
   it("renders the claude mcpServers document and its own activating argv", () => {
@@ -21,7 +21,7 @@ describe("ClaudeCodePlugin MCP registration", () => {
     const doc = JSON.parse(reg?.fileContent ?? "{}") as {
       mcpServers: Record<string, { command: string; args: string[] }>;
     };
-    expect(doc.mcpServers.mote).toEqual({ command: "/opt/mote/mote-mcp", args: [] });
+    expect(doc.mcpServers.subshell).toEqual({ command: "/opt/subshell/subshell-mcp", args: [] });
     // Self-activating: the registration carries the flag, buildCommand only splices.
     expect(reg?.args).toEqual(["--mcp-config", "/data/sess.json"]);
   });
@@ -35,13 +35,13 @@ describe("OpencodePlugin MCP registration", () => {
     const reg = new OpencodePlugin().mcpRegistration?.(bunLaunch, "/data/sess.json");
     expect(reg?.env).toEqual({ OPENCODE_CONFIG: "/data/sess.json" });
     const doc = JSON.parse(reg?.fileContent ?? "{}") as {
-      mcp: { mote: { type: string; command: string[]; enabled: boolean } };
+      mcp: { subshell: { type: string; command: string[]; enabled: boolean } };
     };
     // command is the full argv ARRAY (opencode's local-server shape) —
     // verified against opencode 1.18.18 `mcp list` deep-merge behaviour.
-    expect(doc.mcp.mote).toEqual({
+    expect(doc.mcp.subshell).toEqual({
       type: "local",
-      command: ["/usr/bin/bun", "/opt/mote/dist/mcp/main.js"],
+      command: ["/usr/bin/bun", "/opt/subshell/dist/mcp/main.js"],
       enabled: true,
     });
   });
@@ -59,14 +59,14 @@ describe("HermesPlugin manual MCP setup", () => {
     const info = new HermesPlugin().mcpSetup(bunLaunch);
     if (info.mode !== "manual") throw new Error("hermes must be manual");
     expect(info.steps[0].command).toBe(
-      "hermes mcp add mote --command '/usr/bin/bun' --args '/opt/mote/dist/mcp/main.js'",
+      "hermes mcp add subshell --command '/usr/bin/bun' --args '/opt/subshell/dist/mcp/main.js'",
     );
-    expect(info.steps[1].command).toBe("hermes mcp remove mote");
+    expect(info.steps[1].command).toBe("hermes mcp remove subshell");
   });
   it("omits --args entirely for an arg-less launch", () => {
     const info = new HermesPlugin().mcpSetup(launch);
     if (info.mode !== "manual") throw new Error("hermes must be manual");
-    expect(info.steps[0].command).toBe("hermes mcp add mote --command '/opt/mote/mote-mcp'");
+    expect(info.steps[0].command).toBe("hermes mcp add subshell --command '/opt/subshell/subshell-mcp'");
     expect(info.steps[0].command).not.toContain("--args");
   });
 });
@@ -77,6 +77,6 @@ describe("PiPlugin manual MCP setup", () => {
     if (info.mode !== "manual") throw new Error("pi must be manual");
     expect(info.steps[0].command).toBe("pi install npm:pi-mcp-adapter");
     const snippet = JSON.parse(info.steps[1].command) as { mcpServers: Record<string, unknown> };
-    expect(snippet.mcpServers.mote).toEqual({ command: "/usr/bin/bun", args: ["/opt/mote/dist/mcp/main.js"] });
+    expect(snippet.mcpServers.subshell).toEqual({ command: "/usr/bin/bun", args: ["/opt/subshell/dist/mcp/main.js"] });
   });
 });

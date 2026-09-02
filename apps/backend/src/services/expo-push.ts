@@ -6,7 +6,7 @@ import type { NotifyKind } from "@/services/notify.service.js";
  * Native push over the Expo relay (spec 2026-08-31-mobile-native-app §Push).
  *
  * PRIVACY CONTRACT (spec invariant 6) — nothing crossing exp.host may name
- * anything: `to` is the device token, `title` is the constant "mote", `body`
+ * anything: `to` is the device token, `title` is the constant "subshell", `body`
  * comes from KIND_COPY, plus an integer badge, the session UUID and the
  * kind. A session name, working directory, note or operator text in a
  * constructed message is a spec violation, caught by test.
@@ -113,7 +113,7 @@ export function buildExpoMessages(
 ): ExpoPushMessage[] {
   return tokens.map((to) => ({
     to,
-    title: "mote",
+    title: "subshell",
     body: KIND_COPY[kind],
     badge,
     sound: "default" as const,
@@ -123,8 +123,8 @@ export function buildExpoMessages(
     // Names registered in apps/mobile/src/native/push.ts — keep the three in
     // sync or the lock-screen actions silently vanish on real devices.
     categoryId: "session",
-    channelId: "mote-sessions",
-    _channelId: "mote-sessions",
+    channelId: "subshell-sessions",
+    _channelId: "subshell-sessions",
     data: { sid: sessionId, kind, origin: APP_BASE_URL },
   }));
 }

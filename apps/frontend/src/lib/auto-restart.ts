@@ -2,7 +2,7 @@ import type { SessionView } from "@/types/session";
 
 /** Explains the auto-restart column wherever it appears. */
 export const AUTO_RESTART_HELP =
-  "When a session's profile opts in, Mote restarts the harness if its process exits, " +
+  "When a session's profile opts in, Subshell restarts the harness if its process exits, " +
   "waiting longer after each consecutive failure (30s, then 1m, 2m, 4m, 8m) and giving " +
   "up after 5 tries. The count resets once the session stays up.";
 

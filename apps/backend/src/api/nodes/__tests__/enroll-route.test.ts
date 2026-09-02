@@ -35,7 +35,7 @@ const constantsSnapshot = { ...constants };
  */
 describe("/api/nodes/enroll", () => {
   const pw = "enroll-1";
-  const aliceEmail = `enroll-alice-${crypto.randomUUID()}@mote.local`;
+  const aliceEmail = `enroll-alice-${crypto.randomUUID()}@subshell.local`;
   let aliceId: string;
   const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes);
   const repo = new NodeSetupKeysRepository(db);
@@ -124,8 +124,8 @@ describe("/api/nodes/enroll", () => {
     expect(identity?.publicKey).toBe(goodJwk);
     expect(identity?.displayName).toBe("mini-one");
 
-    // The node key is a real `mote_` bearer; the setup key cannot redeem again.
-    expect(body.nodeKey.startsWith("mote_")).toBe(true);
+    // The node key is a real `subshell_` bearer; the setup key cannot redeem again.
+    expect(body.nodeKey.startsWith("subshell_")).toBe(true);
     expect(await repo.peekValid(setupKey)).toBe(false);
 
     // controlPublicKey is a PUBLIC JWK; wsUrl follows the ws(s) scheme + /ws/node path.
@@ -145,16 +145,16 @@ describe("/api/nodes/enroll", () => {
     // Under tests constants.ts pins APP_BASE_URL to the loopback default (env is
     // ignored), so the subpath spelling has to be injected via a module mock;
     // the snapshot is restored in finally so the rest of the suite is unaffected.
-    mock.module("@/constants.js", () => ({ ...constantsSnapshot, APP_BASE_URL: "https://mote.example/cloud" }));
+    mock.module("@/constants.js", () => ({ ...constantsSnapshot, APP_BASE_URL: "https://subshell.example/cloud" }));
     try {
       const setupKey = await makeKey("subpath");
       const res = await enroll(bodyFor(setupKey, { name: "subpath-node" }));
       expect(res.status).toBe(201);
       const body = (await res.json()) as { nodeId: string; wsUrl: string };
       createdNodeIds.push(body.nodeId);
-      // The 17c bug: origin-only derivation made this `wss://mote.example/ws/node`
+      // The 17c bug: origin-only derivation made this `wss://subshell.example/ws/node`
       // and the persisted dial target missed the mount point end-to-end.
-      expect(body.wsUrl).toBe("wss://mote.example/cloud/ws/node");
+      expect(body.wsUrl).toBe("wss://subshell.example/cloud/ws/node");
     } finally {
       mock.module("@/constants.js", () => constantsSnapshot);
     }
@@ -163,8 +163,8 @@ describe("/api/nodes/enroll", () => {
   it("nodeWsUrl: preserves multi-segment paths, trims trailing slashes, maps scheme", () => {
     expect(nodeWsUrl("http://localhost:3080")).toBe("ws://localhost:3080/ws/node");
     expect(nodeWsUrl("http://127.0.0.1:3080/")).toBe("ws://127.0.0.1:3080/ws/node");
-    expect(nodeWsUrl("https://mote.example/cloud/")).toBe("wss://mote.example/cloud/ws/node");
-    expect(nodeWsUrl("https://mote.example/a/b//")).toBe("wss://mote.example/a/b/ws/node");
+    expect(nodeWsUrl("https://subshell.example/cloud/")).toBe("wss://subshell.example/cloud/ws/node");
+    expect(nodeWsUrl("https://subshell.example/a/b//")).toBe("wss://subshell.example/a/b/ws/node");
   });
 
   it("second redemption of the same key → 401 SETUP_KEY_CONSUMED (ledger 17a)", async () => {

@@ -1,6 +1,6 @@
 /**
- * M1 transport harness — runs the app's REAL transport code (`MoteClient`, the
- * cookie module, the protocol package) against a live mote instance, from this
+ * M1 transport harness — runs the app's REAL transport code (`SubshellClient`, the
+ * cookie module, the protocol package) against a live subshell instance, from this
  * shell, with no emulator, phone or Xcode involved.
  *
  * It exists to falsify or confirm the single riskiest assumption in the design:
@@ -9,23 +9,23 @@
  * any non-cookie actor.
  *
  * Usage:
- *   MOTE_BASE_URL=http://127.0.0.1:3080 MOTE_EMAIL=… MOTE_PASSWORD=… bun run harness:m1
+ *   SUBSHELL_BASE_URL=http://127.0.0.1:3080 SUBSHELL_EMAIL=… SUBSHELL_PASSWORD=… bun run harness:m1
  *
- * Set MOTE_SEND_INPUT=1 to additionally type a newline into a session you name
- * with MOTE_SESSION_HINT (matched against the session name). Off by default:
+ * Set SUBSHELL_SEND_INPUT=1 to additionally type a newline into a session you name
+ * with SUBSHELL_SESSION_HINT (matched against the session name). Off by default:
  * keystrokes go to a real agent's pane, and the token's owner can inject into
  * any session they own.
  */
 
-import { MoteClient, type TokenStore } from "@/lib/api";
+import { SubshellClient, type TokenStore } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";
 import type { SessionView, WsTokenResponse } from "@/types/session";
 
-const BASE = process.env.MOTE_BASE_URL ?? "http://127.0.0.1:3080";
-const EMAIL = process.env.MOTE_EMAIL ?? "";
-const PASSWORD = process.env.MOTE_PASSWORD ?? "";
-const SEND_INPUT = process.env.MOTE_SEND_INPUT === "1";
-const HINT = process.env.MOTE_SESSION_HINT ?? "";
+const BASE = process.env.SUBSHELL_BASE_URL ?? "http://127.0.0.1:3080";
+const EMAIL = process.env.SUBSHELL_EMAIL ?? "";
+const PASSWORD = process.env.SUBSHELL_PASSWORD ?? "";
+const SEND_INPUT = process.env.SUBSHELL_SEND_INPUT === "1";
+const HINT = process.env.SUBSHELL_SESSION_HINT ?? "";
 
 let failures = 0;
 const ok = (label: string, detail = ""): void => {
@@ -53,10 +53,10 @@ function memoryStore(): TokenStore & { value: string | null } {
 }
 
 async function main(): Promise<void> {
-  console.log(`mote M1 transport harness → ${BASE}`);
+  console.log(`subshell M1 transport harness → ${BASE}`);
   const store = memoryStore();
   let unauthorized = 0;
-  const client = new MoteClient({ baseUrl: BASE, store, onUnauthorized: () => unauthorized++ });
+  const client = new SubshellClient({ baseUrl: BASE, store, onUnauthorized: () => unauthorized++ });
 
   step("1/6 public endpoint reachable (no credential)");
   try {
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
 
   step("2/6 sign in as the cookie actor");
   if (!EMAIL || !PASSWORD) {
-    bad("sign-in", "set MOTE_EMAIL and MOTE_PASSWORD");
+    bad("sign-in", "set SUBSHELL_EMAIL and SUBSHELL_PASSWORD");
     console.log("\nSkipped the rest — the whole point of M1 is the authenticated path.");
     process.exit(1);
   }
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
         const bytes = frame.data ? new TextEncoder().encode(frame.data).length : 0;
         if (frame.type === "replay") {
           if (SEND_INPUT && HINT && target.name.toLowerCase().includes(HINT.toLowerCase())) {
-            console.log("  MOTE_SEND_INPUT=1 → sending a newline to this pane");
+            console.log("  SUBSHELL_SEND_INPUT=1 → sending a newline to this pane");
             ws.send(JSON.stringify({ type: "input", data: "\r" }));
           }
           clearTimeout(timer);

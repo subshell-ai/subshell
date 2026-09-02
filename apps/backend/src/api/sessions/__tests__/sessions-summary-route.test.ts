@@ -12,7 +12,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  * waiting_since IS NOT NULL; `running` counts alive rows only.
  */
 describe("GET /api/sessions/summary", () => {
-  const email = `summary-${crypto.randomUUID()}@mote.local`;
+  const email = `summary-${crypto.randomUUID()}@subshell.local`;
   const pw = "summary-pass-1";
   let userId: string;
   let cookie: string;
@@ -74,7 +74,7 @@ describe("GET /api/sessions/summary", () => {
   it("anonymous is 401 and a foreign user sees only their own zero counts", async () => {
     const anon = await get("/summary", "");
     expect(anon.status).toBe(401);
-    const otherEmail = `summary-other-${crypto.randomUUID()}@mote.local`;
+    const otherEmail = `summary-other-${crypto.randomUUID()}@subshell.local`;
     const otherId = await new UsersRepository(db).createUser({
       email: otherEmail,
       passwordHash: await hashPassword(pw),

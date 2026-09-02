@@ -7,7 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 /**
  * The headline e2e for cross-session comms: a REAL backend process on a real
- * port, a real file database, and two REAL `mote mcp` child processes (one
+ * port, a real file database, and two REAL `subshell mcp` child processes (one
  * per fake session) driven over stdio by the official MCP client. Everything
  * the assertions below check crosses a process boundary — no in-process
  * stubs. Storage is additionally audited at the byte level: the plaintext
@@ -32,7 +32,7 @@ interface ReadResult {
   nextSince: number;
 }
 
-describe("cross-session e2e (two mote mcp processes)", () => {
+describe("cross-session e2e (two subshell mcp processes)", () => {
   const TIMEOUT = 90_000;
   let dir: string;
   let dbPath: string;
@@ -70,7 +70,7 @@ describe("cross-session e2e (two mote mcp processes)", () => {
     return JSON.parse(out) as T;
   }
 
-  /** Spawn one `mote mcp` child for a seeded session and connect an MCP client. */
+  /** Spawn one `subshell mcp` child for a seeded session and connect an MCP client. */
   async function connectMcp(index: number): Promise<Client> {
     const s = sessions[index];
     const client = new Client({ name: `e2e-client-${index}`, version: "0.0.0" });
@@ -79,11 +79,11 @@ describe("cross-session e2e (two mote mcp processes)", () => {
       args: ["src/mcp/main.ts"],
       cwd: BACKEND_DIR,
       env: childEnv({
-        MOTE_API_KEY: s.token,
-        MOTE_SESSION_ID: s.id,
-        MOTE_BASE_URL: `http://127.0.0.1:${port}`,
-        MOTE_SESSION_NAME: index === 0 ? "e2e-A" : "e2e-B",
-        MOTE_DATA_DIR: join(dir, `mcp-${index}`),
+        SUBSHELL_API_KEY: s.token,
+        SUBSHELL_SESSION_ID: s.id,
+        SUBSHELL_BASE_URL: `http://127.0.0.1:${port}`,
+        SUBSHELL_SESSION_NAME: index === 0 ? "e2e-A" : "e2e-B",
+        SUBSHELL_DATA_DIR: join(dir, `mcp-${index}`),
       }),
       stderr: "ignore",
     });
@@ -92,8 +92,8 @@ describe("cross-session e2e (two mote mcp processes)", () => {
   }
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "mote-e2e-"));
-    dbPath = join(dir, "mote.db");
+    dir = mkdtempSync(join(tmpdir(), "subshell-e2e-"));
+    dbPath = join(dir, "subshell.db");
 
     // Claim a free port, release it, hand the number to the backend child.
     const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("x") });

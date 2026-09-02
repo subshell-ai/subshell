@@ -34,7 +34,7 @@ const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
 ];
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
-  // OPENCODE_CONFIG is deliberately NOT suggested: mote owns it — it points
+  // OPENCODE_CONFIG is deliberately NOT suggested: subshell owns it — it points
   // at each session's generated MCP config layer (mcpRegistration), and a
   // profile that set it would shadow its own cross-session comms. Users who
   // want their own extra layer use OPENCODE_CONFIG_CONTENT (independent merge
@@ -63,16 +63,16 @@ const PLUGIN_KNOWN_PATHS = [".opencode/bin/opencode"];
  * Launch shape:
  *   opencode [-m <model>] [--agent <a>] [--auto] [profile flags] [extra flags]
  * A bare launch opens the TUI. opencode has no create-time session-name flag,
- * so the mote session name is deliberately not forwarded. Settings arrive as
+ * so the subshell session name is deliberately not forwarded. Settings arrive as
  * per-invocation flags (verified against opencode 1.18.18).
  *
- * mote MCP is wired automatically: OpenCode merges any object under the
+ * subshell MCP is wired automatically: OpenCode merges any object under the
  * OPENCODE_CONFIG env-var path into its config (verified against 1.18.18 —
  * "Custom config is loaded between global and project configs", files are
- * merged not replaced). mote writes a per-session config file holding just an
- * `mcp.mote` local stdio entry and points OPENCODE_CONFIG at it, so the user's
- * own global/project servers are preserved. The spawned `mote mcp` child
- * inherits the session's baked MOTE_* env for its credential.
+ * merged not replaced). subshell writes a per-session config file holding just an
+ * `mcp.subshell` local stdio entry and points OPENCODE_CONFIG at it, so the user's
+ * own global/project servers are preserved. The spawned `subshell mcp` child
+ * inherits the session's baked SUBSHELL_* env for its credential.
  */
 export class OpencodePlugin implements HarnessPlugin {
   readonly id = "opencode";
@@ -135,7 +135,7 @@ export class OpencodePlugin implements HarnessPlugin {
   }
 
   /**
-   * OpenCode config fragment registering mote as a local stdio MCP server.
+   * OpenCode config fragment registering subshell as a local stdio MCP server.
    * Merged (not replaced) into the user's config via the OPENCODE_CONFIG env
    * var — see the class doc. `command` is the argv array OpenCode expects.
    */
@@ -143,18 +143,18 @@ export class OpencodePlugin implements HarnessPlugin {
     const doc = {
       $schema: "https://opencode.ai/config.json",
       mcp: {
-        mote: { type: "local", command: [launch.command, ...launch.args], enabled: true },
+        subshell: { type: "local", command: [launch.command, ...launch.args], enabled: true },
       },
     };
     return { fileContent: `${JSON.stringify(doc, null, 2)}\n`, env: { OPENCODE_CONFIG: configPath } };
   }
 
-  /** Auto: mote writes a merged config layer + OPENCODE_CONFIG for every session. */
+  /** Auto: subshell writes a merged config layer + OPENCODE_CONFIG for every session. */
   mcpSetup(_launch: McpLaunchSpec): McpSetupInfo {
     return {
       mode: "auto",
       summary:
-        "Mote registers itself with every OpenCode session automatically (a merged config layer + OPENCODE_CONFIG).",
+        "Subshell registers itself with every OpenCode session automatically (a merged config layer + OPENCODE_CONFIG).",
     };
   }
 

@@ -223,13 +223,13 @@ describe("resolveBinary", () => {
 describe("launch", () => {
   const planBase = () => ({
     id: "s1",
-    socket: "mote-abc",
+    socket: "subshell-abc",
     harness,
     binary: "/usr/bin/claude",
     cwd: "/work",
     profile: testProfile,
     sessionName: "s1",
-    moteEnv: { MOTE_SESSION_ID: "s1" },
+    subshellEnv: { SUBSHELL_SESSION_ID: "s1" },
   });
 
   it("maps the plan to the launch command (60 s), no mcp when absent", async () => {
@@ -240,11 +240,11 @@ describe("launch", () => {
         cmd: {
           type: "launch",
           sessionId: "s1",
-          socket: "mote-abc",
+          socket: "subshell-abc",
           cwd: "/work",
           harnessId: "claude-code",
           profile: testProfile,
-          moteEnv: { MOTE_SESSION_ID: "s1" },
+          subshellEnv: { SUBSHELL_SESSION_ID: "s1" },
           mcp: undefined,
           harnessSession: undefined,
           sessionName: "s1",
@@ -303,14 +303,14 @@ describe("launch", () => {
 describe("terminate / killSession", () => {
   it("terminate sends terminate and throws on ok:false", async () => {
     const h = makeHarness();
-    await h.launcher.terminate("mote-abc", "s1");
+    await h.launcher.terminate("subshell-abc", "s1");
     expect(h.calls).toEqual([{ cmd: { type: "terminate", sessionId: "s1" }, timeoutMs: 10_000 }]);
 
     const h2 = makeHarness();
     h2.answer("terminate", () => {
       throw new NodeRpcError("failed", 'node "node-1" reported: can\'t find session: s1', "node-1");
     });
-    expect(((await rejection(h2.launcher.terminate("mote-abc", "s1"))) as Error).message).toContain(
+    expect(((await rejection(h2.launcher.terminate("subshell-abc", "s1"))) as Error).message).toContain(
       "can't find session",
     );
   });
@@ -321,14 +321,14 @@ describe("terminate / killSession", () => {
       h.answer("kill", () => {
         throw new NodeRpcError("failed", `node "node-1" reported: ${agentMsg}`, "node-1");
       });
-      await h.launcher.killSession("mote-abc", "s1"); // resolves
+      await h.launcher.killSession("subshell-abc", "s1"); // resolves
       expect(h.calls).toEqual([{ cmd: { type: "kill", sessionId: "s1" }, timeoutMs: 10_000 }]);
     }
     const h = makeHarness();
     h.answer("kill", () => {
       throw new NodeRpcError("failed", 'node "node-1" reported: no server running', "node-1");
     });
-    expect(((await rejection(h.launcher.killSession("mote-abc", "s1"))) as Error).message).toContain(
+    expect(((await rejection(h.launcher.killSession("subshell-abc", "s1"))) as Error).message).toContain(
       "no server running",
     );
   });
@@ -754,7 +754,7 @@ describe("offline short-circuit (no facts ⇒ no send)", () => {
         cwd: "/w",
         profile: testProfile,
         sessionName: "s1",
-        moteEnv: {},
+        subshellEnv: {},
       }),
     ); // launch still surfaces the failure
   });

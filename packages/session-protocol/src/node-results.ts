@@ -27,7 +27,7 @@ function isNonEmptyStr(value: unknown): value is string {
 
 /** One row of a `probe` batch result (spec §6.3 reconcile: has-session + exit + title + optional capture). */
 export interface NodeProbeEntry {
-  /** mote session id this row describes */
+  /** subshell session id this row describes */
   sessionId: string;
   /** True while the pane process is alive on the node */
   alive: boolean;

@@ -18,8 +18,8 @@ describe("system keys route", () => {
   let adminId: string;
   let adminToken: string;
   let plainToken: string;
-  const adminEmail = `sysk-admin-${crypto.randomUUID()}@mote.local`;
-  const userEmail = `sysk-user-${crypto.randomUUID()}@mote.local`;
+  const adminEmail = `sysk-admin-${crypto.randomUUID()}@subshell.local`;
+  const userEmail = `sysk-user-${crypto.randomUUID()}@subshell.local`;
   const pw = "syskeys-pass-1";
   const createdKeyIds: string[] = [];
 
@@ -56,7 +56,7 @@ describe("system keys route", () => {
     const key = created.body.key as string;
     const id = created.body.id as string;
     createdKeyIds.push(id);
-    expect(key.startsWith("mote_")).toBe(true);
+    expect(key.startsWith("subshell_")).toBe(true);
 
     const listed = await adminCall("/api/system-keys");
     const row = (listed.body.keys as Record<string, unknown>[]).find((k) => k.id === id);

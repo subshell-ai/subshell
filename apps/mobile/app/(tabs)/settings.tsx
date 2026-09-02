@@ -10,10 +10,10 @@ import { probeInstance } from "@/lib/probe";
 import { makeProbeDeps } from "@/lib/probe-real";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { biometricEnabled, requireBiometric, setBiometricEnabled } from "@/native/biometric";
-import { clientForOrigin } from "@/native/mote-client-factory";
 import { deregisterPush, setIconBadge } from "@/native/push";
 import { secureTokenStore } from "@/native/secure-token-store";
-import { useMote } from "@/providers/mote-provider";
+import { clientForOrigin } from "@/native/subshell-client-factory";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * Settings tab (spec §Screens): switch instance, re-probe (wsBlocked is a
@@ -163,7 +163,7 @@ export default function Settings() {
           onValueChange={async (next) => {
             if (next) {
               // Enabling is free; disabling must prove the biometric first.
-              if (!(await requireBiometric("Disable Face ID for mote"))) return;
+              if (!(await requireBiometric("Disable Face ID for subshell"))) return;
             }
             await setBiometricEnabled(next);
             setBioOn(next);

@@ -31,7 +31,7 @@ const OPTIONS: { value: string; label: string }[] = [
  * replays when someone attaches to this session before switching to the live
  * tail. Long-running sessions open in milliseconds instead of re-reading
  * days of scrollback. Persisted via `PATCH /api/sessions/:id/replay`
- * (edit tier); null restores the instance default (MOTE_TERMINAL_REPLAY_LINES).
+ * (edit tier); null restores the instance default (SUBSHELL_TERMINAL_REPLAY_LINES).
  *
  * Controlled with no trigger of its own, like {@link NotesDialog} — the
  * actions-menu item opens it. Mount keyed by session id for a fresh draft.

@@ -18,7 +18,7 @@ export function quotePosix(value: string): string {
  *
  * Deliberately only what a *profile* contributes. The real launch additionally
  * wraps this in `env -i` with a curated host environment, mints per-session
- * `MOTE_*` credentials (including the session API key), and lets the harness
+ * `SUBSHELL_*` credentials (including the session API key), and lets the harness
  * plugin inject session-runtime args (`--mcp-config`, `--settings`, `--name`)
  * — none of which exist until a session starts, so none are previewed here.
  *

@@ -1,6 +1,6 @@
 # Mobile AGENTS.md
 
-Native companion app for mote: phones and tablets, built with React Native +
+Native companion app for subshell: phones and tablets, built with React Native +
 Expo SDK 57. Design:
 [`docs/superpowers/specs/2026-08-31-mobile-native-app-design.md`](../../docs/superpowers/specs/2026-08-31-mobile-native-app-design.md).
 
@@ -18,7 +18,7 @@ bun run test           # bun test — pure logic only, no emulator
 bun run build          # expo export (JS bundle only — see below)
 ```
 
-Requires the host toolchain file: `. ~/.config/mote-mobile-env.sh`
+Requires the host toolchain file: `. ~/.config/subshell-mobile-env.sh`
 (JDK 17, Node, Android SDK). New shells source it automatically from `~/.bashrc`.
 
 ## Non-obvious decisions
@@ -97,7 +97,7 @@ explicit dependency the bottom-tab default glyphs render as tofu boxes in any
 custom dev build (Expo Go masks this). `@expo/vector-icons@15.1.1` is an
 explicit dep and `(tabs)/_layout.tsx` passes `tabBarIcon` per screen.
 
-**SecureStore key slug**: `mote.token.<origin with [^A-Za-z0-9._-] → _>`
+**SecureStore key slug**: `subshell.token.<origin with [^A-Za-z0-9._-] → _>`
 (`src/native/secure-token-store.ts`). Keychain names forbid most URL
 characters, so the slug is lossy-but-stable; never key tokens by the raw
 origin.
@@ -120,7 +120,7 @@ terminal and enroll for push without any backend auth change.
 1.7.x signs its session cookie (`"<token>.<sig>"`, ~85 chars); the 32-char
 token in the JSON body is the *unsigned* one and 401s on every guarded route.
 Proven live by the M1 transport harness (`bun run harness:m1`): body-token →
-401, Set-Cookie-token → 200. `MoteClient.signIn` keeps the body value only as
+401, Set-Cookie-token → 200. `SubshellClient.signIn` keeps the body value only as
 a no-cookie fallback. This whole flow is exactly what the harness exists to
 falsify — run it against a scratch instance after any auth-transport change.
 
@@ -147,8 +147,8 @@ keeping single-machine payloads byte-identical to pre-nodes ones.
 
 ## Verifying on Android
 
-**Use the `*_34` AVDs: `mote_tablet34` (1280×800dp — the only place the wide
-shell appears besides iPad landscape) and `mote_phone34` (Pixel 9).** The API 37
+**Use the `*_34` AVDs: `subshell_tablet34` (1280×800dp — the only place the wide
+shell appears besides iPad landscape) and `subshell_phone34` (Pixel 9).** The API 37
 image (rev 6) is unusable headless: surfaceflinger aborts in a loop with
 `Assertion failed: !rcEnc->featureInfo()->hasReadColorBufferDma…` in
 `RegionSamplingThread`, taking system_server and the launcher with it — an
@@ -157,7 +157,7 @@ upstream emulator bug in host colour-buffer readback, hit with both
 with zero errors.
 
 ```bash
-emulator -avd mote_tablet34 -no-window -no-audio -no-boot-anim \
+emulator -avd subshell_tablet34 -no-window -no-audio -no-boot-anim \
   -gpu swiftshader_indirect -memory 4096 -no-snapshot-save &
 adb wait-for-device
 adb reverse tcp:8081 tcp:8081    # the app reaches Metro through this
@@ -189,7 +189,7 @@ the first characters if it fires immediately after `input tap` (sleep ~1-2 s);
 `keyevent 66` (Enter) does not advance focus between RN `TextInput`s — use
 `keyevent 61` (Tab); and a mis-timed tap can type the password into the email
 field, so verify with a screenshot before submitting. Reset a stuck sign-in
-with `adb shell pm clear nu.suteki.mote` instead of fighting the fields.
+with `adb shell pm clear nu.suteki.subshell` instead of fighting the fields.
 
 For a throwaway backend to sign into, reuse `e2e/stack.ts` (`startStack` —
 fresh temp DB on :3199, PI stub harness) with `adb reverse tcp:3199 tcp:3199`;

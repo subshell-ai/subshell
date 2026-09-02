@@ -7,7 +7,7 @@ import { newHome } from "../test-preload.js";
 const sample: AgentConfig = {
   serverUrl: "http://localhost:4000",
   nodeId: "node_123",
-  nodeKey: "mote_secret_never_printed",
+  nodeKey: "subshell_secret_never_printed",
   controlPublicKey: '{"kty":"EC","crv":"P-256"}',
   dataDir: "/tmp/somewhere",
   name: "workstation",
@@ -37,7 +37,7 @@ test("saveConfig re-applies the mode when umask interfered", async () => {
 test("nodeWsUrl round-trips when present; an old config loads without it (ledger 17c)", async () => {
   newHome();
   // Enroll now persists the server-reported ws URL; load must hand it back verbatim.
-  const pinned = { ...sample, nodeWsUrl: "wss://mote.example/ws/node" };
+  const pinned = { ...sample, nodeWsUrl: "wss://subshell.example/ws/node" };
   await saveConfig(pinned);
   expect(await loadConfig()).toEqual(pinned);
   // Old config on disk (no nodeWsUrl): tolerated — the field is simply absent and

@@ -3,7 +3,7 @@ import { InvalidInstanceUrl, looksPrivate, normalizeInstanceOrigin, wsOrigin } f
 
 describe("normalizeInstanceOrigin", () => {
   it("adds https for a public hostname typed without a scheme", () => {
-    expect(normalizeInstanceOrigin("mote.ein.disaresta.com")).toBe("https://mote.ein.disaresta.com");
+    expect(normalizeInstanceOrigin("subshell.ein.disaresta.com")).toBe("https://subshell.ein.disaresta.com");
   });
 
   it("adds http for loopback, RFC1918 and CGNAT hosts", () => {
@@ -13,33 +13,33 @@ describe("normalizeInstanceOrigin", () => {
   });
 
   it("never overrides an explicit scheme, even a downgrade", () => {
-    expect(normalizeInstanceOrigin("http://mote.ein.disaresta.com")).toBe("http://mote.ein.disaresta.com");
+    expect(normalizeInstanceOrigin("http://subshell.ein.disaresta.com")).toBe("http://subshell.ein.disaresta.com");
   });
 
   it("trims whitespace and a trailing slash, keeps a path prefix", () => {
-    expect(normalizeInstanceOrigin("  https://mote.example/  ")).toBe("https://mote.example");
-    expect(normalizeInstanceOrigin("https://mote.example/mote/")).toBe("https://mote.example/mote");
+    expect(normalizeInstanceOrigin("  https://subshell.example/  ")).toBe("https://subshell.example");
+    expect(normalizeInstanceOrigin("https://subshell.example/subshell/")).toBe("https://subshell.example/subshell");
   });
 
   it("keeps an explicit port", () => {
-    expect(normalizeInstanceOrigin("https://mote.example:8443")).toBe("https://mote.example:8443");
+    expect(normalizeInstanceOrigin("https://subshell.example:8443")).toBe("https://subshell.example:8443");
   });
 
   it("rejects empty input, non-http schemes and embedded credentials", () => {
     expect(() => normalizeInstanceOrigin("   ")).toThrow(InvalidInstanceUrl);
-    expect(() => normalizeInstanceOrigin("ftp://mote.example")).toThrow(InvalidInstanceUrl);
-    expect(() => normalizeInstanceOrigin("https://admin:hunter2@mote.example")).toThrow(InvalidInstanceUrl);
+    expect(() => normalizeInstanceOrigin("ftp://subshell.example")).toThrow(InvalidInstanceUrl);
+    expect(() => normalizeInstanceOrigin("https://admin:hunter2@subshell.example")).toThrow(InvalidInstanceUrl);
   });
 });
 
 describe("looksPrivate", () => {
   it("treats single labels and mDNS names as private", () => {
     expect(looksPrivate("motebox")).toBe(true);
-    expect(looksPrivate("mote.local")).toBe(true);
+    expect(looksPrivate("subshell.local")).toBe(true);
   });
 
   it("treats a public domain as public", () => {
-    expect(looksPrivate("mote.ein.disaresta.com")).toBe(false);
+    expect(looksPrivate("subshell.ein.disaresta.com")).toBe(false);
   });
 
   it("covers the 172.16/12 bounds", () => {
@@ -63,11 +63,11 @@ describe("looksPrivate", () => {
 
 describe("wsOrigin", () => {
   it("derives the socket scheme from the instance, never hardcoded", () => {
-    expect(wsOrigin("https://mote.example")).toBe("wss://mote.example");
+    expect(wsOrigin("https://subshell.example")).toBe("wss://subshell.example");
     expect(wsOrigin("http://100.71.37.94:3080")).toBe("ws://100.71.37.94:3080");
   });
 
   it("keeps a path prefix", () => {
-    expect(wsOrigin("https://mote.example/mote")).toBe("wss://mote.example/mote");
+    expect(wsOrigin("https://subshell.example/subshell")).toBe("wss://subshell.example/subshell");
   });
 });

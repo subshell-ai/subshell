@@ -15,9 +15,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  */
 describe("GET /api/sessions visibility + access", () => {
   const pw = "sharing-pass-1";
-  const aliceEmail = `sh-alice-${crypto.randomUUID()}@mote.local`;
-  const bobEmail = `sh-bob-${crypto.randomUUID()}@mote.local`;
-  const carolEmail = `sh-carol-${crypto.randomUUID()}@mote.local`;
+  const aliceEmail = `sh-alice-${crypto.randomUUID()}@subshell.local`;
+  const bobEmail = `sh-bob-${crypto.randomUUID()}@subshell.local`;
+  const carolEmail = `sh-carol-${crypto.randomUUID()}@subshell.local`;
   let aliceId: string;
   let bobId: string;
   let bobCookie: string;

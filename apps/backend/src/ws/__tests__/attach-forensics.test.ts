@@ -7,12 +7,12 @@ import { forensicsEnabled, recordAttachPaint, setForensicsEnabledForTests } from
  * NEXT "still garbled" report provable to a layer instead of a 50/50 guess:
  * the pane's grid as the viewer found it vs. the exact replay bytes shipped.
  *
- * These write under the real `/tmp/mote-attach-debug` root (that path IS the
+ * These write under the real `/tmp/subshell-attach-debug` root (that path IS the
  * documented contract an operator greps), namespaced by a synthetic session id
  * this suite removes afterwards.
  */
 
-const ROOT = "/tmp/mote-attach-debug";
+const ROOT = "/tmp/subshell-attach-debug";
 const SID = `test-forensics-${process.pid}`;
 
 afterEach(() => {

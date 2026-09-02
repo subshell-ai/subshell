@@ -12,7 +12,7 @@ import * as LocalAuthentication from "expo-local-authentication";
  *   a phone that cannot do Face ID; the Keychain itself stays protected);
  * - user disabled it in Settings → allowed (the flag is per-device).
  */
-const KEY = "mote.biometric.enabled";
+const KEY = "subshell.biometric.enabled";
 
 /** @returns Whether the gate is switched on (default: on) */
 export async function biometricEnabled(): Promise<boolean> {
@@ -37,7 +37,7 @@ export async function requireBiometric(reason?: string): Promise<boolean> {
   ]);
   if (!hasHardware || !enrolled) return true;
   const res = await LocalAuthentication.authenticateAsync({
-    promptMessage: reason ?? "mote",
+    promptMessage: reason ?? "subshell",
     disableDeviceFallback: false,
   });
   return res.success;

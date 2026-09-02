@@ -38,7 +38,7 @@ const S1 = "11111111-1111-4111-8111-111111111111";
 let base: string;
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "mote-write-file-")));
+  base = realpathSync(mkdtempSync(join(tmpdir(), "subshell-write-file-")));
 });
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));

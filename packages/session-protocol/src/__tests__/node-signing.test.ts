@@ -96,7 +96,7 @@ describe("sign/verify round-trip", () => {
   it("rejects a well-signed frame whose cmd is garbage", async () => {
     const { keys, jtiLru, seq } = await fixtures();
     const jws = await signRawClaims(keys.privateJwk, {
-      iss: "mote-control",
+      iss: "subshell-control",
       aud: "node:n1",
       jti: "j1",
       seq: 1,
@@ -111,7 +111,7 @@ describe("sign/verify round-trip", () => {
 
 describe("claims layer (iss/aud/exp/iat, signed with the RIGHT key)", () => {
   const base = (over: Record<string, unknown>) => ({
-    iss: "mote-control",
+    iss: "subshell-control",
     aud: "node:n1",
     jti: "j1",
     seq: 1,

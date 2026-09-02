@@ -87,7 +87,7 @@ function SetupPage() {
     <main className="flex min-h-dvh items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Welcome to Mote</CardTitle>
+          <CardTitle>Welcome to Subshell</CardTitle>
           <CardDescription>
             Step {step + 1} of {STEPS.length}: {STEPS[step]}
           </CardDescription>

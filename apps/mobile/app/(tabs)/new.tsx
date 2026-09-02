@@ -20,7 +20,7 @@ import { useProfiles } from "@/hooks/use-profiles";
 import { errMessage } from "@/lib/api-error";
 import { anchorDecision, isSelectable, pickNodeDefault } from "@/lib/node-anchor";
 import { colors, radius, touchTarget } from "@/lib/tokens";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/profile";
 
 /**

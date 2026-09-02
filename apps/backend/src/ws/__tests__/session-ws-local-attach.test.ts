@@ -88,7 +88,7 @@ async function seedLocalRow() {
     harnessId: "shell",
     name: "ws-leak-regression",
     workingDir: "/tmp",
-    tmuxSocket: "mote-ws-leak-test",
+    tmuxSocket: "subshell-ws-leak-test",
   });
 }
 
@@ -329,7 +329,7 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // already has makes `resize-window` a no-op, so no SIGWINCH fires, so a
     // diff-rendering TUI never repaints — and whatever half-repainted frame
     // the pane was left holding is what the capture ships, forever, for every
-    // later viewer. That is why "close mote, re-enter, still garbled" while a
+    // later viewer. That is why "close subshell, re-enter, still garbled" while a
     // manual window resize fixes it for good. The attach must force the
     // repaint itself: bump the width one column and step back.
     stubLauncher(); // stub resize writes nothing to the log ⇒ no repaint burst

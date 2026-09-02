@@ -6,12 +6,12 @@ import { APP_BASE_URL, SESSION_DATA_DIR } from "@/constants.js";
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 
 /**
- * Everything per-session `mote mcp` needs: how to spawn it in this deployment,
+ * Everything per-session `subshell mcp` needs: how to spawn it in this deployment,
  * what env the child reads, where its config lives, and how it gets registered
  * with a harness.
  *
  * The MCP server runs as a child of the HARNESS (the harness spawns it per
- * its MCP config), so it inherits the session env — the MOTE_API_KEY baked
+ * its MCP config), so it inherits the session env — the SUBSHELL_API_KEY baked
  * into the pane IS the child's credential. Nothing secret is written to disk
  * here: the config file names only the command to run.
  */
@@ -21,13 +21,13 @@ import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
  * the backend). Used as the display fallback when resolution fails — it names
  * a real artifact of this repo, unlike an invented command.
  */
-export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: "mote-mcp", args: [] };
+export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: "subshell-mcp", args: [] };
 
 /**
  * Display-only variant for editor surfaces: never throws. If the launch can't
  * be resolved (exotic deployment), the compiled artifact's bare name is shown
  * instead — session launch keeps using the throwing resolver, whose error
- * message is where the MOTE_MCP_COMMAND hint surfaces.
+ * message is where the SUBSHELL_MCP_COMMAND hint surfaces.
  */
 export function resolveMcpLaunchForDisplay(env: NodeJS.ProcessEnv = process.env): McpLaunchSpec {
   try {
@@ -39,19 +39,19 @@ export function resolveMcpLaunchForDisplay(env: NodeJS.ProcessEnv = process.env)
 
 /**
  * Resolve the launch for the CURRENT deployment, in priority order:
- * 1. `MOTE_MCP_COMMAND` (+ optional JSON-array `MOTE_MCP_ARGS`) — explicit override.
- * 2. Compiled single-binary: a `mote-mcp` sibling of the executable.
+ * 1. `SUBSHELL_MCP_COMMAND` (+ optional JSON-array `SUBSHELL_MCP_ARGS`) — explicit override.
+ * 2. Compiled single-binary: a `subshell-mcp` sibling of the executable.
  * 3. Bun-interpreted: the sibling mcp entry (`dist/mcp/main.js` in prod,
  *    `src/mcp/main.ts` in dev) run with the same interpreter.
  */
 export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env): McpLaunchSpec {
-  if (env.MOTE_MCP_COMMAND) {
+  if (env.SUBSHELL_MCP_COMMAND) {
     return {
-      command: env.MOTE_MCP_COMMAND,
-      args: env.MOTE_MCP_ARGS ? (JSON.parse(env.MOTE_MCP_ARGS) as string[]) : [],
+      command: env.SUBSHELL_MCP_COMMAND,
+      args: env.SUBSHELL_MCP_ARGS ? (JSON.parse(env.SUBSHELL_MCP_ARGS) as string[]) : [],
     };
   }
-  const sibling = join(dirname(process.execPath), "mote-mcp");
+  const sibling = join(dirname(process.execPath), "subshell-mcp");
   if (basename(process.execPath) === "backend" && existsSync(sibling)) {
     return { command: sibling, args: [] };
   }
@@ -63,27 +63,27 @@ export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env): McpLaunc
       // a non-file import.meta.url (exotic bundler) → try the next candidate
     }
   }
-  throw new Error("cannot locate the mote-mcp entrypoint; set MOTE_MCP_COMMAND");
+  throw new Error("cannot locate the subshell-mcp entrypoint; set SUBSHELL_MCP_COMMAND");
 }
 
 /**
- * The MOTE_* env the `mote mcp` child reads (contract: `env.ts` in
+ * The SUBSHELL_* env the `subshell mcp` child reads (contract: `env.ts` in
  * `@internal/mcp-core`).
  * Single producer so the create path and the auto-restart path can never
  * drift apart on the variables the child depends on.
  */
 export function sessionMcpEnv(apiKey: string, sessionId: string, sessionName: string): Record<string, string> {
   return {
-    MOTE_API_KEY: apiKey,
-    MOTE_BASE_URL: APP_BASE_URL,
-    MOTE_SESSION_ID: sessionId,
-    MOTE_SESSION_NAME: sessionName,
-    MOTE_DATA_DIR: SESSION_DATA_DIR,
+    SUBSHELL_API_KEY: apiKey,
+    SUBSHELL_BASE_URL: APP_BASE_URL,
+    SUBSHELL_SESSION_ID: sessionId,
+    SUBSHELL_SESSION_NAME: sessionName,
+    SUBSHELL_DATA_DIR: SESSION_DATA_DIR,
   };
 }
 
 /**
- * Registers `mote mcp` for one session launch, in the HARNESS'S OWN dialect:
+ * Registers `subshell mcp` for one session launch, in the HARNESS'S OWN dialect:
  * the plugin renders the config file content (plus any argv/env that activates
  * it), and this writes the file. Returns the registration for the caller to
  * bake into the pane — or undefined for harnesses with no per-session format

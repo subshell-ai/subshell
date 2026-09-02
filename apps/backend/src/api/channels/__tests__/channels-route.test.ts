@@ -51,8 +51,8 @@ describe("channels route", () => {
   let bob: string;
   let aliceToken: string;
   let bobToken: string;
-  const aliceEmail = `ch-alice-${crypto.randomUUID()}@mote.local`;
-  const bobEmail = `ch-bob-${crypto.randomUUID()}@mote.local`;
+  const aliceEmail = `ch-alice-${crypto.randomUUID()}@subshell.local`;
+  const bobEmail = `ch-bob-${crypto.randomUUID()}@subshell.local`;
   const pw = "channe1-pass!";
   const createdSessions: string[] = [];
   const nudges: { socket: string; name: string; text: string }[] = [];
@@ -218,7 +218,7 @@ describe("channels route", () => {
     expect(bobRead.body.posts[0].author).toBe(aliceP);
     // The author is filtered too: alice addressed the second post to bob ONLY,
     // so even she does not receive it back (the server never leaks beyond the
-    // recipient list — real senders include themselves, as mote mcp does).
+    // recipient list — real senders include themselves, as subshell mcp does).
     const aliceRead = await call(channelRoutes, "/api/channels/room/posts?since=0", aliceToken);
     expect(aliceRead.body.posts.length).toBe(1);
     expect(aliceRead.body.posts[0].envelope).toContain("private");

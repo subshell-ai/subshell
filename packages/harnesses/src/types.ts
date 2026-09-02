@@ -59,7 +59,7 @@ export interface BuildCommandInput {
    * Conversation identity for restart-resume; set only when this plugin
    * declares a {@link HarnessResume} capability. `mode: "start"` means the
    * conversation is NEW and must be created under exactly this id (pin it —
-   * mote stores the id and later resumes by it); `mode: "resume"` means the
+   * subshell stores the id and later resumes by it); `mode: "resume"` means the
    * id names an EXISTING conversation to continue (the backend only asks
    * after {@link HarnessResume.canResume} confirmed it survives).
    */
@@ -84,9 +84,9 @@ export interface HarnessResume {
   canResume(sessionId: string, cwd: string): boolean;
 }
 
-/** How to spawn the `mote mcp` stdio server — the shape the backend's `resolveMcpLaunch()` produces. */
+/** How to spawn the `subshell mcp` stdio server — the shape the backend's `resolveMcpLaunch()` produces. */
 export interface McpLaunchSpec {
-  /** Executable to run (compiled `mote-mcp`, or the interpreter) */
+  /** Executable to run (compiled `subshell-mcp`, or the interpreter) */
   command: string;
   /** Arguments for the executable (e.g. the mcp entry script path) */
   args: string[];
@@ -115,7 +115,7 @@ export interface McpSetupStep {
 }
 
 /**
- * How a harness gets the `mote mcp` tools (channels + session orchestration).
+ * How a harness gets the `subshell mcp` tools (channels + session orchestration).
  * Discriminated on purpose: auto harnesses explain themselves in one line,
  * manual harnesses carry steps — a plugin cannot mix the two.
  */
@@ -173,7 +173,7 @@ export interface HarnessPlugin {
   buildCommand(input: BuildCommandInput): string[];
   /**
    * Restart-resume support (omit on harnesses that always start a fresh
-   * conversation — mote then never pins an id nor passes resume flags).
+   * conversation — subshell then never pins an id nor passes resume flags).
    */
   resume?: HarnessResume;
   /**
@@ -185,11 +185,11 @@ export interface HarnessPlugin {
   /**
    * Renders the per-session MCP registration in this harness's native config
    * format (file content + whatever argv/env activates it). Omit the method
-   * when the harness cannot consume a per-session config file — mote then
+   * when the harness cannot consume a per-session config file — subshell then
    * surfaces one-time manual setup via mcpSetup() instead.
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
-  /** How users obtain the mote MCP tools in this harness (drives the profile UI). */
+  /** How users obtain the subshell MCP tools in this harness (drives the profile UI). */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo;
   /** Validates a profile definition before saving. */
   validateProfile(profile: ProfileDefinition): ProfileValidationResult;

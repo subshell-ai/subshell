@@ -1,4 +1,4 @@
-# Mote — Architecture Reference
+# Subshell — Architecture Reference
 
 How the running system is put together: processes, credentials, data flows, and
 invariants. For *why* specific decisions were made, see the design specs in
@@ -9,7 +9,7 @@ when it and the specs disagree, this one is authoritative for behavior.
 - [1. Process model](#1-process-model)
 - [2. Credentials & trust boundaries](#2-credentials--trust-boundaries)
 - [3. Encrypted channels](#3-encrypted-channels)
-- [4. The `mote mcp` process](#4-the-mote-mcp-process)
+- [4. The `subshell mcp` process](#4-the-subshell-mcp-process)
 - [5. Session lifecycle & token choreography](#5-session-lifecycle--token-choreography)
 - [6. Component map](#6-component-map)
 - [7. Invariants](#7-invariants)
@@ -37,9 +37,9 @@ serves the browser, the agents, and the outside tooling on a single port.
 └──────┬─────────────────────────────────────────────────────────────┘
        │ spawns (tmux new-session, env -i curated)
 ┌──────▼─────────────────────────────────────────────────────────────┐
-│ tmux server, one socket per session: mote-<sha1(sessionId)[:12]>   │
-│  └─ harness CLI (claude …) — pane env carries MOTE_* credentials   │
-│      └─ `mote mcp` (stdio MCP server, spawned by the harness via   │
+│ tmux server, one socket per session: subshell-<sha1(sessionId)[:12]>   │
+│  └─ harness CLI (claude …) — pane env carries SUBSHELL_* credentials   │
+│      └─ `subshell mcp` (stdio MCP server, spawned by the harness via   │
 │          its per-harness registration; inherits the pane env;      │
 │          talks back to the backend over HTTP as this session's     │
 │          bearer token)                                             │
@@ -49,12 +49,12 @@ serves the browser, the agents, and the outside tooling on a single port.
 Key properties:
 
 - **The backend is the only long-lived trusted process.** Harnesses and
-  `mote mcp` children are untrusted consumers of the public HTTP API — there
+  `subshell mcp` children are untrusted consumers of the public HTTP API — there
   is no backdoor IPC.
 - **tmux is the source of truth for liveness**; the DB row is a record of
   intent, reconciled every 60 s (`SessionManagerService.reconcileAll`).
-- **`mote mcp` never opens the app database.** It is its own compile target
-  (`dist/mote-mcp`, entry `src/mcp/main.ts`) importing only `@internal/mcp-core` —
+- **`subshell mcp` never opens the app database.** It is its own compile target
+  (`dist/subshell-mcp`, entry `src/mcp/main.ts`) importing only `@internal/mcp-core` —
   a compromised agent process cannot reach SQLite or auth secrets directly.
 - **The terminal transport does not fork for mobile.** The accessory key
   bar sends the same JSON `input` WS frames defined in
@@ -70,7 +70,7 @@ context.
 
 | | cookie (human) | system key | session token |
 |---|---|---|---|
-| Header | `better-auth.session_token` cookie | `Authorization: Bearer mote_…` | same |
+| Header | `better-auth.session_token` cookie | `Authorization: Bearer subshell_…` | same |
 | `actor` | `cookie` | `system-key` | `session-key` |
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<sessionId>` |
 | Minted by | sign-up / wizard | admin via **Settings → System API keys** → `POST /api/system-keys` | server-side `issueSessionToken` at session start |
@@ -113,7 +113,7 @@ for the full threat model.
 
 Global (not per-user) append-only logs that sessions use to talk to each
 other. The server stores and relays **opaque General JWE envelopes it cannot
-read**; all crypto happens client-side in `mote mcp`.
+read**; all crypto happens client-side in `subshell mcp`.
 
 ### Data model (migration 0009)
 
@@ -163,7 +163,7 @@ nothing — they resume from their cursor when they next read.
 ### Nudge (opt-in, best-effort)
 
 `POST /api/channels/:name/posts {nudge: true}` types a fixed, **Enter-less**
-line (`[mote] new post in #name`) into the tmux panes of *running*
+line (`[subshell] new post in #name`) into the tmux panes of *running*
 recipients, so their agents notice traffic without a poll. It never
 auto-submits anything into a shell and never fails the post.
 
@@ -173,17 +173,17 @@ The sealing side pins each peer's exact public JWK on first post
 (`<dataDir>/peers.json`, mode 0600, `@internal/mcp-core` pin-store) and requires
 byte-equality thereafter — a compromised relay cannot swap a roster key
 without every sender hard-failing (`PinnedKeyMismatchError`). Absent or
-typo'd `MOTE_CHANNEL_PIN` means strict; only `MOTE_CHANNEL_PIN=trust` opts
+typo'd `SUBSHELL_CHANNEL_PIN` means strict; only `SUBSHELL_CHANNEL_PIN=trust` opts
 out. The honest operational consequence: when a member legitimately recovers
 its identity (corrupt/quarantined identity file → fresh keypair → re-register
-into the channel), every peer's `mote_post_channel` to shared channels then
+into the channel), every peer's `subshell_post_channel` to shared channels then
 **hard-blocks** on the stale pin — this is the pin working, not an attack.
 Recovery is manual per peer: delete that principal's entry from
 `peers.json` (the error message names the file) and the next post re-learns
 the key, or the operator accepts unpinned sealing via
-`MOTE_CHANNEL_PIN=trust`.
+`SUBSHELL_CHANNEL_PIN=trust`.
 
-## 4. The `mote mcp` process
+## 4. The `subshell mcp` process
 
 A stdio MCP server (SDK v2) the harness spawns per session.
 
@@ -196,29 +196,29 @@ How the child gets spawned is the harness plugin's dialect decision
   plugin's `mcpRegistration` returns its content plus the activating
   `--mcp-config <path>` argv, which `buildCommand` splices after the binary.
 - **opencode** — the registration returns an opencode-dialect config layer
-  (a `mcp.mote` local entry) and the env `OPENCODE_CONFIG=<path>`; opencode
+  (a `mcp.subshell` local entry) and the env `OPENCODE_CONFIG=<path>`; opencode
   merges that layer over the user's own config (verified deep-merge). The
   backend bakes the wiring env LAST in the pane precedence (curated host env <
-  `MOTE_*` < profile env < wiring env), so a profile setting `OPENCODE_CONFIG`
+  `SUBSHELL_*` < profile env < wiring env), so a profile setting `OPENCODE_CONFIG`
   cannot silently drop the session's comms.
 - **hermes, pi** — no per-session config format exists (hermes reads only the
   fixed `~/.hermes/config.yaml`; pi needs the community `pi-mcp-adapter`).
   They register once, manually: the profile editor renders the plugin's
   `mcpSetup()` steps verbatim (resolved launch paths included). The single
   global entry stays per-session-correct because the spawned child inherits
-  each pane's own `MOTE_*` credentials.
+  each pane's own `SUBSHELL_*` credentials.
 
 `services/mcp-launch.ts:registerSessionMcp` drives all of this on both the
 create and auto-restart paths; manual harnesses write no file at all.
 
-### Boot sequence (`packages/mcp-core/src/server.ts:runMoteMcp`)
+### Boot sequence (`packages/mcp-core/src/server.ts:runSubshellMcp`)
 
 1. Read + validate env (below) — hard-fail with a clear message if missing.
 2. Load-or-create the session's identity keypair under
-   `MOTE_DATA_DIR/identities/sess-<id>.json` (0600; the file stamps its
+   `SUBSHELL_DATA_DIR/identities/sess-<id>.json` (0600; the file stamps its
    principal and refuses cross-principal reuse — silently regenerating a key
    would orphan the session's message history; an out-of-band run with no
-   `MOTE_DATA_DIR` lands in `<tmp>/mote-mcp`, never the cwd).
+   `SUBSHELL_DATA_DIR` lands in `<tmp>/subshell-mcp`, never the cwd).
 3. Register/rotate the public key with the backend (`POST /api/identities`,
    best-effort).
 4. Arm a 12 h unref'd timer that self-extends the session token.
@@ -229,29 +229,29 @@ create and auto-restart paths; manual harnesses write no file at all.
 
 | Var | Meaning |
 |---|---|
-| `MOTE_API_KEY` | the session's bearer token (secret, pane-env only) |
-| `MOTE_BASE_URL` | backend URL (default `http://127.0.0.1:3080`) |
-| `MOTE_SESSION_ID` | session this process speaks as |
-| `MOTE_SESSION_NAME` | display name for the identity registration |
-| `MOTE_DATA_DIR` | where the keypair persists (session data dir) |
+| `SUBSHELL_API_KEY` | the session's bearer token (secret, pane-env only) |
+| `SUBSHELL_BASE_URL` | backend URL (default `http://127.0.0.1:3080`) |
+| `SUBSHELL_SESSION_ID` | session this process speaks as |
+| `SUBSHELL_SESSION_NAME` | display name for the identity registration |
+| `SUBSHELL_DATA_DIR` | where the keypair persists (session data dir) |
 
-Deployment override: `MOTE_MCP_COMMAND` / `MOTE_MCP_ARGS` (JSON array) pin how
+Deployment override: `SUBSHELL_MCP_COMMAND` / `SUBSHELL_MCP_ARGS` (JSON array) pin how
 the server is launched; default resolution is compiled sibling binary →
 `bun …/mcp/main.js|ts`.
 
 ### Tools
 
-Channels: `mote_list_channels · mote_create_channel · mote_join_channel ·
-mote_channel_members · mote_post_channel · mote_read_channel`.
-Sessions: `mote_list_sessions · mote_get_session · mote_list_profiles ·
-mote_create_session · mote_restart_session · mote_terminate_session ·
-mote_delete_session · mote_update_session_notes`.
+Channels: `subshell_list_channels · subshell_create_channel · subshell_join_channel ·
+subshell_channel_members · subshell_post_channel · subshell_read_channel`.
+Sessions: `subshell_list_sessions · subshell_get_session · subshell_list_profiles ·
+subshell_create_session · subshell_restart_session · subshell_terminate_session ·
+subshell_delete_session · subshell_update_session_notes`.
 
 Handler-level notes:
 
-- `mote_post_channel` auto-joins the poster, then seals to **every keyed
+- `subshell_post_channel` auto-joins the poster, then seals to **every keyed
   member including itself** (so its own history reads back).
-- `mote_read_channel` omits `since` unless given, letting the server resume
+- `subshell_read_channel` omits `since` unless given, letting the server resume
   from the stored cursor; waits are issued in ≤ 50 s slices against a
   wall-clock budget; undecryptable envelopes are counted, not fatal (e.g.
   after a key rotation). The MCP request's `AbortSignal` is forwarded into
@@ -265,7 +265,7 @@ Handler-level notes:
 `tokens`, `tmux`) orchestrates everything; routes stay thin.
 
 **Create** (`POST /api/sessions`, also driven by the agent via
-`mote_create_session`):
+`subshell_create_session`):
 
 ```
 validate profile+dir → insert DB row → issueSessionToken (writes api_key_id)
@@ -320,11 +320,11 @@ apps/backend/src/
 ├── mcp/main.ts                standalone entry ONLY (own compile target) — imports just @internal/mcp-core
 └── db/migrations/0009-channels.ts   the six tables + sessions.api_key_id
 
-packages/mcp-core/src/         the `mote mcp` child implementation (shared with the
+packages/mcp-core/src/         the `subshell mcp` child implementation (shared with the
                                agent's `subshell mcp`); imports NOTHING outside
                                node builtins + jose + zod + @modelcontextprotocol/*
 ├── env.ts                 env contract consumer (mirror of mcp-launch's producer)
-├── server.ts              boot + tool registration + AbortSignal plumbing (runMoteMcp)
+├── server.ts              boot + tool registration + AbortSignal plumbing (runSubshellMcp)
 ├── tools.ts               the 14 handlers (pure over an injectable api client)
 ├── api-client.ts          tiny fetch wrapper (Bearer + ApiError{status})
 ├── crypto.ts              seal/open (jose), DecryptError
@@ -350,7 +350,7 @@ two-process e2e in `src/__tests__/e2e-cross-session.test.ts`):
    session principals require the `api_key_id` link.
 5. Session tokens are revoked synchronously with termination/deletion;
    auto-restart rotates (never reuses) the key.
-6. `mote mcp` runs hermetically: no DB handle, no auth secret, secrets only
+6. `subshell mcp` runs hermetically: no DB handle, no auth secret, secrets only
    via inherited env.
 7. Post seq is gapless per channel (UNIQUE + tx-assigned MAX+1).
 8. Nudges never press Enter; posts never fail because a nudge failed.
@@ -360,7 +360,7 @@ two-process e2e in `src/__tests__/e2e-cross-session.test.ts`):
 ## 8. Extension points
 
 - **Other harnesses**: MCP injection today is claude-code (`--mcp-config` in
-  `buildCommand`); any harness that reads `MOTE_*` from its pane env can the
+  `buildCommand`); any harness that reads `SUBSHELL_*` from its pane env can the
   same wiring (the env producer is harness-agnostic).
 - **Federation**: principals are already opaque labels (`sess:<id>`,
   `user:<id>` — future `remote:<instance>/<id>` fits the schema unchanged),
@@ -418,7 +418,7 @@ so the UI says "node unreachable", never "crashed". The agent's connect-time
 control plane heals its rows.
 
 **Distribution.** Prebuilt `subshell` binaries live in `NODE_ARTIFACTS_DIR`
-(`MOTE_NODE_ARTIFACTS_DIR`, default `<SESSION_DATA_DIR>/node-artifacts`) and
+(`SUBSHELL_NODE_ARTIFACTS_DIR`, default `<SESSION_DATA_DIR>/node-artifacts`) and
 are published by `bun run release:agent` from the repo root
 (`apps/agent/src/scripts/release.ts` — cross targets + bytecode host build,
 sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the dance is in
@@ -427,7 +427,7 @@ valid unconsumed setup key (`peekValid` — consumption-free) and refuses
 anonymous; the root-mounted `GET /install.sh` (`api/install-script.ts`) renders
 the per-instance installer for a valid key and a usage script otherwise.
 The script downloads, **digest-verifies before chmod+exec**, enrolls, and can
-relocate install + state via the `MOTE_DATA_DIR` env knob (default: binary in
+relocate install + state via the `SUBSHELL_DATA_DIR` env knob (default: binary in
 the CWD, agent-default data dir). The Add-node dialog bakes the command from
 `GET /api/settings/public → appBaseUrl` so the rendered URL matches what the
 script embeds — and warns when that URL is loopback (a remote node would dial
@@ -435,7 +435,7 @@ the wrong machine).
 
 **Background service.** `subshell service install|uninstall`
 (`apps/agent/src/service.ts`) writes a systemd **user** unit or a launchd
-agent (`dev.mote.agent`), self-referencing the running executable (compiled
+agent (`dev.subshell.agent`), self-referencing the running executable (compiled
 binary or `bun <entry>` in dev); on Linux the post-install hint is
 `loginctl enable-linger` to survive logout. Harness inventory is pushed by the
 agent at connect and every 5 min (`daemon.ts` `INVENTORY_PERIOD_MS`, plus the

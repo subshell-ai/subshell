@@ -67,7 +67,7 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   // Enter is CR — what a physical Enter sends; cat -v renders it ^M.
   await expect.poll(async () => (await logText()).includes("^M"), { timeout: 10_000 }).toBe(true);
 
-  // The "/" button is a plain byte sender now (the old mote palette that
+  // The "/" button is a plain byte sender now (the old subshell palette that
   // intercepted it was removed): cat -v echoes it verbatim into the pane.
   await bar.getByRole("button", { name: "Send slash" }).click();
   await expect.poll(async () => (await logText()).includes("/"), { timeout: 10_000 }).toBe(true);

@@ -155,8 +155,8 @@ describe("DirectoryPickerInput", () => {
     const picks: string[] = [];
     const { requested, restore } = mockExplore({
       "/home": exploreBody("/home", ["projects"]),
-      "/home/projects": exploreBody("/home/projects", ["mote"]),
-      "/home/projects/mote": exploreBody("/home/projects/mote", ["src"]),
+      "/home/projects": exploreBody("/home/projects", ["subshell"]),
+      "/home/projects/subshell": exploreBody("/home/projects/subshell", ["src"]),
     });
     try {
       const field = renderField({ value: "/home", onChange: (p) => picks.push(p) });
@@ -164,16 +164,16 @@ describe("DirectoryPickerInput", () => {
       // Each click is one action: the input gets the folder AND the panel
       // descends into it. Two levels deep, no extra button involved.
       fireEvent.click(await screen.findByText("projects"));
-      fireEvent.click(await screen.findByText("mote"));
+      fireEvent.click(await screen.findByText("subshell"));
       await screen.findByText("src");
       // The listing state uses the same fixed-height body as the loading
       // state above — scrolls internally instead of growing.
       expect(field.container.querySelector(".overflow-y-auto")?.className).toContain("h-56");
-      expect(picks).toEqual(["/home/projects", "/home/projects/mote"]);
+      expect(picks).toEqual(["/home/projects", "/home/projects/subshell"]);
       // The first click's typed-sync timer must not yank the panel back to
       // /home/projects after the second click has already descended.
       await new Promise((r) => setTimeout(r, 300));
-      expect(screen.queryByText("mote")).toBeNull();
+      expect(screen.queryByText("subshell")).toBeNull();
       // "/home" is fetched once at focus; the descend fetches the others.
       expect(requested.filter((p) => p === "/home/projects")).toHaveLength(1);
     } finally {
@@ -283,12 +283,12 @@ describe("DirectoryPickerInput", () => {
     const picks: string[] = [];
     const { restore } = mockExplore({
       "/home": exploreBody("/home", ["projects"]),
-      "/home/projects": exploreBody("/home/projects", ["mote"]),
+      "/home/projects": exploreBody("/home/projects", ["subshell"]),
     });
     try {
       renderField({ value: "/home/projects", onChange: (p) => picks.push(p) });
       fireEvent.focus(screen.getByRole("textbox"));
-      await screen.findByText("mote");
+      await screen.findByText("subshell");
       fireEvent.click(screen.getByRole("button", { name: ".." }));
       // Back at /home — its listing renders, and the input followed to the
       // parent like any other selection. /home itself has a parent ("/"),
@@ -305,7 +305,7 @@ describe("DirectoryPickerInput", () => {
   it("typing a path moves the open picker to that folder without fetching partial paths", async () => {
     const { requested, restore } = mockExplore({
       "/tmp": exploreBody("/tmp", ["cache"]),
-      "/home/theo/projects": exploreBody("/home/theo/projects", ["mote"]),
+      "/home/theo/projects": exploreBody("/home/theo/projects", ["subshell"]),
     });
     try {
       const { typePath, open } = renderField();
@@ -318,7 +318,7 @@ describe("DirectoryPickerInput", () => {
       typePath("/home/theo/projects");
       // The typed path is the value the moment it is typed; the panel
       // follows it once typing pauses.
-      await screen.findByText("mote");
+      await screen.findByText("subshell");
       expect(requested).toEqual(["/tmp", "/home/theo/projects"]);
     } finally {
       restore();

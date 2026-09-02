@@ -14,7 +14,7 @@ import type { CliResult } from "./cli.js";
 export interface ServiceDeps {
   /** Runtime platform — only `linux` and `darwin` have a service manager here. */
   platform: NodeJS.Platform;
-  /** User home the unit/plist paths hang off (NOT `MOTE_AGENT_HOME`). */
+  /** User home the unit/plist paths hang off (NOT `SUBSHELL_AGENT_HOME`). */
   home: string;
   /** Numeric uid — builds the launchd `gui/<uid>` domain target. */
   uid: number;
@@ -45,7 +45,7 @@ export interface ServiceDeps {
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
 export const SYSTEMD_UNIT_NAME = "subshell.service";
 /** launchd label (plist: `~/Library/LaunchAgents/<label>.plist`). */
-export const LAUNCHD_LABEL = "dev.mote.agent";
+export const LAUNCHD_LABEL = "dev.subshell.agent";
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
@@ -67,7 +67,7 @@ export function execLine(deps: Pick<ServiceDeps, "execPath" | "argv1">): string[
  * Quote one argv token for a systemd `ExecStart=` line. systemd word-splits
  * the line itself (it is NOT run through a shell), so a path containing
  * whitespace — a macOS "Application Support" home, a dev-form `bun …/my
- * dir/main.ts`, a spaced `MOTE_DATA_DIR` — must be double-quoted or the unit
+ * dir/main.ts`, a spaced `SUBSHELL_DATA_DIR` — must be double-quoted or the unit
  * 203/EXECs at start. Backslash and `"` are the only in-quote escapes systemd
  * honours here; a clean token is emitted verbatim so the common path stays
  * byte-identical to the tests' pinned text.
@@ -89,7 +89,7 @@ function systemdUnit(exec: string, pathEnv?: string): string {
   // runtime agreeing. Omitted when absent → the historical byte-exact unit.
   const environment = pathEnv ? `Environment=PATH=${systemdQuote(pathEnv)}\n` : "";
   return `[Unit]
-Description=subshell (mote node daemon)
+Description=subshell (subshell node daemon)
 After=network-online.target
 Wants=network-online.target
 

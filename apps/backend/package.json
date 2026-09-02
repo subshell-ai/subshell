@@ -17,7 +17,7 @@
     "db:migrate:latest": "bunx --bun kysely migrate latest",
     "db:migrate:undo": "bunx --bun kysely migrate down",
     "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
-    "compile": "bun build --compile --target=bun --bytecode --minify --sourcemap ./src/index.ts --outfile ./dist/backend && bun build --compile --target=bun --bytecode --minify --sourcemap ./src/mcp/main.ts --outfile ./dist/mote-mcp",
+    "compile": "bun build --compile --target=bun --bytecode --minify --sourcemap ./src/index.ts --outfile ./dist/backend && bun build --compile --target=bun --bytecode --minify --sourcemap ./src/mcp/main.ts --outfile ./dist/subshell-mcp",
     "clean": "rm -rf .turbo node_modules dist",
     "dev": "bun run --watch ./src/index.ts",
     "lint": "biome check --no-errors-on-unmatched --write --unsafe src",

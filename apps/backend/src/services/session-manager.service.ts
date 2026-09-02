@@ -69,7 +69,7 @@ const defaultTokens: SessionTokenProvider = {
  * In-flight manual restarts, shared process-wide by SESSION ID.
  *
  * The HTTP request handler, the 60 s reconcile sweep (`index.ts`) and the
- * `mote mcp` server each build their OWN `SessionManagerService`, so a
+ * `subshell mcp` server each build their OWN `SessionManagerService`, so a
  * per-instance map would be inert: two restart clicks (two tabs, list +
  * detail, web + MCP) would each spawn, and the sweep would see the parked row
  * and revoke the token the restart just minted. Living at module scope, every
@@ -223,7 +223,7 @@ export class SessionManagerService {
     if (!facts) throw new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId);
     if (!facts.capabilities.includes("mcp")) {
       logger.debug(
-        `session ${sessionId}: node "${nodeId}" did not advertise the "mcp" capability — mote mcp not registered for this launch`,
+        `session ${sessionId}: node "${nodeId}" did not advertise the "mcp" capability — subshell mcp not registered for this launch`,
       );
       return { facts };
     }
@@ -234,7 +234,7 @@ export class SessionManagerService {
   /**
    * Creates a new session: validates the profile + working directory, records
    * the DB row, mints the session's MCP token, then spawns the harness under
-   * tmux with a curated env (including the injected MOTE_* credentials). When
+   * tmux with a curated env (including the injected SUBSHELL_* credentials). When
    * `prompt` is given, it is typed into the pane once the harness has settled.
    */
   async createSession({
@@ -333,20 +333,20 @@ export class SessionManagerService {
 
     let promptDelivered = false;
     try {
-      // Register `mote mcp` with the harness, in whatever dialect the plugin
+      // Register `subshell mcp` with the harness, in whatever dialect the plugin
       // speaks: claude gets --mcp-config argv, opencode a merged config layer
       // + OPENCODE_CONFIG (baked below); harnesses without a per-session
-      // format (hermes, pi) register nothing — their MOTE_* env still lands,
+      // format (hermes, pi) register nothing — their SUBSHELL_* env still lands,
       // and the UI shows their one-time manual registration steps. Agent
       // rows get the PURE plan (no local file; content ships with the launch
       // command to the node's own path). INSIDE the try: an agent that
       // dropped offline between resolution and here must roll back too.
       const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, id, targetNode);
-      const moteEnv = sessionMcpEnv(apiKey, id, sessionName);
+      const subshellEnv = sessionMcpEnv(apiKey, id, sessionName);
       if (facts) {
         // sessionMcpEnv bakes the BACKEND's SESSION_DATA_DIR — a path that
         // means nothing on the node; the agent's own dataDir is the truth there.
-        moteEnv.MOTE_DATA_DIR = facts.dataDir;
+        subshellEnv.SUBSHELL_DATA_DIR = facts.dataDir;
       }
       // Command assembly happens INSIDE launch, which runs inside this try:
       // a rejected env key throws there, and the row + token must roll back
@@ -359,7 +359,7 @@ export class SessionManagerService {
         cwd: realPath,
         profile,
         sessionName,
-        moteEnv,
+        subshellEnv,
         mcp,
         mcpConfigPath,
         harnessSession,
@@ -887,11 +887,11 @@ export class SessionManagerService {
     await this.#revokeTokenOrUnlink(row.id);
     const apiKey = await this.#tokens.issue(row.id, row.userId);
     const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, row.id, row.nodeId);
-    const moteEnv = sessionMcpEnv(apiKey, row.id, row.name);
+    const subshellEnv = sessionMcpEnv(apiKey, row.id, row.name);
     if (facts) {
       // sessionMcpEnv bakes the BACKEND's SESSION_DATA_DIR — a path that
       // means nothing on the node; the agent's own dataDir is the truth there.
-      moteEnv.MOTE_DATA_DIR = facts.dataDir;
+      subshellEnv.SUBSHELL_DATA_DIR = facts.dataDir;
     }
     // Same-row restart: resume the crashed conversation when it survived,
     // re-pin when it didn't (or the row predates the feature).
@@ -918,7 +918,7 @@ export class SessionManagerService {
       cwd: realPath,
       profile,
       sessionName: row.name,
-      moteEnv,
+      subshellEnv,
       mcp,
       mcpConfigPath,
       harnessSession,

@@ -1,6 +1,6 @@
 import type { ClientFrame, ServerFrame } from "@internal/session-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MoteClient } from "@/lib/api";
+import type { SubshellClient } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";
 
 /** Fixed reconnect delay — same as the web hook (`use-session-ws.ts:14`). */
@@ -38,7 +38,7 @@ export interface SessionSocketHandlers {
  * per value (review, simplification #2).
  */
 export function useSessionSocket(opts: {
-  client: MoteClient;
+  client: SubshellClient;
   sessionId: string;
   active: boolean;
   handlers: SessionSocketHandlers;

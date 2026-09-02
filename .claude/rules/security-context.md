@@ -17,16 +17,16 @@ credential kinds:
     the **configured `APP_BASE_URL` host** (better-auth 1.7.1 derives it from the
     static baseURL, not the request host), so passkeys work only when browsing on
     that address — other names (e.g. loopback vs the domain) fail in the browser.
-  - *Break-glass*: while `MOTE_EMERGENCY_PASSWORD` is set, an admin signing in with that
+  - *Break-glass*: while `SUBSHELL_EMERGENCY_PASSWORD` is set, an admin signing in with that
     exact value has **their credential overwritten** by it and a real session is minted —
     destructive by design, signalled by a warning banner to every signed-in user
     (`GET /api/settings/public → emergencyLoginActive`). Clear the var after recovery.
-- **Bearer API keys** (`Authorization: Bearer mote_...`, via `@better-auth/api-key`) —
+- **Bearer API keys** (`Authorization: Bearer subshell_...`, via `@better-auth/api-key`) —
   machine credentials:
   - *Per-session tokens*: minted when a session starts (7-day TTL, self-extending for
     long-running agents), scoped by permissions, and **revoked immediately** when the
     session is terminated/deleted (restart rotates the key — auto or manual — on the same row). This is what the
-    `mote mcp` server and any harness tooling authenticate with.
+    `subshell mcp` server and any harness tooling authenticate with.
   - *System keys*: long-lived, no permission ceiling, owned by the `system` service user,
     created by admins under **Settings → System API keys** (plaintext shown exactly once;
     only a hash is stored). Treat them as full-access bearer credentials — disable/delete

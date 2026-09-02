@@ -22,7 +22,7 @@ bun run verify-types     # tsc --noEmit
   cost of the normal build/test path. Publish is atomic (tmp + `rename()` per
   artifact + fresh `.sha256` sidecar — the downloads route's mtime-keyed cache
   contract) and all-or-nothing (a failed target publishes NOTHING). Destination:
-  `MOTE_NODE_ARTIFACTS_DIR`, else `<SESSION_DATA_DIR>/node-artifacts` (a
+  `SUBSHELL_NODE_ARTIFACTS_DIR`, else `<SESSION_DATA_DIR>/node-artifacts` (a
   documented duplicate of the backend's default in `apps/backend/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
   the tsdown output) — re-create with `cd apps/agent && bun run compile`.
@@ -40,7 +40,7 @@ subshell service install|uninstall # systemd user unit / launchd agent
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
 subshell mcp                       # stdio MCP server for a session pane (internal;
-                                     # configured purely by the MOTE_* pane env)
+                                     # configured purely by the SUBSHELL_* pane env)
 subshell version
 ```
 
@@ -49,7 +49,7 @@ deliberately does NOT (a deleted config is the de-facto unenroll — an enabled
 unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`
 (`Restart=always`) + `systemctl --user enable --now`; success prints the
 linger hint (`loginctl enable-linger $USER` keeps the daemon across logout).
-macOS: `~/Library/LaunchAgents/dev.mote.agent.plist` (KeepAlive, log at
+macOS: `~/Library/LaunchAgents/dev.subshell.agent.plist` (KeepAlive, log at
 `~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. Other
 platforms: explicit refusal pointing at `subshell run` inside tmux/screen.
 The unit/plist bake the installing shell's `PATH` (`Environment=PATH=` /
@@ -73,7 +73,7 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
 
 ## On disk
 
-- **Agent home** — `~/.config/subshell-agent`, override `MOTE_AGENT_HOME` (tests
+- **Agent home** — `~/.config/subshell-agent`, override `SUBSHELL_AGENT_HOME` (tests
   use it): `config.json` (0600 — the nodeKey's ONLY home, never echoed by
   `status`, not even `--json`) and `daemon.lock` (local-liveness for `status`,
   refreshed on every 15 s heartbeat tick; observability only, never authority).
@@ -83,15 +83,15 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   session (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`
   per-session MCP configs, and the MCP children's `identities/sess-<id>.json` +
-  `peers.json` (they run with `MOTE_DATA_DIR` = the agent data dir).
+  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the agent data dir).
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
-  `MOTE_AGENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
+  `SUBSHELL_AGENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
 
 ## Testing
 
-`bunfig.toml` preloads `src/test-preload.ts`: `MOTE_AGENT_HOME` points at a
+`bunfig.toml` preloads `src/test-preload.ts`: `SUBSHELL_AGENT_HOME` points at a
 throwaway temp dir (suites NEVER touch `~/.config/subshell-agent`),
-`MOTE_TEST_MODE=1`, and the tmux preflight is skipped (the tmux-absent refusal
+`SUBSHELL_TEST_MODE=1`, and the tmux preflight is skipped (the tmux-absent refusal
 is covered explicitly by clearing the var). `src/scripts/release.ts` guards its
 CLI main behind `import.meta.main` so tests import the pure publish/build logic
 without building or spawning; `src/service.ts` needs no such guard — it is

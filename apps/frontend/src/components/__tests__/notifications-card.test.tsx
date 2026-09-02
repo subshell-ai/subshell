@@ -64,7 +64,7 @@ describe("NotificationsCard", () => {
 
   it("'blocked' explains where the toggle lives instead of offering a button", async () => {
     render(<NotificationsCard getState={async () => "blocked"} enable={noop} disable={noop} />);
-    expect(await screen.findByText("Allow notifications for mote in your browser/OS settings.")).toBeDefined();
+    expect(await screen.findByText("Allow notifications for subshell in your browser/OS settings.")).toBeDefined();
     expect(screen.queryByRole("button")).toBeNull();
   });
 

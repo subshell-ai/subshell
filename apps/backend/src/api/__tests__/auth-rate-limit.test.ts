@@ -18,7 +18,7 @@ describe("auth-rate-limit math", () => {
     expect(authDelayForAttempts(10)).toBe(30_000);
   });
   it("normalizes email to lowercase", () => {
-    expect(normalizeAuthEmail("  Admin@Mote.Local ")).toBe("admin@mote.local");
+    expect(normalizeAuthEmail("  Admin@Subshell.Local ")).toBe("admin@subshell.local");
     expect(normalizeAuthEmail(undefined)).toBe("");
   });
 });

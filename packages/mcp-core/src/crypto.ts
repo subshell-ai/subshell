@@ -35,7 +35,7 @@ export interface SealRecipient {
 type JwkInput = Parameters<typeof importJWK>[0];
 const asJwk = (json: string): JwkInput => JSON.parse(json) as JwkInput;
 
-/** The jose alg pair used everywhere in mote envelopes. */
+/** The jose alg pair used everywhere in subshell envelopes. */
 const ALG = "ECDH-ES+A256KW" as const;
 const ENC = "A256GCM" as const;
 

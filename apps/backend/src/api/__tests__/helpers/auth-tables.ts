@@ -24,7 +24,7 @@ import { runMigrations } from "@/db/migrate.js";
  *    `sessions` is already migrated there, but real on a pristine database
  *    (fresh clone, fresh CI runner, a new contributor's machine — `bun
  *    test` never calls `runMigrations()`, only `apps/backend/src/index.ts`
- *    does at server boot, and `data/mote.db` is gitignored).
+ *    does at server boot, and `data/subshell.db` is gitignored).
  * 2. For better-auth's own tables it was actively wrong, not just stale:
  *    hand-rolling them through this file's `db` (which has Kysely's
  *    `CamelCasePlugin` installed) silently renamed columns like

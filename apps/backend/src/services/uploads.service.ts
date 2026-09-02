@@ -11,11 +11,11 @@ import { logger } from "@/utils/logger.js";
 /** Upper bound on collision-suffix retries before giving up. */
 const MAX_COLLISION_ATTEMPTS = 1000;
 
-/** Directory (relative to the working directory) that holds Mote's per-directory state. */
-const MOTE_DIR = ".mote";
+/** Directory (relative to the working directory) that holds Subshell's per-directory state. */
+const SUBSHELL_DIR = ".subshell";
 
 /** The single line appended to .git/info/exclude. */
-const GIT_EXCLUDE_LINE = `${MOTE_DIR}/`;
+const GIT_EXCLUDE_LINE = `${SUBSHELL_DIR}/`;
 
 /** Filesystem limit for a single path component. */
 const MAX_NAME_BYTES = 255;
@@ -94,7 +94,7 @@ export class RemoteUploadError extends UploadError {
  * @returns Absolute path of the uploads directory
  */
 export function uploadsDirFor(workingRealPath: string): string {
-  return join(workingRealPath, MOTE_DIR, "uploads");
+  return join(workingRealPath, SUBSHELL_DIR, "uploads");
 }
 
 /**
@@ -169,10 +169,10 @@ export function resolveUploadPath(workingRealPath: string, name: string): string
 }
 
 /**
- * Appends `.mote/` to the working directory's `.git/info/exclude` when missing.
+ * Appends `.subshell/` to the working directory's `.git/info/exclude` when missing.
  *
  * `info/exclude` rather than `.gitignore`: it is per-clone and untracked, so
- * Mote never modifies a file the user commits. Best-effort — an unwritable
+ * Subshell never modifies a file the user commits. Best-effort — an unwritable
  * git dir must not fail an upload.
  *
  * @param workingRealPath - Resolved absolute working directory

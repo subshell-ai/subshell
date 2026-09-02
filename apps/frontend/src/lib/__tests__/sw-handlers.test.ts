@@ -17,15 +17,15 @@ type SwHandlers = {
 
 async function loadHandlers(): Promise<SwHandlers> {
   const src = await Bun.file(new URL("../../../public/sw-handlers.js", import.meta.url)).text();
-  const scope: { self: Record<string, unknown> } = { self: { location: { origin: "https://mote.test" } } };
+  const scope: { self: Record<string, unknown> } = { self: { location: { origin: "https://subshell.test" } } };
   new Function("self", src)(scope.self);
-  return scope.self.MoteSw as SwHandlers;
+  return scope.self.SubshellSw as SwHandlers;
 }
 
 describe("sw-handlers", () => {
   it("shouldShow is false when the focused client is already looking at the target", async () => {
     const { shouldShow } = await loadHandlers();
-    expect(shouldShow({ url: "/sessions/x" }, "https://mote.test/sessions/x")).toBe(false);
+    expect(shouldShow({ url: "/sessions/x" }, "https://subshell.test/sessions/x")).toBe(false);
   });
 
   it("shouldShow is true with no focused client", async () => {
@@ -35,7 +35,7 @@ describe("sw-handlers", () => {
 
   it("shouldShow is true when the focused client is somewhere else", async () => {
     const { shouldShow } = await loadHandlers();
-    expect(shouldShow({ url: "/sessions/x" }, "https://mote.test/settings")).toBe(true);
+    expect(shouldShow({ url: "/sessions/x" }, "https://subshell.test/settings")).toBe(true);
   });
 
   it("noteOptions carries title, body, tag and the raw data", async () => {
@@ -59,7 +59,7 @@ describe("sw-handlers", () => {
 
   it("clickTarget resolves a relative payload url against the worker origin", async () => {
     const { clickTarget } = await loadHandlers();
-    expect(clickTarget({ url: "/sessions/x" })).toBe("https://mote.test/sessions/x");
+    expect(clickTarget({ url: "/sessions/x" })).toBe("https://subshell.test/sessions/x");
   });
 
   it("clickTarget passes an absolute url through", async () => {

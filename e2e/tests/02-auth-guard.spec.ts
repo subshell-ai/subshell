@@ -18,7 +18,7 @@ test("protected APIs reject anonymous callers", async ({ request }) => {
 
 test("login page renders with its form", async ({ page }) => {
   await page.goto("/login");
-  await expect(page.getByText("Sign in to Mote")).toBeVisible();
+  await expect(page.getByText("Sign in to Subshell")).toBeVisible();
   await expect(page.locator("#email")).toBeVisible();
   await expect(page.locator("#password")).toBeVisible();
 });

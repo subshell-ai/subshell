@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { clampTermFont, setTerminalFontSize, TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 
 describe("terminal font size (per-device setting)", () => {
-  const KEY = "mote.termFontSize";
+  const KEY = "subshell.termFontSize";
   afterEach(() => localStorage.removeItem(KEY));
 
   it("defaults to 13 and survives garbage storage", () => {

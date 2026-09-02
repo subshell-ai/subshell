@@ -36,7 +36,7 @@ const createdEmails: string[] = [];
 const createdUserIds: string[] = [];
 
 function newEmail(): string {
-  const e = `reg-${crypto.randomUUID()}@mote.local`;
+  const e = `reg-${crypto.randomUUID()}@subshell.local`;
   createdEmails.push(e);
   return e;
 }

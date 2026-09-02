@@ -52,7 +52,7 @@ export interface McpSetupStepInfo {
 }
 
 /**
- * How a harness obtains the `mote mcp` cross-session tools. Discriminated:
+ * How a harness obtains the `subshell mcp` cross-session tools. Discriminated:
  * auto carries a summary, manual carries steps (mirrors the API's union).
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };

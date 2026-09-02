@@ -9,14 +9,14 @@ import { PromptModal } from "@/components/prompt-modal";
 import { SESSIONS_KEY } from "@/hooks/query-keys";
 import { useSession } from "@/hooks/use-session";
 import { useSessionLog } from "@/hooks/use-session-log";
-import type { MoteClient } from "@/lib/api";
+import type { SubshellClient } from "@/lib/api";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { sessionActionFlags } from "@/lib/session-access";
 import { isNodeOffline, isWaiting } from "@/lib/session-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * The detail body (spec §Screens Detail): status pill from the poll, the
@@ -54,7 +54,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
    * `client?.x()`, which returns `Promise<T> | undefined` and breaks tsc
    * (CI incident 2026-08-31). An injected parameter cannot be rewritten.
    */
-  async function run(label: string, fn: (cli: MoteClient) => Promise<unknown>) {
+  async function run(label: string, fn: (cli: SubshellClient) => Promise<unknown>) {
     if (!client) return;
     // Same posture as the Live tab: actions that can type into a pane (or end
     // one) require the biometric (spec §Security notes).

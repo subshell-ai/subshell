@@ -19,8 +19,8 @@ describe("GET /api/sessions/:id/log", () => {
   let userId: string;
   let token: string;
   let otherToken: string;
-  const email = `log-${crypto.randomUUID()}@mote.local`;
-  const otherEmail = `log2-${crypto.randomUUID()}@mote.local`;
+  const email = `log-${crypto.randomUUID()}@subshell.local`;
+  const otherEmail = `log2-${crypto.randomUUID()}@subshell.local`;
   const pw = "log-pass-1";
   const createdSessions: string[] = [];
 

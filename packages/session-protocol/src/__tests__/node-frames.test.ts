@@ -4,11 +4,11 @@ import { NODE_PROTOCOL_VERSION, parseNodeCommandBody, parseNodeEvent } from "../
 const launchCmd = {
   type: "launch",
   sessionId: "s1",
-  socket: "mote-abc",
+  socket: "subshell-abc",
   cwd: "/home/u/repo",
   harnessId: "claude-code",
   profile: { name: "P", env: { A: "b" }, flags: [], settings: null, configIsolation: false },
-  moteEnv: { MOTE_API_KEY: "mote_x" },
+  subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
   sessionName: "s1",
   harnessSession: { id: "h1", mode: "start" as const },
 };
@@ -20,7 +20,7 @@ describe("parseNodeCommandBody", () => {
     expect(cmd?.type).toBe("launch");
     if (cmd?.type === "launch") {
       expect(cmd.cwd).toBe("/home/u/repo");
-      expect(cmd.socket).toBe("mote-abc");
+      expect(cmd.socket).toBe("subshell-abc");
       expect(cmd.profile.name).toBe("P");
     }
   });

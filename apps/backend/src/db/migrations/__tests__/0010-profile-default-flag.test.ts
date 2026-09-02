@@ -35,7 +35,7 @@ describe("0010 profile default-flag migration", () => {
   let blankId: string;
 
   beforeAll(async () => {
-    dbFile = `/tmp/mote-0010-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-0010-${Math.random().toString(36).slice(2)}.db`;
     db = new Kysely<MigrationDatabase>({ dialect: new BunSqliteDialect({ database: openSqliteDatabase(dbFile) }) });
     await initMigration.up(db);
     await remoteOpsMigration.up(db); // profiles gains restart_on_exit

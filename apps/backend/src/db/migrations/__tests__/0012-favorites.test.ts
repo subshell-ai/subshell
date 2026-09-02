@@ -28,7 +28,7 @@ describe("migration 0012-favorites", () => {
     await db
       .insertInto("bookmarks")
       .values([
-        { id: "b1", userId: "u1", name: "mote repo", path: "/srv/mote", description: null },
+        { id: "b1", userId: "u1", name: "subshell repo", path: "/srv/subshell", description: null },
         { id: "b2", userId: "u2", name: "other user", path: "/srv/other", description: null },
       ])
       .execute();
@@ -37,8 +37,8 @@ describe("migration 0012-favorites", () => {
 
     const rows = await db.selectFrom("favorites").selectAll().orderBy("ref").execute();
     expect(rows.map((r) => [r.userId, r.kind, r.ref, r.label])).toEqual([
-      ["u1", "directory", "/srv/mote", "mote repo"],
       ["u2", "directory", "/srv/other", "other user"],
+      ["u1", "directory", "/srv/subshell", "subshell repo"],
     ]);
     const tables = await db.selectFrom("sqlite_master").select("name").where("name", "=", "bookmarks").execute();
     expect(tables).toHaveLength(0);
@@ -69,13 +69,13 @@ describe("migration 0012-favorites", () => {
     const db = await migratedDb(true);
     await db
       .insertInto("bookmarks")
-      .values({ id: "b1", userId: "u1", name: "mote repo", path: "/srv/mote", description: null })
+      .values({ id: "b1", userId: "u1", name: "subshell repo", path: "/srv/subshell", description: null })
       .execute();
     await favoritesMigration.up(db);
     await favoritesMigration.down(db);
 
     const bookmarks = await db.selectFrom("bookmarks").selectAll().execute();
-    expect(bookmarks.map((b) => [b.name, b.path])).toEqual([["mote repo", "/srv/mote"]]);
+    expect(bookmarks.map((b) => [b.name, b.path])).toEqual([["subshell repo", "/srv/subshell"]]);
     const tables = await db.selectFrom("sqlite_master").select("name").where("name", "=", "favorites").execute();
     expect(tables).toHaveLength(0);
     await db.destroy();

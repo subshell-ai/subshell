@@ -1,5 +1,5 @@
 # TEMPLATE — copy to docker/gitconfig (untracked; personal identity) and
-# fill in. Bind-mounted to /home/mote/.gitconfig in the container.
+# fill in. Bind-mounted to /home/subshell/.gitconfig in the container.
 #
 # Deliberately omit any `[gpg "ssh"] program = ...` signer override: external
 # signers (e.g. 1Password's op-ssh-sign) do not exist in the image and break
@@ -14,6 +14,6 @@
 [user]
 	name = Your Name
 	email = you@example.com
-	signingkey = /home/mote/.ssh/id_ed25519.pub
+	signingkey = /home/subshell/.ssh/id_ed25519.pub
 [gpg]
 	format = ssh

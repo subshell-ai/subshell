@@ -2,7 +2,7 @@ import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@interna
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {
-  /** mote session id (also the tmux session name) */
+  /** subshell session id (also the tmux session name) */
   id: string;
   /** tmux socket (tmuxSocketFor(id)) */
   socket: string;
@@ -16,8 +16,8 @@ export interface LaunchPlan {
   profile: ProfileDefinition;
   /** Display/session name handed to the plugin */
   sessionName: string;
-  /** MOTE_* credential env */
-  moteEnv: Record<string, string>;
+  /** SUBSHELL_* credential env */
+  subshellEnv: Record<string, string>;
   /** MCP registration (dialect computed control-side) */
   mcp?: McpRegistration;
   /**

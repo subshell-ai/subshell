@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { ApiError, MoteApi } from "../api-client.js";
+import { ApiError, SubshellApi } from "../api-client.js";
 
 /** REST client behavior, with globalThis.fetch stubbed (no server involved). */
-describe("MoteApi", () => {
+describe("SubshellApi", () => {
   const savedFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = savedFetch;
   });
 
-  const api = new MoteApi({ apiKey: "mote_key123", baseUrl: "http://h:3080" });
+  const api = new SubshellApi({ apiKey: "subshell_key123", baseUrl: "http://h:3080" });
 
   it("sends bearer auth and JSON content-type", async () => {
     let seen: Request | undefined;
@@ -17,7 +17,7 @@ describe("MoteApi", () => {
       return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } });
     }) as never;
     await api.req("/api/channels");
-    expect(seen?.headers.get("authorization")).toBe("Bearer mote_key123");
+    expect(seen?.headers.get("authorization")).toBe("Bearer subshell_key123");
     expect(seen?.url).toBe("http://h:3080/api/channels");
   });
 

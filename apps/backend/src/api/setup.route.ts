@@ -85,7 +85,7 @@ async function resolveSetupActor(request: Request): Promise<"cookie" | "machine"
  * Gate for the harness endpoints once a user exists (security audit 2026-08,
  * F3): GETs need any authenticated actor; PATCH additionally needs a COOKIE
  * actor. PATCH flips this machine's harness enable/disable state — machine
- * configuration with no machine consumer (the `mote mcp` binary never calls
+ * configuration with no machine consumer (the `subshell mcp` binary never calls
  * it; its endpoint census in packages/mcp-core/src/tools.ts covers sessions, channels,
  * profiles reads and identities only), so bearer keys have no reason to
  * exist on this write and are refused with 403 after authenticating.

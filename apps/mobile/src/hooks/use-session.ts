@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { polledInterval } from "@/hooks/polled-interval";
 import { sessionKey } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * One session on the same cadence as the list (spec §Rendering: session truth

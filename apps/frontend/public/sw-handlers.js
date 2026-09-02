@@ -24,5 +24,5 @@
   /** Absolute click destination for a payload's (possibly relative) url. */
   const clickTarget = (data) => new URL(data.url, self.location.origin).href;
 
-  self.MoteSw = { shouldShow, noteOptions, noteArgs, clickTarget };
+  self.SubshellSw = { shouldShow, noteOptions, noteArgs, clickTarget };
 }

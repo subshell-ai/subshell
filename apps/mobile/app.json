@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "mote",
-    "slug": "mote-mobile",
+    "name": "subshell",
+    "slug": "subshell-mobile",
     "version": "1.0.0",
-    "scheme": "mote",
+    "scheme": "subshell",
     "orientation": "default",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0a0c0f",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "nu.suteki.mote"
+      "bundleIdentifier": "nu.suteki.subshell"
     },
     "android": {
-      "package": "nu.suteki.mote"
+      "package": "nu.suteki.subshell"
     },
     "plugins": [
       "expo-router",

@@ -163,7 +163,7 @@ describe("sessions repository", () => {
       harnessId: "claude-code",
       name: "My Session",
       workingDir: "/tmp/work",
-      tmuxSocket: "mote-abc",
+      tmuxSocket: "subshell-abc",
     });
     expect(created.status).toBe("running");
 
@@ -182,7 +182,7 @@ describe("sessions repository", () => {
       harnessId: "claude-code",
       name: "S",
       workingDir: "/tmp",
-      tmuxSocket: "mote-def",
+      tmuxSocket: "subshell-def",
     });
 
     const now = new Date().toISOString();
@@ -210,7 +210,7 @@ describe("sessions repository", () => {
       harnessId: "claude-code",
       name: "Guarded",
       workingDir: "/tmp",
-      tmuxSocket: "mote-guard",
+      tmuxSocket: "subshell-guard",
     });
     expect(await repos.sessions.updateIfRunning(created.id, { alive: 1, backoffCount: 3 })).toBe(1);
     expect((await repos.sessions.findById(created.id))?.backoffCount).toBe(3);
@@ -235,7 +235,7 @@ describe("sessions repository", () => {
       harnessId: "claude-code",
       name: "Parked",
       workingDir: "/tmp",
-      tmuxSocket: "mote-park",
+      tmuxSocket: "subshell-park",
     });
     // Expected state matches (running/alive 1) → parks.
     expect(await repos.sessions.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(1);

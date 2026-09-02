@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * The Log tab source (spec §Rendering): the already-stripAnsi-ed native tail.

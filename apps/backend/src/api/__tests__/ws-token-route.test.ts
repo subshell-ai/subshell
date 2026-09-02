@@ -26,7 +26,7 @@ const app = new Elysia().use(errorHandlerPlugin).use(wsTokenRoutes);
 
 describe("ws-token route (cookie only)", () => {
   let userId: string;
-  const email = `wstok-${crypto.randomUUID()}@mote.local`;
+  const email = `wstok-${crypto.randomUUID()}@subshell.local`;
   const password = "wstok-pass-1234";
   let cookie: string;
   let sessionKey: string;

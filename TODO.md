@@ -1,4 +1,4 @@
-# Mote — TODO / Resume Notes
+# Subshell — TODO / Resume Notes
 
 > Status as of 2026-08-23 (evening session). Remote-operations round fully complete — see "Committed (remote-operations round)" and "Verified" below. Operator-UX round complete before it (see "Committed (operator-UX round)").
 
@@ -39,7 +39,7 @@
   - Running session: xterm renders (canvas painted), **SessionSwitcher** pill for other session, **Find** finds text (1/1 match counter + prev/next enabled), **Terminate** works (confirm dialog → `status: terminated`, `preview: []`).
   - Terminated session: **Restart** button + "Session is not running." message → accept → new session "SSE Test (2) (2)" created (backend log confirms), page navigates to new session, status running + Terminate.
   - Caveat: xterm text-canvas `getImageData` is CORS-tainted for pixel-level text proof on the post-restart page; rendering confirmed via element presence + caret/cursor pixels + working WS pipeline. Screenshots couldn't be viewed (vision model unavailable) and were not kept.
-- Sessions list still holds test sessions: "SSE Test" (running), "SSE Test (2)" (terminated), "SSE Test (2) (2)" (running) — created by this smoke round under profile `admin@mote.local` (password reset to `admin123`).
+- Sessions list still holds test sessions: "SSE Test" (running), "SSE Test (2)" (terminated), "SSE Test (2) (2)" (running) — created by this smoke round under profile `admin@subshell.local` (password reset to `admin123`).
 - Full verification sweep: `bun install` clean; `verify-types` (6 pkgs) clean; lint clean for backend/frontend/harnesses (sqlite-dialect has 1 pre-existing `noExplicitAny` warning — non-blocking); tests: backend 64 pass, sqlite-dialect 5, harnesses 7, frontend + backend-client pass-with-no-tests.
 - Frontend prod build: `bun run --cwd apps/frontend build` rebuilt (dist has operator-UX SPA).
 - Dev servers running: backend `bun run ./src/index.ts` on :3080 (restarted fresh — `preview` live), frontend Vite on :5174 (HMR). Chrome MCP restarted (stale chrome on the MCP profile was holding the singleton lock; killed + removed stale `Singleton*` files).
@@ -66,10 +66,10 @@ Nothing blocking. Optional backlog:
 
 - Backend dev: `cd apps/backend && bun run dev` (port 3080). Runs from apps/backend dir only.
 - Frontend dev: `cd apps/frontend && bun run dev` (port 5174; proxies /api + /ws → 3080). Port 5173 is taken by the user's docker container.
-- Prod serve: `bun run --cwd apps/frontend build` + `bun run --cwd apps/backend build` then `cd apps/backend && NODE_ENV=production BETTER_AUTH_SECRET=… DATABASE_PATH=./data/mote.db APP_BASE_URL=http://localhost:3080 bun run ./dist/index.js`
-- DB reset (dev): `rm -f apps/backend/data/mote.db* && rm -rf apps/backend/data/sessions`
-- Dev password reset: `cd apps/backend && bun run scripts/set-admin-password.ts admin@mote.local admin123`
-- **Persistence gotcha**: background servers die between tool calls — use `nohup … > /tmp/mote-*.log 2>&1 &` and check with `lsof -i :3080`. Always kill by PID.
+- Prod serve: `bun run --cwd apps/frontend build` + `bun run --cwd apps/backend build` then `cd apps/backend && NODE_ENV=production BETTER_AUTH_SECRET=… DATABASE_PATH=./data/subshell.db APP_BASE_URL=http://localhost:3080 bun run ./dist/index.js`
+- DB reset (dev): `rm -f apps/backend/data/subshell.db* && rm -rf apps/backend/data/sessions`
+- Dev password reset: `cd apps/backend && bun run scripts/set-admin-password.ts admin@subshell.local admin123`
+- **Persistence gotcha**: background servers die between tool calls — use `nohup … > /tmp/subshell-*.log 2>&1 &` and check with `lsof -i :3080`. Always kill by PID.
 - The dev backend does NOT hot-reload unless started with `--watch` (`bun run dev`); plain `bun run ./src/index.ts` serves stale code after edits — restart after backend changes.
 
 ## Gotchas learned (avoid re-debugging)

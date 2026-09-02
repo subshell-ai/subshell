@@ -12,7 +12,7 @@ if [ "${1:-}" = "--version" ]; then
   echo "pi 0.0.0-e2e-stub"
   exit 0
 fi
-echo "mote-e2e stub harness ready"
+echo "subshell-e2e stub harness ready"
 # Echo pane input back visibly so specs can prove keystrokes reached the PTY
 # (mobile key bar, spec 09). Raw mode makes control bytes arrive as BYTES
 # (no signals); cat -v renders them visibly (^C, ^[ — its notation exempts

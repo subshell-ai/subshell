@@ -3,20 +3,20 @@ import { parseArgs, run } from "../cli.js";
 
 /**
  * The `subshell mcp` CLI surface (Task 13). ONLY the reject paths are run
- * through `run()`: a complete MOTE_* env would attach the real stdio transport
+ * through `run()`: a complete SUBSHELL_* env would attach the real stdio transport
  * to this test runner's own stdin (run() then resolves with `keepAlive` once
  * attached — post-T18-fix, see `cli-mcp-entry.test.ts` for the spawned-child
  * happy path: liveness + the initialize handshake). Isolation:
- * every MOTE_* variable is stripped per test — the reject assertions must
+ * every SUBSHELL_* variable is stripped per test — the reject assertions must
  * describe OUR env handling, never whatever the developer's shell exports.
  */
 const MCP_ENV_KEYS = [
-  "MOTE_API_KEY",
-  "MOTE_BASE_URL",
-  "MOTE_SESSION_ID",
-  "MOTE_SESSION_NAME",
-  "MOTE_DATA_DIR",
-  "MOTE_CHANNEL_PIN",
+  "SUBSHELL_API_KEY",
+  "SUBSHELL_BASE_URL",
+  "SUBSHELL_SESSION_ID",
+  "SUBSHELL_SESSION_NAME",
+  "SUBSHELL_DATA_DIR",
+  "SUBSHELL_CHANNEL_PIN",
 ] as const;
 
 describe("subshell mcp (CLI wiring)", () => {
@@ -44,19 +44,19 @@ describe("subshell mcp (CLI wiring)", () => {
     expect(() => parseArgs(["mcp", "--data-dir", "/tmp/x"])).toThrow(/not valid for 'mcp'/);
   });
 
-  test("missing MOTE_API_KEY → exit 2 with the actionable line, stdout untouched", async () => {
+  test("missing SUBSHELL_API_KEY → exit 2 with the actionable line, stdout untouched", async () => {
     const res = await run(["mcp"]);
     expect(res.code).toBe(2);
-    expect(msgLine(res.err)).toInclude("MOTE_API_KEY is not set");
+    expect(msgLine(res.err)).toInclude("SUBSHELL_API_KEY is not set");
     expect(res.out).toBe("");
   });
 
-  test("MOTE_API_KEY without MOTE_SESSION_ID → exit 2 naming MOTE_SESSION_ID", async () => {
-    process.env.MOTE_API_KEY = "mote_test_key";
+  test("SUBSHELL_API_KEY without SUBSHELL_SESSION_ID → exit 2 naming SUBSHELL_SESSION_ID", async () => {
+    process.env.SUBSHELL_API_KEY = "subshell_test_key";
     const res = await run(["mcp"]);
     expect(res.code).toBe(2);
-    expect(msgLine(res.err)).toInclude("MOTE_SESSION_ID is not set");
-    expect(res.err).not.toInclude("MOTE_API_KEY is not set");
+    expect(msgLine(res.err)).toInclude("SUBSHELL_SESSION_ID is not set");
+    expect(res.err).not.toInclude("SUBSHELL_API_KEY is not set");
   });
 
   test("usage lists `subshell mcp`", async () => {

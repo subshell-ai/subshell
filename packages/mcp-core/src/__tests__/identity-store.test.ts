@@ -7,7 +7,7 @@ import { loadOrCreateIdentity } from "../identity-store.js";
 /** The local process persists its keypair so identity survives restarts. */
 describe("identity-store", () => {
   it("creates then reloads the same keypair for a principal", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-identity-"));
     const first = await loadOrCreateIdentity(dir, "sess:abc-123");
     expect(first.publicJwk).toBeTruthy();
     const second = await loadOrCreateIdentity(dir, "sess:abc-123");
@@ -16,7 +16,7 @@ describe("identity-store", () => {
   });
 
   it("stores the file mode 0600 under identities/<safe-id>.json", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-identity-"));
     await loadOrCreateIdentity(dir, "sess:xyz");
     const file = join(dir, "identities", "sess-xyz.json"); // ':' sanitized for the filesystem
     const mode = statSync(file).mode & 0o777;
@@ -26,7 +26,7 @@ describe("identity-store", () => {
   });
 
   it("refuses to reuse a file stamped for a different principal", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-identity-"));
     mkdirSync(join(dir, "identities"), { recursive: true });
     writeFileSync(
       join(dir, "identities", "sess-two.json"),
@@ -36,7 +36,7 @@ describe("identity-store", () => {
   });
 
   it("fail-closed on a corrupt (unreadable) identity file: throws, never clobbers", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-identity-"));
     mkdirSync(join(dir, "identities"), { recursive: true });
     const file = join(dir, "identities", "sess-bad.json");
     writeFileSync(file, "{ not json");
@@ -53,7 +53,7 @@ describe("identity-store", () => {
     // try/catch and died on `stored.principalId` with a bare TypeError. It is
     // corruption of a PRESENT file: same quarantine path, actionable message,
     // and never an overwrite.
-    const dir = mkdtempSync(join(tmpdir(), "mote-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-identity-"));
     mkdirSync(join(dir, "identities"), { recursive: true });
     const file = join(dir, "identities", "sess-null.json");
     writeFileSync(file, "null");
@@ -64,7 +64,7 @@ describe("identity-store", () => {
   });
 
   it("still generates a fresh keypair on ENOENT (no file at all)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-identity-"));
     const fresh = await loadOrCreateIdentity(dir, "sess-missing");
     expect(JSON.parse(fresh.publicJwk).kty).toBe("EC");
   });

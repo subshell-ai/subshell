@@ -18,14 +18,14 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-t
 /**
  * The folder explorer is an authenticated-BROWSER convenience, not an API:
  * machine credentials (bearer session/system keys) must not be able to walk
- * the host filesystem, and MOTE_FS_ROOT — when set — confines browsing to
+ * the host filesystem, and SUBSHELL_FS_ROOT — when set — confines browsing to
  * that tree. (Unset means no confinement by design; the route docstring is
  * the contract, this pins it.)
  */
 describe("files route (folder explorer)", () => {
   let userId: string;
   let cookie: string;
-  const email = `files-${crypto.randomUUID()}@mote.local`;
+  const email = `files-${crypto.randomUUID()}@subshell.local`;
   const password = "files-pass-1234";
   const createdSessionIds: string[] = [];
   const createdKeyIds: string[] = [];
@@ -103,20 +103,20 @@ describe("files route (folder explorer)", () => {
     expect((await explore({ bearer: key, path: "/tmp" })).status).toBe(403);
   });
 
-  describe("MOTE_FS_ROOT confinement", () => {
+  describe("SUBSHELL_FS_ROOT confinement", () => {
     // The route reads the env per request, so setting it around these tests
     // is enough; the cookie request helper goes through the same handler.
-    const confined = Bun.spawnSync(["mktemp", "-d", "/tmp/mote-fsroot-XXXXXX"]);
+    const confined = Bun.spawnSync(["mktemp", "-d", "/tmp/subshell-fsroot-XXXXXX"]);
     const rootDir = confined.stdout.toString().trim();
     let saved: string | undefined;
 
     beforeAll(() => {
-      saved = process.env.MOTE_FS_ROOT;
-      process.env.MOTE_FS_ROOT = rootDir;
+      saved = process.env.SUBSHELL_FS_ROOT;
+      process.env.SUBSHELL_FS_ROOT = rootDir;
     });
     afterAll(() => {
-      if (saved === undefined) delete process.env.MOTE_FS_ROOT;
-      else process.env.MOTE_FS_ROOT = saved;
+      if (saved === undefined) delete process.env.SUBSHELL_FS_ROOT;
+      else process.env.SUBSHELL_FS_ROOT = saved;
     });
 
     it("path outside the root -> 403", async () => {
@@ -136,7 +136,7 @@ describe("files route (folder explorer)", () => {
       // M-2 (final review): confinement compared unresolved paths while the
       // entry stat follows symlinks — clicking a planted symlink dir listed
       // its target anywhere on the host. Must now compare realpath forms.
-      const outside = mkdtempSync(join(tmpdir(), "mote-fsroot-outside-"));
+      const outside = mkdtempSync(join(tmpdir(), "subshell-fsroot-outside-"));
       writeFileSync(join(outside, "secret-outside.txt"), "leaked");
       const link = join(rootDir, "escape-link");
       try {
@@ -199,7 +199,7 @@ describe("files route (folder explorer)", () => {
       let ownNodeId: string;
       /** A node owned by a ghost id with no shares → invisible, like a foreign one. */
       let foreignNodeId: string;
-      const SHARED_PATH = "/tmp/mote-recent-two-nodes";
+      const SHARED_PATH = "/tmp/subshell-recent-two-nodes";
 
       async function recentScoped(node?: string) {
         const url = `http://localhost:3080/api/files/recent${node !== undefined ? `?node=${encodeURIComponent(node)}` : ""}`;
@@ -360,14 +360,14 @@ describe("files route (folder explorer)", () => {
       expect((await favorite({ path: "/tmp/x", on: true })).status).toBe(401);
     });
 
-    it("path outside MOTE_FS_ROOT confinement -> 403", async () => {
-      const saved = process.env.MOTE_FS_ROOT;
-      process.env.MOTE_FS_ROOT = "/opt/mote-root";
+    it("path outside SUBSHELL_FS_ROOT confinement -> 403", async () => {
+      const saved = process.env.SUBSHELL_FS_ROOT;
+      process.env.SUBSHELL_FS_ROOT = "/opt/subshell-root";
       try {
         expect((await favorite({ cookieToken: cookie, path: "/etc", on: true })).status).toBe(403);
       } finally {
-        if (saved === undefined) delete process.env.MOTE_FS_ROOT;
-        else process.env.MOTE_FS_ROOT = saved;
+        if (saved === undefined) delete process.env.SUBSHELL_FS_ROOT;
+        else process.env.SUBSHELL_FS_ROOT = saved;
       }
     });
   });

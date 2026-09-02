@@ -10,7 +10,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 describe("identities route", () => {
   let userId: string;
   let token: string;
-  const email = `idn-${crypto.randomUUID()}@mote.local`;
+  const email = `idn-${crypto.randomUUID()}@subshell.local`;
   const pw = "identity-pass-1";
 
   beforeAll(async () => {

@@ -4,12 +4,12 @@ This document describes how this project works and how to perform common operati
 
 ## Project Overview
 
-This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, a node agent daemon (`subshell`), and shared packages: a type-safe Eden Treaty client SDK, the session protocol, agent harness plugins, a shared `mote mcp` server, and backend error handling.
+This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, a node agent daemon (`subshell`), and shared packages: a type-safe Eden Treaty client SDK, the session protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
 
 ### Directory Structure
 
 ```
-mote/
+subshell/
 ├── apps/
 │   ├── backend/                    # ElysiaJS API server; also serves the built SPA in prod
 │   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
@@ -21,7 +21,7 @@ mote/
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
 │   ├── session-protocol/           # Session contract shared by backend and frontend: WS frames, upload limits
 │   ├── harnesses/                  # Harness plugin interface and built-in agent harness plugins
-│   └── mcp-core/                   # The `mote mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
+│   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── turbo.json                      # Turbo task configuration
 ├── package.json                    # Root workspace definition
 ├── biome.json                      # Linting and formatting
@@ -148,12 +148,12 @@ systemctl --user restart subshell-server.service     # 3. the backend serves the
   published as `subshell-<triple>` + a fresh `.sha256` sidecar via temp-file
   + `rename()` (the atomic swap the downloads route's mtime-keyed cache
   requires). See `apps/agent/AGENTS.md` for the app itself.
-- Publish destination: `MOTE_NODE_ARTIFACTS_DIR`, else
+- Publish destination: `SUBSHELL_NODE_ARTIFACTS_DIR`, else
   `<SESSION_DATA_DIR>/node-artifacts` — the same default the backend resolves.
   From a plain shell none of those vars are set (the service gets them from its
   unit/`EnvironmentFile`), so the ladder silently publishes to
   `apps/agent/data/node-artifacts` where the backend never looks — pass
-  `MOTE_NODE_ARTIFACTS_DIR` explicitly when deploying from a terminal.
+  `SUBSHELL_NODE_ARTIFACTS_DIR` explicitly when deploying from a terminal.
 - Cross builds download their target's bun runtime on first use and deliberately
   ship WITHOUT `--bytecode` (bytecode + cross is a known compile risk). A failed
   target exits non-zero and publishes NOTHING — never a half set.

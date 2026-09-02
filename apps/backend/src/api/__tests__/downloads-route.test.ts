@@ -44,7 +44,7 @@ const BASH = Bun.which("bash");
  * straight there.
  */
 describe("/api/downloads + /install.sh (assembled app)", () => {
-  const email = `dl-${crypto.randomUUID()}@mote.local`;
+  const email = `dl-${crypto.randomUUID()}@subshell.local`;
   const pw = "downloads-1";
   const TARGET = "linux-x64";
   const fixturePath = join(NODE_ARTIFACTS_DIR, `subshell-${TARGET}`);
@@ -284,19 +284,19 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("sha256sum -c");
     expect(body).toContain("shasum -a 256 -c");
     // Branch-aware spellings (fix wave 1): $DEST holds the install path —
-    // ./subshell by default, $MOTE_DATA_DIR/subshell when the knob is set.
+    // ./subshell by default, $SUBSHELL_DATA_DIR/subshell when the knob is set.
     expect(body).toContain('chmod +x "$DEST"');
     expect(body).toContain('"$DEST" enroll --server "$SERVER" --key "$KEY"');
     expect(body).toContain('start the agent with:  \\"$DEST\\" run');
     expect(body).not.toContain("exit 2");
   });
 
-  it("install.sh MOTE_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ./subshell + empty arg array", async () => {
+  it("install.sh SUBSHELL_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ./subshell + empty arg array", async () => {
     const body = await (await install(await mkKey())).text();
-    // Env knob: `curl … | MOTE_DATA_DIR=/opt/mote bash`; UNSET keeps the
+    // Env knob: `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash`; UNSET keeps the
     // historical CWD install and never passes --data-dir (fix wave 1).
-    expect(body).toContain('if [ -n "${MOTE_DATA_DIR:-}" ]; then');
-    expect(body).toContain('DATA_DIR="$MOTE_DATA_DIR"');
+    expect(body).toContain('if [ -n "${SUBSHELL_DATA_DIR:-}" ]; then');
+    expect(body).toContain('DATA_DIR="$SUBSHELL_DATA_DIR"');
     // Installer-created dirs are private (also on a shared /opt).
     expect(body).toContain('(umask 077; mkdir -p "$DATA_DIR")');
     expect(body).toContain('DEST="$DATA_DIR/subshell"');
@@ -319,12 +319,12 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
    */
   const FILE_EXEC = (() => {
     if (!BASH) return false;
-    const dir = mkdtempSync(join(tmpdir(), "mote-exec-probe-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-exec-probe-"));
     try {
       const probe = join(dir, "probe.sh");
-      writeFileSync(probe, "#!/usr/bin/env bash\necho MOTE_EXEC_PROBE\n");
+      writeFileSync(probe, "#!/usr/bin/env bash\necho SUBSHELL_EXEC_PROBE\n");
       chmodSync(probe, 0o755);
-      return Bun.spawnSync(["bash", probe]).stdout.toString().includes("MOTE_EXEC_PROBE");
+      return Bun.spawnSync(["bash", probe]).stdout.toString().includes("SUBSHELL_EXEC_PROBE");
     } catch {
       return false;
     } finally {
@@ -333,14 +333,14 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   })();
 
   it.skipIf(!BASH)(
-    "install.sh MOTE_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=./subshell, enroll args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
+    "install.sh SUBSHELL_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=./subshell, enroll args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
     async () => {
       // The rendered script contains BOTH branches, so text assertions cannot
       // show which one runs. Slice the real rendered block out of the body and
       // exec it inline (`bash -c`), reproducing the script's own enroll
       // expansion — the output IS the argv enroll would receive on each branch.
       const body = await (await install(await mkKey())).text();
-      const block = body.match(/^if \[ -n "\$\{MOTE_DATA_DIR:-\}" \]; then[\s\S]*?^fi$/m)?.[0];
+      const block = body.match(/^if \[ -n "\$\{SUBSHELL_DATA_DIR:-\}" \]; then[\s\S]*?^fi$/m)?.[0];
       expect(block).toBeDefined();
       const prog = [
         "set -euo pipefail",
@@ -350,13 +350,13 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         "printf '%s\\n' enroll --server SRV --key KEY ${ENROLL_DATA_DIR_ARGS[@]+\"${ENROLL_DATA_DIR_ARGS[@]}\"}",
       ].join("\n");
 
-      const work = mkdtempSync(join(tmpdir(), "mote-branch-exec-"));
+      const work = mkdtempSync(join(tmpdir(), "subshell-branch-exec-"));
       try {
         function runBranch(extraEnv: Record<string, string>) {
           const env: Record<string, string> = { ...(process.env as Record<string, string>), ...extraEnv };
           // The default run must see the knob GENUINELY unset, whatever the
           // machine running the suite happens to have exported.
-          if (extraEnv.MOTE_DATA_DIR === undefined) delete env.MOTE_DATA_DIR;
+          if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
           const proc = Bun.spawnSync(["bash", "-c", prog], { cwd: work, env });
           expect(proc.stderr.toString()).toBe("");
           expect(proc.exitCode).toBe(0);
@@ -370,8 +370,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(def).not.toContain("--data-dir"); // the agent keeps its own default data dir
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
-        const dest = join(work, "deep", "mote-data"); // missing parents also pin `mkdir -p`
-        const opt = runBranch({ MOTE_DATA_DIR: dest });
+        const dest = join(work, "deep", "subshell-data"); // missing parents also pin `mkdir -p`
+        const opt = runBranch({ SUBSHELL_DATA_DIR: dest });
         expect(opt).toContain(`DEST=${dest}/subshell`);
         expect(opt).toContain("--data-dir");
         expect(opt[opt.indexOf("--data-dir") + 1]).toBe(dest);
@@ -385,7 +385,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
 
   it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
-    "install.sh EXECUTED end-to-end with stub curl/uname: default → ./subshell in CWD and enroll WITHOUT --data-dir; MOTE_DATA_DIR → relocated dest + --data-dir",
+    "install.sh EXECUTED end-to-end with stub curl/uname: default → ./subshell in CWD and enroll WITHOUT --data-dir; SUBSHELL_DATA_DIR → relocated dest + --data-dir",
     async () => {
       const key = await mkKey();
       const body = await (await install(key)).text();
@@ -394,7 +394,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
       // agent that logs its argv (and the digest its stub verifier accepts), so
       // the assertions read what enroll ACTUALLY RECEIVED through the real
       // download → verify → chmod → enroll chain.
-      const work = mkdtempSync(join(tmpdir(), "mote-install-exec-"));
+      const work = mkdtempSync(join(tmpdir(), "subshell-install-exec-"));
       try {
         const bin = join(work, "bin");
         mkdirSync(bin);
@@ -432,7 +432,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
             ENROLL_LOG: logPath,
             ...extraEnv,
           };
-          if (extraEnv.MOTE_DATA_DIR === undefined) delete env.MOTE_DATA_DIR;
+          if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
           // `bash -c <body>` — exactly what `curl … | bash` hands the shell.
           const proc = Bun.spawnSync(["bash", "-c", body], { cwd, env });
           return {
@@ -455,8 +455,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
         const cwd2 = join(work, "cwd-relocated");
-        const dest = join(cwd2, "deep", "mote-data"); // missing parents also pin `mkdir -p`
-        const opt = runBranch(cwd2, { MOTE_DATA_DIR: dest });
+        const dest = join(cwd2, "deep", "subshell-data"); // missing parents also pin `mkdir -p`
+        const opt = runBranch(cwd2, { SUBSHELL_DATA_DIR: dest });
         expect(opt.exitCode).toBe(0);
         expect(opt.args).toContain("--data-dir");
         expect(opt.args[opt.args.indexOf("--data-dir") + 1]).toBe(dest);
@@ -478,7 +478,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toMatch(/localhost[\s\S]*VPN\/LAN/); // the branch echoes the warning
     expect(body).toContain("runs as the invoking user; no sudo needed");
     // The usage render (no key) has no pipeline to guard.
-    expect(await (await install()).text()).not.toContain("MOTE_DATA_DIR");
+    expect(await (await install()).text()).not.toContain("SUBSHELL_DATA_DIR");
   });
 
   it.skipIf(!BASH)("both install.sh renders pass `bash -n` (syntax gate for future template edits)", async () => {

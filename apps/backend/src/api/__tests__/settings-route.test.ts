@@ -29,10 +29,10 @@ const app = new Elysia().use(errorHandlerPlugin).use(settingsRoutes);
 
 describe("settings routes (admin cookie only)", () => {
   let adminId: string;
-  const adminEmail = `settings-admin-${crypto.randomUUID()}@mote.local`;
+  const adminEmail = `settings-admin-${crypto.randomUUID()}@subshell.local`;
   const adminPassword = "settings-admin-pass-1";
   let nonAdminId: string;
-  const nonAdminEmail = `settings-user-${crypto.randomUUID()}@mote.local`;
+  const nonAdminEmail = `settings-user-${crypto.randomUUID()}@subshell.local`;
   const nonAdminPassword = "settings-user-pass-1";
   let adminCookie: string;
   let nonAdminCookie: string;
@@ -189,7 +189,7 @@ describe("settings routes (admin cookie only)", () => {
     // above), so the flag reads go out with the admin cookie; the banner's
     // real caller is always a signed-in user anyway.
     type Public = { allowRegistrations: boolean; emergencyLoginActive: boolean };
-    const saved = process.env.MOTE_EMERGENCY_PASSWORD;
+    const saved = process.env.SUBSHELL_EMERGENCY_PASSWORD;
     const get = async () =>
       (await (
         await app.fetch(
@@ -199,20 +199,20 @@ describe("settings routes (admin cookie only)", () => {
         )
       ).json()) as Public;
     try {
-      delete process.env.MOTE_EMERGENCY_PASSWORD;
+      delete process.env.SUBSHELL_EMERGENCY_PASSWORD;
       const off = await get();
       expect(off.emergencyLoginActive).toBe(false);
-      process.env.MOTE_EMERGENCY_PASSWORD = "armed-for-test";
+      process.env.SUBSHELL_EMERGENCY_PASSWORD = "armed-for-test";
       const on = await get();
       expect(on.emergencyLoginActive).toBe(true);
       expect(on.allowRegistrations).toBe(off.allowRegistrations);
       // Whitespace-only must read as DISARMED (the hatch itself refuses to
       // arm on it — a " " break-glass password is no password).
-      process.env.MOTE_EMERGENCY_PASSWORD = "   ";
+      process.env.SUBSHELL_EMERGENCY_PASSWORD = "   ";
       expect((await get()).emergencyLoginActive).toBe(false);
     } finally {
-      if (saved === undefined) delete process.env.MOTE_EMERGENCY_PASSWORD;
-      else process.env.MOTE_EMERGENCY_PASSWORD = saved;
+      if (saved === undefined) delete process.env.SUBSHELL_EMERGENCY_PASSWORD;
+      else process.env.SUBSHELL_EMERGENCY_PASSWORD = saved;
     }
   });
 

@@ -38,7 +38,7 @@ let base: string;
 let claudePathOriginal: string | undefined;
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "mote-launch-")));
+  base = realpathSync(mkdtempSync(join(tmpdir(), "subshell-launch-")));
 });
 
 beforeEach(() => {
@@ -174,11 +174,11 @@ function launchCmd(over: Partial<LaunchCmd> = {}): LaunchCmd {
   return {
     type: "launch",
     sessionId: S1,
-    socket: "mote-launch-test",
+    socket: "subshell-launch-test",
     cwd: base,
     harnessId: "claude-code",
     profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
-    moteEnv: { MOTE_API_KEY: "k" },
+    subshellEnv: { SUBSHELL_API_KEY: "k" },
     sessionName: "s1",
     cols: 120,
     rows: 30,
@@ -199,7 +199,7 @@ async function recordMeta(store: SessionMetaStore, sessionId: string, socket: st
 
 /** The claude dialect the AGENT regenerates locally (Step-3 design note). */
 function localMcpContent(): string {
-  return `${JSON.stringify({ mcpServers: { mote: { command: process.execPath, args: ["mcp"] } } }, null, 2)}\n`;
+  return `${JSON.stringify({ mcpServers: { subshell: { command: process.execPath, args: ["mcp"] } } }, null, 2)}\n`;
 }
 
 async function waitFor(cond: () => boolean, what: string, timeoutMs = 5_000): Promise<void> {
@@ -239,7 +239,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
           // Ordering proof: the meta record is already readable when tmux is dialed.
           probe = ctx.meta.get(id);
           paneCmd = cmd;
-          expect(socket).toBe("mote-launch-test");
+          expect(socket).toBe("subshell-launch-test");
           expect(cwd).toBe(base);
         },
         pipePane: () => {},
@@ -252,8 +252,8 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(result).toEqual({ ok: true });
     expect(events).toEqual([]); // the answer is the RESULT frame; no stray events
     expect(methodsOf(calls)).toEqual(["newSession", "pipePane", "resizeWindow"]);
-    expect(calls[1]?.args).toEqual(["mote-launch-test", S1, ctx.meta.logPath(S1)]);
-    expect(calls[2]?.args).toEqual(["mote-launch-test", S1, 120, 30]);
+    expect(calls[1]?.args).toEqual(["subshell-launch-test", S1, ctx.meta.logPath(S1)]);
+    expect(calls[2]?.args).toEqual(["subshell-launch-test", S1, 120, 30]);
 
     // (4) meta recorded first — full record visible at newSession time and after.
     const recorded = await probe;
@@ -261,15 +261,15 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(recorded).toMatchObject({
       sessionId: S1,
       cwd: base,
-      socket: "mote-launch-test",
+      socket: "subshell-launch-test",
       harnessId: "claude-code",
       name: "s1",
     });
     expect(recorded?.startedAt).toBe(new Date(FIXED_NOW).toISOString());
 
-    // (5) §6.4 assembly: env -i + moteEnv + the real claude argv (binary from CLAUDE_PATH).
+    // (5) §6.4 assembly: env -i + subshellEnv + the real claude argv (binary from CLAUDE_PATH).
     expect(paneCmd.startsWith("env -i ")).toBe(true);
-    expect(paneCmd).toInclude("MOTE_API_KEY='k'");
+    expect(paneCmd).toInclude("SUBSHELL_API_KEY='k'");
     expect(paneCmd).toInclude("'/bin/sh'");
     expect(paneCmd).toInclude("'--settings'");
     expect(paneCmd).toInclude("'--name' 's1'");
@@ -990,7 +990,7 @@ it.skipIf(!HAS_TMUX)(
     writeFileSync(stub, "#!/bin/sh\necho hi\nexec sleep 30\n", { mode: 0o755 });
     process.env.CLAUDE_PATH = stub;
 
-    const socket = `mote-test-${crypto.randomUUID().slice(0, 8)}`;
+    const socket = `subshell-test-${crypto.randomUUID().slice(0, 8)}`;
     const sessionId = crypto.randomUUID();
     const events: NodeEvent[] = [];
     const runner = new TmuxRunner();

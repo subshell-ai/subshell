@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApiError, MoteApi } from "../api-client.js";
+import { ApiError, SubshellApi } from "../api-client.js";
 import { generateKeypair, open, seal } from "../crypto.js";
 import { reloadPinSettingsForTests } from "../pin-store.js";
 import {
@@ -43,12 +43,12 @@ function fakeApi(handler: (req: { path: string; method: string; body?: Record<st
   return { api, calls };
 }
 
-/** Gives each post_channel test its own empty pin set (tmp MOTE_DATA_DIR). */
+/** Gives each post_channel test its own empty pin set (tmp SUBSHELL_DATA_DIR). */
 const tmpDirs: string[] = [];
 function freshPinDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mote-tools-pins-"));
+  const dir = mkdtempSync(join(tmpdir(), "subshell-tools-pins-"));
   tmpDirs.push(dir);
-  reloadPinSettingsForTests({ MOTE_DATA_DIR: dir });
+  reloadPinSettingsForTests({ SUBSHELL_DATA_DIR: dir });
   return dir;
 }
 
@@ -173,10 +173,10 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(create?.body?.prompt).toBe("do it");
   });
 
-  it("create_session over the REAL MoteApi with fetch stubbed makes the expected REST calls", async () => {
+  it("create_session over the REAL SubshellApi with fetch stubbed makes the expected REST calls", async () => {
     // Folded in from the agent's port-parity suite (which this package replaced):
     // no fakeApi — a stubbed global fetch (api-client.test pattern), so the full
-    // client path (MoteApi.req → fetch) is proven: GET /api/profiles (bearer),
+    // client path (SubshellApi.req → fetch) is proven: GET /api/profiles (bearer),
     // then POST /api/sessions with the NAME-resolved profileId and the prompt.
     const savedFetch = globalThis.fetch;
     const seen: Request[] = [];
@@ -191,7 +191,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
     try {
       const own = await generateKeypair();
       const deps: ToolDeps = {
-        api: new MoteApi({ apiKey: "mote_key123", baseUrl: "http://h:3080" }),
+        api: new SubshellApi({ apiKey: "subshell_key123", baseUrl: "http://h:3080" }),
         own: { principalId: "sess:me", ...own },
       };
       const res = await createSession(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
@@ -200,7 +200,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
         "GET http://h:3080/api/profiles",
         "POST http://h:3080/api/sessions",
       ]);
-      expect(seen[0]?.headers.get("authorization")).toBe("Bearer mote_key123");
+      expect(seen[0]?.headers.get("authorization")).toBe("Bearer subshell_key123");
       const body = (await seen[1]?.json()) as Record<string, unknown>;
       expect(body.profileId).toBe("prof-1");
       expect(body.prompt).toBe("do it");

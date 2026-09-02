@@ -18,7 +18,7 @@ const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * First key of `env` that is not a valid env var name, if any. Enforced
  * handler-side (not via `t.Record` key validation, which cannot express it):
  * profile env reaches the tmux start command, so a key like `X; touch /tmp/pwned #`
- * is a shell-injection vector, and keys outrank the MOTE_* credential layer.
+ * is a shell-injection vector, and keys outrank the SUBSHELL_* credential layer.
  */
 function findInvalidEnvName(env: Record<string, string> | undefined): string | undefined {
   return env ? Object.keys(env).find((key) => !ENV_VAR_NAME.test(key)) : undefined;
@@ -64,7 +64,7 @@ async function assertNodeVisible(userId: string, nodeId: string): Promise<void> 
  * Profile endpoints. Reads (list, harness ids, harness schema) stay open to
  * every authenticated actor — the agent toolset needs `GET /api/profiles`
  * (list_profiles). Writes are cookie-only: profile.env OUTRANKS the
- * MOTE_* credential layer when a session starts, so a bearer key that could
+ * SUBSHELL_* credential layer when a session starts, so a bearer key that could
  * edit the owner's profiles could redirect every future session/auto-restart
  * and harvest its bearer token. Machine credentials must not manage profiles.
  */
@@ -136,7 +136,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       // Reads stay open to bearer actors for `list_profiles`, but that
       // tool only projects {id,name,harnessId} — the REST body's `envJson`
       // was every operator secret (profile.env is secret storage by
-      // convention, and it OUTRANKS the MOTE_* credential layer) harvestable
+      // convention, and it OUTRANKS the SUBSHELL_* credential layer) harvestable
       // by any session token. Redact it for machine actors. `flagsJson` and
       // `settingsJson` are NOT secret storage by convention and stay
       // (nothing strips or seals them elsewhere either), so only envJson is
@@ -179,7 +179,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
         settingsFields: harness.settingsFields(),
         suggestedEnv: harness.suggestedEnv(),
         suggestedFlags: harness.suggestedFlags(),
-        // The manual steps embed this deployment's real mote-mcp launch
+        // The manual steps embed this deployment's real subshell-mcp launch
         // (display variant: an editor page must never fail on resolution).
         mcp: harness.mcpSetup(resolveMcpLaunchForDisplay()),
       };

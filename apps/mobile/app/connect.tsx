@@ -60,13 +60,13 @@ export default function Connect() {
       contentContainerStyle={{ padding: 24, paddingTop: insets.top + 32, gap: 16, minHeight: "100%" }}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={{ color: colors.fg, fontSize: 28, fontWeight: "700" }}>mote</Text>
+      <Text style={{ color: colors.fg, fontSize: 28, fontWeight: "700" }}>subshell</Text>
       <Text style={{ color: colors.mutedFg, fontSize: 15 }}>
         The companion for your own instance. Type its address once.
       </Text>
       <Field
         label="Instance address"
-        placeholder="mote.example.com"
+        placeholder="subshell.example.com"
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"

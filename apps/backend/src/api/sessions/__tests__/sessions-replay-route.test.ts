@@ -19,7 +19,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 describe("PATCH /api/sessions/:id/replay", () => {
   let userId: string;
   let otherId: string;
-  const email = `replay-${crypto.randomUUID()}@mote.local`;
+  const email = `replay-${crypto.randomUUID()}@subshell.local`;
   const pw = "replay-pass-1";
   const createdSessions: string[] = [];
   const createdKeys: string[] = [];
@@ -32,7 +32,7 @@ describe("PATCH /api/sessions/:id/replay", () => {
     userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
     otherId = `replay-other-${crypto.randomUUID()}`;
     await new UsersRepository(db).createUser({
-      email: `replay-other-${crypto.randomUUID()}@mote.local`,
+      email: `replay-other-${crypto.randomUUID()}@subshell.local`,
       passwordHash: await hashPassword(pw),
       role: "user",
     });

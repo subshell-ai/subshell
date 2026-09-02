@@ -70,7 +70,7 @@ const RecentResponseSchema = t.Object({
  *   403. A running harness holding its own bearer token must not be able to
  *   enumerate the operator's disk; only a signed-in human in the browser
  *   uses the picker (verified: the MCP server never calls this route).
- * - **Optional confinement**: `MOTE_FS_ROOT`, when set, restricts browsing
+ * - **Optional confinement**: `SUBSHELL_FS_ROOT`, when set, restricts browsing
  *   to that directory tree (paths outside it get 403). When unset — the
  *   default — there is no path confinement. There is no secret allowlist.
  * - One level per request, dotfiles hidden, absolute paths only.
@@ -261,7 +261,7 @@ class FilesError extends Error {
 }
 
 /**
- * The optional confinement root, or `null` when `MOTE_FS_ROOT` is unset —
+ * The optional confinement root, or `null` when `SUBSHELL_FS_ROOT` is unset —
  * which means NO confinement (any absolute path is allowed). This is
  * documented behavior, not a missing allowlist: the folder picker exists to
  * reach arbitrary directories on the host (see the route docstring).
@@ -273,7 +273,7 @@ class FilesError extends Error {
  * either, so the candidate-side realpath check refuses everything anyway.
  */
 function confinementRoot(): string | null {
-  const root = process.env.MOTE_FS_ROOT?.trim();
+  const root = process.env.SUBSHELL_FS_ROOT?.trim();
   if (!root) return null;
   const resolved = resolve(root);
   try {
@@ -284,7 +284,7 @@ function confinementRoot(): string | null {
 }
 
 /**
- * Confinement check. With `MOTE_FS_ROOT` set, BOTH path forms must be inside
+ * Confinement check. With `SUBSHELL_FS_ROOT` set, BOTH path forms must be inside
  * the root: the lexical one (cheap reject for `..` escapes and strangers) and
  * the symlink-resolved one — entries are stat'ed through symlinks, so
  * comparing unresolved paths alone let a planted symlinked dir enumerate its
@@ -299,7 +299,7 @@ function confinementRoot(): string | null {
 function isAllowedRoot(path: string): boolean {
   if (!isAbsolute(path)) return false;
   const root = confinementRoot();
-  if (!root) return true; // no MOTE_FS_ROOT → host FS is browsable by design
+  if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
   const resolved = resolve(path);
   if (resolved !== root && !resolved.startsWith(root + sep)) return false;
   try {
@@ -318,7 +318,7 @@ function isAllowedRoot(path: string): boolean {
 /**
  * Recently used paths for ONE node (default: the control-plane host),
  * filtered to whatever the current confinement allows. The confinement filter
- * rides remote-node scopes too — conservative by design: `MOTE_FS_ROOT` is
+ * rides remote-node scopes too — conservative by design: `SUBSHELL_FS_ROOT` is
  * the operator's "show me nothing outside this tree" switch, and a remote
  * path is still just a path string this picker can never cd into anyway.
  */
@@ -330,7 +330,7 @@ async function recentPaths(userId: string, nodeId = LOCAL_NODE_ID) {
 
 /**
  * Starred directories, confinement-filtered the same way — a favorite saved
- * before `MOTE_FS_ROOT` was set must not leak out of the root either.
+ * before `SUBSHELL_FS_ROOT` was set must not leak out of the root either.
  */
 async function favoritePaths(userId: string) {
   const repo = new FavoritesRepository(db);

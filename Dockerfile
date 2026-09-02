@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Mote — agent harness manager
+# Subshell — agent harness manager
 #
 # Multi-stage build: stage 1 installs deps + builds all workspace packages,
 # stage 2 is a slim runtime with tmux. The app serves API + WS + built
@@ -51,24 +51,24 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root by default. Compose normally overrides `user:` with the host uid,
-# so /home/mote and /data are world-writable; HOME is pinned because the
+# so /home/subshell and /data are world-writable; HOME is pinned because the
 # numeric host uid has no passwd entry of its own and the claude CLI writes
 # under $HOME. When the host uid IS in passwd (1000 = the base image's `bun`
-# user) its home is repointed at /home/mote too — ssh resolves ~/.ssh and
+# user) its home is repointed at /home/subshell too — ssh resolves ~/.ssh and
 # ssh_config via the passwd entry, not $HOME, so a mismatch there silently
 # defeats the mounted keys.
-RUN useradd --create-home --uid 1001 mote \
- && usermod -d /home/mote bun \
- && mkdir -p /data /home/mote \
- && chown mote:mote /data /home/mote \
- && chmod 777 /data /home/mote
-ENV HOME=/home/mote
-USER mote
+RUN useradd --create-home --uid 1001 subshell \
+ && usermod -d /home/subshell bun \
+ && mkdir -p /data /home/subshell \
+ && chown subshell:subshell /data /home/subshell \
+ && chmod 777 /data /home/subshell
+ENV HOME=/home/subshell
+USER subshell
 
 # Install production deps from the same manifest snapshot as the build stage
 # (this recreates the full bun workspace layout — including the top-level
 # @internal/* and hoisted symlinks that bun's installer creates — which a
-# COPY of node_modules breaks). Runs as root, then drops to `mote`.
+# COPY of node_modules breaks). Runs as root, then drops to `subshell`.
 COPY --from=deps /app/. ./
 
 # Built artifacts (backend imports @internal/* from the workspace root).
@@ -77,7 +77,7 @@ COPY --from=build /app/apps/frontend/dist ./apps/frontend/dist
 COPY --from=build /app/packages ./packages
 
 # SQLite + session logs live here (mount a volume).
-ENV DATABASE_PATH=/data/mote.db
+ENV DATABASE_PATH=/data/subshell.db
 ENV HOST=0.0.0.0
 ENV NODE_ENV=production
 

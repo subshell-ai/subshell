@@ -18,7 +18,7 @@ import { recentSessionLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents"
 import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
-const COLLAPSED_KEY = "mote.sidebarCollapsed";
+const COLLAPSED_KEY = "subshell.sidebarCollapsed";
 
 /** Sidebar item: route target + icon. */
 interface NavItem {
@@ -126,7 +126,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
         ) : (
           <>
             <Link to="/" className="flex items-center gap-2 font-bold text-lg">
-              <span className="text-primary">◆</span> Mote
+              <span className="text-primary">◆</span> Subshell
             </Link>
             {!forceExpanded && (
               <Button

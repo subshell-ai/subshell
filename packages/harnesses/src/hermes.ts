@@ -61,20 +61,20 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/hermes"];
  *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [profile flags] [extra flags]
  * A bare launch starts interactive chat; which interface (classic REPL vs
  * --tui) is left to the user's own display.interface config. Hermes has no
- * create-time session-name flag, so the mote session name is not forwarded.
+ * create-time session-name flag, so the subshell session name is not forwarded.
  *
  * CAVEAT — the `hermes` on PATH is a bash launcher script that execs the venv
  * binary. Session launches are safe: `buildHarnessCommand` runs everything
  * through `env -i`, so inherited shell state cannot reach it. But a backend
  * started from a shell that exports SHELLOPTS containing `onecmd` would break
  * the launcher for probe calls like getVersion() (bash exits after the first
- * line). Start mote's server from a normal shell, or `env -u SHELLOPTS`.
+ * line). Start subshell's server from a normal shell, or `env -u SHELLOPTS`.
  *
- * NOTE: mote MCP is NOT auto-injected. Hermes reads MCP servers only from the
+ * NOTE: subshell MCP is NOT auto-injected. Hermes reads MCP servers only from the
  * fixed ~/.hermes/config.yaml (no --config flag / env override exists), so a
  * per-session file is impossible. mcpSetup() surfaces a one-time `hermes mcp
  * add` command instead; the registration is session-correct on shared hosts
- * because the mote-mcp child inherits each session's baked MOTE_* env.
+ * because the subshell-mcp child inherits each session's baked SUBSHELL_* env.
  */
 export class HermesPlugin implements HarnessPlugin {
   readonly id = "hermes";
@@ -152,8 +152,8 @@ export class HermesPlugin implements HarnessPlugin {
    * Manual, one-time registration (verified against the installed hermes CLI:
    * `hermes mcp add` is non-interactive and writes the global config itself).
    * Hermes has no per-session config override, so this registration covers all
-   * hermes sessions at once; each `mote mcp` child inherits its pane's baked
-   * MOTE_* env, making the single entry per-session-correct. The `--args`
+   * hermes sessions at once; each `subshell mcp` child inherits its pane's baked
+   * SUBSHELL_* env, making the single entry per-session-correct. The `--args`
    * flag must come last (hermes' own parser requirement).
    */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo {
@@ -162,10 +162,10 @@ export class HermesPlugin implements HarnessPlugin {
       mode: "manual",
       steps: [
         {
-          label: "Register mote once (adds it to ~/.hermes/config.yaml):",
-          command: `hermes mcp add mote --command ${shellQuote(launch.command)}${argsPart}`,
+          label: "Register subshell once (adds it to ~/.hermes/config.yaml):",
+          command: `hermes mcp add subshell --command ${shellQuote(launch.command)}${argsPart}`,
         },
-        { label: "Remove later with:", command: "hermes mcp remove mote" },
+        { label: "Remove later with:", command: "hermes mcp remove subshell" },
       ],
     };
   }

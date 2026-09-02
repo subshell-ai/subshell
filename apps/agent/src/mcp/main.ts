@@ -1,7 +1,7 @@
-import { readMcpEnv, runMoteMcp } from "@internal/mcp-core";
+import { readMcpEnv, runSubshellMcp } from "@internal/mcp-core";
 
 /**
- * `runAgentMcp` — the `subshell mcp` entry: the `mote mcp` stdio server
+ * `runAgentMcp` — the `subshell mcp` entry: the `subshell mcp` stdio server
  * running INSIDE the compiled agent binary (spec §6.4), so a session launched
  * on an agent node gets the same cross-session tools a local session has.
  *
@@ -12,15 +12,15 @@ import { readMcpEnv, runMoteMcp } from "@internal/mcp-core";
  * agent can reuse it"), so there are no substitutions left to enumerate. What
  * remains true here:
  *
- * - The pane-env contract (MOTE_API_KEY / MOTE_BASE_URL / MOTE_SESSION_ID /
- *   MOTE_SESSION_NAME / MOTE_DATA_DIR — what `sessionMcpEnv` produces) is the
+ * - The pane-env contract (SUBSHELL_API_KEY / SUBSHELL_BASE_URL / SUBSHELL_SESSION_ID /
+ *   SUBSHELL_SESSION_NAME / SUBSHELL_DATA_DIR — what `sessionMcpEnv` produces) is the
  *   package's `env.ts`; this entry only fail-fasts on it before touching stdio.
  * - Identity semantics UNCHANGED — `loadOrCreateIdentity` creates-on-miss
  *   (generated P-256 keypair, mode 0600), so a node session mints its OWN
  *   keypair under the agent dataDir and registers it via the existing
- *   `POST /api/identities` path inside `runMoteMcp` — E2EE works with no
- *   launch-payload change. Files land at `${MOTE_DATA_DIR}/identities/
- *   sess-<id>.json` + `${MOTE_DATA_DIR}/peers.json`; on nodes `MOTE_DATA_DIR`
+ *   `POST /api/identities` path inside `runSubshellMcp` — E2EE works with no
+ *   launch-payload change. Files land at `${SUBSHELL_DATA_DIR}/identities/
+ *   sess-<id>.json` + `${SUBSHELL_DATA_DIR}/peers.json`; on nodes `SUBSHELL_DATA_DIR`
  *   is the agent's dataDir (session-manager override), mirroring the local
  *   layout under the session's data dir.
  * - Fatal-to-stderr+exit behavior lives at the CLI entry (`cli.ts` case
@@ -33,9 +33,9 @@ import { readMcpEnv, runMoteMcp } from "@internal/mcp-core";
  */
 export async function runAgentMcp(): Promise<void> {
   // Fail fast on an incomplete pane env BEFORE touching stdio: the throw's
-  // message ("mote mcp: MOTE_API_KEY is not set") is what the CLI maps to
-  // exit 2. `runMoteMcp` reads the env again internally; the double read is
+  // message ("subshell mcp: SUBSHELL_API_KEY is not set") is what the CLI maps to
+  // exit 2. `runSubshellMcp` reads the env again internally; the double read is
   // idempotent per the read-once contract in the package's env.ts.
   readMcpEnv();
-  await runMoteMcp();
+  await runSubshellMcp();
 }

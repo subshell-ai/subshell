@@ -29,8 +29,8 @@ type KeyRow = {
  */
 describe("/api/nodes/setup-keys", () => {
   const pw = "setup-keys-1";
-  const aliceEmail = `nsk-alice-${crypto.randomUUID()}@mote.local`;
-  const bobEmail = `nsk-bob-${crypto.randomUUID()}@mote.local`;
+  const aliceEmail = `nsk-alice-${crypto.randomUUID()}@subshell.local`;
+  const bobEmail = `nsk-bob-${crypto.randomUUID()}@subshell.local`;
   let aliceId: string;
   let aliceCookie: string;
   let bobCookie: string;

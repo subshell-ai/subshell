@@ -29,13 +29,13 @@ const app = new Elysia().use(errorHandlerPlugin).use(sessionRoutes);
  * build the singleton against the real data dir.
  */
 describe("sessions attention + notify routes", () => {
-  const ownerEmail = `notify-owner-${crypto.randomUUID()}@mote.local`;
-  const foreignEmail = `notify-foreign-${crypto.randomUUID()}@mote.local`;
+  const ownerEmail = `notify-owner-${crypto.randomUUID()}@subshell.local`;
+  const foreignEmail = `notify-foreign-${crypto.randomUUID()}@subshell.local`;
   const password = "notify-pass-1234";
   let ownerId: string;
   let ownerCookie: string;
   let foreignCookie: string;
-  const vapidDir = mkdtempSync(join(tmpdir(), "mote-vapid-attention-"));
+  const vapidDir = mkdtempSync(join(tmpdir(), "subshell-vapid-attention-"));
   const createdSessionIds: string[] = [];
   const createdKeyIds: string[] = [];
   /** Every push the app-wide singleton attempted, captured by the fake sender. */

@@ -26,14 +26,14 @@ describe("badgeCount", () => {
 describe("buildExpoMessages", () => {
   it("names the registered category/channel so lock-screen actions actually appear", () => {
     // The app registers category "session" (Open/Silence) and android channel
-    // "mote-sessions" (src/native/push.ts). A remote notification only surfaces
+    // "subshell-sessions" (src/native/push.ts). A remote notification only surfaces
     // them when the payload names them — APNs `category`, Android `channel_id`
     // (expo maps `_channelId`). Without these the headline lock-screen Silence
     // action is inert on real devices.
     const [m] = buildExpoMessages(["ExponentPushToken[a]"], "sess-1", "needs_attention", 0);
     expect(m.categoryId).toBe("session");
-    expect(m.channelId).toBe("mote-sessions");
-    expect(m._channelId).toBe("mote-sessions"); // legacy twin, always the same value
+    expect(m.channelId).toBe("subshell-sessions");
+    expect(m._channelId).toBe("subshell-sessions"); // legacy twin, always the same value
   });
 
   it("builds one opaque message per token — never a name, path or operator text", () => {
@@ -41,7 +41,7 @@ describe("buildExpoMessages", () => {
     expect(msgs).toHaveLength(2);
     expect(msgs[0]).toEqual({
       to: "ExponentPushToken[a]",
-      title: "mote",
+      title: "subshell",
       body: "A session needs you",
       badge: 4,
       sound: "default",
@@ -49,8 +49,8 @@ describe("buildExpoMessages", () => {
       tag: "sess-1", // Android: same tag replaces the session's earlier push (web `tag` parity)
       collapseId: "sess-1", // iOS: apns-collapse-id, same replace semantics
       categoryId: "session",
-      channelId: "mote-sessions",
-      _channelId: "mote-sessions",
+      channelId: "subshell-sessions",
+      _channelId: "subshell-sessions",
       data: { sid: "sess-1", kind: "needs_attention", origin: expect.any(String) },
     });
     // The privacy invariant (spec §Push): only token/copy/count/uuid cross the relay.
@@ -60,7 +60,7 @@ describe("buildExpoMessages", () => {
     for (const kind of ["turn_complete", "needs_attention", "exited", "crashed", "crashed_final"] as const) {
       const [m] = buildExpoMessages(["t"], "s", kind, 0);
       expect(m?.body.length).toBeGreaterThan(0);
-      expect(m?.title).toBe("mote"); // constant title, never the session name
+      expect(m?.title).toBe("subshell"); // constant title, never the session name
     }
   });
 });

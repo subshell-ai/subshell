@@ -24,10 +24,10 @@ export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-a
 /** The three env vars that steer the artifacts location (raw strings, as found on `process.env`). */
 export interface NodeArtifactsEnv {
   /** Publish/serve directory override — wins outright when non-empty. */
-  MOTE_NODE_ARTIFACTS_DIR?: string | undefined;
+  SUBSHELL_NODE_ARTIFACTS_DIR?: string | undefined;
   /** Session-data root override — `<it>/node-artifacts` when set. */
   SESSION_DATA_DIR?: string | undefined;
-  /** SQLite path the data-dir default derives from (default `./data/mote.db`). */
+  /** SQLite path the data-dir default derives from (default `./data/subshell.db`). */
   DATABASE_PATH?: string | undefined;
 }
 
@@ -37,7 +37,7 @@ export interface NodeArtifactsEnv {
  * @param env - raw environment values (only `DATABASE_PATH` is read)
  */
 export function defaultSessionDataDir(env: NodeArtifactsEnv): string {
-  const raw = env.DATABASE_PATH || "./data/mote.db";
+  const raw = env.DATABASE_PATH || "./data/subshell.db";
   if (raw.startsWith("file:") || raw.includes(":memory:") || !raw.includes("/")) return "./data";
   return raw.slice(0, Math.max(0, raw.lastIndexOf("/"))) || ".";
 }
@@ -46,12 +46,12 @@ export function defaultSessionDataDir(env: NodeArtifactsEnv): string {
  * Resolve where `subshell-<target>` binaries are published to / served
  * from, UN-normalized (callers `resolve()` it against their own cwd — the
  * apps deliberately disagree on cwd, the ENV ladder is what must not drift).
- * Ladder: `MOTE_NODE_ARTIFACTS_DIR` → `<SESSION_DATA_DIR>/node-artifacts` →
+ * Ladder: `SUBSHELL_NODE_ARTIFACTS_DIR` → `<SESSION_DATA_DIR>/node-artifacts` →
  * `<defaultSessionDataDir>/node-artifacts`. Empty strings count as unset.
  * @param env - raw environment values
  */
 export function resolveNodeArtifactsDir(env: NodeArtifactsEnv): string {
-  const explicit = env.MOTE_NODE_ARTIFACTS_DIR;
+  const explicit = env.SUBSHELL_NODE_ARTIFACTS_DIR;
   if (explicit) return explicit;
   const session = (env.SESSION_DATA_DIR || defaultSessionDataDir(env)).replace(/\/+$/, "");
   // Plain concat, NOT join(): join normalizes "./data" to "data", and this

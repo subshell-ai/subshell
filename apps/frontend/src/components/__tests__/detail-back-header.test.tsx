@@ -54,10 +54,10 @@ describe("DetailBackHeader", () => {
   it("narrow: chrome row, then the title with the subtitle stacked UNDER it", async () => {
     const restore = forceViewport(false);
     try {
-      const header = await renderHeader({ subtitle: "/home/theo/projects/mote" });
+      const header = await renderHeader({ subtitle: "/home/theo/projects/subshell" });
       expect(header?.className).toContain("flex-col");
       const title = screen.getByText("Alpha");
-      const subtitle = screen.getByText("/home/theo/projects/mote");
+      const subtitle = screen.getByText("/home/theo/projects/subshell");
       // Same stacked container: the subtitle's parent is a flex-col that
       // also holds the title — never a sibling on the title's line.
       expect(subtitle.parentElement).toBe(title.parentElement);

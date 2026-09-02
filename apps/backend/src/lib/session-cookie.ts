@@ -7,7 +7,7 @@ import { auth } from "@/auth.js";
  * different name — and `auth.api.getSession` looks the cookie up under
  * exactly the name its own baseURL implies. Code that extracts the token by
  * one hardcoded name therefore 401s on every TLS-terminated deployment
- * (incident: the mote.ein.disaresta.com proxy, 2026-08-31 — sign-in 200s
+ * (incident: the subshell.ein.disaresta.com proxy, 2026-08-31 — sign-in 200s
  * because better-auth reads both spellings, guarded routes 401).
  */
 export const SESSION_COOKIE = "better-auth.session_token";

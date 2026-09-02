@@ -1,6 +1,6 @@
 /**
- * Instance origin handling. The user types a mote instance, so input arrives in
- * many shapes — `mote.example`, `:3080` suffixes, loopback, NetBird 100.x
+ * Instance origin handling. The user types a subshell instance, so input arrives in
+ * many shapes — `subshell.example`, `:3080` suffixes, loopback, NetBird 100.x
  * addresses, trailing slashes — and every later stage (cookie name, WS URL)
  * branches on the scheme, so normalisation happens once, here.
  */
@@ -46,12 +46,12 @@ export function looksPrivate(hostname: string): boolean {
  * explicit port and any path prefix, and rejects anything that cannot carry a
  * session cookie safely.
  * @param input - What the user typed
- * @returns An absolute base URL, e.g. `https://mote.example` or `http://100.71.37.94:3080`
+ * @returns An absolute base URL, e.g. `https://subshell.example` or `http://100.71.37.94:3080`
  * @throws InvalidInstanceUrl with display-ready copy
  */
 export function normalizeInstanceOrigin(input: string): string {
   const raw = input.trim();
-  if (!raw) throw new InvalidInstanceUrl("Enter the address of your mote instance.");
+  if (!raw) throw new InvalidInstanceUrl("Enter the address of your subshell instance.");
 
   // A scheme-less host is parsed under http purely to extract the hostname,
   // which parses identically either way; the real scheme is chosen from it.

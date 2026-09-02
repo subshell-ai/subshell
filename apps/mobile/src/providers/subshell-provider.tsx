@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { MoteClient } from "@/lib/api";
+import { SubshellClient } from "@/lib/api";
 import { useApp } from "@/lib/app-state";
 import { loadRegistry, saveRegistry } from "@/native/registry-storage";
 import { secureTokenStore } from "@/native/secure-token-store";
@@ -10,15 +10,15 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1500, retry: 1 } },
 });
 
-const MoteContext = createContext<{ client: MoteClient | null }>({ client: null });
+const SubshellContext = createContext<{ client: SubshellClient | null }>({ client: null });
 
 /**
  * Wires the M2 transport to the app: registry hydration (AsyncStorage), one
- * MoteClient per active instance (Keychain token store), and the 401 path —
- * the token store is cleared by MoteClient itself and the guard screen
+ * SubshellClient per active instance (Keychain token store), and the 401 path —
+ * the token store is cleared by SubshellClient itself and the guard screen
  * re-presents sign-in from the cleared state.
  */
-export function MoteProvider({ children }: { children: ReactNode }) {
+export function SubshellProvider({ children }: { children: ReactNode }) {
   const hydrated = useApp((s) => s.hydrated);
   const hydrate = useApp((s) => s.hydrate);
   const instances = useApp((s) => s.instances);
@@ -37,7 +37,7 @@ export function MoteProvider({ children }: { children: ReactNode }) {
         hydrate(instances, activeId);
       })
       .catch((err) => {
-        console.warn("[mote] registry hydration failed; starting empty", err);
+        console.warn("[subshell] registry hydration failed; starting empty", err);
         hydrate([], null);
       })
       .finally(() => setReady(true));
@@ -60,12 +60,12 @@ export function MoteProvider({ children }: { children: ReactNode }) {
 
   const client = useMemo(() => {
     if (!activeId) return null;
-    return new MoteClient({
+    return new SubshellClient({
       baseUrl: activeId,
       store: secureTokenStore(activeId),
       // 401 mid-session is expected (7-day session): drop cached reads and
       // surface sign-in over whatever screen hit it. The instance token is
-      // already cleared by MoteClient.request itself (spec §Auth: never a
+      // already cleared by SubshellClient.request itself (spec §Auth: never a
       // silent retry).
       onUnauthorized: () => {
         queryClient.clear();
@@ -77,12 +77,12 @@ export function MoteProvider({ children }: { children: ReactNode }) {
   if (!ready) return null;
   return (
     <QueryClientProvider client={queryClient}>
-      <MoteContext.Provider value={{ client }}>{children}</MoteContext.Provider>
+      <SubshellContext.Provider value={{ client }}>{children}</SubshellContext.Provider>
     </QueryClientProvider>
   );
 }
 
 /** The active client or null (pre-connect / no instance). */
-export function useMote(): { client: MoteClient | null } {
-  return useContext(MoteContext);
+export function useMote(): { client: SubshellClient | null } {
+  return useContext(SubshellContext);
 }

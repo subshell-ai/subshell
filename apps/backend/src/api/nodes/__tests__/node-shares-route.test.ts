@@ -21,9 +21,9 @@ type ShareRow = { id: string; granteeUserId: string | null; granteeName: string;
 describe("/api/nodes/:id/shares", () => {
   const pw = "node-shares-1";
   const emails = {
-    alice: `ns-alice-${crypto.randomUUID()}@mote.local`,
-    bob: `ns-bob-${crypto.randomUUID()}@mote.local`,
-    root: `ns-root-${crypto.randomUUID()}@mote.local`,
+    alice: `ns-alice-${crypto.randomUUID()}@subshell.local`,
+    bob: `ns-bob-${crypto.randomUUID()}@subshell.local`,
+    root: `ns-root-${crypto.randomUUID()}@subshell.local`,
   };
   let aliceId: string;
   let bobId: string;
@@ -177,7 +177,7 @@ describe("/api/nodes/:id/shares", () => {
   });
 
   it("bearer keys are refused (cookie-only) → 403 before any lookup", async () => {
-    const res = await req("GET", "/local/shares", { bearer: "mote_not_a_real_key" });
+    const res = await req("GET", "/local/shares", { bearer: "subshell_not_a_real_key" });
     expect(res.status).toBe(401); // auth-guard rejects unknown bearer first
     expect((await req("GET", "/local/shares")).status).toBe(401);
   });

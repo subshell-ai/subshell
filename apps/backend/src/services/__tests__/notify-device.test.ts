@@ -101,7 +101,7 @@ describe("notifySession — device fan-out", () => {
     await svc.notifySession(`${uid}-nosubs`, "turn_complete");
     expect(sentFor(rec, `${uid}-nosubs`).length).toBeGreaterThan(0);
     expect(sentFor(rec, `${uid}-nosubs`)[0]).toMatchObject({
-      title: "mote",
+      title: "subshell",
       threadId: `${uid}-nosubs`,
       data: { sid: `${uid}-nosubs`, kind: "turn_complete" },
     });

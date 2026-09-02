@@ -16,7 +16,7 @@ const created: string[] = [];
 
 /** Makes a throwaway working directory, cleaned up after each test. */
 function tempWorkDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mote-upload-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "subshell-upload-test-"));
   created.push(dir);
   return dir;
 }
@@ -33,8 +33,8 @@ function byteLength(s: string): number {
 }
 
 describe("uploadsDirFor", () => {
-  it("nests uploads under .mote in the working directory", () => {
-    expect(uploadsDirFor("/ws")).toBe("/ws/.mote/uploads");
+  it("nests uploads under .subshell in the working directory", () => {
+    expect(uploadsDirFor("/ws")).toBe("/ws/.subshell/uploads");
   });
 });
 
@@ -125,7 +125,7 @@ describe("remoteUniqueName", () => {
 
 describe("resolveUploadPath", () => {
   it("resolves inside the working directory uploads dir", () => {
-    expect(resolveUploadPath("/ws", "a.png")).toBe("/ws/.mote/uploads/a.png");
+    expect(resolveUploadPath("/ws", "a.png")).toBe("/ws/.subshell/uploads/a.png");
   });
 
   it("rejects a name that would escape the working directory", () => {
@@ -144,19 +144,19 @@ describe("ensureGitExcluded", () => {
     expect(existsSync(join(ws, ".git"))).toBe(false);
   });
 
-  it("appends .mote/ to .git/info/exclude", () => {
+  it("appends .subshell/ to .git/info/exclude", () => {
     const ws = tempWorkDir();
     mkdirSync(join(ws, ".git", "info"), { recursive: true });
     writeFileSync(join(ws, ".git", "info", "exclude"), "# existing\n");
     ensureGitExcluded(ws);
-    expect(readFileSync(join(ws, ".git", "info", "exclude"), "utf8")).toContain(".mote/");
+    expect(readFileSync(join(ws, ".git", "info", "exclude"), "utf8")).toContain(".subshell/");
   });
 
   it("creates info/exclude when absent", () => {
     const ws = tempWorkDir();
     mkdirSync(join(ws, ".git"), { recursive: true });
     ensureGitExcluded(ws);
-    expect(readFileSync(join(ws, ".git", "info", "exclude"), "utf8")).toContain(".mote/");
+    expect(readFileSync(join(ws, ".git", "info", "exclude"), "utf8")).toContain(".subshell/");
   });
 
   it("is idempotent", () => {
@@ -165,7 +165,7 @@ describe("ensureGitExcluded", () => {
     ensureGitExcluded(ws);
     ensureGitExcluded(ws);
     const body = readFileSync(join(ws, ".git", "info", "exclude"), "utf8");
-    expect(body.match(/\.mote\//g)).toHaveLength(1);
+    expect(body.match(/\.subshell\//g)).toHaveLength(1);
   });
 });
 
@@ -174,7 +174,7 @@ describe("writeUpload", () => {
     const ws = tempWorkDir();
     const file = new File(["hello upload"], "notes.txt", { type: "text/plain" });
     const result = await writeUpload({ workingRealPath: ws, file, now: NOW });
-    expect(result.path).toBe(join(ws, ".mote/uploads/20260827-143210-notes.txt"));
+    expect(result.path).toBe(join(ws, ".subshell/uploads/20260827-143210-notes.txt"));
     expect(result.name).toBe("20260827-143210-notes.txt");
     expect(result.size).toBe(file.size);
     expect(readFileSync(result.path, "utf8")).toBe("hello upload");

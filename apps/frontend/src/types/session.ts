@@ -78,7 +78,7 @@ export interface SessionView {
   access: SessionAccess;
   /**
    * Trailing output lines a terminal replays when attaching to this session
-   * (1–200); null = the instance default (MOTE_TERMINAL_REPLAY_LINES, 100).
+   * (1–200); null = the instance default (SUBSHELL_TERMINAL_REPLAY_LINES, 100).
    */
   terminalReplayLines: number | null;
 }

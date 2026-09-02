@@ -17,7 +17,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 describe("POST /api/sessions/:id/extend-token", () => {
   let userId: string;
   let token: string;
-  const email = `ext-${crypto.randomUUID()}@mote.local`;
+  const email = `ext-${crypto.randomUUID()}@subshell.local`;
   const pw = "extend-pass-1";
   const createdSessions: string[] = [];
   const createdKeys: string[] = [];

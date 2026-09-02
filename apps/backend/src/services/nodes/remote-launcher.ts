@@ -198,7 +198,7 @@ export class RemoteLauncher implements NodeLauncher {
       cwd: plan.cwd,
       harnessId: plan.harness.id,
       profile: plan.profile,
-      moteEnv: plan.moteEnv,
+      subshellEnv: plan.subshellEnv,
       mcp: plan.mcp ? { path: plan.mcpConfigPath as string, fileContent: plan.mcp.fileContent } : undefined,
       harnessSession: plan.harnessSession,
       sessionName: plan.sessionName,

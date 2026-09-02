@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { NODES_KEY } from "@/hooks/query-keys";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * Nodes for the launch picker (spec 2026-08-31 §9). Freshness is loose on

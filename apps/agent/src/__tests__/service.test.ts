@@ -9,7 +9,7 @@ import { execLine, installService, type ServiceDeps, uninstallService } from "..
  */
 const HOME = "/home/tester";
 const UNIT = join(HOME, ".config", "systemd", "user", "subshell.service");
-const PLIST = join(HOME, "Library", "LaunchAgents", "dev.mote.agent.plist");
+const PLIST = join(HOME, "Library", "LaunchAgents", "dev.subshell.agent.plist");
 const LOG = join(HOME, "Library", "Logs", "subshell.log");
 
 /** What a stubbed runCmd answers per invocation (default: success, silent). */
@@ -89,7 +89,7 @@ describe("installService — linux (systemd user unit)", () => {
     expect(res.code).toBe(0);
     const unit = s.files.get(UNIT);
     expect(unit).toBeDefined();
-    expect(unit).toInclude("Description=subshell (mote node daemon)");
+    expect(unit).toInclude("Description=subshell (subshell node daemon)");
     expect(unit).toInclude("ExecStart=/usr/local/bin/subshell run");
     expect(unit).toInclude("Restart=always");
     expect(unit).toInclude("RestartSec=5");
@@ -131,7 +131,7 @@ describe("installService — macOS (launchd agent)", () => {
 
     expect(res.code).toBe(0);
     const plist = s.files.get(PLIST) ?? ""; // "" on a miss ⇒ the first toInclude below fails loudly
-    expect(plist).toInclude("<string>dev.mote.agent</string>");
+    expect(plist).toInclude("<string>dev.subshell.agent</string>");
     expect(plist).toInclude("<key>KeepAlive</key>");
     expect(plist).toInclude("<key>RunAtLoad</key>");
     expect(plist).toInclude("<string>/usr/local/bin/subshell</string>");
@@ -154,7 +154,7 @@ describe("installService — macOS (launchd agent)", () => {
     const res = await installService(s.deps);
     expect(res.code).toBe(0);
     expect(s.calls).toEqual([
-      ["launchctl", "bootout", "gui/1000/dev.mote.agent"],
+      ["launchctl", "bootout", "gui/1000/dev.subshell.agent"],
       ["launchctl", "bootstrap", "gui/1000", PLIST],
     ]);
   });
@@ -229,7 +229,7 @@ describe("uninstallService — macOS (launchd agent)", () => {
 
     const res = await uninstallService(s.deps);
     expect(res.code).toBe(0);
-    expect(s.calls).toEqual([["launchctl", "bootout", "gui/1000/dev.mote.agent"]]);
+    expect(s.calls).toEqual([["launchctl", "bootout", "gui/1000/dev.subshell.agent"]]);
     expect(s.removed).toEqual([PLIST]);
     expect(s.files.has(PLIST)).toBe(false);
     expect(res.out).toInclude("Removed");
@@ -272,12 +272,12 @@ describe("uninstallService — guards", () => {
 
 describe("unit/plist environment hardening (final-review minors)", () => {
   test("systemd ExecStart QUOTES tokens containing spaces (no word-split 203/EXEC)", async () => {
-    const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/home/john smith/repos/mote/apps/agent/src/main.ts" });
+    const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/home/john smith/repos/subshell/apps/agent/src/main.ts" });
     const res = await installService(s.deps);
     expect(res.code).toBe(0);
     const unit = s.files.get(UNIT) ?? "";
     expect(unit).toInclude(
-      `ExecStart=/usr/local/bin/bun "${resolve("/home/john smith/repos/mote/apps/agent/src/main.ts")}" run`,
+      `ExecStart=/usr/local/bin/bun "${resolve("/home/john smith/repos/subshell/apps/agent/src/main.ts")}" run`,
     );
     expect(unit).not.toInclude("ExecStart=/usr/local/bin/bun /home/john smith"); // unquoted split-form is the bug
   });

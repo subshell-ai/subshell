@@ -32,7 +32,7 @@ describe("0006 workspaces migration", () => {
   let db: Kysely<unknown>;
 
   beforeAll(async () => {
-    dbFile = `/tmp/mote-006-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-006-${Math.random().toString(36).slice(2)}.db`;
     db = new Kysely({
       dialect: new BunSqliteDialect({ database: openSqliteDatabase(dbFile) }),
       plugins: [new CamelCasePlugin()],

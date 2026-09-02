@@ -35,7 +35,7 @@ export const KEY_BAR_ROWS: KeyBarButton[][] = [
   ],
   [
     // A plain "/" byte — the pane's program (a shell, claude's own slash
-    // commands) owns the character; mote intercepts nothing.
+    // commands) owns the character; subshell intercepts nothing.
     { label: "/", aria: "Send slash", bytes: "/" },
     { label: "←", aria: "Send arrow left", bytes: "\x1b[D" },
     { label: "↑", aria: "Send arrow up", bytes: "\x1b[A" },
@@ -85,7 +85,7 @@ const BUTTON_CLASS =
 /**
  * Accessory special-key rows for touch devices (spec §5), two per {@link
  * KEY_BAR_ROWS}. Byte buttons are min-h-11 (44px) and touch-manipulation (no
- * double-tap zoom). mote intercepts no characters; the pane's own program
+ * double-tap zoom). subshell intercepts no characters; the pane's own program
  * decides what `/` or anything else means. The non-byte exceptions are the
  * trailing image button (see {@link TerminalKeyBarProps.onPickImage}) and the
  * scroll-to-top/bottom jumps (see {@link TerminalKeyBarProps.onScrollTop}).

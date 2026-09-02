@@ -194,13 +194,13 @@ export const McpSetupStepSchema = t.Object({
 });
 
 /**
- * How this harness obtains the `mote mcp` cross-session tools. Discriminated:
+ * How this harness obtains the `subshell mcp` cross-session tools. Discriminated:
  * auto harnesses carry only a summary line, manual harnesses only steps —
  * mirrors the harnesses package's McpSetupInfo union.
  */
 export const McpSetupSchema = t.Union([
   t.Object({
-    mode: t.Literal("auto", { description: "Wired into every mote session automatically" }),
+    mode: t.Literal("auto", { description: "Wired into every subshell session automatically" }),
     summary: t.String({ description: "Human summary for the auto case" }),
   }),
   t.Object({

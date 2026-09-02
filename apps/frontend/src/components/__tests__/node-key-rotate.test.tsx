@@ -17,7 +17,9 @@ function mockRotateFetch() {
     const url = new URL(String(input), "http://localhost");
     if (init?.method === "POST" && url.pathname.endsWith("/rotate-key")) {
       const id = url.pathname.split("/")[3]; // /api/nodes/<id>/rotate-key
-      return Promise.resolve(new Response(JSON.stringify({ nodeKey: `mote_key_${id}`, message: "re-config by hand" })));
+      return Promise.resolve(
+        new Response(JSON.stringify({ nodeKey: `subshell_key_${id}`, message: "re-config by hand" })),
+      );
     }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
@@ -43,11 +45,11 @@ describe("NodeKeyRotate plaintext lifetime", () => {
     try {
       const { rerender } = render(tree("agent1"));
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
-      await waitFor(() => expect(screen.getByText("mote_key_agent1").textContent).toBe("mote_key_agent1"));
+      await waitFor(() => expect(screen.getByText("subshell_key_agent1").textContent).toBe("subshell_key_agent1"));
 
       // Simulate the param change a node switch produces WITHOUT a remount.
       rerender(tree("agent2"));
-      expect(screen.queryByText("mote_key_agent1")).toBeNull();
+      expect(screen.queryByText("subshell_key_agent1")).toBeNull();
       // The new node starts clean — no reveal card, just the button.
       expect(screen.getByRole("button", { name: /Rotate key/ })).toBeDefined();
     } finally {
@@ -61,10 +63,10 @@ describe("NodeKeyRotate plaintext lifetime", () => {
     try {
       const { rerender } = render(tree("agent1"));
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
-      await waitFor(() => expect(screen.getByText("mote_key_agent1").textContent).toBe("mote_key_agent1"));
+      await waitFor(() => expect(screen.getByText("subshell_key_agent1").textContent).toBe("subshell_key_agent1"));
 
       rerender(tree("agent1"));
-      expect(screen.getByText("mote_key_agent1").textContent).toBe("mote_key_agent1");
+      expect(screen.getByText("subshell_key_agent1").textContent).toBe("subshell_key_agent1");
     } finally {
       restore();
     }

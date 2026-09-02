@@ -58,11 +58,11 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
   const launchCmd = {
     type: "launch",
     sessionId: "s1",
-    socket: "mote-abc",
+    socket: "subshell-abc",
     cwd: "/home/u/repo",
     harnessId: "claude-code",
     profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
-    moteEnv: { MOTE_API_KEY: "mote_x" },
+    subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
     sessionName: "s1",
   };
 

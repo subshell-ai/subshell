@@ -33,9 +33,9 @@ export interface AgentConfig {
   nodeWsUrl?: string;
 }
 
-/** Root the config + default data dir live under (`MOTE_AGENT_HOME` for tests). */
+/** Root the config + default data dir live under (`SUBSHELL_AGENT_HOME` for tests). */
 export function agentHome(): string {
-  return process.env.MOTE_AGENT_HOME ?? join(homedir(), ".config", "subshell-agent");
+  return process.env.SUBSHELL_AGENT_HOME ?? join(homedir(), ".config", "subshell-agent");
 }
 
 /** Absolute path of the config file. */

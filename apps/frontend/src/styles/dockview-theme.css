@@ -1,6 +1,6 @@
 /*
  * Overrides dockview's built-in `dockview-theme-abyss` palette (the class
- * applied to <DockviewReact> in workspace-dock.tsx) with Mote's own tokens,
+ * applied to <DockviewReact> in workspace-dock.tsx) with Subshell's own tokens,
  * so the tiling dock reads as part of the app rather than as an embedded
  * third-party widget. Scoped under `.dockview-theme-abyss` throughout: an
  * override outside that class either leaks into every future theme or,

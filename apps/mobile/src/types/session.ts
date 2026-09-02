@@ -120,10 +120,10 @@ export interface WsTokenResponse {
 
 /** Response of `POST /api/auth/sign-in/email`. The BODY token is the UNSIGNED
  * one — better-auth 1.7.x only accepts the signed "<token>.<sig>" value from
- * Set-Cookie as a credential; MoteClient stores that instead (b0743b8). */
+ * Set-Cookie as a credential; SubshellClient stores that instead (b0743b8). */
 export interface SignInResponse {
   /** Unsigned body token — a fallback ONLY; the signed Set-Cookie value is
-   * the credential (see the interface doc above and MoteClient.signIn). */
+   * the credential (see the interface doc above and SubshellClient.signIn). */
   token: string;
   /** Redirect target for OAuth flows; unused here. */
   url?: string | null;

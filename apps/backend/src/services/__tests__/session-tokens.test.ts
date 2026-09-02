@@ -49,7 +49,7 @@ describe("session tokens", () => {
   it("issues a verifiable token bound to the session via metadata", async () => {
     const sid = await fakeSession(systemUserId);
     const key = await issueSessionToken(sid, systemUserId);
-    expect(key.startsWith("mote_")).toBe(true);
+    expect(key.startsWith("subshell_")).toBe(true);
     // the row links back to the key
     const row = await new SessionsRepository(db).findById(sid);
     expect(row?.apiKeyId).toBeTruthy();

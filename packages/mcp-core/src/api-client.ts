@@ -1,5 +1,5 @@
 /**
- * Thin REST client used by `mote mcp` to reach the mote backend over
+ * Thin REST client used by `subshell mcp` to reach the subshell backend over
  * `Authorization: Bearer <session token>`. Deliberately tiny: it knows only
  * how to send authenticated JSON and surface HTTP failures as {@link ApiError}
  * (the tool layer turns those into agent-facing guidance).
@@ -35,13 +35,13 @@ function extractErrorMessage(raw: string): string {
 }
 
 /** Where to reach the backend and with what credential. */
-export interface MoteApiConfig {
+export interface SubshellApiConfig {
   baseUrl: string;
   apiKey: string;
 }
 
-export class MoteApi {
-  constructor(private readonly config: MoteApiConfig) {}
+export class SubshellApi {
+  constructor(private readonly config: SubshellApiConfig) {}
 
   /** Issues one request and returns the parsed JSON body (or throws ApiError). */
   async req<T>(

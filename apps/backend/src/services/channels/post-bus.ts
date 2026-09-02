@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 /**
  * In-process wake-up bus for channel posts.
  *
- * The mote backend is a single process; long-poll readers subscribe here and
+ * The subshell backend is a single process; long-poll readers subscribe here and
  * post-appending writers notify after their DB transaction commits. There is
  * deliberately no persistence or cross-process fan-out — durability is the
  * post log itself, and a missed wake-up only costs the waiter its timeout

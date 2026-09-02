@@ -56,7 +56,7 @@ export const AUTH_OPTIONS = {
       requireName: true,
       // Session token names are "sess:<uuid>" (41 chars); default cap is 32.
       maximumNameLength: 64,
-      defaultPrefix: "mote_",
+      defaultPrefix: "subshell_",
       rateLimit: { enabled: false },
     }),
     // Passkeys (spec 2026-08-31): additional browser credential, never a
@@ -69,7 +69,7 @@ export const AUTH_OPTIONS = {
     // validation in the browser before reaching the server. Pinned by the
     // rp.id assertion in passkey-plugin.test.ts; the UI copy says the same.
     // origin unset likewise: the client supplies it (1.7.1 documented default).
-    passkey({ rpName: "mote" }),
+    passkey({ rpName: "subshell" }),
   ],
   databaseHooks: {
     user: {

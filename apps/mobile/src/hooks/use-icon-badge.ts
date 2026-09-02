@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useWaitingState } from "@/hooks/use-summary";
 import { setIconBadge } from "@/native/push";
-import { useMote } from "@/providers/mote-provider";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * App-icon badge reconciliation (spec §Push acceptance: "badge equals the

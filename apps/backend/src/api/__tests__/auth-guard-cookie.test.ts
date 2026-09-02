@@ -12,7 +12,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * proxy, say) shipped cookies the guard's hardcoded name never matched:
  * sign-in itself 200s (better-auth reads both spellings), while every
  * guarded /api route 401s with INVALID_CREDENTIALS (incident: the
- * mote.ein.disaresta.com proxy, 2026-08-31).
+ * subshell.ein.disaresta.com proxy, 2026-08-31).
  */
 describe("authGuard cookie path", () => {
   let email: string;
@@ -22,7 +22,7 @@ describe("authGuard cookie path", () => {
 
   beforeAll(async () => {
     await setupAuthTables();
-    email = `cookie-${crypto.randomUUID()}@mote.local`;
+    email = `cookie-${crypto.randomUUID()}@subshell.local`;
     _userId = await new UsersRepository(db).createUser({
       email,
       passwordHash: await hashPassword(password),

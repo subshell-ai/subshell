@@ -85,7 +85,7 @@ function launches(sim: ScriptedNode): LaunchCmd[] {
 }
 
 describe("remote sessions over real routes (Task 14 lock-step)", () => {
-  const email = `it-rem-${crypto.randomUUID()}@mote.local`;
+  const email = `it-rem-${crypto.randomUUID()}@subshell.local`;
   const pw = "it-remote-pass-1";
   let userId: string;
   let cookie: string;
@@ -171,9 +171,9 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
       expect(launch.harnessSession?.mode).toBe("start");
       expect(launch.harnessSession?.id).toBeTruthy();
       // The pane env names the NODE's dataDir (Task 9 override) + a real token.
-      expect(launch.moteEnv.MOTE_DATA_DIR).toBe(SCRIPTED_DATA_DIR);
-      expect(launch.moteEnv.MOTE_SESSION_ID).toBe(id);
-      expect(launch.moteEnv.MOTE_API_KEY).toBeTruthy();
+      expect(launch.subshellEnv.SUBSHELL_DATA_DIR).toBe(SCRIPTED_DATA_DIR);
+      expect(launch.subshellEnv.SUBSHELL_SESSION_ID).toBe(id);
+      expect(launch.subshellEnv.SUBSHELL_API_KEY).toBeTruthy();
 
       // Geometry passthrough, pinned honestly both ways: (1) NO control-plane
       // producer sets launch.cols/rows today — the route takes no geometry and
@@ -302,8 +302,8 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
       ]);
       expect(second.harnessSession).toEqual({ id: storedId, mode: "resume" });
       // Token rotation: the dead pane's baked key is replaced by a fresh one.
-      expect(second.moteEnv.MOTE_API_KEY).toBeTruthy();
-      expect(second.moteEnv.MOTE_API_KEY).not.toBe(firstLaunch.moteEnv.MOTE_API_KEY);
+      expect(second.subshellEnv.SUBSHELL_API_KEY).toBeTruthy();
+      expect(second.subshellEnv.SUBSHELL_API_KEY).not.toBe(firstLaunch.subshellEnv.SUBSHELL_API_KEY);
       // Same row, same id, same artifacts on the node.
       expect(second.sessionId).toBe(body.id);
       expect(second.mcp?.path).toBe(firstLaunch.mcp?.path);
@@ -387,7 +387,7 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
         harnessId: "claude-code",
         profileId,
         status: "running",
-        tmuxSocket: `mote-it-${id.slice(0, 8)}`,
+        tmuxSocket: `subshell-it-${id.slice(0, 8)}`,
         nodeId,
       });
       return id;
@@ -402,7 +402,7 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
     }
 
     it("relays 1 MiB as two awaited 512 KiB chunks; the node-side file equals the payload", async () => {
-      const nodeDir = mkdtempSync(join(tmpdir(), "mote-it-node-"));
+      const nodeDir = mkdtempSync(join(tmpdir(), "subshell-it-node-"));
       const ws = join(nodeDir, "ws");
       const sessionId = await mkRow(ws);
       const fs = fsWriteFile();
@@ -422,11 +422,11 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
         expect(cmds.every((c) => c.path === json.path)).toBe(true);
 
         expect(json.name).toMatch(/^\d{8}-\d{6}-big-[0-9a-f]{8}\.bin$/);
-        expect(json.path).toBe(join(ws, ".mote", "uploads", json.name));
+        expect(json.path).toBe(join(ws, ".subshell", "uploads", json.name));
         expect(json.size).toBe(1048576);
         // The file the frame sequence actually produced on the "node":
         expect(readFileSync(json.path)).toEqual(Buffer.from(payload(1048576)));
-        expect(existsSync(join(nodeDir, ".mote"))).toBe(false); // only under ws
+        expect(existsSync(join(nodeDir, ".subshell"))).toBe(false); // only under ws
       } finally {
         sim.detach();
         rmSync(nodeDir, { recursive: true, force: true });
@@ -456,7 +456,7 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
     }
 
     it("a ZERO-BYTE upload terminates the write with one empty eof chunk and yields a real 0-byte file", async () => {
-      const nodeDir = mkdtempSync(join(tmpdir(), "mote-it-node0-"));
+      const nodeDir = mkdtempSync(join(tmpdir(), "subshell-it-node0-"));
       const ws = join(nodeDir, "ws");
       const sessionId = await mkRow(ws);
       const fs = fsWriteFile();
@@ -477,7 +477,7 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
         // the empty part's filename, `pasted` + the collision-suffix tag is
         // what survives — local path would produce the same.
         expect(json.name).toMatch(/^\d{8}-\d{6}-pasted-[0-9a-f]{8}$/);
-        expect(json.path).toBe(join(ws, ".mote", "uploads", json.name));
+        expect(json.path).toBe(join(ws, ".subshell", "uploads", json.name));
         expect(json.contentType).toBe("application/octet-stream");
         // The write really landed: a 0-byte file at the target, no stray .part.
         expect(existsSync(json.path)).toBe(true);

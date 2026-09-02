@@ -227,7 +227,7 @@ describe("VAPID key storage", () => {
   afterEach(() => __setVapidDirForTests(null));
 
   it("regenerates over a vapid.json that lacks the key fields (never serves undefined)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-vapid-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-vapid-"));
     // A truncated/foreign JSON file parses fine but carries no keys — the
     // old code served those undefined straight into /config (a
     // response-schema violation). A corrupt key file is already unusable,
@@ -254,7 +254,7 @@ describe("VAPID key storage", () => {
   });
 
   it("generates vapid.json once, then reloads the same pair from disk", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mote-vapid-"));
+    const dir = mkdtempSync(join(tmpdir(), "subshell-vapid-"));
     __setVapidDirForTests(dir);
     try {
       const db = await freshDb();

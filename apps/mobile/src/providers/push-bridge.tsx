@@ -6,9 +6,9 @@ import { SESSIONS_KEY } from "@/hooks/query-keys";
 import { useIconBadge } from "@/hooks/use-icon-badge";
 import { useApp } from "@/lib/app-state";
 import type { SessionNotifData } from "@/lib/notif-data";
-import { clientForOrigin } from "@/native/mote-client-factory";
 import { configureNotifications, enrollPush } from "@/native/push";
-import { useMote } from "@/providers/mote-provider";
+import { clientForOrigin } from "@/native/subshell-client-factory";
+import { useMote } from "@/providers/subshell-provider";
 
 /**
  * Notification lifecycle in one place (rendered by the root layout, mounted

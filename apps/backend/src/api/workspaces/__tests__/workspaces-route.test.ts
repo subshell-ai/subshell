@@ -50,8 +50,8 @@ describe("workspaces route", () => {
   beforeAll(async () => {
     await setupAuthTables();
     const repo = new UsersRepository(db);
-    ownerEmail = `wsowner-${crypto.randomUUID()}@mote.local`;
-    otherEmail = `wsother-${crypto.randomUUID()}@mote.local`;
+    ownerEmail = `wsowner-${crypto.randomUUID()}@subshell.local`;
+    otherEmail = `wsother-${crypto.randomUUID()}@subshell.local`;
     ownerId = await repo.createUser({ email: ownerEmail, passwordHash: await hashPassword(password), role: "user" });
     otherId = await repo.createUser({ email: otherEmail, passwordHash: await hashPassword(password), role: "user" });
   });
@@ -374,7 +374,7 @@ describe("workspaces route", () => {
   });
 
   // F4 (security audit 2026-08): /api/workspaces is a browser-only surface —
-  // the `mote mcp` binary never calls it (see the endpoint census in
+  // the `subshell mcp` binary never calls it (see the endpoint census in
   // packages/mcp-core/src/tools.ts), so a bearer key (any grants, any owner) must not act
   // as the owner here. The frontend reaches it cookie-only via apiFetch.
   describe("bearer keys are locked out (cookie-only surface)", () => {

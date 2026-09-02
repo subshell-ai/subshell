@@ -40,7 +40,7 @@ function codeForStatus(status: number): BackendErrorCodes {
  * Global error handler.
  *
  * This is the safety net for failures that are **thrown**: unexpected errors,
- * `ApiError`s raised by `throwApiError`, mote's `status`-carrying error classes
+ * `ApiError`s raised by `throwApiError`, subshell's `status`-carrying error classes
  * (`HttpError`, `UnauthorizedError`, `ForbiddenError`, per-route `*Error`s), and
  * Elysia's own schema validation. A route's expected failures are returned with
  * `status()` + `apiErrorBody()` and do not pass through here — see
@@ -129,7 +129,7 @@ export const errorHandlerPlugin = new Elysia({ name: "error-handler" })
       return serialize(validationError);
     }
 
-    // mote's `status`-carriers: `HttpError`, `UnauthorizedError`, `ForbiddenError`
+    // subshell's `status`-carriers: `HttpError`, `UnauthorizedError`, `ForbiddenError`
     // (auth-guard) and the per-route classes (`FilesError`, …) carry only a
     // numeric `.status` — plus sometimes a private `.code` that is NOT part of the
     // wire contract and must not leak. Duck-typed instead of imported so this

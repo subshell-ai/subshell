@@ -39,7 +39,7 @@ async function waitForReady(timeoutMs = 60_000): Promise<void> {
  * only the parent leaves the server holding the port).
  */
 export async function startStack(): Promise<void> {
-  const dir = mkdtempSync(path.join(tmpdir(), "mote-e2e-"));
+  const dir = mkdtempSync(path.join(tmpdir(), "subshell-e2e-"));
   chmodSync(STUB_PI, 0o755);
   // tmux only honours TMUX_TMPDIR when the directory already exists (it does
   // not mkdir the base itself on this build), so create it before the backend
@@ -53,17 +53,17 @@ export async function startStack(): Promise<void> {
     stdio: process.env.E2E_VERBOSE ? "inherit" : "ignore",
     env: {
       ...process.env,
-      // IS_TEST keys off NODE_ENV/MOTE_TEST_MODE and would force the shared
+      // IS_TEST keys off NODE_ENV/SUBSHELL_TEST_MODE and would force the shared
       // in-memory DB; the stack must run like production instead. Pin both
       // explicitly — `...process.env` above could otherwise carry an ambient
-      // MOTE_TEST_MODE=true from the developer's shell and silently drop the
+      // SUBSHELL_TEST_MODE=true from the developer's shell and silently drop the
       // suite from its file DB to in-memory (which is also pristine, so no
       // spec would notice).
       NODE_ENV: "development",
-      MOTE_TEST_MODE: "false",
+      SUBSHELL_TEST_MODE: "false",
       SERVER_PORT: String(PORTS.backend),
       HOST: "127.0.0.1",
-      DATABASE_PATH: path.join(dir, "mote.db"),
+      DATABASE_PATH: path.join(dir, "subshell.db"),
       SESSION_DATA_DIR: path.join(dir, "sessions"),
       APP_BASE_URL: BASE_URL,
       BETTER_AUTH_SECRET: "e2e-secret-not-used-outside-tests-0000000000",

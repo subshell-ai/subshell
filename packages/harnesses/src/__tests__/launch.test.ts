@@ -12,11 +12,11 @@ describe("buildHarnessCommand", () => {
       "/home/u/proj",
       { name: "P", env: { FOO: "ba r'z" }, flags: [], settings: null, configIsolation: false },
       "sess1",
-      { MOTE_API_KEY: "mote_x" },
+      { SUBSHELL_API_KEY: "subshell_x" },
     );
     expect(cmd.startsWith("env -i ")).toBe(true);
     expect(cmd).toContain(`FOO=${"'ba r'\\''z'"}`); // POSIX quoting of an inner quote
-    expect(cmd).toContain(`MOTE_API_KEY='mote_x'`);
+    expect(cmd).toContain(`SUBSHELL_API_KEY='subshell_x'`);
     expect(cmd).toContain(`TERM="$TERM"`); // appended when the profile doesn't set TERM
   });
   it("lets an explicit profile TERM win over the literal", () => {
@@ -44,7 +44,7 @@ describe("buildHarnessCommand", () => {
     ).toThrow(/Invalid harness env var name/);
   });
   it("keeps ENV_KEY_RE canonical", () => {
-    expect(ENV_KEY_RE.test("MOTE_API_KEY")).toBe(true);
+    expect(ENV_KEY_RE.test("SUBSHELL_API_KEY")).toBe(true);
     expect(ENV_KEY_RE.test("1BAD")).toBe(false);
   });
 });

@@ -36,7 +36,7 @@ export function queryIndicatesOffline(q: {
 }
 
 /**
- * Derives "the mote server is unreachable" from the query cache — it never
+ * Derives "the subshell server is unreachable" from the query cache — it never
  * polls. The QueryClient's network-retry loop (query-client.ts) IS the probe:
  * while any active query sits in `NetworkError` the server is down; the first
  * successful retry fires a cache event and the state clears. Factory form so

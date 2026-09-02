@@ -18,7 +18,7 @@ import { resolveMcpDataDir } from "./env.js";
  * resealing. Genuine rotations are rare and verifiable out-of-band, so
  * failing loudly is the correct default.
  *
- * Escape hatch: `MOTE_CHANNEL_PIN=trust` restores the unpinned
+ * Escape hatch: `SUBSHELL_CHANNEL_PIN=trust` restores the unpinned
  * fetch-and-seal behaviour (no checks, no file touched). Anything else —
  * including unset or a typo — means strict pinning. Like the rest of the MCP
  * env contract (`mcp/env.ts`), the variable is read ONCE at module init; the
@@ -31,7 +31,7 @@ import { resolveMcpDataDir } from "./env.js";
  * operator must edit to re-learn a rotated peer.
  */
 
-/** How strictly peer keys are trusted (`MOTE_CHANNEL_PIN`). */
+/** How strictly peer keys are trusted (`SUBSHELL_CHANNEL_PIN`). */
 export type PinMode = "strict" | "trust";
 
 /** Env-derived settings, snapshotted once at module init. */
@@ -45,7 +45,7 @@ interface PinSettings {
 /** Reads the pin-related env, following the `readMcpEnv(env)` pattern. */
 function readPinSettings(env: NodeJS.ProcessEnv): PinSettings {
   return {
-    mode: env.MOTE_CHANNEL_PIN?.trim().toLowerCase() === "trust" ? "trust" : "strict",
+    mode: env.SUBSHELL_CHANNEL_PIN?.trim().toLowerCase() === "trust" ? "trust" : "strict",
     file: join(resolveMcpDataDir(env), "peers.json"),
   };
 }
@@ -63,7 +63,7 @@ export class PinnedKeyMismatchError extends Error {
 /**
  * Re-snapshots the env-derived settings. The real process never calls this
  * (env is read once at module init, per the mcp/env.ts contract); tests use
- * it to exercise alternate `MOTE_CHANNEL_PIN` / `MOTE_DATA_DIR` values
+ * it to exercise alternate `SUBSHELL_CHANNEL_PIN` / `SUBSHELL_DATA_DIR` values
  * without respawning.
  * @internal
  */
@@ -95,7 +95,7 @@ export function checkAndPinRecipients(recipients: SealRecipient[]): void {
     }
     if (pinned.get(r.principalId) !== r.publicJwk) {
       throw new PinnedKeyMismatchError(
-        `mote: pinned key for ${r.principalId} changed — peer key rotation or a relay substitution. ` +
+        `subshell: pinned key for ${r.principalId} changed — peer key rotation or a relay substitution. ` +
           `Verify out-of-band, then delete the '${r.principalId}' entry from ${file} to re-learn.`,
       );
     }
@@ -115,7 +115,7 @@ function loadPeers(file: string): Map<string, string> {
     raw = readFileSync(file, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Map();
-    throw new Error(`mote: cannot read peer pin file ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`subshell: cannot read peer pin file ${file}: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -137,7 +137,7 @@ function quarantineCorrupt(file: string, cause: unknown): never {
   const aside = `${file}.corrupt-${Date.now()}`;
   renameSync(file, aside);
   throw new Error(
-    `mote: peer pin file is corrupt (${cause instanceof Error ? cause.message : String(cause)}); ` +
+    `subshell: peer pin file is corrupt (${cause instanceof Error ? cause.message : String(cause)}); ` +
       `moved ${file} aside to ${aside} and refusing to seal — the pin set was NOT reset. ` +
       `Restore the file by hand, or let the next post re-learn every peer after verifying them out-of-band.`,
   );

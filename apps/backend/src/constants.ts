@@ -24,7 +24,7 @@ export const HOST = env.get("HOST").default("127.0.0.1").asString();
 /**
  * True when this process is running the test suite.
  *
- * `MOTE_TEST_MODE` is set by `src/test-preload.ts`, which `bunfig.toml`
+ * `SUBSHELL_TEST_MODE` is set by `src/test-preload.ts`, which `bunfig.toml`
  * preloads before any other module — so the flag is already in place by the
  * time this file reads the environment. `NODE_ENV === "test"` is honoured as
  * well: Bun sets it for `bun test`, and the logger has always keyed off it.
@@ -33,7 +33,7 @@ export const HOST = env.get("HOST").default("127.0.0.1").asString();
  * That was the old rule, and it made a developer's `.env` decide whether the
  * suite ran against their real database — see {@link DATABASE_PATH}.
  */
-export const IS_TEST = process.env.NODE_ENV === "test" || env.get("MOTE_TEST_MODE").default("false").asBool();
+export const IS_TEST = process.env.NODE_ENV === "test" || env.get("SUBSHELL_TEST_MODE").default("false").asBool();
 
 /**
  * A per-process temp database file, used for every test run.
@@ -58,11 +58,11 @@ export const IS_TEST = process.env.NODE_ENV === "test" || env.get("MOTE_TEST_MOD
  * `process` exit/beforeExit listeners (verified empirically on Bun 1.4.0),
  * so an exit hook on this module would leak a file every run, while the
  * preload's `afterAll` runs after the last suite. It matches this file
- * name's `mote-test-<pid>-` prefix instead of importing this constant,
- * because a static import would hoist above the preload's `MOTE_TEST_MODE`
+ * name's `subshell-test-<pid>-` prefix instead of importing this constant,
+ * because a static import would hoist above the preload's `SUBSHELL_TEST_MODE`
  * assignment — and the flag must be set before this module reads env.
  */
-const TEST_DATABASE_PATH = join(tmpdir(), `mote-test-${process.pid}-${randomUUID()}.db`);
+const TEST_DATABASE_PATH = join(tmpdir(), `subshell-test-${process.pid}-${randomUUID()}.db`);
 
 /**
  * SQLite database file path (a directory is created if missing).
@@ -78,13 +78,13 @@ const TEST_DATABASE_PATH = join(tmpdir(), `mote-test-${process.pid}-${randomUUID
  */
 export const DATABASE_PATH = IS_TEST
   ? TEST_DATABASE_PATH
-  : env.get("DATABASE_PATH").default("./data/mote.db").asString();
+  : env.get("DATABASE_PATH").default("./data/subshell.db").asString();
 
 /**
  * Directory holding per-session output logs (see `sessionLogPath`).
  *
  * Defaults to the database file's own directory, so a normal deployment needs
- * no extra configuration — `DATABASE_PATH=/data/mote.db` puts logs in
+ * no extra configuration — `DATABASE_PATH=/data/subshell.db` puts logs in
  * `/data/sessions/`. It stays separately overridable for the one case the
  * derived value cannot serve: an in-memory database has no directory to
  * derive from.
@@ -96,14 +96,14 @@ export const DATABASE_PATH = IS_TEST
  *
  * The value is always resolved to an absolute path, even when configured
  * relative: it leaves this process as data the *harness* dereferences
- * (`--mcp-config <path>`, `MOTE_DATA_DIR`) and as the target of tmux's
+ * (`--mcp-config <path>`, `SUBSHELL_DATA_DIR`) and as the target of tmux's
  * pipe-pane shell — all of which run under the session's working directory,
  * not the backend's. A relative `./data` made claude look for
  * `<session-cwd>/data/mcp/<id>.json`, which never exists, and every session
  * died at once with "MCP config file not found".
  */
 export const SESSION_DATA_DIR = IS_TEST
-  ? mkdtempSync(join(tmpdir(), "mote-test-data-"))
+  ? mkdtempSync(join(tmpdir(), "subshell-test-data-"))
   : resolve(env.get("SESSION_DATA_DIR").default(defaultSessionDataDir()).asString());
 
 /**
@@ -119,7 +119,7 @@ export const SESSION_DATA_DIR = IS_TEST
  */
 export const NODE_ARTIFACTS_DIR = IS_TEST
   ? join(SESSION_DATA_DIR, "node-artifacts")
-  : resolve(env.get("MOTE_NODE_ARTIFACTS_DIR").default(join(SESSION_DATA_DIR, "node-artifacts")).asString());
+  : resolve(env.get("SUBSHELL_NODE_ARTIFACTS_DIR").default(join(SESSION_DATA_DIR, "node-artifacts")).asString());
 
 /**
  * The database file's directory, or `./data` when the path is not file-backed
@@ -136,7 +136,7 @@ function defaultSessionDataDir(): string {
  * Base URL used for auth cookies / redirects, e.g. http://localhost:3080.
  * Defaults to the port this process actually binds (SERVER_PORT), not the
  * baked-in 3080 — a relocated instance whose base URL lies gets its own
- * redirects and `mote mcp` callbacks pointed at a dead port.
+ * redirects and `subshell mcp` callbacks pointed at a dead port.
  *
  * Forced to the loopback default under {@link IS_TEST}: better-auth keys the
  * session cookie NAME off this URL's protocol (`__Secure-` prefix under
@@ -168,7 +168,7 @@ export const AUTH_SECRET = env.get("BETTER_AUTH_SECRET").default(PLACEHOLDER_AUT
  * flag) is the guard — this is an operator feature, so no prod boot-guard.
  */
 export function emergencyPassword(): string {
-  return process.env.MOTE_EMERGENCY_PASSWORD ?? "";
+  return process.env.SUBSHELL_EMERGENCY_PASSWORD ?? "";
 }
 
 /**
@@ -247,10 +247,10 @@ export const BACKEND_LOG_LEVEL = env.get("BACKEND_LOG_LEVEL").default("debug").a
  * Hard-capped at 200 — the setting exists to bound load time, not to
  * re-enable the full history. Garbage/unset values fall back to 100.
  *
- * Env: `MOTE_TERMINAL_REPLAY_LINES` (default 100).
+ * Env: `SUBSHELL_TERMINAL_REPLAY_LINES` (default 100).
  */
 export const TERMINAL_REPLAY_LINES = (() => {
-  const raw = Number.parseInt(env.get("MOTE_TERMINAL_REPLAY_LINES").default("100").asString(), 10);
+  const raw = Number.parseInt(env.get("SUBSHELL_TERMINAL_REPLAY_LINES").default("100").asString(), 10);
   if (!Number.isFinite(raw) || raw < 1) return 100;
   return Math.min(200, raw);
 })();

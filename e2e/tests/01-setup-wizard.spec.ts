@@ -4,7 +4,7 @@ import { ADMIN, ADMIN_STATE } from "./helpers";
 test("first-run wizard creates the admin; login and logout work", async ({ page, context }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/); // "/" redirects while needsSetup
-  await expect(page.getByText("Welcome to Mote")).toBeVisible();
+  await expect(page.getByText("Welcome to Subshell")).toBeVisible();
 
   // Step 1/2 — Account
   await page.fill("#name", ADMIN.name);

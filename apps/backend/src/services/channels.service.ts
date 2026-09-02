@@ -220,7 +220,7 @@ export class ChannelsService extends BaseService {
         if (!recipientId.startsWith("sess:") || recipientId === principal) continue;
         const row = await sessions.findById(recipientId.slice("sess:".length));
         if (row?.alive === 1 && row.tmuxSocket) {
-          nudgeSession(row.tmuxSocket, row.id, `[mote] new post in #${channel.name}`);
+          nudgeSession(row.tmuxSocket, row.id, `[subshell] new post in #${channel.name}`);
         }
       }
     }

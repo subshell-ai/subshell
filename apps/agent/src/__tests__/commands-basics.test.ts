@@ -20,7 +20,7 @@ import { SessionMetaStore } from "../session-meta.js";
 /**
  * The phase-2 command executors under a scripted fake tmux (spec §7). One real
  * `SessionMetaStore` on a temp dataDir (the preload already moved
- * MOTE_AGENT_HOME), a fake `ws` collecting events, and a plain-object
+ * SUBSHELL_AGENT_HOME), a fake `ws` collecting events, and a plain-object
  * TmuxRunner double — every emitted result `data` is additionally run through
  * the Task-1 contract validators (`parse*`) so the agent side can never drift
  * from the backend's expectations.
@@ -35,7 +35,7 @@ let workDir: string; // a tracked session's recorded launch cwd
 let outside: string; // under no root
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "mote-cmds-")));
+  base = realpathSync(mkdtempSync(join(tmpdir(), "subshell-cmds-")));
   dataDir = join(base, "data");
   workDir = join(base, "work");
   outside = join(base, "outside");

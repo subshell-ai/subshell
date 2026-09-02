@@ -33,7 +33,7 @@ describe("0004 auth-audit migration", () => {
   let dbFile: string;
   let db: Kysely<unknown>;
   beforeAll(async () => {
-    dbFile = `/tmp/mote-004-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-004-${Math.random().toString(36).slice(2)}.db`;
     // Mirrors the app db config (src/db/index.ts) so columns map camelCase.
     db = new Kysely({
       dialect: new BunSqliteDialect({ database: openSqliteDatabase(dbFile) }),

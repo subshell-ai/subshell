@@ -3,12 +3,12 @@ import type { TokenStore } from "@/lib/api";
 
 /**
  * Keychain/Keystore-backed session token for ONE instance —
- * `mote.token.<instanceId>` (spec §Auth: SecureStore, never AsyncStorage).
+ * `subshell.token.<instanceId>` (spec §Auth: SecureStore, never AsyncStorage).
  * SecureStore keys must be filesystem-safe (A-Za-z0-9._-) and origins carry
  * `//` and `:`, hence the slug.
  */
 function keyFor(instanceId: string): string {
-  return `mote.token.${instanceId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+  return `subshell.token.${instanceId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
 }
 
 /** @param instanceId - Normalized origin (the InstanceRecord id) */

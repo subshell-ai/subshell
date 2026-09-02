@@ -424,7 +424,7 @@ const NUDGE_SETTLE_MS = 80;
  *   half-repainted frame the pane was left holding — e.g. by an earlier
  *   viewer at another width — stays on screen, the capture faithfully ships
  *   it, and the app's later diffs paint onto a base the client never had.
- *   This is exactly the standing report: "close mote, re-enter, garbled until
+ *   This is exactly the standing report: "close subshell, re-enter, garbled until
  *   I resize the window" (a real width change is the SIGWINCH that finally
  *   forces a full repaint) — and why reopening at the same size never helps
  *   while a manual resize fixes it for good.

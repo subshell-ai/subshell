@@ -55,7 +55,7 @@ describe("ClaudeCodePlugin", () => {
     expect(cmd).toContain("--settings");
     const settingsIdx = cmd.indexOf("--settings");
     // The merged JSON must carry the profile's keys verbatim; `hooks` is
-    // mote's addition and rides alongside (see the attention-hooks describe).
+    // subshell's addition and rides alongside (see the attention-hooks describe).
     expect(JSON.parse(cmd[settingsIdx + 1])).toMatchObject({ permissionMode: "plan", model: "sonnet" });
     expect(JSON.parse(cmd[settingsIdx + 1]).hooks).toBeDefined();
     expect(cmd).toContain("--name");
@@ -194,7 +194,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
     // Point claude's state dir at a temp tree so the probe is testable
     // without touching the developer's real ~/.claude.
     function withConfigDir(body: (dir: string) => void) {
-      const dir = mkdtempSync(join(tmpdir(), "mote-claude-cfg-"));
+      const dir = mkdtempSync(join(tmpdir(), "subshell-claude-cfg-"));
       process.env.CLAUDE_CONFIG_DIR = dir;
       try {
         body(dir);

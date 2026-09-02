@@ -8,7 +8,7 @@ import { deleteUserByEmailOrId, setupAuthTables } from "./helpers/auth-tables.js
 /**
  * Break-glass admin login (spec 2026-08-31 §6). The wrapper sits ahead of
  * better-auth and rewrites an ADMIN's credential hash when the submitted
- * password equals MOTE_EMERGENCY_PASSWORD exactly — better-auth then mints a
+ * password equals SUBSHELL_EMERGENCY_PASSWORD exactly — better-auth then mints a
  * real session through its own verified path. Non-matches, non-admins and
  * unknown emails must be indistinguishable from a normal bad-password 401
  * (no signal about which half failed), and the rewrite must be destructive
@@ -18,7 +18,7 @@ import { deleteUserByEmailOrId, setupAuthTables } from "./helpers/auth-tables.js
  * the wrapper sleeps 2^n after failures, and the suite DB is shared, so
  * emails carry crypto.randomUUID() suffixes and counters are wiped inline.
  */
-const ENV = "MOTE_EMERGENCY_PASSWORD";
+const ENV = "SUBSHELL_EMERGENCY_PASSWORD";
 const ENV_VALUE = "break-glass-value-9";
 const OLD_ADMIN_PASS = "old-admin-pass-123";
 const USER_PASS = "plain-user-pass-123";
@@ -34,7 +34,7 @@ async function signInRaw(email: string, password: string): Promise<Response> {
   );
 }
 
-describe("emergency admin login (MOTE_EMERGENCY_PASSWORD)", () => {
+describe("emergency admin login (SUBSHELL_EMERGENCY_PASSWORD)", () => {
   const repo = new UsersRepository(db);
   const created: { email: string }[] = [];
   let savedEnv: string | undefined;
@@ -56,7 +56,7 @@ describe("emergency admin login (MOTE_EMERGENCY_PASSWORD)", () => {
   });
 
   async function makeUser(role: "admin" | "user", password: string): Promise<string> {
-    const email = `emergency-${role}-${crypto.randomUUID()}@mote.local`;
+    const email = `emergency-${role}-${crypto.randomUUID()}@subshell.local`;
     await repo.createUser({ email, passwordHash: await hashPassword(password), role });
     created.push({ email });
     return email;
@@ -99,7 +99,7 @@ describe("emergency admin login (MOTE_EMERGENCY_PASSWORD)", () => {
 
   it("armed: unknown email + env value behaves like a bad password", async () => {
     process.env[ENV] = ENV_VALUE;
-    const res = await signInRaw(`ghost-${crypto.randomUUID()}@mote.local`, ENV_VALUE);
+    const res = await signInRaw(`ghost-${crypto.randomUUID()}@subshell.local`, ENV_VALUE);
     expect(res.status).toBe(401);
   });
 

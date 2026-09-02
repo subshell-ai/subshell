@@ -2,7 +2,7 @@ import { authDatabase } from "@/auth/database.js";
 import { logger } from "@/utils/logger.js";
 
 /** Email of the dedicated service user that owns admin-managed system keys. */
-export const SYSTEM_USER_EMAIL = "system@mote.local";
+export const SYSTEM_USER_EMAIL = "system@subshell.local";
 
 let cachedId: string | null = null;
 

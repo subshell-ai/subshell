@@ -6,8 +6,8 @@ import type { InstanceRecord } from "@/lib/instances";
  * configuration (origins/labels/emails are non-secret; tokens never come
  * here — spec §Security notes).
  */
-const K_REGISTRY = "mote.instances";
-const K_ACTIVE = "mote.instances.active";
+const K_REGISTRY = "subshell.instances";
+const K_ACTIVE = "subshell.instances.active";
 
 /** @returns The stored registry; corrupt JSON degrades to empty, never throws. */
 export async function loadRegistry(): Promise<{ instances: InstanceRecord[]; activeId: string | null }> {

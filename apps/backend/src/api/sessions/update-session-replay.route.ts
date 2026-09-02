@@ -9,7 +9,7 @@ const ReplayBodySchema = t.Object({
       minimum: 1,
       maximum: 200,
       description:
-        "Trailing log lines a terminal replays on attach (1–200); null = instance default (MOTE_TERMINAL_REPLAY_LINES, 100)",
+        "Trailing log lines a terminal replays on attach (1–200); null = instance default (SUBSHELL_TERMINAL_REPLAY_LINES, 100)",
     }),
   ),
 });

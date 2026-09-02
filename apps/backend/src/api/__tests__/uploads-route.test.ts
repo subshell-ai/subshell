@@ -25,7 +25,7 @@ const workDirs: string[] = [];
 
 /** Creates a throwaway working directory for a session row to point at. */
 function tempWorkDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mote-upload-route-"));
+  const dir = mkdtempSync(join(tmpdir(), "subshell-upload-route-"));
   workDirs.push(dir);
   return dir;
 }
@@ -48,8 +48,8 @@ describe("session uploads route", () => {
   beforeAll(async () => {
     await setupAuthTables();
     const users = new UsersRepository(db);
-    ownerEmail = `upowner-${crypto.randomUUID()}@mote.local`;
-    otherEmail = `upother-${crypto.randomUUID()}@mote.local`;
+    ownerEmail = `upowner-${crypto.randomUUID()}@subshell.local`;
+    otherEmail = `upother-${crypto.randomUUID()}@subshell.local`;
     ownerId = await users.createUser({ email: ownerEmail, passwordHash: await hashPassword(password), role: "user" });
     otherId = await users.createUser({ email: otherEmail, passwordHash: await hashPassword(password), role: "user" });
     ownerToken = await signIn(ownerEmail, password);
@@ -77,7 +77,7 @@ describe("session uploads route", () => {
       // so a random id is sufficient without creating a profile row.
       profileId: crypto.randomUUID(),
       status: "running",
-      tmuxSocket: `mote-upload-${id.slice(0, 8)}`,
+      tmuxSocket: `subshell-upload-${id.slice(0, 8)}`,
     });
     return id;
   }
@@ -100,13 +100,13 @@ describe("session uploads route", () => {
     );
     expect(res.status).toBe(200);
     const json = (await res.json()) as { path: string; name: string; size: number; contentType: string };
-    expect(json.path.startsWith(join(ws, ".mote/uploads/"))).toBe(true);
+    expect(json.path.startsWith(join(ws, ".subshell/uploads/"))).toBe(true);
     expect(json.name).toMatch(/^\d{8}-\d{6}-notes\.txt$/);
     expect(json.size).toBe(5);
     expect(readFileSync(json.path, "utf8")).toBe("hello");
   });
 
-  it("git-excludes .mote so the working directory stays clean", async () => {
+  it("git-excludes .subshell so the working directory stays clean", async () => {
     const ws = tempWorkDir();
     const id = await makeSession(ownerId, ws);
     await Bun.$`git init -q`.cwd(ws).quiet();
@@ -149,7 +149,7 @@ describe("session uploads route", () => {
         uploadRequest(id, ownerToken, new File(["x"], "a.txt", { type: "text/plain" })),
       );
       expect(res.status).toBe(409);
-      expect(existsSync(join(ws, ".mote"))).toBe(false);
+      expect(existsSync(join(ws, ".subshell"))).toBe(false);
     } finally {
       chmodSync(ws, 0o700);
     }
@@ -180,7 +180,7 @@ describe("session uploads route", () => {
     const rejected = await app.fetch(uploadRequest(id, ownerToken, over));
     expect(rejected.status).toBe(400);
     expect(((await rejected.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
-    expect(existsSync(join(ws, ".mote"))).toBe(false);
+    expect(existsSync(join(ws, ".subshell"))).toBe(false);
 
     // Under the cap must still be accepted. This does NOT pin a unit of its own
     // — no plausible misreading makes the cap smaller than bytes — it is a
@@ -191,7 +191,7 @@ describe("session uploads route", () => {
   });
 
   // F4 (security audit 2026-08): uploads write into the session's working
-  // directory and are browser-only — the `mote mcp` binary never calls this
+  // directory and are browser-only — the `subshell mcp` binary never calls this
   // endpoint (see the endpoint census in packages/mcp-core/src/tools.ts), and the frontend
   // posts with `credentials: "include"`. A bearer key must not act as owner.
   it("bearer session key -> 403 and nothing written", async () => {
@@ -209,7 +209,7 @@ describe("session uploads route", () => {
       }),
     );
     expect(res.status).toBe(403);
-    expect(existsSync(join(ws, ".mote"))).toBe(false);
+    expect(existsSync(join(ws, ".subshell"))).toBe(false);
 
     const row = await new SessionsRepository(db).findById(id);
     if (row?.apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [row.apiKeyId]);

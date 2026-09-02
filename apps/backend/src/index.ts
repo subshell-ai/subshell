@@ -52,7 +52,7 @@ process.on("uncaughtException", (error) => {
   // Name the database before the first write touches it: a migration or
   // seeding failure is undiagnosable if the log never says which file was
   // opened (the path is config-driven — `DATABASE_PATH`, default
-  // ./data/mote.db — and relative to wherever the process was started).
+  // ./data/subshell.db — and relative to wherever the process was started).
   getLogger().info(`database: ${resolve(DATABASE_PATH)}`);
 
   // DB + auth tables before the HTTP listener starts.

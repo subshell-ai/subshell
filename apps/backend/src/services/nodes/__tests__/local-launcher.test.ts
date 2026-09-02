@@ -137,7 +137,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
       restartOnExit: false,
     },
     sessionName: "s",
-    moteEnv: {},
+    subshellEnv: {},
     bestEffortLog,
   });
 

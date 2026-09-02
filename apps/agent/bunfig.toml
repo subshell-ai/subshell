@@ -1,4 +1,4 @@
-# Applies to every `bun test` in this package. The preload points MOTE_AGENT_HOME
+# Applies to every `bun test` in this package. The preload points SUBSHELL_AGENT_HOME
 # at a throwaway directory (and skips the tmux preflight) so the suites never
 # touch the developer's real ~/.config/subshell-agent and never require a tmux server.
 [test]

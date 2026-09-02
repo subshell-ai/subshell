@@ -26,7 +26,7 @@ export interface CliResult {
   keepAlive?: boolean;
 }
 
-const USAGE = `subshell — mote node daemon
+const USAGE = `subshell — subshell node daemon
 
 usage:
   subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
@@ -34,7 +34,7 @@ usage:
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell status [--json] [--probe]
   subshell version
-  subshell mcp            (stdio MCP server for a mote session pane — internal)
+  subshell mcp            (stdio MCP server for a subshell session pane — internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -56,7 +56,7 @@ const FLAGS: Record<string, boolean> = {
 };
 const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir"],
-  mcp: [], // no flags — everything comes from the MOTE_* pane env (the @internal/mcp-core env.ts contract)
+  mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
   run: [],
   service: [], // the subtoken is positional; no flags
   status: ["--json", "--probe"],
@@ -141,9 +141,9 @@ export async function run(argv: string[]): Promise<CliResult> {
       case "version":
         return { code: 0, out: `subshell ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
       case "mcp": {
-        // The stdio MCP server for a mote session pane (spec §6.4). It is NOT
+        // The stdio MCP server for a subshell session pane (spec §6.4). It is NOT
         // an enrolled-daemon command: no config, no lock, no socket — just the
-        // MOTE_* env the launch injected. Missing env is a usage error: exit 2
+        // SUBSHELL_* env the launch injected. Missing env is a usage error: exit 2
         // with the actionable line (readMcpEnv's message names the variable),
         // before a single byte touches stdio.
         try {

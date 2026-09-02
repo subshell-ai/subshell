@@ -19,7 +19,7 @@ export interface SessionTable {
   name: string;
   /** Absolute working directory the harness runs in */
   workingDir: string;
-  /** tmux server socket name used for this session (mote-<short>) */
+  /** tmux server socket name used for this session (subshell-<short>) */
   tmuxSocket: string | null;
   /** Consistent status; "running" while tmux is alive */
   status: SessionStatus;
@@ -60,7 +60,7 @@ export interface SessionTable {
   nodeId: string;
   /**
    * Trailing log lines replayed when a terminal attaches (NULL = instance
-   * default, `MOTE_TERMINAL_REPLAY_LINES`). Readers clamp to [1, 200].
+   * default, `SUBSHELL_TERMINAL_REPLAY_LINES`). Readers clamp to [1, 200].
    * See migration 0018.
    */
   terminalReplayLines: number | null;

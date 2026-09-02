@@ -107,7 +107,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     // Plain (decoded) claims pin the envelope shape the agent expects.
     const payload = decodeClaims(jws);
     expect(payload.aud).toBe("node:n1");
-    expect(payload.iss).toBe("mote-control");
+    expect(payload.iss).toBe("subshell-control");
     expect(typeof payload.exp).toBe("number");
     expect((payload.exp as number) - (payload.iat as number)).toBe(NODE_CMD_TTL_SEC);
 

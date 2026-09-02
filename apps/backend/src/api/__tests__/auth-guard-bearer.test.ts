@@ -60,8 +60,8 @@ describe("authGuard bearer path", () => {
   let userId: string;
   let adminId: string;
   let plainToken: string;
-  const email = `guard-${crypto.randomUUID()}@mote.local`;
-  const adminEmail = `guard-admin-${crypto.randomUUID()}@mote.local`;
+  const email = `guard-${crypto.randomUUID()}@subshell.local`;
+  const adminEmail = `guard-admin-${crypto.randomUUID()}@subshell.local`;
   const password = "guard-pass-1234";
   const createdSessionIds: string[] = [];
   const createdKeyIds: string[] = [];
@@ -118,7 +118,7 @@ describe("authGuard bearer path", () => {
 
   it("anonymous -> 401, garbage bearer -> 401", async () => {
     expect((await probe.fetch(new Request("http://localhost:3080/probe"))).status).toBe(401);
-    expect((await bearerGet("mote_not-a-real-key")).status).toBe(401);
+    expect((await bearerGet("subshell_not-a-real-key")).status).toBe(401);
   });
 
   it("system key bearer authenticates as its owning (system) user", async () => {

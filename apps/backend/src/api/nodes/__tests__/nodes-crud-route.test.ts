@@ -76,10 +76,10 @@ function plantPending(conn: NodeConnection): () => unknown {
 describe("/api/nodes registry CRUD", () => {
   const pw = "nodes-crud-1";
   const emails = {
-    alice: `nc-alice-${crypto.randomUUID()}@mote.local`,
-    bob: `nc-bob-${crypto.randomUUID()}@mote.local`,
-    carol: `nc-carol-${crypto.randomUUID()}@mote.local`,
-    root: `nc-root-${crypto.randomUUID()}@mote.local`,
+    alice: `nc-alice-${crypto.randomUUID()}@subshell.local`,
+    bob: `nc-bob-${crypto.randomUUID()}@subshell.local`,
+    carol: `nc-carol-${crypto.randomUUID()}@subshell.local`,
+    root: `nc-root-${crypto.randomUUID()}@subshell.local`,
   };
   let aliceId: string;
   let bobId: string;
@@ -412,7 +412,7 @@ describe("/api/nodes registry CRUD", () => {
     const res = await req("POST", `/${n.id}/rotate-key`, { cookie: aliceCookie });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { nodeKey: string; message: string };
-    expect(body.nodeKey.startsWith("mote_")).toBe(true);
+    expect(body.nodeKey.startsWith("subshell_")).toBe(true);
     expect(body.message).toMatch(/re-configur/i);
 
     expect(await keyIsValid(body.nodeKey)).toBe(true);
@@ -452,7 +452,7 @@ describe("/api/nodes registry CRUD", () => {
     const res = await req("POST", "/local/rotate-key", { cookie: adminCookie });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { nodeKey: string };
-    expect(body.nodeKey.startsWith("mote_")).toBe(true);
+    expect(body.nodeKey.startsWith("subshell_")).toBe(true);
     // Cleanup: the rotated local key is tracked so afterAll can delete it.
     const row = await nodes.findById("local");
     if (row?.apiKeyId) createdApiKeyIds.push(row.apiKeyId);
