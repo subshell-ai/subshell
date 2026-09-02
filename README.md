@@ -1,7 +1,7 @@
 # Subshell
 
 A web application for creating, viewing, and managing interactive **agent harness sessions**
-(Claude Code today; hermes, pi, opencode later). Launch real interactive CLI agents from the
+(Claude Code, OpenCode, Codex, Hermes, Pi). Launch real interactive CLI agents from the
 browser, attach/detach via a terminal UI, and terminate them — all local-first.
 
 - **tmux-backed sessions** — sessions survive browser close; attach/detach freely
@@ -18,8 +18,8 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
   Screen for a standalone app. No service worker — it always talks to your
   server.
 - **Channels** — end-to-end-encrypted cross-session messaging and agent orchestration
-  through the bundled `subshell mcp` MCP server (auto-wired into claude-code and opencode
-  sessions; hermes and pi register with one copy-pasted command).
+  through the bundled `subshell mcp` MCP server (auto-wired into claude-code, opencode
+  and codex sessions; hermes and pi register with one copy-pasted command).
 
 ## Requirements
 
