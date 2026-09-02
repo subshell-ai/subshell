@@ -157,8 +157,11 @@ export function NewSessionForm({
   // actually launched a session in — the answer is nearly always the same
   // project twice. Applied once per mount and only while the field is still
   // empty, so it never fights the caller's own state or deliberate typing
-  // (including clearing the field after a pre-fill).
-  const { data: recent } = useRecentPaths();
+  // (including clearing the field after a pre-fill). Recents follow the
+  // selected node, but the pre-fill intentionally stays mount-scoped: a
+  // mid-mount node switch refreshes the list without ever yanking
+  // typed/committed input.
+  const { data: recent } = useRecentPaths(value.nodeId);
   const prefillDoneRef = useRef(false);
 
   // Node options: every VISIBLE node (any share grants launch). A failed or

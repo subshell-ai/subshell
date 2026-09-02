@@ -8,19 +8,27 @@ import {
   type NewSessionFormValue,
 } from "@/components/session-picker/new-session-form";
 
-/** Serves the two endpoints the form reads; recentPaths is what varies. */
+/**
+ * Serves the two endpoints the form reads; recentPaths is what varies.
+ * The returned `restore` also carries `urls` — every requested URL, for
+ * assertions on request shape (e.g. which node `recent` was scoped to).
+ */
 function mockEndpoints(paths: { path: string; label: string | null }[]) {
   const original = globalThis.fetch;
+  const urls: string[] = [];
   globalThis.fetch = ((input: unknown) => {
     const url = String(input);
+    urls.push(url);
     if (url.includes("/api/files/recent")) {
       return Promise.resolve(new Response(JSON.stringify({ paths })));
     }
     return Promise.resolve(new Response(JSON.stringify([]))); // /api/profiles
   }) as typeof fetch;
-  return () => {
+  const restore = (() => {
     globalThis.fetch = original;
-  };
+  }) as (() => void) & { urls: string[] };
+  restore.urls = urls;
+  return restore;
 }
 
 /** A controlled parent like /new and the dialog. */
@@ -73,6 +81,18 @@ describe("NewSessionForm working-dir pre-fill", () => {
       renderForm(emptyNewSessionForm());
       await new Promise((r) => setTimeout(r, 50));
       expect(dir().value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
+  it("scopes the recent-paths query to the selected node", async () => {
+    const restore = mockEndpoints([{ path: "/srv/remote", label: null }]);
+    try {
+      renderForm({ ...emptyNewSessionForm(), nodeId: "node-7" });
+      await waitFor(() => expect(dir().value).toBe("/srv/remote"));
+      const recentUrl = restore.urls.find((u) => u.includes("/api/files/recent"));
+      expect(recentUrl).toContain("node=node-7");
     } finally {
       restore();
     }
