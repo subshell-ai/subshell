@@ -22,7 +22,6 @@ function node(overrides: Partial<Node>): Node {
     ...overrides,
   };
 }
-const _PI = { harnessId: "pi", enabled: true, installed: true };
 const CLAUDE_ON = { harnessId: "claude-code", enabled: true, installed: true };
 const CLAUDE_OFF = { harnessId: "claude-code", enabled: false, installed: true };
 const PROF = { id: "p1", name: "Default", harnessId: "claude-code", nodeId: null };
@@ -51,6 +50,12 @@ describe("buildProfileOptions", () => {
   it("without a node, everything is selectable and labels keep the e2e-pinned format", () => {
     const [opt] = buildProfileOptions([PROF], null);
     expect(opt).toEqual({ value: "p1", label: "Default (claude-code)", disabled: false });
+  });
+  it("an enabled option omits the 'reason' key entirely", () => {
+    // bun's toEqual treats undefined-valued keys as absent, so only an `in`
+    // check can pin key-absence on enabled options.
+    const opt = buildProfileOptions([PROF], null)[0];
+    expect(opt && "reason" in opt).toBe(false);
   });
   it("greys an incompatible profile with the node-appropriate reason", () => {
     const n = node({ id: "mac", name: "mac", harnesses: [CLAUDE_OFF] });
@@ -92,7 +97,7 @@ describe("buildNodeOptions", () => {
     expect(localOpt?.disabled).toBe(false);
     expect(agentOpt).toEqual({ value: "a1", label: "mac-mini", disabled: true, reason: "no claude-code here" });
   });
-  it("the suggested (pinned) node is suffixed — and only while a profile is in play", () => {
+  it("the suggestion suffix keys off suggestionId alone — the caller passes only validated suggestions", () => {
     const opts = buildNodeOptions([LOCAL, AGENT], PROF, "local");
     expect(opts[0]?.label).toBe("Local · linux/x64 · default for this profile");
   });
