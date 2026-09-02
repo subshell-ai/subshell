@@ -59,6 +59,16 @@ runs the daemon; spaced paths are quoted in the systemd `ExecStart=`.
 Everything is DI'd through `ServiceDeps` (`src/service.ts`) so tests pin the
 exact unit/plist text and command sequences without touching systemd.
 
+## Exit watch
+
+The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once via
+`listSessionsChecked`: an authoritative `ok:true` answer lacking the pane
+reports `exit{code:null}` immediately, while failed probes must reach
+`NODE_EXIT_UNREACHABLE_TICKS` (2 — ≈4 s) CONSECUTIVE misses on one registration
+before the same death is reported, so a transient tmux blip never kills a live
+pane, and a fresh registration carries a fresh counter budget (a relaunch
+resets it) — hardening design 2026-09-02 §1.
+
 ## On disk
 
 - **Agent home** — `~/.config/mote-agent`, override `MOTE_AGENT_HOME` (tests

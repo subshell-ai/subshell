@@ -685,16 +685,23 @@ spec 2026-08-31)"** section:
 1. **tmux on macOS** — not preinstalled; agent preflight refuses enroll with a brew
    hint; the Nodes page carries a preflight checklist.
 2. **Signing-key loss** orphans all nodes (re-enroll each). Open: an admin "rotate
-   signing key" flow with a re-enroll grace window.
+   signing key" flow with a re-enroll grace window. (→ resolved 2026-09-02: DEFER
+   as its own future phase — the rotation bootstrap needs a dual-key keychain in
+   the agent plus a protocol addition.)
 3. **Long outages**: sessions on a vanished node stay `running` forever (skip-on-offline
-   — §5.6). Open: mark `crashed` after offline > N days?
+   — §5.6). Open: mark `crashed` after offline > N days? (→ resolved 2026-09-02:
+   DECLINED for now — a crashed-marking sweep would fight census re-adoption when
+   the node returns, and the `nodeOffline` view already tells the honest unknown.)
 4. **Old-but-connected agent**: v1 warns only. Open: should launches be refused below
-   the semver floor?
+   the semver floor? (→ resolved 2026-09-02: NO — the protocol int is the contract,
+   already enforced at connection via `4406`; warning-only stays.)
 5. **Remote folder browsing** deliberately cut (privacy: it would expose the node's
    whole FS to anyone who can launch there). `browse_dir` is trivial protocol-wise if
    product reverses this.
 6. **Unsigned agent events** — a compromised-node key can poison inventory/status for
    *its own node only*. Acceptable v1; per-event signing is a cheap later addition.
+   (→ resolved 2026-09-02: DEFER unchanged — blast radius is self-node metadata;
+   no demand signal yet.)
 7. **Clock skew** on agents breaks JWS `exp` with confusing errors → the agent logs a
    dedicated skew-hint line on verify failure (estimate from server `ts`).
 8. **Preview cache staleness** (≤ 60 s, §6.3) — if dogfooding hates it, agent-pushed
@@ -806,3 +813,51 @@ body above stays legible as the original design:
   `INVENTORY_PERIOD_MS` (300 s) after that (`apps/agent/src/daemon.ts`). The
   backend additionally PULLS on `ready` as before; pushes need no command
   correlation and the two are idempotent.
+
+## Errata (2026-09-02, hardening phase)
+
+Deltas from the Nodes-hardening design
+(`2026-09-02-nodes-hardening-design.md`), which ruled §12's open questions and
+fixed one liveness-semantics bug; the body above stays frozen:
+
+- **§7 exit watch: a transient probe failure no longer reports a live pane
+  dead** (hardening design §1). §7's "2 s `has-session`/`pane_dead_status`
+  loop → `exit` events" wording — and the shared-tick errata's "Emission
+  semantics are unchanged" — both read as *absent from the probe ⇒ report
+  `exit{code:null}` immediately*. The watcher now probes each socket with
+  `listSessionsChecked` (tri-state): an authoritative `ok:true` answer that
+  lacks the pane still reports **immediately**, but a FAILED probe only counts
+  — `NODE_EXIT_UNREACHABLE_TICKS = 2` consecutive failures per registration
+  (≈4 s at the 2 s cadence) are required before the same `exit{code:null}`
+  report. A fresh registration carries a fresh budget (a relaunch resets the
+  counter), and at most one exit event per registration holds on either path.
+- **§12 #3 (offline > N days → mark `crashed`): DECLINED (for now).** A
+  crashed-marking sweep would fight a node that returns with live panes — the
+  connect-time census exists precisely to re-adopt — and the `nodeOffline`
+  view copy is already honest ("node unreachable": the row's truth is
+  *unknown*, not *crashed*). Revisit only if long-dead rows accumulate in
+  practice.
+- **§12 #4 (refuse launches below a semver floor): NO.** The protocol int is
+  the compatibility contract and is already enforced at connection (close
+  `4406`); a per-launch `agentVersion` floor would re-gate what the socket
+  gate settled and add a failure mode without a safety gain. Warning-only
+  stays.
+- **§12 #6 (per-event signing): DEFER unchanged.** A compromised node key can
+  poison only its own node's inventory/status metadata; no demand signal yet.
+- **§12 #2 (signing-key rotation with a re-enroll grace): DEFER as its own
+  future phase.** The rotation bootstrap — delivering the new control public
+  key to already-enrolled agents — needs a dual-key keychain in the agent plus
+  a protocol addition: a feature, not hardening, and wrong to rush on a crypto
+  path.
+- **Mobile parity for the `nodeOffline` waiting markers — LANDS IN THIS PHASE**
+  (hardening design §2). A session on an unreachable node must not advertise
+  "waiting for you" on the phone: the mobile waiting chip / border / dot gate
+  on `nodeOffline` exactly like web already does.
+- **Precision fix on the hardening design §1 census parenthetical** — recorded
+  here because this spec is where the census is described. Design §1 says
+  `listSessionNames` stays because "census keeps its documented fail-closed
+  posture"; that is imprecise: the connect-time `sessions_report` census probes
+  per recorded row via `hasSession` (`apps/agent/src/commands/report.ts`,
+  `buildSessionsReport`). `listSessionNames` has NO production caller after
+  this phase (tests only) and is intentionally KEPT as a public `TmuxRunner`
+  API.
