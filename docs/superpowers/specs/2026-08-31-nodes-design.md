@@ -828,8 +828,11 @@ fixed one liveness-semantics bug; the body above stays frozen:
   `listSessionsChecked` (tri-state): an authoritative `ok:true` answer that
   lacks the pane still reports **immediately**, but a FAILED probe only counts
   — `NODE_EXIT_UNREACHABLE_TICKS = 2` consecutive failures per registration
-  (≈4 s at the 2 s cadence) are required before the same `exit{code:null}`
-  report. A fresh registration carries a fresh budget (a relaunch resets the
+  (≈4 s at the 2 s cadence) are required before the report — which then
+  carries `code:null`, an unanswering socket leaving no exit code to read
+  (the immediate `ok:true`-absence path carries the pane's real
+  `pane_dead_status` when one exists). A fresh registration carries a fresh
+  budget (a relaunch resets the
   counter), and at most one exit event per registration holds on either path.
 - **§12 #3 (offline > N days → mark `crashed`): DECLINED (for now).** A
   crashed-marking sweep would fight a node that returns with live panes — the
