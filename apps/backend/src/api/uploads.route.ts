@@ -124,8 +124,13 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
                   409,
                   apiErrorBody({
                     code: BackendErrorCodes.NODE_UNREACHABLE,
+                    // Honest rule (spec errata, phase-2 review #7): a pane
+                    // that exited NATURALLY is forgotten by the agent's exit
+                    // watcher, so its cwd leaves the write_file root set and
+                    // re-running the upload NEVER succeeds — only a relaunch
+                    // does. Do not promise a self-heal here.
                     message:
-                      "The node failed to store the file — re-run the upload (the agent self-heals the partial file)",
+                      "The node failed to store the file — the agent only accepts files for a running session; restart the session and upload again",
                   }),
                 );
           }

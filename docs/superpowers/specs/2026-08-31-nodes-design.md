@@ -747,3 +747,23 @@ body above stays legible as the original design:
   string` (the agent's `process.execPath`, so the control plane composes MCP
   registrations against the real target; the agent's local `mcpRegistration`
   re-run remains the source of truth).
+- **§3.4/§7 uploads to an agent node require a SUPERVISED session — a
+  naturally-exited (crashed) one refuses them permanently.** The `write_file`
+  root set (§7) is exactly the tracked `SessionMeta` records — `dataDir` plus
+  each record's launch cwd, recomputed per call (`commands/write-file.ts`
+  `policyRoots`) — and the shared exit watcher calls `meta.forget` the moment a
+  supervised pane dies NATURALLY, right after sending its `exit` event
+  (`commands/report.ts` `runExitWatchTick`). The dead session's cwd therefore
+  leaves the root set and every later `write_file` chunk 0 answers
+  `path refused`; the backend maps that agent refusal to 409 `NODE_UNREACHABLE`
+  and re-running the upload can never succeed until the session is relaunched
+  (a fresh `launch` re-records the meta and restores the root). A
+  DELIBERATELY-killed session keeps its record — `execTerminate`/`execKill`
+  call `stopWatcher` before killing, so the watcher only ever fires on natural
+  death — and accepts uploads into its cwd exactly like a dead LOCAL session
+  does; the record goes away only at session deletion, when the manager folds
+  the meta artifact into the delete-time `remove_paths`. Ruling (phase-2
+  final review #7): spec-inherent consequence of §7's root set — DOCUMENT, do
+  not change watcher/meta lifetime semantics. The browser-facing copy that
+  promised "the agent self-heals the partial file" was replaced with restart
+  guidance (`api/uploads.route.ts`).

@@ -325,10 +325,14 @@ export function remoteUniqueName(name: string): string {
  *   further frames, eof included).
  * - every accepted chunk answers `{ path, received }` with `received` the
  *   running total; the eof answer MUST equal the file size or this throws.
- * - `chunk 0` on an open stream REPLACES it, so recovery for ANY failed
- *   stream is simply re-running the upload from chunk 0 — deliberately no
- *   abort command, and the short-`received` throw below needs no cleanup
- *   (the agent's `.part` tmp self-heals on the next attempt).
+ * - `chunk 0` on an open stream REPLACES it, so re-running the upload from
+ *   chunk 0 recovers any TRANSIENT failure — deliberately no abort command,
+ *   and the short-`received` throw below needs no cleanup (the agent's
+ *   `.part` tmp is replaced on the next attempt). Not a promise for the
+ *   common refusal: a session whose pane exited NATURALLY is `meta.forget`-ed
+ *   by the agent's exit watcher, its cwd leaves the write_file root set, and
+ *   re-running can never succeed — relaunch the session (spec errata,
+ *   phase-2 review #7).
  * - refusals (`ok:false`, e.g. policy) surface as `NodeRpcError("failed")`
  *   whose message is UNPINNED protocol-side — it rides the
  *   {@link RemoteUploadError} for the logs but the route must map on the
