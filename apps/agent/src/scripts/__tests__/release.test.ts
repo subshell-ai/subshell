@@ -1,0 +1,247 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import {
+  type BuildAllResult,
+  buildAll,
+  buildArgs,
+  buildTargets,
+  CROSS_TARGETS,
+  hostTriple,
+  publishArtifacts,
+  resolveArtifactsDir,
+} from "../release.js";
+
+/** sha256 exactly as the brief pins it — the same hasher the sidecar format names. */
+function sha256Hex(bytes: Uint8Array): string {
+  return new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+}
+
+describe("hostTriple", () => {
+  test("maps the four supported platform/arch combos to their triples", () => {
+    expect(hostTriple("linux", "x64")).toBe("linux-x64");
+    expect(hostTriple("linux", "arm64")).toBe("linux-arm64");
+    expect(hostTriple("darwin", "x64")).toBe("darwin-x64");
+    expect(hostTriple("darwin", "arm64")).toBe("darwin-arm64");
+  });
+
+  test("unknown platform or arch → null (no host artifact for it)", () => {
+    expect(hostTriple("win32", "x64")).toBeNull();
+    expect(hostTriple("freebsd", "arm64")).toBeNull();
+    expect(hostTriple("linux", "riscv64")).toBeNull();
+  });
+
+  test("no-arg form reads the real process (this host is a supported triple)", () => {
+    expect(hostTriple()).toBe(hostTriple(process.platform, process.arch));
+    expect(hostTriple()).toBe("linux-x64"); // the CI/dev host this pipeline was built on
+  });
+});
+
+describe("buildTargets", () => {
+  test("a duplicating host (linux-x64) yields 4 entries, one per triple, host wins its triple", () => {
+    const targets = buildTargets("linux-x64");
+    expect(targets).toHaveLength(4);
+    expect(new Set(targets.map((t) => t.triple)).size).toBe(4);
+    const host = targets.filter((t) => t.isHost);
+    expect(host).toHaveLength(1);
+    expect(host[0]?.triple).toBe("linux-x64");
+    // The HOST entry is the only one that gets --bytecode; cross builds never do (spec risk #9).
+    for (const t of targets) expect(t.isHost).toBe(t.triple === "linux-x64");
+    // Every cross triple is still present exactly once.
+    for (const triple of CROSS_TARGETS) expect(targets.filter((t) => t.triple === triple)).toHaveLength(1);
+  });
+
+  test("a foreign host triple is force-added alongside the 4 cross targets (5 unique)", () => {
+    const targets = buildTargets("win32-x64");
+    expect(targets).toHaveLength(5);
+    expect(new Set(targets.map((t) => t.triple)).size).toBe(5);
+    const host = targets.filter((t) => t.isHost);
+    expect(host).toHaveLength(1);
+    expect(host[0]?.triple).toBe("win32-x64");
+  });
+
+  test("null host → the 4 cross targets only, none flagged host", () => {
+    const targets = buildTargets(null);
+    expect(targets).toHaveLength(4);
+    expect(targets.every((t) => !t.isHost)).toBe(true);
+  });
+});
+
+describe("buildArgs", () => {
+  test("cross build: --compile --minify, NO --bytecode, explicit --target=bun-<triple>", () => {
+    const args = buildArgs("darwin-arm64", false, "/tmp/out");
+    expect(args.slice(0, 2)).toEqual(["build", "--compile"]);
+    expect(args).not.toContain("--bytecode");
+    expect(args).toContain("--minify");
+    expect(args).toContain("--target=bun-darwin-arm64");
+    expect(args).toContain("./src/main.ts");
+    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "mote-agent-darwin-arm64")]);
+  });
+
+  test("host build: adds --bytecode and omits --target entirely", () => {
+    const args = buildArgs("linux-x64", true, "/tmp/out");
+    expect(args.slice(0, 3)).toEqual(["build", "--compile", "--bytecode"]);
+    expect(args.some((a) => a.startsWith("--target"))).toBe(false);
+    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "mote-agent-linux-x64")]);
+  });
+});
+
+describe("buildAll", () => {
+  let workDir = "";
+
+  beforeAll(async () => {
+    workDir = await mkdtemp(join(tmpdir(), "mote-release-test-"));
+  });
+
+  /** runBuild stub: writes plausible bytes to the --outfile target, fails the named triple. */
+  function stubRunBuild(failTriple?: string) {
+    const calls: string[][] = [];
+    const runBuild = async (args: string[]): Promise<number> => {
+      calls.push(args);
+      const outfile = args[args.indexOf("--outfile") + 1] as string;
+      if (failTriple && outfile.endsWith(`mote-agent-${failTriple}`)) return 1;
+      // The real main() mkdirs outDir before building; the stub mirrors that here.
+      await mkdir(dirname(outfile), { recursive: true });
+      await writeFile(outfile, `binary-bytes-for-${outfile}`);
+      return 0;
+    };
+    return { calls, runBuild };
+  }
+
+  test("one failing target → {ok:false, failed:<triple>} and NOTHING is published", async () => {
+    const outDir = join(workDir, "out-fail");
+    const destDir = join(workDir, "dest-fail");
+    await mkdir(destDir, { recursive: true });
+    const { calls, runBuild } = stubRunBuild("darwin-x64");
+    const result = await buildAll({ runBuild, outDir });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.failed).toBe("darwin-x64");
+    // publish is a SEPARATE step (main() calls publishArtifacts only on ok:true):
+    // a failed buildAll must leave the dest dir exactly as empty as it found it.
+    expect(await readdir(destDir)).toEqual([]);
+    // The stub was never handed a publish-shaped call either — only bun build argv.
+    expect(calls.every((a) => a[0] === "build" && a[1] === "--compile")).toBe(true);
+  });
+
+  test("all succeed → one artifact per triple with a sha256 digest matching the file bytes", async () => {
+    const outDir = join(workDir, "out-ok");
+    const { runBuild } = stubRunBuild();
+    const result: BuildAllResult = await buildAll({ runBuild, outDir });
+    if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
+    expect(result.artifacts.size).toBe(4); // one per triple on this host (linux-x64 duplicates a cross target)
+    for (const [triple, artifact] of result.artifacts) {
+      expect(artifact.path).toBe(join(outDir, `mote-agent-${triple}`));
+      const bytes = await Bun.file(artifact.path).bytes();
+      expect(artifact.digest).toBe(sha256Hex(bytes));
+      expect(artifact.digest).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  test("exit 0 but no output file counts as that target's failure (never publish a phantom)", async () => {
+    const outDir = join(workDir, "out-phantom");
+    const result = await buildAll({ runBuild: async () => 0, outDir });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(
+      CROSS_TARGETS.includes(result.failed as (typeof CROSS_TARGETS)[number]) || result.failed === "linux-x64",
+    ).toBe(true);
+  });
+});
+
+describe("publishArtifacts", () => {
+  let workDir = "";
+  let srcDir = "";
+  let artifacts: Map<string, { path: string; digest: string }>;
+
+  beforeAll(async () => {
+    workDir = await mkdtemp(join(tmpdir(), "mote-publish-test-"));
+    srcDir = join(workDir, "build");
+    await mkdir(srcDir, { recursive: true });
+    artifacts = new Map();
+    for (const [i, triple] of (["linux-x64", "darwin-arm64"] as const).entries()) {
+      const path = join(srcDir, `mote-agent-${triple}`);
+      await writeFile(path, `payload-${i}-${triple}`);
+      const digest = sha256Hex(await Bun.file(path).bytes());
+      artifacts.set(triple, { path, digest });
+    }
+  });
+
+  test("writes binary + sidecar per target; sidecar is 64-hex + newline, lowercase", async () => {
+    const destDir = join(workDir, "dest-clean");
+    await publishArtifacts(artifacts, destDir);
+    for (const [triple, { path, digest }] of artifacts) {
+      const destBin = join(destDir, `mote-agent-${triple}`);
+      expect(await Bun.file(destBin).text()).toBe(await Bun.file(path).text());
+      const sidecar = await Bun.file(`${destBin}.sha256`).text();
+      expect(sidecar).toBe(`${digest}\n`);
+      expect(sidecar.trim()).toMatch(/^[0-9a-f]{64}$/);
+    }
+    // Atomic publish leaves no temp debris behind.
+    const names = await readdir(destDir);
+    expect(names.filter((n) => n.includes(".tmp-"))).toEqual([]);
+  });
+
+  test("a stale garbage sidecar at dest is regenerated, never reused", async () => {
+    const destDir = join(workDir, "dest-stale");
+    await mkdir(destDir, { recursive: true });
+    await writeFile(join(destDir, "mote-agent-linux-x64.sha256"), "deadbeef\n");
+    await publishArtifacts(artifacts, destDir);
+    const sidecar = await Bun.file(join(destDir, "mote-agent-linux-x64.sha256")).text();
+    expect(sidecar).toBe(`${(artifacts.get("linux-x64") as { digest: string }).digest}\n`);
+    expect(sidecar).not.toContain("deadbeef");
+  });
+
+  test("publish into a nonexistent dest dir succeeds (mkdir -p semantics)", async () => {
+    const destDir = join(workDir, "nested", "artifacts");
+    expect(existsSync(destDir)).toBe(false);
+    await publishArtifacts(artifacts, destDir);
+    expect(existsSync(join(destDir, "mote-agent-darwin-arm64"))).toBe(true);
+  });
+});
+
+describe("resolveArtifactsDir", () => {
+  const saved = { ...process.env };
+  afterAll(() => {
+    process.env.MOTE_NODE_ARTIFACTS_DIR = saved.MOTE_NODE_ARTIFACTS_DIR;
+    process.env.SESSION_DATA_DIR = saved.SESSION_DATA_DIR;
+    process.env.DATABASE_PATH = saved.DATABASE_PATH;
+  });
+
+  test("MOTE_NODE_ARTIFACTS_DIR wins outright", () => {
+    process.env.MOTE_NODE_ARTIFACTS_DIR = "/custom/artifacts";
+    process.env.SESSION_DATA_DIR = "/should/not/be/used";
+    expect(resolveArtifactsDir()).toBe("/custom/artifacts");
+  });
+
+  test("SESSION_DATA_DIR falls through to <it>/node-artifacts", () => {
+    delete process.env.MOTE_NODE_ARTIFACTS_DIR;
+    process.env.SESSION_DATA_DIR = "/srv/mote-data";
+    expect(resolveArtifactsDir()).toBe("/srv/mote-data/node-artifacts");
+  });
+
+  test("no env at all mirrors the backend default: DATABASE_PATH's directory + /node-artifacts", () => {
+    delete process.env.MOTE_NODE_ARTIFACTS_DIR;
+    delete process.env.SESSION_DATA_DIR;
+    process.env.DATABASE_PATH = "/srv/mote/db/mote.db";
+    expect(resolveArtifactsDir()).toBe("/srv/mote/db/node-artifacts");
+  });
+
+  test("non-file DATABASE_PATH (URI/memory/bare-name) falls back to ./data/node-artifacts like the backend", () => {
+    delete process.env.MOTE_NODE_ARTIFACTS_DIR;
+    delete process.env.SESSION_DATA_DIR;
+    for (const raw of ["file::memory:?cache=shared", ":memory:", "mote.db"]) {
+      process.env.DATABASE_PATH = raw;
+      expect(resolveArtifactsDir()).toBe(join(process.cwd(), "data", "node-artifacts"));
+    }
+  });
+
+  test("unset DATABASE_PATH defaults to ./data/mote.db semantics", () => {
+    delete process.env.MOTE_NODE_ARTIFACTS_DIR;
+    delete process.env.SESSION_DATA_DIR;
+    delete process.env.DATABASE_PATH;
+    expect(resolveArtifactsDir()).toBe(join(process.cwd(), "data", "node-artifacts"));
+  });
+});

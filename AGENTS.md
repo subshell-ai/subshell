@@ -125,6 +125,31 @@ bun run clean:turbo        # Remove .turbo directories only
 bun run clean:dist         # Remove dist directories only
 ```
 
+### Publishing mote-agent binaries (Nodes)
+
+The prebuilt `mote-agent` binaries served by `GET /api/downloads/node/*` (the
+node enroll flow) are built separately from the app build. The release dance,
+from the repo root:
+
+```bash
+bunx turbo build                          # 1. package dists the agent binary bundles
+bun run release:agent                     # 2. compile:release — cross-build + atomic publish
+systemctl --user restart mote.service     # 3. the backend serves the new files
+```
+
+- `release:agent` runs `apps/agent`'s `compile:release` (`src/scripts/release.ts`):
+  the four served triples (`linux|darwin × x64|arm64`) plus a host build with
+  `--bytecode`, digested and published as `mote-agent-<triple>` + a fresh
+  `.sha256` sidecar via temp-file + `rename()` (the atomic swap the downloads
+  route's mtime-keyed cache requires).
+- Publish destination: `MOTE_NODE_ARTIFACTS_DIR`, else
+  `<SESSION_DATA_DIR>/node-artifacts` — the same default the backend resolves.
+- Cross builds download their target's bun runtime on first use and deliberately
+  ship WITHOUT `--bytecode` (bytecode + cross is a known compile risk). A failed
+  target exits non-zero and publishes NOTHING — never a half set.
+- `turbo build` wipes the compiled `apps/agent/dist/mote-agent` dev binary;
+  re-create it with `cd apps/agent && bun run compile`.
+
 ## Build Dependencies
 
 The Turbo pipeline ensures correct build order:

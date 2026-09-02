@@ -26,7 +26,8 @@
     "lint:packages": "syncpack lint",
     "test": "turbo run test --continue --",
     "test:e2e": "turbo run test:e2e",
-    "test:e2e:install": "turbo run install-browsers"
+    "test:e2e:install": "turbo run install-browsers",
+    "release:agent": "bun run --cwd apps/agent compile:release"
   },
   "dependencies": {
     "@elysiajs/eden": "1.4.9",

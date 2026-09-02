@@ -21,7 +21,8 @@
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
     "test": "bun test",
     "verify-types": "tsc --project tsconfig.json --noEmit",
-    "compile": "bun build --compile --bytecode --minify --sourcemap ./src/main.ts --outfile ./dist/mote-agent"
+    "compile": "bun build --compile --bytecode --minify --sourcemap ./src/main.ts --outfile ./dist/mote-agent",
+    "compile:release": "bun run src/scripts/release.ts"
   },
   "dependencies": {
     "@internal/backend-errors": "workspace:*",
