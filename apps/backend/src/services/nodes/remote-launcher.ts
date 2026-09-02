@@ -264,9 +264,18 @@ export class RemoteLauncher implements NodeLauncher {
     return entry?.alive && entry.title != null ? { title: entry.title, command: entry.command ?? "" } : null;
   }
 
-  /** `capture` (10 s) → the pane's visible grid as a bare string. */
-  async capture(_socket: string, id: string): Promise<string> {
-    const data = await this.#send({ type: "capture", sessionId: id });
+  /**
+   * `capture` (10 s) → the pane's visible grid (plus up to `scrollbackLines`
+   * reflowed history rows when asked) as a bare string. The field is optional
+   * on the wire: an agent predating it strips the unknown key and answers
+   * with the visible grid only — a graceful degrade to the old replay.
+   */
+  async capture(_socket: string, id: string, scrollbackLines?: number): Promise<string> {
+    const data = await this.#send(
+      scrollbackLines && scrollbackLines > 0
+        ? { type: "capture", sessionId: id, lines: scrollbackLines }
+        : { type: "capture", sessionId: id },
+    );
     const text = parseNodeCaptureResult(data);
     if (text === null) throw this.#malformed("capture");
     return text;

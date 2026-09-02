@@ -181,6 +181,17 @@ describe("command executors (spec §7)", () => {
     expect(parseNodeCaptureResult(result.ok ? result.data : null)).toBe("screen");
   });
 
+  it("capture forwards the optional scrollback budget to capturePane (attach replay)", async () => {
+    const { ctx, tmux } = makeCtx({ capturePane: () => "screen" }, []);
+    expect(await dispatchCommand(ctx, { type: "capture", sessionId: S1, lines: 100 })).toEqual({
+      ok: true,
+      data: "screen",
+    });
+    // S1's socket comes from the recorded meta ("recorded-sock", seeded by
+    // the terminate test on the same dataDir) — the resolveSocket precedence.
+    expect(argsOf(tmux, "capturePane")).toEqual([["recorded-sock", S1, 100]]);
+  });
+
   it("probe: live row carries title/command/capture; dead row carries the exit code and NO capture", async () => {
     const { ctx } = makeCtx(
       {

@@ -33,12 +33,16 @@ function SessionPage() {
   const termRef = useRef<Terminal | null>(null);
   const sendInputRef = useRef<((data: string) => void) | null>(null);
   const openImagePickerRef = useRef<(() => void) | null>(null);
+  const scrollToTopRef = useRef<(() => void) | null>(null);
+  const scrollToBottomRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
   const [closed, setClosed] = useState(false);
+  /** Superseded by a newer viewer (close 4003) — the session runs, elsewhere. */
+  const [replaced, setReplaced] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { session, exited, dead } = useSessionData(id);
+  const { session, isLoading, isError, exited, dead } = useSessionData(id);
 
   /** Renames this session in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {
@@ -71,6 +75,8 @@ function SessionPage() {
     termRef.current = handles.term;
     sendInputRef.current = handles.sendInput;
     openImagePickerRef.current = handles.openImagePicker;
+    scrollToTopRef.current = handles.scrollToTop;
+    scrollToBottomRef.current = handles.scrollToBottom;
     setSearch(handles.search);
   }
 
@@ -79,6 +85,8 @@ function SessionPage() {
     termRef.current = null;
     sendInputRef.current = null;
     openImagePickerRef.current = null;
+    scrollToTopRef.current = null;
+    scrollToBottomRef.current = null;
     setSearch(null);
   }
 
@@ -88,13 +96,23 @@ function SessionPage() {
     sendInputRef.current?.(bytes);
   }
 
+  /** Scroll jumps drive the LOCAL xterm scrollback — no socket round-trip. */
+  function handleScrollTop() {
+    scrollToTopRef.current?.();
+  }
+  function handleScrollBottom() {
+    scrollToBottomRef.current?.();
+  }
+
   // "reconnecting…" pill: the WS dropped (or is still retrying after a
   // backend restart) and the session may still be running. The hook
   // reconnects automatically and the terminal stays mounted; history is
   // re-streamed on every attach. Only when the session query reports the
   // process dead (the exited state) or the server refused the attach (closed)
   // is the terminal replaced by a state panel.
-  const showPill = !connected && !closed && !dead && !restarting;
+  // `isLoading` is NOT a reconnect: the terminal is not even mounted yet, and
+  // claiming "reconnecting…" before a first attach would be a lie.
+  const showPill = !connected && !closed && !replaced && !dead && !restarting && !isLoading;
 
   return (
     <main className="flex h-full flex-col">
@@ -161,54 +179,64 @@ function SessionPage() {
       />
 
       <div className="relative flex-1 overflow-hidden bg-terminal-strip p-0">
-        {/* Keyed by the row's startedAt, not aliveness: a restart mints a NEW
+        {/* Mount only once the record has settled: attaching under a
+            "loading" key and remounting when the query lands replayed the
+            whole pane twice per visit (the visible double-jumble). An errored
+            query (gone/unknown id) still mounts — that is exactly when the
+            "not running" panel has to show.
+            Keyed by the row's startedAt, not aliveness: a restart mints a NEW
             startedAt (reviveRow stamps it), so exactly one remount lands on
             every birth — including a LIVE restart, where the client never sees
             `alive:false` (the POST returns after the pane is already respawned)
             and an aliveness key would leave the socket wedged on the transient
-            4004 it hits during the kill→respawn gap. `startedAt ?? "loading"`
-            is stable across the initial load→loaded transition for a crash
-            (reconcile never clears startedAt), so a crash shows the dead panel
-            without remounting, and the auto-restart that follows re-keys it. */}
-        <SessionTerminal
-          key={`${id}:${session?.startedAt ?? "loading"}`}
-          sessionId={id}
-          session={session}
-          onReady={handleTerminalReady}
-          onDispose={handleTerminalDispose}
-          onStatusChange={(status) => {
-            setConnected(status.connected);
-            setClosed(status.closed);
-          }}
-          onRestart={() => void restart()}
-          restarting={restarting}
-          onDelete={() => void remove()}
-          deleting={deleting}
-          diagnostics={logTail ?? null}
-          extraActions={
-            profile && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void navigate({ to: "/profiles/$id", params: { id: profile.id } })}
-              >
-                <SlidersHorizontal className="h-3 w-3" /> Edit profile
-              </Button>
-            )
-          }
-        />
+            4004 it hits during the kill→respawn gap. */}
+        {(session || isError) && (
+          <SessionTerminal
+            key={`${id}:${session?.startedAt ?? "missing"}`}
+            sessionId={id}
+            session={session}
+            onReady={handleTerminalReady}
+            onDispose={handleTerminalDispose}
+            onStatusChange={(status) => {
+              setConnected(status.connected);
+              setClosed(status.closed);
+              setReplaced(status.replaced ?? false);
+            }}
+            onRestart={() => void restart()}
+            restarting={restarting}
+            onDelete={() => void remove()}
+            deleting={deleting}
+            diagnostics={logTail ?? null}
+            extraActions={
+              profile && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void navigate({ to: "/profiles/$id", params: { id: profile.id } })}
+                >
+                  <SlidersHorizontal className="h-3 w-3" /> Edit profile
+                </Button>
+              )
+            }
+          />
+        )}
         {showPill && <StatusPill tone="warning">reconnecting…</StatusPill>}
       </div>
 
-      {/* The accessory key bar is an input affordance — a `view` grantee has
-          none (the terminal itself is read-only for them, spec §4.1). */}
+      {/* The accessory key bar is an input affordance — a `view` grantee
+          (spec §4.1) gets the reading half only: no byte keys, no image
+          picker, just the scroll-to-top/bottom jumps (which drive the LOCAL
+          xterm scrollback, so they work for any audience). */}
       {/* The image button doubles as the touch upload gesture: dropping or
         clipboard-pasting files has no equivalent on a phone. */}
-      {coarse && session?.access !== "view" && (
+      {coarse && session && (
         <TerminalKeyBar
           disabled={!connected}
+          readOnly={session.access === "view"}
           onBytes={handleKeyBarBytes}
-          onPickImage={() => openImagePickerRef.current?.()}
+          onPickImage={session.access === "view" ? undefined : () => openImagePickerRef.current?.()}
+          onScrollTop={handleScrollTop}
+          onScrollBottom={handleScrollBottom}
         />
       )}
     </main>

@@ -83,6 +83,35 @@ handlers) reaches the same graph via `getRequestlessContext()`
 (`src/lib/context.ts`) — a singleton context whose log is the app logger
 (no request id).
 
+### Terminal attach diagnostics
+
+A garbled live terminal is diagnosed from the journal first — two lines per
+attach, both under `journalctl --user -u mote.service | grep "ws attach"`:
+
+- `geometry WxH … ua="…"` — the client's fitted size (`geometry MISSING` means
+  a stale bundle that predates the feature) and which client sent it.
+- `painted repainted=<bool> nudged=<bool> replay=<n>B dump=<dir|off>` — what
+  the pane did before the capture. `repainted=false nudged=true` means the pane
+  refused to repaint even for a forced SIGWINCH, so a bad replay is the pane's
+  own state; `repainted=true` means a freshly painted frame was shipped and
+  anything still wrong is downstream of the capture.
+
+`MOTE_ATTACH_DEBUG=1` additionally dumps
+`/tmp/mote-attach-debug/<session>/<timestamp>/{pre-resize,replay}.txt` — the
+grid as the viewer found it vs. the exact bytes sent. **Off by default: the
+dumps are real screen contents, which can include secrets.**
+
+Two invariants on that path are load-bearing and easy to regress:
+
+- Capture text (`replay`, pane-poll deltas) goes through
+  `ws/capture-text.ts` — `capture-pane -p` emits **bare LFs**, and a bare LF
+  keeps the cursor's column, which staircases every row into scrollback where
+  nothing ever repaints it. The live tail must NOT be normalized: those bare
+  LFs are the app's own deliberate output.
+- The attach streams **gap-free** from a join point sampled BEFORE the resize.
+  A skipped byte desynchronizes a diff-rendering TUI permanently; a bounded
+  overlap is idempotent.
+
 ### Error contract
 
 Every non-2xx response carries the structured body of

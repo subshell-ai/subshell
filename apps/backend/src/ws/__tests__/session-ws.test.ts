@@ -1,31 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import { handleSessionMessage, stripSyncMarkers, type WsSocket } from "@/ws/session-ws.js";
+import { handleSessionMessage, type WsSocket } from "@/ws/session-ws.js";
 
-describe("stripSyncMarkers", () => {
-  // xterm 6 withholds painting while DEC 2026 is open; TUIs that leave the
-  // update open until their next redraw (claude-code does) stall paint ~1s,
-  // so the markers are removed before the frame reaches the client.
-  const BSU = "\x1b[?2026h";
-  const ESU = "\x1b[?2026l";
-
-  it("removes begin and end markers, keeping the frame content", () => {
-    expect(stripSyncMarkers(`${BSU}hello${ESU}`)).toBe("hello");
-  });
-
-  it("removes a dangling begin marker (the case that caused the 1s paint stall)", () => {
-    expect(stripSyncMarkers(`\x1b[3Am${BSU}`)).toBe("\x1b[3Am");
-  });
-
-  it("leaves plain text that merely mentions 2026 untouched", () => {
-    expect(stripSyncMarkers("error 2026h and 2026l codes")).toBe("error 2026h and 2026l codes");
-  });
-
-  it("is a no-op on strings without the fast-path substring", () => {
-    const s = "\x1b[1;32m ready";
-    expect(stripSyncMarkers(s)).toBe(s);
-  });
-});
+// stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
+// pinned there by __tests__/sync-stripper.test.ts.
 
 /** Records every launcher call the message handler makes. `canInput` defaults true (an edit/owner attach). */
 function fakeSocket(opts: { canInput?: boolean } = {}) {

@@ -6,31 +6,109 @@ interface UploadRejection {
   errors: readonly { message: string }[];
 }
 
+/** Progress callback for {@link uploadSessionFile}: bytes handed off, total bytes. */
+export type UploadProgress = (sent: number, total: number) => void;
+
 /**
  * Uploads one file into a session's working directory.
  *
+ * Uses `XMLHttpRequest` rather than `fetch` on purpose: upload progress is the
+ * one thing `fetch` cannot report (its body stream is write-only), and a
+ * silent multi-MB upload is exactly what made drops look stalled.
+ *
  * @param sessionId - Session to upload into
  * @param file - The file to store
+ * @param onProgress - Optional byte-progress sink, called on every progress event
  * @returns The absolute path the harness can read the file at
  * @throws Error carrying the API's message when the upload is refused
  */
-export async function uploadSessionFile(sessionId: string, file: File): Promise<string> {
-  const body = new FormData();
-  body.set("file", file);
-  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/uploads`, {
-    method: "POST",
-    body,
-    credentials: "include",
+export function uploadSessionFile(sessionId: string, file: File, onProgress?: UploadProgress): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const body = new FormData();
+    body.set("file", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/sessions/${encodeURIComponent(sessionId)}/uploads`);
+    // Cookie auth, matching the old fetch's `credentials: "include"`.
+    xhr.withCredentials = true;
+    if (onProgress) {
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        // `total` is the request size when the browser can compute it (same-
+        // origin XHR: it can); fall back to the file size so the bar never
+        // divides by zero on an unreported total.
+        const total = e.lengthComputable && e.total > 0 ? e.total : file.size;
+        onProgress(e.loaded, total);
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let path: string | undefined;
+        try {
+          path = (JSON.parse(xhr.responseText) as { path?: string }).path;
+        } catch {
+          // falls through to the refusal below
+        }
+        if (typeof path === "string") {
+          resolve(path);
+          return;
+        }
+        reject(new Error(`Upload failed (${xhr.status})`));
+        return;
+      }
+      // Same error contract the fetch version had: prefer the API's structured
+      // `message`, fall back to the bare status.
+      let message: string | null = null;
+      try {
+        const parsed: unknown = JSON.parse(xhr.responseText);
+        if (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string") {
+          message = parsed.message;
+        }
+      } catch {
+        // non-JSON body — the status line is all we have
+      }
+      reject(new Error(message ?? `Upload failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed (network error)"));
+    xhr.ontimeout = () => reject(new Error("Upload failed (timed out)"));
+    xhr.onabort = () => reject(new Error("Upload aborted"));
+    xhr.send(body);
   });
-  if (!res.ok) {
-    const message = await res
-      .json()
-      .then((j: { message?: string }) => j.message)
-      .catch(() => null);
-    throw new Error(message ?? `Upload failed (${res.status})`);
-  }
-  const json = (await res.json()) as { path: string };
-  return json.path;
+}
+
+/** How many files upload in parallel in one batch (the rest queue behind them). */
+export const MAX_CONCURRENT_UPLOADS = 3;
+
+/**
+ * Maps `items` through an async `worker` with at most `limit` in flight,
+ * returning settled results in INPUT order (one rejection never cancels or
+ * reorders its siblings). A bounded pool keeps a large drop responsive —
+ * every file gets its own progress line immediately — without saturating
+ * the connection with N simultaneous multi-MB bodies.
+ *
+ * @param items - Files (or anything) to process
+ * @param limit - Max concurrent workers; empty input resolves to `[]`
+ * @param worker - Async fn over one item; may reject
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  const laneCount = Math.max(1, Math.min(limit, items.length));
+  const lanes = Array.from({ length: laneCount }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      try {
+        results[i] = { status: "fulfilled", value: await worker(items[i], i) };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(lanes);
+  return results;
 }
 
 /**

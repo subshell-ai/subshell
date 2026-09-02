@@ -43,6 +43,17 @@ export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
     return () => disposable.dispose();
   }, [props.api]);
 
+  // Focus, as dockview sees it: exactly one panel per group is active, so on
+  // a touch device the accessory key bar rides the pane the user last tapped
+  // (tiled panes on a phone would otherwise stack one bar each). Visibility
+  // gates it too — a background tab is never "active" in the user's sense
+  // for long, and its terminal is detached anyway.
+  const [isActive, setIsActive] = useState(props.api.isActive);
+  useEffect(() => {
+    const disposable = props.api.onDidActiveChange((e) => setIsActive(e.isActive));
+    return () => disposable.dispose();
+  }, [props.api]);
+
   const handleTerminalReady = useCallback(
     (handles: SessionTerminalHandles) => setSearchAddon(paneId, handles.search),
     [setSearchAddon, paneId],
@@ -60,6 +71,7 @@ export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
     <SessionPane
       pane={pane}
       active={visible}
+      showKeyBar={visible && isActive}
       onRestart={onRestart}
       onRemovePane={onRemovePane}
       onReady={handleTerminalReady}

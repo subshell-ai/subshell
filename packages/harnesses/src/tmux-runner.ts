@@ -11,6 +11,22 @@ import { shellQuote } from "./shell.js";
  * down another. We use `-L <name>` (default socket dir under /tmp), which
  * keeps cleanup simple (killing the last session removes the socket dir).
  */
+/** Attempts {@link TmuxRunner.newSession} adds when it loses the server-shutdown race. */
+const NEW_SESSION_RACE_RETRIES = 3;
+/** Pause between those attempts — long enough for the dying server to release its socket. */
+const NEW_SESSION_RACE_BACKOFF_MS = 60;
+
+/**
+ * Whether a failed tmux command is the "the server was shutting down as I
+ * connected" race rather than a real refusal (see
+ * {@link TmuxRunner.newSession}). Matched on tmux's own wording, which covers
+ * both the server dying mid-request and the socket going stale under it.
+ */
+function isServerShutdownRace(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /server exited unexpectedly|error connecting to .*(No such file|Connection refused)/i.test(message);
+}
+
 export class TmuxRunner {
   readonly #tmuxBinary: string;
 
@@ -125,9 +141,37 @@ export class TmuxRunner {
     return { title, command: read("#{pane_current_command}") ?? "" };
   }
 
-  /** Creates a new detached session running `cmd` in `cwd`. */
+  /**
+   * Creates a new detached session running `cmd` in `cwd`.
+   *
+   * Retries through the SERVER-SHUTDOWN RACE. Killing a socket's last session
+   * makes its tmux server exit, but the socket file outlives the decision by
+   * a moment: a `new-session` that connects in that window is answered by a
+   * server already on its way out, which dies under the client — `tmux` exits
+   * non-zero with "server exited unexpectedly" and NO session is created.
+   * Nothing is wrong with the request; running it again a moment later starts
+   * a fresh server and succeeds.
+   *
+   * This is the terminate-then-restart path (`restartSession` reuses the row's
+   * socket, and the kill immediately precedes the spawn), where it is
+   * reproducible rather than rare — a bare four-command tmux script hits it
+   * 5/5. Left unhandled it surfaces as a restart that throws while the row
+   * rolls back to `terminated`, i.e. a restart button that just fails.
+   */
   newSession(socket: string, sessionName: string, cwd: string, cmd: string): void {
-    this.run(["-L", socket, "new-session", "-d", "-s", sessionName, "-c", cwd, cmd], {});
+    const args = ["-L", socket, "new-session", "-d", "-s", sessionName, "-c", cwd, cmd];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        this.run(args, {});
+        return;
+      } catch (err) {
+        // Only the shutdown race is retried, and only within the budget: any
+        // other failure (bad cwd, duplicate name, tmux missing) is a real
+        // answer the caller must see immediately, not after a stall.
+        if (attempt >= NEW_SESSION_RACE_RETRIES || !isServerShutdownRace(err)) throw err;
+        Bun.sleepSync(NEW_SESSION_RACE_BACKOFF_MS);
+      }
+    }
   }
 
   /** Redirects all pane output to a file (live streaming). */
@@ -175,9 +219,19 @@ export class TmuxRunner {
     this.run(["-L", socket, "send-keys", "-t", sessionName, "Enter"], {});
   }
 
-  /** Captures the pane's current visible content with escape sequences. */
-  capturePane(socket: string, sessionName: string): string {
-    const res = this.run(["-L", socket, "capture-pane", "-p", "-e", "-t", sessionName], {});
+  /**
+   * Captures the pane's current visible content with escape sequences.
+   *
+   * With `scrollbackLines`, also prepends up to that many rows of the pane's
+   * history (`-S -N`) — tmux's own reflowed, already-rendered text, so the
+   * rows carry the same SGR-only shape as the visible grid and replay cleanly
+   * at ANY geometry. Without it, only the visible grid is captured (preview/
+   * settle callers never wanted history bytes).
+   */
+  capturePane(socket: string, sessionName: string, scrollbackLines?: number): string {
+    const args = ["-L", socket, "capture-pane", "-p", "-e", "-t", sessionName];
+    if (scrollbackLines && scrollbackLines > 0) args.push("-S", `-${scrollbackLines}`);
+    const res = this.run(args, {});
     return res.stdout;
   }
 

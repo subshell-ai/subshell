@@ -14,6 +14,7 @@ import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { sendInput } from "@/lib/session-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
+import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSessionWs } from "@/lib/use-session-ws";
 import type { SessionView } from "@/types/session";
@@ -52,6 +53,12 @@ export interface SessionTerminalStatus {
   connected: boolean;
   /** True once the server *rejected* the attach (close code >= 4000) */
   closed: boolean;
+  /**
+   * True when this viewer was superseded (close 4003): the session is alive
+   * and streaming in a NEWER viewer — one pane, one size, newest wins. Not
+   * `closed`: a session watched elsewhere must not be reported as dead.
+   */
+  replaced?: boolean;
 }
 
 /**
@@ -71,6 +78,14 @@ export interface SessionTerminalHandles {
   sendInput: (data: string) => void;
   /** Opens the OS image picker; picks upload and inject like a dropped file */
   openImagePicker: () => void;
+  /**
+   * Jumps the client scrollback to the oldest row / back to the live bottom
+   * (xterm `scrollToTop`/`scrollToBottom`). Local-only — works with the
+   * socket down and for `view` grantees.
+   */
+  scrollToTop: () => void;
+  /** See {@link SessionTerminalHandles.scrollToTop}. */
+  scrollToBottom: () => void;
 }
 
 /** Props for {@link SessionTerminal}. */
@@ -174,6 +189,10 @@ export function SessionTerminal({
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const serializeRef = useRef<SerializeAddon | null>(null);
+  // Live FitAddon for the WS hook: it re-measures right before the attach
+  // URL carries the grid size (a stale size captures mis-wrapped rows).
+  const fitRef = useRef<FitAddon | null>(null);
+  const measureGrid = useCallback(() => fitRef.current?.fit(), []);
   // Plain-text screen captured just before the terminal was disposed; shown
   // while `active` is false so a detached pane still reads as itself.
   const [snapshot, setSnapshot] = useState("");
@@ -225,6 +244,7 @@ export function SessionTerminal({
     const term = new Terminal({ ...TERMINAL_OPTIONS, fontSize: terminalFontSize() });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    fitRef.current = fit;
     const serialize = new SerializeAddon();
     term.loadAddon(serialize);
     serializeRef.current = serialize;
@@ -261,6 +281,21 @@ export function SessionTerminal({
         term.input("\x1b\r");
         return false;
       }
+      // Ctrl/Cmd+V is a PASTE, not input: xterm would encode it as \x16 and
+      // send it to the pane, where the harness CLI treats it as its own
+      // paste shortcut and reads the SERVER's clipboard — "No image found in
+      // clipboard. Use ctrl+v to paste images." on the user's machine, with
+      // their actual image never leaving the browser (2026-09-02 report).
+      //
+      // Returning false only stops xterm's ENCODING: it bails before
+      // `preventDefault`, so the browser still runs its paste pipeline and
+      // fires the `paste` event — which is what does the real work either
+      // way (xterm's own textarea listener writes pasted TEXT; the
+      // capture-phase interceptor in use-terminal-uploads claims IMAGES).
+      // Deliberate trade: a literal \x16 (SYN) can no longer be typed into a
+      // pane, which is the same bargain every terminal emulator that binds
+      // Ctrl+V to paste has already made.
+      if (e.type === "keydown" && isPasteChord(e)) return false;
       return true;
     });
 
@@ -363,6 +398,8 @@ export function SessionTerminal({
       search: searchAddon,
       sendInput: (data) => sendToSessionRef.current(data),
       openImagePicker: () => openImagePickerRef.current(),
+      scrollToTop: () => term.scrollToTop(),
+      scrollToBottom: () => term.scrollToBottom(),
     });
 
     return () => {
@@ -384,6 +421,7 @@ export function SessionTerminal({
       term.dispose();
       termRef.current = null;
       serializeRef.current = null;
+      fitRef.current = null;
     };
   }, [active]);
 
@@ -406,6 +444,13 @@ export function SessionTerminal({
     {
       onOpen: () => emitStatus({ connected: true, closed: statusRef.current.closed }),
       onClose: (code, _reason) => {
+        // 4003: a NEWER viewer took the session (one pane has one width; the
+        // newest viewer owns it). The session is alive — say so, do not
+        // render the dead-session state, and the hook will not retry.
+        if (code === 4003) {
+          emitStatus({ connected: false, closed: false, replaced: true });
+          return;
+        }
         // A server rejection code (4xxx) means the attach is refused (session
         // missing / not running) — a reconnect cannot succeed, so surface the
         // dead-session state. All other closes (network drops, backend restart)
@@ -416,6 +461,8 @@ export function SessionTerminal({
     },
     // A `view` grantee watches the pane but cannot type (spec §4.1).
     session?.access === "view",
+    // Re-fit before the attach URL commits to a grid size.
+    measureGrid,
   );
 
   // A deliberate detach never reports a close: useSessionWs nulls its socket
@@ -430,7 +477,7 @@ export function SessionTerminal({
 
   sendToSessionRef.current = (data) => sendInput(wsRef.current, data);
 
-  const uploads = useTerminalUploads({ sessionId, wsRef, termRef });
+  const uploads = useTerminalUploads({ sessionId, wsRef, termRef, enabled: showUploads });
   openImagePickerRef.current = uploads.openImagePicker;
 
   if (!active) {
@@ -458,12 +505,14 @@ export function SessionTerminal({
   return (
     <>
       {!dead && !closed && (
-        <div {...rootProps}>
+        // rootRef (from the dropzone hook) scopes the clipboard-paste
+        // interceptor's focus test to THIS terminal — see use-terminal-uploads.
+        <div {...rootProps} ref={uploads.rootRef as React.RefObject<HTMLDivElement | null>}>
           <div ref={containerRef} className="h-full w-full" />
           {showUploads && (
             <TerminalDropOverlay
               isDragActive={uploads.isDragActive}
-              pending={uploads.pending}
+              entries={uploads.entries}
               error={uploads.error}
               onDismiss={uploads.dismissError}
             />

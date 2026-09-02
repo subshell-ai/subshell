@@ -70,8 +70,13 @@ export interface NodeLauncher {
   paneExitCode(socket: string, id: string): Promise<number | null>;
   /** Pane's OSC title plus the running command, null if the pane is gone. */
   paneTitle(socket: string, id: string): Promise<{ title: string; command: string } | null>;
-  /** Snapshot of the pane's visible grid as text. */
-  capture(socket: string, id: string): Promise<string>;
+  /**
+   * Snapshot of the pane's visible grid as text. With `scrollbackLines`, also
+   * prepends up to that many rows of the pane's own (reflowed, rendered)
+   * history — the attach-time replay ships the grid PLUS history in one clean
+   * paint, instead of re-playing raw log bytes over the grid.
+   */
+  capture(socket: string, id: string, scrollbackLines?: number): Promise<string>;
   /** Propagates client geometry to the pane. */
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   /** Types raw input into the pane (escape sequences included). */

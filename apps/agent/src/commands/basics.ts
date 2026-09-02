@@ -81,10 +81,10 @@ export async function execResize(ctx: CommandContext, cmd: Cmd<"resize">): Promi
   return { ok: true };
 }
 
-/** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). */
+/** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay). */
 export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.sessionId);
-  return { ok: true, data: ctx.tmux.capturePane(socket, cmd.sessionId) };
+  return { ok: true, data: ctx.tmux.capturePane(socket, cmd.sessionId, cmd.lines) };
 }
 
 /**

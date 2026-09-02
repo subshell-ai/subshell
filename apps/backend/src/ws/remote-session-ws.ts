@@ -1,20 +1,35 @@
 import { type Access, accessAtLeast } from "@/lib/session-access.js";
-import { LOG_TAIL_BYTES, replayLineCap, replayOffsetFromWindow } from "@/services/nodes/log-tail.js";
+import { replayLineCap } from "@/services/nodes/log-tail.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { logger } from "@/utils/logger.js";
-import { persistOutput, stripSyncMarkers, type WsData, type WsSocket } from "@/ws/session-ws.js";
+import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
+import { captureToTerminalText } from "@/ws/capture-text.js";
+import {
+  captureStable,
+  evictPreviousViewer,
+  nudgePaneForRepaint,
+  persistOutput,
+  RESIZE_SETTLE_MS,
+  type WsData,
+  type WsSocket,
+  waitForPaneRepaint,
+} from "@/ws/session-ws.js";
+import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 
 /**
  * Live-terminal relay for sessions running on an agent node (spec
  * 2026-08-31 §6.5) — the remote twin of the local WS attach in
  * `session-ws.ts`. The browser contract is BYTE-IDENTICAL: one
- * `{"type":"replay","data":...}` frame (current pane grid), then
- * `{"type":"output","data":...}` frames as the tail streams, every outbound
- * string through `stripSyncMarkers`, refusals on close code 4004.
+ * `{"type":"replay","data":...}` frame (pane grid + reflowed history rows),
+ * then `{"type":"output","data":...}` frames carrying ONLY bytes appended
+ * after the replay was taken, every outbound string marker-stripped, refusals
+ * on close code 4004.
  *
- * The flow (per row): liveness (registry + probe) → capture → replay-window
- * computation over two `log_read` round-trips → `tail_start`. Everything the
+ * The flow (per row): liveness (registry + probe) → optional pre-capture
+ * resize + settle → `capture` with the replay line cap → one `log_read(0,1)`
+ * size probe (AFTER the capture — the tail starts at that EOF and never
+ * replays historical log bytes). Everything the
  * relay consumes from the launcher is pinned by the launcher's own suite:
  * the agent's `tail_start` RESULT can resolve before its initial catch-up
  * bytes flow (never assume "caught up" at resolve — the launcher's relay
@@ -25,8 +40,9 @@ import { persistOutput, stripSyncMarkers, type WsData, type WsSocket } from "@/w
  * same {@link WsData} shape the local path builds.
  *
  * Cycle note: imports `session-ws.ts` and is imported by it — both directions
- * reference hoisted function declarations at call time only, so evaluation
- * order never deadlocks.
+ * consume the other's exports (hoisted functions, types, and the
+ * `RESIZE_SETTLE_MS` value) only at call time, by which point both modules
+ * have evaluated, so evaluation order never deadlocks.
  */
 
 /** The row fields the relay consumes (`SessionTable` subset). */
@@ -51,15 +67,13 @@ type RawWithBackpressure = { getBufferedAmount?: () => number };
 /** Browser queue depth above which the client is dropped (spec §3.4: a lagging browser reconnects and replays). */
 const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
 
-/**
- * UTF-8 decode of one relayed chunk — the same zero-copy `TextDecoder` usage
- * as the local twin (`session-ws.ts` decodes every tail chunk with a fresh
- * decoder; stream-less decode carries no state across calls, so results are
- * byte-identical to `Buffer.toString("utf8")` on every chunk, including
- * split multi-byte sequences).
- */
-const utf8 = new TextDecoder();
-const decode = (bytes: Uint8Array): string => utf8.decode(bytes);
+/** The client's fitted terminal size from the attach URL (see `session-ws.ts`). */
+export interface AttachSize {
+  /** Column count the browser terminal rendered at */
+  cols: number;
+  /** Row count the browser terminal rendered at */
+  rows: number;
+}
 
 /**
  * Attaches a browser socket to a session living on an agent node.
@@ -82,12 +96,16 @@ const decode = (bytes: Uint8Array): string => utf8.decode(bytes);
  * @param row - the session row (must name a non-local node)
  * @param launcher - the node's cached {@link RemoteLauncher} (registry-resolved)
  * @param access - the caller's effective access; only `edit`/`owner` may type
+ * @param size - the client's fitted geometry; when present the pane is
+ *   resized (and given {@link RESIZE_SETTLE_MS} to repaint) BEFORE the
+ *   capture, so the replay matches the geometry the client renders into
  */
 export async function attachRemoteSessionWs(
   ws: WsSocket,
   row: RemoteAttachRow,
   launcher: RemoteLauncher,
   access: Access,
+  size?: AttachSize | null,
 ): Promise<void> {
   if (!getLive(row.nodeId)) {
     ws.close(4004, "node offline");
@@ -131,35 +149,79 @@ export async function attachRemoteSessionWs(
       return;
     }
     if (detached) return;
+    // Pane proven alive — claim the session's one live viewer slot (the local
+    // twin's rule): the previous viewer's width was about to fight this one's.
+    evictPreviousViewer(ws, row.id);
 
-    try {
-      const capture = await launcher.capture(data.socket, row.id);
-      ws.send(JSON.stringify({ type: "replay", data: stripSyncMarkers(capture) }));
-    } catch {
+    // JOIN POINT (the local twin carries the full reasoning): one 1-byte
+    // `log_read` for `size`, sampled BEFORE the resize — the tail streams
+    // every byte from here, so the client can never miss a diff frame (a
+    // desync a diff-rendering TUI can never heal; skipped-overlap it replays
+    // is idempotent repaint). A missing/empty log reads size 0 and the tail
+    // still arms (the agent tolerates a log pipe-pane has not created yet).
+    const logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
+    if (detached) return;
+
+    // The pane as the viewer found it — forensics only, and only when armed
+    // (an extra capture RPC). The local twin carries the reasoning.
+    const preResize = forensicsEnabled() ? await captureStable(launcher, data.socket, row.id, 0) : null;
+
+    // Fit the pane to the viewer BEFORE anything reads it — the local twin's
+    // pre-capture resize, relayed as one RPC. A failure here is not fatal
+    // (stale geometry beats a refused attach); the capture right after dies
+    // with its own refusal if the node actually went away.
+    let repainted = false;
+    let nudged = false;
+    if (size) {
+      const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
+      try {
+        await launcher.resize(data.socket, row.id, size.cols, size.rows);
+        // Wait for the pane's TUI to repaint at the new geometry (burst of
+        // fresh log bytes, then quiet) — a flat settle captures tmux's
+        // re-wrapped approximation of the OLD frame — and when no burst comes
+        // (a no-op resize fires no SIGWINCH), force one. The local twin
+        // carries the full reasoning. Improves the first paint only;
+        // correctness lives in the gap-free join above.
+        // `logStart` is the pre-resize size (the local twin's reasoning): the
+        // baseline a repaint must grow past, so a fast repaint still counts.
+        repainted = await waitForPaneRepaint(sizeOf, { baseline: logStart });
+        if (!repainted && !detached) {
+          nudged = true;
+          repainted = await nudgePaneForRepaint(launcher, data.socket, row.id, size.cols, size.rows, sizeOf);
+        }
+      } catch (err) {
+        logger.withError(err).warn("remote attach: initial resize failed; replay uses the current size");
+        await Bun.sleep(RESIZE_SETTLE_MS);
+      }
+      if (detached) return;
+    }
+
+    // N is per-session config, falling back to the instance default; the
+    // clamp (column predates the API; ceiling is a load guarantee) is the
+    // SHARED {@link replayLineCap} — identical math on both attach paths.
+    // The capture carries the visible grid PLUS the last `cap` reflowed
+    // history rows; historical log bytes are never re-played. One capture —
+    // the gap-free stream above corrects any raced frame (local twin).
+    const cap = replayLineCap(row.terminalReplayLines);
+    const replay = await captureStable(launcher, data.socket, row.id, cap);
+    if (replay === null) {
       // pane may have just died (the local twin swallows this; remote closes
       // the same refusal the probe path uses — nothing after it can stream)
       ws.close(4004, "session not running");
       return;
     }
+    const painted = captureToTerminalText(replay);
+    ws.send(JSON.stringify({ type: "replay", data: painted }));
+    recordAttachPaint({ sessionId: row.id, preResize, replay: painted, repainted, nudged });
     if (detached) return;
 
-    // Replay-window math identical to the local attach: window = last
-    // LOG_TAIL_BYTES (the whole log when smaller), start = where the last
-    // `cap` lines begin. `size` rides every log_read answer, so the window
-    // start costs one 1-byte probe. A missing/empty log reads size 0 → the
-    // offset is 0 and the tail still arms (the agent tolerates a log that
-    // pipe-pane has not created yet).
-    // N is per-session config, falling back to the instance default; the
-    // clamp (column predates the API; ceiling is a load guarantee) is the
-    // SHARED {@link replayLineCap} — identical math on both attach paths.
-    const cap = replayLineCap(row.terminalReplayLines);
-    const first = await launcher.readLogSized(row.id, 0, 1);
-    const windowStart = Math.max(0, first.size - LOG_TAIL_BYTES);
-    const win = await launcher.readLogSized(row.id, windowStart, LOG_TAIL_BYTES);
-    const offset = replayOffsetFromWindow(windowStart, decode(win.bytes), cap);
-    if (detached) return;
-
-    disposer = await launcher.tailStart(row.id, crypto.randomUUID(), offset, (bytes) => {
+    // Per-connection decode/strip state, mirroring the local twin:
+    // `stream: true` keeps a multi-byte char split across reads intact, and
+    // the stripper holds a DEC-2026 marker split across a read boundary until
+    // its other half arrives (see ws/sync-stripper.ts).
+    const decoder = new TextDecoder();
+    const stripper = new SyncStreamStripper();
+    disposer = await launcher.tailStart(row.id, crypto.randomUUID(), logStart, (bytes) => {
       // Spec §3.4: a browser that cannot keep up is cut, not queued into —
       // its reconnect replays fresh. (Measured on the server send queue.)
       const lag = (ws.raw as RawWithBackpressure | undefined)?.getBufferedAmount?.() ?? 0;
@@ -167,7 +229,9 @@ export async function attachRemoteSessionWs(
         ws.close(1011, "client too slow");
         return;
       }
-      ws.send(JSON.stringify({ type: "output", data: stripSyncMarkers(decode(bytes)) }));
+      const text = stripper.push(decoder.decode(bytes, { stream: true }));
+      if (!text) return; // nothing paintable yet — the whole read is held
+      ws.send(JSON.stringify({ type: "output", data: text }));
       persistOutput(ws, data);
     });
     if (detached) disposer(); // vanished during the tail_start round-trip

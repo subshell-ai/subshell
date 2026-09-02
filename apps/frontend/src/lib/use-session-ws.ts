@@ -19,11 +19,18 @@ const RECONNECT_DELAY_MS = 1500;
  *
  * The connection survives transient drops: after any non-rejection close the
  * hook reconnects automatically (fixed 1.5s delay) until it unmounts or the
- * server rejects the session. Each attach re-streams the full session history
- * (`replay` = current pane, then the full log tail from byte 0), so reconnects
- * rebuild the terminal with no client-side replay history to store; the
- * terminal is reset on the first `replay` frame of an attach so the previous
- * connection's screen content is not left behind.
+ * server rejects the session. Each attach re-streams a clean snapshot: one
+ * `replay` frame carries the pane grid plus a bounded window of tmux's own
+ * reflowed history, and the live tail then carries ONLY output produced after
+ * that snapshot — historical raw log bytes (mid-stream TUI redraw sequences)
+ * are never re-played over the grid. Reconnects rebuild the terminal with no
+ * client-side replay history to store; the terminal is reset on the first
+ * `replay` frame of an attach so the previous connection's screen content is
+ * not left behind.
+ *
+ * The browser's fitted geometry rides the connect URL (`cols`/`rows`) so the
+ * server resizes the pane BEFORE capturing the replay — painting a grid
+ * captured at a different width is what re-wraps rows into garbage.
  *
  * Auth: the better-auth session cookie is HttpOnly, and the Vite WS proxy
  * doesn't forward Cookie headers on upgrade — so we first call the
@@ -45,6 +52,14 @@ export function useSessionWs(
    * reaches the handler, so keystrokes and pastes never hit the socket.
    */
   readOnly = false,
+  /**
+   * Re-measures the terminal grid (fit) right before the connect URL carries
+   * its `cols`/`rows`. A freshly mounted terminal can settle its layout —
+   * header chrome appearing, scrollbars toggling — between the mount-time fit
+   * and this async point; capturing at stale dimensions is what made rows
+   * arrive mis-wrapped until the next manual resize.
+   */
+  measure?: () => void,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const inputDisposableRef = useRef<{ dispose(): void } | null>(null);
@@ -75,7 +90,15 @@ export function useSessionWs(
         if (cancelled) return;
 
         const proto = window.location.protocol === "https:" ? "wss" : "ws";
-        const url = `${proto}://${window.location.host}/ws?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`;
+        // Geometry at CONNECT time (re-fitted here, not just at mount): the
+        // server resizes the pane to these before capturing, so the replay
+        // arrives laid out for this exact terminal width.
+        measure?.();
+        const usedCols = term.cols;
+        const usedRows = term.rows;
+        const url =
+          `${proto}://${window.location.host}/ws?session=${encodeURIComponent(sessionId)}` +
+          `&token=${encodeURIComponent(token)}&cols=${usedCols}&rows=${usedRows}`;
 
         const ws = new WebSocket(url);
         socket = ws;
@@ -97,7 +120,7 @@ export function useSessionWs(
           syncSize();
         };
         // Frames arrive DEC-2026-stripped from the backend (see
-        // stripSyncMarkers in ws/session-ws.ts): xterm 6 withholds all
+        // stripSyncMarkers in ws/sync-stripper.ts): xterm 6 withholds all
         // painting while a synchronized update is open, and the harness TUIs
         // leave one open across idle seconds — do not "restore" the markers.
         ws.onmessage = (e) => {
@@ -110,6 +133,14 @@ export function useSessionWs(
                   replayStarted = true;
                 }
                 term.write(frame.data);
+                // The capture was taken for the dimensions we CONNECTED with.
+                // If the grid settled to a different size since (late layout,
+                // scrollbar), those rows are the wrong width for the screen
+                // just painted — say so immediately: the pane resizes, its
+                // TUI repaints, and the corrected frames arrive over the
+                // already-armed tail. Without this the mis-wrap persists
+                // until the user happens to resize the window.
+                if (term.cols !== usedCols || term.rows !== usedRows) syncSize();
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
@@ -173,7 +204,7 @@ export function useSessionWs(
       if (socket) socket.close(1000, "client detached");
       wsRef.current = null;
     };
-  }, [terminalRef, sessionId, readOnly]);
+  }, [terminalRef, sessionId, readOnly, measure]);
 
   return wsRef;
 }

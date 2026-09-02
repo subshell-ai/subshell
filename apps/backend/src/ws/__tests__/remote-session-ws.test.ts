@@ -12,7 +12,7 @@ import { resolveResult } from "@/services/nodes/node-rpc.js";
 import { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { readSessionLogTail } from "@/services/session-manager.service.js";
 import { attachRemoteSessionWs, type RemoteAttachRow } from "@/ws/remote-session-ws.js";
-import { cleanupSessionWs, handleSessionMessage, type WsSocket } from "@/ws/session-ws.js";
+import { cleanupSessionWs, handleSessionMessage, resetLiveViewersForTests, type WsSocket } from "@/ws/session-ws.js";
 
 /**
  * Task 11 — the live-terminal relay for agent-node rows (spec 2026-08-31
@@ -130,14 +130,16 @@ function scriptHappy(sim: ReturnType<typeof makeNodeSim>) {
   scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 });
 }
 
-/** log_read pair: the 1-byte size probe and the window read. */
-function scriptLogRead(sim: ReturnType<typeof makeNodeSim>, log: { bytes: string; size: number }) {
+/**
+ * Script `times` log_read answers (attach needs exactly one — the 1-byte
+ * size probe; `readSessionLogTail` still asks size + window = two).
+ */
+function scriptLogRead(sim: ReturnType<typeof makeNodeSim>, log: { bytes: string; size: number }, times = 1) {
   const answer = (cmd: NodeCommandBody) =>
     cmd.type === "log_read" && cmd.maxBytes === 1
       ? { bytes_b64: b64(log.bytes.slice(0, 1)), next: Math.min(1, log.size), size: log.size }
       : { bytes_b64: b64(log.bytes), next: log.size, size: log.size };
-  sim.answer("log_read", answer);
-  sim.answer("log_read", answer);
+  for (let i = 0; i < times; i++) sim.answer("log_read", answer);
 }
 
 interface FakeBrowser {
@@ -192,11 +194,15 @@ beforeAll(async () => {
 beforeEach(() => {
   resetNodeRegistryForTests();
   resetNodeEventsForTests();
+  // Every case here reuses one session id — without this, a prior case's
+  // viewer would be "replaced" by the next case's attach.
+  resetLiveViewersForTests();
 });
 
 afterEach(() => {
   resetNodeRegistryForTests();
   resetNodeEventsForTests();
+  resetLiveViewersForTests();
 });
 
 describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
@@ -208,17 +214,17 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
     await attachRemoteSessionWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     await until(() => sim.cmdTypes().includes("tail_start"), "tail_start on the wire");
 
-    // Command ORDER through the real sendCommand: liveness, capture, size, window, tail.
-    expect(sim.cmdTypes()).toEqual(["probe", "capture", "log_read", "log_read", "tail_start"]);
-    // The size probe is a 1-byte read (size rides every log_read answer) and the
-    // window read covers the whole LOG_TAIL_BYTES budget from 0 (log is small).
-    expect(sim.cmdsOf("log_read")).toEqual([
-      { type: "log_read", sessionId: SID, fromByte: 0, maxBytes: 1 },
-      { type: "log_read", sessionId: SID, fromByte: 0, maxBytes: LOG_BYTES },
-    ]);
-    // Default cap (100 lines) keeps all 2 window lines ⇒ tail starts at 0.
+    // Command ORDER through the real sendCommand: liveness, the tail's JOIN
+    // size probe (sampled BEFORE the capture so the stream is gap-free — the
+    // client replays a bounded overlap instead of ever missing a diff frame),
+    // capture, tail. One log_read only — historical log bytes never ship.
+    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture", "tail_start"]);
+    expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", sessionId: SID, fromByte: 0, maxBytes: 1 }]);
+    // The capture carries the default replay line cap; the tail starts at the
+    // probed size (7): only bytes past the snapshot ever ship.
+    expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", sessionId: SID, lines: 100 }]);
     expect(sim.cmdsOf("tail_start")).toEqual([
-      { type: "tail_start", sessionId: SID, subId: expect.any(String), fromByte: 0 },
+      { type: "tail_start", sessionId: SID, subId: expect.any(String), fromByte: 7 },
     ]);
 
     // Frame 1: replay — the capture's DEC 2026 markers are gone and the frame
@@ -227,10 +233,10 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
 
     // Live chunks arrive as output frames, markers stripped, byte-identical.
     const sub = subIdOf(sim);
-    dispatchOutput(outputFrame(sub, 0, "echo hi\r\n"));
+    dispatchOutput(outputFrame(sub, 7, "echo hi\r\n"));
     await until(() => sent.length === 2, "output frame");
     expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
-    dispatchOutput(outputFrame(sub, 9, `${BSU}x${ESU}`));
+    dispatchOutput(outputFrame(sub, 16, `${BSU}x${ESU}`));
     await until(() => sent.length === 3, "stripped output frame");
     expect(sent[2]).toBe(JSON.stringify({ type: "output", data: "x" }));
   });
@@ -239,7 +245,6 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
-    sim.answer("log_read", { bytes_b64: "", next: 0, size: 0 });
     sim.answer("log_read", { bytes_b64: "", next: 0, size: 0 });
     const { ws, sent, closed } = fakeBrowser();
 
@@ -256,27 +261,24 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
     expect(closed).toEqual([]);
   });
 
-  it("honors the per-attach replay cap: the tail starts where the last `cap` lines begin", async () => {
+  it("honors the per-attach replay cap: the CAPTURE carries the line budget (not the tail offset)", async () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
     scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 });
     const { ws } = fakeBrowser();
 
-    // terminalReplayLines=2 ⇒ drop the first line of the window (3 lines):
-    // replayOffsetFromWindow(0, "l1\nl2\nl3\n", 2) = index of first \n (2) + 1.
+    // terminalReplayLines=2 ⇒ `capture` asks for 2 history rows; the tail
+    // still starts at EOF (12) — history ships inside the capture, never as
+    // re-played log bytes.
     await attachRemoteSessionWs(ws, attachRow({ terminalReplayLines: 2 }), new RemoteLauncher(NODE_ID), "owner");
-    await until(() => sim.cmdTypes().includes("tail_start"), "tail at pruned offset");
-    expect(sim.cmdsOf("tail_start")[0]).toEqual({
-      type: "tail_start",
-      sessionId: SID,
-      subId: expect.any(String),
-      fromByte: 3,
-    });
+    await until(() => sim.cmdTypes().includes("tail_start"), "tail at EOF");
+    expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", sessionId: SID, lines: 2 }]);
+    expect((sim.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(12);
   });
 
   it("clamps terminalReplayLines to [1,200] exactly like the local attach", async () => {
-    // 9999 ⇒ cap 200 ⇒ all 3 window lines kept ⇒ offset 0 (windowStart).
+    // 9999 ⇒ cap 200 rows on the capture.
     const sim = makeNodeSim();
     sim.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
@@ -287,10 +289,10 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
       new RemoteLauncher(NODE_ID),
       "owner",
     );
-    await until(() => sim.cmdTypes().includes("tail_start"), "tail_start (cap 200)");
-    expect((sim.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(0);
+    await until(() => sim.cmdsOf("capture").length === 1, "capture (cap 200)");
+    expect((sim.cmdsOf("capture")[0] as { lines?: number }).lines).toBe(200);
 
-    // 0 ⇒ clamped to 1 ⇒ keep only the last line ⇒ skip 2 lines: offset 6.
+    // 0 ⇒ clamped to 1.
     const sim2 = makeNodeSim();
     sim2.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
     sim2.answer("capture", "SCREEN");
@@ -301,8 +303,37 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
       new RemoteLauncher(NODE_ID),
       "owner",
     );
-    await until(() => sim2.cmdTypes().includes("tail_start"), "tail_start (cap 1)");
-    expect((sim2.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(6);
+    await until(() => sim2.cmdsOf("capture").length === 1, "capture (cap 1)");
+    expect((sim2.cmdsOf("capture")[0] as { lines?: number }).lines).toBe(1);
+  });
+
+  it("a client size on the attach resizes the pane BEFORE the capture, and quiesces the replay", async () => {
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
+    // quiesce = true after a resize: two identical captures settle the poll.
+    sim.answer("capture", "SCREEN");
+    sim.answer("capture", "SCREEN");
+    // The repaint-wait polls the log size until it bursts-and-quiesces; a
+    // STATIC simulated log never grows, so it exits via the no-growth grace —
+    // a handful of extra 1-byte probes before the capture. Script enough.
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 40);
+    const { ws } = fakeBrowser();
+
+    await attachRemoteSessionWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", { cols: 132, rows: 43 });
+    await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
+    // Resize lands ahead of the capture so the replay matches the client
+    // geometry.
+    // Collapsed: the size probes repeat on a timing cadence, order is the point.
+    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,resize,capture,tail_start");
+    // The scripted log never grows, so the pane reads as "never repainted"
+    // and the relay nudges it (±1 col) to force a SIGWINCH — the local twin's
+    // rule, and the cure for a no-op resize leaving a half-painted frame on
+    // screen. It ends at the client's real geometry.
+    expect(sim.cmdsOf("resize")).toEqual([
+      { type: "resize", sessionId: SID, cols: 132, rows: 43 },
+      { type: "resize", sessionId: SID, cols: 133, rows: 43 },
+      { type: "resize", sessionId: SID, cols: 132, rows: 43 },
+    ]);
   });
 
   it("refuses 4004 'node offline' when the node has no live connection (nothing hits the wire)", async () => {
@@ -327,13 +358,14 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
   it("refuses 4004 when the capture races the pane away", async () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 });
     sim.answer("capture", fail("can't find session: pane gone"));
     const { ws, sent, closed } = fakeBrowser();
 
     await attachRemoteSessionWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     expect(closed).toEqual([{ code: 4004, reason: "session not running" }]);
     expect(sent).toEqual([]);
-    expect(sim.cmdTypes()).toEqual(["probe", "capture"]); // window read never ran
+    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture"]); // join probe ran; tail never armed
   });
 
   it("closes 1011 'client too slow' when the browser queue exceeds 4 MiB, and stops streaming", async () => {
@@ -345,7 +377,7 @@ describe("attachRemoteSessionWs — the §6.5 flow on the wire", () => {
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
     expect(sent).toEqual([JSON.stringify({ type: "replay", data: "SCREEN" })]);
 
-    dispatchOutput(outputFrame(subIdOf(sim), 0, "flood"));
+    dispatchOutput(outputFrame(subIdOf(sim), 7, "flood"));
     await until(() => closed.some((c) => c.code === 1011), "1011 close");
     expect(sent.length).toBe(1); // the offending chunk never ships
     // The plugin's close handler runs the cleanup; the agent sees exactly one tail_stop.
@@ -422,12 +454,11 @@ describe("attachRemoteSessionWs — input/resize/cleanup ride the shared handler
   it("browser close DURING attach never arms a zombie tail", async () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ sessionId: SID, alive: true, exitCode: null }]);
-    sim.answer("capture", "SCREEN");
     sim.answer("log_read", { bytes_b64: b64("a"), next: 1, size: 7 });
-    // The window read hangs until we release it — the browser closes while parked.
+    // The capture hangs until we release it — the browser closes while parked.
     let release: ((v: unknown) => void) | undefined;
     sim.answer(
-      "log_read",
+      "capture",
       () =>
         new Promise((resolve) => {
           release = resolve;
@@ -436,9 +467,9 @@ describe("attachRemoteSessionWs — input/resize/cleanup ride the shared handler
     const { ws } = fakeBrowser();
 
     const attaching = attachRemoteSessionWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
-    await until(() => sim.cmdTypes().filter((t) => t === "log_read").length === 2, "parked in the window read");
+    await until(() => sim.cmdTypes().includes("capture"), "parked in the capture");
     cleanupSessionWs(ws); // browser vanished mid-attach
-    release?.({ bytes_b64: b64("ab\ncd\n"), next: 7, size: 7 });
+    release?.("SCREEN");
     await attaching;
 
     expect(sim.cmdTypes()).not.toContain("tail_start"); // nothing was armed…
@@ -449,7 +480,7 @@ describe("attachRemoteSessionWs — input/resize/cleanup ride the shared handler
 describe("readSessionLogTail routes by node", () => {
   it("an agent-node row reads through that node's launcher (size probe + window, real RPC)", async () => {
     const sim = makeNodeSim();
-    scriptLogRead(sim, { bytes: "l1\nl2\n", size: 9 });
+    scriptLogRead(sim, { bytes: "l1\nl2\n", size: 9 }, 2);
     expect(await readSessionLogTail(SID, NODE_ID)).toEqual({ lines: ["l1", "l2"], truncated: false });
     expect(sim.cmdsOf("log_read")).toEqual([
       { type: "log_read", sessionId: SID, fromByte: 0, maxBytes: 1 },

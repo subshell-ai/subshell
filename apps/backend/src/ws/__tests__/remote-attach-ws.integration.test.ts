@@ -146,11 +146,14 @@ describe("remote attach through the real handleSessionWs dispatch", () => {
     try {
       expect(closed).toEqual([]); // the dispatch ran to completion, not a refusal
 
-      // The §6.5 flow fired THROUGH the delegation: liveness, capture, size,
-      // window, tail — the same command list the relay's own suite pins.
-      expect(sim.cmdTypes()).toEqual(["probe", "capture", "log_read", "log_read", "tail_start"]);
+      // The §6.5 flow fired THROUGH the delegation: liveness, capture
+      // (carrying the replay line budget), size probe AFTER it, tail at that
+      // EOF — the same command list the relay's own suite pins. Historical
+      // log bytes are never re-played, so there is exactly ONE log_read.
+      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture", "tail_start"]);
+      expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", sessionId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
-        { type: "tail_start", sessionId: id, subId: expect.any(String), fromByte: 0 },
+        { type: "tail_start", sessionId: id, subId: expect.any(String), fromByte: LOG.length },
       ]);
 
       // Frame 1: the replay, exactly the local path's shape.
@@ -168,7 +171,9 @@ describe("remote attach through the real handleSessionWs dispatch", () => {
 
       // Live output: an agent `output` frame through the REAL bus becomes the
       // browser's `output` frame.
-      dispatchOutput(outputFrame(id, subIdOf(sim), 0, "echo hi\r\n"));
+      // fromByte sits at the armed EOF offset — the launcher's dup-clamp
+      // would (correctly) discard anything below it.
+      dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
       await until(() => sent.length === 2, "output frame");
       expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     } finally {

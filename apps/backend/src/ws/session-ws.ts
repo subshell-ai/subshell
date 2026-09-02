@@ -6,12 +6,15 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
-import { logReplayStartOffset, replayLineCap } from "@/services/nodes/log-tail.js";
+import { replayLineCap } from "@/services/nodes/log-tail.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
 import { logger } from "@/utils/logger.js";
+import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
+import { captureToTerminalText } from "@/ws/capture-text.js";
 import { attachRemoteSessionWs } from "@/ws/remote-session-ws.js";
+import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -24,17 +27,23 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * (spec 2026-08-31 §4): the owner, an admin, or anyone it is shared with. A
  * viewer watches read-only; only `edit`/`owner` may send input (see `canInput`).
  *
- * Output is streamed by tailing the per-session log file (written by
- * pipe-pane) with an initial `capture-pane` replay for current scrollback.
+ * Attach paints ONCE: a `capture-pane -e -S -<cap>` replay ships the visible
+ * grid plus the last `cap` reflowed history rows — tmux's own rendered text,
+ * never historical raw log bytes. The live tail then streams EVERY byte from
+ * a join point taken before the resize — a bounded overlap the client
+ * replays over the snapshot (idempotent full-row repaints) rather than a gap
+ * (skipped diffs desync a diff-renderer permanently; this exact gap was the
+ * final "jumbled until you resize" root cause).
  *
  * A row whose `nodeId` names an agent node (spec §6.5) is delegated whole to
  * `attachRemoteSessionWs` — the browser contract there is byte-identical;
  * everything past the delegation below is the local path.
  *
  * Import note: `session-ws.ts` ↔ `remote-session-ws.ts` is a deliberate
- * cycle (the relay reuses `stripSyncMarkers`/`persistOutput`/the `WsData`
- * shape); both use each other's hoisted function declarations only at call
- * time, so module evaluation order never matters.
+ * cycle (the relay reuses `persistOutput`/the `WsData` shape; marker
+ * stripping lives beside both in `sync-stripper.ts`); both use each other's
+ * hoisted function declarations only at call time, so module evaluation order
+ * never matters.
  */
 export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
   const sessionId = url.searchParams.get("session");
@@ -78,6 +87,30 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
     return;
   }
 
+  // The client's fitted geometry rides the URL so the pane can be resized
+  // BEFORE the replay is captured: a capture taken at tmux's 80×24 birth size
+  // (or any stale size) re-wraps history rows against the wrong column count,
+  // which is exactly the mis-positioned garbage that used to scroll up and
+  // stay garbled. Both attach branches consume it.
+  const initialSize = parseInitialSize(url);
+  // One line per attach makes "still jumbled" reports diagnosable from the
+  // journal alone: `geometry WxH` proves the browser's cols/rows survived
+  // proxy + plugin handoff; `geometry MISSING` names the remaining culprits
+  // (stale client bundle that sends no geometry, or a proxy stripping the
+  // WS upgrade query).
+  // The UA names the app behind the socket: `geometry MISSING` plus a plain
+  // browser UA = a stale PWA bundle that predates the geometry feature (and
+  // the paste fixes) — a reload/reinstall is the cure, not a server change.
+  // It rides `ws.data.attachUa`, stashed by the plugin's `upgrade` hook,
+  // because `ws.raw.request` is NOT populated in Elysia's WS open context
+  // (that read is the fallback for direct callers, e.g. tests).
+  const ua = ws.data?.attachUa ?? ws.raw?.request?.headers.get("user-agent") ?? "unknown";
+  logger.info(
+    initialSize
+      ? `ws attach ${row.id}: geometry ${initialSize.cols}x${initialSize.rows} ua="${ua.slice(0, 90)}"`
+      : `ws attach ${row.id}: geometry MISSING (stale client predates cols/rows) ua="${ua.slice(0, 90)}"`,
+  );
+
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
   // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row
   // relays over its node socket and returns. `launcherFor` caches a
@@ -85,14 +118,21 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
   // invariant rather than guessing at the instance.
   const launcher = launcherFor(row.nodeId);
   if (row.nodeId !== LOCAL_NODE_ID) {
-    await attachRemoteSessionWs(ws, row, launcher as RemoteLauncher, access);
+    await attachRemoteSessionWs(ws, row, launcher as RemoteLauncher, access, initialSize);
     return;
   }
   if (!row.tmuxSocket || !(await launcher.hasSession(row.tmuxSocket, row.id))) {
     ws.close(4004, "session not running");
     return;
   }
+  evictPreviousViewer(ws, row.id);
 
+  // A close can land while this handler still awaits (resize settle + the
+  // quiet-poll can span ~1 s), so the disposer is installed BEFORE the first
+  // await and flags `detached` — the remote relay's guard, ported here. The
+  // end of the attach calls it again if the client already left, so a
+  // watcher/timer armed after the close is released immediately.
+  let detached = false;
   const data: WsData = {
     launcher,
     socket: row.tmuxSocket,
@@ -106,34 +146,111 @@ export async function handleSessionWs(ws: WsSocket, url: URL): Promise<void> {
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
   Object.assign(ws.data, data);
+  ws.data.cleanup = (): void => {
+    detached = true;
+    data.cleanup?.();
+  };
 
-  // Replay current pane content, then stream the live log tail.
   const harness = row.harnessId ? getHarness(row.harnessId) : undefined;
   void harness;
+
+  // JOIN-POINT RULE (learned the hard way, twice): the client attaches at a
+  // log offset taken BEFORE the resize, then gets the snapshot plus EVERY
+  // byte from that offset on. A diff-rendering TUI (ink and friends) has no
+  // resync mechanism: any byte skipped between the snapshot and the stream
+  // start leaves the client's screen permanently one-frame out of phase, and
+  // every later diff repaints onto the wrong base — the "jumbled until you
+  // resize" report, final root cause. A small OVERLAP (the snapshot already
+  // contains the frames the stream replays) is self-healing on the next
+  // frame — replays of full-row repaints are idempotent; skipped diffs are
+  // forever. Hence: size sampled first, never a gap.
+  let logStart = 0;
+  let hasLog = true;
   try {
-    const replay = await launcher.capture(row.tmuxSocket, row.id);
-    ws.send(JSON.stringify({ type: "replay", data: stripSyncMarkers(replay) }));
+    logStart = (await Bun.file(data.logFile).stat()).size;
   } catch {
-    // pane may have just died
+    hasLog = false;
   }
 
-  const logExists = await Bun.file(data.logFile).exists();
-  if (logExists) {
-    // Start the tail at the offset where the last N replay lines begin instead
-    // of byte 0 — the whole-log replay is what made long sessions crawl.
-    // N is per-session config, falling back to the instance default; the
-    // clamp — including the load-guarantee ceiling for an out-of-band stored
-    // value — lives in {@link replayLineCap}, shared with the remote relay.
-    const cap = replayLineCap(row.terminalReplayLines);
-    data.lastSize = await logReplayStartOffset(data.logFile, cap);
+  // The pane as the viewer FOUND it — forensics only, and only when the dump
+  // is armed (it costs an extra capture). Taken before the resize, it is the
+  // evidence that tells "the pane was already holding garbage" apart from
+  // "our resize/capture produced it" (see ws/attach-forensics.ts).
+  const preResize = forensicsEnabled() ? await captureStable(launcher, row.tmuxSocket, row.id, 0) : null;
+
+  // Fit the pane to the viewer BEFORE anything reads it, then make sure the
+  // TUI has actually REPAINTED at that geometry.
+  //
+  // tmux re-wraps the OLD frame the instant the pane resizes, so a
+  // timer-based settle captures a stable-looking grid of mid-word garbage;
+  // {@link waitForPaneRepaint} instead detects the app's real SIGWINCH
+  // repaint as a byte burst in the log. No burst does NOT mean "idle": a
+  // reopen at the size the pane already has makes the resize a no-op, so no
+  // SIGWINCH fires and a half-repainted frame stays on screen for every
+  // later viewer — {@link nudgePaneForRepaint} forces the repaint here
+  // instead of leaving the user to do it by hand with a window resize.
+  let repainted = false;
+  let nudged = false;
+  if (initialSize) {
+    const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
+    try {
+      await launcher.resize(row.tmuxSocket, row.id, initialSize.cols, initialSize.rows);
+      // `logStart` is the pre-resize size — the baseline a repaint has to grow
+      // past. Re-sampling it after the resize would miss a repaint that beat
+      // us to the log.
+      repainted = await waitForPaneRepaint(sizeOf, { baseline: logStart });
+      // Nudge only when the log is a usable signal and someone is still
+      // watching: with no log `sizeOf` reads 0 forever, so "no burst" carries
+      // no information and a blind nudge would thrash every pane-poll attach.
+      if (!repainted && hasLog && !detached) {
+        nudged = true;
+        repainted = await nudgePaneForRepaint(
+          launcher,
+          row.tmuxSocket,
+          row.id,
+          initialSize.cols,
+          initialSize.rows,
+          sizeOf,
+        );
+      }
+    } catch (err) {
+      logger.withError(err).warn("ws attach: initial resize failed; replay uses the current size");
+      await Bun.sleep(RESIZE_SETTLE_MS);
+    }
+  }
+
+  // Replay = visible grid + the last N reflowed history rows, in ONE paint.
+  // N is per-session config, falling back to the instance default; the clamp
+  // lives in {@link replayLineCap}, shared with the remote relay. A SINGLE
+  // capture — the stable-grid poll is obsolete now the byte stream is
+  // gap-free: a snapshot that races an animating frame is corrected by the
+  // very next diff, which the client is guaranteed to receive.
+  const cap = replayLineCap(row.terminalReplayLines);
+  const replay = await captureStable(launcher, row.tmuxSocket, row.id, cap);
+  if (replay != null) {
+    const painted = captureToTerminalText(replay);
+    ws.send(JSON.stringify({ type: "replay", data: painted }));
+    recordAttachPaint({ sessionId: row.id, preResize, replay: painted, repainted, nudged });
+  }
+
+  if (hasLog) {
+    // An empty log tails from 0 like any other size; a log that appears LATER
+    // is out of reach here (both this stat and the watcher need a file) — the
+    // pane-poll fallback below covers that pre-existing gap exactly as before.
+    data.lastSize = logStart;
     startLogTail(ws, data);
   } else {
     logger.info(`ws attach: no log file for ${row.id}, polling pane`);
     startPanePoll(ws, data);
   }
-  // Both start* fns assign `cleanup` AFTER the Object.assign above — propagate it
-  // to the live ws.data (both branches) so cleanupSessionWs reaches the disposer.
-  ws.data.cleanup = data.cleanup;
+  // Re-wrap (not raw-assign): the close that arrived during the attach awaits
+  // must still reach the disposer armed moments ago — `detached` is true by
+  // then, so the same wrapper both propagates and immediately tears down.
+  ws.data.cleanup = (): void => {
+    detached = true;
+    data.cleanup?.();
+  };
+  if (detached) ws.data.cleanup();
 }
 
 /** Minimal WebSocket surface used by the attach handler (ElysiaWS provides it). */
@@ -160,36 +277,228 @@ export interface WsData {
   lastOutputWriteAt: number;
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
   canInput: boolean;
+  /**
+   * The upgrade request's User-Agent, stashed by the `/ws` `upgrade` hook
+   * (`ws.raw.request` is absent in Elysia's WS open context). Journal-only —
+   * it names the client bundle behind a "still garbled" report.
+   */
+  attachUa?: string;
   cleanup?: () => void;
 }
 
 /**
- * Strips DEC private mode 2026 (synchronized output) begin/end markers from
- * pane output before it reaches the client.
- *
- * Some TUIs (claude-code's ink renderer among them) open a synchronized
- * update and leave it open until their next redraw — which on an idle prompt
- * can be a full second later. xterm 6 honors the mode by withholding all
- * painting until the closing marker or its 1000ms safety timeout, so every
- * keystroke echo visually lands one second late. Tearing without the mode is
- * what every pre-2026 terminal has lived with for decades; a guaranteed
- * 1s paint gate is the worse trade.
- *
- * Measured on a claude-code session: keystroke→paint ~1010 ms with the
- * markers, 1–30 ms without them. Every byte this endpoint sends outbound
- * (replay, live tail, pane-poll fallback) passes through here — do not
- * reintroduce the markers anywhere on that path.
+ * The client geometry a browser passed on the WS URL (`&cols=&rows=`), or
+ * null when absent/malformed (older client, manual connect) — the attach then
+ * skips the pre-capture resize and behaves the old way.
  */
-// The markers are built at runtime so no control-character literal appears
-// in source (biome's noControlCharactersInRegex); plain split/join also beats
-// a regex here.
-const ESC = String.fromCharCode(27);
-const SYNC_BEGIN = `${ESC}[?2026h`;
-const SYNC_END = `${ESC}[?2026l`;
+function parseInitialSize(url: URL): { cols: number; rows: number } | null {
+  const cols = Number(url.searchParams.get("cols"));
+  const rows = Number(url.searchParams.get("rows"));
+  if (Number.isInteger(cols) && cols > 0 && Number.isInteger(rows) && rows > 0) return { cols, rows };
+  return null;
+}
 
-export function stripSyncMarkers(s: string): string {
-  if (!s.includes("2026")) return s;
-  return s.split(SYNC_BEGIN).join("").split(SYNC_END).join("");
+/**
+ * Rebuilds the attach URL from the upgrade request's parsed query — the
+ * handler consumes it (token auth, and the `cols`/`rows` the pre-capture
+ * resize needs). Passing the WHOLE query through is load-bearing: an earlier
+ * version re-picked only session+token here, silently dropping the geometry
+ * and regressing every attach to the stale-width replay (2026-09-01).
+ * `URLSearchParams` re-encodes Elysia's already-decoded values exactly once.
+ */
+export function attachUrlFromQuery(query: Record<string, string>): URL {
+  return new URL(`/ws?${new URLSearchParams(query).toString()}`, "http://localhost");
+}
+
+/**
+ * Grace given to the pane's TUI to repaint after the pre-capture resize —
+ * roughly one SIGWINCH frame; the replay that follows then shows the grid at
+ * the geometry the client will render it into. Shared with the remote relay
+ * so both attach paths paint the same post-resize grid.
+ */
+export const RESIZE_SETTLE_MS = 150;
+/** Poll cadence / quiet-window / hard caps for {@link waitForPaneRepaint}. */
+const REPAINT_POLL_MS = 50;
+const REPAINT_QUIET_MS = 150;
+const REPAINT_DEADLINE_MS = 1500;
+/** How long to keep waiting for a repaint burst that never starts. */
+const REPAINT_NO_GROWTH_GRACE_MS = 300;
+/**
+ * The same grace AFTER a nudge. Tighter on purpose: the nudge's SIGWINCH is
+ * synchronous for the app, so a repainting TUI starts emitting within tens of
+ * ms — waiting the full {@link REPAINT_NO_GROWTH_GRACE_MS} a second time only
+ * taxes the panes that were never going to repaint at all.
+ */
+const NUDGE_NO_GROWTH_GRACE_MS = 150;
+
+/**
+ * After a pre-capture resize, wait for the pane's application to REPAINT at
+ * the new geometry, detected as fresh bytes in the pipe-pane log (the only
+ * signal that distinguishes tmux's instant re-wrap of the OLD frame from the
+ * app's real repaint of the new one).
+ *
+ * Returns once (a) the log grew and then went quiet for {@link
+ * REPAINT_QUIET_MS} — the repaint landed, capture is safe — or (b) nothing
+ * ever grew within the settle + {@link REPAINT_NO_GROWTH_GRACE_MS} — an idle
+ * pane or a non-repainting app, where the re-wrapped grid is all there will
+ * ever be and waiting buys nothing — or (c) {@link REPAINT_DEADLINE_MS}
+ * elapses mid-busy-stream (the repaint keeps coming; the live tail converges
+ * the rest). A no-op resize on a revisit pays ~settle+grace, not the cap.
+ *
+ * `sizeOf` is the log-size probe: a local `stat` or the relay's 1-byte
+ * `log_read` — errors read as size 0 (no log yet behaves like "never grew").
+ * Shared by both attach paths so local and node sessions paint identically.
+ *
+ * @param sizeOf - the log-size probe (see above)
+ * @param opts.baseline - the log size sampled BEFORE the resize. Both attach
+ *   paths already hold it (it is the join point), and passing it is what
+ *   makes a FAST repaint detectable: sampling the baseline here instead would
+ *   race the app, counting bytes it already wrote as "the pane was always
+ *   this size" and reporting no repaint for a pane that had just repainted
+ *   perfectly. Omitted, the baseline is sampled on entry.
+ * @param opts.noGrowthGraceMs - how long to keep waiting for a burst that
+ *   never starts; {@link nudgePaneForRepaint} passes the tighter
+ *   {@link NUDGE_NO_GROWTH_GRACE_MS} for its second wait
+ * @returns `true` when the app's repaint burst was observed — the capture that
+ *   follows ships the fresh frame — `false` when the log never grew (a no-op
+ *   resize that fired no SIGWINCH, an idle pane, or an unresponsive TUI, where
+ *   the caller forces a repaint with {@link nudgePaneForRepaint} rather than
+ *   capturing a stale, re-wrapped grid).
+ */
+export async function waitForPaneRepaint(
+  sizeOf: () => Promise<number>,
+  opts: { baseline?: number; noGrowthGraceMs?: number } = {},
+): Promise<boolean> {
+  const noGrowthGraceMs = opts.noGrowthGraceMs ?? REPAINT_NO_GROWTH_GRACE_MS;
+  const started = Date.now();
+  let last: number;
+  if (opts.baseline !== undefined) {
+    last = opts.baseline;
+  } else {
+    try {
+      last = await sizeOf();
+    } catch {
+      last = 0;
+    }
+  }
+  let grew = false;
+  let quietSince = 0;
+  while (Date.now() - started < REPAINT_DEADLINE_MS) {
+    await Bun.sleep(REPAINT_POLL_MS);
+    const now = Date.now();
+    let size = last;
+    try {
+      size = await sizeOf();
+    } catch {
+      // stat failed this tick (log vanished mid-attach) — treat as no growth
+    }
+    if (size !== last) {
+      grew = true;
+      last = size;
+      quietSince = now;
+      continue;
+    }
+    if (!grew) {
+      if (now - started >= RESIZE_SETTLE_MS + noGrowthGraceMs) return false;
+      continue;
+    }
+    if (now - quietSince >= REPAINT_QUIET_MS) return true;
+  }
+  // Deadline elapsed mid-busy-stream: a repaint IS landing (grew), just not
+  // yet settled — report it so the caller skips the nudge.
+  return grew;
+}
+
+/** How long to hold the nudge width before stepping back, so the TUI's first SIGWINCH frame lands. */
+const NUDGE_SETTLE_MS = 80;
+
+/**
+ * Force a fresh full repaint when the pane stayed silent after the pre-capture
+ * resize.
+ *
+ * A diff-rendering TUI (ink and friends) repaints the WHOLE screen only on
+ * SIGWINCH. Two ways that leaves a garbled pane no diff frame ever heals:
+ *
+ * - **The no-op resize (the reopen case).** `resize-window` to the size the
+ *   pane ALREADY has changes nothing, so no SIGWINCH fires. Whatever
+ *   half-repainted frame the pane was left holding — e.g. by an earlier
+ *   viewer at another width — stays on screen, the capture faithfully ships
+ *   it, and the app's later diffs paint onto a base the client never had.
+ *   This is exactly the standing report: "close mote, re-enter, garbled until
+ *   I resize the window" (a real width change is the SIGWINCH that finally
+ *   forces a full repaint) — and why reopening at the same size never helps
+ *   while a manual resize fixes it for good.
+ * - **The late repaint.** Under load (a build running in that very pane) the
+ *   app's SIGWINCH response can land after {@link waitForPaneRepaint}'s
+ *   bound, so the capture catches tmux's instant re-wrap of the OLD frame: a
+ *   stable-LOOKING grid of mid-word garbage.
+ *
+ * Both are cured by making the app repaint NOW: bump the width one column,
+ * hold it {@link NUDGE_SETTLE_MS}, then step back to the client's real width
+ * — two genuine geometry changes, so a SIGWINCH the app must answer with a
+ * full repaint, ending at exactly the size the client renders into.
+ *
+ * At call time the pane is reliably at {@link cols}×{@link rows} (the caller
+ * only reaches here after a successful resize), so the nudge is relative to
+ * that rather than a re-read of the pane's size. Any failure leaves the
+ * capture proceeding on the current state — correctness still lives in the
+ * gap-free join, and the nudge only improves the first paint — so this never
+ * throws.
+ *
+ * @param launcher - the pane handle (the nudge issues two `resize` RPCs)
+ * @param socket - tmux socket (local) — ignored by the remote launcher
+ * @param id - session id
+ * @param cols - the client's target width (the pane's current width)
+ * @param rows - the client's target height
+ * @param sizeOf - the log-size probe handed to {@link waitForPaneRepaint} so
+ *   the post-nudge wait detects the fresh repaint the same way
+ * @returns whether the post-nudge repaint burst was observed (the capture
+ *   that follows ships the fresh frame)
+ */
+export async function nudgePaneForRepaint(
+  launcher: NodeLauncher,
+  socket: string,
+  id: string,
+  cols: number,
+  rows: number,
+  sizeOf: () => Promise<number>,
+): Promise<boolean> {
+  try {
+    await launcher.resize(socket, id, cols + 1, rows);
+    await Bun.sleep(NUDGE_SETTLE_MS);
+    await launcher.resize(socket, id, cols, rows);
+    // No baseline here (unlike the caller's pre-resize sample): the +1 step
+    // above has already provoked whatever bytes a repainting app emits, so a
+    // fresh sample is the honest "did anything happen after the step back".
+    return await waitForPaneRepaint(sizeOf, { noGrowthGraceMs: NUDGE_NO_GROWTH_GRACE_MS });
+  } catch {
+    // A failed nudge leaves the pane at its (possibly bumped) width, but the
+    // gap-free join still delivers every byte and the client's own resize
+    // frames re-fit it — the first paint degrades to the pre-nudge behavior,
+    // which is the floor we never regress below.
+    return false;
+  }
+}
+/**
+ * Capture the replay grid (+ the last `cap` reflowed history rows). `null`
+ * when the capture fails (pane gone). One capture is all it takes now the
+ * attach streams gap-free from the join point: a snapshot that races an
+ * animating frame self-corrects via the byte stream the client is guaranteed
+ * to receive. (The old stable-grid poll raced diff-renderers' animation
+ * cadence and bought latency, not correctness.) Shared with the remote
+ * relay — identical paint there.
+ */
+export async function captureStable(
+  launcher: NodeLauncher,
+  socket: string,
+  id: string,
+  cap: number,
+): Promise<string | null> {
+  try {
+    return await launcher.capture(socket, id, cap);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -225,6 +534,12 @@ function startLogTail(ws: WsSocket, data: WsData): void {
   // serialize the reads so a byte is never sliced twice.
   let pumping = false;
   let again = false;
+  // Connection-lived decode/strip state: `stream: true` keeps a multi-byte
+  // char split across reads intact (a fresh decoder would burn it to U+FFFD),
+  // and the stripper holds a marker split across the same boundary until its
+  // other half arrives (see ws/sync-stripper.ts).
+  const decoder = new TextDecoder();
+  const stripper = new SyncStreamStripper();
 
   async function pump(): Promise<void> {
     if (pumping) {
@@ -239,7 +554,11 @@ function startLogTail(ws: WsSocket, data: WsData): void {
         if (size > data.lastSize) {
           const buf = await Bun.file(data.logFile).slice(data.lastSize, size).arrayBuffer();
           data.lastSize = size;
-          ws.send(JSON.stringify({ type: "output", data: stripSyncMarkers(new TextDecoder().decode(buf)) }));
+          const text = stripper.push(decoder.decode(buf, { stream: true }));
+          // Empty when the whole read was a held marker prefix or a false
+          // sync marker: nothing paintable, so nothing to send or persist.
+          if (!text) continue;
+          ws.send(JSON.stringify({ type: "output", data: text }));
           persistOutput(ws, data);
         }
       } catch {
@@ -263,6 +582,7 @@ function startLogTail(ws: WsSocket, data: WsData): void {
   const timer = setInterval(() => void pump(), TAIL_BACKSTOP_MS);
   void pump(); // ship anything written between the replay and the attach
   data.cleanup = () => {
+    stripper.flush(); // held partial-sequence bytes belong to the next attach
     watcher?.close();
     clearInterval(timer);
   };
@@ -276,12 +596,16 @@ function startPanePoll(ws: WsSocket, data: WsData): void {
   // never overlap in practice.
   async function poll(): Promise<void> {
     try {
-      const out = await data.launcher.capture(data.socket, data.sessionId);
+      // Normalize the WHOLE capture before diffing (not the delta): the rows
+      // need CRLF re-termination like any capture text (see capture-text.ts),
+      // and stripping markers on the full string also catches one straddling
+      // the boundary between what was already sent and what is new.
+      const out = captureToTerminalText(await data.launcher.capture(data.socket, data.sessionId));
       if (out !== last) {
         const delta = out.startsWith(last) ? out.slice(last.length) : out;
         last = out;
         if (delta) {
-          ws.send(JSON.stringify({ type: "output", data: stripSyncMarkers(delta) }));
+          ws.send(JSON.stringify({ type: "output", data: delta }));
           persistOutput(ws, data);
         }
       }
@@ -332,5 +656,51 @@ export function handleSessionMessage(ws: WsSocket, message: string | object): vo
 
 /** Stops streaming when the client disconnects. */
 export function cleanupSessionWs(ws: WsSocket): void {
+  const sessionId = ws.data?.sessionId;
+  if (sessionId && liveViewers.get(sessionId) === ws) liveViewers.delete(sessionId);
   ws.data?.cleanup?.();
+}
+
+/**
+ * One LIVE VIEWER per session — newest wins.
+ *
+ * A tmux pane has exactly one width, but two viewers (a reloaded tab and its
+ * zombie pre-reload socket, a laptop and a phone) fit it differently: every
+ * geometry switch re-wraps the TUI's hard rows under the other viewer's
+ * absolute-positioned diff repaints, and the screen shatters into the
+ * alternating-offset jumble (2026-09-01 report — the journal showed the same
+ * session attached at 92x28 and 86x28 seconds apart while the pane bounced
+ * between the two). Letting the newest attach close the previous one makes a
+ * single terminal the sole size authority; the replaced client sees the
+ * terminal-4xxx close and stops reconnecting (see `use-session-ws`).
+ *
+ * Called once both paths have PROVEN the pane is alive (post-probe), so a
+ * refused attach never evicts the incumbent.
+ */
+const liveViewers = new Map<string, WsSocket>();
+
+/**
+ * Drops all viewer registrations WITHOUT closing the sockets. Only for tests,
+ * which reuse session ids across cases and must not see a prior case's socket
+ * evicted.
+ * @internal
+ */
+export function resetLiveViewersForTests(): void {
+  liveViewers.clear();
+}
+
+export function evictPreviousViewer(ws: WsSocket, sessionId: string): void {
+  const prev = liveViewers.get(sessionId);
+  liveViewers.set(sessionId, ws);
+  if (!prev || prev === ws) return;
+  // Release the incumbent's watcher/timer NOW — its close event also runs
+  // `cleanupSessionWs`, but the disposer is idempotent and the map entry
+  // already names the new socket, so neither the double-run nor the
+  // bookkeeping can disturb the fresh attach.
+  try {
+    prev.data?.cleanup?.();
+    prev.close(4003, "session open in another viewer");
+  } catch {
+    // socket already gone — the registry entry was stale, and we just replaced it
+  }
 }

@@ -1,4 +1,5 @@
-import { ImagePlus } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, ImagePlus } from "lucide-react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /** One key-bar button — every button sends raw bytes, like a physical key. */
@@ -52,34 +53,120 @@ export interface TerminalKeyBarProps {
   /** Write raw bytes to the pane */
   onBytes: (bytes: string) => void;
   /**
-   * When set, the bar gains a trailing image button on the second row: it
-   * opens the OS image picker (camera/photos on touch devices) and the picks
-   * ride the normal upload-and-inject path. This is the one non-byte control
-   * on the bar, and it exists because drag-and-drop and clipboard-file
-   * paste — the desktop upload gestures — have no touch equivalent.
+   * When set (and not {@link readOnly}), the bar gains a trailing image
+   * button on the second row: it opens the OS image picker (camera/photos on
+   * touch devices) and the picks ride the normal upload-and-inject path.
+   * This is one of the few non-byte controls on the bar, and it exists
+   * because drag-and-drop and clipboard-file paste — the desktop upload
+   * gestures — have no touch equivalent.
    */
   onPickImage?: () => void;
+  /**
+   * Jump the client terminal's scrollback to the oldest row (xterm
+   * `scrollToTop`). Purely local — the bytes are already on the device — so
+   * unlike the byte keys these are NOT gated on {@link disabled}: scrolling
+   * history works before the socket is up, and for a `view` grantee it is
+   * the whole point.
+   */
+  onScrollTop?: () => void;
+  /** Jump the client terminal's scrollback to the live bottom. */
+  onScrollBottom?: () => void;
+  /**
+   * A `view` grantee (spec 2026-08-31 §4.1): keystrokes would be dropped
+   * server-side anyway, so the bar ships only the reading controls — the
+   * scroll buttons — and no byte keys or image picker.
+   */
+  readOnly?: boolean;
 }
 
-/** Accessory special-key rows for touch devices (spec §5), two per {@link
- * KEY_BAR_ROWS}. Buttons are min-h-11 (44px) and touch-manipulation (no
- * double-tap zoom). Every button is a plain byte sender — mote intercepts no
- * characters; the pane's own program decides what `/` or anything else means.
- * The one exception is the optional trailing image button (see
- * {@link TerminalKeyBarProps.onPickImage}).
+const BUTTON_CLASS =
+  "min-h-11 flex-1 basis-11 touch-manipulation select-none bg-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40";
+
+/**
+ * Accessory special-key rows for touch devices (spec §5), two per {@link
+ * KEY_BAR_ROWS}. Byte buttons are min-h-11 (44px) and touch-manipulation (no
+ * double-tap zoom). mote intercepts no characters; the pane's own program
+ * decides what `/` or anything else means. The non-byte exceptions are the
+ * trailing image button (see {@link TerminalKeyBarProps.onPickImage}) and the
+ * scroll-to-top/bottom jumps (see {@link TerminalKeyBarProps.onScrollTop}).
  *
  * `onPointerDown` preventDefault pins focus wherever it is (the terminal's
  * hidden textarea) when a button is tapped — a native button would take
  * focus, and xterm stops routing keystrokes once its textarea is blurred,
- * so the next hardware key would go missing. `click` still fires normally. */
-export function TerminalKeyBar({ disabled, onBytes, onPickImage }: TerminalKeyBarProps) {
+ * so the next hardware key would go missing. `click` still fires normally.
+ * In {@link readOnly} mode only the scroll row renders.
+ */
+export function TerminalKeyBar({
+  disabled,
+  onBytes,
+  onPickImage,
+  onScrollTop,
+  onScrollBottom,
+  readOnly = false,
+}: TerminalKeyBarProps) {
+  const scrollButtons = (
+    <>
+      {onScrollTop && (
+        <button
+          type="button"
+          aria-label="Scroll to top"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={onScrollTop}
+          className={cn(BUTTON_CLASS, "font-mono text-sm")}
+        >
+          <ArrowUpToLine className="mx-auto size-4" aria-hidden="true" />
+        </button>
+      )}
+      {onScrollBottom && (
+        <button
+          type="button"
+          aria-label="Scroll to bottom"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={onScrollBottom}
+          className={cn(BUTTON_CLASS, "font-mono text-sm")}
+        >
+          <ArrowDownToLine className="mx-auto size-4" aria-hidden="true" />
+        </button>
+      )}
+    </>
+  );
+  const trailingActions: ReactNode = (
+    <>
+      {!readOnly && onPickImage && (
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label="Attach image"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={onPickImage}
+          className={cn(BUTTON_CLASS, "border-border/60 border-l")}
+        >
+          <ImagePlus className="mx-auto size-4" aria-hidden="true" />
+        </button>
+      )}
+      {scrollButtons}
+    </>
+  );
+
+  if (readOnly) {
+    return (
+      <div
+        role="toolbar"
+        aria-label="Terminal scrolling"
+        className="flex shrink-0 flex-col gap-px border-border border-t bg-card pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="flex items-stretch gap-px">{trailingActions}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="toolbar"
       aria-label="Terminal special keys"
       className="flex shrink-0 flex-col gap-px border-border border-t bg-card pb-[env(safe-area-inset-bottom)]"
     >
-      {KEY_BAR_ROWS.map((row) => (
+      {KEY_BAR_ROWS.map((row, i) => (
         <div key={row[0].label} className="flex items-stretch gap-px overflow-x-auto">
           {row.map((b) => (
             <button
@@ -89,27 +176,12 @@ export function TerminalKeyBar({ disabled, onBytes, onPickImage }: TerminalKeyBa
               aria-label={b.aria}
               onPointerDown={(e) => e.preventDefault()}
               onClick={() => onBytes(b.bytes)}
-              className={cn(
-                "min-h-11 flex-1 basis-11 touch-manipulation select-none bg-transparent font-mono text-muted-foreground text-sm hover:bg-accent/50 hover:text-foreground disabled:opacity-40",
-              )}
+              className={cn(BUTTON_CLASS, "font-mono text-sm")}
             >
               {b.label}
             </button>
           ))}
-          {row === KEY_BAR_ROWS[KEY_BAR_ROWS.length - 1] && onPickImage && (
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label="Attach image"
-              onPointerDown={(e) => e.preventDefault()}
-              onClick={onPickImage}
-              className={cn(
-                "min-h-11 flex-1 basis-11 touch-manipulation select-none border-border/60 border-l bg-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40",
-              )}
-            >
-              <ImagePlus className="mx-auto size-4" aria-hidden="true" />
-            </button>
-          )}
+          {i === KEY_BAR_ROWS.length - 1 && trailingActions}
         </div>
       ))}
     </div>

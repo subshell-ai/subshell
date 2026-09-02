@@ -8,7 +8,7 @@ import {
   type NodeWsSocket,
 } from "@/services/nodes/node-ws-handler.js";
 import { logger } from "@/utils/logger.js";
-import { cleanupSessionWs, handleSessionMessage, handleSessionWs } from "@/ws/session-ws.js";
+import { attachUrlFromQuery, cleanupSessionWs, handleSessionMessage, handleSessionWs } from "@/ws/session-ws.js";
 
 /**
  * WebSocket attach endpoint at /ws.
@@ -18,15 +18,31 @@ import { cleanupSessionWs, handleSessionMessage, handleSessionWs } from "@/ws/se
  * `output` frames and accepts text frames as input to the tmux pane.
  */
 export const wsPlugin = new Elysia({ name: "ws" }).ws("/ws", {
+  /**
+   * Stash the upgrade request's User-Agent where `open` can read it.
+   *
+   * `ws.raw.request` is NOT populated in Elysia's WS open context, so the
+   * attach journal line's `ua=` read "unknown" for every client — useless
+   * exactly when it mattered (telling a stale PWA bundle apart from a current
+   * one). The upgrade hook DOES have the request, and the adapter spreads the
+   * mutated context into `ws.data` — the same channel `/ws/node` uses for its
+   * node identity.
+   */
+  upgrade(context) {
+    const request = (context as { request?: Request }).request;
+    Object.assign(context as Record<string, unknown>, {
+      attachUa: request?.headers.get("user-agent") ?? "unknown",
+    });
+  },
   open(ws) {
     // ElysiaWS.data carries the request context, including parsed query
-    // params (session + token come from the query string).
+    // params. FORWARD THEM ALL to the handler — session + token (auth) and
+    // cols/rows (the geometry it resizes the pane to BEFORE capturing the
+    // replay). Cherry-picking params here is how the browser's size used to
+    // be silently dropped and every attach captured at the pane's stale
+    // width (jumbled-until-resize, 2026-09-01).
     const query = (ws as unknown as { data: { query?: Record<string, string> } }).data.query ?? {};
-    const sessionId = query.session ?? "";
-    // Elysia decodes query params; re-encode path-special chars so URL parser
-    // treats them as a single param value.
-    const token = encodeURIComponent(query.token ?? "");
-    const url = new URL(`/ws?session=${encodeURIComponent(sessionId)}&token=${token}`, "http://localhost");
+    const url = attachUrlFromQuery(query);
     void handleSessionWs(ws as unknown as WsSocket, url).catch(() => ws.close(4000, "attach failed"));
   },
   message(ws, message) {

@@ -9,6 +9,11 @@ import type { SessionView } from "@/types/session";
 export interface SessionData {
   /** The session being viewed (undefined while it loads, or if it is gone) */
   session: SessionView | undefined;
+  /** True while the first fetch has not settled — the page defers mounting the
+   * terminal until this clears, so a visit is ONE attach/replay, not two */
+  isLoading: boolean;
+  /** True when the record could not be fetched at all (gone/unknown id) */
+  isError: boolean;
   /** True when the harness process has died while the record still says running */
   exited: boolean;
   /** True for either dead-but-kept shape: crashed-while-managed or terminated */
@@ -23,7 +28,11 @@ export interface SessionData {
 export function useSessionData(id: string): SessionData {
   const queryClient = useQueryClient();
 
-  const { data: session } = useQuery({
+  const {
+    data: session,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: [...SESSION_QUERY_KEY, id],
     queryFn: () => apiFetch<SessionView>(`/api/sessions/${id}`),
   });
@@ -46,5 +55,5 @@ export function useSessionData(id: string): SessionData {
     return () => clearInterval(timer);
   }, [dead, id, queryClient]);
 
-  return { session, exited, dead };
+  return { session, isLoading, isError, exited, dead };
 }

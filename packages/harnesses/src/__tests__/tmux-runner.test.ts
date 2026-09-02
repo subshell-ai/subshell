@@ -209,6 +209,83 @@ describe("TmuxRunner", () => {
     unlinkSync(readyFile);
   }, 15_000);
 
+  it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", () => {
+    // THE restart bug: killing a socket's last session makes its tmux server
+    // exit, but the socket file outlives the decision by a moment — a
+    // `new-session` that connects in that window is answered by a server on
+    // its way out, which dies under the client ("server exited unexpectedly")
+    // having created nothing. `restartSession` reuses the row's socket with
+    // the kill immediately before the spawn, so this is the normal case, not
+    // a rare one: bare tmux reproduces it 5/5. Unretried it surfaced as a
+    // restart button that throws and rolls the row back to `terminated`.
+    const socket = freshSocket("revive-race");
+    runner.newSession(socket, "s1", "/tmp", "exec sleep 30");
+    runner.pipePane(socket, "s1", `/tmp/mote-revive-race-${Date.now()}.log`);
+    runner.killSession(socket, "s1"); // last session ⇒ the server starts exiting
+    // Back-to-back, exactly as #reviveRow does — no sleep to paper over it.
+    runner.newSession(socket, "s1", "/tmp", "exec sleep 30");
+    expect(runner.hasSession(socket, "s1")).toBe(true);
+    runner.killSession(socket, "s1");
+  });
+
+  it("retries only the shutdown race — a real refusal throws on the first answer", async () => {
+    // The retry must not swallow genuine failures (bad cwd, duplicate name):
+    // those are answers the caller needs immediately, not after a stall. A
+    // stub tmux counts its invocations, so "did not retry" is observable.
+    const stubDir = mkdtempSync(join(tmpdir(), "mote-tmux-race-stub-"));
+    const countFile = join(stubDir, "count.txt");
+    const stub = join(stubDir, "tmux-stub");
+    // Fails twice with the race message, then succeeds — and prints a
+    // different, non-race error when asked to be a "real refusal" (arg 2).
+    writeFileSync(
+      stub,
+      `#!/bin/sh
+n=$(cat '${countFile}' 2>/dev/null || echo 0)
+n=$((n+1)); echo "$n" > '${countFile}'
+case "$2" in
+  refuse) echo "duplicate session: s1" >&2; exit 1 ;;
+esac
+if [ "$n" -le 2 ]; then echo "server exited unexpectedly" >&2; exit 1; fi
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    try {
+      // Race message ⇒ retried until it succeeds (3rd attempt).
+      new TmuxRunner(stub).newSession("sock", "s1", "/tmp", "cmd");
+      expect((await Bun.file(countFile).text()).trim()).toBe("3");
+
+      // A non-race failure ⇒ exactly ONE attempt, error surfaced verbatim.
+      writeFileSync(countFile, "0");
+      expect(() => new TmuxRunner(stub).newSession("refuse", "s1", "/tmp", "cmd")).toThrow(/duplicate session/);
+      expect((await Bun.file(countFile).text()).trim()).toBe("1");
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+
+  it("gives up (rather than hanging) when the race never clears", async () => {
+    const stubDir = mkdtempSync(join(tmpdir(), "mote-tmux-race-forever-"));
+    const countFile = join(stubDir, "count.txt");
+    const stub = join(stubDir, "tmux-stub");
+    writeFileSync(
+      stub,
+      `#!/bin/sh
+n=$(cat '${countFile}' 2>/dev/null || echo 0)
+n=$((n+1)); echo "$n" > '${countFile}'
+echo "server exited unexpectedly" >&2; exit 1
+`,
+      { mode: 0o755 },
+    );
+    try {
+      expect(() => new TmuxRunner(stub).newSession("sock", "s1", "/tmp", "cmd")).toThrow(/server exited unexpectedly/);
+      // Bounded: the initial attempt plus the retry budget, never an endless spin.
+      expect((await Bun.file(countFile).text()).trim()).toBe("4");
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+
   it("captures escape sequences with -e", async () => {
     const socket = freshSocket("esc");
     runner.newSession(socket, "s1", "/tmp", "printf '\\033[31mRED\\033[0m normal\\n'; exec sleep 30");

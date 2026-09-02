@@ -142,7 +142,13 @@ export type NodeCommandBody =
       settleTimeoutMs: number;
       pollMs: number;
     }
-  | { type: "capture"; sessionId: string }
+  | {
+      /** Pane snapshot; optional `lines` prepends that many reflowed history rows (attach replay). */
+      type: "capture";
+      sessionId: string;
+      /** Optional scrollback budget for the capture. Absent from (and stripped by) pre-replay agents. */
+      lines?: number;
+    }
   | { type: "probe"; sessionIds: string[] }
   | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
   | { type: "stat_dir"; path: string }
@@ -269,8 +275,18 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     }
     case "terminate":
     case "kill":
-    case "capture":
       return isStr(value.sessionId) ? ({ type: value.type, sessionId: value.sessionId } as NodeCommandBody) : null;
+    case "capture": {
+      if (!isStr(value.sessionId)) return null;
+      // Additive optional field (protocol v1 unchanged): a positive int or
+      // absent. An agent predating the field strips this key here and answers
+      // with the visible grid only — the old replay, no refusal.
+      if ("lines" in value) {
+        if (!isInt(value.lines) || (value.lines as number) <= 0) return null;
+        return { type: "capture", sessionId: value.sessionId, lines: value.lines as number };
+      }
+      return { type: "capture", sessionId: value.sessionId };
+    }
     case "input":
       return isStr(value.sessionId) && isStr(value.data) ? (value as unknown as NodeCommandBody) : null;
     case "resize":

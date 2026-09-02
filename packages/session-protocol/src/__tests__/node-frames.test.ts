@@ -72,6 +72,18 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({})).toBeNull();
   });
 
+  it("capture: optional positive-int `lines` passes through; garbage is refused", () => {
+    expect(parseNodeCommandBody({ type: "capture", sessionId: "s" })).toEqual({ type: "capture", sessionId: "s" });
+    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: 100 })).toEqual({
+      type: "capture",
+      sessionId: "s",
+      lines: 100,
+    });
+    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: 1.5 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: "100" })).toBeNull();
+  });
+
   it("accepts input/resize/terminate/ping and checks their required fields", () => {
     expect(parseNodeCommandBody({ type: "ping" })).toEqual({ type: "ping" });
     expect(parseNodeCommandBody({ type: "input", sessionId: "s", data: "" })).not.toBeNull();

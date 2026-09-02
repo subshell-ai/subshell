@@ -82,4 +82,70 @@ describe("TerminalKeyBar", () => {
     expect(slashRow).not.toBe(escRow); // arrows/slash moved down
     expect(imgRow).toBe(slashRow);
   });
+
+  it("shows no scroll buttons without handlers, and working ones with them", () => {
+    const { unmount } = render(<TerminalKeyBar disabled={false} onBytes={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Scroll to top" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Scroll to bottom" })).toBeNull();
+    unmount();
+
+    let top = 0;
+    let bottom = 0;
+    render(
+      <TerminalKeyBar disabled={false} onBytes={() => {}} onScrollTop={() => top++} onScrollBottom={() => bottom++} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to top" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to bottom" }));
+    expect([top, bottom]).toEqual([1, 1]);
+  });
+
+  it("scroll buttons stay live while the rest of the bar is disabled", () => {
+    // They drive the LOCAL xterm scrollback — no socket needed, so the
+    // pre-attach/reconnecting gray-out must not eat them.
+    let jumps = 0;
+    let sent = 0;
+    render(<TerminalKeyBar disabled onBytes={() => sent++} onScrollTop={() => jumps++} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send Ctrl-C" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to top" }));
+    expect(sent).toBe(0); // byte keys honor `disabled` as before
+    expect(jumps).toBe(1);
+  });
+
+  it("a readOnly (view) bar ships only the scroll jumps — no byte keys, no image picker", () => {
+    let jumps = 0;
+    render(
+      <TerminalKeyBar
+        disabled={false}
+        readOnly
+        onBytes={() => {
+          throw new Error("a view grantee must not see byte keys");
+        }}
+        onPickImage={() => {
+          throw new Error("a view grantee must not see the image picker");
+        }}
+        onScrollTop={() => jumps++}
+        onScrollBottom={() => jumps++}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Send Ctrl-C" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Attach image" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to top" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to bottom" }));
+    expect(jumps).toBe(2);
+  });
+
+  it("scroll buttons trail the second row alongside the image button", () => {
+    render(
+      <TerminalKeyBar
+        disabled={false}
+        onBytes={() => {}}
+        onPickImage={() => {}}
+        onScrollTop={() => {}}
+        onScrollBottom={() => {}}
+      />,
+    );
+    const slashRow = screen.getByRole("button", { name: "Send slash" }).parentElement;
+    expect(screen.getByRole("button", { name: "Scroll to top" }).parentElement).toBe(slashRow);
+    expect(screen.getByRole("button", { name: "Scroll to bottom" }).parentElement).toBe(slashRow);
+  });
 });

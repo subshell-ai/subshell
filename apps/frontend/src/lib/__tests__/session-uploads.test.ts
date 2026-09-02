@@ -1,12 +1,14 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "@internal/session-protocol";
 import { injectText } from "../session-frames.js";
 import {
   insertionFailedMessage,
   insertionTextFor,
+  mapWithConcurrency,
   rejectionMessage,
   summarizeUploadBatch,
   type UploadAttempt,
+  uploadSessionFile,
 } from "../session-uploads.js";
 
 describe("insertionTextFor", () => {
@@ -106,6 +108,149 @@ function fakeWs() {
   const sent: string[] = [];
   return { ws: { readyState: 1, send: (d: string) => sent.push(d) } as unknown as WebSocket, sent };
 }
+
+/**
+ * Minimal XHR double: `send()` records the body and answers with a scripted
+ * status/body; `upload.onprogress` is hand-driven so progress is assertable.
+ */
+class FakeXhr {
+  static instances: FakeXhr[] = [];
+  method = "";
+  url = "";
+  withCredentials = false;
+  status = 0;
+  responseText = "";
+  sentBody: FormData | null = null;
+  upload = { onprogress: null as ((e: ProgressEvent) => void) | null };
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  ontimeout: (() => void) | null = null;
+  onabort: (() => void) | null = null;
+
+  open(method: string, url: string) {
+    this.method = method;
+    this.url = url;
+  }
+  send(body: FormData) {
+    this.sentBody = body;
+    FakeXhr.instances.push(this);
+  }
+  /** Simulate a settled response. */
+  respond(status: number, body: string) {
+    this.status = status;
+    this.responseText = body;
+    this.onload?.();
+  }
+  failNetwork() {
+    this.onerror?.();
+  }
+  progress(loaded: number, total: number) {
+    this.upload.onprogress?.({ loaded, total, lengthComputable: true } as ProgressEvent);
+  }
+}
+
+const realXhr = globalThis.XMLHttpRequest;
+afterEach(() => {
+  globalThis.XMLHttpRequest = realXhr;
+  FakeXhr.instances = [];
+});
+
+describe("uploadSessionFile (XHR transport)", () => {
+  it("posts multipart to the session route with cookies and resolves the stored path", async () => {
+    globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
+    const file = new File(["hello"], "a.txt", { type: "text/plain" });
+    const p = uploadSessionFile("s 1", file);
+    const xhr = FakeXhr.instances[0];
+    expect(xhr.method).toBe("POST");
+    expect(xhr.url).toBe("/api/sessions/s%201/uploads");
+    expect(xhr.withCredentials).toBe(true);
+    expect(xhr.sentBody?.get("file")).toBe(file);
+    xhr.respond(
+      200,
+      JSON.stringify({ path: "/ws/.mote/uploads/a.txt", name: "a.txt", size: 5, contentType: "text/plain" }),
+    );
+    expect(await p).toBe("/ws/.mote/uploads/a.txt");
+  });
+
+  it("reports byte progress through the callback", async () => {
+    globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
+    const seen: Array<[number, number]> = [];
+    const p = uploadSessionFile("s1", new File(["x"], "a.png"), (sent, total) => seen.push([sent, total]));
+    const xhr = FakeXhr.instances[0];
+    xhr.progress(32768, 262144);
+    xhr.progress(262144, 262144);
+    xhr.respond(200, JSON.stringify({ path: "/ws/a.png" }));
+    await p;
+    expect(seen).toEqual([
+      [32768, 262144],
+      [262144, 262144],
+    ]);
+  });
+
+  it("prefers the API's structured message on refusal, else the bare status", async () => {
+    globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
+    const p1 = uploadSessionFile("s1", new File(["x"], "a.txt"));
+    FakeXhr.instances[0].respond(409, JSON.stringify({ message: "Session working directory is missing" }));
+    await expect(p1).rejects.toThrow("Session working directory is missing");
+
+    const p2 = uploadSessionFile("s1", new File(["x"], "a.txt"));
+    FakeXhr.instances[1].respond(500, "boom"); // not JSON
+    await expect(p2).rejects.toThrow("Upload failed (500)");
+  });
+
+  it("a network failure rejects with a usable message", async () => {
+    globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
+    const p = uploadSessionFile("s1", new File(["x"], "a.txt"));
+    FakeXhr.instances[0].failNetwork();
+    await expect(p).rejects.toThrow("network error");
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("keeps INPUT order even when completions are out of order", async () => {
+    const delays = [30, 0, 15];
+    const results = await mapWithConcurrency([0, 1, 2], 3, async (i) => {
+      await Bun.sleep(delays[i]);
+      return `r${i}`;
+    });
+    expect(results).toEqual([
+      { status: "fulfilled", value: "r0" },
+      { status: "fulfilled", value: "r1" },
+      { status: "fulfilled", value: "r2" },
+    ]);
+  });
+
+  it("never runs more than `limit` workers at once", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    await mapWithConcurrency(
+      Array.from({ length: 8 }, (_, i) => i),
+      3,
+      async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await Bun.sleep(5);
+        inFlight -= 1;
+      },
+    );
+    expect(peak).toBeLessThanOrEqual(3);
+  });
+
+  it("isolates rejections: siblings settle normally and the failure is reported in place", async () => {
+    const results = await mapWithConcurrency(["a", "b", "c"], 2, async (x) => {
+      if (x === "b") throw new Error("nope");
+      return x.toUpperCase();
+    });
+    expect(results[0]).toEqual({ status: "fulfilled", value: "A" });
+    expect(results[1]?.status).toBe("rejected");
+    expect((results[1] as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+    expect(results[2]).toEqual({ status: "fulfilled", value: "C" });
+  });
+
+  it("maps an empty batch to an empty result", async () => {
+    expect(await mapWithConcurrency([], 3, async () => 1)).toEqual([]);
+  });
+});
 
 describe("injectText", () => {
   it("wraps text in paste markers when the remote enabled bracketed paste", () => {

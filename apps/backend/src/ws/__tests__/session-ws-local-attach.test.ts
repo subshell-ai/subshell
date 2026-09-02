@@ -4,7 +4,13 @@ import { runMigrations } from "@/db/migrate.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";
 import { sessionLogPath } from "@/services/nodes/session-paths.js";
-import { cleanupSessionWs, handleSessionWs, type WsSocket } from "@/ws/session-ws.js";
+import {
+  attachUrlFromQuery,
+  cleanupSessionWs,
+  handleSessionWs,
+  resetLiveViewersForTests,
+  type WsSocket,
+} from "@/ws/session-ws.js";
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -34,22 +40,39 @@ import { issueWsToken } from "@/ws/ws-token.js";
 const launcherOriginals = {
   hasSession: defaultLocalLauncher.hasSession,
   capture: defaultLocalLauncher.capture,
+  resize: defaultLocalLauncher.resize,
 };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
 let captureCalls = 0;
+/** What `capture` was last asked for (scrollback line budget), and call order markers. */
+let captureLinesArg: number | undefined;
+let resizeCalls: Array<{ cols: number; rows: number }> = [];
+/** Shared per-test ordered log — proves resize lands BEFORE the capture. */
+let order: string[] = [];
 
 function stubLauncher(): void {
   defaultLocalLauncher.hasSession = async (_socket: string, _id: string) => true;
-  defaultLocalLauncher.capture = async (_socket: string, _id: string) => {
+  defaultLocalLauncher.capture = async (_socket: string, _id: string, lines?: number) => {
     captureCalls += 1;
+    captureLinesArg = lines;
+    order.push("capture");
     return "SCREEN";
+  };
+  defaultLocalLauncher.resize = async (_socket: string, _id: string, cols: number, rows: number) => {
+    resizeCalls.push({ cols, rows });
+    order.push("resize");
   };
 }
 
 afterEach(() => {
   defaultLocalLauncher.hasSession = launcherOriginals.hasSession;
   defaultLocalLauncher.capture = launcherOriginals.capture;
+  defaultLocalLauncher.resize = launcherOriginals.resize;
   captureCalls = 0;
+  captureLinesArg = undefined;
+  resizeCalls = [];
+  order = [];
+  resetLiveViewersForTests();
 });
 
 let rowSeq = 0;
@@ -93,9 +116,9 @@ function fakeBrowser(): FakeBrowser {
   return { ws, sent, closed };
 }
 
-/** Runs the real handler with a real single-use WS token. */
-async function attach(userId: string, sessionId: string): Promise<FakeBrowser> {
-  const url = new URL(`ws://localhost/ws/session?session=${sessionId}&token=${issueWsToken(userId)}`);
+/** Runs the real handler with a real single-use WS token (+ optional query, e.g. `&cols=132&rows=43`). */
+async function attach(userId: string, sessionId: string, extraQuery = ""): Promise<FakeBrowser> {
+  const url = new URL(`ws://localhost/ws/session?session=${sessionId}&token=${issueWsToken(userId)}${extraQuery}`);
   const fake = fakeBrowser();
   await handleSessionWs(fake.ws, url);
   return fake;
@@ -142,6 +165,30 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     expect(sent.slice(framesAtDisconnect)).toEqual([]);
   });
 
+  it("a NEW attach replaces the previous viewer: the old socket closes 4003 and goes silent", async () => {
+    // One tmux pane has one width; two viewers at different widths thrash it
+    // and shatter the TUI (2026-09-01 jumble). Newest attach wins, and the
+    // replaced socket must stop streaming immediately — its watcher/timer,
+    // not just its close event.
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = sessionLogPath(row.id);
+    await Bun.write(logFile, "old\n");
+
+    const first = await attach(row.userId, row.id);
+    await Bun.sleep(60); // first viewer settles into its tail
+    const second = await attach(row.userId, row.id); // newer viewer takes over
+
+    expect(first.closed.some((c) => c.code === 4003)).toBe(true);
+    const firstFrames = first.sent.length;
+
+    appendFileSync(logFile, "for the new owner\n");
+    await Bun.sleep(1300); // watch fires ~instantly; backstop twice
+    expect(first.sent.slice(firstFrames)).toEqual([]); // evicted: nothing more ships
+    expect(second.sent.some((s) => s.includes("for the new owner"))).toBe(true);
+    cleanupSessionWs(second.ws);
+  });
+
   it("the pane-poll branch: cleanup clears the poll interval — no captures after disconnect", async () => {
     stubLauncher();
     const row = await seedLocalRow();
@@ -161,5 +208,219 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     } finally {
       cleanupSessionWs(ws);
     }
+  });
+});
+
+describe("local attach replay — one clean paint, no raw-log re-play", () => {
+  it("history never ships as raw log bytes: the tail starts at the log's size when the replay was taken", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = sessionLogPath(row.id);
+    await Bun.write(logFile, "HISTORY-LINES\r\n"); // pre-existing raw output
+
+    const { sent } = await attach(row.userId, row.id);
+    // ONLY the replay frame: the whole "replay last N raw log lines over the
+    // capture grid" mechanism is gone (it painted mid-stream TUI redraw
+    // sequences over the snapshot — the jumble that took ~10s to converge and
+    // left the oldest scrollback lines garbled forever).
+    expect(sent).toEqual([JSON.stringify({ type: "replay", data: "SCREEN" })]);
+
+    // New output AFTER the attach still streams — EOF is a start, not a stop.
+    appendFileSync(logFile, "live\r\n");
+    await Bun.sleep(120); // fs.watch fires ~instantly
+    expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
+  });
+
+  it("the replay ships CRLF rows — a bare LF froze a staircase into scrollback", async () => {
+    // `capture-pane -p` separates rows with a BARE LF and emits no CR at all.
+    // LF moves the cursor down but keeps the COLUMN, so xterm started each
+    // row where the previous one ended (mod the width) — the reported
+    // diagonal staircase of half-drawn tables. It only showed when scrolling
+    // UP because the app's live diffs repaint the visible grid with absolute
+    // positioning, while nothing ever rewrites scrollback.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+    const grid = "┌────────┐\n│ row  1 │\n│ row  2 │\n└────────┘";
+    defaultLocalLauncher.capture = async () => grid;
+
+    const { sent } = await attach(row.userId, row.id);
+    const frame = JSON.parse(sent[0]) as { type: string; data: string };
+    expect(frame.type).toBe("replay");
+    expect(frame.data).toBe("┌────────┐\r\n│ row  1 │\r\n│ row  2 │\r\n└────────┘");
+    expect(/[^\r]\n/.test(frame.data)).toBe(false); // no bare LF anywhere
+  });
+
+  it("the replay capture carries the per-session line budget (default 100)", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+    await attach(row.userId, row.id);
+    expect(captureLinesArg).toBe(100); // TERMINAL_REPLAY_LINES default
+  });
+
+  it("the plugin's query→URL handoff keeps cols/rows alive (regression: they were stripped)", async () => {
+    // Mirror the EXACT production path: ws.plugin reads ws.data.query and
+    // rebuilds the URL via attachUrlFromQuery. A version of it re-picked only
+    // session+token — dropping the geometry — so pin the round trip here.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+
+    const fake = fakeBrowser();
+    await handleSessionWs(
+      fake.ws,
+      attachUrlFromQuery({ session: row.id, token: issueWsToken(row.userId), cols: "132", rows: "43" }),
+    );
+    // Geometry survived the handoff. Only the FIRST resize is asserted: the
+    // stubbed pane never repaints, so the repaint nudge follows it (pinned by
+    // its own case below).
+    expect(resizeCalls[0]).toEqual({ cols: 132, rows: 43 });
+  });
+
+  it("cols/rows on the URL resize the pane BEFORE the capture — replay matches client geometry", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+
+    await attach(row.userId, row.id, "&cols=132&rows=43");
+    expect(resizeCalls[0]).toEqual({ cols: 132, rows: 43 });
+    expect(order[0]).toBe("resize"); // nothing reads the pane before the resize lands
+    // ONE capture, and it comes LAST — the gap-free byte stream (join point
+    // before the resize) corrects any frame the snapshot raced, so the old
+    // stable-grid poll is gone. The resizes ahead of it are the geometry fit
+    // plus the repaint nudge (own case below).
+    expect(order.filter((o) => o === "capture")).toEqual(["capture"]);
+    expect(order.at(-1)).toBe("capture");
+  });
+
+  it("the capture waits for the post-resize REPAINT (log burst), not a flat timer", async () => {
+    // tmux re-wraps the OLD frame the instant the pane resizes, so a
+    // settle-timer capture can ship a stable-looking grid of mid-word
+    // garbage while the app's SIGWINCH repaint is still in flight — the
+    // "jumbled until you resize" report. The repaint shows up as fresh
+    // bytes in the pane log; the attach must wait for that burst. Here the
+    // repaint lands 350 ms after the resize — AFTER the old flat 150 ms
+    // settle — and only a repaint-aware capture sees FRESH.
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = sessionLogPath(row.id);
+    await Bun.write(logFile, "x\n");
+    let repainted = false;
+    defaultLocalLauncher.resize = async () => {
+      order.push("resize");
+      setTimeout(() => {
+        appendFileSync(logFile, "repaint-bytes\n"); // the app's SIGWINCH repaint arrives
+        repainted = true;
+      }, 350);
+    };
+    defaultLocalLauncher.capture = async () => {
+      order.push("capture");
+      captureCalls += 1;
+      return repainted ? "FRESH" : "STALE";
+    };
+
+    const { sent } = await attach(row.userId, row.id, "&cols=100&rows=30");
+    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "FRESH" }));
+  });
+
+  it("a pane that never repaints is NUDGED (±1 col) to force a SIGWINCH before the capture", async () => {
+    // THE standing bug (2026-09-01): reopening a session at the size the pane
+    // already has makes `resize-window` a no-op, so no SIGWINCH fires, so a
+    // diff-rendering TUI never repaints — and whatever half-repainted frame
+    // the pane was left holding is what the capture ships, forever, for every
+    // later viewer. That is why "close mote, re-enter, still garbled" while a
+    // manual window resize fixes it for good. The attach must force the
+    // repaint itself: bump the width one column and step back.
+    stubLauncher(); // stub resize writes nothing to the log ⇒ no repaint burst
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+
+    await attach(row.userId, row.id, "&cols=80&rows=24");
+
+    // Fit, nudge out, nudge back — and the pane ends at the client's real size.
+    expect(resizeCalls).toEqual([
+      { cols: 80, rows: 24 },
+      { cols: 81, rows: 24 },
+      { cols: 80, rows: 24 },
+    ]);
+    expect(order.at(-1)).toBe("capture"); // the capture reads the post-nudge frame
+  });
+
+  it("a pane that DOES repaint is not nudged — no gratuitous geometry thrash", async () => {
+    // The nudge is a repair, not a ritual: when the resize already produced
+    // the app's repaint burst, the capture is of a fresh frame and touching
+    // the geometry again would only re-wrap it (and cost a round trip).
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = sessionLogPath(row.id);
+    await Bun.write(logFile, "x\n");
+    defaultLocalLauncher.resize = async (_socket: string, _id: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      order.push("resize");
+      // The app answers the SIGWINCH promptly, as a burst of log bytes.
+      appendFileSync(logFile, "full-repaint\n");
+    };
+
+    await attach(row.userId, row.id, "&cols=90&rows=30");
+
+    expect(resizeCalls).toEqual([{ cols: 90, rows: 30 }]); // fit only — no nudge
+  });
+
+  it("without cols/rows the capture runs exactly once (no quiesce for stale clients)", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+
+    await attach(row.userId, row.id);
+    expect(captureCalls).toBe(1);
+  });
+
+  it("no log file ⇒ no nudge: the repaint signal is blind, so the pane is left alone", async () => {
+    // Without a log, the size probe reads 0 forever and "no burst" means
+    // "nothing to detect with", not "the pane refused to repaint" — nudging
+    // on that would thrash the geometry of every pane-poll attach for no
+    // evidence at all.
+    stubLauncher();
+    const row = await seedLocalRow();
+    // No file at sessionLogPath(row.id) ⇒ the handler takes startPanePoll.
+
+    const { ws } = await attach(row.userId, row.id, "&cols=100&rows=30");
+    try {
+      expect(resizeCalls).toEqual([{ cols: 100, rows: 30 }]); // the fit, and nothing more
+    } finally {
+      cleanupSessionWs(ws); // release the poll interval
+    }
+  });
+
+  it("a malformed cols/rows pair skips the resize without failing the attach", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(sessionLogPath(row.id), "x\n");
+
+    const { sent, closed } = await attach(row.userId, row.id, "&cols=abc&rows=0");
+    expect(resizeCalls).toEqual([]);
+    expect(closed).toEqual([]);
+    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+  });
+
+  it("a client that closes DURING the attach's awaits leaves nothing armed", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = sessionLogPath(row.id);
+    await Bun.write(logFile, "x\n");
+
+    // resize + settle + quiet-poll span ~250 ms; the close lands mid-await.
+    const url = new URL(`ws://localhost/ws?session=${row.id}&token=${issueWsToken(row.userId)}&cols=100&rows=30`);
+    const fake = fakeBrowser();
+    const attaching = handleSessionWs(fake.ws, url);
+    await Bun.sleep(30);
+    cleanupSessionWs(fake.ws); // browser vanishes before the tail ever arms
+    await attaching;
+
+    const framesAtAttach = fake.sent.length;
+    appendFileSync(logFile, "after close\n");
+    await Bun.sleep(1300); // watch would fire ~instantly; the backstop twice
+    expect(fake.sent.slice(framesAtAttach)).toEqual([]); // no watcher/timer survived
   });
 });
