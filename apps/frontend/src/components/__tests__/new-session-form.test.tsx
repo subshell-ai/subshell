@@ -226,3 +226,16 @@ describe("NewSessionForm pinned-profile re-anchor", () => {
     }
   });
 });
+
+describe("optional session name input", () => {
+  it("caps the draft at the backend's 120-char rule", () => {
+    const restore = mockFetch([LOCAL]);
+    try {
+      renderForm();
+      const input = screen.getByLabelText("Session name (optional)") as HTMLInputElement;
+      expect(input.maxLength).toBe(120);
+    } finally {
+      restore();
+    }
+  });
+});

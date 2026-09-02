@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { useDeleteNode, useNode, useRecheckNode, useRenameNode } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
+import { NODE_NAME_MAX } from "@/lib/name-limits";
 
 export const Route = createFileRoute("/nodes_/$id")({
   component: NodeDetailPage,
@@ -113,7 +114,17 @@ function NodeDetailPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title={
-          canRename ? <EditableText value={n.name} placeholder={n.id} label="Rename node" onSave={saveName} /> : n.name
+          canRename ? (
+            <EditableText
+              value={n.name}
+              placeholder={n.id}
+              label="Rename node"
+              onSave={saveName}
+              maxLength={NODE_NAME_MAX}
+            />
+          ) : (
+            n.name
+          )
         }
         subtitle={n.kind === "local" ? "The control-plane host" : (n.hostname ?? "Enrolled agent")}
         action={

@@ -7,6 +7,7 @@ import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
+import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { nodeOptionLabel } from "@/lib/node-label";
 import type { Node } from "@/types/node";
 
@@ -303,6 +304,7 @@ export function NewSessionForm({
           id={ids.name}
           value={value.name}
           onChange={(e) => onChange({ ...value, name: e.target.value })}
+          maxLength={NAME_MAX_DEFAULT}
           placeholder="Defaults to date/time"
         />
       </div>
