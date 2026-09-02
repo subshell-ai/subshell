@@ -150,6 +150,10 @@ systemctl --user restart mote.service     # 3. the backend serves the new files
   requires). See `apps/agent/AGENTS.md` for the app itself.
 - Publish destination: `MOTE_NODE_ARTIFACTS_DIR`, else
   `<SESSION_DATA_DIR>/node-artifacts` — the same default the backend resolves.
+  From a plain shell none of those vars are set (the service gets them from its
+  unit/`EnvironmentFile`), so the ladder silently publishes to
+  `apps/agent/data/node-artifacts` where the backend never looks — pass
+  `MOTE_NODE_ARTIFACTS_DIR` explicitly when deploying from a terminal.
 - Cross builds download their target's bun runtime on first use and deliberately
   ship WITHOUT `--bytecode` (bytecode + cross is a known compile risk). A failed
   target exits non-zero and publishes NOTHING — never a half set.
