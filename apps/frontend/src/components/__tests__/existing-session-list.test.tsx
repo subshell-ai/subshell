@@ -77,6 +77,44 @@ describe("ExistingSessionList", () => {
     expect(rows[0]?.textContent).toContain("waiting for you");
   });
 
+  describe("row status chips (spec §5.6 nodeOffline precedence)", () => {
+    it("chips BOTH status and waiting for an online waiting row (current behavior pinned)", () => {
+      const waiting = makeSession({ id: "w", name: "waiting-online", waitingSince: "2026-08-30T00:00:00.000Z" });
+      render(<ExistingSessionList {...base} sessions={[waiting]} />);
+      const row = screen.getAllByRole("button")[0]?.textContent ?? "";
+      expect(row).toContain("running");
+      expect(row).toContain("waiting for you");
+      expect(row).not.toContain("node unreachable");
+    });
+
+    it("replaces both chips with 'node unreachable' for a session on an unreachable node", () => {
+      // alive + waitingSince + activity say nothing while the agent is down —
+      // the card already hides them (session-card.tsx accessoryFor); the
+      // picker row must agree.
+      const ghost = makeSession({
+        id: "ghost",
+        name: "ghost-on-mac",
+        nodeId: "mac",
+        nodeOffline: true,
+        waitingSince: "2026-08-30T00:00:00.000Z",
+        activity: "active",
+      });
+      render(<ExistingSessionList {...base} sessions={[ghost]} />);
+      const row = screen.getAllByRole("button")[0]?.textContent ?? "";
+      expect(row).toContain("node unreachable");
+      expect(row).not.toContain("waiting for you");
+      expect(row).not.toContain("running");
+    });
+
+    it("keeps 'ended' for a terminated row on an online node", () => {
+      const done = makeSession({ id: "t", name: "done-online", status: "terminated", alive: false });
+      render(<ExistingSessionList {...base} sessions={[done]} />);
+      const row = screen.getAllByRole("button")[0]?.textContent ?? "";
+      expect(row).toContain("ended");
+      expect(row).not.toContain("node unreachable");
+    });
+  });
+
   describe("node filter (display-only, spec §9 dialog coherence)", () => {
     const onLocal = makeSession({ id: "l", name: "local-one", nodeId: "local" });
     // A legacy payload without nodeId reads as local — same tolerance the

@@ -1,7 +1,6 @@
 import type { JSX } from "react";
 import { SessionSearch } from "@/components/session-search";
-import { relativeElapsed, StatusChip } from "@/components/session-status";
-import { WaitingChip } from "@/components/waiting-chip";
+import { RowStatusBadges, relativeElapsed } from "@/components/session-status";
 import { filterSessions } from "@/lib/session-filter";
 import { priorityRunning } from "@/lib/session-order";
 import type { SessionView } from "@/types/session";
@@ -12,9 +11,11 @@ import type { SessionView } from "@/types/session";
  * This replaces three parallel dropdown submenus, which listed every session
  * three times with no way to search: fine for four sessions, unusable for
  * forty. It searches with `filterSessions` and shows status with
- * `StatusChip` plus the `WaitingChip` "waiting for you" badge, the same
- * pieces the sessions page uses, so a session reads the same here as it does
- * there. Bell-on waiting sessions sort to the top via `priorityRunning`.
+ * `RowStatusBadges` — the `StatusChip` state plus the `WaitingChip` "waiting
+ * for you" badge, or a lone "node unreachable" badge replacing both when the
+ * session's node is offline (spec 2026-08-31 §5.6) — the same pieces the
+ * sessions page uses, so a session reads the same here as it does there.
+ * Bell-on waiting sessions sort to the top via `priorityRunning`.
  */
 export function ExistingSessionList({
   sessions,
@@ -94,8 +95,7 @@ export function ExistingSessionList({
                   <span className="shrink-0 text-muted-foreground text-xs">
                     {session.lastOutputAt ? relativeElapsed(session.lastOutputAt) : "—"}
                   </span>
-                  <StatusChip session={session} />
-                  <WaitingChip session={session} />
+                  <RowStatusBadges session={session} />
                   {busyId === session.id && <span className="shrink-0 text-muted-foreground text-xs">Adding…</span>}
                 </button>
               </li>

@@ -3,9 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { RotateCcw, Square, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { SessionActionsMenu } from "@/components/session-actions-menu";
-import { relativeElapsed, StatusChip } from "@/components/session-status";
+import { RowStatusBadges, relativeElapsed } from "@/components/session-status";
 import { Button } from "@/components/ui/button";
-import { WaitingChip } from "@/components/waiting-chip";
 import { apiFetch } from "@/lib/api";
 import { AUTO_RESTART_HELP, describeAutoRestart } from "@/lib/auto-restart";
 import { SESSIONS_QUERY_KEY } from "@/lib/query-keys";
@@ -140,8 +139,7 @@ export function SessionManagerTable({ sessions }: { sessions: SessionView[] }) {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
-                      <StatusChip session={s} />
-                      <WaitingChip session={s} />
+                      <RowStatusBadges session={s} />
                     </div>
                   </td>
                   <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>
