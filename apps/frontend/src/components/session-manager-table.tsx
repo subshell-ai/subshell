@@ -121,44 +121,53 @@ export function SessionManagerTable({ sessions }: { sessions: SessionView[] }) {
                 </td>
               </tr>
             ) : (
-              sessions.map((s) => (
-                <tr key={s.id} className="border-b last:border-0 hover:bg-accent/40">
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select session ${s.name}`}
-                      className="h-4 w-4 rounded border border-input bg-background accent-primary"
-                      checked={selectedIds.includes(s.id)}
-                      onChange={(e) => toggle(s.id, e.target.checked)}
-                    />
-                  </td>
-                  <td className="max-w-[200px] truncate px-3 py-2">
-                    <Link to="/sessions/$id" params={{ id: s.id }} className="font-medium hover:text-primary">
-                      {s.name}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1.5">
-                      <RowStatusBadges session={s} />
-                    </div>
-                  </td>
-                  <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>
-                  <td className="px-3 py-2 text-muted-foreground">
-                    {s.lastOutputAt ? `${relativeElapsed(s.lastOutputAt)} ago` : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground">
-                    {s.status === "running" && s.alive && s.startedAt ? relativeElapsed(s.startedAt) : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground" title={AUTO_RESTART_HELP}>
-                    {describeAutoRestart(s, relativeElapsed)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex justify-end">
-                      <SessionActionsMenu session={s} disabled={bulkBusy} />
-                    </div>
-                  </td>
-                </tr>
-              ))
+              sessions.map((s) => {
+                // Same `=== true` posture as RowStatusBadges: with the agent
+                // down, lastOutputAt/startedAt/alive are last-known facts, so
+                // the two time cells must not assert from them (spec §5.6) —
+                // "—" is this table's existing nothing-to-say idiom.
+                const offline = s.nodeOffline === true;
+                return (
+                  <tr key={s.id} className="border-b last:border-0 hover:bg-accent/40">
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select session ${s.name}`}
+                        className="h-4 w-4 rounded border border-input bg-background accent-primary"
+                        checked={selectedIds.includes(s.id)}
+                        onChange={(e) => toggle(s.id, e.target.checked)}
+                      />
+                    </td>
+                    <td className="max-w-[200px] truncate px-3 py-2">
+                      <Link to="/sessions/$id" params={{ id: s.id }} className="font-medium hover:text-primary">
+                        {s.name}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <RowStatusBadges session={s} />
+                      </div>
+                    </td>
+                    <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {offline ? "—" : s.lastOutputAt ? `${relativeElapsed(s.lastOutputAt)} ago` : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {!offline && s.status === "running" && s.alive && s.startedAt
+                        ? relativeElapsed(s.startedAt)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground" title={AUTO_RESTART_HELP}>
+                      {describeAutoRestart(s, relativeElapsed)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex justify-end">
+                        <SessionActionsMenu session={s} disabled={bulkBusy} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
