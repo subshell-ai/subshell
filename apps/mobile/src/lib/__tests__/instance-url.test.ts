@@ -34,7 +34,7 @@ describe("normalizeInstanceOrigin", () => {
 
 describe("looksPrivate", () => {
   it("treats single labels and mDNS names as private", () => {
-    expect(looksPrivate("motebox")).toBe(true);
+    expect(looksPrivate("subshellbox")).toBe(true);
     expect(looksPrivate("subshell.local")).toBe(true);
   });
 
