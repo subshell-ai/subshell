@@ -33,6 +33,41 @@ describe("--flag=value parsing", () => {
   });
 });
 
+describe("service subtoken parsing", () => {
+  // NOTE: only the parser and the usage-error paths are exercised here — a
+  // successful `run(["service","install"])` would drive the REAL systemctl,
+  // so the happy paths live in service.test.ts against stubbed deps.
+  test("captures a bare install/uninstall subtoken after `service`", () => {
+    expect(parseArgs(["service", "install"])).toEqual({ command: "service", sub: "install", flags: {} });
+    expect(parseArgs(["service", "uninstall"])).toEqual({ command: "service", sub: "uninstall", flags: {} });
+  });
+
+  test("commands without subcommands keep returning no sub field", () => {
+    expect(parseArgs(["version"])).toEqual({ command: "version", flags: {} });
+  });
+
+  test("missing subtoken is a usage error (exit 2)", async () => {
+    expect(() => parseArgs(["service"])).toThrow(/service requires install or uninstall/);
+    const res = await run(["service"]);
+    expect(res.code).toBe(2);
+  });
+
+  test("unknown subtoken is a usage error (exit 2) naming the valid ones", async () => {
+    expect(() => parseArgs(["service", "destroy"])).toThrow(/unknown service subcommand 'destroy'/);
+    const res = await run(["service", "destroy"]);
+    expect(res.code).toBe(2);
+    expect(res.err).toInclude("install or uninstall");
+  });
+
+  test("a second bare token is rejected like an unknown flag", () => {
+    expect(() => parseArgs(["service", "install", "extra"])).toThrow(/unknown flag 'extra'/);
+  });
+
+  test("service takes no flags", () => {
+    expect(() => parseArgs(["service", "install", "--json"])).toThrow(/not valid for 'service'/);
+  });
+});
+
 describe("missing required flags", () => {
   /** The `mote-agent: …` line only — exit 2 always appends the full usage block. */
   const msgLine = (err: string) => err.split("\n")[0] ?? "";

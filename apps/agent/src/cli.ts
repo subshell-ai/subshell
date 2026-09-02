@@ -5,6 +5,7 @@ import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, readLock } from "./lock.js";
 import { runAgentMcp } from "./mcp/main.js";
+import { DEFAULT_DEPS, installService, uninstallService } from "./service.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -30,6 +31,7 @@ const USAGE = `mote-agent — mote node daemon
 usage:
   mote-agent enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
   mote-agent run
+  mote-agent service install|uninstall   (systemd user unit / launchd agent)
   mote-agent status [--json] [--probe]
   mote-agent version
   mote-agent mcp            (stdio MCP server for a mote session pane — internal)
@@ -38,7 +40,11 @@ usage:
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["enroll", "mcp", "run", "status", "version"]);
+const COMMANDS = new Set(["enroll", "mcp", "run", "service", "status", "version"]);
+/** Command → bare subtoken accepted in its FIRST positional slot (validated there). */
+const SUBCOMMANDS: Record<string, string[]> = {
+  service: ["install", "uninstall"],
+};
 /** Known flag → does it take a value? */
 const FLAGS: Record<string, boolean> = {
   "--server": true,
@@ -52,20 +58,45 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir"],
   mcp: [], // no flags — everything comes from the MOTE_* pane env (the @internal/mcp-core env.ts contract)
   run: [],
+  service: [], // the subtoken is positional; no flags
   status: ["--json", "--probe"],
   version: [],
 };
 
 const flagKey = (flag: string): string => flag.slice(2).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 
+/** Parsed CLI invocation — `sub` is set only for commands with a SUBCOMMANDS entry. */
+export interface ParsedArgs {
+  /** Top-level command (a member of {@link COMMANDS}). */
+  command: string;
+  /** Bare first positional, validated against the command's {@link SUBCOMMANDS} list. */
+  sub?: string;
+  /** Flag map (camelCased key, `"1"` for booleans). */
+  flags: Record<string, string>;
+}
+
 /** Hand-rolled flag map (precedent: backend mcp entry) — no dependency needed for 5 flags. */
-export function parseArgs(argv: string[]): { command: string; flags: Record<string, string> } {
+export function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
   if (!command) throw new UsageError("no command given");
   if (!COMMANDS.has(command)) throw new UsageError(`unknown command '${command}'`);
   const flags: Record<string, string> = {};
   const allowed = new Set(COMMAND_FLAGS[command]);
+  // The FIRST bare (non-`--`) token is the subtoken slot — only commands with a
+  // SUBCOMMANDS entry may see one, and only one; a second bare token falls
+  // through to the flag arm below and dies as `unknown flag`.
+  const subcommands = SUBCOMMANDS[command];
+  let sub: string | undefined;
   for (let i = 0; i < rest.length; i++) {
+    if (subcommands && sub === undefined && !rest[i].startsWith("--")) {
+      if (!subcommands.includes(rest[i])) {
+        throw new UsageError(
+          `unknown ${command} subcommand '${rest[i]}' — ${command} requires ${subcommands.join(" or ")}`,
+        );
+      }
+      sub = rest[i];
+      continue;
+    }
     // `--flag=value` is accepted alongside `--flag value` (split on the FIRST
     // "=", so a value may itself contain "="); usage text keeps showing the
     // space form.
@@ -88,7 +119,10 @@ export function parseArgs(argv: string[]): { command: string; flags: Record<stri
     if (value === undefined || value.startsWith("--")) throw new UsageError(`flag '${tok}' requires a value`);
     flags[flagKey(tok)] = value;
   }
-  return { command, flags };
+  if (subcommands && sub === undefined) {
+    throw new UsageError(`${command} requires ${subcommands.join(" or ")}`);
+  }
+  return { command, sub, flags };
 }
 
 /**
@@ -96,7 +130,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Record<stri
  * Never throws for expected failures; the messages are operator-actionable.
  */
 export async function run(argv: string[]): Promise<CliResult> {
-  let parsed: { command: string; flags: Record<string, string> };
+  let parsed: ParsedArgs;
   try {
     parsed = parseArgs(argv);
   } catch (err) {
@@ -132,6 +166,13 @@ export async function run(argv: string[]): Promise<CliResult> {
         const cfg = await loadConfig();
         await runDaemon(cfg);
         return { code: 0, out: "", err: "" }; // unreachable: runDaemon never resolves (test seam only)
+      }
+      case "service": {
+        // Backgrounding via the platform service manager (spec §11). parseArgs
+        // already pinned `sub` to install|uninstall; the real deps wire the
+        // config check to loadConfig() so service.ts stays config-import-free.
+        const deps = DEFAULT_DEPS(configExists);
+        return parsed.sub === "install" ? await installService(deps) : await uninstallService(deps);
       }
       case "enroll": {
         const server = parsed.flags.server;
@@ -216,6 +257,16 @@ export async function run(argv: string[]): Promise<CliResult> {
     return err instanceof UsageError ? fail(2, err) : fail(1, err);
   }
   return fail(2, new UsageError(`unknown command '${parsed.command}'`));
+}
+
+/** The service deps' config probe: existence is `loadConfig()` resolving (any throw ⇒ absent/corrupt). */
+async function configExists(): Promise<boolean> {
+  try {
+    await loadConfig();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Human-friendly age for the ONLINE line ("4.2 s", "850 ms"). */
