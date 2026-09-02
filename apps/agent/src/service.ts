@@ -106,7 +106,7 @@ const errLine = (msg: string): CliResult => ({ code: 1, out: "", err: `mote-agen
 /** Collapse command stderr into one quotable line (trailing newline, no blank runs). */
 const oneLine = (s: string): string => s.trim().replace(/\s*\n\s*/g, " ");
 
-/** install/uninstall both refuse to touch the machine before the node is enrolled. */
+/** Install refuses to touch the machine before the node is enrolled; uninstall deliberately does NOT (see {@link uninstallService}). */
 const NO_CONFIG = "no config found — run mote-agent enroll first";
 
 const unsupported = (action: string, platform: string): string =>
@@ -174,19 +174,25 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
 }
 
 /**
- * Remove the per-user service. Missing unit/plist is not an error: exit 0,
- * "nothing installed", and not a single command runs. Command failures on
- * teardown are reported (exit 1) but the file is still removed — a stuck
- * `disable --now` (unit loaded but broken) should not leave the definition
- * behind to haunt the next install.
+ * Remove the per-user service. Unlike install, this NEVER gates on
+ * {@link ServiceDeps.hasConfig}: deleting the config is the de-facto unenroll,
+ * and a guard here would strand an enabled unit (Restart=always) with no way
+ * to take it down. With no config we still run the full disable/remove
+ * sequence and note in stdout that there is nothing else to clean up. Missing
+ * unit/plist is not an error: exit 0, "nothing installed", and not a single
+ * command runs. Command failures on teardown are reported (exit 1) but the
+ * file is still removed — a stuck `disable --now` (unit loaded but broken)
+ * should not leave the definition behind to haunt the next install.
  */
 export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
-  if (!(await deps.hasConfig())) return errLine(NO_CONFIG);
+  // The note rides every success line when the config is gone; error paths
+  // keep their message about the actual failure.
+  const noConfigNote = (await deps.hasConfig()) ? "" : "(no agent config found — nothing else to clean up)\n";
 
   if (deps.platform === "linux") {
     const path = unitPath(deps.home);
     if (!(await deps.fileExists(path))) {
-      return { code: 0, out: `nothing installed — no systemd user unit at ${path}\n`, err: "" };
+      return { code: 0, out: `nothing installed — no systemd user unit at ${path}\n${noConfigNote}`, err: "" };
     }
     const disable = await deps.runCmd(["systemctl", "--user", "disable", "--now", SYSTEMD_UNIT_NAME]);
     const reload = await deps.runCmd(["systemctl", "--user", "daemon-reload"]);
@@ -199,13 +205,17 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
           `${oneLine(failed.err) || oneLine(failed.out) || "no output"} — the unit file was removed anyway`,
       );
     }
-    return { code: 0, out: `Removed ${path} — mote-agent is stopped and no longer starts on login.\n`, err: "" };
+    return {
+      code: 0,
+      out: `Removed ${path} — mote-agent is stopped and no longer starts on login.\n${noConfigNote}`,
+      err: "",
+    };
   }
 
   if (deps.platform === "darwin") {
     const path = plistPath(deps.home);
     if (!(await deps.fileExists(path))) {
-      return { code: 0, out: `nothing installed — no launchd plist at ${path}\n`, err: "" };
+      return { code: 0, out: `nothing installed — no launchd plist at ${path}\n${noConfigNote}`, err: "" };
     }
     const unload = await deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
     await deps.removeFile(path);
@@ -215,7 +225,11 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
           "the plist was removed anyway",
       );
     }
-    return { code: 0, out: `Removed ${path} — mote-agent is unloaded and no longer starts on login.\n`, err: "" };
+    return {
+      code: 0,
+      out: `Removed ${path} — mote-agent is unloaded and no longer starts on login.\n${noConfigNote}`,
+      err: "",
+    };
   }
 
   return errLine(unsupported("uninstall", deps.platform));

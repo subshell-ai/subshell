@@ -222,15 +222,43 @@ describe("uninstallService — linux", () => {
   });
 });
 
-describe("uninstallService — guards", () => {
-  test("missing config: exit 1 pointing at enroll, no removals, no commands", async () => {
-    const s = stub({ hasConfig: async () => false });
+describe("uninstallService — macOS (launchd agent)", () => {
+  test("stops via bootout, then removes the plist", async () => {
+    const s = stub({ platform: "darwin" });
+    s.files.set(PLIST, "<plist>old</plist>"); // something installed
+
+    const res = await uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    expect(s.calls).toEqual([["launchctl", "bootout", "gui/1000/dev.mote.agent"]]);
+    expect(s.removed).toEqual([PLIST]);
+    expect(s.files.has(PLIST)).toBe(false);
+    expect(res.out).toInclude("Removed");
+  });
+
+  test("no plist on disk: exit 0 saying nothing is installed, no commands run", async () => {
+    const s = stub({ platform: "darwin" });
     const res = await uninstallService(s.deps);
 
-    expect(res.code).toBe(1);
-    expect(res.err).toInclude("no config found — run mote-agent enroll first");
+    expect(res.code).toBe(0);
+    expect(res.out).toInclude("nothing installed");
     expect(s.calls.length).toBe(0);
     expect(s.removed.length).toBe(0);
+  });
+});
+
+describe("uninstallService — guards", () => {
+  test("deleted config does NOT gate uninstall: full disable/reload/remove still runs, exit 0, notes the missing config", async () => {
+    const s = stub({ hasConfig: async () => false });
+    s.files.set(UNIT, "[Unit]\n"); // the unit is installed; the config is gone
+
+    const res = await uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    expect(s.calls).toEqual([
+      ["systemctl", "--user", "disable", "--now", "mote-agent.service"],
+      ["systemctl", "--user", "daemon-reload"],
+    ]);
+    expect(s.removed).toEqual([UNIT]);
+    expect(res.out).toInclude("(no agent config found — nothing else to clean up)");
   });
 
   test("unsupported platform: exit 1, no removals", async () => {
