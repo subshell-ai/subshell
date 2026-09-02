@@ -12,8 +12,24 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCreateSetupKey } from "@/hooks/use-nodes";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
 import type { CreatedSetupKey } from "@/types/node";
+
+/**
+ * True when a base URL points at loopback — a remote machine running the
+ * install command would dutifully dial ITSELF, not this server (spec
+ * 2026-08-31 enroll-time loopback trap). Checked on the URL's host;
+ * an unparseable URL is treated as not-loopback (no throw in render).
+ */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "localhost" || host.startsWith("127.") || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Two-step "Add node" flow (spec 2026-08-31 §5.1/§9): a label → a single-use
@@ -35,6 +51,7 @@ export function AddNodeDialog({
   nodeCount: number;
 }) {
   const create = useCreateSetupKey();
+  const { data: publicSettings } = usePublicSettings();
   const [name, setName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   // The one-time reveal: set after a successful create, cleared on close.
@@ -77,11 +94,13 @@ export function AddNodeDialog({
   }
 
   const enrolled = created !== null && baselineCount !== null && nodeCount > baselineCount;
-  // The same origin-swap the harness install help uses; the backend serves
-  // /install.sh and accepts the key as ?setup_key= (downloads route).
-  const installCommand = created
-    ? `curl -fsSL "${window.location.origin}/install.sh?setup_key=${created.key}" | bash`
-    : "";
+  // Bake the SERVER's own address (APP_BASE_URL via /settings/public), not
+  // window.location.origin — the browser may reach the instance through a dev
+  // proxy port or a name the remote node cannot dial (spec 2026-08-31 §9.3
+  // loopback trap). The backend serves /install.sh and accepts the key as
+  // ?setup_key= (downloads route); origin is the pre-load fallback.
+  const baseUrl = publicSettings?.appBaseUrl ?? window.location.origin;
+  const installCommand = created ? `curl -fsSL "${baseUrl}/install.sh?setup_key=${created.key}" | bash` : "";
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
@@ -101,6 +120,12 @@ export function AddNodeDialog({
               </Button>
             </div>
             <CopyCommandRow text={installCommand} />
+            {isLoopbackUrl(baseUrl) && (
+              <p className="text-amber-600 text-xs dark:text-amber-400">
+                APP_BASE_URL points at loopback ({baseUrl}) — a remote node cannot dial this machine from itself;
+                replace the host with this machine's VPN/LAN address (or set APP_BASE_URL).
+              </p>
+            )}
             <p className="text-destructive text-xs">
               Single-use, expires in 24 h. This is the only time the full key is shown.
             </p>

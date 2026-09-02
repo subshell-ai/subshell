@@ -1,14 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { ErrorBanner } from "@/components/error-banner";
-import { apiFetch } from "@/lib/api";
-
-/** Public settings shape — only the fields the shell observes. */
-interface PublicSettings {
-  /** Kept for the shared cache shape; unused here */
-  allowRegistrations: boolean;
-  /** True while MOTE_EMERGENCY_PASSWORD is set (spec 2026-08-31 §6) */
-  emergencyLoginActive: boolean;
-}
+import { usePublicSettings } from "@/hooks/use-public-settings";
 
 /**
  * Non-dismissible amber alert shown to EVERY signed-in user while the
@@ -17,16 +8,12 @@ interface PublicSettings {
  * Not dismissible by design — the fix is server-side (change password,
  * clear the env var, restart).
  *
- * staleTime 30 s mirrors the current-user freshness: after the operator
- * clears the var and restarts, the banner retires on the next mount within
- * the window without any manual reload, and the endpoint is local + cheap.
+ * Reads the shared `usePublicSettings` cache (staleTime 30 s there): after
+ * the operator clears the var and restarts, the banner retires on the next
+ * mount within the window without any manual reload.
  */
 export function EmergencyLoginBanner() {
-  const { data } = useQuery({
-    queryKey: ["settings-public"],
-    queryFn: () => apiFetch<PublicSettings>("/api/settings/public"),
-    staleTime: 30_000,
-  });
+  const { data } = usePublicSettings();
   if (!data?.emergencyLoginActive) return null;
   return (
     <ErrorBanner

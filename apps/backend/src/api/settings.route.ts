@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { isAdmin } from "@/api/user-utils.js";
-import { emergencyLoginArmed } from "@/constants.js";
+import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 
@@ -15,6 +15,14 @@ const PublicSettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
   emergencyLoginActive: t.Boolean({
     description: "True while MOTE_EMERGENCY_PASSWORD is set (break-glass admin login armed; drives the warning banner)",
+  }),
+  // Not a leak: the keyless `install.sh` usage script already embeds this exact
+  // value, so it is public by construction. The Nodes dialog needs the SERVER's
+  // view of its own address (not window.location.origin) because the install
+  // command must be dialable from the remote machine, not from this browser.
+  appBaseUrl: t.String({
+    description:
+      "Instance base URL the server bakes into rendered install commands (APP_BASE_URL); may point at loopback — a remote node must dial a reachable address",
   }),
 });
 
@@ -31,7 +39,11 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     async () => {
       const repo = new SettingsRepository(db);
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow, emergencyLoginActive: emergencyLoginArmed() } as const;
+      return {
+        allowRegistrations: allow,
+        emergencyLoginActive: emergencyLoginArmed(),
+        appBaseUrl: APP_BASE_URL,
+      } as const;
     },
     {
       response: PublicSettingsSchema,
@@ -39,7 +51,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getPublicSettings",
         tags: ["settings"],
         description:
-          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state); anonymous callers get 401",
+          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state + instance base URL); anonymous callers get 401",
       },
     },
   )

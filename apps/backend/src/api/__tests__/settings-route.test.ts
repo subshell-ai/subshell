@@ -5,6 +5,7 @@ import { settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
+import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
@@ -213,5 +214,20 @@ describe("settings routes (admin cookie only)", () => {
       if (saved === undefined) delete process.env.MOTE_EMERGENCY_PASSWORD;
       else process.env.MOTE_EMERGENCY_PASSWORD = saved;
     }
+  });
+
+  it("GET /public reports appBaseUrl === APP_BASE_URL (Nodes dialog renders the install command from it)", async () => {
+    // Spec 2026-08-31 Phase 3: the dialog must bake the SERVER-side base URL,
+    // not window.location.origin — the browser may reach the instance through
+    // a name the node cannot dial. The value is already public: the keyless
+    // install.sh usage script embeds the same constant.
+    const res = await app.fetch(authedRequest("/api/settings/public", adminCookie));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      allowRegistrations: boolean;
+      emergencyLoginActive: boolean;
+      appBaseUrl: string;
+    };
+    expect(body.appBaseUrl).toBe(APP_BASE_URL);
   });
 });
