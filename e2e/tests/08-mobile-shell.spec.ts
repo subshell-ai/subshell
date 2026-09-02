@@ -102,10 +102,14 @@ test.describe("iPhone landscape (852x393)", () => {
     expect(overflow, `home overflows by ${overflow}px`).toBeLessThanOrEqual(1);
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
 
-    // The session page is the tall-traffic surface: its header, terminal and
-    // key bar must stack inside 393px with no page-level scroll.
+    // The session page is the tall-traffic surface: its header and terminal
+    // panel must stack inside 393px with no page-level scroll. f54c3ed gated
+    // the key bar to live-session terminals (`coarse && session` in
+    // routes/sessions_.$id.tsx) — the not-running panel shows no bar at all
+    // anymore, so THIS route asserts its absence; the bar's live-geometry
+    // coverage lives in spec 09 (real stub-pi session, key bytes included).
     await page.goto("/sessions/does-not-exist");
-    await expect(page.getByRole("toolbar", { name: "Terminal special keys" })).toBeInViewport();
+    await expect(page.getByRole("toolbar", { name: "Terminal special keys" })).toHaveCount(0);
     const fits = await page.evaluate(
       () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
     );
