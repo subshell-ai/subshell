@@ -18,6 +18,7 @@ import {
   isUnregisteredTicket,
   looksLikeExpoToken,
 } from "@/services/expo-push.js";
+import { isNodeOffline } from "@/services/nodes/node-registry.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -126,7 +127,11 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       logger.warn(`pruned invalid device token for user ${dead.userId}`);
     }
     if (live.length === 0) return;
-    const counts = await sessionsRepo.countsByUser(row.userId);
+    // F1: the badge count must ignore waiting rows whose node is
+    // unreachable — the blessed predicate comes from the registry (importing
+    // it from session-manager would cycle: session-manager already imports
+    // this module).
+    const counts = await sessionsRepo.countsByUser(row.userId, isNodeOffline);
     const badge = badgeCount(counts.waiting, kind, row.waitingSince);
     const messages = buildExpoMessages(
       live.map((t) => t.token),

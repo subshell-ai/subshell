@@ -27,7 +27,7 @@ import {
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import { getLive, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
+import { getLive, isNodeOffline, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
@@ -492,7 +492,7 @@ export class SessionManagerService {
   async toViews(rows: SessionTable[]): Promise<ReturnType<typeof toSessionView>[]> {
     const views: ReturnType<typeof toSessionView>[] = [];
     for (const row of rows) {
-      views.push(toSessionView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row)));
+      views.push(toSessionView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId)));
     }
     return views;
   }
@@ -506,7 +506,7 @@ export class SessionManagerService {
   async getSession(userId: string, id: string): Promise<ReturnType<typeof toSessionView> | undefined> {
     const row = await this.#sessions.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSessionView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row));
+    return toSessionView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId));
   }
 
   /**
@@ -813,7 +813,7 @@ export class SessionManagerService {
       // the socket is not absence of the process, and there is nothing to
       // launch through anyway. The backoff schedule set above re-tries on
       // the next tick; the node coming back is what unblocks the restart.
-      if (isNodeOffline(fresh)) {
+      if (isNodeOffline(fresh.nodeId)) {
         logger.debug(`session ${fresh.id}: auto-restart deferred — node "${fresh.nodeId}" has no live connection`);
         return false;
       }
@@ -1449,18 +1449,6 @@ function normalizePaneTitle(raw: string): string {
     .replace(/^[^\p{L}\p{N}]+/u, "")
     .trim()
     .slice(0, 120);
-}
-
-/**
- * Whether a row's launch node is currently unreachable (spec §5.6): an
- * AGENT row whose id has no entry in the live-connection registry. Local
- * rows answer false by definition (the control-plane host has no agent
- * socket); the check is a Map probe, deliberately NOT a DB query, so it is
- * cheap in a per-row view loop. True means "the pane may still be running
- * there" — the UI shows a stale-banner, not a dead session.
- */
-export function isNodeOffline(row: { nodeId: string }): boolean {
-  return row.nodeId !== LOCAL_NODE_ID && getLive(row.nodeId) === undefined;
 }
 
 export function toSessionView(

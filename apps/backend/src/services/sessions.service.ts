@@ -9,7 +9,7 @@ import type { SessionTable } from "@/db/types/sessions.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch } from "@/lib/node-access.js";
 import { type Access, accessAtLeast, loadSessionAccess, resolveSessionAccess } from "@/lib/session-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
-import { getLive } from "@/services/nodes/node-registry.js";
+import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSessionLogTail, SessionManagerService } from "@/services/session-manager.service.js";
@@ -305,12 +305,15 @@ export class SessionsService extends BaseService {
   /**
    * Waiting/running counts over the visible set (own + shared; all for an
    * admin) — the same sessions {@link listSessions} returns, reduced to the
-   * badge numbers for the native tab and push payloads.
+   * badge numbers for the native tab and push payloads. The blessed
+   * `isNodeOffline` predicate is passed so a waiting session behind an
+   * unreachable node does not count as waiting (F1); `running`/`total` are
+   * unaffected.
    * @param viewerId - The signed-in user whose visible set to count
    */
   async summarySessions(viewerId: string): Promise<{ total: number; running: number; waiting: number }> {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
-    return await this.repos.sessions.countsVisibleTo(viewerId, isAdmin);
+    return await this.repos.sessions.countsVisibleTo(viewerId, isAdmin, isNodeOffline);
   }
 
   /**

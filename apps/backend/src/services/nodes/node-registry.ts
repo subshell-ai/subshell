@@ -1,4 +1,5 @@
 import { NODE_CLOSE_SUPERSEDED } from "@internal/session-protocol";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NodeRpcError } from "./node-rpc.js";
 
 /**
@@ -137,6 +138,25 @@ export function attachConnection(nodeId: string, ws: NodeSocket): NodeConnection
  */
 export function getLive(nodeId: string): NodeConnection | undefined {
   return live.get(nodeId);
+}
+
+/**
+ * Whether a session's launch node is currently unreachable (spec §5.6): an
+ * AGENT node whose id has no entry in the live-connection registry. Local
+ * rows answer false by definition (the control-plane host has no agent
+ * socket); the check is a Map probe, deliberately NOT a DB query, so it is
+ * cheap in a per-row view loop. True means "the pane may still be running
+ * there" — the UI shows a stale-banner, not a dead session.
+ *
+ * The BLESSED liveness predicate — every "is this row's node reachable"
+ * decision must go through it. It lives here because it is pure over the
+ * registry below, which makes it importable by services and repositories'
+ * callers without cycles (`notify.service` → registry is clean while
+ * session-manager → notify already exists; the summarizer takes it as an
+ * injected predicate rather than importing this module).
+ */
+export function isNodeOffline(nodeId: string): boolean {
+  return nodeId !== LOCAL_NODE_ID && getLive(nodeId) === undefined;
 }
 
 /**

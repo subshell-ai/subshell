@@ -8,7 +8,7 @@ import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
-import { isNodeOffline } from "@/services/session-manager.service.js";
+import { isNodeOffline } from "@/services/nodes/node-registry.js";
 import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/services/uploads.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -82,7 +82,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/sessions" })
         // predicate, same deferral rule as the auto-restart): a dead node is
         // 409 before a single chunk goes out. Mid-stream drops land in the
         // catch below.
-        if (isNodeOffline(row)) {
+        if (isNodeOffline(row.nodeId)) {
           return status(
             409,
             apiErrorBody({

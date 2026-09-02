@@ -2,27 +2,39 @@ import { BaseRepository } from "@/db/repositories/base.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NewSession, SessionTable, SessionUpdate } from "@/db/types/sessions.db-types.js";
 
-/** The three fields {@link summarizeSessions} reads off a session row. */
-type SummarizableSession = Pick<SessionTable, "status" | "alive" | "waitingSince">;
+/** The four fields {@link summarizeSessions} reads off a session row. */
+type SummarizableSession = Pick<SessionTable, "status" | "alive" | "waitingSince" | "nodeId">;
 
 /**
  * The badge counts derived from a set of session rows: `waiting` is the
  * ratified formula (status='running' AND alive=1 AND waiting_since IS NOT
- * NULL); `running` counts alive rows only. Plain row-scan, not SQL aggregates:
- * per-user session lists are small on a local instance, and keeping the
- * predicate in one readable place beats three COUNT subqueries.
+ * NULL) MINUS rows whose launch node is unreachable (spec §5.6 — a waiting
+ * prompt behind a dead socket is nobody's badge; only `waiting` shrinks,
+ * `running` and `total` deliberately stay last-known-truth counts, the
+ * `running` liveness question is not taken up here); `running` counts alive
+ * rows only. Plain row-scan, not SQL aggregates: per-user session lists are
+ * small on a local instance, and keeping the predicate in one readable place
+ * beats three COUNT subqueries.
+ *
+ * `isNodeOffline` is INJECTED, never imported: the repository must not reach
+ * into the services layer (dependency direction). The blessed implementation
+ * is `node-registry.isNodeOffline`. The default counts as if every node were
+ * reachable — callers owning a badge surface MUST pass the predicate.
  *
  * Exported so both the owner-only {@link SessionsRepository.countsByUser} and
  * the sharing-aware visible summary reduce over the SAME formula (single source
  * of truth — they must never drift).
  */
-export function summarizeSessions(rows: SummarizableSession[]): { total: number; running: number; waiting: number } {
+export function summarizeSessions(
+  rows: SummarizableSession[],
+  isNodeOffline: (nodeId: string) => boolean = () => false,
+): { total: number; running: number; waiting: number } {
   let running = 0;
   let waiting = 0;
   for (const r of rows) {
     const alive = r.status === "running" && r.alive === 1;
     if (alive) running += 1;
-    if (alive && r.waitingSince != null) waiting += 1;
+    if (alive && r.waitingSince != null && !isNodeOffline(r.nodeId)) waiting += 1;
   }
   return { total: rows.length, running, waiting };
 }
@@ -102,34 +114,42 @@ export class SessionsRepository extends BaseRepository {
 
   /**
    * Badge/summary counts for one owner (spec §Backend diff), via
-   * {@link summarizeSessions}.
+   * {@link summarizeSessions}. Badge surfaces (push payloads) MUST pass the
+   * blessed `node-registry.isNodeOffline` so a waiting prompt behind a dead
+   * node socket does not light up the badge.
    * @param userId - Owner whose sessions are counted
+   * @param isNodeOffline - Injected liveness predicate (see {@link summarizeSessions})
    * @returns `{ total, running, waiting }`
    */
-  async countsByUser(userId: string): Promise<{ total: number; running: number; waiting: number }> {
+  async countsByUser(
+    userId: string,
+    isNodeOffline: (nodeId: string) => boolean,
+  ): Promise<{ total: number; running: number; waiting: number }> {
     const rows = await this.db
       .selectFrom("sessions")
-      .select(["status", "alive", "waitingSince"])
+      .select(["status", "alive", "waitingSince", "nodeId"])
       .where("userId", "=", userId)
       .execute();
-    return summarizeSessions(rows);
+    return summarizeSessions(rows, isNodeOffline);
   }
 
   /**
    * Badge counts over everything a viewer can SEE (own + shared; all for an
    * admin) — the same visible set {@link listVisibleTo} returns, reduced with
-   * the shared {@link summarizeSessions} formula. Selects only the three needed
-   * columns.
+   * the shared {@link summarizeSessions} formula. Badge surfaces MUST pass
+   * the blessed `node-registry.isNodeOffline` (see {@link summarizeSessions}
+   * for what the predicate does to each count).
    */
   async countsVisibleTo(
     viewerId: string,
     isAdmin: boolean,
+    isNodeOffline: (nodeId: string) => boolean,
   ): Promise<{ total: number; running: number; waiting: number }> {
     // Delegates to listVisibleTo so there is exactly ONE definition of
     // "what a viewer can see" — counts and list can never disagree about the
     // set. Per-user lists are small, so fetching full rows here is cheap and
     // worth the single-source-of-truth.
-    return summarizeSessions(await this.listVisibleTo(viewerId, isAdmin));
+    return summarizeSessions(await this.listVisibleTo(viewerId, isAdmin), isNodeOffline);
   }
 
   async update(id: string, update: SessionUpdate): Promise<SessionTable | undefined> {
