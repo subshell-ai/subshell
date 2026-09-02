@@ -150,7 +150,7 @@ export function getLive(nodeId: string): NodeConnection | undefined {
  *
  * The BLESSED liveness predicate — every "is this row's node reachable"
  * decision must go through it. It lives here because it is pure over the
- * registry below, which makes it importable by services and repositories'
+ * registry above, which makes it importable by services and repositories'
  * callers without cycles (`notify.service` → registry is clean while
  * session-manager → notify already exists; the summarizer takes it as an
  * injected predicate rather than importing this module).

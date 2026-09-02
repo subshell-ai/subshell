@@ -861,8 +861,8 @@ fixed one liveness-semantics bug; the body above stays frozen:
   sweep found the two markers that commit missed — the "Waiting for you"
   section bucket and the tab/icon-badge `waitingCount` fallback, both in
   `apps/mobile/src/lib/session-order.ts` — and gates them on `nodeOffline` the
-  same way (web accessory rule, spec §5.6), so no surface still counts an
-  unreachable row as waiting. `apps/mobile/src/lib/__tests__/session-order.test.ts`
+  same way (web accessory rule, spec §5.6).
+  `apps/mobile/src/lib/__tests__/session-order.test.ts`
   pins the sectioning and count rules.
 - **Precision fix on the hardening design §1 census parenthetical** — recorded
   here because this spec is where the census is described. Design §1 says
@@ -880,3 +880,20 @@ fixed one liveness-semantics bug; the body above stays frozen:
   whose row the watcher already forgot. The hardening design §1 "no zombie
   rows" claim holds via the sweep for that edge; via the watcher (≤4 s) for
   its stated scenario (live agent, broken tmux).
+- **Follow-up batch (same day): the last two waiting-marker surfaces closed.**
+  The mobile bullet's completion claim was false when written — two surfaces
+  still counted/advertised waiting on unreachable nodes, and this batch fixes
+  them. Backend: `summarizeSessions` takes an injected offline predicate and
+  excludes unreachable-node rows from `waiting` only (`running`/`total`
+  deliberately stay last-known-truth); the blessed `isNodeOffline` moved to
+  `apps/backend/src/services/nodes/node-registry.ts` (cycle-free home, directly
+  after its only dependency) so `notify.service` push payloads and
+  `GET /api/sessions/summary` — the primary mobile badge path — both gate
+  (commit c43d021). Web: `RowStatusBadges`
+  (`apps/frontend/src/components/session-status.tsx`) applies the §5.6
+  accessory precedence to the manager-table and session-picker rows — offline
+  replaces both the status and waiting chips with `node unreachable`, online
+  rows render bit-identically (commit 6e9797c). Only now is "no surface still
+  counts an unreachable row as waiting" true on this branch. Known adjacent
+  gap, left open: the table's elapsed/uptime columns still print last-known
+  timestamps for offline rows (arguably honest — they are labeled "last").
