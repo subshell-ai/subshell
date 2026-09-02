@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import {
   canSubmit,
@@ -109,6 +109,12 @@ async function renderForm(initial: NewSessionFormValue = emptyNewSessionForm()) 
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  // Let the initial queries (nodes, profiles) land inside act(): their
+  // results rebuild the combobox items and fire Base UI internal state syncs
+  // that would otherwise apply outside act and flood the log with warnings.
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
   return { latest: () => latest };
 }
 
@@ -210,7 +216,11 @@ describe("NewSessionForm pairing + defaults", () => {
     const restore = mockFetch([LOCAL, AGENT_OFFLINE], [profile({ nodeId: "a2" })]);
     try {
       const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
-      await new Promise((r) => setTimeout(r, 50));
+      // Settle the async queries/effects inside act() so the late state
+      // updates flush before we assert the suggestion was NOT applied.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
       expect(latest().nodeId).toBe("local");
       expect(toSessionCreateBody(latest()).nodeId).toBe("local");
     } finally {
@@ -222,7 +232,11 @@ describe("NewSessionForm pairing + defaults", () => {
     const restore = mockFetch([LOCAL, AGENT_INCOMPAT], [profile({ nodeId: "a3" })]);
     try {
       const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
-      await new Promise((r) => setTimeout(r, 50));
+      // Settle the async queries/effects inside act() so the late state
+      // updates flush before we assert the suggestion was NOT applied.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
       expect(latest().nodeId).toBe("local");
     } finally {
       restore();
