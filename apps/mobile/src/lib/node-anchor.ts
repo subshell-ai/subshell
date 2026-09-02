@@ -31,9 +31,13 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
 }
 
 /**
- * Pinned-profile re-anchor (spec §6.6, UI side) — the mobile mirror of the
- * web `new-session-form.tsx` decision of the same shape; change one, change
- * both (same posture as the label/selectability mirroring in `(tabs)/new.tsx`).
+ * Pinned-profile re-anchor (spec §6.6, UI side) — the shapes now DELIBERATELY
+ * differ from the web: web renamed this decision to `suggestDecision` and
+ * earned-gates it (the suggestion owns the pick only when the pinned row is
+ * visible, online, AND compatible), while mobile keeps the old keep-offline-pin
+ * anchor semantics here (spec 2026-09-02 pairing non-goal — a mobile pass is
+ * follow-up). Do NOT blind-sync with the web; unlike the label/selectability
+ * mirroring in `(tabs)/new.tsx`.
  *
  * When the selected profile pins a launch node and the user has NOT picked a
  * node since the profile change, the picker holds the pinned node — shown as

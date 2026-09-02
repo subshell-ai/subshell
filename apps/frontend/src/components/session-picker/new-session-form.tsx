@@ -54,9 +54,10 @@ function isSelectable(n: Node): boolean {
 
 /**
  * The node the picker should hold once the list has loaded: keep the current
- * pick while it stays selectable; else fall to "local" only if exactly one
- * option remains (auto-pick — not a decision worth forcing); else "" — an
- * explicit choice is due (submit stays blocked until it happens).
+ * pick while it stays selectable; else auto-pick the SOLE remaining selectable
+ * option (typically an agent when Local is gone — not a decision worth
+ * forcing); else "" — an explicit choice is due (submit stays blocked until
+ * it happens).
  * Pure so the fallback matrix is testable without opening a dropdown.
  * Mirrored in mobile `src/lib/node-anchor.ts`.
  */

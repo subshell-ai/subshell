@@ -50,14 +50,20 @@ export default function NewSession() {
     if (!profileId && profiles.data?.length) setProfileId(profiles.data[0].id);
   }, [profiles.data, profileId]);
 
-  // Pinned-profile re-anchor (mirror of the web `anchorDecision`): the
-  // selected profile's pin holds the node pick until the user overrides it
-  // via the chip row; an anchor that stops being earned falls back to Local.
-  // A pin to `local` is the default anyway — treated as no pin. Then the web
-  // `pickNodeDefault` re-home: a pick whose node vanished (e.g. an admin
-  // turned off Local launching) or went unselectable is moved — auto-picked
-  // when exactly one option remains, else cleared to "" (Start blocks until
-  // the user picks). One effect composes both, anchor first (web parity).
+  // Pinned-profile re-anchor — mobile DELIBERATELY retains the old
+  // keep-offline-pin anchor semantics (a spec 2026-09-02 pairing non-goal;
+  // a mobile pass is follow-up): the selected profile's pin holds the node
+  // pick until the user overrides it via the chip row, offline row included,
+  // so a pinned-offline launch 409s exactly where the picker points. The web
+  // has moved on: its `anchorDecision` is now `suggestDecision` and only
+  // owns the pick when EARNED (pinned row visible, online, AND compatible) —
+  // the divergence is intentional, do not blind-sync. A pin to `local` is
+  // the default anyway — treated as no pin. Then the `pickNodeDefault`
+  // re-home (still the same shape on both sides): a pick whose node vanished
+  // (e.g. an admin turned off Local launching) or went unselectable is moved
+  // — auto-picked when exactly one selectable option remains, else cleared
+  // to "" (Start blocks until the user picks). One effect composes both,
+  // anchor first.
   const pinnedNodeId = (profiles.data ?? []).find((p) => p.id === profileId)?.nodeId ?? null;
   const pinRow =
     pinnedNodeId && pinnedNodeId !== "local" ? ((nodes.data ?? []).find((n) => n.id === pinnedNodeId) ?? null) : null;
