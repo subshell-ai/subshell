@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "@dotenvx/dotenvx";
+import { defaultSessionDataDir as sharedDefaultSessionDataDir } from "@internal/session-protocol";
 import { default as envVar } from "env-var";
 
 // A missing .env is not an error: deployments (Docker, systemd, CI) inject
@@ -122,12 +123,13 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
 
 /**
  * The database file's directory, or `./data` when the path is not file-backed
- * (an in-memory database or a SQLite URI has no meaningful dirname).
+ * (an in-memory database or a SQLite URI has no meaningful dirname). The rule
+ * itself lives in `@internal/session-protocol` (paths.ts) because the agent's
+ * release pipeline must derive the SAME node-artifacts default — the ladder
+ * is a cross-process contract, not a backend secret.
  */
 function defaultSessionDataDir(): string {
-  const raw = env.get("DATABASE_PATH").default("./data/mote.db").asString();
-  if (raw.startsWith("file:") || raw.includes(":memory:") || !raw.includes("/")) return "./data";
-  return raw.slice(0, Math.max(0, raw.lastIndexOf("/"))) || ".";
+  return sharedDefaultSessionDataDir({ DATABASE_PATH: process.env.DATABASE_PATH });
 }
 
 /**

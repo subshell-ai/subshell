@@ -50,4 +50,5 @@ export {
   type VerifyOutcome,
   verifyCommand,
 } from "./node-signing.js";
+export { defaultSessionDataDir, type NodeArtifactsEnv, resolveNodeArtifactsDir } from "./paths.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
