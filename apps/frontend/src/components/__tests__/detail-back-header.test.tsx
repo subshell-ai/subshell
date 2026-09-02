@@ -51,13 +51,17 @@ describe("DetailBackHeader", () => {
   // NOTE: no relying on the ambient matchMedia — happy-dom's own answers
   // width queries against a 1024px window (i.e. "wide"), so every test
   // forces its viewport explicitly.
-  it("narrow: two rows, title + subtitle on row 2", async () => {
+  it("narrow: chrome row, then the title with the subtitle stacked UNDER it", async () => {
     const restore = forceViewport(false);
     try {
       const header = await renderHeader({ subtitle: "/home/theo/projects/mote" });
       expect(header?.className).toContain("flex-col");
-      expect(screen.getByText("Alpha")).toBeDefined();
-      expect(screen.getByText("/home/theo/projects/mote")).toBeDefined();
+      const title = screen.getByText("Alpha");
+      const subtitle = screen.getByText("/home/theo/projects/mote");
+      // Same stacked container: the subtitle's parent is a flex-col that
+      // also holds the title — never a sibling on the title's line.
+      expect(subtitle.parentElement).toBe(title.parentElement);
+      expect(subtitle.parentElement?.className).toContain("flex-col");
     } finally {
       restore();
     }

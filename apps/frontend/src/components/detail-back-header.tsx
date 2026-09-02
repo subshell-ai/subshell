@@ -18,8 +18,8 @@ import { useIsWide } from "@/hooks/use-is-wide";
  * Below the tiling breakpoint (the same `useIsWide()` signal MobileNav keys
  * off) a single flex row cannot hold chrome + title + subtitle + badges +
  * menu — on a phone the title truncated to nothing. The bar reflows to two
- * rows: row 1 is chrome and actions, row 2 the title (small, bold) and
- * subtitle (xs, muted), each with room to read.
+ * rows: row 1 is chrome and actions, then the title (small, bold) with the
+ * subtitle (xs, muted) stacked under it — each gets the full width to read.
  */
 export function DetailBackHeader({
   to,
@@ -70,7 +70,9 @@ export function DetailBackHeader({
         <div className="flex-1" />
         {actions}
       </div>
-      <div className="flex min-w-0 items-baseline gap-2">
+      {/* Stacked, not sharing a line: even alone, title + path do not fit a
+          phone width readably — the path gets its own line under the title. */}
+      <div className="flex min-w-0 flex-col">
         <div className="min-w-0 shrink truncate font-medium text-sm">{title}</div>
         {subtitle ? <div className="min-w-0 truncate text-muted-foreground text-xs">{subtitle}</div> : null}
       </div>

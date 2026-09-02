@@ -43,10 +43,11 @@ inputs neither cap length nor explain a rejected save before the round-trip.
   title (muted, `text-xs`, truncating) — replacing the `hidden sm:inline`
   span the session route spells out today. The path becomes visible at every
   size.
-- **Narrow:** the header stacks into two rows. Row 1: `MobileNav`, back
-  button, then badges/actions right-aligned. Row 2: title (`truncate`,
-  `min-w-0`, `text-sm font-medium`) followed by the subtitle (`text-xs`,
-  muted, one line, `truncate`, `min-w-0`).
+- **Narrow:** the header stacks. Row 1: `MobileNav`, back button, then
+  badges/actions right-aligned. Then the title (`truncate`, `min-w-0`,
+  `text-sm font-medium`) with the subtitle (`text-xs`, muted, one line,
+  `truncate`, `min-w-0`) on its **own line under the title** — even alone,
+  title + path don't fit a phone width readably.
 
 Callers:
 
