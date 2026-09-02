@@ -106,8 +106,7 @@ test("an empty wsUrl in the 201 is ignored — config carries no nodeWsUrl (daem
 // message verbatim — it stays the answer for SETUP_KEY_INVALID and for any 401
 // shape the agent cannot classify (old servers send a bodyless or message-only
 // 401), so the CLI never gets quieter than it used to be.
-const GENERIC_401 =
-  "setup key is invalid, expired, or already used — mint a fresh one under Settings → Node setup keys";
+const GENERIC_401 = "setup key is invalid, expired, or already used — mint a fresh one on the Nodes page";
 
 /** Structured 401 body as the real route sends it post-Task-17 (ApiErrorResponse shape). */
 function setupKey401(code: string): Response {

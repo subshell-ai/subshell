@@ -148,9 +148,7 @@ function setupKeyFailure(body: Record<string, unknown> | null): Error {
   if (code === BackendErrorCodes.SETUP_KEY_EXPIRED) {
     return new Error("this setup key expired (they are valid 24 hours) — create a new one on the Nodes page");
   }
-  return new Error(
-    "setup key is invalid, expired, or already used — mint a fresh one under Settings → Node setup keys",
-  );
+  return new Error("setup key is invalid, expired, or already used — mint a fresh one on the Nodes page");
 }
 
 /** Turns a non-201 into the actionable message the operator needs (spec §5.2 error map). */
