@@ -32,6 +32,13 @@ backend, `NODE_ENV=development`, `MOTE_TEST_MODE=false`) with:
 The backend serves the frontend bundle, so **one origin = the whole app**; all
 specs use `baseURL` from `ports.ts`.
 
+Spec `12` extends the stack itself: it spawns the **real `mote-agent` from
+source** (`bun apps/agent/src/main.ts enroll|run` via `stub/agent.ts`, with
+`MOTE_AGENT_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
+daemonised tmux servers are quarantined). No hand-written fake agent exists —
+the master plan's `mote-agent-fake.ts` was superseded before it was written
+(plan deviation #1, recorded in the nodes spec's Errata).
+
 ## Spec-ordering contract (workers: 1)
 
 `playwright.config.ts` forces `workers: 1` and files run in alphabetical order
@@ -40,11 +47,13 @@ against ONE shared database:
 - `00-smoke` proves the pristine stack.
 - `01-setup-wizard` creates the admin (`.test` email TLD — better-auth rejects
   digit TLDs like `.e2e`) and writes `.auth/admin.json`.
-- `02`–`07` load that storage state via `ADMIN_STATE` from `helpers.ts`.
+- The specs after it load that storage state via `ADMIN_STATE` from
+  `helpers.ts` (`04`–`12`; `02` deliberately stays anonymous — it pins the
+  401 boundary itself).
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and
-both the writer (spec `01`) and the readers (`02`–`07`) use that same constant —
+both the writer (spec `01`) and the readers (`04`–`12`) use that same constant —
 so the CWD the run is launched from never matters.
 
 ## What the terminal assertions may use

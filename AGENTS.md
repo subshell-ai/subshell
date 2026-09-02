@@ -4,7 +4,7 @@ This document describes how this project works and how to perform common operati
 
 ## Project Overview
 
-This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, and shared packages: a type-safe Eden Treaty client SDK, the session protocol, agent harness plugins, and backend error handling.
+This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, a node agent daemon (`mote-agent`), and shared packages: a type-safe Eden Treaty client SDK, the session protocol, agent harness plugins, a shared `mote mcp` server, and backend error handling.
 
 ### Directory Structure
 
@@ -12,7 +12,9 @@ This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration.
 mote/
 ├── apps/
 │   ├── backend/                    # ElysiaJS API server; also serves the built SPA in prod
-│   └── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
+│   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
+│   ├── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
+│   └── agent/                      # mote-agent — node daemon; enrolls and runs signed commands (see apps/agent/AGENTS.md)
 ├── packages/
 │   ├── tsconfig/                   # Shared TypeScript configuration
 │   ├── backend-errors/             # Error emission and handling for the backend
@@ -139,9 +141,11 @@ systemctl --user restart mote.service     # 3. the backend serves the new files
 
 - `release:agent` runs `apps/agent`'s `compile:release` (`src/scripts/release.ts`):
   the four served triples (`linux|darwin × x64|arm64`) plus a host build with
-  `--bytecode`, digested and published as `mote-agent-<triple>` + a fresh
-  `.sha256` sidecar via temp-file + `rename()` (the atomic swap the downloads
-  route's mtime-keyed cache requires).
+  `--bytecode` — the host build wins its own triple, so a hosted-arch machine
+  publishes 4 artifacts and a foreign host publishes 5 — each digested and
+  published as `mote-agent-<triple>` + a fresh `.sha256` sidecar via temp-file
+  + `rename()` (the atomic swap the downloads route's mtime-keyed cache
+  requires). See `apps/agent/AGENTS.md` for the app itself.
 - Publish destination: `MOTE_NODE_ARTIFACTS_DIR`, else
   `<SESSION_DATA_DIR>/node-artifacts` — the same default the backend resolves.
 - Cross builds download their target's bun runtime on first use and deliberately
@@ -158,6 +162,7 @@ The Turbo pipeline ensures correct build order:
 2. `@internal/backend` depends on backend-errors, session-protocol, harnesses, and mcp-core
 3. `@internal/backend-client` depends on backend (imports the `App` type for Eden Treaty)
 4. `apps/frontend` depends on backend-client and session-protocol
+5. `@internal/agent` (`apps/agent`) depends on backend-errors, session-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:agent` (and the reverse hazard: the build wipes `apps/agent/dist/mote-agent`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 

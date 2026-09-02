@@ -38,8 +38,10 @@ imports break `bun build --compile`. File name and map key must match.
 ## Architecture
 
 Routes are flat resource modules in `src/api/` (`files.route.ts`,
-`sessions.route.ts`, …), aggregated in `src/api/routes.ts` (the sole
-exception is `auth-rate-limit.route.ts`, mounted directly in `server.ts`).
+`sessions.route.ts`, …), aggregated in `src/api/routes.ts` (the off-the-tree
+precedents are `auth-rate-limit.route.ts`, for route precedence, and the
+root-mounted `install-script.ts`, because `/install.sh` is a dotted top-level
+path the static SPA plugin would 404 — both mount directly in `server.ts`).
 Most sit behind `src/api/auth-guard.ts`, which derives `user` (session cookie
 or bearer key), provides `requireAdmin` (bearer keys are rejected on admin
 surfaces), and defines the `status`-carrying error classes Elysia maps to HTTP
@@ -48,7 +50,7 @@ migrations, then listens).
 
 ```
 src/
-├── api/            # Routes: flat *.route.ts + per-resource dirs (sessions/, workspaces/, channels/) + auth-guard.ts + routes.ts
+├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the mote-agent binaries) + per-resource dirs (sessions/, workspaces/, channels/, nodes/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
@@ -61,6 +63,15 @@ src/
 ├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; agent-node rows relay through remote-session-ws.ts with the browser contract byte-identical to the local path)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
+
+The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
+(`src/api/downloads.route.ts`) serves the prebuilt `mote-agent` binaries from
+`NODE_ARTIFACTS_DIR` (`MOTE_NODE_ARTIFACTS_DIR`, default
+`<SESSION_DATA_DIR>/node-artifacts` — populated by `bun run release:agent`,
+see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous;
+and `services/nodes/control-keys.ts` holds the command-signing keypair at
+`<SESSION_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
+every enrolled node.
 
 Cross-session comms (`mote mcp`) is registered per harness by the plugin
 itself: `services/mcp-launch.ts:registerSessionMcp` asks the plugin for its
@@ -143,7 +154,9 @@ in the schema but only populated once request-scoped logging attaches it.
 temp-file database** (`$TMPDIR/mote-test-<pid>-<uuid>.db`, unlinked on exit —
 one path string per process, so the app's Kysely connection and better-auth's
 handle share one DB, and concurrent `bun test` invocations cannot contend)
-and a throwaway log directory. All test files within one invocation share
+and a throwaway log directory. `NODE_ARTIFACTS_DIR` derives from that temp
+data dir under the test env, which is how the download-route tests write
+fixtures straight in. All test files within one invocation share
 that DB, so suites must not assume it starts empty. Tests never touch
 `data/`. (It used to be the URI string `file::memory:?cache=shared`, but
 Bun treats URI strings as file names — every suite was sharing one literal

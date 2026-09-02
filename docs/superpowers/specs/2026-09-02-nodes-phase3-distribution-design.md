@@ -199,3 +199,19 @@ the linux-x64 artifact + matching sha).
 - Signing-key rotation flow, offline>N-days marking, semver-floor launch
   refusal (spec §12 open questions — unchanged).
 - Displaying digests in the UI (§3 ruling).
+
+## Deviation (execution, 2026-09-02)
+
+- **§4's fake agent was never written.** Plan deviation #1 superseded it:
+  `e2e/tests/12-nodes.spec.ts` spawns the REAL agent from source
+  (`bun apps/agent/src/main.ts enroll|run`, `MOTE_AGENT_HOME` at a temp dir)
+  via `e2e/stub/agent.ts` — the same "no compiled binary required" property,
+  zero drift, real crypto. Recorded in the parent spec's
+  "Errata (implementation, 2026-08-31)". The spec-07 story gained a
+  connect-time inventory push along the way (plan tasks T8b/T8c; also an
+  erratum bullet) — without it a fresh node was ONLINE yet 409'd every launch.
+- Two statements here were already stale at writing, corrected by note rather
+  than by prose rewrite: §1's "Builds five artifacts" is FOUR on a machine
+  whose triple is served (the host build wins its own triple — `buildTargets()`
+  in `src/scripts/release.ts`), and §9's "Mobile node picker (stays deferred)"
+  shipped in Phase 2 (`apps/mobile/app/(tabs)/new.tsx` + `src/lib/node-anchor.ts`).

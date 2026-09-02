@@ -32,6 +32,14 @@ src/
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
 
+The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
+`components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
+Add-node dialog renders the install one-liner from `GET /api/settings/public →
+appBaseUrl` — NOT `window.location.origin` (fallback only while settings load) —
+so the command always names the same SERVER the backend bakes into the served
+`/install.sh`; a loopback `appBaseUrl` renders the amber "remote node cannot
+dial this machine" hint.
+
 ## Talking to the backend
 
 All backend traffic goes through shared helpers; the only raw `fetch` calls in

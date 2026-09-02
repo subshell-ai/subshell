@@ -122,6 +122,14 @@ shares and session shares are two independent axes:
   when the `local` node row itself is created, never to "repair" a deliberate
   removal. The row then vanishes from non-admin views like any invisible node —
   no separate flag exists to drift out of sync with it.
+- **Agent artifacts are never anonymous.** Prebuilt `mote-agent` binaries and
+  their `.sha256` digests (`GET /api/downloads/node/*`) require a signed-in
+  session cookie OR a valid unconsumed setup key; `GET /install.sh` renders a
+  usage script for an invalid/absent key (it is never a binary oracle), and the
+  rendered script digest-verifies the download before its first `chmod +x`/exec.
+  Public settings now carries `appBaseUrl` so the Nodes dialog can show the
+  exact URL the server will bake — the enroll-time loopback trap above is
+  unchanged by that visibility.
 - Trusted-network posture is **unchanged**: node→control traffic is expected to
   ride the same VPN/Tailscale; `wss://` termination is the operator's
   deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-

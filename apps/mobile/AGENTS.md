@@ -139,6 +139,12 @@ Same rule as the frontend: route files stay thin, data logic goes in `hooks/`,
 shared helpers in `lib/`, tests co-located in `__tests__/`. No dynamic imports
 anywhere in this repo.
 
+The launch-node picker (`(tabs)/new.tsx` + `src/hooks/use-nodes.ts`, with the
+pinned-profile re-anchor decision in `src/lib/node-anchor.ts`) is the mobile
+mirror of the web `new-session-form.tsx` of the same shape — change one, change
+both. On the wire `local` is OMITTED from the create body (the server default),
+keeping single-machine payloads byte-identical to pre-nodes ones.
+
 ## Verifying on Android
 
 **Use the `*_34` AVDs: `mote_tablet34` (1280×800dp — the only place the wide

@@ -14,6 +14,7 @@ when it and the specs disagree, this one is authoritative for behavior.
 - [6. Component map](#6-component-map)
 - [7. Invariants](#7-invariants)
 - [8. Extension points](#8-extension-points)
+- [9. Nodes (remote execution hosts)](#9-nodes-remote-execution-hosts)
 
 ---
 
@@ -371,3 +372,73 @@ two-process e2e in `src/__tests__/e2e-cross-session.test.ts`):
   reports what happened — verify before trusting it); the post bus is
   in-process only, so a future multi-process deployment needs a shared wake
   channel; the E2EE boundary says nothing about metadata.
+
+## 9. Nodes (remote execution hosts)
+
+A node is another machine that runs harnesses on the control plane's behalf
+([spec](superpowers/specs/2026-08-31-nodes-design.md)). The daemon on it is
+`mote-agent` (`apps/agent`, see
+[`apps/agent/AGENTS.md`](../apps/agent/AGENTS.md)); the control-plane side is
+`apps/backend/src/services/nodes/` + `api/nodes/`.
+
+**Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
+`node_harnesses` (migration 0017). REST: setup keys mint single-use `nsk_…`
+enrollment credentials; `POST /api/nodes/enroll` consumes one and returns the
+node's long-lived bearer key exactly once; shares follow the session model
+(any share grants launch, `edit` adds node config); per-node harness enablement
+and Re-check live beside it. A node key can do **nothing on REST** — the auth
+guard rejects `kind: "node"` keys outright (spec §5.5); its whole blast radius
+is impersonating that node on `/ws/node`.
+
+**The wire.** Commands flow control-plane → agent as JWS-signed envelopes
+(`packages/session-protocol/src/node-signing.ts`; the signing keypair is
+generated once at `<SESSION_DATA_DIR>/node-signing.json`, mode 0600,
+`services/nodes/control-keys.ts`). Signing proves authenticity/freshness/target
+(`iss`/`aud`/`exp`/`jti` + a per-connection `seq` hint) — not confidentiality
+(that is WSS/operator TLS). Events flow back **unsigned**: the node key on the
+socket is the authentication. The agent verifies every command envelope before
+executing anything; the trust boundary this creates is documented in
+[`.claude/rules/security-context.md`](../.claude/rules/security-context.md).
+
+**The seam.** `NodeLauncher` (`services/nodes/node-launcher.ts`) is the only
+local-vs-remote branch point: `LocalLauncher` wraps today's tmux/fs calls,
+`RemoteLauncher` implements every method as a signed `sendCommand` over the
+node's live socket (`node-rpc.ts` + `node-registry.ts`, newest-socket-wins).
+Two load-bearing invariants: per-node dispatch stays **serialized in call
+order** (`conn.sendChain` — a slow `launch` can never interleave with a
+`write_file`), and the browser `/ws` contract is **byte-identical** for remote
+sessions — `ws/remote-session-ws.ts` relays replay/resize/input over the node
+socket so xterm.js cannot tell a remote pane from a local one.
+
+**Offline semantics** (spec §5.6): absence of a socket ≠ absence of the process.
+Launching onto an offline node 409s (`NODE_OFFLINE`); the reconcile sweep
+**skips** agent rows whose node is offline; session views carry `nodeOffline`
+so the UI says "node unreachable", never "crashed". The agent's connect-time
+`sessions_report` re-projects panes that survived an agent restart so the
+control plane heals its rows.
+
+**Distribution.** Prebuilt `mote-agent` binaries live in `NODE_ARTIFACTS_DIR`
+(`MOTE_NODE_ARTIFACTS_DIR`, default `<SESSION_DATA_DIR>/node-artifacts`) and
+are published by `bun run release:agent` from the repo root
+(`apps/agent/src/scripts/release.ts` — cross targets + bytecode host build,
+sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the dance is in
+root `AGENTS.md`). `GET /api/downloads/node/*` gates on a session cookie OR a
+valid unconsumed setup key (`peekValid` — consumption-free) and refuses
+anonymous; the root-mounted `GET /install.sh` (`api/install-script.ts`) renders
+the per-instance installer for a valid key and a usage script otherwise.
+The script downloads, **digest-verifies before chmod+exec**, enrolls, and can
+relocate install + state via the `MOTE_DATA_DIR` env knob (default: binary in
+the CWD, agent-default data dir). The Add-node dialog bakes the command from
+`GET /api/settings/public → appBaseUrl` so the rendered URL matches what the
+script embeds — and warns when that URL is loopback (a remote node would dial
+the wrong machine).
+
+**Background service.** `mote-agent service install|uninstall`
+(`apps/agent/src/service.ts`) writes a systemd **user** unit or a launchd
+agent (`dev.mote.agent`), self-referencing the running executable (compiled
+binary or `bun <entry>` in dev); on Linux the post-install hint is
+`loginctl enable-linger` to survive logout. Harness inventory is pushed by the
+agent at connect and every 5 min (`daemon.ts` `INVENTORY_PERIOD_MS`, plus the
+on-demand `inventory` command) — the launch gate demands a fresh snapshot
+reporting the harness installed, so an un-inventoried node cannot silently
+fail launches.

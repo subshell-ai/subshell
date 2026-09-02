@@ -776,3 +776,33 @@ body above stays legible as the original design:
   liveness sweep and probing `pane_dead_status` only for the panes that
   vanished. Emission semantics are unchanged (exactly-once per registration,
   within one tick, null exit code for signal deaths / unreachable server).
+
+- **§8 the e2e "fake agent" never shipped — the real agent runs the story
+  instead** (phase 3, plan deviation #1). The master plan's phase-3 item was a
+  hand-written `e2e/stub/mote-agent-fake.ts` speaking the protocol; execution
+  replaced it with spawning the REAL agent from source
+  (`bun apps/agent/src/main.ts enroll|run` via `e2e/stub/agent.ts`,
+  `MOTE_AGENT_HOME` at a temp dir) into `e2e/tests/12-nodes.spec.ts`. Same
+  property the fake existed for — no compiled binary as an e2e prerequisite —
+  with zero drift and real crypto. No stub-protocol script exists in-tree.
+
+- **§8 the install script's `--data-dir` shape is a `MOTE_DATA_DIR` env knob**
+  (phase 3, plan deviation #3). `curl … | bash` has no argv, so the plan's
+  "`--data-dir` flag" renders as `MOTE_DATA_DIR=… curl … | bash`: when set, the
+  binary installs to `$MOTE_DATA_DIR/mote-agent` (dirs created 0700) and
+  `enroll` gets `--data-dir "$MOTE_DATA_DIR"`; when unset the install stays
+  exactly the historical CWD install with the agent's own default data dir
+  (an early shape defaulted `DATA_DIR=$PWD` and thus relocated state for a
+  stray `curl | bash` from $HOME — fixed before close).
+
+- **§7 the "every 5 min" inventory leg and a connect-time first push both
+  landed late, additively** (phase 3, P3-T8b/T8c). Through phase 2 the agent
+  only ANSWERED the `inventory` command (on `ready`, on Re-check), while the
+  create-time launch gate is strict — fresh snapshot, harness `installed` — so
+  a freshly enrolled node was ONLINE yet 409'd every launch until a human hit
+  Re-check. The daemon now PUSHES its first inventory per connection, chained
+  after the `sessions_report` census (order is load-bearing: the backend
+  reconcile applies the report's exits first), and every
+  `INVENTORY_PERIOD_MS` (300 s) after that (`apps/agent/src/daemon.ts`). The
+  backend additionally PULLS on `ready` as before; pushes need no command
+  correlation and the two are idempotent.
