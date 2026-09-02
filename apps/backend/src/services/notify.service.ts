@@ -52,12 +52,14 @@ export function buildNotificationPayload(row: { id: string; name: string }, kind
  * Minimal seam over web-push so tests inject a fake.
  *
  * CONTRACT — subscription pruning relies on HOW this fails: the sender must
- * REJECT with an error carrying a numeric `statusCode` of 404 or 410 for a
- * dead endpoint (that is exactly what `web-push` does); `notifySession`
- * deletes the subscription row on those codes. A sender that instead
- * RESOLVES with `{ statusCode: 404|410 }` does NOT prune — the row is kept
- * as if the send had succeeded. Any other outcome (rejection with another
- * code, or a plain success) keeps the row: transient by contract.
+ * REJECT with an error carrying a numeric `statusCode` of 403, 404 or 410
+ * for a permanently-unusable endpoint (404/410 = gone; 403 = the gateway
+ * rejects our VAPID JWT for this binding — Apple's BadJwtToken after a
+ * server key rotation; that is exactly what `web-push` does);
+ * `notifySession` deletes the subscription row on those codes. A sender that
+ * instead RESOLVES with `{ statusCode: ... }` does NOT prune — the row is
+ * kept as if the send had succeeded. Any other outcome (rejection with
+ * another code, or a plain success) keeps the row: transient by contract.
  */
 export type PushSender = (
   sub: { endpoint: string; p256dh: string; auth: string },

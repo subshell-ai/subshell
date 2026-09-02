@@ -160,6 +160,10 @@ describe("enablePush", () => {
     expect(await enablePush()).toBe("blocked");
     expect(subscribeCalls).toHaveLength(0);
     expect(fetchLog.some((c) => c.path.endsWith("/subscribe"))).toBe(false);
+    // Exact-path guard: the rebind teardown must not run on a DENIED prompt,
+    // and endsWith("/subscribe") cannot catch it — ".../unSUBSCRIBE" does not
+    // end with that string.
+    expect(fetchLog.some((c) => c.path === "/api/notifications/unsubscribe")).toBe(false);
   });
 
   it("returns 'unconfigured' before prompting when the instance has no VAPID key", async () => {
