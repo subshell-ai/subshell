@@ -53,6 +53,15 @@ import { AGENT_VERSION } from "./version.js";
 /** Steady-state heartbeat period (spec §5.3). */
 export const HEARTBEAT_MS = 15_000;
 
+/**
+ * Periodic `inventory` push period — the "every 5 min" leg of spec §7
+ * ("Inventory every 5 min + on demand"; P3-T8c shipped what T8b's
+ * connect-time beat left open). The launch gate's snapshot TTL is ~10 min,
+ * so without this leg a long-lived healthy node 409'd every new launch once
+ * its connect-time snapshot aged out.
+ */
+export const INVENTORY_PERIOD_MS = 300_000;
+
 /** Cap for the jti→result idempotence cache (FIFO; defense-in-depth over the jti LRU). */
 const IDEMPOTENCE_CAP = 256;
 
@@ -95,6 +104,8 @@ export interface DaemonDeps {
   WebSocketImpl?: WsConstructor;
   /** Heartbeat period, ms (default {@link HEARTBEAT_MS}). */
   heartbeatMs?: number;
+  /** Periodic inventory push period, ms (default {@link INVENTORY_PERIOD_MS}). */
+  inventoryMs?: number;
   /**
    * tmux runner for the command executors (default `new TmuxRunner()`).
    * @internal test seam — production never passes one.
@@ -203,8 +214,9 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
 }
 
 /**
- * The reconnect loop: connect → `ready` + heartbeat → verify-and-execute signed
- * commands → backoff-and-retry on any non-terminal close. Terminal closes
+ * The reconnect loop: connect → `ready` + heartbeat + periodic inventory
+ * (spec §7) → verify-and-execute signed commands → backoff-and-retry on any
+ * non-terminal close. Terminal closes
  * (4409 superseded, 4406 update-required) exit the process with code 1 through
  * the injected `exit` (spec §5.3/F); SIGINT/SIGTERM exit 0 — closing the socket cleanly
  * (1000) when one is attached, and aborting the backoff sleep within 250 ms when one is
@@ -223,6 +235,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const exit = deps.exit ?? ((code: number): never => process.exit(code));
   const WebSocketImpl = deps.WebSocketImpl ?? (globalThis.WebSocket as unknown as WsConstructor);
   const heartbeatMs = deps.heartbeatMs ?? HEARTBEAT_MS;
+  const inventoryMs = deps.inventoryMs ?? INVENTORY_PERIOD_MS;
   const nowMs = deps.now ?? ((): number => Date.now());
   const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
@@ -448,11 +461,13 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       socket = ws;
       currentWs = ws; // the ctx.ws seam routes executor events here while this connection lives
       let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let inventory: ReturnType<typeof setInterval> | undefined;
       let settled = false;
       const finish = (close: WsClose): void => {
         if (settled) return;
         settled = true;
         if (heartbeat !== undefined) clearInterval(heartbeat);
+        if (inventory !== undefined) clearInterval(inventory);
         if (socket === ws) socket = undefined;
         if (currentWs === ws) currentWs = undefined;
         // Tails push into the socket that just died — stop every pump before
@@ -494,6 +509,23 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
           send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
         }, heartbeatMs);
+        // Periodic `inventory` push — the "every 5 min" leg of spec §7
+        // (P3-T8c; the connect push above is the "+ on demand"-adjacent first
+        // beat). Same builder, same never-fatal posture. The timer's lifecycle
+        // mirrors the heartbeat's EXACTLY — armed here on open, cleared in
+        // finish() — so one push loop per connection at most, and a reconnect
+        // re-arms freshness rather than stacking loops.
+        inventory = setInterval(() => {
+          // TOTAL per tick (the exit-watcher posture, commands/report.ts): a
+          // rejected scan must never become an unhandled rejection, and a
+          // surprise throw must never kill the loop — every failure is log-only.
+          void buildInventoryEvent(nowMs())
+            .then((inv) => send(ws, inv))
+            .catch((err: unknown) =>
+              log(`periodic inventory push failed: ${err instanceof Error ? err.message : String(err)}`),
+            );
+        }, inventoryMs);
+        inventory.unref?.(); // a background push must never hold the daemon (or a test process) open
       });
       ws.addEventListener("message", (ev) => {
         void onFrame(ws, ev.data).catch((err: unknown) => log(`frame handling error: ${String(err)}`));

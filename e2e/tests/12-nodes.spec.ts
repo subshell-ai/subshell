@@ -196,19 +196,22 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     agent = await startAgent({ home, dataDir, tmuxBase, setupKey, name: nodeName });
 
     // `ready` on the node socket flips the row online — poll the registry.
+    // The row id is captured on EVERY iteration, not only on success: if the
+    // online gate below fails, `finally` still has the id and can delete the
+    // row (the no-node-row-leaves promise of the section header).
     let row: NodeRow | undefined;
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const res = await request.get("/api/nodes");
       expect(res.ok(), await res.text()).toBe(true);
       row = ((await res.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.name === nodeName);
+      if (row) nodeId = row.id;
       if (row?.status === "online") break;
       await new Promise((r) => setTimeout(r, 500));
     }
     if (row?.status !== "online") {
       throw new Error(`node "${nodeName}" never came online — agent log tail:\n${agent.logTail()}`);
     }
-    nodeId = row.id;
 
     // P3-T8b: the agent PUSHES its first inventory after `ready` — no manual
     // Re-check POST here any more. Wait for the snapshot to land on the row,

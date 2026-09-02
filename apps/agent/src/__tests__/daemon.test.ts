@@ -16,7 +16,7 @@ import {
 import { run as runCli } from "../cli.js";
 import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";
-import { type DaemonDeps, probeOnline, runDaemon, type WsConstructor, wsUrlFor } from "../daemon.js";
+import { type DaemonDeps, probeOnline, runDaemon, type WsConstructor, type WsLike, wsUrlFor } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
 import { SessionMetaStore } from "../session-meta.js";
 import { newHome } from "../test-preload.js";
@@ -131,7 +131,7 @@ function closeAllSockets(plane: Plane, code: number, reason: string): void {
 }
 
 async function startDaemon(
-  overrides: Partial<Pick<DaemonDeps, "heartbeatMs" | "rand" | "tmux" | "meta">> = {},
+  overrides: Partial<Pick<DaemonDeps, "heartbeatMs" | "inventoryMs" | "rand" | "tmux" | "meta" | "WebSocketImpl">> = {},
 ): Promise<Harness> {
   const [keys, hostileKeys] = await Promise.all([keysReady, hostileKeysReady]);
   const plane = startPlane();
@@ -148,6 +148,7 @@ async function startDaemon(
   const promise = runDaemon(config, {
     rand: () => 0, // zero-jitter → instant reconnects (tests must not wait out backoff)
     heartbeatMs: 3_600_000, // interval effectively off; the heartbeat test overrides
+    inventoryMs: 3_600_000, // periodic push effectively off; the P3-T8c tests override (the inventory COMMAND tests count frames against the connect-push baseline)
     exit: (code: number): never => {
       exits.push(code);
       throw new DaemonStopped(code);
@@ -858,6 +859,103 @@ test("a throwing sessions_report scan is catch-logged, never fatal to the connec
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* P3-T8c: periodic inventory push while connected (spec §7)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Wrap the REAL client WebSocket per dial: every send the daemon ATTEMPTS on
+ * that connection is recorded on the instance before it throws or delegates,
+ * and `state.throwOnSend` flips every later send into a throw. `sockets` keeps
+ * the instances in dial order (sockets[0] = connection 1), so a test can ask
+ * the leak question directly — did pushes keep going into the DEAD socket
+ * after its close? — which plane-side event counts cannot answer (the dead
+ * socket delivers nothing).
+ */
+function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: boolean }): WsConstructor {
+  const Real = globalThis.WebSocket as unknown as new (
+    url: string,
+    opts?: { headers?: Record<string, string> },
+  ) => WsLike;
+  class Wrapped {
+    readonly sends: string[] = [];
+    private readonly inner: WsLike;
+    constructor(url: string, opts?: { headers?: Record<string, string> }) {
+      this.inner = new Real(url, opts);
+      sockets.push(this);
+    }
+    get readyState(): number {
+      return this.inner.readyState;
+    }
+    send(data: string): void {
+      this.sends.push(data);
+      if (state.throwOnSend) throw new Error("ws.send exploded");
+      this.inner.send(data);
+    }
+    close(code?: number, reason?: string): void {
+      this.inner.close(code, reason);
+    }
+    addEventListener(type: string, listener: (event?: unknown) => void): void {
+      const add = this.inner.addEventListener as unknown as (t: string, l: unknown) => void;
+      add.call(this.inner, type, listener);
+    }
+  }
+  return Wrapped as unknown as WsConstructor;
+}
+
+/** How many of a wrapped socket's recorded sends were `inventory` events. */
+function inventorySendCount(sock: { sends: string[] } | undefined): number {
+  if (!sock) return 0;
+  return sock.sends.filter((s) => {
+    try {
+      return (JSON.parse(s) as { type?: string }).type === "inventory";
+    } catch {
+      return false;
+    }
+  }).length;
+}
+
+test("periodic inventory: ticks push on the interval; close clears the loop; the reconnect arms exactly one", async () => {
+  const sockets: Array<{ sends: string[] }> = [];
+  const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, { throwOnSend: false }) });
+  // Connect push + two periodic ticks (T8b pinned the beat's existence and
+  // order; this pins that it REPEATS and lands on the live socket).
+  await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 3, "two periodic inventory ticks");
+  expect(inventorySendCount(sockets[0])).toBeGreaterThanOrEqual(3);
+
+  // Non-terminal close → finish() tears the loop down → reconnect re-arms on the NEW socket.
+  closeAllSockets(h.plane, 1001, "server restart");
+  await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+  await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 5, "connect push + tick on the new socket");
+  expect(sockets.length).toBe(2); // exactly one fresh dial armed the second loop
+  // Snapshot AFTER the reconnect: the old timer is already cleared by finish(),
+  // so this is leak-or-no-more, with no close/tick race window.
+  const staleBefore = inventorySendCount(sockets[0]);
+  const newBefore = inventorySendCount(sockets[1]);
+  await sleep(160); // ≥ 4 tick periods at 40 ms
+  expect(inventorySendCount(sockets[0])).toBe(staleBefore); // cleared on disconnect — no pushing into a dead socket
+  expect(inventorySendCount(sockets[1])).toBeGreaterThan(newBefore); // the new connection's ONE loop is alive
+});
+
+test("a throwing send does not kill the periodic loop: later ticks still deliver", async () => {
+  const state = { throwOnSend: false };
+  const sockets: Array<{ sends: string[] }> = [];
+  const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, state) });
+  await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 2, "connect push + first tick");
+  const lines: string[] = [];
+  const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+    lines.push(a.join(" "));
+  });
+  state.throwOnSend = true;
+  await sleep(160); // several ticks whose sends throw — every one must be swallowed + logged
+  const before = count(h, (e) => e.type === "inventory");
+  state.throwOnSend = false;
+  await waitFor(h, () => count(h, (e) => e.type === "inventory") > before, "a tick after the send recovered");
+  spy.mockRestore();
+  expect(h.plane.closes).toBe(0); // a failed push costs a log line, never the connection
+  expect(lines.some((l) => l.includes("send inventory failed"))).toBe(true);
 });
 
 test("outbound guard: an oversize result is suppressed + logged, never sent; the link survives", async () => {

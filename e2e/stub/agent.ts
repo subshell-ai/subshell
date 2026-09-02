@@ -114,6 +114,13 @@ export async function startAgent(o: StartAgentOptions): Promise<RunningAgent> {
   };
   child.stdout.on("data", push);
   child.stderr.on("data", push);
+  // A long-lived child CAN emit 'error' asynchronously (EPIPE on a pipe after
+  // the daemon dies, spawn-adjacent failures on some platforms) — with no
+  // listener the event throws and takes the whole Playwright worker down.
+  // Append to the ring so logTail() shows it and keep going.
+  child.on("error", (err) => {
+    ring.push(`[stub-agent] run child error: ${err.message}`);
+  });
   child.unref();
 
   const groupAlive = (): boolean => {
