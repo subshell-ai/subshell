@@ -101,6 +101,14 @@ describe("buildNodeOptions", () => {
     const opts = buildNodeOptions([LOCAL, AGENT], PROF, "local");
     expect(opts[0]?.label).toBe("Local · linux/x64 · default for this profile");
   });
+  it("a stale inventory hedges the node-side missing-harness reason (mirror of the profile side)", () => {
+    const stale = node({ id: "a9", name: "ghost", harnesses: [], inventoryStale: true });
+    expect(buildNodeOptions([stale], PROF, null)[0]?.reason).toBe("no claude-code here (inventory may be outdated)");
+  });
+  it("a stale inventory does NOT hedge the 'disabled' reason (entry state is confirmed)", () => {
+    const stale = node({ id: "a9", name: "ghost", harnesses: [CLAUDE_OFF], inventoryStale: true });
+    expect(buildNodeOptions([stale], PROF, null)[0]?.reason).toBe("no claude-code here");
+  });
   it("an offline agent stays disabled with the offline label and no reason text", () => {
     const opts = buildNodeOptions(
       [node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] })],

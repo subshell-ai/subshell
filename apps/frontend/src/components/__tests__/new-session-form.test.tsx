@@ -72,26 +72,39 @@ function profile(p: { nodeId?: string | null; name?: string; id?: string }) {
   };
 }
 
+/** Pathname+search of the most recent /api/profiles request — the wire pin. */
+let lastProfilesUrl: string | null = null;
+
 function mockFetch(nodes: Node[], profiles: unknown[] = []) {
+  lastProfilesUrl = null;
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
-    const path = new URL(String(input), "http://localhost").pathname;
+    const url = new URL(String(input), "http://localhost");
+    const path = url.pathname;
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes })));
-    if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify(profiles)));
+    if (path === "/api/profiles") {
+      lastProfilesUrl = path + url.search;
+      return Promise.resolve(new Response(JSON.stringify(profiles)));
+    }
     if (path === "/api/files/recent") return Promise.resolve(new Response(JSON.stringify({ paths: [] })));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
 }
 
-/** The form is fully caller-controlled; this harness owns the state it would. */
-async function renderForm(initial: NewSessionFormValue = emptyNewSessionForm()) {
+/**
+ * The form is fully caller-controlled; this harness owns the state it would.
+ * `holdValue` ignores onChange instead — pinning the render to `initial` so a
+ * test can probe what the hint gate itself decides about a pair the live form
+ * would have re-homed away from (e.g. an offline pick).
+ */
+async function renderForm(initial: NewSessionFormValue = emptyNewSessionForm(), holdValue = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let latest: NewSessionFormValue = initial;
   function Harness() {
     const [value, setValue] = useState<NewSessionFormValue>(initial);
     latest = value;
-    return <NewSessionForm value={value} onChange={setValue} />;
+    return <NewSessionForm value={value} onChange={holdValue ? () => {} : setValue} />;
   }
   // The honest hints render `<Link>`s (a router context is required) — the
   // same minimal memory-router wrapper the local-launch-card test uses.
@@ -172,6 +185,9 @@ describe("NewSessionForm pairing + defaults", () => {
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
       expect(labels.indexOf("Node")).toBeLessThan(labels.indexOf("Profile"));
       expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" })).toBe(true);
+      // Wire pin: the form lists profiles across nodes — profiles that only
+      // run on another node must still be selectable here (spec §4a).
+      expect(lastProfilesUrl).toBe("/api/profiles?node=any");
     } finally {
       restore();
     }
@@ -253,6 +269,37 @@ describe("NewSessionForm pairing + defaults", () => {
         (_text, el) => el?.tagName === "P" && /No profiles run on bare/.test(el.textContent ?? ""),
       );
       expect(hint.querySelector("a[href*='/nodes/']")).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("loaded-zero profiles on the picked node → the hint still shows (empty ≠ loading)", async () => {
+    const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], []);
+    try {
+      await renderForm({ profileId: "", workingDir: "/tmp/x", name: "", nodeId: "a1" });
+      // Profiles LOADED with zero rows is exactly the dead-end the hint
+      // names; only the undefined (still-loading) signal stays quiet.
+      expect(
+        await screen.findByText(
+          (_text, el) => el?.tagName === "P" && /No profiles run on bare/.test(el.textContent ?? ""),
+        ),
+      ).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("an offline chosen node never gets the 'no profiles run here' misdiagnosis", async () => {
+    const restore = mockFetch([LOCAL, AGENT_OFFLINE], [profile({})]);
+    try {
+      // holdValue pins the pick on the offline node — the live form re-homes
+      // it — so this probes the gate itself: the row reasons already say
+      // "node offline"; the hint must not claim the node runs no profiles.
+      await renderForm({ profileId: "", workingDir: "/tmp/x", name: "", nodeId: "a2" }, true);
+      expect(
+        screen.queryByText((_text, el) => el?.tagName === "P" && /No profiles run on/.test(el.textContent ?? "")),
+      ).toBeNull();
     } finally {
       restore();
     }
