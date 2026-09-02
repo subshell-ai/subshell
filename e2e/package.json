@@ -16,10 +16,10 @@
   "devDependencies": {
     "@internal/backend": "workspace:*",
     "@internal/frontend": "workspace:*",
+    "@internal/mcp-core": "workspace:*",
     "@internal/tsconfig": "workspace:*",
     "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
-    "jose": "6.2.9",
     "typescript": "7.0.2"
   }
 }
