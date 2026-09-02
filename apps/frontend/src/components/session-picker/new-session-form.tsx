@@ -1,14 +1,15 @@
+import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
+import { SearchableSelect } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
-import { nodeOptionLabel } from "@/lib/node-label";
+import { buildNodeOptions, buildProfileOptions, harnessFitsNode, type LaunchProfile } from "@/lib/session-compat";
 import type { Node } from "@/types/node";
 
 /** The fields needed to launch a new session. */
@@ -20,15 +21,13 @@ export interface NewSessionFormValue {
    * Launch node — defaults to "local" (the control-plane host). "" means no
    * valid choice is made yet (local vanished from the list with several other
    * nodes around), which blocks submit until the user picks one. A pinned
-   * profile re-anchors this to its node until the user makes an explicit pick
-   * (see `anchorDecision`).
+   * profile SUGGESTS its node (see `suggestDecision`) — a suggestion the
+   * user can always override, and whose id now rides the wire when held.
    */
   nodeId: string;
   /**
    * True once the user picks a node through the picker; cleared on every
-   * profile change. Distinguishes a user's own pick from an auto-anchor —
-   * a user who deliberately picks Local stays on Local (the server then
-   * re-applies the pin; the inline hint says so).
+   * profile change. Distinguishes a user's own pick from a suggestion.
    */
   nodeExplicit?: boolean;
 }
@@ -43,12 +42,11 @@ export function canSubmit(value: NewSessionFormValue): boolean {
 }
 
 /**
- * Whether a node is pickable right now: ANY visible node grants launch
- * (`nodeCanLaunch` — deliberately not the session rule, spec §2), but an
- * OFFLINE agent is shown disabled: launching there 409s `NODE_OFFLINE`, and
- * offering a target we know is down would only invite a confusing failure.
- * (The pick list can always be stale — the 409 path covers the race.)
- * Mirrored in mobile `src/lib/node-anchor.ts`.
+ * Whether a node is pickable right now: an OFFLINE agent is shown disabled —
+ * launching there 409s `NODE_OFFLINE`, and offering a target we know is down
+ * would only invite a confusing failure. (The pick list can always be stale;
+ * the 409 path covers the race.) Harness compatibility greys separately, via
+ * `buildNodeOptions`. Mirrored in mobile `src/lib/node-anchor.ts`.
  */
 function isSelectable(n: Node): boolean {
   return n.kind === "local" || n.status === "online";
@@ -56,10 +54,10 @@ function isSelectable(n: Node): boolean {
 
 /**
  * The node the picker should hold once the list has loaded: keep the current
- * pick while it stays selectable; else fall to "local" is impossible and
- * exactly one option remains (auto-pick — not a decision worth forcing); else
- * "" — an explicit choice is due (submit stays blocked until it happens).
- * Pure so the fallback matrix is testable without opening a Base UI dropdown.
+ * pick while it stays selectable; else fall to "local" only if exactly one
+ * option remains (auto-pick — not a decision worth forcing); else "" — an
+ * explicit choice is due (submit stays blocked until it happens).
+ * Pure so the fallback matrix is testable without opening a dropdown.
  * Mirrored in mobile `src/lib/node-anchor.ts`.
  */
 export function pickNodeDefault(nodes: Node[], current: string): string {
@@ -70,53 +68,50 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
 }
 
 /**
- * Pinned-profile re-anchor (spec §6.6, UI side): when the selected profile
- * pins a launch node and the user has NOT picked a node since the profile
- * change, the picker holds the pinned node — shown as selected, offline and
- * all, so a pinned-offline launch 409s exactly where the picker points.
- * The wire rule is unchanged (`toSessionCreateBody`): this merely makes the
- * explicit pick honest — a pinned launch now forwards the pinned id instead
- * of omitting it and letting the pin land invisibly. An anchor the user's
- * pick replaces stays replaced (Local included); an anchor that stops being
- * earned — profile switched to an unpinned one, or the pin vanished from the
- * list — releases the pick back to "local", because it was never the user's.
- * Pure, like `pickNodeDefault`, so the matrix is testable without opening a
- * Base UI dropdown. Mirrored in mobile `src/lib/node-anchor.ts`.
+ * Pin-as-suggestion (spec 2026-09-02 §1, replacing the anchor-with-override
+ * semantics): while the user has NOT picked a node since the last profile
+ * change, an EARNED suggestion owns the pick. The caller earns it — the row
+ * is visible, selectable, and actually compatible — so a suggestion never
+ * parks the form on an offline or incompatible node (the old anchor kept an
+ * offline pin selected; the override era ended with the hint that carried
+ * it). An unearned suggestion releases back to "local" only while it still
+ * owns the pick; anything the user touched stays touched. Pure, like
+ * `pickNodeDefault`. Mirrored in mobile `src/lib/node-anchor.ts` (minus the
+ * earned-gating — mobile has no pairing).
  */
-export function anchorDecision(p: {
-  /** The profile's pinned node row (list loaded, id present, not `local`); null otherwise */
-  pinRow: Node | null;
+export function suggestDecision(p: {
+  /** The earned suggestion row (pinned node, visible, selectable, compatible); null otherwise */
+  suggestion: Node | null;
   /** The user picked a node through the picker since the last profile change */
   explicit: boolean;
   /** The pick currently held by the form */
   current: string;
-  /** What the anchor auto-selected last, if it still owns the pick */
+  /** What the suggestion auto-selected last, if it still owns the pick */
   anchoredTo: string | null;
 }): { nodeId: string; anchoredTo: string | null } {
-  if (p.pinRow && !p.explicit) return { nodeId: p.pinRow.id, anchoredTo: p.pinRow.id };
-  if (!p.pinRow && !p.explicit && p.anchoredTo !== null && p.current === p.anchoredTo) {
+  if (p.suggestion && !p.explicit) return { nodeId: p.suggestion.id, anchoredTo: p.suggestion.id };
+  if (!p.suggestion && !p.explicit && p.anchoredTo !== null && p.current === p.anchoredTo) {
     return { nodeId: "local", anchoredTo: null };
   }
   return { nodeId: p.current, anchoredTo: p.anchoredTo };
 }
 
-/** Element ids of the form fields, for `htmlFor`/`id` association. */
+/**
+ * Element ids of the form fields, for `htmlFor`/`id` association. The ids
+ * now anchor the searchable inputs; both sets are e2e-pinned (tests/05 for
+ * the dialog's, tests/06 for the page's).
+ */
 export interface NewSessionFormIds {
-  /** Profile select trigger */
+  /** Profile combobox input */
   profile: string;
   /** Working-directory input */
   workingDir: string;
   /** Name input */
   name: string;
-  /** Node select trigger */
+  /** Node combobox input */
   node: string;
 }
 
-/**
- * The ids the workspace dialog has always used — `e2e/tests/05` locates all
- * three inside the dialog, so they are load-bearing. `/new` overrides them
- * via the `ids` prop because its own ids are pinned by `e2e/tests/06`.
- */
 const DIALOG_IDS: NewSessionFormIds = {
   profile: "picker-profile",
   workingDir: "picker-working-dir",
@@ -125,24 +120,16 @@ const DIALOG_IDS: NewSessionFormIds = {
 };
 
 /**
- * Profile + node + working directory + optional name — the form both launch
- * paths render: `/new` and the workspace dialog. State lives in the caller (so
- * each can gate and reset its own submit), this file owns only the layout.
- * What happens after a successful create also lives in the caller — the page
- * navigates, the dialog attaches a pane — but both POST through the one
- * `useCreateSession` hook.
- *
- * The node picker (spec 2026-08-31 §9) defaults to `local`; a remote pick is
- * real (spec §6.6) — the id rides the POST and the server resolves it against
- * the registry, so the picker is a launch-target chooser, not a hint. An
- * offline agent is disabled; a node that went down since the list loaded
- * surfaces as the caller's inline 409 copy. A profile that pins a node
- * re-anchors the picker to that node until the user overrides it (`anchorDecision`)
- * — with one exception kept visible on purpose: an anchored OFFLINE pin stays
- * selected, so the launch 409 matches the displayed target; and if the user
- * goes back to Local on a pinned profile, the inline hint says the pin will
- * override it (the wire stays honest: Local is sent as an omission and the
- * server re-applies the pin).
+ * Node + profile + working directory + optional name — the form both launch
+ * paths render: `/new` and the workspace dialog. State lives in the caller
+ * (so each can gate and reset its own submit), this file owns the layout and
+ * the pairing. Node sits first — the original ask (spec 2026-09-02) — but
+ * either picker may be touched first: each selection re-filters the other
+ * list LIVE (incompatible options grey out with a reason, never vanish —
+ * `lib/session-compat`), and the server's 409 `harness_disabled` stays the
+ * authoritative backstop for anything the cached views got wrong. A pinned
+ * profile only SUGGESTS its node (earned: visible, online, compatible) and
+ * the visible pick always rides the wire (`toSessionCreateBody`).
  */
 export function NewSessionForm({
   value,
@@ -154,41 +141,45 @@ export function NewSessionForm({
   /** Field element ids; defaults to the dialog's (e2e-pinned) set. */
   ids?: NewSessionFormIds;
 }): JSX.Element {
-  const { data: profiles } = useProfiles();
+  // `node=any`: profiles that only run on OTHER nodes must be listable here.
+  const { data: profiles } = useProfiles({ node: "any" });
 
-  // Pre-fill the working directory with the most recent one the user
-  // actually launched a session in — the answer is nearly always the same
-  // project twice. Applied once per mount and only while the field is still
-  // empty, so it never fights the caller's own state or deliberate typing
-  // (including clearing the field after a pre-fill). Recents follow the
-  // selected node, but the pre-fill intentionally stays mount-scoped: a
-  // mid-mount node switch refreshes the list without ever yanking
-  // typed/committed input.
+  // Working-dir pre-fill (most recent path for the selected node) — applied
+  // once per mount and only while the field is empty, so it never fights the
+  // caller's state or deliberate typing. A mid-mount node switch refreshes
+  // the list without yanking typed/committed input.
   const { data: recent } = useRecentPaths(value.nodeId);
   const prefillDoneRef = useRef(false);
 
-  // Node options: every VISIBLE node (any share grants launch). A failed or
-  // empty registry must not break launching — the default "local" simply
-  // stands (the server accepts "local" without consulting the registry).
   const { data: nodeData } = useNodes();
-  // A well-formed registry response is `{ nodes: [...] }`; anything else (an
-  // error body, an older stub) leaves the current pick untouched.
+  // A well-formed registry response is `{ nodes: [...] }`; anything else
+  // (an error body, an older stub) leaves the current pick untouched.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
 
-  // The selected profile's pin, resolved to a row when the list carries it.
-  // A pin to `local` is the default anyway — treated as no pin everywhere.
-  const pinnedNodeId = (profiles ?? []).find((p) => p.id === value.profileId)?.nodeId ?? null;
-  const pinRow =
-    nodes && pinnedNodeId && pinnedNodeId !== "local" ? (nodes.find((n) => n.id === pinnedNodeId) ?? null) : null;
-  // What the anchor auto-selected last; owned by the component, cleared by
-  // `anchorDecision` when the anchor stops being earned.
+  const selectedProfile: LaunchProfile | undefined = (profiles ?? []).find((p) => p.id === value.profileId);
+  const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
+
+  // The pinned node's row — earned as a SUGGESTION only when it is also
+  // selectable and compatible. A pin to `local` is the default anyway —
+  // treated as no pin everywhere.
+  const pinnedId = selectedProfile?.nodeId ?? null;
+  const pinnedRow = pinnedId && pinnedId !== "local" ? ((nodes ?? []).find((n) => n.id === pinnedId) ?? null) : null;
+  const suggestion: Node | null =
+    pinnedRow !== null &&
+    selectedProfile !== undefined &&
+    isSelectable(pinnedRow) &&
+    harnessFitsNode(pinnedRow, selectedProfile.harnessId) === null
+      ? pinnedRow
+      : null;
+
+  // What the suggestion auto-selected last; owned by the component, cleared
+  // by `suggestDecision` when the suggestion stops being earned.
   const anchoredRef = useRef<string | null>(null);
 
-  // ONE effect for all automatic corrections. They used to be separate
-  // effects, and when the two queries landed on the same commit the node
-  // re-anchor (computed from the same stale `value`) clobbered the
-  // working-dir pre-fill — composing the final value once here makes that
-  // impossible.
+  // ONE effect for all automatic corrections (pre-fill + suggestion + vanish
+  // re-home): composing the final value once makes the old cross-effect
+  // clobbering impossible. Runs only after the node list actually loads;
+  // while it loads the default "local" stands (the server accepts it).
   useEffect(() => {
     let next = value;
     if (!prefillDoneRef.current) {
@@ -199,13 +190,8 @@ export function NewSessionForm({
       }
     }
     if (nodes) {
-      // Pinned-profile re-anchor: hold the pick on the profile's node until
-      // the user overrides it. Runs BEFORE the vanish re-home below, and
-      // suppresses it while active: a pinned OFFLINE row is not "selectable"
-      // by `isSelectable`, but dropping it would hide the very target the
-      // launch will 409 on — show it selected instead.
-      const d = anchorDecision({
-        pinRow,
+      const d = suggestDecision({
+        suggestion,
         explicit: Boolean(value.nodeExplicit),
         current: next.nodeId,
         anchoredTo: anchoredRef.current,
@@ -213,78 +199,67 @@ export function NewSessionForm({
       anchoredRef.current = d.anchoredTo;
       if (d.nodeId !== next.nodeId) next = { ...next, nodeId: d.nodeId };
       // Re-home the pick when what it pointed at vanished (e.g. an admin
-      // turned off local launching). Only once the list actually loaded.
-      if (!(pinRow && !value.nodeExplicit)) {
+      // turned off local launching). Suppressed while a suggestion owns it.
+      if (!(suggestion !== null && !value.nodeExplicit)) {
         const pick = pickNodeDefault(nodes, next.nodeId);
         if (pick !== next.nodeId) next = { ...next, nodeId: pick };
       }
     }
     if (next !== value) onChange(next);
-  }, [recent, nodes, pinRow, value, onChange]);
+  }, [recent, nodes, suggestion, value, onChange]);
 
-  const options = nodes ?? [];
+  const nodeOptions = buildNodeOptions(nodes ?? [], selectedProfile ?? null, suggestion?.id ?? null);
+  const profileOptions = buildProfileOptions(profiles ?? [], value.nodeId === "" ? null : selectedNode);
 
-  // The pin is invisible only while it is not the pick: Local (or an
-  // unmade pick) on a pinned profile means the server will re-apply the
-  // pin — say so rather than let the picker lie by omission.
-  const pinOverridesLocal = pinnedNodeId !== null && pinnedNodeId !== "local" && value.nodeId === "local";
+  // Honest dead-ends (spec §1): the pick stands, the pair cannot — say what
+  // to fix and link there. Only after BOTH lists actually loaded, and never
+  // while a side is unchosen.
+  const noProfilesHere =
+    nodes !== null && selectedNode !== null && (profiles ?? []).length > 0 && profileOptions.every((o) => o.disabled);
+  const noNodeHere =
+    nodes !== null && nodes.length > 0 && selectedProfile !== undefined && nodeOptions.every((o) => o.disabled);
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor={ids.profile}>Profile</Label>
-        <Select
-          value={value.profileId}
-          // Base UI select values widen to `Value | null`; never null here.
-          // A profile change clears the explicit-node flag: every pin starts
-          // with a fresh anchor ("explicit pick SINCE the profile change").
-          onValueChange={(profileId) => profileId !== null && onChange({ ...value, profileId, nodeExplicit: false })}
-          // Base UI's Value prints the raw value without this map; the label
-          // format must match the item text below (e2e asserts on it).
-          items={(profiles ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.harnessId})` }))}
-        >
-          <SelectTrigger id={ids.profile}>
-            <SelectValue placeholder="Choose a profile" />
-          </SelectTrigger>
-          <SelectContent>
-            {profiles?.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name} ({p.harnessId})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Label htmlFor={ids.node}>Node</Label>
+        <SearchableSelect
+          id={ids.node}
+          value={value.nodeId}
+          placeholder="Choose a node"
+          options={nodeOptions}
+          // A pick through this control is the user's own — it outranks the
+          // profile pin's suggestion until the next profile change.
+          onValueChange={(nodeId) => nodeId !== "" && onChange({ ...value, nodeId, nodeExplicit: true })}
+        />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={ids.node}>Node</Label>
-        <Select
-          value={value.nodeId}
-          // A pick through this control is the user's own — it outranks the
-          // profile pin's anchor until the next profile change.
-          onValueChange={(nodeId) => nodeId !== null && onChange({ ...value, nodeId, nodeExplicit: true })}
-          items={options.map((n) => ({
-            value: n.id,
-            label: nodeOptionLabel(n, "Local"),
-          }))}
-        >
-          <SelectTrigger id={ids.node}>
-            <SelectValue placeholder="Choose a node" />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((n) => (
-              <SelectItem key={n.id} value={n.id} disabled={!isSelectable(n)}>
-                {nodeOptionLabel(n, "Local")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {pinOverridesLocal ? (
-          // One template literal so the hint is a single text node (test- and
-          // screen-reader-friendly). The node may be gone from the list (pin
-          // id still drives the server's resolve path) — fall back to prose.
+        <Label htmlFor={ids.profile}>Profile</Label>
+        <SearchableSelect
+          id={ids.profile}
+          value={value.profileId}
+          placeholder="Choose a profile"
+          options={profileOptions}
+          // A profile change re-opens the suggestion window (§ suggestDecision).
+          onValueChange={(profileId) => profileId !== "" && onChange({ ...value, profileId, nodeExplicit: false })}
+        />
+        {noProfilesHere && selectedNode ? (
           <p className="text-muted-foreground text-xs">
-            {`This profile runs on ${pinRow?.name ?? "another node"} — it overrides Local.`}
+            {"No profiles run on "}
+            <Link to="/nodes/$id" params={{ id: selectedNode.id }} className="underline">
+              {selectedNode.name}
+            </Link>
+            {" — enable a harness there or create a profile."}
+          </p>
+        ) : null}
+        {noNodeHere && selectedProfile ? (
+          <p className="text-muted-foreground text-xs">
+            {`No available node runs ${selectedProfile.harnessId} — `}
+            <Link to="/nodes" className="underline">
+              check your nodes
+            </Link>
+            .
           </p>
         ) : null}
       </div>
