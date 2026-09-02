@@ -1,12 +1,14 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { cn } from "@/lib/utils";
 
 /**
  * One line of metadata that edits itself in place: it reads as text, becomes
  * an input on click, saves on Enter or blur, and reverts on Escape or an
- * empty value. Shared by the session and workspace detail headers, which own
- * their save mutations; tests live beside it.
+ * unchanged value. A blank or over-`maxLength` draft is rejected with an
+ * inline error before any request. Shared by the session, workspace, and
+ * node detail headers, which own their save mutations; tests live beside it.
  */
 export function EditableText({
   value,
@@ -15,6 +17,7 @@ export function EditableText({
   placeholder,
   className,
   inputClassName,
+  maxLength = NAME_MAX_DEFAULT,
 }: {
   /** The stored value; empty renders the placeholder */
   value: string;
@@ -27,6 +30,8 @@ export function EditableText({
   className?: string;
   /** Width and friends for the editing input, which the text class lacks */
   inputClassName?: string;
+  /** Reject commits longer than this (post-trim) and cap typing; mirrors the backend rule for this entity */
+  maxLength?: number;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -46,8 +51,18 @@ export function EditableText({
 
   async function commit() {
     const next = draft.trim();
-    if (!next || next === value) {
+    if (next === value) {
       cancel();
+      return;
+    }
+    // Pre-flight the backend's rules (name-limits) so a rejected value says
+    // why in place instead of reverting silently or eating a round-trip.
+    if (!next) {
+      setError("A name is required");
+      return;
+    }
+    if (next.length > maxLength) {
+      setError(`Keep it under ${maxLength} characters`);
       return;
     }
     setSaving(true);
@@ -89,6 +104,7 @@ export function EditableText({
         ref={inputRef}
         value={draft}
         disabled={saving}
+        maxLength={maxLength}
         aria-label={label}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {

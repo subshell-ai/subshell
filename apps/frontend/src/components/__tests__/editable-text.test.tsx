@@ -41,15 +41,38 @@ describe("EditableText", () => {
     expect(screen.getByRole("button", { name: "Rename workspace" })).toBeDefined();
   });
 
-  it("an empty or unchanged draft reverts instead of saving", async () => {
+  it("a blank draft stays open and says why instead of silently reverting", async () => {
     const saved: string[] = [];
     const input = renderLine(async (v) => void saved.push(v));
     fireEvent.change(input, { target: { value: "   " } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(input).toBeDefined();
+    expect(await screen.findByText("A name is required")).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "Rename workspace" })).toBeDefined();
+    // Typing a valid value and Enter clears the error and saves.
+    fireEvent.change(input, { target: { value: "New" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(saved).toEqual(["New"]));
+  });
+
+  it("an unchanged draft reverts silently", async () => {
+    const saved: string[] = [];
+    const input = renderLine(async (v) => void saved.push(v));
     fireEvent.change(input, { target: { value: "Deck" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    expect(saved).toEqual([]);
+  });
+
+  it("an over-length draft is rejected without calling onSave; maxLength caps the input", async () => {
+    const saved: string[] = [];
+    render(<EditableText value="Deck" label="Rename" onSave={async (v) => void saved.push(v)} maxLength={10} />);
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "Rename" });
+    expect((input as HTMLInputElement).maxLength).toBe(10);
+    // fireEvent bypasses the DOM maxlength, so the component guard is exercised too:
+    fireEvent.change(input, { target: { value: "x".repeat(11) } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByText("Keep it under 10 characters")).toBeDefined();
     expect(saved).toEqual([]);
   });
 
