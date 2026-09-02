@@ -21,51 +21,59 @@ interface NodeRow {
   inventoryStale: boolean;
 }
 
-/** Polls `check` on a 500 ms tick; on timeout throws `label` + the agent log tail. */
-async function pollUntil(label: string, agent: RunningAgent | undefined, check: () => Promise<boolean>): Promise<void> {
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Polls `check` until true or `SPAWN_TIMEOUT`; on timeout throws `label` +
+ * the agent log tail. `tickMs` widens for TMUX-spawning checks (each probe
+ * is a `spawnSync` blocking the worker; pane liveness moves on seconds, not
+ * 500 ms) while pure-API polls keep the tight default.
+ */
+async function pollUntil(
+  label: string,
+  agent: RunningAgent | undefined,
+  check: () => Promise<boolean>,
+  tickMs = 500,
+): Promise<void> {
   const deadline = Date.now() + SPAWN_TIMEOUT;
   for (;;) {
     if (await check()) return;
     if (Date.now() > deadline) {
       throw new Error(`${label}\n--- agent log tail ---\n${agent?.logTail() ?? "(agent never started)"}`);
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await sleep(tickMs);
   }
 }
 
 /**
- * True when a tmux session named `paneName` lives on ANY server under
- * `tmuxBase` (`$TMUX_TMPDIR/tmux-<uid>/<socket>` — the agent was spawned with
+ * Absolute paths of every tmux socket under `tmuxBase`
+ * (`$TMUX_TMPDIR/tmux-<uid>/<socket>`) — the agent is spawned with
  * TMUX_TMPDIR pointed there, so every server it daemonises is addressable
- * inside it, exactly like the stack's own teardown). The socket NAME is the
+ * inside it, exactly like the stack's own teardown. The socket NAME is the
  * backend's `tmuxSocketFor(sessionId)` hash — deliberately not recomputed
  * here: enumerating the dir pins agent-side truth without coupling the spec
- * to the hashing scheme.
+ * to the hashing scheme. Empty while the dir does not exist yet.
  */
-function nodeHasPane(tmuxBase: string, paneName: string): boolean {
+function socketsUnder(tmuxBase: string): string[] {
   const uidDir = path.join(tmuxBase, `tmux-${process.getuid?.() ?? 0}`);
-  let sockets: string[];
   try {
-    sockets = readdirSync(uidDir);
+    return readdirSync(uidDir).map((s) => path.join(uidDir, s));
   } catch {
-    return false;
+    return [];
   }
-  return sockets.some(
-    (s) => spawnSync("tmux", ["-S", path.join(uidDir, s), "has-session", "-t", paneName]).status === 0,
+}
+
+/** True when a tmux session named `paneName` lives on ANY server under `tmuxBase`. */
+function nodeHasPane(tmuxBase: string, paneName: string): boolean {
+  return socketsUnder(tmuxBase).some(
+    (sock) => spawnSync("tmux", ["-S", sock, "has-session", "-t", paneName]).status === 0,
   );
 }
 
 /** Best-effort: kill every tmux server whose socket lives under `tmuxBase`. */
 function sweepTmuxServers(tmuxBase: string): void {
-  const uidDir = path.join(tmuxBase, `tmux-${process.getuid?.() ?? 0}`);
-  let sockets: string[];
-  try {
-    sockets = readdirSync(uidDir);
-  } catch {
-    return;
-  }
-  for (const s of sockets) {
-    spawnSync("tmux", ["-S", path.join(uidDir, s), "kill-server"]);
+  for (const sock of socketsUnder(tmuxBase)) {
+    spawnSync("tmux", ["-S", sock, "kill-server"]);
   }
 }
 
@@ -198,20 +206,16 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // `ready` on the node socket flips the row online — poll the registry.
     // The row id is captured on EVERY iteration, not only on success: if the
     // online gate below fails, `finally` still has the id and can delete the
-    // row (the no-node-row-leaves promise of the section header).
-    let row: NodeRow | undefined;
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
+    // row (the no-node-row-leaves promise of the section header). The
+    // in-predicate expect() keeps the fail-fast on a non-OK registry read
+    // (the response body beats a generic timeout message).
+    await pollUntil(`node "${nodeName}" never came online`, agent, async () => {
       const res = await request.get("/api/nodes");
       expect(res.ok(), await res.text()).toBe(true);
-      row = ((await res.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.name === nodeName);
+      const row = ((await res.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.name === nodeName);
       if (row) nodeId = row.id;
-      if (row?.status === "online") break;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    if (row?.status !== "online") {
-      throw new Error(`node "${nodeName}" never came online — agent log tail:\n${agent.logTail()}`);
-    }
+      return row?.status === "online";
+    });
 
     // P3-T8b: the agent PUSHES its first inventory after `ready` — no manual
     // Re-check POST here any more. Wait for the snapshot to land on the row,
@@ -275,7 +279,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // The pane is genuinely on the node (its own tmux server, under our
     // TMUX_TMPDIR — not the control plane's) …
     const pane = sessionId;
-    await pollUntil(`no tmux pane "${pane}" on the node`, agent, async () => nodeHasPane(tmuxBase, pane));
+    await pollUntil(`no tmux pane "${pane}" on the node`, agent, async () => nodeHasPane(tmuxBase, pane), 1_500);
     // …and the log relay (log_read over the node socket) carries its output.
     // The one-shot startup banner can scroll out before pipe-pane attaches
     // (the agent pipes the pane only after new-session), so any `tick <n>` —
@@ -301,7 +305,8 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await pollUntil(
       `pane "${pane}" outlived terminate on the node`,
       agent,
-      async () => !(await nodeHasPane(tmuxBase, pane)),
+      async () => !nodeHasPane(tmuxBase, pane),
+      1_500,
     );
 
     // Delete the row (its node artifacts unhook via remove_paths), leaving a
@@ -334,7 +339,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
           leaks.push(`node delete: ${String(err)}`);
           break;
         }
-        await new Promise((r) => setTimeout(r, 500));
+        await sleep(500);
       }
     }
     try {

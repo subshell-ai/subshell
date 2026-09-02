@@ -12,10 +12,25 @@
  * the compiled binary never sees it; import it in tests only for the pure
  * exports (the CLI entry is guarded by `import.meta.main`).
  */
-import { existsSync } from "node:fs";
+
+import { createHash } from "node:crypto";
+import { createReadStream, existsSync } from "node:fs";
 import { copyFile, mkdir, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
+import { resolveNodeArtifactsDir } from "@internal/session-protocol";
+
+/**
+ * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
+ * never enter memory. Reusable so tests digest with the PRODUCTION helper
+ * instead of mirroring the hasher expression.
+ */
+export async function digestFile(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(path), hash);
+  return hash.digest("hex");
+}
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
@@ -114,11 +129,7 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
     if (code !== 0) return { ok: false, failed: target.triple };
     const path = join(deps.outDir, `mote-agent-${target.triple}`);
     try {
-      const bytes = await Bun.file(path).bytes();
-      artifacts.set(target.triple, {
-        path,
-        digest: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
-      });
+      artifacts.set(target.triple, { path, digest: await digestFile(path) });
     } catch {
       // Exit 0 without an output file is that target's failure — publishing a
       // stale or phantom artifact is worse than publishing nothing.
@@ -148,26 +159,21 @@ export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, de
 }
 
 /**
- * The publish destination, mirroring `NODE_ARTIFACTS_DIR` in
- * `apps/backend/src/constants.ts`: `MOTE_NODE_ARTIFACTS_DIR`, else
- * `<SESSION_DATA_DIR>/node-artifacts`, else the backend's own default.
- * Apps never import each other, so the default expression below is a
- * deliberate DUPLICATE of `defaultSessionDataDir()` (dirname of
- * `DATABASE_PATH`, `./data` when it is not file-backed) — change one, change
- * both.
+ * The publish destination — the env ladder shared with the backend's
+ * `NODE_ARTIFACTS_DIR` via `resolveNodeArtifactsDir`
+ * (`@internal/session-protocol` paths.ts): `MOTE_NODE_ARTIFACTS_DIR`, else
+ * `<SESSION_DATA_DIR>/node-artifacts`, else the DATABASE_PATH-derived data
+ * dir. Resolved against THIS cwd (the ladder is the contract; the cwd
+ * difference between the two apps is why only the ladder is shared).
  */
 export function resolveArtifactsDir(): string {
-  const explicit = process.env.MOTE_NODE_ARTIFACTS_DIR;
-  if (explicit) return resolve(explicit);
-  const session = process.env.SESSION_DATA_DIR;
-  if (session) return resolve(join(session, "node-artifacts"));
-  // ↓ duplicated from apps/backend/src/constants.ts defaultSessionDataDir() — keep in sync.
-  const raw = process.env.DATABASE_PATH ?? "./data/mote.db";
-  const dataDir =
-    raw.startsWith("file:") || raw.includes(":memory:") || !raw.includes("/")
-      ? "./data"
-      : raw.slice(0, Math.max(0, raw.lastIndexOf("/"))) || ".";
-  return resolve(join(dataDir, "node-artifacts"));
+  return resolve(
+    resolveNodeArtifactsDir({
+      MOTE_NODE_ARTIFACTS_DIR: process.env.MOTE_NODE_ARTIFACTS_DIR,
+      SESSION_DATA_DIR: process.env.SESSION_DATA_DIR,
+      DATABASE_PATH: process.env.DATABASE_PATH,
+    }),
+  );
 }
 
 /** Runs one `bun` subcommand argv in `apps/agent` with output streamed to this console. */

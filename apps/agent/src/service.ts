@@ -25,7 +25,7 @@ export interface ServiceDeps {
   /** Whether an enrolled config exists; the CLI wires this to `loadConfig()` resolving. */
   hasConfig(): Promise<boolean>;
   /** Run one service-manager command, capturing stdout/stderr as text. */
-  runCmd(cmd: string[], opts?: { env?: Record<string, string> }): Promise<{ code: number; out: string; err: string }>;
+  runCmd(cmd: string[]): Promise<{ code: number; out: string; err: string }>;
   /** Write a file (real impl creates parent dirs). */
   writeFile(path: string, text: string): Promise<void>;
   /** Delete a file. */
@@ -106,6 +106,9 @@ const errLine = (msg: string): CliResult => ({ code: 1, out: "", err: `mote-agen
 /** Collapse command stderr into one quotable line (trailing newline, no blank runs). */
 const oneLine = (s: string): string => s.trim().replace(/\s*\n\s*/g, " ");
 
+/** The operator-facing one-liner from a failed service-manager command (stderr first — that is where systemctl/launchctl explain themselves). */
+const cmdDetail = (r: { out: string; err: string }): string => oneLine(r.err) || oneLine(r.out) || "no output";
+
 /** Install refuses to touch the machine before the node is enrolled; uninstall deliberately does NOT (see {@link uninstallService}). */
 const NO_CONFIG = "no config found — run mote-agent enroll first";
 
@@ -131,15 +134,14 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     if (reload.code !== 0) {
       return errLine(
         `systemctl --user daemon-reload failed (exit ${reload.code}): ` +
-          `${oneLine(reload.err) || oneLine(reload.out) || "no output"} — the unit file was left at ${path}; ` +
+          `${cmdDetail(reload)} — the unit file was left at ${path}; ` +
           "this usually means no systemd user session is running (container/SSH without loginctl)",
       );
     }
     const enable = await deps.runCmd(["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME]);
     if (enable.code !== 0) {
       return errLine(
-        `systemctl --user enable --now ${SYSTEMD_UNIT_NAME} failed (exit ${enable.code}): ` +
-          `${oneLine(enable.err) || oneLine(enable.out) || "no output"}`,
+        `systemctl --user enable --now ${SYSTEMD_UNIT_NAME} failed (exit ${enable.code}): ` + `${cmdDetail(enable)}`,
       );
     }
     return {
@@ -163,8 +165,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     const boot = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
     if (boot.code !== 0) {
       return errLine(
-        `launchctl bootstrap failed (exit ${boot.code}): ${oneLine(boot.err) || oneLine(boot.out) || "no output"} — ` +
-          `the plist was left at ${path}`,
+        `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)} — ` + `the plist was left at ${path}`,
       );
     }
     return { code: 0, out: `Installed ${path} — mote-agent is registered with launchd and running.\n`, err: "" };
@@ -202,7 +203,7 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
       const label = disable.code !== 0 ? "disable --now" : "daemon-reload";
       return errLine(
         `systemctl --user ${label} failed (exit ${failed.code}): ` +
-          `${oneLine(failed.err) || oneLine(failed.out) || "no output"} — the unit file was removed anyway`,
+          `${cmdDetail(failed)} — the unit file was removed anyway`,
       );
     }
     return {
@@ -221,8 +222,7 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
     await deps.removeFile(path);
     if (unload.code !== 0) {
       return errLine(
-        `launchctl bootout reported (exit ${unload.code}): ${oneLine(unload.err) || oneLine(unload.out) || "no output"} — ` +
-          "the plist was removed anyway",
+        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)} — ` + "the plist was removed anyway",
       );
     }
     return {
@@ -250,12 +250,8 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     execPath: process.execPath,
     argv1: process.argv[1] ?? "",
     hasConfig,
-    async runCmd(cmd, opts) {
-      const proc = Bun.spawn(cmd, {
-        stdout: "pipe",
-        stderr: "pipe",
-        ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
-      });
+    async runCmd(cmd) {
+      const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
       const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
       return { code: await proc.exited, out, err };
     },

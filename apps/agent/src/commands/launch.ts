@@ -153,7 +153,10 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
 
   // (9) Death reporting from here on is the shared watcher's job (report.ts).
   // The socket rides straight in from the wire — no meta re-read microseconds
-  // after step (4) wrote it.
+  // after step (4) wrote it. LOAD-BEARING ORDER: the meta record (step 4) is
+  // written BEFORE this call — report.ts's residual-window guard counts on a
+  // relaunch having re-asserted its meta by the time a stale tick could
+  // forget it. Do not sink startExitWatcher below a meta gap.
   startExitWatcher(ctx, cmd.sessionId, cmd.socket);
   return { ok: true };
 }

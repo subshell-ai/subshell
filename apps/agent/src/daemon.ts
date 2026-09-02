@@ -484,6 +484,15 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
         // refusing) must never cost the connection.
+        // One inventory-push body for both beats below (identical builder +
+        // never-fatal posture; only the log label differs). The backend
+        // additionally PULLS via the `inventory` command on `ready`
+        // (spec §5.3); the memo in buildInventoryEvent coalesces the double
+        // probe into one scan.
+        const pushInventory = (label: string): Promise<void> =>
+          buildInventoryEvent(nowMs())
+            .then((inv) => send(ws, inv))
+            .catch((err: unknown) => log(`${label}: ${err instanceof Error ? err.message : String(err)}`));
         void buildSessionsReport(ctx)
           .then((report) => send(ws, report))
           .catch((err: unknown) => log(`sessions_report failed: ${err instanceof Error ? err.message : String(err)}`))
@@ -493,37 +502,24 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
           // enrolled node was ONLINE yet 409'd every launch until a human hit
           // Re-check. ORDER IS LOAD-BEARING: the push chains AFTER the census
           // (success or failure) because the backend reconcile applies the
-          // report's exits first. Same never-fatal posture; one push per
-          // connection — a reconnect re-arms freshness, like the census. The
-          // backend additionally PULLS via the `inventory` command on `ready`
-          // (spec §5.3); the two are idempotent, the unsolicited event needs no
-          // command correlation on either side.
-          .then(() =>
-            buildInventoryEvent(nowMs())
-              .then((inv) => send(ws, inv))
-              .catch((err: unknown) =>
-                log(`inventory push failed: ${err instanceof Error ? err.message : String(err)}`),
-              ),
-          );
+          // report's exits first. One push per connection — a reconnect
+          // re-arms freshness, like the census.
+          .then(() => pushInventory("inventory push failed"));
         heartbeat = setInterval(() => {
           send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
-        // (P3-T8c; the connect push above is the "+ on demand"-adjacent first
-        // beat). Same builder, same never-fatal posture. The timer's lifecycle
-        // mirrors the heartbeat's EXACTLY — armed here on open, cleared in
-        // finish() — so one push loop per connection at most, and a reconnect
-        // re-arms freshness rather than stacking loops.
+        // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed
+        // here on open, cleared in finish() — so one push loop per connection
+        // at most, and a reconnect re-arms freshness rather than stacking
+        // loops.
         inventory = setInterval(() => {
           // TOTAL per tick (the exit-watcher posture, commands/report.ts): a
           // rejected scan must never become an unhandled rejection, and a
-          // surprise throw must never kill the loop — every failure is log-only.
-          void buildInventoryEvent(nowMs())
-            .then((inv) => send(ws, inv))
-            .catch((err: unknown) =>
-              log(`periodic inventory push failed: ${err instanceof Error ? err.message : String(err)}`),
-            );
+          // surprise throw must never kill the loop — every failure is
+          // log-only, inside pushInventory.
+          void pushInventory("periodic inventory push failed");
         }, inventoryMs);
         inventory.unref?.(); // a background push must never hold the daemon (or a test process) open
       });

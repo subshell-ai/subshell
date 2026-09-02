@@ -24,8 +24,11 @@ import type { CreatedSetupKey } from "@/types/node";
  */
 function isLoopbackUrl(url: string): boolean {
   try {
+    // WHATWG `URL.hostname` keeps brackets on IPv6 literals (`http://[::1]`
+    // -> "[::1]"; the unbracketed form is an invalid URL), so only the
+    // bracketed spelling can match.
     const host = new URL(url).hostname.toLowerCase();
-    return host === "localhost" || host.startsWith("127.") || host === "::1" || host === "[::1]";
+    return host === "localhost" || host.startsWith("127.") || host === "[::1]";
   } catch {
     return false;
   }
