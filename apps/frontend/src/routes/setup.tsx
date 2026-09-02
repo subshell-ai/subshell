@@ -37,7 +37,7 @@ function SetupPage() {
   const [busy, setBusy] = useState(false);
 
   // Harness management — install help and the Enable/switch live on each row
-  // (the SAME HarnessRow settings uses). No selection: every enabled harness
+  // (the shared HarnessRow). No selection: every enabled harness
   // already has a blank Default profile (seeded at registration), so a user
   // who wants to launch straight away can finish here and never touch a
   // profile. Enabling a harness on this step also seeds its Default.

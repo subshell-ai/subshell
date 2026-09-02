@@ -18,13 +18,14 @@ export interface HarnessRowProps {
 }
 
 /**
- * One harness in a management list — the row the settings page manages and the
- * setup wizard's Harness step shows. The two surfaces used to be independent
- * copies whose toggle/error plumbing was character-identical; that logic now
- * lives in `useHarnessToggles` and both screens render this one row, because
- * the install help, the Enable fallback, the disabled hint and the error line
- * are the same shape. (The wizard once had a second, selectable "pick" variant
- * for choosing a first harness; auto-defaulted profiles removed that step, so
+ * One harness in a management list — the row the setup wizard's Harness step
+ * shows (the settings page's global harness card is gone; harness state is
+ * edited per node, `/nodes/:id`). It grew out of two surfaces whose
+ * toggle/error plumbing was character-identical; that logic now lives in
+ * `useHarnessToggles`, and this one row carries the install help, the Enable
+ * fallback, the disabled hint and the error line, which are all the same
+ * shape. (The wizard once had a second, selectable "pick" variant for
+ * choosing a first harness; auto-defaulted profiles removed that step, so
  * management is now the only mode.)
  */
 export function HarnessRow({ harness, pending, error, onToggle, onRecheck }: HarnessRowProps) {

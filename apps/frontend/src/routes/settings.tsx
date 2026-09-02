@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
-import { HarnessRow } from "@/components/harness-row";
 import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { NotificationsCard } from "@/components/notifications-card";
 import { NotificationsMasterCard } from "@/components/notifications-master-card";
@@ -15,8 +14,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useHarnessToggles } from "@/hooks/use-harness-toggles";
-import { useHarnesses, useRecheckHarnesses } from "@/hooks/use-harnesses";
 import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 
@@ -85,10 +82,6 @@ function SettingsPage() {
     queryKey: ["settings"],
     queryFn: () => apiFetch<{ allowRegistrations: boolean }>("/api/settings"),
   });
-
-  const { data: harnesses, isLoading: harnessesLoading, isError: harnessesError } = useHarnesses();
-  const recheck = useRecheckHarnesses();
-  const { toggle: toggleHarness, errors: harnessErrors, pending: togglePending } = useHarnessToggles();
 
   async function toggleRegistrations() {
     if (!settings) return;
@@ -166,45 +159,6 @@ function SettingsPage() {
       {/* Self-service for ANY signed-in user (own passkeys only via the
           session), hence above the admin-scoped cards' concerns. */}
       <PasskeysCard />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Harness plugins</CardTitle>
-          <CardDescription>
-            Agent harnesses on this machine. Enabling re-checks that the CLI is installed; disabling hides its profiles
-            and blocks new sessions (running sessions keep going).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {harnessesLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-          {harnessesError && (
-            <ErrorBanner
-              message="Couldn't load harnesses."
-              className="rounded-md border"
-              action={
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-inherit text-xs underline"
-                  onClick={() => void recheck()}
-                >
-                  Retry
-                </Button>
-              }
-            />
-          )}
-          {harnesses?.map((h) => (
-            <HarnessRow
-              key={h.id}
-              harness={h}
-              pending={togglePending}
-              error={harnessErrors[h.id]}
-              onToggle={toggleHarness}
-              onRecheck={recheck}
-            />
-          ))}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>

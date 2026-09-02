@@ -2,15 +2,15 @@ import { useState } from "react";
 import { harnessToggleErrorMessage, useSetHarnessEnabled } from "@/hooks/use-harnesses";
 
 /**
- * The harness enable/disable affordance shared by the settings page and the
- * setup wizard. Both screens used to re-type the identical per-row error map
+ * The harness enable/disable affordance — the setup wizard's (the settings
+ * page's global harness card is gone — harness state is edited per node,
+ * `/nodes/:id`). The wizard used to re-type the identical per-row error map
  * plus the mutate-with-onError wrapper around `useSetHarnessEnabled`; this is
- * that logic once. The presentation stays on the screens (management switch
- * vs selectable picker card) via `HarnessRow`.
+ * that logic once. The presentation stays on the screen via `HarnessRow`.
  * @returns `toggle` flips one harness, `errors` maps harness id → the last
  * toggle failure ("" once retried), `pending` is true while any toggle call
- * is in flight (both screens use it to disable every switch at once, as they
- * always have)
+ * is in flight (the wizard uses it to disable every switch at once, as it
+ * always has)
  */
 export function useHarnessToggles() {
   const setEnabled = useSetHarnessEnabled();
