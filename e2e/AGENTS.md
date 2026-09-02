@@ -32,11 +32,11 @@ backend, `NODE_ENV=development`, `MOTE_TEST_MODE=false`) with:
 The backend serves the frontend bundle, so **one origin = the whole app**; all
 specs use `baseURL` from `ports.ts`.
 
-Spec `12` extends the stack itself: it spawns the **real `mote-agent` from
+Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/agent/src/main.ts enroll|run` via `stub/agent.ts`, with
 `MOTE_AGENT_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
 daemonised tmux servers are quarantined). No hand-written fake agent exists —
-the master plan's `mote-agent-fake.ts` was superseded before it was written
+the master plan's `subshell-fake.ts` was superseded before it was written
 (plan deviation #1, recorded in the nodes spec's Errata).
 
 ## Spec-ordering contract (workers: 1)

@@ -1,6 +1,6 @@
 {
   "name": "@internal/agent",
-  "description": "mote-agent — node daemon: enrolls with the control plane and executes signed commands",
+  "description": "subshell — node daemon: enrolls with the control plane and executes signed commands",
   "version": "0.1.0",
   "type": "module",
   "private": true,
@@ -21,7 +21,7 @@
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
     "test": "bun test",
     "verify-types": "tsc --project tsconfig.json --noEmit",
-    "compile": "bun build --compile --bytecode --minify --sourcemap ./src/main.ts --outfile ./dist/mote-agent",
+    "compile": "bun build --compile --bytecode --minify --sourcemap ./src/main.ts --outfile ./dist/subshell",
     "compile:release": "bun run src/scripts/release.ts"
   },
   "dependencies": {

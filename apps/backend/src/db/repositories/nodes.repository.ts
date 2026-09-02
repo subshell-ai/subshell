@@ -3,7 +3,7 @@ import type { NewNode, NodeStatus, NodeTable } from "@/db/types/nodes.db-types.j
 
 /** Fields a `ready` frame carries about the machine behind a node (spec §5.3). */
 export type NodeReadyReport = {
-  /** mote-agent version reported by the agent */
+  /** subshell version reported by the agent */
   agentVersion: string;
   /** node protocol version reported by the agent */
   protocolVersion: number;

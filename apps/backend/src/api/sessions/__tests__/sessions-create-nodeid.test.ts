@@ -250,7 +250,7 @@ describe("POST /api/sessions node resolution (phase 2)", () => {
       capabilities: ["uploads"], // ← no "mcp": the pre-Task-13 agent, byte-for-byte
       hostname: "h",
       agentVersion: "1.0.0",
-      executablePath: "/usr/bin/mote-agent",
+      executablePath: "/usr/bin/subshell",
     };
     try {
       const res = await post({ ...base(claudeProfileId), nodeId, name: "cnode-gate" });

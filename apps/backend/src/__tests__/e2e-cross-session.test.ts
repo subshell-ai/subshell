@@ -146,25 +146,25 @@ describe("cross-session e2e (two mote mcp processes)", () => {
     "A and B converse over an encrypted channel, plaintext never touches the disk",
     async () => {
       // A creates the channel and posts; B joins and long-polls a read.
-      expect(await call<{ name: string }>(clientA, "mote_create_channel", { name: "e2e" })).toEqual({ name: "e2e" });
-      expect(await call<{ joined: boolean }>(clientB, "mote_join_channel", { name: "e2e" })).toEqual({ joined: true });
-      const posted = await call<{ seq: number }>(clientA, "mote_post_channel", { name: "e2e", text: "hello-from-A" });
+      expect(await call<{ name: string }>(clientA, "create_channel", { name: "e2e" })).toEqual({ name: "e2e" });
+      expect(await call<{ joined: boolean }>(clientB, "join_channel", { name: "e2e" })).toEqual({ joined: true });
+      const posted = await call<{ seq: number }>(clientA, "post_channel", { name: "e2e", text: "hello-from-A" });
       expect(posted.seq).toBe(1);
 
-      const readByB = await call<ReadResult>(clientB, "mote_read_channel", { name: "e2e", wait_seconds: 15 });
+      const readByB = await call<ReadResult>(clientB, "read_channel", { name: "e2e", wait_seconds: 15 });
       expect(readByB.undecryptable).toBe(0);
       const helloA = readByB.posts.find((p) => p.text === "hello-from-A");
       expect(helloA).toBeTruthy();
       expect(helloA?.author).toBe(`sess:${sessions[0].id}`);
 
       // B replies; A reads its own post plus the reply (sealed to self too).
-      await call(clientB, "mote_post_channel", { name: "e2e", text: "hello-from-B" });
-      const readByA = await call<ReadResult>(clientA, "mote_read_channel", { name: "e2e", wait_seconds: 15 });
+      await call(clientB, "post_channel", { name: "e2e", text: "hello-from-B" });
+      const readByA = await call<ReadResult>(clientA, "read_channel", { name: "e2e", wait_seconds: 15 });
       expect(readByA.undecryptable).toBe(0);
       expect(readByA.posts.map((p) => p.text)).toContain("hello-from-B");
 
       // The session-CRUD face works over the same bearer path.
-      const listed = await call<{ id: string; name: string }[]>(clientA, "mote_list_sessions");
+      const listed = await call<{ id: string; name: string }[]>(clientA, "list_sessions");
       expect(listed.map((s) => s.name).sort()).toEqual(["e2e-A", "e2e-B"]);
 
       // Byte-level audit of the storage: envelopes present, plaintext absent.

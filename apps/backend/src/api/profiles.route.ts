@@ -63,7 +63,7 @@ async function assertNodeVisible(userId: string, nodeId: string): Promise<void> 
 /**
  * Profile endpoints. Reads (list, harness ids, harness schema) stay open to
  * every authenticated actor — the agent toolset needs `GET /api/profiles`
- * (mote_list_profiles). Writes are cookie-only: profile.env OUTRANKS the
+ * (list_profiles). Writes are cookie-only: profile.env OUTRANKS the
  * MOTE_* credential layer when a session starts, so a bearer key that could
  * edit the owner's profiles could redirect every future session/auto-restart
  * and harvest its bearer token. Machine credentials must not manage profiles.
@@ -133,7 +133,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       const usable = await usableHarnessIds();
       const visible = rows.filter((p) => usable.has(p.harnessId));
       if (actor === "cookie") return visible;
-      // Reads stay open to bearer actors for `mote_list_profiles`, but that
+      // Reads stay open to bearer actors for `list_profiles`, but that
       // tool only projects {id,name,harnessId} — the REST body's `envJson`
       // was every operator secret (profile.env is secret storage by
       // convention, and it OUTRANKS the MOTE_* credential layer) harvestable

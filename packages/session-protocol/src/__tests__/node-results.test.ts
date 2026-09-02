@@ -81,10 +81,10 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
       os: "linux",
       arch: "x64",
       hostname: "box",
-      dataDir: "/home/u/.local/share/mote-agent",
+      dataDir: "/home/u/.local/share/subshell",
       capabilities: [],
     };
-    expect(parseNodeEvent({ ...ready, executablePath: "/usr/local/bin/mote-agent" })?.type).toBe("ready");
+    expect(parseNodeEvent({ ...ready, executablePath: "/usr/local/bin/subshell" })?.type).toBe("ready");
     expect(parseNodeEvent(ready)?.type).toBe("ready"); // pre-phase-2 agent omits it
     expect(parseNodeEvent({ ...ready, executablePath: 42 })).toBeNull();
   });

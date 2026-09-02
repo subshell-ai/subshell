@@ -122,7 +122,7 @@ test("401 SETUP_KEY_CONSUMED: the key is spent — stop retrying, point at the N
   expect(res.code).toBe(1);
   // Verbatim: never hints the key might still work, never reuses the generic hedge.
   expect(res.err).toBe(
-    "mote-agent: this setup key has already been used — each key enrolls one node; " +
+    "subshell: this setup key has already been used — each key enrolls one node; " +
       "create a new setup key on the Nodes page\n",
   );
   expect(existsSync(configPath())).toBe(false);
@@ -133,7 +133,7 @@ test("401 SETUP_KEY_EXPIRED: names the 24 h lifetime and the Nodes page", async 
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
   expect(res.err).toBe(
-    "mote-agent: this setup key expired (they are valid 24 hours) — create a new one on the Nodes page\n",
+    "subshell: this setup key expired (they are valid 24 hours) — create a new one on the Nodes page\n",
   );
   expect(existsSync(configPath())).toBe(false);
 });
@@ -142,7 +142,7 @@ test("401 SETUP_KEY_INVALID keeps today's generic copy verbatim", async () => {
   const url = fakeControlPlane(() => setupKey401(BackendErrorCodes.SETUP_KEY_INVALID));
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
-  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(res.err).toBe(`subshell: ${GENERIC_401}\n`);
   expect(existsSync(configPath())).toBe(false);
 });
 
@@ -150,7 +150,7 @@ test("bodyless 401 (old server) keeps today's generic copy verbatim", async () =
   const url = fakeControlPlane(() => new Response(null, { status: 401 }));
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
-  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(res.err).toBe(`subshell: ${GENERIC_401}\n`);
   expect(existsSync(configPath())).toBe(false);
 });
 
@@ -160,7 +160,7 @@ test("401 with a pre-structured body (message, no code) keeps today's generic co
   );
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
-  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(res.err).toBe(`subshell: ${GENERIC_401}\n`);
   expect(existsSync(configPath())).toBe(false);
 });
 
@@ -168,7 +168,7 @@ test("unknown code on a 401 falls back to today's generic copy", async () => {
   const url = fakeControlPlane(() => setupKey401("SOMETHING_NEW"));
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
-  expect(res.err).toBe(`mote-agent: ${GENERIC_401}\n`);
+  expect(res.err).toBe(`subshell: ${GENERIC_401}\n`);
   expect(existsSync(configPath())).toBe(false);
 });
 

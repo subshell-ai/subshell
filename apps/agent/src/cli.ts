@@ -26,15 +26,15 @@ export interface CliResult {
   keepAlive?: boolean;
 }
 
-const USAGE = `mote-agent — mote node daemon
+const USAGE = `subshell — mote node daemon
 
 usage:
-  mote-agent enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
-  mote-agent run
-  mote-agent service install|uninstall   (systemd user unit / launchd agent)
-  mote-agent status [--json] [--probe]
-  mote-agent version
-  mote-agent mcp            (stdio MCP server for a mote session pane — internal)
+  subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
+  subshell run
+  subshell service install|uninstall   (systemd user unit / launchd agent)
+  subshell status [--json] [--probe]
+  subshell version
+  subshell mcp            (stdio MCP server for a mote session pane — internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -139,7 +139,7 @@ export async function run(argv: string[]): Promise<CliResult> {
   try {
     switch (parsed.command) {
       case "version":
-        return { code: 0, out: `mote-agent ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
+        return { code: 0, out: `subshell ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
       case "mcp": {
         // The stdio MCP server for a mote session pane (spec §6.4). It is NOT
         // an enrolled-daemon command: no config, no lock, no socket — just the
@@ -187,7 +187,7 @@ export async function run(argv: string[]): Promise<CliResult> {
           name: parsed.flags.name,
           dataDir: parsed.flags.dataDir,
         });
-        return { code: 0, out: `Enrolled as ${nodeId} — next: mote-agent run\n`, err: "" };
+        return { code: 0, out: `Enrolled as ${nodeId} — next: subshell run\n`, err: "" };
       }
       case "status": {
         // NON-DESTRUCTIVE by default (fix wave 1): a live `daemon.lock` (pid alive, same
@@ -225,8 +225,8 @@ export async function run(argv: string[]): Promise<CliResult> {
           line = `node ${cfg.nodeId} "${cfg.name}" — ONLINE (local daemon pid ${lock.pid}, last heartbeat ${fmtAge(daemonAgeMs)} ago)`;
         } else if (parsed.flags.probe) {
           errOut =
-            "mote-agent: --probe opens a live node socket — the control plane keeps the NEWEST " +
-            "connection, so this KICKS any mote-agent running elsewhere for this node (terminal " +
+            "subshell: --probe opens a live node socket — the control plane keeps the NEWEST " +
+            "connection, so this KICKS any subshell running elsewhere for this node (terminal " +
             "4409 for it). Only probe when you are certain no other agent is running.\n";
           probe = await probeOnline(cfg);
           online = probe;
@@ -235,8 +235,8 @@ export async function run(argv: string[]): Promise<CliResult> {
             : `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (probe: no socket to ${cfg.serverUrl} within 5 s)`;
         } else {
           line =
-            `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (no local mote-agent running; ` +
-            `start one with \`mote-agent run\`, or pass --probe to ask the control plane — ` +
+            `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (no local subshell running; ` +
+            `start one with \`subshell run\`, or pass --probe to ask the control plane — ` +
             `a probe KICKS a remote agent!)`;
         }
         if (parsed.flags.json) {
@@ -276,5 +276,5 @@ function fmtAge(ms: number): string {
 
 function fail(code: number, err: unknown): CliResult {
   const message = err instanceof Error ? err.message : String(err);
-  return { code, out: "", err: `mote-agent: ${message}\n${code === 2 ? `\n${USAGE}` : ""}` };
+  return { code, out: "", err: `subshell: ${message}\n${code === 2 ? `\n${USAGE}` : ""}` };
 }

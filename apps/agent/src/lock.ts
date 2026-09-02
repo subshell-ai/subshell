@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { agentHome } from "./config.js";
 
 /**
- * `<agentHome>/daemon.lock` — the local-liveness file `mote-agent run` keeps
- * and `mote-agent status` reads (fix wave 1, spec §7 posture).
+ * `<agentHome>/daemon.lock` — the local-liveness file `subshell run` keeps
+ * and `subshell status` reads (fix wave 1, spec §7 posture).
  *
  * Why this exists: `status` used to probe with a live WS connect
  * unconditionally, and that was DESTRUCTIVE — the control-plane registry is
@@ -22,7 +22,7 @@ import { agentHome } from "./config.js";
 
 /** Contents of the daemon lock file. */
 export interface DaemonLock {
-  /** PID of the `mote-agent run` that owns the lock. */
+  /** PID of the `subshell run` that owns the lock. */
   pid: number;
   /** ISO timestamp of when that daemon started. */
   startedAt: string;
@@ -56,7 +56,7 @@ export function writeLock(lock: DaemonLock): void {
 /**
  * Remove the lock, but ONLY while `ownerPid` still owns it: read the current
  * lock and delete only when its pid matches. Dual-daemon same-home: two
- * `mote-agent run` processes share one `daemon.lock` (last writer wins), and
+ * `subshell run` processes share one `daemon.lock` (last writer wins), and
  * the first one to exit must not delete the survivor's lock — a missing lock
  * would read as OFFLINE while a daemon is happily running. A lock we cannot
  * parse or that names another pid is therefore left alone; `readLock` treats

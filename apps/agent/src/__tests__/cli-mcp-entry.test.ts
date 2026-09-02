@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * End-to-end liveness of the `mote-agent mcp` ENTRY (the regression T18 parity
+ * End-to-end liveness of the `subshell mcp` ENTRY (the regression T18 parity
  * found): `runMoteMcp()` RESOLVES once the stdio transport is connected — the
  * connection itself (the SDK's stdin listener) is what keeps the process
  * alive. If the entry treats that resolution as "command finished" and calls
@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
  */
 const AGENT_MAIN = fileURLToPath(new URL("../main.ts", import.meta.url));
 
-test("`mote-agent mcp` stays alive after connect and answers initialize", async () => {
+test("`subshell mcp` stays alive after connect and answers initialize", async () => {
   const stub = Bun.serve({
     port: 0,
     // server.ts only needs a 2xx JSON body back from POST /api/identities.

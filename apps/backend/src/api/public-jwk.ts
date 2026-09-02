@@ -13,7 +13,7 @@ const INVALID = "publicKey must be a valid P-256 public JWK";
  * Proves a parsed JSON value is a PUBLIC P-256 key that jose can actually
  * import for ECDH-ES — the same operation `seal()` performs for every roster
  * key at post time. Registration only ever saw "parses as a JSON object", so
- * a garbage key that passed would make EVERY later `mote_post_channel` throw
+ * a garbage key that passed would make EVERY later `post_channel` throw
  * for EVERY member of every channel the registrant joined (channel-wide DoS).
  * Structural checks are not enough either: only the import round-trip catches
  * coordinates that are well-formed base64url but not a curve point.

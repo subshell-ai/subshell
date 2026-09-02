@@ -64,7 +64,7 @@ function unauthorized() {
 
 /** Absolute path of a target's binary. `target` is {@link isNodeTarget}-gated upstream. */
 function artifactPath(target: NodeTarget): string {
-  return join(NODE_ARTIFACTS_DIR, `mote-agent-${target}`);
+  return join(NODE_ARTIFACTS_DIR, `subshell-${target}`);
 }
 
 /**
@@ -93,7 +93,7 @@ const shaCache = new Map<string, string>();
 /**
  * SHA-256 (lowercase hex) of a target's binary, or null when unpublished —
  * "published" being exactly {@link artifactStat}'s rule, so the binary route
- * and this one never disagree. An on-disk `mote-agent-<target>.sha256`
+ * and this one never disagree. An on-disk `subshell-<target>.sha256`
  * sidecar wins when it holds a 64-hex digest (publisher-provided truth);
  * otherwise the digest is computed over the binary. Both paths cache under
  * the file mtimes, so a swapped binary or sidecar is noticed on the next
@@ -148,11 +148,11 @@ async function artifactSha(target: NodeTarget): Promise<string | null> {
 
 const notPublished = (target: string) => ({
   code: BackendErrorCodes.NOT_FOUND_ERROR,
-  message: `No mote-agent build for "${target}" is published on this instance yet.`,
+  message: `No subshell build for "${target}" is published on this instance yet.`,
 });
 
 /**
- * `/api/downloads/node/*` — serve the prebuilt `mote-agent` binaries and
+ * `/api/downloads/node/*` — serve the prebuilt `subshell` binaries and
  * their checksums (spec 2026-08-31 §8). Auth: session cookie OR a valid,
  * unconsumed `?setup_key=` ({@link authorizeDownload}); neither → 401.
  *
@@ -178,7 +178,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     return new Response(file, {
       headers: {
         "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="mote-agent-${params.target}"`,
+        "Content-Disposition": `attachment; filename="subshell-${params.target}"`,
         "Cache-Control": "private, no-cache",
       },
     });
@@ -195,7 +195,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       operationId: "downloadNodeAgent",
       tags: ["downloads"],
       description:
-        "Downloads the prebuilt mote-agent binary for one platform target (session cookie or valid ?setup_key=; unknown target → 404)",
+        "Downloads the prebuilt subshell binary for one platform target (session cookie or valid ?setup_key=; unknown target → 404)",
     },
   },
 );
@@ -215,7 +215,7 @@ for (const target of NODE_TARGETS) {
       detail: {
         operationId: `downloadNodeAgentSha256${target.replace(/-/g, "")}`,
         tags: ["downloads"],
-        description: `SHA-256 (64-hex) of the ${target} mote-agent build (same cookie-or-setup_key gate as the binary)`,
+        description: `SHA-256 (64-hex) of the ${target} subshell build (same cookie-or-setup_key gate as the binary)`,
       },
     },
   );

@@ -80,7 +80,7 @@ export const rotateNodeKeyRoute = new Elysia()
       return {
         nodeKey: created.key,
         message:
-          "New key active. Re-configure the agent with it manually (mote-agent config keeps the old key until you replace it); the live connection was closed.",
+          "New key active. Re-configure the agent with it manually (subshell config keeps the old key until you replace it); the live connection was closed.",
       };
     },
     {

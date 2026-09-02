@@ -47,7 +47,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   const email = `dl-${crypto.randomUUID()}@mote.local`;
   const pw = "downloads-1";
   const TARGET = "linux-x64";
-  const fixturePath = join(NODE_ARTIFACTS_DIR, `mote-agent-${TARGET}`);
+  const fixturePath = join(NODE_ARTIFACTS_DIR, `subshell-${TARGET}`);
   const sidecarPath = `${fixturePath}.sha256`;
   const FIXTURE = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 1, 2, 3, 4, 0xde, 0xad, 0xbe, 0xef]);
   let expectedSha = "";
@@ -171,7 +171,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(res.status).toBe(200);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(FIXTURE);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
-    expect(res.headers.get("content-disposition")).toContain(`mote-agent-${TARGET}`);
+    expect(res.headers.get("content-disposition")).toContain(`subshell-${TARGET}`);
   });
 
   it("cookie session → 200 (no setup key needed)", async () => {
@@ -203,7 +203,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
   it(".sha256 prefers an on-disk sidecar and notices a swapped binary (mtime-keyed cache)", async () => {
     const fakeHex = "a".repeat(64);
-    writeFileSync(sidecarPath, `${fakeHex}  mote-agent-${TARGET}\n`);
+    writeFileSync(sidecarPath, `${fakeHex}  subshell-${TARGET}\n`);
     try {
       const side = await dl(`/node/${TARGET}.sha256`, { cookie });
       expect(side.status).toBe(200);
@@ -284,14 +284,14 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("sha256sum -c");
     expect(body).toContain("shasum -a 256 -c");
     // Branch-aware spellings (fix wave 1): $DEST holds the install path —
-    // ./mote-agent by default, $MOTE_DATA_DIR/mote-agent when the knob is set.
+    // ./subshell by default, $MOTE_DATA_DIR/subshell when the knob is set.
     expect(body).toContain('chmod +x "$DEST"');
     expect(body).toContain('"$DEST" enroll --server "$SERVER" --key "$KEY"');
     expect(body).toContain('start the agent with:  \\"$DEST\\" run');
     expect(body).not.toContain("exit 2");
   });
 
-  it("install.sh MOTE_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ./mote-agent + empty arg array", async () => {
+  it("install.sh MOTE_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ./subshell + empty arg array", async () => {
     const body = await (await install(await mkKey())).text();
     // Env knob: `curl … | MOTE_DATA_DIR=/opt/mote bash`; UNSET keeps the
     // historical CWD install and never passes --data-dir (fix wave 1).
@@ -299,10 +299,10 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain('DATA_DIR="$MOTE_DATA_DIR"');
     // Installer-created dirs are private (also on a shared /opt).
     expect(body).toContain('(umask 077; mkdir -p "$DATA_DIR")');
-    expect(body).toContain('DEST="$DATA_DIR/mote-agent"');
+    expect(body).toContain('DEST="$DATA_DIR/subshell"');
     expect(body).toContain('ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real agent flag (apps/agent/src/cli.ts)
     // Default branch: CWD binary, NO --data-dir arg, guarded against `set -u`.
-    expect(body).toContain('DEST="./mote-agent"');
+    expect(body).toContain('DEST="./subshell"');
     expect(body).toContain("ENROLL_DATA_DIR_ARGS=()");
     expect(body).toContain('${ENROLL_DATA_DIR_ARGS[@]+"${ENROLL_DATA_DIR_ARGS[@]}"}');
     // One download/verify/chmod/enroll pipeline, parameterized by $DEST.
@@ -313,7 +313,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
   /**
    * Some sandboxes silently no-op SCRIPT-FILE execution (`bash ./file` exits 0
-   * without running it) — then the stubbed "mote-agent" binary never runs and
+   * without running it) — then the stubbed "subshell" binary never runs and
    * the full-pipeline test proves nothing. Probe once; skip that test where
    * file exec does not verifiably work.
    */
@@ -333,7 +333,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   })();
 
   it.skipIf(!BASH)(
-    "install.sh MOTE_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=./mote-agent, enroll args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
+    "install.sh MOTE_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=./subshell, enroll args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
     async () => {
       // The rendered script contains BOTH branches, so text assertions cannot
       // show which one runs. Slice the real rendered block out of the body and
@@ -365,14 +365,14 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
         // ── default (env unset): pre-knob behavior — CWD dest, no --data-dir ──
         const def = runBranch({});
-        expect(def).toContain("DEST=./mote-agent");
+        expect(def).toContain("DEST=./subshell");
         expect(def).toContain("enroll");
         expect(def).not.toContain("--data-dir"); // the agent keeps its own default data dir
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
         const dest = join(work, "deep", "mote-data"); // missing parents also pin `mkdir -p`
         const opt = runBranch({ MOTE_DATA_DIR: dest });
-        expect(opt).toContain(`DEST=${dest}/mote-agent`);
+        expect(opt).toContain(`DEST=${dest}/subshell`);
         expect(opt).toContain("--data-dir");
         expect(opt[opt.indexOf("--data-dir") + 1]).toBe(dest);
         expect(statSync(dest).mode & 0o777).toBe(0o700); // umask-077 mkdir
@@ -385,7 +385,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
 
   it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
-    "install.sh EXECUTED end-to-end with stub curl/uname: default → ./mote-agent in CWD and enroll WITHOUT --data-dir; MOTE_DATA_DIR → relocated dest + --data-dir",
+    "install.sh EXECUTED end-to-end with stub curl/uname: default → ./subshell in CWD and enroll WITHOUT --data-dir; MOTE_DATA_DIR → relocated dest + --data-dir",
     async () => {
       const key = await mkKey();
       const body = await (await install(key)).text();
@@ -450,8 +450,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(def.args).toContain("--key");
         expect(def.args).toContain(key);
         expect(def.args).not.toContain("--data-dir"); // the whole point: the agent keeps its own default data dir
-        expect(existsSync(join(cwd1, "mote-agent"))).toBe(true); // binary lands in the CWD
-        expect(existsSync(join(cwd1, "mote-agent.sha256"))).toBe(false); // sidecar cleaned up
+        expect(existsSync(join(cwd1, "subshell"))).toBe(true); // binary lands in the CWD
+        expect(existsSync(join(cwd1, "subshell.sha256"))).toBe(false); // sidecar cleaned up
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
         const cwd2 = join(work, "cwd-relocated");
@@ -460,8 +460,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(opt.exitCode).toBe(0);
         expect(opt.args).toContain("--data-dir");
         expect(opt.args[opt.args.indexOf("--data-dir") + 1]).toBe(dest);
-        expect(existsSync(join(dest, "mote-agent"))).toBe(true);
-        expect(existsSync(join(cwd2, "mote-agent"))).toBe(false); // nothing lands in the CWD
+        expect(existsSync(join(dest, "subshell"))).toBe(true);
+        expect(existsSync(join(cwd2, "subshell"))).toBe(false); // nothing lands in the CWD
       } finally {
         rmSync(work, { recursive: true, force: true });
       }

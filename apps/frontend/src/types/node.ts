@@ -45,7 +45,7 @@ export interface Node {
   status: NodeStatus;
   /** ISO 8601 of the last heartbeat/ready, null when never seen */
   lastSeenAt: string | null;
-  /** mote-agent version from `ready`, null until first ready */
+  /** subshell version from `ready`, null until first ready */
   agentVersion: string | null;
   /** Node protocol version from `ready`, null until first ready — compare against `NODE_PROTOCOL_VERSION` to spot an agent too old to speak to this control plane */
   protocolVersion: number | null;

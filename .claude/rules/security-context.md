@@ -122,7 +122,7 @@ shares and session shares are two independent axes:
   when the `local` node row itself is created, never to "repair" a deliberate
   removal. The row then vanishes from non-admin views like any invisible node —
   no separate flag exists to drift out of sync with it.
-- **Agent artifacts are never anonymous.** Prebuilt `mote-agent` binaries and
+- **Agent artifacts are never anonymous.** Prebuilt `subshell` binaries and
   their `.sha256` digests (`GET /api/downloads/node/*`) require a signed-in
   session cookie OR a valid unconsumed setup key; `GET /install.sh` renders a
   usage script for an invalid/absent key (it is never a binary oracle), and the

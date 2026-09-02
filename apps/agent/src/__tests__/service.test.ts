@@ -8,9 +8,9 @@ import { execLine, installService, type ServiceDeps, uninstallService } from "..
  * unit/plist templates and the exact service-manager command sequences.
  */
 const HOME = "/home/tester";
-const UNIT = join(HOME, ".config", "systemd", "user", "mote-agent.service");
+const UNIT = join(HOME, ".config", "systemd", "user", "subshell.service");
 const PLIST = join(HOME, "Library", "LaunchAgents", "dev.mote.agent.plist");
-const LOG = join(HOME, "Library", "Logs", "mote-agent.log");
+const LOG = join(HOME, "Library", "Logs", "subshell.log");
 
 /** What a stubbed runCmd answers per invocation (default: success, silent). */
 type Responder = (cmd: string[]) => { code: number; out: string; err: string };
@@ -34,7 +34,7 @@ function stub(over: Partial<ServiceDeps> & { respond?: Responder } = {}): Stub {
     platform: "linux",
     home: HOME,
     uid: 1000,
-    execPath: "/usr/local/bin/mote-agent",
+    execPath: "/usr/local/bin/subshell",
     argv1: "/repo/apps/agent/src/main.ts",
     hasConfig: async () => true,
     runCmd: async (cmd) => {
@@ -57,9 +57,9 @@ function stub(over: Partial<ServiceDeps> & { respond?: Responder } = {}): Stub {
 const msgLine = (err: string) => err.split("\n")[0] ?? "";
 
 describe("execLine", () => {
-  test("compiled binary (basename starts with mote-agent) runs itself + run", () => {
-    expect(execLine({ execPath: "/opt/bin/mote-agent", argv1: "/ignored/main.ts" })).toEqual([
-      "/opt/bin/mote-agent",
+  test("compiled binary (basename starts with subshell) runs itself + run", () => {
+    expect(execLine({ execPath: "/opt/bin/subshell", argv1: "/ignored/main.ts" })).toEqual([
+      "/opt/bin/subshell",
       "run",
     ]);
   });
@@ -89,14 +89,14 @@ describe("installService — linux (systemd user unit)", () => {
     expect(res.code).toBe(0);
     const unit = s.files.get(UNIT);
     expect(unit).toBeDefined();
-    expect(unit).toInclude("Description=mote-agent (mote node daemon)");
-    expect(unit).toInclude("ExecStart=/usr/local/bin/mote-agent run");
+    expect(unit).toInclude("Description=subshell (mote node daemon)");
+    expect(unit).toInclude("ExecStart=/usr/local/bin/subshell run");
     expect(unit).toInclude("Restart=always");
     expect(unit).toInclude("RestartSec=5");
 
     expect(s.calls).toEqual([
       ["systemctl", "--user", "daemon-reload"],
-      ["systemctl", "--user", "enable", "--now", "mote-agent.service"],
+      ["systemctl", "--user", "enable", "--now", "subshell.service"],
     ]);
     expect(res.out).toInclude("loginctl enable-linger");
   });
@@ -134,7 +134,7 @@ describe("installService — macOS (launchd agent)", () => {
     expect(plist).toInclude("<string>dev.mote.agent</string>");
     expect(plist).toInclude("<key>KeepAlive</key>");
     expect(plist).toInclude("<key>RunAtLoad</key>");
-    expect(plist).toInclude("<string>/usr/local/bin/mote-agent</string>");
+    expect(plist).toInclude("<string>/usr/local/bin/subshell</string>");
     expect(plist).toInclude("<string>run</string>");
     expect(plist.split(LOG).length - 1).toBe(2); // StandardOutPath AND StandardErrorPath
     expect(plist).toInclude("<key>StandardOutPath</key>");
@@ -180,7 +180,7 @@ describe("installService — guards", () => {
 
     expect(res.code).toBe(1);
     expect(msgLine(res.err)).toInclude("win32");
-    expect(msgLine(res.err)).toInclude("mote-agent run");
+    expect(msgLine(res.err)).toInclude("subshell run");
     expect(s.files.size).toBe(0);
     expect(s.calls.length).toBe(0);
   });
@@ -190,7 +190,7 @@ describe("installService — guards", () => {
     const res = await installService(s.deps);
 
     expect(res.code).toBe(1);
-    expect(res.err).toInclude("no config found — run mote-agent enroll first");
+    expect(res.err).toInclude("no config found — run subshell enroll first");
     expect(s.files.size).toBe(0);
     expect(s.calls.length).toBe(0);
   });
@@ -204,7 +204,7 @@ describe("uninstallService — linux", () => {
     const res = await uninstallService(s.deps);
     expect(res.code).toBe(0);
     expect(s.calls).toEqual([
-      ["systemctl", "--user", "disable", "--now", "mote-agent.service"],
+      ["systemctl", "--user", "disable", "--now", "subshell.service"],
       ["systemctl", "--user", "daemon-reload"],
     ]);
     expect(s.removed).toEqual([UNIT]);
@@ -254,7 +254,7 @@ describe("uninstallService — guards", () => {
     const res = await uninstallService(s.deps);
     expect(res.code).toBe(0);
     expect(s.calls).toEqual([
-      ["systemctl", "--user", "disable", "--now", "mote-agent.service"],
+      ["systemctl", "--user", "disable", "--now", "subshell.service"],
       ["systemctl", "--user", "daemon-reload"],
     ]);
     expect(s.removed).toEqual([UNIT]);
@@ -285,7 +285,7 @@ describe("unit/plist environment hardening (final-review minors)", () => {
   test("clean paths stay byte-identical (no gratuitous quoting)", async () => {
     const s = stub();
     await installService(s.deps);
-    expect(s.files.get(UNIT) ?? "").toInclude("ExecStart=/usr/local/bin/mote-agent run");
+    expect(s.files.get(UNIT) ?? "").toInclude("ExecStart=/usr/local/bin/subshell run");
   });
 
   test("servicePath bakes Environment=PATH= before ExecStart; absent → no line (historical byte-exact)", async () => {

@@ -4,7 +4,7 @@
 # Shaped like the GitHub Actions runner's svc.sh: this script generates the
 # unit file at install time and wraps systemctl around it.
 #
-#   ./svc.sh install     write ~/.config/systemd/user/mote.service + enable
+#   ./svc.sh install     write ~/.config/systemd/user/subshell-server.service + enable
 #   ./svc.sh uninstall   stop, disable and remove the unit
 #   ./svc.sh start|stop|restart|status
 #
@@ -13,7 +13,7 @@
 # data dir (~/.config/mote) so accounts, sessions and logs carry over.
 set -euo pipefail
 
-SERVICE=mote
+SERVICE=subshell-server
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT_PATH="$UNIT_DIR/$SERVICE.service"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ write_unit() {
   mkdir -p "$UNIT_DIR"
   cat >"$UNIT_PATH" <<UNIT
 [Unit]
-Description=mote — agent harness manager (host service)
+Description=subshell-server — agent harness manager (host service)
 After=network-online.target
 Wants=network-online.target
 

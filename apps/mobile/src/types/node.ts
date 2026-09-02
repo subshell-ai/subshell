@@ -32,7 +32,7 @@ export interface Node {
   status: NodeStatus;
   /** The caller's effective access; ANY visible node grants launch (spec §2) */
   access: NodeAccess;
-  /** mote-agent version from `ready`, null until first ready */
+  /** subshell version from `ready`, null until first ready */
   agentVersion: string | null;
   /** Node protocol version from `ready`, null until first ready */
   protocolVersion: number | null;

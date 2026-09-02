@@ -122,7 +122,7 @@ test("nodes: Local renders online; Add-node mints a setup key + install command"
 
 /**
  * Phase 3 (spec 2026-08-31 §6.6/§9/§11): the first automated REAL-protocol
- * remote launch. A real `mote-agent` (spawned from source via
+ * remote launch. A real `subshell` (spawned from source via
  * `e2e/stub/agent.ts` — no compiled binary, plan deviation #1) redeems a
  * setup key minted through the Add-node dialog, holds the signed node socket,
  * and hosts a session launched from the browser: online → inventory → chips

@@ -215,7 +215,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
     const { api } = fakeApi(() => [{ id: "prof-1", name: "Dev", harnessId: "claude-code" }]);
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
     await expect(createSession(deps, { profile: "nope", workingDir: "/tmp" })).rejects.toThrow(
-      /no profile named 'nope'.*mote_list_profiles/,
+      /no profile named 'nope'.*list_profiles/,
     );
   });
 

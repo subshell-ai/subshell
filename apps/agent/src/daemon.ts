@@ -26,7 +26,7 @@ import { SessionMetaStore } from "./session-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
 /**
- * `mote-agent run` — the signed-frame execution loop (spec 2026-08-31 §7).
+ * `subshell run` — the signed-frame execution loop (spec 2026-08-31 §7).
  *
  * Direction of trust: the socket is authenticated by the bearer node key at
  * upgrade (so outbound events are unsigned — §3.3), while every inbound
@@ -158,7 +158,7 @@ function parsePinnedKey(serialized: string): JsonWebKey {
   try {
     return JSON.parse(serialized) as JsonWebKey;
   } catch {
-    throw new Error("pinned control key in the config is not valid JSON — re-run mote-agent enroll to repin it");
+    throw new Error("pinned control key in the config is not valid JSON — re-run subshell enroll to repin it");
   }
 }
 
@@ -182,8 +182,8 @@ function jtiOfUnverified(jws: string): string | undefined {
 }
 
 /**
- * Capability gate for the `mote-agent mcp` subcommand — shipped since Task 13
- * (the `@internal/mcp-core` server behind `mote-agent mcp`), so this build advertises `mcp`
+ * Capability gate for the `subshell mcp` subcommand — shipped since Task 13
+ * (the `@internal/mcp-core` server behind `subshell mcp`), so this build advertises `mcp`
  * alongside `uploads` in `readyEvent` and the control plane registers the
  * per-session MCP config for launches on this node. The constant is the kill
  * switch: flip it false (with the command removed from `cli.ts`) and the
@@ -204,7 +204,7 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     // Phase 2 (Task 4): the capability set advertises the phase-2 command
     // surface. `uploads` names the terminal-upload relay pipeline; `mcp`
     // (HAS_MCP, shipped in Task 13) is what lets the control plane register
-    // `mote-agent mcp` for sessions launched here.
+    // `subshell mcp` for sessions launched here.
     capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
     // Task 1's additive field: the control plane composes the MCP launch spec
     // against this path (the agent re-runs the dialect locally regardless —
@@ -222,7 +222,7 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
  * (1000) when one is attached, and aborting the backoff sleep within 250 ms when one is
  * not, so the first Ctrl-C always wins. Never resolves otherwise.
  *
- * Local liveness contract with `mote-agent status`: a `daemon.lock` ({pid, startedAt,
+ * Local liveness contract with `subshell status`: a `daemon.lock` ({pid, startedAt,
  * nodeId, lastTickAt}) is written under the agent home at startup, refreshed on every
  * heartbeat tick, and removed on every exit path — so `status` never needs to dial.
  *
@@ -292,7 +292,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   // stays harmless: effects key by jti and the idempotence map spans reconnects.
   let execChain: Promise<void> = Promise.resolve();
 
-  // Local-liveness lock for `mote-agent status` (fix wave 1). Best-effort: a home that
+  // Local-liveness lock for `subshell status` (fix wave 1). Best-effort: a home that
   // cannot hold the file degrades `status`, never the daemon.
   const startedAt = new Date(nowMs()).toISOString();
   const writeLiveness = (): void => {
@@ -543,13 +543,13 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
         log(
-          `another mote-agent is already registered as node '${config.nodeId}' (close 4409) — exiting; stop the duplicate agent first`,
+          `another subshell is already registered as node '${config.nodeId}' (close 4409) — exiting; stop the duplicate agent first`,
         );
         stop(1);
       }
       if (close.code === NODE_CLOSE_UPDATE_REQUIRED) {
         log(
-          `the control plane rejected protocol v${NODE_PROTOCOL_VERSION} (close 4406) — a newer mote-agent is required; exiting`,
+          `the control plane rejected protocol v${NODE_PROTOCOL_VERSION} (close 4406) — a newer subshell is required; exiting`,
         );
         stop(1);
       }
@@ -583,9 +583,9 @@ export interface OnlineProbeDeps {
  * the open completed inside the cap. Then close with 1000.
  *
  * NOTE (destructive by design): the control plane's registry attaches at OPEN
- * and is newest-wins, so probing while `mote-agent run` is live on this node
+ * and is newest-wins, so probing while `subshell run` is live on this node
  * supersede-kicks the running agent (it treats 4409 as terminal). That is why
- * `mote-agent status` calls this ONLY on the explicit `--probe` opt-in (fix
+ * `subshell status` calls this ONLY on the explicit `--probe` opt-in (fix
  * wave 1); its default path reads the local `daemon.lock` and never dials. A
  * REST-based `status` reading the node row remains the phase-2 upgrade — see
  * the task report.

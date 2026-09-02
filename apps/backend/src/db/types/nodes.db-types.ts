@@ -38,7 +38,7 @@ export interface NodeTable {
   status: NodeStatus;
   /** ISO 8601 of the last heartbeat/ready */
   lastSeenAt: string | null;
-  /** mote-agent version from `ready` */
+  /** subshell version from `ready` */
   agentVersion: string | null;
   /** Node protocol version from `ready` */
   protocolVersion: number | null;

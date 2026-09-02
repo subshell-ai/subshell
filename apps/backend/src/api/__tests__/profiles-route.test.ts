@@ -19,7 +19,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 /**
  * Profile WRITES (POST /, PUT /:id, DELETE /:id) are cookie-only; reads stay
  * open to every authenticated actor (the agent toolset only ever GETs the
- * list — mote_list_profiles).
+ * list — list_profiles).
  *
  * The regression these pin: a bearer key could create/update/delete the
  * owner's profiles, and profile.env OUTRANKS the MOTE_* credential layer when
@@ -128,7 +128,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
     expect(Array.isArray(await res.json())).toBe(true);
   });
 
-  // F2 (security audit 2026-08): reads stay open for mote_list_profiles, but
+  // F2 (security audit 2026-08): reads stay open for list_profiles, but
   // profile.env is secret storage — a bearer key must never harvest it. The
   // MCP tool projects rows to {id,name,harnessId} client-side, so redacting
   // envJson to null cannot break it. flagsJson/settingsJson are NOT secret

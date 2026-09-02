@@ -32,7 +32,7 @@ const EnrollBodySchema = t.Object({
     description: "CPU architecture reported by the agent (e.g. x64, arm64)",
   }),
   hostname: t.String({ minLength: 1, maxLength: 128, description: "Machine hostname reported by the agent" }),
-  agentVersion: t.String({ minLength: 1, maxLength: 32, description: "mote-agent version reporting in" }),
+  agentVersion: t.String({ minLength: 1, maxLength: 32, description: "subshell version reporting in" }),
   publicKey: t.String({
     minLength: 16,
     maxLength: 2048,

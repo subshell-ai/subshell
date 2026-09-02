@@ -179,7 +179,7 @@ export type NodeEvent =
       dataDir: string;
       capabilities: string[];
       /**
-       * Absolute path of the running mote-agent binary on the node; the
+       * Absolute path of the running subshell binary on the node; the
        * control plane composes the MCP launch spec against it. Absent from
        * pre-phase-2 agents.
        */

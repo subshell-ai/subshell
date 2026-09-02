@@ -71,8 +71,8 @@ export const NodeViewSchema = t.Object({
   lastSeenAt: t.Nullable(t.String({ description: "ISO 8601 of the last heartbeat/ready" }), {
     description: "ISO 8601 of the last heartbeat/ready, null when never seen",
   }),
-  agentVersion: t.Nullable(t.String({ description: "mote-agent version from `ready`" }), {
-    description: "mote-agent version, null until first ready",
+  agentVersion: t.Nullable(t.String({ description: "subshell version from `ready`" }), {
+    description: "subshell version, null until first ready",
   }),
   protocolVersion: t.Nullable(t.Number({ description: "Node protocol version from `ready`" }), {
     description: "Node protocol version, null until first ready (the UI's agent-too-old check, spec §9)",

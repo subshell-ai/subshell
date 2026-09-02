@@ -69,7 +69,7 @@ describe("service subtoken parsing", () => {
 });
 
 describe("missing required flags", () => {
-  /** The `mote-agent: …` line only — exit 2 always appends the full usage block. */
+  /** The `subshell: …` line only — exit 2 always appends the full usage block. */
   const msgLine = (err: string) => err.split("\n")[0] ?? "";
 
   test("names exactly the missing flag(s), not the full required set", async () => {

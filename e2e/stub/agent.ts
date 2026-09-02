@@ -33,7 +33,7 @@ export interface StartAgentOptions {
   server?: string;
 }
 
-/** A live `mote-agent run` daemon + its operator-facing surface. */
+/** A live `subshell run` daemon + its operator-facing surface. */
 export interface RunningAgent {
   /** The detached daemon — its pid IS its process-group id. */
   readonly child: ChildProcessByStdio<null, Readable, Readable>;
@@ -67,11 +67,11 @@ async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ cod
     child.stderr.on("data", (d: Buffer) => (out += d.toString()));
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`mote-agent ${args[0]} timed out after 60 s\n--- agent output ---\n${out}`));
+      reject(new Error(`subshell ${args[0]} timed out after 60 s\n--- agent output ---\n${out}`));
     }, 60_000);
     child.once("error", (err) => {
       clearTimeout(timer);
-      reject(new Error(`cannot spawn mote-agent ${args[0]}: ${err.message}`));
+      reject(new Error(`cannot spawn subshell ${args[0]}: ${err.message}`));
     });
     child.once("close", (code) => {
       clearTimeout(timer);
@@ -81,8 +81,8 @@ async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ cod
 }
 
 /**
- * Enroll + run a REAL mote-agent from source (the Phase-3 stand-in for
- * `curl …/install.sh | bash && mote-agent run`): `enroll` is a one-shot that
+ * Enroll + run a REAL subshell from source (the Phase-3 stand-in for
+ * `curl …/install.sh | bash && subshell run`): `enroll` is a one-shot that
  * must exit 0, `run` is the long-lived daemon — spawned `detached` into its
  * own process group so {@link RunningAgent.stop} can SIGTERM the whole tree
  * (bun forks; the tmux servers it daemonises escape the group and are the
@@ -95,7 +95,7 @@ export async function startAgent(o: StartAgentOptions): Promise<RunningAgent> {
     env,
   );
   if (enroll.code !== 0) {
-    throw new Error(`mote-agent enroll exited ${enroll.code}\n--- agent output ---\n${enroll.out}`);
+    throw new Error(`subshell enroll exited ${enroll.code}\n--- agent output ---\n${enroll.out}`);
   }
 
   const child = spawn("bun", [AGENT_MAIN, "run"], { detached: true, env, stdio: ["ignore", "pipe", "pipe"] });

@@ -84,7 +84,7 @@ const readyFrame = (over: Record<string, unknown> = {}) => ({
   os: "linux",
   arch: "x64",
   hostname: "box",
-  dataDir: "/home/u/.local/share/mote-agent",
+  dataDir: "/home/u/.local/share/subshell",
   capabilities: ["uploads"],
   ...over,
 });
@@ -164,14 +164,14 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
 
-    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ executablePath: "/usr/local/bin/mote-agent" })));
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ executablePath: "/usr/local/bin/subshell" })));
 
     expect(conn.agent).toEqual({
-      dataDir: "/home/u/.local/share/mote-agent",
+      dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
       agentVersion: "0.1.0",
-      executablePath: "/usr/local/bin/mote-agent",
+      executablePath: "/usr/local/bin/subshell",
     });
   });
 
@@ -185,7 +185,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
     await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
 
     expect(conn.agent).toEqual({
-      dataDir: "/home/u/.local/share/mote-agent",
+      dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
       agentVersion: "0.1.0",

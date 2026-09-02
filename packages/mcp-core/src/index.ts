@@ -1,6 +1,6 @@
 /**
  * `@internal/mcp-core` — the `mote mcp` stdio server implementation, shared by
- * the backend's `mote-mcp` binary and the agent's `mote-agent mcp` subcommand
+ * the backend's `mote-mcp` binary and the agent's `subshell mcp` subcommand
  * (the TmuxRunner precedent: extracted so both apps consume one copy).
  *
  * The tree is deliberately self-contained: it speaks the pane-env contract

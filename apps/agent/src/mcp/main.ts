@@ -1,7 +1,7 @@
 import { readMcpEnv, runMoteMcp } from "@internal/mcp-core";
 
 /**
- * `runAgentMcp` — the `mote-agent mcp` entry: the `mote mcp` stdio server
+ * `runAgentMcp` — the `subshell mcp` entry: the `mote mcp` stdio server
  * running INSIDE the compiled agent binary (spec §6.4), so a session launched
  * on an agent node gets the same cross-session tools a local session has.
  *

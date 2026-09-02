@@ -140,7 +140,7 @@ async function startDaemon(
     nodeId: NODE_ID,
     nodeKey: NODE_KEY,
     controlPublicKey: JSON.stringify(keys.publicJwk),
-    dataDir: "/tmp/mote-agent-test-data",
+    dataDir: "/tmp/subshell-test-data",
     name: "test-node",
   };
   const exits: number[] = [];
@@ -268,7 +268,7 @@ test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derive
     nodeId: NODE_ID,
     nodeKey: NODE_KEY,
     controlPublicKey: JSON.stringify(keys.publicJwk),
-    dataDir: "/tmp/mote-agent-test-data",
+    dataDir: "/tmp/subshell-test-data",
     name: "test-node",
   };
 
@@ -505,7 +505,7 @@ test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
     nodeId: NODE_ID,
     nodeKey: "wrong-key",
     controlPublicKey: JSON.stringify(keys.publicJwk),
-    dataDir: "/tmp/mote-agent-test-data",
+    dataDir: "/tmp/subshell-test-data",
     name: "test-node",
   };
   const exits: number[] = [];
@@ -558,7 +558,7 @@ test("SIGINT during the backoff sleep: exits 0 inside the raised slice budget an
       nodeId: NODE_ID,
       nodeKey: NODE_KEY,
       controlPublicKey: JSON.stringify(keys.publicJwk),
-      dataDir: "/tmp/mote-agent-test-data",
+      dataDir: "/tmp/subshell-test-data",
       name: "test-node",
     },
     {

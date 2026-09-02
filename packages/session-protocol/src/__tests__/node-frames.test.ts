@@ -119,7 +119,7 @@ describe("parseNodeEvent", () => {
       os: "darwin",
       arch: "arm64",
       hostname: "mac-mini",
-      dataDir: "/Users/u/.local/share/mote-agent",
+      dataDir: "/Users/u/.local/share/subshell",
       capabilities: ["mcp"],
     });
     expect(ev?.type).toBe("ready");

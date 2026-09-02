@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { identityPath, loadOrCreateIdentity } from "../identity.js";
 
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "mote-agent-id-"));
+  return mkdtempSync(join(tmpdir(), "subshell-id-"));
 }
 
 test("first load creates a P-256 keypair at 0600 with a private-free public JWK", async () => {

@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { CliResult } from "./cli.js";
 
 /**
- * `mote-agent service install|uninstall` — background the daemon with the
+ * `subshell service install|uninstall` — background the daemon with the
  * platform's per-user service manager: a systemd **user** unit on Linux, a
  * launchd agent plist on macOS. Nothing here shells out at import time; every
  * effect flows through {@link ServiceDeps} so the unit tests stub the manager
@@ -43,23 +43,23 @@ export interface ServiceDeps {
 }
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
-export const SYSTEMD_UNIT_NAME = "mote-agent.service";
+export const SYSTEMD_UNIT_NAME = "subshell.service";
 /** launchd label (plist: `~/Library/LaunchAgents/<label>.plist`). */
 export const LAUNCHD_LABEL = "dev.mote.agent";
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
-const launchLogPath = (home: string) => join(home, "Library", "Logs", "mote-agent.log");
+const launchLogPath = (home: string) => join(home, "Library", "Logs", "subshell.log");
 
 /**
  * The argv the service manager should run. Compiled binary (basename starts
- * with `mote-agent`): the binary itself plus `run`. Dev/interpreter launch
+ * with `subshell`): the binary itself plus `run`. Dev/interpreter launch
  * (`bun src/main.ts`): interpreter + the resolved script path + `run` — a bare
  * relative `argv1` would break the moment the manager starts us from another
  * cwd, so it is resolved at install time.
  */
 export function execLine(deps: Pick<ServiceDeps, "execPath" | "argv1">): string[] {
-  if (basename(deps.execPath).startsWith("mote-agent")) return [deps.execPath, "run"];
+  if (basename(deps.execPath).startsWith("subshell")) return [deps.execPath, "run"];
   return [deps.execPath, resolve(deps.argv1), "run"];
 }
 
@@ -89,7 +89,7 @@ function systemdUnit(exec: string, pathEnv?: string): string {
   // runtime agreeing. Omitted when absent → the historical byte-exact unit.
   const environment = pathEnv ? `Environment=PATH=${systemdQuote(pathEnv)}\n` : "";
   return `[Unit]
-Description=mote-agent (mote node daemon)
+Description=subshell (mote node daemon)
 After=network-online.target
 Wants=network-online.target
 
@@ -106,7 +106,7 @@ WantedBy=default.target
 const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** launchd plist body: keep-alive agent logging to ~/Library/Logs/mote-agent.log. */
+/** launchd plist body: keep-alive agent logging to ~/Library/Logs/subshell.log. */
 function launchdPlist(args: string[], logPath: string, pathEnv?: string): string {
   const argLines = args.map((a) => `\t\t<string>${xmlEscape(a)}</string>`).join("\n");
   // launchd also starts agents with a stock PATH, so a Homebrew tmux
@@ -139,7 +139,7 @@ ${envBlock}\t<key>RunAtLoad</key>
 `;
 }
 
-const errLine = (msg: string): CliResult => ({ code: 1, out: "", err: `mote-agent: ${msg}\n` });
+const errLine = (msg: string): CliResult => ({ code: 1, out: "", err: `subshell: ${msg}\n` });
 
 /** Collapse command stderr into one quotable line (trailing newline, no blank runs). */
 const oneLine = (s: string): string => s.trim().replace(/\s*\n\s*/g, " ");
@@ -148,11 +148,11 @@ const oneLine = (s: string): string => s.trim().replace(/\s*\n\s*/g, " ");
 const cmdDetail = (r: { out: string; err: string }): string => oneLine(r.err) || oneLine(r.out) || "no output";
 
 /** Install refuses to touch the machine before the node is enrolled; uninstall deliberately does NOT (see {@link uninstallService}). */
-const NO_CONFIG = "no config found — run mote-agent enroll first";
+const NO_CONFIG = "no config found — run subshell enroll first";
 
 const unsupported = (action: string, platform: string): string =>
   `service ${action} is not supported on '${platform}' — no per-user service manager here; ` +
-  "run `mote-agent run` in a terminal (e.g. inside tmux/screen) to keep the daemon up for now";
+  "run `subshell run` in a terminal (e.g. inside tmux/screen) to keep the daemon up for now";
 
 /**
  * Install the per-user service and start it. Linux: write the unit, then
@@ -185,7 +185,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     return {
       code: 0,
       out:
-        `Installed ${path} — mote-agent is enabled and running.\n` +
+        `Installed ${path} — subshell is enabled and running.\n` +
         "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n",
       err: "",
     };
@@ -206,7 +206,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
         `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)} — ` + `the plist was left at ${path}`,
       );
     }
-    return { code: 0, out: `Installed ${path} — mote-agent is registered with launchd and running.\n`, err: "" };
+    return { code: 0, out: `Installed ${path} — subshell is registered with launchd and running.\n`, err: "" };
   }
 
   return errLine(unsupported("install", deps.platform));
@@ -246,7 +246,7 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
     }
     return {
       code: 0,
-      out: `Removed ${path} — mote-agent is stopped and no longer starts on login.\n${noConfigNote}`,
+      out: `Removed ${path} — subshell is stopped and no longer starts on login.\n${noConfigNote}`,
       err: "",
     };
   }
@@ -265,7 +265,7 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
     }
     return {
       code: 0,
-      out: `Removed ${path} — mote-agent is unloaded and no longer starts on login.\n${noConfigNote}`,
+      out: `Removed ${path} — subshell is unloaded and no longer starts on login.\n${noConfigNote}`,
       err: "",
     };
   }

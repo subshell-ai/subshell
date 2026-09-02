@@ -15,7 +15,7 @@ describe("createSessionErrorMessage", () => {
   it("turns a 409 NODE_OFFLINE into the actionable node line", () => {
     const err = new ApiError(409, "Node is offline", { code: "NODE_OFFLINE", errId: "e1" });
     expect(createSessionErrorMessage(err, "Failed to create session")).toBe(
-      "That node is offline — start its mote-agent or pick another node.",
+      "That node is offline — start its subshell or pick another node.",
     );
   });
 

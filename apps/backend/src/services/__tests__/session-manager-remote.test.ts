@@ -101,7 +101,7 @@ describe("manager createSession on an agent node (test launcher wins for all nod
       // file was written, and the path is composed from the node's own dataDir.
       expect(plan.mcpConfigPath).toBe(`/node-data/mcp/${created.id}.json`);
       expect(plan.mcp).toBeDefined();
-      expect(plan.mcp?.fileContent).toContain("/usr/bin/mote-agent");
+      expect(plan.mcp?.fileContent).toContain("/usr/bin/subshell");
       expect(plan.mcp?.fileContent).toContain('"mcp"');
       // sessionMcpEnv bakes the BACKEND's SESSION_DATA_DIR — meaningless on
       // the node; the manager must override it with the agent's dataDir.

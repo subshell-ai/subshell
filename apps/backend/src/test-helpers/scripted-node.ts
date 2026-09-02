@@ -70,7 +70,7 @@ export interface ScriptedNode {
 }
 
 /** The scripted agent's self-reported dataDir — every composed path hangs off it. */
-export const SCRIPTED_DATA_DIR = "/home/scripted/.mote-agent";
+export const SCRIPTED_DATA_DIR = "/home/scripted/.subshell";
 
 /** Defaults for the `ready`-stashed facts; override per test via `over`. */
 const DEFAULT_FACTS: NodeAgentFacts = {
@@ -79,7 +79,7 @@ const DEFAULT_FACTS: NodeAgentFacts = {
   capabilities: ["uploads", "mcp"],
   hostname: "scripted",
   agentVersion: "0.2.0",
-  executablePath: "/usr/bin/mote-agent",
+  executablePath: "/usr/bin/subshell",
 };
 
 /** The always-ok answer for no-data commands (launch, kill, remove_paths, …). */

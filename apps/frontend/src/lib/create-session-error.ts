@@ -21,7 +21,7 @@ import { ApiError, errMessage } from "@/lib/api";
 export function createSessionErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     if (err.code === BackendErrorCodes.NODE_OFFLINE) {
-      return "That node is offline — start its mote-agent or pick another node.";
+      return "That node is offline — start its subshell or pick another node.";
     }
     if (err.code === BackendErrorCodes.NODE_UNREACHABLE) {
       return "The node did not answer — try again shortly.";

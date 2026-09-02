@@ -1,6 +1,6 @@
 # Agent AGENTS.md
 
-App-specific documentation for `mote-agent` (`@internal/agent`) — the node
+App-specific documentation for `subshell` (`@internal/agent`) — the node
 daemon: it enrolls with the control plane, holds the `/ws/node` socket, and
 executes signed commands (launch/tmux/fs) as the invoking user on its machine.
 Design: `docs/superpowers/specs/2026-08-31-nodes-design.md` §7 + the Phase-3
@@ -10,7 +10,7 @@ distribution design beside it. Architecture-role prose: `docs/architecture.md` �
 
 ```bash
 bun run build            # tsdown lib build → dist/index.js|.d.ts (what turbo runs)
-bun run compile          # single-file DEV binary ./dist/mote-agent (host only, --bytecode)
+bun run compile          # single-file DEV binary ./dist/subshell (host only, --bytecode)
 bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:agent`)
 bun run test             # bun test
 bun run verify-types     # tsc --noEmit
@@ -24,7 +24,7 @@ bun run verify-types     # tsc --noEmit
   contract) and all-or-nothing (a failed target publishes NOTHING). Destination:
   `MOTE_NODE_ARTIFACTS_DIR`, else `<SESSION_DATA_DIR>/node-artifacts` (a
   documented duplicate of the backend's default in `apps/backend/src/constants.ts`).
-- **`turbo build` wipes the compiled `dist/mote-agent`** (shared `dist/` with
+- **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
   the tsdown output) — re-create with `cd apps/agent && bun run compile`.
 - Workspace deps (`harnesses`, `session-protocol`, `mcp-core`, `backend-errors`):
   the compiled binary BUNDLES their dists, so `turbo build` must run first —
@@ -34,24 +34,24 @@ bun run verify-types     # tsc --noEmit
 ## CLI (`src/cli.ts` — hand-rolled parser, no flag library)
 
 ```
-mote-agent enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
-mote-agent run                       # foreground daemon (what the service unit runs)
-mote-agent service install|uninstall # systemd user unit / launchd agent
-mote-agent status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
+subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
+subshell run                       # foreground daemon (what the service unit runs)
+subshell service install|uninstall # systemd user unit / launchd agent
+subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
-mote-agent mcp                       # stdio MCP server for a session pane (internal;
+subshell mcp                       # stdio MCP server for a session pane (internal;
                                      # configured purely by the MOTE_* pane env)
-mote-agent version
+subshell version
 ```
 
 `service install` refuses without an enrolled config; `service uninstall`
 deliberately does NOT (a deleted config is the de-facto unenroll — an enabled
-unit must stay removable). Linux: `~/.config/systemd/user/mote-agent.service`
+unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`
 (`Restart=always`) + `systemctl --user enable --now`; success prints the
 linger hint (`loginctl enable-linger $USER` keeps the daemon across logout).
 macOS: `~/Library/LaunchAgents/dev.mote.agent.plist` (KeepAlive, log at
-`~/Library/Logs/mote-agent.log`) + `launchctl bootstrap gui/<uid>`. Other
-platforms: explicit refusal pointing at `mote-agent run` inside tmux/screen.
+`~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. Other
+platforms: explicit refusal pointing at `subshell run` inside tmux/screen.
 The unit/plist bake the installing shell's `PATH` (`Environment=PATH=` /
 `EnvironmentVariables`) so a Homebrew/Nix tmux that passed the enroll preflight
 is still found when the service manager — which starts units with a stock PATH —
@@ -73,7 +73,7 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
 
 ## On disk
 
-- **Agent home** — `~/.config/mote-agent`, override `MOTE_AGENT_HOME` (tests
+- **Agent home** — `~/.config/subshell-agent`, override `MOTE_AGENT_HOME` (tests
   use it): `config.json` (0600 — the nodeKey's ONLY home, never echoed by
   `status`, not even `--json`) and `daemon.lock` (local-liveness for `status`,
   refreshed on every 15 s heartbeat tick; observability only, never authority).
@@ -90,7 +90,7 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
 ## Testing
 
 `bunfig.toml` preloads `src/test-preload.ts`: `MOTE_AGENT_HOME` points at a
-throwaway temp dir (suites NEVER touch `~/.config/mote-agent`),
+throwaway temp dir (suites NEVER touch `~/.config/subshell-agent`),
 `MOTE_TEST_MODE=1`, and the tmux preflight is skipped (the tmux-absent refusal
 is covered explicitly by clearing the var). `src/scripts/release.ts` guards its
 CLI main behind `import.meta.main` so tests import the pure publish/build logic

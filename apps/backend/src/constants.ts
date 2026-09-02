@@ -107,9 +107,9 @@ export const SESSION_DATA_DIR = IS_TEST
   : resolve(env.get("SESSION_DATA_DIR").default(defaultSessionDataDir()).asString());
 
 /**
- * Directory `GET /api/downloads/node/*` serves the prebuilt `mote-agent`
- * binaries from (spec 2026-08-31 §8): files named `mote-agent-<target>`
- * (plus an optional `mote-agent-<target>.sha256` sidecar). The build pipeline
+ * Directory `GET /api/downloads/node/*` serves the prebuilt `subshell`
+ * binaries from (spec 2026-08-31 §8): files named `subshell-<target>`
+ * (plus an optional `subshell-<target>.sha256` sidecar). The build pipeline
  * that populates it is separate (e2e Task 16) — serving a directory that does
  * not exist yet is a plain 404, so no boot check.
  *

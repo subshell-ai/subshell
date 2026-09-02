@@ -71,31 +71,31 @@ export function describeToolError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
-/** `mote_list_channels` */
+/** `list_channels` */
 export async function listChannels(deps: ToolDeps): Promise<ChannelRow[]> {
   return (await deps.api.req<{ channels: ChannelRow[] }>("/api/channels")).channels;
 }
 
-/** `mote_create_channel` — creates and joins (the server auto-joins the creator). */
+/** `create_channel` — creates and joins (the server auto-joins the creator). */
 export async function createChannel(deps: ToolDeps, name: string): Promise<{ name: string }> {
   await deps.api.req<{ id: string }>("/api/channels", { method: "POST", body: { name } });
   return { name };
 }
 
-/** `mote_join_channel` */
+/** `join_channel` */
 export async function joinChannel(deps: ToolDeps, name: string): Promise<{ joined: boolean }> {
   await deps.api.req(`/api/channels/${encodeURIComponent(name)}/members`, { method: "POST" });
   return { joined: true };
 }
 
-/** `mote_channel_members` */
+/** `channel_members` */
 export async function channelMembers(deps: ToolDeps, name: string): Promise<Omit<MemberRow, "publicKey">[]> {
   const { members } = await deps.api.req<{ members: MemberRow[] }>(`/api/channels/${encodeURIComponent(name)}/members`);
   return members.map(({ principalId, addedAt }) => ({ principalId, addedAt }));
 }
 
 /**
- * `mote_post_channel` — seals `text` to every member that has a public key
+ * `post_channel` — seals `text` to every member that has a public key
  * (including the author, so their own history reads back) and appends.
  * Joins first when not already a member. Peer keys are TOFU-pinned before
  * sealing: a roster key that changed since a previous post throws rather
@@ -129,7 +129,7 @@ export async function postChannel(
 }
 
 /**
- * `mote_read_channel` — fetches visible (already recipient-filtered) posts
+ * `read_channel` — fetches visible (already recipient-filtered) posts
  * and opens them with this process's keypair. `wait_seconds` long-polls in
  * ≤50 s slices so no MCP client timeout can fire mid-wait. Envelopes that
  * fail to open are counted, not fatal (e.g. key rotated after they were sent).
@@ -190,23 +190,23 @@ interface ProfileRow {
   harnessId: string;
 }
 
-/** `mote_list_sessions` */
+/** `list_sessions` */
 export async function listSessions(deps: ToolDeps): Promise<SessionRow[]> {
   return await deps.api.req<SessionRow[]>("/api/sessions");
 }
 
-/** `mote_get_session` */
+/** `get_session` */
 export async function getSession(deps: ToolDeps, id: string): Promise<SessionRow> {
   return await deps.api.req<SessionRow>(`/api/sessions/${encodeURIComponent(id)}`);
 }
 
-/** `mote_list_profiles` */
+/** `list_profiles` */
 export async function listProfiles(deps: ToolDeps): Promise<ProfileRow[]> {
   const rows = await deps.api.req<ProfileRow[]>("/api/profiles");
   return rows.map(({ id, name, harnessId }) => ({ id, name, harnessId }));
 }
 
-/** `mote_create_session` — resolves the profile by NAME (ids are not shared context). */
+/** `create_session` — resolves the profile by NAME (ids are not shared context). */
 export async function createSession(
   deps: ToolDeps,
   args: { name?: string; profile: string; workingDir: string; prompt?: string },
@@ -214,7 +214,7 @@ export async function createSession(
   const profiles = await deps.api.req<ProfileRow[]>("/api/profiles");
   const match = profiles.find((p) => p.name.toLowerCase() === args.profile.toLowerCase());
   if (!match) {
-    throw new Error(`mote: no profile named '${args.profile}' — call mote_list_profiles for options`);
+    throw new Error(`mote: no profile named '${args.profile}' — call list_profiles for options`);
   }
   return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/sessions", {
     method: "POST",
@@ -222,15 +222,15 @@ export async function createSession(
   });
 }
 
-/** `mote_restart_session` */
+/** `restart_session` */
 export const restartSession = (deps: ToolDeps, id: string) =>
   deps.api.req(`/api/sessions/${encodeURIComponent(id)}/restart`, { method: "POST" });
-/** `mote_terminate_session` */
+/** `terminate_session` */
 export const terminateSession = (deps: ToolDeps, id: string) =>
   deps.api.req(`/api/sessions/${encodeURIComponent(id)}/terminate`, { method: "POST" });
-/** `mote_delete_session` */
+/** `delete_session` */
 export const deleteSession = (deps: ToolDeps, id: string) =>
   deps.api.req(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-/** `mote_update_session_notes` */
+/** `update_session_notes` */
 export const updateSessionNotes = (deps: ToolDeps, id: string, notes: string | null) =>
   deps.api.req(`/api/sessions/${encodeURIComponent(id)}/notes`, { method: "PATCH", body: { notes } });

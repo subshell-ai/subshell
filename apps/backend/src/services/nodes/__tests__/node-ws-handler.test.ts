@@ -116,7 +116,7 @@ const readyFrame = (over: Record<string, unknown> = {}) => ({
   os: "linux",
   arch: "x64",
   hostname: "box",
-  dataDir: "/home/u/.local/share/mote-agent",
+  dataDir: "/home/u/.local/share/subshell",
   capabilities: ["uploads"],
   ...over,
 });

@@ -321,7 +321,7 @@ apps/backend/src/
 └── db/migrations/0009-channels.ts   the six tables + sessions.api_key_id
 
 packages/mcp-core/src/         the `mote mcp` child implementation (shared with the
-                               agent's `mote-agent mcp`); imports NOTHING outside
+                               agent's `subshell mcp`); imports NOTHING outside
                                node builtins + jose + zod + @modelcontextprotocol/*
 ├── env.ts                 env contract consumer (mirror of mcp-launch's producer)
 ├── server.ts              boot + tool registration + AbortSignal plumbing (runMoteMcp)
@@ -377,7 +377,7 @@ two-process e2e in `src/__tests__/e2e-cross-session.test.ts`):
 
 A node is another machine that runs harnesses on the control plane's behalf
 ([spec](superpowers/specs/2026-08-31-nodes-design.md)). The daemon on it is
-`mote-agent` (`apps/agent`, see
+`subshell` (`apps/agent`, see
 [`apps/agent/AGENTS.md`](../apps/agent/AGENTS.md)); the control-plane side is
 `apps/backend/src/services/nodes/` + `api/nodes/`.
 
@@ -417,7 +417,7 @@ so the UI says "node unreachable", never "crashed". The agent's connect-time
 `sessions_report` re-projects panes that survived an agent restart so the
 control plane heals its rows.
 
-**Distribution.** Prebuilt `mote-agent` binaries live in `NODE_ARTIFACTS_DIR`
+**Distribution.** Prebuilt `subshell` binaries live in `NODE_ARTIFACTS_DIR`
 (`MOTE_NODE_ARTIFACTS_DIR`, default `<SESSION_DATA_DIR>/node-artifacts`) and
 are published by `bun run release:agent` from the repo root
 (`apps/agent/src/scripts/release.ts` — cross targets + bytecode host build,
@@ -433,7 +433,7 @@ the CWD, agent-default data dir). The Add-node dialog bakes the command from
 script embeds — and warns when that URL is loopback (a remote node would dial
 the wrong machine).
 
-**Background service.** `mote-agent service install|uninstall`
+**Background service.** `subshell service install|uninstall`
 (`apps/agent/src/service.ts`) writes a systemd **user** unit or a launchd
 agent (`dev.mote.agent`), self-referencing the running executable (compiled
 binary or `bun <entry>` in dev); on Linux the post-install hint is

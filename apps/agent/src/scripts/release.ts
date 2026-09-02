@@ -1,6 +1,6 @@
 /**
  * `bun run compile:release` — the operator-facing release pipeline for the
- * `mote-agent` binaries (design 2026-09-02 §1). Cross-compiles the four served
+ * `subshell` binaries (design 2026-09-02 §1). Cross-compiles the four served
  * targets plus a bytecode-optimised host build into `dist/release/`, digests
  * each with sha256, then publishes atomically (tmp + rename) into the same
  * directory `GET /api/downloads/node/*` serves (backend `NODE_ARTIFACTS_DIR`).
@@ -89,7 +89,7 @@ export function buildTargets(host: string | null = hostTriple()): BuildTarget[] 
  * risk #9, so the flags are mutually exclusive by construction here.
  * @param triple - platform triple to build
  * @param isHost - whether this is the host (bytecode, native-target) build
- * @param outDir - directory for the `mote-agent-<triple>` output file
+ * @param outDir - directory for the `subshell-<triple>` output file
  */
 export function buildArgs(triple: string, isHost: boolean, outDir: string): string[] {
   return [
@@ -100,7 +100,7 @@ export function buildArgs(triple: string, isHost: boolean, outDir: string): stri
     "./src/main.ts",
     ...(isHost ? [] : [`--target=bun-${triple}`]),
     "--outfile",
-    join(outDir, `mote-agent-${triple}`),
+    join(outDir, `subshell-${triple}`),
   ];
 }
 
@@ -134,7 +134,7 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
   for (const target of buildTargets()) {
     const code = await deps.runBuild(buildArgs(target.triple, target.isHost, deps.outDir));
     if (code !== 0) return { ok: false, failed: target.triple };
-    const path = join(deps.outDir, `mote-agent-${target.triple}`);
+    const path = join(deps.outDir, `subshell-${target.triple}`);
     try {
       artifacts.set(target.triple, { path, digest: await digestFile(path) });
     } catch {
@@ -163,7 +163,7 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
 export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, destDir: string): Promise<void> {
   await mkdir(destDir, { recursive: true });
   for (const [triple, { path, digest }] of artifacts) {
-    const dest = join(destDir, `mote-agent-${triple}`);
+    const dest = join(destDir, `subshell-${triple}`);
     const tmp = `${dest}.tmp-${process.pid}`;
     await copyFile(path, tmp);
     await rename(tmp, dest);
@@ -247,12 +247,14 @@ async function main(): Promise<void> {
 
   await publishArtifacts(result.artifacts, destDir);
 
-  process.stdout.write(`\npublished ${result.artifacts.size} mote-agent builds → ${destDir}\n\n`);
+  process.stdout.write(`\npublished ${result.artifacts.size} subshell builds → ${destDir}\n\n`);
   for (const [triple, { path, digest }] of result.artifacts) {
     const bytes = (await Bun.file(path).stat())?.size ?? 0;
-    process.stdout.write(`  mote-agent-${triple.padEnd(12)} ${String(bytes).padStart(12)} bytes  ${digest}\n`);
+    process.stdout.write(`  subshell-${triple.padEnd(12)} ${String(bytes).padStart(12)} bytes  ${digest}\n`);
   }
-  process.stdout.write("\nrestart `mote.service` to serve them: systemctl --user restart mote.service\n");
+  process.stdout.write(
+    "\nrestart `subshell-server.service` to serve them: systemctl --user restart subshell-server.service\n",
+  );
 }
 
 if (import.meta.main) {

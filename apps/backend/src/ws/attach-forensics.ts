@@ -96,7 +96,7 @@ export interface AttachPaintFacts {
 /**
  * Records one attach's paint: writes the forensics dump (when enabled) and
  * emits the verdict as a `ws attach` journal line, so the documented
- * `journalctl --user -u mote.service | grep "ws attach"` still finds
+ * `journalctl --user -u subshell-server.service | grep "ws attach"` still finds
  * everything about an attach in one place.
  *
  * The `repainted=`/`nudged=` pair is what makes the next "still garbled"

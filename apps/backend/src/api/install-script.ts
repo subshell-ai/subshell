@@ -12,7 +12,7 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
  */
 function usageScript(): string {
   return `#!/usr/bin/env bash
-# mote-agent installer — a valid one-time setup key is required (spec 2026-08-31 §5.1/§8).
+# subshell installer — a valid one-time setup key is required (spec 2026-08-31 §5.1/§8).
 set -euo pipefail
 
 echo "usage: curl -fsSL \\"${APP_BASE_URL}/install.sh?setup_key=SETUP_KEY\\" | bash" >&2
@@ -38,11 +38,11 @@ exit 2
  * no-shell-metacharacters property of this template.
  *
  * Install dest / data dir: the DEFAULT install keeps the pre-knob behavior
- * exactly — the binary lands in the invoking CWD (`./mote-agent`) and enroll
+ * exactly — the binary lands in the invoking CWD (`./subshell`) and enroll
  * runs WITHOUT `--data-dir`, so the agent keeps its own default data dir and
  * a stray `curl | bash` from $HOME (or anywhere) never relocates agent state.
  * The `MOTE_DATA_DIR` env knob OPTS into a relocated install: dest
- * `$MOTE_DATA_DIR/mote-agent`, installer-created dirs at 0700, and
+ * `$MOTE_DATA_DIR/subshell`, installer-created dirs at 0700, and
  * `enroll --data-dir "$MOTE_DATA_DIR"` so binary and state stay together —
  * `curl … | MOTE_DATA_DIR=/opt/mote bash` (`curl | bash` has no argv).
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
@@ -50,7 +50,7 @@ exit 2
 function renderInstallScript(key: string): string {
   if (!/^nsk_[A-Za-z0-9_-]{32}$/.test(key)) return usageScript();
   return `#!/usr/bin/env bash
-# mote-agent installer — rendered by mote for this instance (spec 2026-08-31 §8).
+# subshell installer — rendered by mote for this instance (spec 2026-08-31 §8).
 set -euo pipefail
 
 SERVER="${APP_BASE_URL}"
@@ -67,10 +67,10 @@ KEY="${key}"
 if [ -n "\${MOTE_DATA_DIR:-}" ]; then
   DATA_DIR="$MOTE_DATA_DIR"
   (umask 077; mkdir -p "$DATA_DIR")
-  DEST="$DATA_DIR/mote-agent"
+  DEST="$DATA_DIR/subshell"
   ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")
 else
-  DEST="./mote-agent"
+  DEST="./subshell"
   ENROLL_DATA_DIR_ARGS=()
 fi
 
@@ -79,7 +79,7 @@ fi
 # target. The [::1] arm stays quoted — unquoted it is a character class.
 case "$SERVER" in
   *://localhost*|*://127.*|*"://[::1]"*)
-    echo "mote-agent: WARNING — SERVER is a loopback address; a remote node" >&2
+    echo "subshell: WARNING — SERVER is a loopback address; a remote node" >&2
     echo "    must dial this machine's VPN/LAN address instead (Nodes page)." >&2
     ;;
 esac
@@ -92,12 +92,12 @@ case "$OS/$ARCH" in
   Darwin/x86_64)            TARGET="darwin-x64" ;;
   Darwin/arm64)             TARGET="darwin-arm64" ;;
   *)
-    echo "mote-agent: unsupported platform: $OS/$ARCH" >&2
+    echo "subshell: unsupported platform: $OS/$ARCH" >&2
     exit 1
     ;;
 esac
 
-echo "==> downloading mote-agent ($TARGET) from $SERVER"
+echo "==> downloading subshell ($TARGET) from $SERVER"
 curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
   --output "$DEST"
@@ -113,7 +113,7 @@ if command -v sha256sum >/dev/null 2>&1; then
 elif command -v shasum >/dev/null 2>&1; then
   shasum -a 256 -c "$DEST.sha256"
 else
-  echo "mote-agent: need sha256sum or shasum to verify the download" >&2
+  echo "subshell: need sha256sum or shasum to verify the download" >&2
   exit 1
 fi
 rm -f "$DEST.sha256"
@@ -171,7 +171,7 @@ export const installScriptRoute = new Elysia().get(
       operationId: "getInstallScript",
       tags: ["downloads"],
       description:
-        "Renders the mote-agent install script (text/plain) — with a valid setup_key it downloads, verifies and enrolls; without one it is a usage error exiting 2",
+        "Renders the subshell install script (text/plain) — with a valid setup_key it downloads, verifies and enrolls; without one it is a usage error exiting 2",
     },
   },
 );

@@ -127,7 +127,7 @@ services start without a login) is checked for you.
 
 ```bash
 turbo build            # fresh dist artifacts (prerequisite of install)
-./svc.sh install       # generate ~/.config/systemd/user/mote.service + enable
+./svc.sh install       # generate ~/.config/systemd/user/subshell-server.service + enable
 ./svc.sh start         # stop / restart / status / uninstall also exist
 ```
 

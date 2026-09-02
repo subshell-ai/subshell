@@ -164,7 +164,7 @@ describe("remote sessions over real routes (Task 14 lock-step)", () => {
       // Pure remote MCP plan (spec §6.4): the path composes under the FAKE
       // dataDir the scripted `ready` advertised, content ships inline.
       expect(launch.mcp?.path).toBe(`${SCRIPTED_DATA_DIR}/mcp/${id}.json`);
-      expect(launch.mcp?.fileContent).toContain("/usr/bin/mote-agent");
+      expect(launch.mcp?.fileContent).toContain("/usr/bin/subshell");
       // No local artifact write rode along — the content is the frame's.
       expect(sim.cmdTypes()).not.toContain("write_file");
       // Conversation pinned at start for later resume (claude-code has resume).

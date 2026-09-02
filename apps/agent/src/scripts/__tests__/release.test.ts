@@ -73,14 +73,14 @@ describe("buildArgs", () => {
     expect(args).toContain("--minify");
     expect(args).toContain("--target=bun-darwin-arm64");
     expect(args).toContain("./src/main.ts");
-    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "mote-agent-darwin-arm64")]);
+    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "subshell-darwin-arm64")]);
   });
 
   test("host build: adds --bytecode and omits --target entirely", () => {
     const args = buildArgs("linux-x64", true, "/tmp/out");
     expect(args.slice(0, 3)).toEqual(["build", "--compile", "--bytecode"]);
     expect(args.some((a) => a.startsWith("--target"))).toBe(false);
-    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "mote-agent-linux-x64")]);
+    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "subshell-linux-x64")]);
   });
 });
 
@@ -97,7 +97,7 @@ describe("buildAll", () => {
     const runBuild = async (args: string[]): Promise<number> => {
       calls.push(args);
       const outfile = args[args.indexOf("--outfile") + 1] as string;
-      if (failTriple && outfile.endsWith(`mote-agent-${failTriple}`)) return 1;
+      if (failTriple && outfile.endsWith(`subshell-${failTriple}`)) return 1;
       // The real main() mkdirs outDir before building; the stub mirrors that here.
       await mkdir(dirname(outfile), { recursive: true });
       await writeFile(outfile, `binary-bytes-for-${outfile}`);
@@ -127,7 +127,7 @@ describe("buildAll", () => {
     // target (the host build wins its triple), so 4 on all four arches.
     expect(result.artifacts.size).toBe(4);
     for (const [triple, artifact] of result.artifacts) {
-      expect(artifact.path).toBe(join(outDir, `mote-agent-${triple}`));
+      expect(artifact.path).toBe(join(outDir, `subshell-${triple}`));
       expect(artifact.digest).toBe(await digestFile(artifact.path)); // production hasher, not a mirror
       expect(artifact.digest).toMatch(/^[0-9a-f]{64}$/);
     }
@@ -154,7 +154,7 @@ describe("publishArtifacts", () => {
     await mkdir(srcDir, { recursive: true });
     artifacts = new Map();
     for (const [i, triple] of (["linux-x64", "darwin-arm64"] as const).entries()) {
-      const path = join(srcDir, `mote-agent-${triple}`);
+      const path = join(srcDir, `subshell-${triple}`);
       await writeFile(path, `payload-${i}-${triple}`);
       const digest = await digestFile(path);
       artifacts.set(triple, { path, digest });
@@ -165,7 +165,7 @@ describe("publishArtifacts", () => {
     const destDir = join(workDir, "dest-clean");
     await publishArtifacts(artifacts, destDir);
     for (const [triple, { path, digest }] of artifacts) {
-      const destBin = join(destDir, `mote-agent-${triple}`);
+      const destBin = join(destDir, `subshell-${triple}`);
       expect(await Bun.file(destBin).text()).toBe(await Bun.file(path).text());
       const sidecar = await Bun.file(`${destBin}.sha256`).text();
       expect(sidecar).toBe(`${digest}\n`);
@@ -179,9 +179,9 @@ describe("publishArtifacts", () => {
   test("a stale garbage sidecar at dest is regenerated, never reused", async () => {
     const destDir = join(workDir, "dest-stale");
     await mkdir(destDir, { recursive: true });
-    await writeFile(join(destDir, "mote-agent-linux-x64.sha256"), "deadbeef\n");
+    await writeFile(join(destDir, "subshell-linux-x64.sha256"), "deadbeef\n");
     await publishArtifacts(artifacts, destDir);
-    const sidecar = await Bun.file(join(destDir, "mote-agent-linux-x64.sha256")).text();
+    const sidecar = await Bun.file(join(destDir, "subshell-linux-x64.sha256")).text();
     expect(sidecar).toBe(`${(artifacts.get("linux-x64") as { digest: string }).digest}\n`);
     expect(sidecar).not.toContain("deadbeef");
   });
@@ -190,7 +190,7 @@ describe("publishArtifacts", () => {
     const destDir = join(workDir, "nested", "artifacts");
     expect(existsSync(destDir)).toBe(false);
     await publishArtifacts(artifacts, destDir);
-    expect(existsSync(join(destDir, "mote-agent-darwin-arm64"))).toBe(true);
+    expect(existsSync(join(destDir, "subshell-darwin-arm64"))).toBe(true);
   });
 });
 

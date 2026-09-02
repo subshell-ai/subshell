@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { parseArgs, run } from "../cli.js";
 
 /**
- * The `mote-agent mcp` CLI surface (Task 13). ONLY the reject paths are run
+ * The `subshell mcp` CLI surface (Task 13). ONLY the reject paths are run
  * through `run()`: a complete MOTE_* env would attach the real stdio transport
  * to this test runner's own stdin (run() then resolves with `keepAlive` once
  * attached — post-T18-fix, see `cli-mcp-entry.test.ts` for the spawned-child
@@ -19,7 +19,7 @@ const MCP_ENV_KEYS = [
   "MOTE_CHANNEL_PIN",
 ] as const;
 
-describe("mote-agent mcp (CLI wiring)", () => {
+describe("subshell mcp (CLI wiring)", () => {
   const saved = new Map<string, string | undefined>();
   beforeEach(() => {
     for (const k of MCP_ENV_KEYS) {
@@ -35,7 +35,7 @@ describe("mote-agent mcp (CLI wiring)", () => {
     saved.clear();
   });
 
-  /** The `mote-agent: …` line only — exit 2 always appends the full usage block. */
+  /** The `subshell: …` line only — exit 2 always appends the full usage block. */
   const msgLine = (err: string) => err.split("\n")[0] ?? "";
 
   test("parseArgs accepts a bare `mcp` and rejects every flag (env is the only config)", () => {
@@ -59,9 +59,9 @@ describe("mote-agent mcp (CLI wiring)", () => {
     expect(res.err).not.toInclude("MOTE_API_KEY is not set");
   });
 
-  test("usage lists `mote-agent mcp`", async () => {
+  test("usage lists `subshell mcp`", async () => {
     const res = await run(["nope"]);
     expect(res.code).toBe(2);
-    expect(res.err).toInclude("mote-agent mcp");
+    expect(res.err).toInclude("subshell mcp");
   });
 });

@@ -111,7 +111,7 @@ export function sessionMcpConfigPath(sessionId: string): string {
 /**
  * The PURE (no-disk-write) mirror of {@link registerSessionMcp} for AGENT
  * nodes (spec §6.4): computes the same harness dialect but against the
- * node's own filesystem — `mote-agent mcp` as the spawn command (its
+ * node's own filesystem — `subshell mcp` as the spawn command (its
  * `executablePath` from the `ready` facts, the bare name as fallback) and
  * `<dataDir>/mcp/<sessionId>.json` as the target path. Nothing is written
  * locally: `RemoteLauncher.launch` ships `reg.fileContent` inline with the
@@ -131,7 +131,7 @@ export function planRemoteSessionMcp(
   sessionId: string,
   facts: Pick<NodeAgentFacts, "dataDir" | "executablePath">,
 ): { reg: McpRegistration; configPath: string } | undefined {
-  const launch: McpLaunchSpec = { command: facts.executablePath ?? "mote-agent", args: ["mcp"] };
+  const launch: McpLaunchSpec = { command: facts.executablePath ?? "subshell", args: ["mcp"] };
   const configPath = `${facts.dataDir}/mcp/${sessionId}.json`;
   const reg = harness.mcpRegistration?.(launch, configPath);
   if (!reg) return undefined;

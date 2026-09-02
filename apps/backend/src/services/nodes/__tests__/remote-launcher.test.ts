@@ -69,11 +69,11 @@ function makeHarness(facts: NodeAgentFacts | null = testFacts) {
 }
 
 const testFacts: NodeAgentFacts = {
-  dataDir: "/home/u/.mote-agent",
+  dataDir: "/home/u/.subshell",
   capabilities: ["mcp", "uploads"],
   hostname: "box",
   agentVersion: "0.2.0",
-  executablePath: "/usr/bin/mote-agent",
+  executablePath: "/usr/bin/subshell",
 };
 
 const harness = { id: "claude-code" } as unknown as HarnessPlugin;
@@ -261,12 +261,12 @@ describe("launch", () => {
     await h.launcher.launch({
       ...planBase(),
       mcp,
-      mcpConfigPath: "/home/u/.mote-agent/mcp/s1.json",
+      mcpConfigPath: "/home/u/.subshell/mcp/s1.json",
       harnessSession: { id: "h9", mode: "resume" as const },
       bestEffortLog: true,
     });
     const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
-    expect(cmd.mcp).toEqual({ path: "/home/u/.mote-agent/mcp/s1.json", fileContent: `{"mcpServers":{}}` });
+    expect(cmd.mcp).toEqual({ path: "/home/u/.subshell/mcp/s1.json", fileContent: `{"mcpServers":{}}` });
     expect(cmd.harnessSession).toEqual({ id: "h9", mode: "resume" });
     expect(cmd.bestEffortLog).toBe(true);
   });
@@ -421,7 +421,7 @@ describe("deliverPrompt", () => {
 describe("log paths and reads", () => {
   it("logPath composes from facts; throws NoLiveConnectionError (and sends nothing) without them", () => {
     const h = makeHarness();
-    expect(h.launcher.logPath("s1")).toBe("/home/u/.mote-agent/sessions/s1.log");
+    expect(h.launcher.logPath("s1")).toBe("/home/u/.subshell/sessions/s1.log");
     h.setFacts(undefined);
     expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
@@ -433,7 +433,7 @@ describe("log paths and reads", () => {
     // into the delete-time `remove_paths` so a deliberate delete unlinks the
     // agent's per-session record alongside the log and the MCP config.
     const h = makeHarness();
-    expect(h.launcher.metaArtifactPath("s1")).toBe("/home/u/.mote-agent/sessions/s1.meta.json");
+    expect(h.launcher.metaArtifactPath("s1")).toBe("/home/u/.subshell/sessions/s1.meta.json");
     h.setFacts(undefined);
     expect(() => h.launcher.metaArtifactPath("s1")).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
@@ -708,9 +708,9 @@ describe("canResume", () => {
 describe("removeArtifacts", () => {
   it("removeArtifacts sends remove_paths (10 s) and swallows every rpc error", async () => {
     const h = makeHarness();
-    await h.launcher.removeArtifacts(["/home/u/.mote-agent/mcp/s1.json"]);
+    await h.launcher.removeArtifacts(["/home/u/.subshell/mcp/s1.json"]);
     expect(h.calls).toEqual([
-      { cmd: { type: "remove_paths", paths: ["/home/u/.mote-agent/mcp/s1.json"] }, timeoutMs: 10_000 },
+      { cmd: { type: "remove_paths", paths: ["/home/u/.subshell/mcp/s1.json"] }, timeoutMs: 10_000 },
     ]);
 
     const h2 = makeHarness();

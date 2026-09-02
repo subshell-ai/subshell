@@ -22,7 +22,7 @@ export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * and it would inherit the tmux server's env (seeded from the backend
  * process). Values from any source may contain shell metacharacters; keys
  * may not, so a bad key is a hard error, not a quoting problem.
- * Local launcher (backend) and remote agents (mote-agent) assemble pane
+ * Local launcher (backend) and remote agents (subshell) assemble pane
  * commands through this exact function — byte-identity is the spec (§6.4).
  * @throws Error when a merged env key is not a valid shell variable name
  * (names the offending key). Session creation surfaces it to the caller.

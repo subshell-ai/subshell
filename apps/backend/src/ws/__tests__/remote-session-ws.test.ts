@@ -102,11 +102,11 @@ function makeNodeSim() {
   conn = attachConnection(NODE_ID, socket);
   // What the agent's `ready` frame installs (logPath composes from these).
   conn.agent = {
-    dataDir: "/home/ag/.mote-agent",
+    dataDir: "/home/ag/.subshell",
     capabilities: ["mcp"],
     hostname: "box",
     agentVersion: "0.2.0",
-    executablePath: "/usr/bin/mote-agent",
+    executablePath: "/usr/bin/subshell",
   };
 
   return {

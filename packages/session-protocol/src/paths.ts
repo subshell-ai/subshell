@@ -18,7 +18,7 @@
 /** One {@link NODE_TARGETS} entry. */
 export type NodeTarget = (typeof NODE_TARGETS)[number];
 
-/** The closed set of platform triples the `mote-agent` is published for (spec §8). */
+/** The closed set of platform triples the `subshell` is published for (spec §8). */
 export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
 
 /** The three env vars that steer the artifacts location (raw strings, as found on `process.env`). */
@@ -43,7 +43,7 @@ export function defaultSessionDataDir(env: NodeArtifactsEnv): string {
 }
 
 /**
- * Resolve where `mote-agent-<target>` binaries are published to / served
+ * Resolve where `subshell-<target>` binaries are published to / served
  * from, UN-normalized (callers `resolve()` it against their own cwd — the
  * apps deliberately disagree on cwd, the ENV ladder is what must not drift).
  * Ladder: `MOTE_NODE_ARTIFACTS_DIR` → `<SESSION_DATA_DIR>/node-artifacts` →

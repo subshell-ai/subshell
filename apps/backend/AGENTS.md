@@ -50,11 +50,11 @@ migrations, then listens).
 
 ```
 src/
-├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the mote-agent binaries) + per-resource dirs (sessions/, workspaces/, channels/, nodes/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
+├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries) + per-resource dirs (sessions/, workspaces/, channels/, nodes/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
-├── mcp/            # `mote-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the agent's `mote-agent mcp`, per the TmuxRunner precedent)
+├── mcp/            # `mote-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the agent's `subshell mcp`, per the TmuxRunner precedent)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
@@ -65,7 +65,7 @@ src/
 ```
 
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
-(`src/api/downloads.route.ts`) serves the prebuilt `mote-agent` binaries from
+(`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries from
 `NODE_ARTIFACTS_DIR` (`MOTE_NODE_ARTIFACTS_DIR`, default
 `<SESSION_DATA_DIR>/node-artifacts` — populated by `bun run release:agent`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous;
@@ -97,7 +97,7 @@ handlers) reaches the same graph via `getRequestlessContext()`
 ### Terminal attach diagnostics
 
 A garbled live terminal is diagnosed from the journal first — two lines per
-attach, both under `journalctl --user -u mote.service | grep "ws attach"`:
+attach, both under `journalctl --user -u subshell-server.service | grep "ws attach"`:
 
 - `geometry WxH … ua="…"` — the client's fitted size (`geometry MISSING` means
   a stale bundle that predates the feature) and which client sent it.

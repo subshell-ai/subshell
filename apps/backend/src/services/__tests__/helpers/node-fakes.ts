@@ -119,7 +119,7 @@ export function nodeOnline(
     capabilities,
     hostname: "rmgr",
     agentVersion: "1.0.0",
-    executablePath: "/usr/bin/mote-agent",
+    executablePath: "/usr/bin/subshell",
     ...over,
   };
   return () => detachConnection(nodeId, ws);

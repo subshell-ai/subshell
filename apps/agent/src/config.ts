@@ -4,9 +4,9 @@ import { dirname, join } from "node:path";
 import { enforceMode } from "./fs-mode.js";
 
 /**
- * Everything mote-agent needs to live: where the control plane is, who this
+ * Everything subshell needs to live: where the control plane is, who this
  * node is, its bearer secret, and the pinned control key. Written by
- * `mote-agent enroll`, read by `run` (T13).
+ * `subshell enroll`, read by `run` (T13).
  */
 export interface AgentConfig {
   /** Control-plane base URL as passed to `--server` at enroll time. */
@@ -35,7 +35,7 @@ export interface AgentConfig {
 
 /** Root the config + default data dir live under (`MOTE_AGENT_HOME` for tests). */
 export function agentHome(): string {
-  return process.env.MOTE_AGENT_HOME ?? join(homedir(), ".config", "mote-agent");
+  return process.env.MOTE_AGENT_HOME ?? join(homedir(), ".config", "subshell-agent");
 }
 
 /** Absolute path of the config file. */
@@ -69,7 +69,7 @@ export async function loadConfig(): Promise<AgentConfig> {
     raw = await readFile(file, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`no config at ${file} — enroll this node first: mote-agent enroll --server <url> --key <nsk_…>`);
+      throw new Error(`no config at ${file} — enroll this node first: subshell enroll --server <url> --key <nsk_…>`);
     }
     throw new Error(`cannot read config '${file}': ${(err as Error).message}`);
   }
@@ -77,11 +77,11 @@ export async function loadConfig(): Promise<AgentConfig> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`config corrupt: '${file}' is not valid JSON — re-run mote-agent enroll to recreate it`);
+    throw new Error(`config corrupt: '${file}' is not valid JSON — re-run subshell enroll to recreate it`);
   }
   const obj = parsed as Record<string, unknown> | null;
   if (typeof obj !== "object" || obj === null || REQUIRED_FIELDS.some((f) => typeof obj[f] !== "string")) {
-    throw new Error(`config corrupt: '${file}' is missing required string fields — re-run mote-agent enroll`);
+    throw new Error(`config corrupt: '${file}' is missing required string fields — re-run subshell enroll`);
   }
   const cfg = obj as Record<(typeof REQUIRED_FIELDS)[number], string>;
   return {

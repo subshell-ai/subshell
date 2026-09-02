@@ -47,7 +47,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
 
   // --- channels ---
   server.registerTool(
-    "mote_list_channels",
+    "list_channels",
     {
       title: "List channels",
       description: "List all cross-session channels on this mote instance.",
@@ -56,7 +56,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(() => listChannels(deps)),
   );
   server.registerTool(
-    "mote_create_channel",
+    "create_channel",
     {
       title: "Create channel",
       description: "Create a channel and join it (slug: lowercase letters/digits/hyphen).",
@@ -65,12 +65,12 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ name }: { name: string }) => createChannel(deps, name)),
   );
   server.registerTool(
-    "mote_join_channel",
+    "join_channel",
     { title: "Join channel", description: "Join an existing channel.", inputSchema: z.object({ name: z.string() }) },
     guard(({ name }: { name: string }) => joinChannel(deps, name)),
   );
   server.registerTool(
-    "mote_channel_members",
+    "channel_members",
     {
       title: "Channel members",
       description: "List a channel's members (principal ids).",
@@ -79,7 +79,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ name }: { name: string }) => channelMembers(deps, name)),
   );
   server.registerTool(
-    "mote_post_channel",
+    "post_channel",
     {
       title: "Post to channel",
       description: "Send an end-to-end-encrypted message to every key-bearing member of a channel.",
@@ -90,7 +90,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     ),
   );
   server.registerTool(
-    "mote_read_channel",
+    "read_channel",
     {
       title: "Read channel",
       description:
@@ -109,12 +109,12 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
 
   // --- sessions ---
   server.registerTool(
-    "mote_list_sessions",
+    "list_sessions",
     { title: "List sessions", description: "List your sessions with status and activity.", inputSchema: z.object({}) },
     guard(() => listSessions(deps)),
   );
   server.registerTool(
-    "mote_get_session",
+    "get_session",
     {
       title: "Get session",
       description: "Get one session's details by id.",
@@ -123,16 +123,16 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ id }: { id: string }) => getSession(deps, id)),
   );
   server.registerTool(
-    "mote_list_profiles",
+    "list_profiles",
     {
       title: "List profiles",
-      description: "List the profiles usable to launch a session (pass a profile name to mote_create_session).",
+      description: "List the profiles usable to launch a session (pass a profile name to create_session).",
       inputSchema: z.object({}),
     },
     guard(() => listProfiles(deps)),
   );
   server.registerTool(
-    "mote_create_session",
+    "create_session",
     {
       title: "Create session",
       description:
@@ -159,7 +159,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     ),
   );
   server.registerTool(
-    "mote_restart_session",
+    "restart_session",
     {
       title: "Restart session",
       description:
@@ -169,7 +169,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ id }: { id: string }) => restartSession(deps, id)),
   );
   server.registerTool(
-    "mote_terminate_session",
+    "terminate_session",
     {
       title: "Terminate session",
       description: "Kill a running session's process tree and revoke its token.",
@@ -178,7 +178,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ id }: { id: string }) => terminateSession(deps, id)),
   );
   server.registerTool(
-    "mote_delete_session",
+    "delete_session",
     {
       title: "Delete session",
       description: "Terminate (if running) and delete a session.",
@@ -187,7 +187,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ id }: { id: string }) => deleteSession(deps, id)),
   );
   server.registerTool(
-    "mote_update_session_notes",
+    "update_session_notes",
     {
       title: "Update session notes",
       description: "Set or clear a session's operator note.",
