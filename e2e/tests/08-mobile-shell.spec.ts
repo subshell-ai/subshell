@@ -11,7 +11,7 @@ const isPhone = () => test.info().project.name === "mobile";
 test("no horizontal overflow on the main routes", async ({ page }) => {
   // /sessions/does-not-exist renders the not-running panel — a real mobile
   // layout surface, not just an empty route.
-  for (const path of ["/", "/workspaces", "/settings", "/users", "/sessions/does-not-exist"]) {
+  for (const path of ["/", "/workspaces", "/settings", "/account", "/users", "/sessions/does-not-exist"]) {
     await page.goto(path);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, `${path} overflows by ${overflow}px`).toBeLessThanOrEqual(1);
@@ -38,6 +38,13 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     await page.getByRole("button", { name: /Account —/ }).click();
     await page.getByRole("menuitem", { name: "Account settings" }).click();
     await expect(page).toHaveURL(/\/account$/);
+    // Composition smoke (spec §7, final-review debt): landing on /account
+    // must paint the account cards' titles — the split's whole promise is
+    // these leaving /settings, so pin at least the endpoints of the stack.
+    await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
+    // exact: both titles also occur inside card description copy.
+    await expect(page.getByText("Change password", { exact: true })).toBeVisible();
+    await expect(page.getByText("Passkeys", { exact: true })).toBeVisible();
   } else {
     await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
     await expect(page.locator("aside")).toBeVisible();
