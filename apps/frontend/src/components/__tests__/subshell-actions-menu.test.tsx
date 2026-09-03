@@ -211,15 +211,18 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       expect(screen.getByText("the row")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
-      // Lifecycle + delete only (spec amendment): the dialog-flavoured page
-      // items must NOT leak into the compact sidebar surface.
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(6));
+      // The curated sidebar set (spec amendment, final): lifecycle, delete,
+      // bell, clone, share, edit-title. Still NOT the dialog-less page extras.
+      expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Notify when done" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Clone…" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Share…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Delete subshell" })).toBeDefined();
-      expect(screen.queryByRole("menuitem", { name: "Edit title" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Add note" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Pin this title" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Terminal history…" })).toBeNull();
-      expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
     } finally {
       restore();
     }

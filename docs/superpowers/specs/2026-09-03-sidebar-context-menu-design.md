@@ -109,12 +109,13 @@ Two changes after using the first cut:
    `ActionItem` gains `sidebar?: boolean` — each item declares, at its single
    definition site, whether the compact sidebar surface shows it. Children
    (context) mode filters by it; the ⋯ menus are untouched. The sidebar keeps
-   the **lifecycle + delete** actions: subshell → Terminate / Restart / Start
-   again (the existing state-dependent pair) and Delete subshell (owner);
-   workspace → Open in new tab and Delete workspace ("Open" drops — the row
-   *is* the link). Dialog-flavoured items (Edit title, Add note, Pin, Terminal
-   history, Clone, Share, Edit profile) stay where the dialogs have room to
-   breathe: the cards and the detail page.
+   the actions worth taking without opening the page: subshell → Edit title,
+   the notify/mute bell, Terminate / Restart / Start again (the existing
+   state-dependent pair), Clone…, Share…, and Delete subshell; workspace →
+   Open in new tab and Delete workspace ("Open" drops — the row *is* the
+   link). The remaining page extras (Add note, Pin this title, Terminal
+   history, Edit profile) stay on the cards and the detail page, where the
+   fuller context lives.
 2. **Anchored to the row, not the cursor.** The menu opens to the RIGHT of the
    row, top-aligned with it (`side="right"`, `align="start"`, small offset) —
    the same place for every right-click within a row, Finder-style, with the

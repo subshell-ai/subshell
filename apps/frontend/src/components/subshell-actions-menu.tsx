@@ -87,6 +87,7 @@ export function SubshellActionsMenu({
           {
             icon: TextCursorInput,
             label: "Edit title",
+            sidebar: true,
             onSelect: () => setTitleOpen(true),
           },
           {
@@ -111,8 +112,8 @@ export function SubshellActionsMenu({
     ...(isOwner
       ? [
           subshell.notify
-            ? { icon: BellOff, label: "Mute notifications", onSelect: () => void toggleNotify() }
-            : { icon: Bell, label: "Notify when done", onSelect: () => void toggleNotify() },
+            ? { icon: BellOff, label: "Mute notifications", sidebar: true, onSelect: () => void toggleNotify() }
+            : { icon: Bell, label: "Notify when done", sidebar: true, onSelect: () => void toggleNotify() },
         ]
       : []),
     ...(canEdit
@@ -143,6 +144,7 @@ export function SubshellActionsMenu({
           {
             icon: Copy,
             label: "Clone…",
+            sidebar: true,
             onSelect: () => setCloneOpen(true),
           },
         ]
@@ -158,7 +160,7 @@ export function SubshellActionsMenu({
       : []),
     ...(isOwner
       ? [
-          { icon: Share2, label: "Share…", onSelect: () => setShareOpen(true) },
+          { icon: Share2, label: "Share…", sidebar: true, onSelect: () => setShareOpen(true) },
           { icon: Trash2, label: "Delete subshell", destructive: true, sidebar: true, onSelect: () => void remove() },
         ]
       : []),
