@@ -5,9 +5,10 @@ import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { installScriptRoute } from "@/api/install-script.js";
 import { routes } from "@/api/routes.js";
 import { TRUSTED_ORIGINS } from "@/constants.js";
+import { EMBEDDED } from "@/generated/embedded-web.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { staticPlugin } from "@/plugins/static.plugin.js";
+import { selectStaticPlugin } from "@/plugins/static.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { logger } from "@/utils/logger.js";
 import { wsPlugin } from "@/ws/ws.plugin.js";
@@ -35,7 +36,9 @@ export function createApp() {
     // (it is not a dist file). spec 2026-08-31 §8.
     .use(installScriptRoute)
     .use(authPlugin)
-    .use(staticPlugin(FRONTEND_DIST))
+    // Disk dist wins when present (dev + svc.sh behave byte-identically);
+    // else the SPA embedded by scripts/embed-web.ts; else boot fails loudly.
+    .use(selectStaticPlugin(FRONTEND_DIST, EMBEDDED))
     .use(wsPlugin)
     .use(routes);
 
