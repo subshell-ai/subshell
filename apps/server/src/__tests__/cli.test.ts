@@ -162,28 +162,29 @@ describe("dispatchCli — status", () => {
     expect(text).toContain("likely running"); // the stub probe said yes
   });
 
-  test("status reports the resolved mcp entrypoint (fake io pins the rung)", async () => {
+  test("status reports the resolved mcp entrypoint — the server binary self-resolves", async () => {
     const dir = newConfigDir();
     const { deps, out } = collectingDeps({
-      mcpIo: {
-        execPath: "/srv/bin/subshell-server",
-        exists: (p) => p === "/srv/bin/subshell-mcp",
-        which: () => null,
-      },
+      // A `subshell-server*` execPath always takes the SELF rung — no fs/PATH
+      // seam can veto it (there is no fs left to veto).
+      mcpIo: { execPath: "/srv/bin/subshell-server", which: () => null },
     });
     await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SUBSHELL_MCP_COMMAND: undefined }, async () => {
       expect(await dispatchCli(["status"], deps)).toBe(true);
     });
     const text = out.join("\n");
     expect(text).toContain("mcp entrypoint");
-    expect(text).toContain("/srv/bin/subshell-mcp");
-    expect(text).toContain("compiled-sibling");
+    expect(text).toContain("/srv/bin/subshell-server mcp");
+    expect(text).toContain("(via self)");
   });
 
   test("status screams when no mcp entrypoint resolves — create would 500", async () => {
     const dir = newConfigDir();
     const { deps, out } = collectingDeps({
-      mcpIo: { execPath: "/srv/bin/subshell-server", exists: () => false, which: () => null },
+      // The miss must be forced through the NON-compiled shape: a
+      // `subshell-server*` execPath self-resolves unconditionally, so pin an
+      // unrelated executable with no usable argv1 and an empty PATH.
+      mcpIo: { execPath: "/usr/bin/other", argv1: "", which: () => null },
     });
     await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SUBSHELL_MCP_COMMAND: undefined }, async () => {
       expect(await dispatchCli(["status"], deps)).toBe(true);
