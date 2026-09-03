@@ -138,17 +138,12 @@ describe("runSignHook (SUBSHELL_RELEASE_SIGN_CMD, darwin release signing)", () =
     expect(await runSignHook("/any/path", { SUBSHELL_RELEASE_SIGN_CMD: "   " })).toBe(true);
   });
 
-  test("the hook sees the artifact path as $1 and its exit code decides", async () => {
-    const marker = join(workDir, "hook-saw");
+  test("the artifact path is appended as the command's argument; its exit code decides", async () => {
     const bin = join(workDir, "subshell-darwin-arm64");
     await writeFile(bin, "bytes");
-    // $0 is the hook's argv label; the artifact arrives as $1.
-    const ok = await runSignHook(bin, {
-      SUBSHELL_RELEASE_SIGN_CMD: `printf %s "$1" > "${marker}"`,
-    });
-    expect(ok).toBe(true);
-    expect(await Bun.file(marker).text()).toBe(bin);
-
+    // `test -f <appended path>` — passes iff the artifact path arrived verbatim.
+    expect(await runSignHook(bin, { SUBSHELL_RELEASE_SIGN_CMD: "test -f" })).toBe(true);
+    expect(await runSignHook(join(workDir, "ghost"), { SUBSHELL_RELEASE_SIGN_CMD: "test -f" })).toBe(false);
     expect(await runSignHook(bin, { SUBSHELL_RELEASE_SIGN_CMD: "exit 7" })).toBe(false);
   });
 });

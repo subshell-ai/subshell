@@ -40,9 +40,11 @@ export const RELEASE_SIGN_CMD_ENV = "SUBSHELL_RELEASE_SIGN_CMD";
  * describes the FINAL (signed) bytes, and a signing failure is just another
  * target failure (nothing publishes).
  *
- * The hook is a shell command from {@link RELEASE_SIGN_CMD_ENV}; it receives
- * the artifact path as `$1` and its stdout/stderr flow through (the
- * notarytool submission log belongs in the CI output).
+ * The hook is a shell command from {@link RELEASE_SIGN_CMD_ENV}. The artifact
+ * path is APPENDED to it as one properly-quoted argument (so a bare script
+ * path — the shape CI sets — just works; the script sees the artifact as its
+ * own `$1`). stdout/stderr flow through: the notarytool submission log
+ * belongs in the CI output.
  * @param path - the built artifact to sign, in place
  * @param env - environment source (default `process.env`)
  * @returns true when the artifact may proceed to digest/publish
@@ -53,7 +55,7 @@ export async function runSignHook(
 ): Promise<boolean> {
   const cmd = env[RELEASE_SIGN_CMD_ENV];
   if (cmd === undefined || cmd.trim() === "") return true;
-  const proc = Bun.spawn(["sh", "-c", cmd, "sign-hook", path], { stdout: "inherit", stderr: "inherit" });
+  const proc = Bun.spawn(["sh", "-c", `${cmd} "$1"`, "sign-hook", path], { stdout: "inherit", stderr: "inherit" });
   return (await proc.exited) === 0;
 }
 
