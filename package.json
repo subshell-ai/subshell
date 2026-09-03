@@ -30,7 +30,9 @@
     "test:e2e": "turbo run test:e2e",
     "test:e2e:install": "turbo run install-browsers",
     "release:client": "bun run --cwd apps/client compile:release",
-    "release:server": "bun run --cwd apps/server compile:release"
+    "release:server": "bun run --cwd apps/server compile:release",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
   },
   "dependencies": {
     "@elysiajs/eden": "1.4.9",
@@ -41,6 +43,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.9",
+    "@changesets/changelog-github": "1.0.0",
+    "@changesets/cli": "3.0.1",
     "@commitlint/cli": "21.2.2",
     "@commitlint/config-conventional": "21.2.2",
     "@internal/tsconfig": "workspace:*",
