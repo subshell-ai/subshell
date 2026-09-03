@@ -1,4 +1,4 @@
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 import type { WorkspaceRow } from "@/types/workspace";
 
 /** A compact entry in one of the sidebar's "recent" sub-lists. */
@@ -7,7 +7,7 @@ export interface SidebarRecentLink {
   id: string;
   /** The entity's name, shown as the row label */
   label: string;
-  /** Sessions: absolute working dir, rendered under the label. Undefined for workspaces. */
+  /** Subshells: absolute working dir, rendered under the label. Undefined for workspaces. */
   path?: string;
 }
 
@@ -15,13 +15,13 @@ export interface SidebarRecentLink {
 const RECENT_LIMIT = 3;
 
 /**
- * The most recent sessions. The `/api/sessions` list already arrives
+ * The most recent subshells. The `/api/subshells` list already arrives
  * newest-first (`createdAt desc`), so this is a plain truncation.
- * @param sessions - The caller's session list, or undefined while it loads
+ * @param subshells - The caller's subshell list, or undefined while it loads
  * @returns Up to {@link RECENT_LIMIT} links, newest first
  */
-export function recentSessionLinks(sessions: SessionView[] | undefined): SidebarRecentLink[] {
-  return (sessions ?? []).slice(0, RECENT_LIMIT).map((s) => ({ id: s.id, label: s.name, path: s.workingDir }));
+export function recentSubshellLinks(subshells: SubshellView[] | undefined): SidebarRecentLink[] {
+  return (subshells ?? []).slice(0, RECENT_LIMIT).map((s) => ({ id: s.id, label: s.name, path: s.workingDir }));
 }
 
 /**

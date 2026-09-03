@@ -1,14 +1,14 @@
 import { X } from "lucide-react";
 import { type JSX, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
-import { SessionPane } from "@/components/session-pane";
-import { SessionPicker } from "@/components/session-picker";
+import { SubshellPane } from "@/components/subshell-pane";
+import { SubshellPicker } from "@/components/subshell-picker";
 import { Button } from "@/components/ui/button";
-import { TabWaitingMarker } from "@/components/workspace-dock/session-tab";
+import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { errMessage } from "@/lib/api";
-import { isPaneWaiting } from "@/lib/session-order";
+import { isPaneWaiting } from "@/lib/subshell-order";
 import { cn } from "@/lib/utils";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -20,9 +20,9 @@ export interface WorkspaceTabProps {
   active: boolean;
   /** Selects this tab */
   onSelect: () => void;
-  /** Removes this pane from the workspace (the tab's × — same action as `<SessionPane>`'s "Remove pane" button) */
+  /** Removes this pane from the workspace (the tab's × — same action as `<SubshellPane>`'s "Remove pane" button) */
   onRemove: () => void;
-  /** The pane's session is waiting for the operator — show the amber bell marker (see `<TabWaitingMarker>`) */
+  /** The pane's subshell is waiting for the operator — show the amber bell marker (see `<TabWaitingMarker>`) */
   waiting: boolean;
 }
 
@@ -48,13 +48,13 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
           active ? "text-foreground" : "text-muted-foreground",
         )}
       >
-        <span className="truncate">{pane.sessionName}</span>
+        <span className="truncate">{pane.subshellName}</span>
         {waiting && <TabWaitingMarker />}
       </button>
       <button
         type="button"
         onClick={onRemove}
-        aria-label={`Remove ${pane.sessionName} from workspace`}
+        aria-label={`Remove ${pane.subshellName} from workspace`}
         className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
       >
         <X className="h-4 w-4" />
@@ -67,12 +67,12 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
 export interface WorkspaceTabsProps {
   /** The workspace and its panes, from `useWorkspace`'s poll */
   detail: WorkspaceDetail;
-  /** Re-fetches the workspace detail after a pane or session mutation */
+  /** Re-fetches the workspace detail after a pane or subshell mutation */
   onRefetch: () => void;
 }
 
 /**
- * The narrow presentation: a scrollable tab strip over one `<SessionPane>`
+ * The narrow presentation: a scrollable tab strip over one `<SubshellPane>`
  * filling the rest of the viewport, used below `WORKSPACE_TILING_MIN_WIDTH`.
  *
  * The narrow presentation deliberately never writes `layout_json`. If it did,
@@ -93,7 +93,7 @@ export interface WorkspaceTabsProps {
 export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { addPane, removePane, restartSession } = useWorkspacePaneMutations(detail.workspace.id);
+  const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
 
   // Falls back to the first pane whenever `selectedId` doesn't name a pane
   // that still exists — including the moment the poll removes whichever pane
@@ -101,16 +101,16 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
   const selected = detail.panes.find((p) => p.id === selectedId) ?? detail.panes[0];
 
   /**
-   * Adds `sessionId` to the workspace and selects it. `direction` comes from
-   * `SessionPicker`'s placement control, which this flat tab list has no use
+   * Adds `subshellId` to the workspace and selects it. `direction` comes from
+   * `SubshellPicker`'s placement control, which this flat tab list has no use
    * for — every pane it adds becomes one more tab, never a split.
    */
-  async function handleAdd(sessionId: string, _direction: SplitDirection) {
+  async function handleAdd(subshellId: string, _direction: SplitDirection) {
     try {
-      const newPane = await addPane(sessionId);
+      const newPane = await addPane(subshellId);
       setSelectedId(newPane.id);
     } catch (err) {
-      setError(errMessage(err, "Failed to add session"));
+      setError(errMessage(err, "Failed to add subshell"));
     } finally {
       // Runs even on failure: `apiFetch` throws only on a non-2xx response,
       // so a thrown error here means the pane was never created and this is a
@@ -120,22 +120,22 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
   }
 
   /**
-   * Restarts an exited/terminated session IN PLACE. Same id → the pane row
+   * Restarts an exited/terminated subshell IN PLACE. Same id → the pane row
    * already references it, so unlike the old clone flow there is no
    * replacement pane to add and no old one to drop (that would duplicate the
    * tab). Just restart and refetch; the poll flips the tab back to running and
    * its pane remounts the terminal. (regression #13)
    */
-  async function handleRestart(sessionId: string) {
+  async function handleRestart(subshellId: string) {
     try {
-      await restartSession(sessionId);
+      await restartSubshell(subshellId);
       onRefetch();
     } catch (err) {
       setError(errMessage(err, "Restart failed"));
     }
   }
 
-  /** Removes a pane from the workspace, leaving its session running (or gone) untouched. */
+  /** Removes a pane from the workspace, leaving its subshell running (or gone) untouched. */
   async function handleRemovePane(paneId: string) {
     try {
       await removePane(paneId);
@@ -152,7 +152,7 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
     <>
       <WorkspaceHeader
         workspace={detail.workspace}
-        actions={<SessionPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />
       <div className="flex min-h-0 flex-1 flex-col bg-terminal-canvas">
         {error && (
@@ -191,15 +191,15 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
         <div className="relative min-h-0 flex-1">
           {detail.panes.length === 0 && (
             <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-              No sessions in this workspace yet — add one above.
+              No subshells in this workspace yet — add one above.
             </div>
           )}
           {detail.panes.map((pane) => (
             <div key={pane.id} className={cn("absolute inset-0", pane.id === selected?.id ? "block" : "hidden")}>
-              <SessionPane
+              <SubshellPane
                 pane={pane}
                 active={pane.id === selected?.id}
-                onRestart={(sessionId) => void handleRestart(sessionId)}
+                onRestart={(subshellId) => void handleRestart(subshellId)}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />
             </div>

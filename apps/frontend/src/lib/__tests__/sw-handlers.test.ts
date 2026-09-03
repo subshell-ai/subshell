@@ -25,41 +25,41 @@ async function loadHandlers(): Promise<SwHandlers> {
 describe("sw-handlers", () => {
   it("shouldShow is false when the focused client is already looking at the target", async () => {
     const { shouldShow } = await loadHandlers();
-    expect(shouldShow({ url: "/sessions/x" }, "https://subshell.test/sessions/x")).toBe(false);
+    expect(shouldShow({ url: "/subshells/x" }, "https://subshell.test/subshells/x")).toBe(false);
   });
 
   it("shouldShow is true with no focused client", async () => {
     const { shouldShow } = await loadHandlers();
-    expect(shouldShow({ url: "/sessions/x" }, null)).toBe(true);
+    expect(shouldShow({ url: "/subshells/x" }, null)).toBe(true);
   });
 
   it("shouldShow is true when the focused client is somewhere else", async () => {
     const { shouldShow } = await loadHandlers();
-    expect(shouldShow({ url: "/sessions/x" }, "https://subshell.test/settings")).toBe(true);
+    expect(shouldShow({ url: "/subshells/x" }, "https://subshell.test/settings")).toBe(true);
   });
 
   it("noteOptions carries title, body, tag and the raw data", async () => {
     const { noteOptions } = await loadHandlers();
-    const data = { title: "Session done", body: "pi finished", tag: "session:abc", url: "/sessions/x" };
+    const data = { title: "Subshell done", body: "pi finished", tag: "subshell:abc", url: "/subshells/x" };
     expect(noteOptions(data)).toEqual({
-      title: "Session done",
+      title: "Subshell done",
       body: "pi finished",
-      tag: "session:abc",
+      tag: "subshell:abc",
       data,
     });
   });
 
   it("noteArgs splits into the showNotification(title, options) pair", async () => {
     const { noteArgs } = await loadHandlers();
-    const data = { title: "Session done", body: "pi finished", tag: "session:abc", url: "/sessions/x" };
+    const data = { title: "Subshell done", body: "pi finished", tag: "subshell:abc", url: "/subshells/x" };
     const [title, options] = noteArgs(data);
-    expect(title).toBe("Session done");
-    expect(options).toEqual({ body: "pi finished", tag: "session:abc", data });
+    expect(title).toBe("Subshell done");
+    expect(options).toEqual({ body: "pi finished", tag: "subshell:abc", data });
   });
 
   it("clickTarget resolves a relative payload url against the worker origin", async () => {
     const { clickTarget } = await loadHandlers();
-    expect(clickTarget({ url: "/sessions/x" })).toBe("https://subshell.test/sessions/x");
+    expect(clickTarget({ url: "/subshells/x" })).toBe("https://subshell.test/subshells/x");
   });
 
   it("clickTarget passes an absolute url through", async () => {

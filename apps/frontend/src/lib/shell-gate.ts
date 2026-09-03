@@ -5,7 +5,7 @@ export type ShellGate = "blank" | "offlineHold" | "holdSetup" | "toSetup" | "toL
  * The root frame's first-paint / signed-out guard, extracted from `Shell` so
  * the outage branches are testable. The rules, in order:
  *
- *  - Session still loading: normally HOLD (return "blank") so chrome never
+ *  - Subshell still loading: normally HOLD (return "blank") so chrome never
  *    flashes — but a DOWN server retries unbounded (query-client.ts), which
  *    would otherwise be a blank screen for the whole outage, so once the
  *    offline store says unreachable, paint the standalone notice instead.

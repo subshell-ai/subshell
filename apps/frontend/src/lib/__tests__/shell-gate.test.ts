@@ -12,7 +12,7 @@ const base = {
 };
 
 describe("shellGate", () => {
-  it("holds a blank first paint while the session is still loading (server up)", () => {
+  it("holds a blank first paint while the subshell is still loading (server up)", () => {
     expect(shellGate({ ...base, isLoading: true })).toBe("blank");
   });
 

@@ -48,7 +48,7 @@ export function setTerminalFontSize(n: number): number {
   try {
     localStorage.setItem(KEY, String(size));
   } catch {
-    // Storage refused (private mode/quota): still apply for this session.
+    // Storage refused (private mode/quota): still apply for this subshell.
   }
   window.dispatchEvent(new CustomEvent<number>(TERM_FONT_EVENT, { detail: size }));
   return size;

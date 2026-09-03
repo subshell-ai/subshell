@@ -16,7 +16,7 @@ async function renderHeader(extra: { subtitle?: string } = {}) {
     getParentRoute: () => rootRoute,
     path: "/",
     component: () => (
-      <DetailBackHeader to="/" backLabel="Back to sessions" title={<>Alpha</>} subtitle={extra.subtitle} />
+      <DetailBackHeader to="/" backLabel="Back to subshells" title={<>Alpha</>} subtitle={extra.subtitle} />
     ),
   });
   const router = createRouter({

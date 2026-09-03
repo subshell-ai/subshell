@@ -123,14 +123,14 @@ describe("node mutations", () => {
     }
   });
 
-  it("useDeleteNode surfaces the 409 NODE_RUNNING_SESSIONS code and message", async () => {
+  it("useDeleteNode surfaces the 409 NODE_RUNNING_SUBSHELLS code and message", async () => {
     const { restore } = mockFetch({
       "DELETE /api/nodes/n1": () =>
         json(
           {
             errId: "e1",
-            code: "NODE_RUNNING_SESSIONS",
-            message: "Node has 2 running sessions — delete again with ?force=true",
+            code: "NODE_RUNNING_SUBSHELLS",
+            message: "Node has 2 running subshells — delete again with ?force=true",
             statusCode: 409,
           },
           409,
@@ -144,8 +144,8 @@ describe("node mutations", () => {
       );
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(409);
-      expect((err as ApiError).code).toBe("NODE_RUNNING_SESSIONS");
-      expect((err as ApiError).message).toContain("running sessions");
+      expect((err as ApiError).code).toBe("NODE_RUNNING_SUBSHELLS");
+      expect((err as ApiError).message).toContain("running subshells");
     } finally {
       restore();
     }

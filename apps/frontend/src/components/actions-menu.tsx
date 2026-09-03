@@ -37,7 +37,7 @@ export interface ActionItem {
  * Pure presentation: it owns the trigger's look, the destructive styling,
  * and the click isolation that keeps a menu inside a clickable card from
  * navigating. Entity knowledge (endpoints, invalidation, confirms, routes)
- * belongs to the caller — see `SessionActionsMenu` for the wrapping pattern.
+ * belongs to the caller — see `SubshellActionsMenu` for the wrapping pattern.
  */
 export function ActionsMenu({
   label,

@@ -10,12 +10,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
-import type { RosterUser, ShareDraft } from "@/hooks/use-session-shares";
+import type { RosterUser, ShareDraft } from "@/hooks/use-subshell-shares";
 import { errMessage } from "@/lib/api";
-import type { SessionAccess } from "@/types/session";
+import type { SubshellAccess } from "@/types/subshell";
 
 /** The grantee levels a share can hold (owner is implicit, never assignable). */
-type ShareLevel = Exclude<SessionAccess, "owner">;
+type ShareLevel = Exclude<SubshellAccess, "owner">;
 
 const LEVEL_OPTIONS: { value: ShareLevel; label: string }[] = [
   { value: "view", label: "View" },
@@ -26,7 +26,7 @@ const LEVEL_OPTIONS: { value: ShareLevel; label: string }[] = [
 const EVERYONE = "everyone";
 
 /**
- * The grant-editing dialog behind both `SharingDialog` (sessions) and
+ * The grant-editing dialog behind both `SharingDialog` (subshells) and
  * `NodeSharingDialog` (nodes) — the wire contracts are identical (GET returns
  * the grant set, PUT replaces it whole, null grantee = Everyone, same
  * view|edit vocabulary), so only the endpoint and the copy differ. The
@@ -55,7 +55,7 @@ export function SharingDialogCore({
   open: boolean;
   /** Open/close from inside (Cancel/Save/overlay) */
   onOpenChange: (open: boolean) => void;
-  /** Dialog heading, e.g. "Share session" */
+  /** Dialog heading, e.g. "Share subshell" */
   title: string;
   /** Dialog sub-copy explaining what the grants confer */
   description: string;

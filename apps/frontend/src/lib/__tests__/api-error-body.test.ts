@@ -15,16 +15,16 @@ describe("apiFetch error body parsing", () => {
   it("extracts message/code/errId from the structured error body", async () => {
     globalThis.fetch = (async () =>
       Response.json(
-        { errId: "V1stk9xQ2mLp", code: "NOT_FOUND_ERROR", message: "Session not found", statusCode: 404 },
+        { errId: "V1stk9xQ2mLp", code: "NOT_FOUND_ERROR", message: "Subshell not found", statusCode: 404 },
         { status: 404 },
       )) as never;
 
-    const err = await apiFetch<never>("/api/sessions/ghost").catch((e) => e as ApiError);
+    const err = await apiFetch<never>("/api/subshells/ghost").catch((e) => e as ApiError);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
     // The historical "API <status>: <detail>" copy survives, with the JSON's
     // message as <detail> — never the raw body.
-    expect(err.message).toBe("API 404: Session not found");
+    expect(err.message).toBe("API 404: Subshell not found");
     expect(err.code).toBe("NOT_FOUND_ERROR");
     expect(err.errId).toBe("V1stk9xQ2mLp");
   });
@@ -51,7 +51,7 @@ describe("apiFetch error body parsing", () => {
         { status: 500 },
       )) as never;
 
-    const err = await apiFetch<never>("/api/sessions").catch((e) => e as ApiError);
+    const err = await apiFetch<never>("/api/subshells").catch((e) => e as ApiError);
     expect(err.message).toBe("API 500: An internal server error occurred.");
     expect(err.code).toBe("INTERNAL_SERVER_ERROR");
   });

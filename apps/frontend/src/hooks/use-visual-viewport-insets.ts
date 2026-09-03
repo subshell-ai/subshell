@@ -45,7 +45,7 @@ export function useVisualViewportInsets(): VisualViewportInsets | null {
       // short by toolbar chrome even with no keyboard, and applying that to
       // the shell left a dead black band under the key bar (the "view does
       // not use the full height" report). Residual pans keep the pin until
-      // the scroll pin (session-terminal) zeroes them, after which this
+      // the scroll pin (subshell-terminal) zeroes them, after which this
       // flips back to full height.
       const active = isKeyboardUp(vv.height, window.innerHeight) || raw.offsetYpx > 0;
       setInsets(active ? raw : null);

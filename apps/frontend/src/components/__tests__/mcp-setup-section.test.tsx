@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 
 /**
- * The profile-form block that answers "how does THIS harness get cross-session
+ * The profile-form block that answers "how does THIS harness get cross-subshell
  * comms" — the question the UI used to leave unanswered. Auto harnesses get a
  * plain statement; manual harnesses must show their steps VERBATIM so the
  * operator can copy the exact command the backend resolved.
@@ -13,7 +13,7 @@ describe("McpSetupSection", () => {
 
   it("auto harness: one quiet line, no steps", () => {
     render(<McpSetupSection mcp={{ mode: "auto", summary: "Wired in automatically (via --mcp-config)." }} />);
-    expect(screen.getByText("Cross-session comms")).toBeDefined();
+    expect(screen.getByText("Cross-subshell comms")).toBeDefined();
     expect(screen.getByText(/Wired in automatically/)).toBeDefined();
     expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
   });
@@ -30,7 +30,7 @@ describe("McpSetupSection", () => {
         }}
       />,
     );
-    expect(screen.getByText(/no per-session config/)).toBeDefined();
+    expect(screen.getByText(/no per-subshell config/)).toBeDefined();
     expect(screen.getByText("Register subshell once:")).toBeDefined();
     expect(screen.getByText("hermes mcp add subshell --command 'bun'")).toBeDefined();
     expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);

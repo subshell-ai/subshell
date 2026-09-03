@@ -71,7 +71,7 @@ function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Sign in to Subshell</CardTitle>
-          <CardDescription>Manage your agent harness sessions.</CardDescription>
+          <CardDescription>Manage your agent harness subshells.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">

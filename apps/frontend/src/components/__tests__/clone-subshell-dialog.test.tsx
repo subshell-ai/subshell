@@ -9,10 +9,10 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CloneSubshellDialog, cloneInputFromSource } from "@/components/clone-subshell-dialog";
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 
-/** Minimal full view (mirrors session-actions-menu's fixture) with overrides. */
-function makeSource(overrides: Partial<SessionView> = {}): SessionView {
+/** Minimal full view (mirrors subshell-actions-menu's fixture) with overrides. */
+function makeSource(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "src-1",
     profileId: "profile-1",
@@ -105,7 +105,7 @@ describe("CloneSubshellDialog", () => {
   }
 
   /** Flush pending query/effect updates inside act() (the repo-wide pattern
-   *  from new-session-form.test.tsx — keeps "not wrapped in act" out of the log). */
+   *  from new-subshell-form.test.tsx — keeps "not wrapped in act" out of the log). */
   async function settle(): Promise<void> {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -115,7 +115,7 @@ describe("CloneSubshellDialog", () => {
   /** Renders the dialog inside a throwaway router (it calls useNavigate),
    *  loaded and settled so the first paint and the profiles/nodes queries
    *  have landed by the time the caller asserts. */
-  async function renderDialog(source: SessionView, onOpenChange = (_: boolean) => {}) {
+  async function renderDialog(source: SubshellView, onOpenChange = (_: boolean) => {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const rootRoute = createRootRoute();
     const indexRoute = createRoute({
@@ -125,13 +125,13 @@ describe("CloneSubshellDialog", () => {
     });
     // The success path navigates here; without the route the test router
     // swaps in its notFound view (new.tsx's real route is the same path).
-    const sessionRoute = createRoute({
+    const subshellRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: "/sessions/$id",
+      path: "/subshells/$id",
       component: () => null,
     });
     const router = createRouter({
-      routeTree: rootRoute.addChildren([indexRoute, sessionRoute]),
+      routeTree: rootRoute.addChildren([indexRoute, subshellRoute]),
       history: createMemoryHistory({ initialEntries: ["/"] }),
       defaultPreload: false,
     });
@@ -163,7 +163,7 @@ describe("CloneSubshellDialog", () => {
       await waitFor(() =>
         expect(calls).toContainEqual({
           method: "POST",
-          url: "/api/sessions",
+          url: "/api/subshells",
           body: {
             profileId: "profile-1",
             workingDir: "/home/theo/projects/demo",

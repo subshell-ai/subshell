@@ -66,7 +66,7 @@
   --dv-paneview-header-border-color: var(--border);
   --dv-paneview-active-outline-color: var(--ring);
 
-  /* Drop overlay shown while dragging a session or tab over a tile. */
+  /* Drop overlay shown while dragging a subshell or tab over a tile. */
   --dv-drag-over-background-color: color-mix(in oklch, var(--primary) 20%, transparent);
   --dv-drag-over-border-color: var(--primary);
   --dv-floating-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);

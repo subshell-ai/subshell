@@ -100,7 +100,7 @@ function putBodies(calls: Call[]) {
 }
 
 // The card renders a `<Link>` (a router context is required) — the same
-// minimal memory-router wrapper the session-actions-menu test uses.
+// minimal memory-router wrapper the subshell-actions-menu test uses.
 function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();

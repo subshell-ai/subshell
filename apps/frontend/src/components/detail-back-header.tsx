@@ -8,9 +8,9 @@ import { useIsWide } from "@/hooks/use-is-wide";
 /**
  * The header bar of a full-height detail page: the nav-drawer trigger, a
  * back control to the owning list, a truncated title (plus an optional muted
- * subtitle — the session's working directory), and page actions on the right.
+ * subtitle — the subshell's working directory), and page actions on the right.
  *
- * The session page and the workspace header spelled this bar out twice —
+ * The subshell page and the workspace header spelled this bar out twice —
  * down to the same phone-chrome comment — so it lives here once. The back
  * control is a `Button render={<Link/>}` (the house idiom): an anchor
  * wrapped around a button would announce a link containing a button.
@@ -30,7 +30,7 @@ export function DetailBackHeader({
 }: {
   /** In-app destination of the back control, e.g. `"/"` or `"/workspaces"` */
   to: string;
-  /** `aria-label` of the back control, e.g. "Back to sessions" */
+  /** `aria-label` of the back control, e.g. "Back to subshells" */
   backLabel: string;
   /** Title content, truncated at the width the actions leave over */
   title: ReactNode;

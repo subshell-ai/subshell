@@ -10,13 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { type CreateSessionInput, useCreateSession } from "@/hooks/use-create-session";
+import { type CreateSubshellInput, useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
-import { createSessionErrorMessage } from "@/lib/create-session-error";
+import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { nodeOptionLabel } from "@/lib/node-label";
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 
 /**
  * The launch input a clone copies from its source: same profile, same
@@ -25,7 +25,7 @@ import type { SessionView } from "@/types/session";
  * and the name is trimmed (blank stays blank — the server defaults it).
  * Pure so the mapping is testable without a dialog.
  */
-export function cloneInputFromSource(source: SessionView, name: string): CreateSessionInput {
+export function cloneInputFromSource(source: SubshellView, name: string): CreateSubshellInput {
   return {
     profileId: source.profileId,
     workingDir: source.workingDir,
@@ -47,14 +47,14 @@ export function CloneSubshellDialog({
   onOpenChange,
 }: {
   /** The subshell being cloned */
-  source: SessionView;
+  source: SubshellView;
   /** Controlled open state, owned by the actions menu (TitleDialog posture) */
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const navigate = useNavigate();
   const [name, setName] = useState("");
-  const create = useCreateSession();
+  const create = useCreateSubshell();
   // "any": the source's profile may live on another node than the default list filters.
   const { data: profiles } = useProfiles({ node: "any" });
   const { data: nodeData } = useNodes();
@@ -68,7 +68,7 @@ export function CloneSubshellDialog({
     try {
       const created = await create.mutateAsync(cloneInputFromSource(source, name));
       onOpenChange(false);
-      void navigate({ to: "/sessions/$id", params: { id: created.id } });
+      void navigate({ to: "/subshells/$id", params: { id: created.id } });
     } catch {
       // The mutation keeps the error; it renders under the name field.
     }
@@ -109,7 +109,7 @@ export function CloneSubshellDialog({
           />
           {create.error && (
             <p className="text-destructive text-sm">
-              {createSessionErrorMessage(create.error, "Failed to launch the clone")}
+              {createSubshellErrorMessage(create.error, "Failed to launch the clone")}
             </p>
           )}
         </div>

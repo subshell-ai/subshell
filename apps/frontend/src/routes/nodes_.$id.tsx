@@ -9,7 +9,7 @@ import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
 import { osLabel } from "@/components/nodes/node-row";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { PageHeader } from "@/components/page-header";
-import { relativeElapsed } from "@/components/session-status";
+import { relativeElapsed } from "@/components/subshell-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDeleteNode, useNode, useRecheckNode, useRenameNode } from "@/hooks/use-nodes";

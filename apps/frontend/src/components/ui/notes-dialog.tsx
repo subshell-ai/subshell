@@ -11,23 +11,23 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
-import { SESSIONS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /**
- * Notes editor for a session: a dialog with a textarea, persisted via
- * `PATCH /api/sessions/:id/notes`, refreshing the session cache on success.
+ * Notes editor for a subshell: a dialog with a textarea, persisted via
+ * `PATCH /api/subshells/:id/notes`, refreshing the subshell cache on success.
  *
  * Controlled, with no trigger of its own, because the thing that opens it is
  * an item in the card's actions menu rather than a button sitting beside it.
- * Mount it keyed by session id so switching sessions gets a fresh draft.
+ * Mount it keyed by subshell id so switching subshells gets a fresh draft.
  */
 export function NotesDialog({
-  sessionId,
+  subshellId,
   note,
   open,
   onOpenChange,
 }: {
-  sessionId: string;
+  subshellId: string;
   note: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,14 +37,14 @@ export function NotesDialog({
 
   const mutation = useMutation({
     mutationFn: (notes: string | null) =>
-      apiFetch<{ ok: boolean }>(`/api/sessions/${sessionId}/notes`, {
+      apiFetch<{ ok: boolean }>(`/api/subshells/${subshellId}/notes`, {
         method: "PATCH",
         body: JSON.stringify({ notes }),
       }),
     onSuccess: () => {
       onOpenChange(false);
-      // Refresh both the list feed/cards and any open session detail view.
-      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
+      // Refresh both the list feed/cards and any open subshell detail view.
+      void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
     },
   });
 
@@ -57,12 +57,12 @@ export function NotesDialog({
       <DialogContent onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>{note ? "Edit note" : "Add note"}</DialogTitle>
-          <DialogDescription>Keep a short operator note for this session.</DialogDescription>
+          <DialogDescription>Keep a short operator note for this subshell.</DialogDescription>
         </DialogHeader>
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="What is this session working on?"
+          placeholder="What is this subshell working on?"
           rows={4}
           autoFocus
         />

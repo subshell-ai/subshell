@@ -56,7 +56,7 @@
 
   /* Terminal/workspace surfaces. Raw hexes because xterm's theme and
      dockview-theme.css consume the same literals — these vars are the one
-     home every layer reads. Values match session-terminal.tsx's TERMINAL_THEME. */
+     home every layer reads. Values match subshell-terminal.tsx's TERMINAL_THEME. */
   --terminal-strip: #221c32;
   --terminal-canvas: #181226;
   --terminal-tab-active: #2b243e;

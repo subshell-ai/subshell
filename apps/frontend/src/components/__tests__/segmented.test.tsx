@@ -3,8 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Segmented, type SegmentedOption } from "@/components/ui/segmented";
 
 const OPTIONS: SegmentedOption<"existing" | "new">[] = [
-  { value: "existing", label: "Existing session" },
-  { value: "new", label: "New session" },
+  { value: "existing", label: "Existing subshell" },
+  { value: "new", label: "New subshell" },
 ];
 
 describe("Segmented", () => {
@@ -12,15 +12,15 @@ describe("Segmented", () => {
 
   it("keeps option labels as accessible names and presses only the current one", () => {
     render(<Segmented ariaLabel="What to add" options={OPTIONS} value="new" onChange={() => {}} />);
-    expect(screen.getByRole("button", { name: "New session" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "Existing session" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "New subshell" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Existing subshell" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("clicking any option reports exactly its value", () => {
     const picked: string[] = [];
     render(<Segmented ariaLabel="What to add" options={OPTIONS} value="existing" onChange={(v) => picked.push(v)} />);
-    fireEvent.click(screen.getByRole("button", { name: "New session" }));
-    fireEvent.click(screen.getByRole("button", { name: "Existing session" }));
+    fireEvent.click(screen.getByRole("button", { name: "New subshell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Existing subshell" }));
     expect(picked).toEqual(["new", "existing"]);
   });
 
@@ -33,7 +33,7 @@ describe("Segmented", () => {
     }
     // A focused button activated by the platform click path (what Enter/Space
     // dispatch on a real `<button>`) reports its value.
-    const target = screen.getByRole("button", { name: "New session" });
+    const target = screen.getByRole("button", { name: "New subshell" });
     target.focus();
     fireEvent.click(target);
     expect(picked).toEqual(["new"]);

@@ -234,7 +234,7 @@ function UsersPage() {
         <Card>
           <CardHeader>
             <CardTitle>Audit trail</CardTitle>
-            <CardDescription>Latest session lifecycle and admin events.</CardDescription>
+            <CardDescription>Latest subshell lifecycle and admin events.</CardDescription>
           </CardHeader>
           <CardContent>
             {/* Error ≠ empty ≠ loading — the roster above got this treatment

@@ -7,12 +7,12 @@ import type { WorkspacePaneRow } from "@/types/workspace";
 function pane(overrides: Partial<WorkspacePaneRow> = {}): WorkspacePaneRow {
   return {
     id: "pane-1",
-    sessionId: "s-1",
-    sessionName: "Alpha",
-    sessionStatus: "running",
-    sessionAlive: true,
-    sessionExitCode: null,
-    sessionWaitingSince: null,
+    subshellId: "s-1",
+    subshellName: "Alpha",
+    subshellStatus: "running",
+    subshellAlive: true,
+    subshellExitCode: null,
+    subshellWaitingSince: null,
     workingDir: "/tmp",
     ...overrides,
   };
@@ -37,7 +37,7 @@ function renderTab(opts: { waiting: boolean; removed?: string[]; selected?: stri
 afterEach(cleanup);
 
 describe("WorkspaceTab (narrow tab strip)", () => {
-  it("renders the session name", () => {
+  it("renders the subshell name", () => {
     renderTab({ waiting: false });
     expect(screen.getByText("Alpha")).toBeDefined();
   });

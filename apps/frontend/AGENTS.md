@@ -23,9 +23,9 @@ bun run verify-types       # tsc --noEmit
 src/
 ├── routes/           # TanStack Router file-based routes (workspaces_.$id.tsx = flat nesting)
 ├── components/       # App components; components/ui/ = shadcn-style primitives (Base UI + cva; see .migration/)
-├── hooks/            # Data hooks wrapping TanStack Query (use-workspaces.ts, use-session-data.ts, ...)
+├── hooks/            # Data hooks wrapping TanStack Query (use-workspaces.ts, use-subshell-data.ts, ...)
 ├── lib/              # Non-UI utilities: api.ts (fetch helpers), auth.ts (current-session helpers),
-│                     # query-client.ts, session-frames.ts, workspace-layout.ts, ...
+│                     # query-client.ts, subshell-frames.ts, workspace-layout.ts, ...
 └── types/            # Hand-written mirrors of API response shapes
 ```
 
@@ -51,10 +51,10 @@ components are the better-auth sign-in/sign-out posts:
   better-auth `get-session` endpoint through `apiFetch`. Sign-in (`routes/login.tsx`)
   and sign-out (`components/app-sidebar.tsx`) POST straight to better-auth's
   `/api/auth/*` endpoints.
-- Terminal attach: `src/lib/use-session-ws.ts` — a short-lived (30 s) single-use
-  WS token minted over REST, then the `/ws` connection. Never put the session
+- Terminal attach: `src/lib/use-subshell-ws.ts` — a short-lived (30 s) single-use
+  WS token minted over REST, then the `/ws` connection. Never put the subshell
   bearer token in a URL.
-- Uploads/streaming: the fetch paths in `src/lib/session-uploads.ts` (driven by
+- Uploads/streaming: the fetch paths in `src/lib/subshell-uploads.ts` (driven by
   `src/hooks/use-terminal-uploads.ts`).
 
 ## Testing

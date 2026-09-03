@@ -1,17 +1,17 @@
 import { describe, expect, it } from "bun:test";
-import { recentSessionLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
-import type { SessionView } from "@/types/session";
+import { recentSubshellLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
+import type { SubshellView } from "@/types/subshell";
 import type { WorkspaceRow } from "@/types/workspace";
 
 /** The sidebar only reads id/name/workingDir/updatedAt — cast the fixtures. */
-const session = (id: string, name: string, workingDir = `/home/theo/${id}`): SessionView =>
-  ({ id, name, workingDir }) as SessionView;
+const subshell = (id: string, name: string, workingDir = `/home/theo/${id}`): SubshellView =>
+  ({ id, name, workingDir }) as SubshellView;
 const workspace = (id: string, name: string, updatedAt: string): WorkspaceRow =>
   ({ id, name, updatedAt }) as WorkspaceRow;
 
-describe("recentSessionLinks", () => {
+describe("recentSubshellLinks", () => {
   it("takes the first three of the (already newest-first) list, with the working dir", () => {
-    const links = recentSessionLinks([session("a", "A"), session("b", "B"), session("c", "C"), session("d", "D")]);
+    const links = recentSubshellLinks([subshell("a", "A"), subshell("b", "B"), subshell("c", "C"), subshell("d", "D")]);
     expect(links).toEqual([
       { id: "a", label: "A", path: "/home/theo/a" },
       { id: "b", label: "B", path: "/home/theo/b" },
@@ -20,7 +20,7 @@ describe("recentSessionLinks", () => {
   });
 
   it("is empty while the list is loading", () => {
-    expect(recentSessionLinks(undefined)).toEqual([]);
+    expect(recentSubshellLinks(undefined)).toEqual([]);
   });
 });
 

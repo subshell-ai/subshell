@@ -141,7 +141,7 @@ export interface ProfilePayload {
   settings: Record<string, never>;
   /** Always false: no harness consumes config isolation yet — see profile-fields.tsx. */
   configIsolation: boolean;
-  /** Whether the supervisor restarts the session when the harness exits */
+  /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
   /** Pinned launch node id; null = any node (the form's "" sentinel) */
   nodeId: string | null;
@@ -179,7 +179,7 @@ export interface ProfileUpdatePayload {
   flags: string[];
   /** Always false: no harness consumes config isolation yet — see profile-fields.tsx. */
   configIsolation: boolean;
-  /** Whether the supervisor restarts the session when the harness exits */
+  /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
   /** Pinned launch node id; null unpins (any node) — the form's "" sentinel */
   nodeId: string | null;

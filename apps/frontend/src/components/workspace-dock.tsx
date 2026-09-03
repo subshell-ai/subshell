@@ -9,19 +9,19 @@ import {
 import "dockview-react/dist/styles/dockview.css";
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
-import { SessionPicker } from "@/components/session-picker";
+import { SubshellPicker } from "@/components/subshell-picker";
 import { Button } from "@/components/ui/button";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
-import { SessionTab } from "@/components/workspace-dock/session-tab";
+import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { apiFetch, errMessage } from "@/lib/api";
-import { confirmDeleteSession, confirmTerminateSession } from "@/lib/session-confirmations";
+import { confirmDeleteSubshell, confirmTerminateSubshell } from "@/lib/subshell-confirmations";
 import { panelIdsInLayout, panesMissingFromLayout, resolveAddPosition } from "@/lib/workspace-layout";
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
 /** Debounce window for persisting layout changes — collapses a drag/resize/split burst into one request. */
@@ -29,14 +29,14 @@ const LAYOUT_SAVE_DEBOUNCE_MS = 800;
 
 /** Panel content renderers, keyed by the `component` id passed to `addPanel`. */
 const components = {
-  session: (props: IDockviewPanelProps<DockedPaneParams>) => <DockedPane {...props} />,
+  subshell: (props: IDockviewPanelProps<DockedPaneParams>) => <DockedPane {...props} />,
 };
 
 /** Props for {@link WorkspaceDock}. */
 export interface WorkspaceDockProps {
   /** The workspace and its panes, from `useWorkspace`'s poll */
   detail: WorkspaceDetail;
-  /** Re-fetches the workspace detail after a pane or session mutation */
+  /** Re-fetches the workspace detail after a pane or subshell mutation */
   onRefetch: () => void;
 }
 
@@ -99,14 +99,14 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
   /**
    * Adds a panel for a pane, optionally splitting from a reference panel or
    * group. Used by `onReady`, by the reconciliation effect below, and by
-   * `handleAdd` — the session picker's and the drop handler's shared path
-   * for actually attaching a session to the workspace.
+   * `handleAdd` — the subshell picker's and the drop handler's shared path
+   * for actually attaching a subshell to the workspace.
    */
   const addPanel = useCallback((api: DockviewApi, pane: WorkspacePaneRow, position?: AddPanelPositionOptions) => {
     api.addPanel<DockedPaneParams>({
       id: pane.id,
-      component: "session",
-      title: pane.sessionName,
+      component: "subshell",
+      title: pane.subshellName,
       renderer: "always",
       params: { paneId: pane.id },
       ...(position ? { position } : {}),
@@ -162,7 +162,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
       if (!api.getPanel(pane.id)) addPanel(api, pane);
     }
     // The mirror of the loop above: a pane can also disappear without this
-    // client doing anything — deleting its session from /sessions cascades
+    // client doing anything — deleting its subshell from /subshells cascades
     // the pane row away, and another device can remove a pane directly.
     // Nothing else closes those panels, so without this the tile lingers as
     // a dead terminal until a reload. Guarded on `serverSeenPaneIdsRef` so a
@@ -175,25 +175,25 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     }
   }, [detail.panes, addPanel]);
 
-  const { addPane, removePane, restartSession } = useWorkspacePaneMutations(detail.workspace.id);
+  const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
 
   // Restart is IN-PLACE: same id, so the workspace_panes row already points
-  // at the (now-revived) session — there is nothing to add or remove. A clone
+  // at the (now-revived) subshell — there is nothing to add or remove. A clone
   // dance (add replacement pane, drop the old one) would create a SECOND row
-  // for one session: a duplicate tile on other devices and two terminals on
+  // for one subshell: a duplicate tile on other devices and two terminals on
   // one tmux pane. (regression #13) The next refetch flips the pane back to
-  // running — which remounts a dead pane's terminal (SessionPane switches
+  // running — which remounts a dead pane's terminal (SubshellPane switches
   // branches) and lets a live pane's socket reconnect — so just restart + refetch.
   const handleRestart = useCallback(
-    async (sessionId: string) => {
+    async (subshellId: string) => {
       try {
-        await restartSession(sessionId);
+        await restartSubshell(subshellId);
         onRefetch();
       } catch (err) {
         setError(errMessage(err, "Restart failed"));
       }
     },
-    [restartSession, onRefetch],
+    [restartSubshell, onRefetch],
   );
 
   const handleRemovePane = useCallback(
@@ -214,75 +214,75 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
   );
 
   const handleTerminate = useCallback(
-    async (sessionId: string) => {
-      const name = detail.panes.find((p) => p.sessionId === sessionId)?.sessionName ?? sessionId;
-      if (!(await confirmTerminateSession(name))) return;
+    async (subshellId: string) => {
+      const name = detail.panes.find((p) => p.subshellId === subshellId)?.subshellName ?? subshellId;
+      if (!(await confirmTerminateSubshell(name))) return;
       try {
-        await apiFetch(`/api/sessions/${sessionId}/terminate`, { method: "POST" });
+        await apiFetch(`/api/subshells/${subshellId}/terminate`, { method: "POST" });
         onRefetch();
       } catch (err) {
-        setError(errMessage(err, "Failed to terminate session"));
+        setError(errMessage(err, "Failed to terminate subshell"));
       }
     },
     [detail.panes, onRefetch],
   );
 
-  const handleDeleteSession = useCallback(
-    async (sessionId: string) => {
-      const name = detail.panes.find((p) => p.sessionId === sessionId)?.sessionName ?? sessionId;
-      if (!(await confirmDeleteSession(name))) return;
+  const handleDeleteSubshell = useCallback(
+    async (subshellId: string) => {
+      const name = detail.panes.find((p) => p.subshellId === subshellId)?.subshellName ?? subshellId;
+      if (!(await confirmDeleteSubshell(name))) return;
       try {
         // The FK cascade removes the pane server-side, so there is no separate
         // pane-removal call to make. The panel is closed by the reconciliation
         // effect above once the refetch below reports the pane gone;
         // `DockedPane`'s vanished-pane check covers the frame or two in
         // between, when the panel still exists but its pane does not.
-        await apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+        await apiFetch(`/api/subshells/${subshellId}`, { method: "DELETE" });
         onRefetch();
       } catch (err) {
-        setError(errMessage(err, "Failed to delete session"));
+        setError(errMessage(err, "Failed to delete subshell"));
       }
     },
     [detail.panes, onRefetch],
   );
 
   const handleAdd = useCallback(
-    async (sessionId: string, direction: SplitDirection) => {
+    async (subshellId: string, direction: SplitDirection) => {
       try {
         // The pane row is created first, and everything after this point
         // runs inside a `finally` that always calls `onRefetch` — once this
         // POST succeeds, the pane exists server-side no matter what happens
-        // next (the session summary fetch below could still fail, e.g. a
+        // next (the subshell summary fetch below could still fail, e.g. a
         // concurrent delete), and it must never end up invisible: skipping
         // the refetch would leave a pane the user can't see, still offer its
-        // session as available in the picker, and turn a retry into a
+        // subshell as available in the picker, and turn a retry into a
         // duplicate.
-        const newPane = await addPane(sessionId);
+        const newPane = await addPane(subshellId);
         try {
-          // The session's own summary is fetched fresh rather than taken
+          // The subshell's own summary is fetched fresh rather than taken
           // from any list the caller might have had on hand —
-          // `SessionPicker` carries only an id, whether the session was
+          // `SubshellPicker` carries only an id, whether the subshell was
           // picked from the list or launched from the dialog — so the new
           // panel's title and content are correct from the moment it's
           // added instead of waiting on the next poll.
-          const session = await apiFetch<SessionView>(`/api/sessions/${sessionId}`);
+          const subshell = await apiFetch<SubshellView>(`/api/subshells/${subshellId}`);
           const api = apiRef.current;
           if (api) {
             addPanel(
               api,
               {
                 id: newPane.id,
-                sessionId,
-                sessionName: session.name,
-                sessionStatus: session.status,
-                sessionAlive: session.alive,
-                // Authoritative, not a placeholder: the fresh session read
-                // carries the exit code, so an added pane for a session
+                subshellId,
+                subshellName: subshell.name,
+                subshellStatus: subshell.status,
+                subshellAlive: subshell.alive,
+                // Authoritative, not a placeholder: the fresh subshell read
+                // carries the exit code, so an added pane for a subshell
                 // that already died explains itself immediately. The
                 // waiting stamp rides the same read (the tab marker).
-                sessionExitCode: session.exitCode,
-                sessionWaitingSince: session.waitingSince,
-                workingDir: session.workingDir,
+                subshellExitCode: subshell.exitCode,
+                subshellWaitingSince: subshell.waitingSince,
+                workingDir: subshell.workingDir,
               },
               // Everything added from the dialog splits from whatever pane
               // is currently focused: the dialog chooses a direction, never
@@ -291,7 +291,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
             );
           }
         } finally {
-          // Runs even if the session summary fetch above failed: the pane
+          // Runs even if the subshell summary fetch above failed: the pane
           // already exists server-side by this point, and `onRefetch` is
           // what makes it show up — the reconciliation effect above attaches
           // any pane `detail.panes` gains that this render never gave a
@@ -301,7 +301,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
           onRefetch();
         }
       } catch (err) {
-        setError(errMessage(err, "Failed to add session"));
+        setError(errMessage(err, "Failed to add subshell"));
       }
     },
     [addPanel, addPane, onRefetch],
@@ -312,12 +312,12 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
       detail,
       searchAddons,
       setSearchAddon,
-      onRestart: (sessionId) => void handleRestart(sessionId),
+      onRestart: (subshellId) => void handleRestart(subshellId),
       onRemovePane: (paneId) => void handleRemovePane(paneId),
-      onTerminate: (sessionId) => void handleTerminate(sessionId),
-      onDeleteSession: (sessionId) => void handleDeleteSession(sessionId),
+      onTerminate: (subshellId) => void handleTerminate(subshellId),
+      onDeleteSubshell: (subshellId) => void handleDeleteSubshell(subshellId),
     }),
-    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleTerminate, handleDeleteSession],
+    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleTerminate, handleDeleteSubshell],
   );
 
   return (
@@ -325,10 +325,10 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
       {/* In the workspace header, not over the tiles: a group's own header is
           per-tile, and this control adds panes that belong to no particular
           one. It used to float over the bottom-right tile, where it covered
-          that session's output. */}
+          that subshell's output. */}
       <WorkspaceHeader
         workspace={detail.workspace}
-        actions={<SessionPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />
       <div className="relative flex-1 overflow-hidden bg-terminal-canvas">
         {error && (
@@ -352,7 +352,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
           <DockviewReact
             className="dockview-theme-abyss h-full w-full"
             components={components}
-            defaultTabComponent={SessionTab}
+            defaultTabComponent={SubshellTab}
             rightHeaderActionsComponent={GroupHeaderActions}
             // Belt-and-suspenders alongside the explicit `renderer: "always"`
             // on every `addPanel` call: dockview falls back to

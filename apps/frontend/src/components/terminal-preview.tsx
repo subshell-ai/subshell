@@ -2,7 +2,7 @@ import { type JSX, useMemo } from "react";
 import { type AnsiSpan, parseAnsi } from "@/lib/ansi";
 
 /**
- * A non-interactive rendering of a session's current screen.
+ * A non-interactive rendering of a subshell's current screen.
  *
  * Deliberately not a terminal: it renders a server-captured snapshot as
  * styled text, so a page can show many at once. A real xterm per card would
@@ -11,8 +11,8 @@ import { type AnsiSpan, parseAnsi } from "@/lib/ansi";
  * the point it became useful.
  *
  * `pointer-events-none` keeps clicks falling through to whatever wraps this
- * (on a session card, the link to the session itself), and no text is
- * selectable, so it reads as a picture of the session rather than something
+ * (on a subshell card, the link to the subshell itself), and no text is
+ * selectable, so it reads as a picture of the subshell rather than something
  * to type into.
  */
 export function TerminalPreview({ lines }: { lines: string[] }): JSX.Element {

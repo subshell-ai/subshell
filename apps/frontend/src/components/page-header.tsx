@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export interface PageHeaderProps {
-  /** Page title (h1) — a plain noun like "Sessions" or "Profiles" */
+  /** Page title (h1) — a plain noun like "Subshells" or "Profiles" */
   title: ReactNode;
   /** One-line description under the title */
   subtitle: ReactNode;

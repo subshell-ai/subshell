@@ -44,7 +44,7 @@ function renderDialog() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SharingDialog sessionId="s1" open onOpenChange={() => {}} />
+      <SharingDialog subshellId="s1" open onOpenChange={() => {}} />
     </QueryClientProvider>,
   );
 }

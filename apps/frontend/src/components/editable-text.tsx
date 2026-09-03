@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  * One line of metadata that edits itself in place: it reads as text, becomes
  * an input on click, saves on Enter or blur, and reverts on Escape or an
  * unchanged value. A blank or over-`maxLength` draft is rejected with an
- * inline error before any request. Shared by the session, workspace, and
+ * inline error before any request. Shared by the subshell, workspace, and
  * node detail headers, which own their save mutations; tests live beside it.
  */
 export function EditableText({

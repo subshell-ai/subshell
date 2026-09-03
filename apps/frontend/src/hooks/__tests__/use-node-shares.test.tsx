@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useNodeShares, useSetNodeShares } from "@/hooks/use-node-shares";
 
 /**
- * Node sharing hooks (spec 2026-08-31 §9/§10) — mirror of the session-shares
+ * Node sharing hooks (spec 2026-08-31 §9/§10) — mirror of the subshell-shares
  * contract: GET returns the grant set, PUT replaces it whole. Same fetch-stub
  * style as `use-nodes.test.tsx`.
  */

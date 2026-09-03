@@ -74,8 +74,8 @@ export function NotificationsCard({
       <CardHeader>
         <CardTitle>Notifications</CardTitle>
         <CardDescription>
-          System notifications when a session needs your attention — enabled per device and browser, never pushed by the
-          instance itself.
+          System notifications when a subshell needs your attention — enabled per device and browser, never pushed by
+          the instance itself.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

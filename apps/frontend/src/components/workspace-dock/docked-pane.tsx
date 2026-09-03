@@ -1,20 +1,20 @@
 import type { IDockviewPanelProps } from "dockview-react";
 import { useCallback, useEffect, useState } from "react";
-import { SessionPane } from "@/components/session-pane";
-import type { SessionTerminalHandles } from "@/components/session-terminal";
+import { SubshellPane } from "@/components/subshell-pane";
+import type { SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
 
-/** Params dockview holds for a "session" panel; see `addPanel` in `workspace-dock.tsx`. */
+/** Params dockview holds for a "subshell" panel; see `addPanel` in `workspace-dock.tsx`. */
 export interface DockedPaneParams {
   /** The pane this panel renders — looked up in the live detail on every render */
   paneId: string;
 }
 
 /**
- * The `"session"` panel renderer registered with `<DockviewReact>`. dockview
+ * The `"subshell"` panel renderer registered with `<DockviewReact>`. dockview
  * owns the frame, tab and close control, and (via `GroupHeaderActions`) the
  * maximize toggle and the heavier maximized-only chrome — this owns only the
- * content, `<SessionPane>`.
+ * content, `<SubshellPane>`.
  *
  * `active` is derived from dockview's own visibility (seeded from
  * `props.api.isVisible`, kept live via `onDidVisibilityChange`), never from
@@ -55,20 +55,20 @@ export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
   }, [props.api]);
 
   const handleTerminalReady = useCallback(
-    (handles: SessionTerminalHandles) => setSearchAddon(paneId, handles.search),
+    (handles: SubshellTerminalHandles) => setSearchAddon(paneId, handles.search),
     [setSearchAddon, paneId],
   );
   const handleTerminalDispose = useCallback(() => setSearchAddon(paneId, null), [setSearchAddon, paneId]);
 
   const pane = detail.panes.find((p) => p.id === paneId);
-  // The 5s poll can see a cascade (the session — and with it this pane —
+  // The 5s poll can see a cascade (the subshell — and with it this pane —
   // deleted from another device) before dockview's own layout catches up.
   // Rendering nothing is correct for that gap; `WorkspaceDock`'s
   // reconciliation effect closes the panel itself on the same update.
   if (!pane) return null;
 
   return (
-    <SessionPane
+    <SubshellPane
       pane={pane}
       active={visible}
       showKeyBar={visible && isActive}

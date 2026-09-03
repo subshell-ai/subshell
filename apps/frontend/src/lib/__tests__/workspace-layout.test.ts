@@ -5,12 +5,12 @@ import { panelIdsInLayout, panesMissingFromLayout, resolveAddPosition } from "..
 function pane(id: string): WorkspacePaneRow {
   return {
     id,
-    sessionId: `s-${id}`,
-    sessionName: id,
-    sessionStatus: "running",
-    sessionAlive: true,
-    sessionExitCode: null,
-    sessionWaitingSince: null,
+    subshellId: `s-${id}`,
+    subshellName: id,
+    subshellStatus: "running",
+    subshellAlive: true,
+    subshellExitCode: null,
+    subshellWaitingSince: null,
     workingDir: "/tmp",
   };
 }

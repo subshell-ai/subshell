@@ -39,7 +39,7 @@ export function EntityCard({
   items?: ActionItem[];
   /**
    * A ready-made menu for the top-right slot instead of an `items` list —
-   * for entities whose menu carries its own state (a session menu with
+   * for entities whose menu carries its own state (a subshell menu with
    * notes dialog and lifecycle mutations). Occupies the same floated slot.
    */
   menu?: ReactNode;

@@ -21,7 +21,7 @@ import { Route as UsersRouteImport } from './routes/users'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as ProfilesIdRouteImport } from './routes/profiles_.$id'
-import { Route as SessionsIdRouteImport } from './routes/sessions_.$id'
+import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -84,9 +84,9 @@ const ProfilesIdRoute = ProfilesIdRouteImport.update({
   path: '/profiles/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SessionsIdRoute = SessionsIdRouteImport.update({
-  id: '/sessions_/$id',
-  path: '/sessions/$id',
+const SubshellsIdRoute = SubshellsIdRouteImport.update({
+  id: '/subshells_/$id',
+  path: '/subshells/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkspacesIdRoute = WorkspacesIdRouteImport.update({
@@ -108,7 +108,7 @@ export interface FileRoutesByFullPath {
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
-  '/sessions/$id': typeof SessionsIdRoute
+  '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
 }
 export interface FileRoutesByTo {
@@ -124,7 +124,7 @@ export interface FileRoutesByTo {
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
-  '/sessions/$id': typeof SessionsIdRoute
+  '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
 }
 export interface FileRoutesById {
@@ -141,7 +141,7 @@ export interface FileRoutesById {
   '/workspaces': typeof WorkspacesRoute
   '/nodes_/$id': typeof NodesIdRoute
   '/profiles_/$id': typeof ProfilesIdRoute
-  '/sessions_/$id': typeof SessionsIdRoute
+  '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
 }
 export interface FileRouteTypes {
@@ -159,7 +159,7 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/nodes/$id'
     | '/profiles/$id'
-    | '/sessions/$id'
+    | '/subshells/$id'
     | '/workspaces/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -175,7 +175,7 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/nodes/$id'
     | '/profiles/$id'
-    | '/sessions/$id'
+    | '/subshells/$id'
     | '/workspaces/$id'
   id:
     | '__root__'
@@ -191,7 +191,7 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/nodes_/$id'
     | '/profiles_/$id'
-    | '/sessions_/$id'
+    | '/subshells_/$id'
     | '/workspaces_/$id'
   fileRoutesById: FileRoutesById
 }
@@ -208,7 +208,7 @@ export interface RootRouteChildren {
   WorkspacesRoute: typeof WorkspacesRoute
   NodesIdRoute: typeof NodesIdRoute
   ProfilesIdRoute: typeof ProfilesIdRoute
-  SessionsIdRoute: typeof SessionsIdRoute
+  SubshellsIdRoute: typeof SubshellsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
 }
 
@@ -298,11 +298,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfilesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions_/$id': {
-      id: '/sessions_/$id'
-      path: '/sessions/$id'
-      fullPath: '/sessions/$id'
-      preLoaderRoute: typeof SessionsIdRouteImport
+    '/subshells_/$id': {
+      id: '/subshells_/$id'
+      path: '/subshells/$id'
+      fullPath: '/subshells/$id'
+      preLoaderRoute: typeof SubshellsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/workspaces_/$id': {
@@ -328,7 +328,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspacesRoute: WorkspacesRoute,
   NodesIdRoute: NodesIdRoute,
   ProfilesIdRoute: ProfilesIdRoute,
-  SessionsIdRoute: SessionsIdRoute,
+  SubshellsIdRoute: SubshellsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
 }
 export const routeTree = rootRouteImport

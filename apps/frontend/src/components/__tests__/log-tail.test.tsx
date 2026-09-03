@@ -14,7 +14,7 @@ describe("LogTail", () => {
 
   it("appends the labeled exit code to the headline", () => {
     render(<LogTail lines={["x"]} exitCode={1} />);
-    expect(screen.getByText(/Session exited \(code 1 — error doing work\)/)).toBeDefined();
+    expect(screen.getByText(/Subshell exited \(code 1 — error doing work\)/)).toBeDefined();
   });
 
   it("renders the no-output line with a bare code when the log is empty", () => {

@@ -47,7 +47,7 @@ export function ProfileFields({
   const harnesses = useMemo(() => allHarnesses?.filter((h) => h.enabled), [allHarnesses]);
   const { data: schema } = useHarnessSchema(value.harnessId);
   // Node pin options (spec 2026-08-31 §6.2): every node VISIBLE to the caller
-  // — any share level may host a profile's sessions, so this is the plain
+  // — any share level may host a profile's subshells, so this is the plain
   // registry list; the server re-validates visibility at save time (404 for
   // an invisible pin).
   const { data: nodeData } = useNodes();
@@ -152,7 +152,7 @@ export function ProfileFields({
         <p className="text-muted-foreground text-sm">
           {lockHarness
             ? "A profile's harness is set when it is created and cannot change afterwards."
-            : "Which agent CLI sessions started from this profile will run."}
+            : "Which agent CLI subshells started from this profile will run."}
         </p>
         {!value.harnessId && !lockHarness && (
           <p className="text-muted-foreground text-sm">Select a harness to see the rest of the options.</p>
@@ -202,8 +202,8 @@ export function ProfileFields({
               </SelectContent>
             </Select>
             <p className="text-muted-foreground text-sm">
-              Pins sessions started from this profile to one machine. The pin is honoured at launch — if the pinned node
-              is offline, starting a session with this profile fails until it is back.
+              Pins subshells started from this profile to one machine. The pin is honoured at launch — if the pinned
+              node is offline, starting a subshell with this profile fails until it is back.
             </p>
           </div>
           <div className="space-y-2">
@@ -244,7 +244,7 @@ export function ProfileFields({
               <Label htmlFor="profile-restart">Auto-restart on exit</Label>
             </div>
             <p className="text-muted-foreground text-sm">
-              When a session's harness process exits on its own, bring the session back up automatically — with a
+              When a subshell's harness process exits on its own, bring the subshell back up automatically — with a
               growing delay between attempts while it keeps failing. Leave off to decide manually.
             </p>
           </div>

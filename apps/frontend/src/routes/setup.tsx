@@ -77,7 +77,7 @@ function SetupPage() {
 
   function finish() {
     // The shared ["setup-status"] cache still says needsSetup:true for its
-    // staleTime window (10 s). The Sessions page reads it on its first
+    // staleTime window (10 s). The Subshells page reads it on its first
     // render and bounces straight back to /setup — a wizard finished in
     // under 10 s would be trapped there — so retire it before navigating.
     queryClient.setQueryData(["setup-status"], { needsSetup: false });
@@ -147,7 +147,7 @@ function SetupPage() {
           {step === 1 && (
             <div className="space-y-3">
               <p className="text-muted-foreground text-sm">
-                Install a coding-agent CLI and switch it on to run real sessions. You can change this later in Settings
+                Install a coding-agent CLI and switch it on to run real subshells. You can change this later in Settings
                 — a blank default profile is already set up for every harness.
               </p>
               {/* First-run dead-end fix: while the registry is in flight the
@@ -180,7 +180,7 @@ function SetupPage() {
                 />
               ))}
               {/* First-run escape hatch (spec §8): a host with no usable
-                  harness is not a dead end — sessions can run on an enrolled
+                  harness is not a dead end — subshells can run on an enrolled
                   node instead. "Usable" = installed AND enabled. */}
               {harnesses !== undefined && !harnesses.some((h) => h.installed && h.enabled) && (
                 <p className="text-muted-foreground text-sm">

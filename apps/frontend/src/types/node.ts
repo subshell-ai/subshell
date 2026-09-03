@@ -1,7 +1,7 @@
 /**
  * Shared node view model — the hand-written mirror of the backend's
  * `node-view.ts → NodeViewSchema` (spec 2026-08-31 §9), mirroring how
- * `types/session.ts` mirrors `toSessionView`. Field names must match the
+ * `types/subshell.ts` mirrors `toSubshellView`. Field names must match the
  * wire exactly; the list route returns `{ nodes: Node[] }`, the detail route
  * adds `shares` for config-capable viewers.
  */

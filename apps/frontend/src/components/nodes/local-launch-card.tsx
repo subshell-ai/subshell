@@ -57,9 +57,9 @@ export function LocalLaunchCard() {
       <CardHeader>
         <CardTitle>Launch on this host</CardTitle>
         <CardDescription>
-          Allow launching sessions on this control-plane host. Turning it off makes the host unselectable in the
-          new-session node picker — sessions cannot start anywhere until another node is shared for launching. This only
-          removes or reinstalls the Everyone grant; custom per-user shares on this host are kept.
+          Allow launching subshells on this control-plane host. Turning it off makes the host unselectable in the
+          new-subshell node picker — subshells cannot start anywhere until another node is shared for launching. This
+          only removes or reinstalls the Everyone grant; custom per-user shares on this host are kept.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -70,7 +70,7 @@ export function LocalLaunchCard() {
             // No grant set yet → no draft to modify; enabling here would PUT
             // a []-built set and wipe every live grant.
             disabled={setShares.isPending || existing === undefined}
-            aria-label="Allow launching sessions on this control-plane host"
+            aria-label="Allow launching subshells on this control-plane host"
           />
           <Label>{on ? "Everyone can launch here" : "Local launching is off"}</Label>
         </div>

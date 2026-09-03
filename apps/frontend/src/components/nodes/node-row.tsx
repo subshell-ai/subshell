@@ -1,6 +1,6 @@
 import { Settings, Share2, Trash2 } from "lucide-react";
 import { ActionsMenu } from "@/components/actions-menu";
-import { relativeElapsed } from "@/components/session-status";
+import { relativeElapsed } from "@/components/subshell-status";
 import { Badge } from "@/components/ui/badge";
 import type { Node } from "@/types/node";
 

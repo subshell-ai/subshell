@@ -1,5 +1,5 @@
 /**
- * Keyboard chords the session terminal handles itself rather than encoding
+ * Keyboard chords the subshell terminal handles itself rather than encoding
  * for the pane.
  */
 
@@ -8,7 +8,7 @@
  *
  * Two call sites must agree on this exactly, which is why it lives here:
  *
- * - `session-terminal.tsx` returns `false` from xterm's custom key handler
+ * - `subshell-terminal.tsx` returns `false` from xterm's custom key handler
  *   for it, so xterm does NOT encode the chord as `\x16` and send it to the
  *   pane. It used to: the harness CLI in the pane treats `\x16` as its own
  *   paste shortcut and reads the SERVER's clipboard, which is how "No image

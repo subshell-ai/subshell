@@ -42,7 +42,7 @@ export function NodeHarnessCard({ nodeId, canConfigure }: { nodeId: string; canC
       <CardHeader>
         <CardTitle>Harnesses</CardTitle>
         <CardDescription>
-          Agent CLIs on this machine and whether sessions may use them here. Enabling an agent harness that its
+          Agent CLIs on this machine and whether subshells may use them here. Enabling an agent harness that its
           inventory reports as not installed is refused.
         </CardDescription>
       </CardHeader>

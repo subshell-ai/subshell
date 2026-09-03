@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@/types/session";
+import type { SubshellStatus } from "@/types/subshell";
 
 /**
  * Where a new pane goes relative to a reference pane. Matches dockview's
@@ -17,34 +17,34 @@ export interface WorkspaceRow {
   name: string;
   /** Saved dockview layout tree, or null when none has been saved yet */
   layout: unknown | null;
-  /** Number of sessions (panes) the workspace currently holds */
-  sessionCount: number;
+  /** Number of subshells (panes) the workspace currently holds */
+  subshellCount: number;
   /** Created timestamp (ISO 8601) */
   createdAt: string;
   /** Updated timestamp (ISO 8601) */
   updatedAt: string;
 }
 
-/** One pane in a workspace's tiling layout, with its session's summary joined in. */
+/** One pane in a workspace's tiling layout, with its subshell's summary joined in. */
 export interface WorkspacePaneRow {
   /** Pane id */
   id: string;
-  /** Session rendered in this pane */
-  sessionId: string;
-  /** Session display name, for the pane title */
-  sessionName: string;
-  /** Lifecycle status of the session */
-  sessionStatus: SessionStatus;
+  /** Subshell rendered in this pane */
+  subshellId: string;
+  /** Subshell display name, for the pane title */
+  subshellName: string;
+  /** Lifecycle status of the subshell */
+  subshellStatus: SubshellStatus;
   /** False once the harness process has exited */
-  sessionAlive: boolean;
-  /** Exit code of the pane's session once dead; null while alive or unreadable */
-  sessionExitCode: number | null;
+  subshellAlive: boolean;
+  /** Exit code of the pane's subshell once dead; null while alive or unreadable */
+  subshellExitCode: number | null;
   /**
-   * ISO ts of the attention event that put this session in waiting-for-you
+   * ISO ts of the attention event that put this subshell in waiting-for-you
    * state; null when not waiting. Drives the dock tab's waiting marker.
    */
-  sessionWaitingSince: string | null;
-  /** Absolute working directory of the session */
+  subshellWaitingSince: string | null;
+  /** Absolute working directory of the subshell */
   workingDir: string;
 }
 

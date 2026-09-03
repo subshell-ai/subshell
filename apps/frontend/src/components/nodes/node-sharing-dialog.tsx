@@ -1,10 +1,10 @@
 import { SharingDialogCore } from "@/components/sharing-dialog-core";
 import { useNodeShares, useSetNodeShares } from "@/hooks/use-node-shares";
-import { type ShareDraft, useSharableUsers } from "@/hooks/use-session-shares";
+import { type ShareDraft, useSharableUsers } from "@/hooks/use-subshell-shares";
 
 /**
  * Node sharing control (spec 2026-08-31 §9/§10) — the node-flavoured wrapper
- * around {@link SharingDialogCore}. The contract mirrors session-shares
+ * around {@link SharingDialogCore}. The contract mirrors subshell-shares
  * (Everyone + named users at view|edit, whole-set PUT), but both routes are
  * MANAGER-only (owner, or admin on `local`), so `canManage` comes from the
  * caller's already-loaded `Node.canManage` (server-derived — never re-derived
@@ -37,7 +37,7 @@ export function NodeSharingDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Share node"
-      description="Let others see this machine or run sessions on it. Sharing is private by default."
+      description="Let others see this machine or run subshells on it. Sharing is private by default."
       isLoading={shares.isLoading}
       serverGrants={serverGrants}
       roster={roster.data ?? []}

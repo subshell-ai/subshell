@@ -8,8 +8,8 @@ import { getMasterSwitch, setMasterSwitch } from "@/lib/notifications";
 /**
  * Account → Notifications: the account-wide master switch (spec
  * 2026-08-31). One value shared across every device, stored in `user_meta`;
- * off means NO session push is ever sent to this user, whatever the per-device
- * opt-ins or per-session bells say. It complements (does not replace) the
+ * off means NO subshell push is ever sent to this user, whatever the per-device
+ * opt-ins or per-subshell bells say. It complements (does not replace) the
  * per-device {@link NotificationsCard}. The two hooks are injectable so the
  * read/write cycle is testable without stubbing fetch.
  */
@@ -22,7 +22,7 @@ export type NotificationsMasterCardProps = {
   setEnabled?: (on: boolean) => Promise<boolean>;
 };
 
-/** Settings card for "receive session notifications at all". */
+/** Settings card for "receive subshell notifications at all". */
 export function NotificationsMasterCard({
   getEnabled = getMasterSwitch,
   setEnabled = setMasterSwitch,
@@ -64,10 +64,10 @@ export function NotificationsMasterCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Session notifications</CardTitle>
+        <CardTitle>Subshell notifications</CardTitle>
         <CardDescription>
-          Receive notifications when a session needs your attention. This is your account-wide switch — turning it off
-          silences every device at once, regardless of the per-session or per-device settings below.
+          Receive notifications when a subshell needs your attention. This is your account-wide switch — turning it off
+          silences every device at once, regardless of the per-subshell or per-device settings below.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -78,7 +78,7 @@ export function NotificationsMasterCard({
             checked={enabled ?? false}
             onCheckedChange={() => void toggle()}
             disabled={busy || enabled === null}
-            aria-label="Receive session notifications"
+            aria-label="Receive subshell notifications"
           />
           <Label>{enabled === null ? "Unknown" : enabled ? "On" : "Off"}</Label>
         </div>

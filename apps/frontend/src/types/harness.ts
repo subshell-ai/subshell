@@ -44,7 +44,7 @@ export interface SettingsFieldInfo {
   default?: string | boolean | number;
 }
 
-/** One copy-paste step in a harness's manual cross-session-comms setup. */
+/** One copy-paste step in a harness's manual cross-subshell-comms setup. */
 export interface McpSetupStepInfo {
   /** What the user should do / where the text goes */
   label: string;
@@ -53,7 +53,7 @@ export interface McpSetupStepInfo {
 }
 
 /**
- * How a harness obtains the `subshell mcp` cross-session tools. Discriminated:
+ * How a harness obtains the `subshell mcp` cross-subshell tools. Discriminated:
  * auto carries a summary, manual carries steps (mirrors the API's union).
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };
@@ -66,6 +66,6 @@ export interface HarnessSchema {
   suggestedEnv: { key: string; description: string }[];
   /** Known CLI flags with one-line descriptions */
   suggestedFlags: { flag: string; description: string }[];
-  /** How this harness gets cross-session comms (auto vs one-time manual setup) */
+  /** How this harness gets cross-subshell comms (auto vs one-time manual setup) */
   mcp: McpSetupInfo;
 }

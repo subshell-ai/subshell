@@ -32,7 +32,7 @@ type PushConfig = {
 
 /**
  * The account-wide notification master switch (spec 2026-08-31). Off ⇒ the
- * user receives NO session pushes regardless of any per-session bell or
+ * user receives NO subshell pushes regardless of any per-subshell bell or
  * per-device subscription. Distinct from the per-device opt-in below: this is
  * one value shared across every device, stored in `user_meta`.
  */
@@ -44,7 +44,7 @@ export async function getMasterSwitch(): Promise<boolean> {
 /**
  * Sets the account-wide master switch and returns the persisted value (the
  * server echoes it, so the caller can trust the write rather than assume).
- * @param on - Whether this user should receive session pushes at all
+ * @param on - Whether this user should receive subshell pushes at all
  */
 export async function setMasterSwitch(on: boolean): Promise<boolean> {
   const { notifyEnabled } = await apiFetch<{ notifyEnabled: boolean }>("/api/notifications/settings", {

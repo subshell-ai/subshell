@@ -9,7 +9,7 @@ import { NotificationsMasterCard } from "@/components/notifications-master-card"
  * The lib hooks come in through props, so no fetch stubbing is needed here.
  */
 
-const switch_ = () => screen.getByRole("switch", { name: "Receive session notifications" });
+const switch_ = () => screen.getByRole("switch", { name: "Receive subshell notifications" });
 
 afterEach(() => cleanup());
 

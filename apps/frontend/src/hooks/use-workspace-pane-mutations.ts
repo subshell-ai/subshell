@@ -13,31 +13,31 @@ import { apiFetch, apiPost, isAlreadyGone } from "@/lib/api";
  * @param workspaceId - The workspace whose panes are managed
  */
 export function useWorkspacePaneMutations(workspaceId: string) {
-  /** Attaches a session as a new pane row; resolves with the created row. */
+  /** Attaches a subshell as a new pane row; resolves with the created row. */
   const addPane = useCallback(
-    (sessionId: string) =>
+    (subshellId: string) =>
       apiPost<{ id: string }>(`/api/workspaces/${workspaceId}/panes`, {
-        sessionId,
+        subshellId,
       }),
     [workspaceId],
   );
 
   /**
-   * Restarts a session's process IN PLACE (same id). Deliberately does NOT
+   * Restarts a subshell's process IN PLACE (same id). Deliberately does NOT
    * touch panes: because the id survives, the existing workspace_panes row
-   * already references the revived session — the caller just refetches. (There
+   * already references the revived subshell — the caller just refetches. (There
    * is no replacement pane to add and no old pane to drop; doing the old
-   * clone-era swap now yields a duplicate pane for one session.)
-   * @returns The restarted session — id === sessionId
+   * clone-era swap now yields a duplicate pane for one subshell.)
+   * @returns The restarted subshell — id === subshellId
    */
-  const restartSession = useCallback(
-    (sessionId: string) => apiFetch<{ id: string }>(`/api/sessions/${sessionId}/restart`, { method: "POST" }),
+  const restartSubshell = useCallback(
+    (subshellId: string) => apiFetch<{ id: string }>(`/api/subshells/${subshellId}/restart`, { method: "POST" }),
     [],
   );
 
   /**
    * Deletes a pane row. An already-gone failure (another client removed it,
-   * or a session delete cascaded it away first) is the state this call was
+   * or a subshell delete cascaded it away first) is the state this call was
    * trying to reach, so it resolves quietly — the caller still closes or
    * re-selects its pane either way. A genuine failure (5xx, network) throws
    * so the caller can surface it instead of pretending the pane is gone.
@@ -54,5 +54,5 @@ export function useWorkspacePaneMutations(workspaceId: string) {
     [workspaceId],
   );
 
-  return { addPane, restartSession, removePane };
+  return { addPane, restartSubshell, removePane };
 }

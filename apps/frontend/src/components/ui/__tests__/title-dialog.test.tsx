@@ -20,7 +20,7 @@ function renderDialog(overrides: Partial<{ currentName: string; onOpenChange: (o
   render(
     <QueryClientProvider client={client}>
       <TitleDialog
-        sessionId="id-1"
+        subshellId="id-1"
         currentName={overrides.currentName ?? "Old title"}
         open
         onOpenChange={overrides.onOpenChange ?? (() => {})}
@@ -39,14 +39,14 @@ describe("TitleDialog", () => {
     const { calls, restore } = mockFetch();
     try {
       renderDialog({ onOpenChange: (o) => (closed = !o) });
-      fireEvent.change(screen.getByRole("textbox", { name: "New session title" }), {
+      fireEvent.change(screen.getByRole("textbox", { name: "New subshell title" }), {
         target: { value: "  New title  " },
       });
       fireEvent.click(saveButton());
       await waitFor(() =>
         expect(calls).toContainEqual({
           method: "PATCH",
-          url: "/api/sessions/id-1/name",
+          url: "/api/subshells/id-1/name",
           body: JSON.stringify({ name: "New title" }),
         }),
       );
@@ -61,9 +61,9 @@ describe("TitleDialog", () => {
     try {
       renderDialog();
       expect(saveButton().disabled).toBe(true); // unchanged (prefilled)
-      fireEvent.change(screen.getByRole("textbox", { name: "New session title" }), { target: { value: "   " } });
+      fireEvent.change(screen.getByRole("textbox", { name: "New subshell title" }), { target: { value: "   " } });
       expect(saveButton().disabled).toBe(true); // blank
-      fireEvent.change(screen.getByRole("textbox", { name: "New session title" }), { target: { value: "Other" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "New subshell title" }), { target: { value: "Other" } });
       expect(saveButton().disabled).toBe(false);
     } finally {
       restore();
@@ -74,7 +74,7 @@ describe("TitleDialog", () => {
     const { restore } = mockFetch();
     try {
       renderDialog();
-      const input = screen.getByRole("textbox", { name: "New session title" }) as HTMLInputElement;
+      const input = screen.getByRole("textbox", { name: "New subshell title" }) as HTMLInputElement;
       expect(input.maxLength).toBe(120);
       // fireEvent bypasses the DOM maxlength, exercising the component guard:
       fireEvent.change(input, { target: { value: "x".repeat(121) } });

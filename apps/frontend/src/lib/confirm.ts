@@ -11,7 +11,7 @@
 
 /** Options describing a confirmation prompt. */
 export interface ConfirmOptions {
-  /** Headline question, e.g. `Delete session "web"?` */
+  /** Headline question, e.g. `Delete subshell "web"?` */
   title: string;
   /** Supporting detail under the headline */
   description?: string;

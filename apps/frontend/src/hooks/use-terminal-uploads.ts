@@ -3,7 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type FileRejection, useDropzone } from "react-dropzone";
 import { prepareForUpload } from "@/lib/image-downscale.js";
-import { injectText } from "@/lib/session-frames.js";
+import { injectText } from "@/lib/subshell-frames.js";
 import {
   insertionFailedMessage,
   insertionTextFor,
@@ -11,8 +11,8 @@ import {
   mapWithConcurrency,
   rejectionMessage,
   summarizeUploadBatch,
-  uploadSessionFile,
-} from "@/lib/session-uploads.js";
+  uploadSubshellFile,
+} from "@/lib/subshell-uploads.js";
 import { isPasteChord } from "@/lib/terminal-keys.js";
 
 /** One in-flight upload as the overlay renders it. */
@@ -82,9 +82,9 @@ async function readClipboardImages(): Promise<File[]> {
 }
 
 /**
- * Drag-and-drop plus clipboard-file paste for the session terminal.
+ * Drag-and-drop plus clipboard-file paste for the subshell terminal.
  *
- * Files are uploaded into the session's working directory and their paths injected
+ * Files are uploaded into the subshell's working directory and their paths injected
  * into the terminal in one batch. `noClick`/`noKeyboard` are essential: the
  * dropzone wraps the terminal, and without them a click or Space/Enter in
  * the terminal would open a file dialog.
@@ -119,23 +119,23 @@ async function readClipboardImages(): Promise<File[]> {
  * A text-carrying event stops at (1)/(2) and never reaches the async
  * clipboard, so ordinary text paste stays permissionless. The terminal
  * separately stops xterm from encoding the chord as `\x16`
- * (`session-terminal.tsx`) — otherwise the pane's own CLI answers the
+ * (`subshell-terminal.tsx`) — otherwise the pane's own CLI answers the
  * keystroke by reading the SERVER's clipboard, which is what put "No image
  * found in clipboard" on the user's screen while their image never left the
  * browser (2026-09-02 report).
  *
- * @param args.sessionId - Session receiving the files
- * @param args.wsRef - Live session socket (used to inject the paths)
+ * @param args.subshellId - Subshell receiving the files
+ * @param args.wsRef - Live subshell socket (used to inject the paths)
  * @param args.termRef - The attached terminal (read for bracketed-paste mode)
  * @param args.enabled - Gate for the clipboard-paste interception (follows `showUploads`)
  */
 export function useTerminalUploads({
-  sessionId,
+  subshellId,
   wsRef,
   termRef,
   enabled = true,
 }: {
-  sessionId: string;
+  subshellId: string;
   wsRef: { current: WebSocket | null };
   termRef: { current: Terminal | null };
   enabled?: boolean;
@@ -143,7 +143,7 @@ export function useTerminalUploads({
   const [entries, setEntries] = useState<UploadEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   // An upload can outlive the component: the user navigates away or the
-  // session panel unmounts while a drop is still in flight. The request keeps
+  // subshell panel unmounts while a drop is still in flight. The request keeps
   // going deliberately — the file should still land on the server — so only the
   // state writes that follow it are gated.
   //
@@ -204,7 +204,7 @@ export function useTerminalUploads({
         const settled = await mapWithConcurrency(batch, MAX_CONCURRENT_UPLOADS, async ({ id }, i) => {
           const prepared = await prepareForUpload(files[i]);
           patchEntry(id, (e) => ({ ...e, name: prepared.name, status: "uploading", total: prepared.size, sent: 0 }));
-          return uploadSessionFile(sessionId, prepared, (sent, total) =>
+          return uploadSubshellFile(subshellId, prepared, (sent, total) =>
             patchEntry(id, (e) => ({ ...e, sent, total: total || e.total })),
           );
         });
@@ -232,7 +232,7 @@ export function useTerminalUploads({
         removeEntries(batch.map((b) => b.id));
       }
     },
-    [sessionId, termRef, wsRef, patchEntry, removeEntries],
+    [subshellId, termRef, wsRef, patchEntry, removeEntries],
   );
 
   const { getRootProps, isDragActive, rootRef } = useDropzone({
@@ -294,7 +294,7 @@ export function useTerminalUploads({
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!isPasteChord(e) || !focusedHere()) return;
       // The terminal suppresses xterm's \x16 for this chord (see
-      // session-terminal.tsx), so the pane never sees the keystroke and the
+      // subshell-terminal.tsx), so the pane never sees the keystroke and the
       // browser's paste pipeline owns it. Arm the no-event fallback.
       awaitingPasteEvent = true;
       clearTimeout(graceTimer);

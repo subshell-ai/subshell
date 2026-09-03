@@ -34,7 +34,7 @@ describe("ProfileCard", () => {
    * form shows without a fetch) and injects the save mutation — the real
    * better-auth client is a proxy that resists spies, so the card takes it as
    * a prop (NotificationsCard's pattern). `refresh` backs the post-save
-   * session refetch so the cache refresh lands deterministically. */
+   * subshell refetch so the cache refresh lands deterministically. */
   function renderCard(
     updateUser: (input: { name: string }) => Promise<{ error?: { message?: string } | null }>,
     refresh: () => Promise<{ id: string; email: string; name: string } | null> = async () => USER,

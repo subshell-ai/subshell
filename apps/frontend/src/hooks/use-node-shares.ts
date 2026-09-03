@@ -5,7 +5,7 @@ import type { NodeShare } from "@/types/node";
 
 /**
  * Sharing reads/writes for one node (spec 2026-08-31 §9/§10) — the mirror of
- * `use-session-shares`: `granteeUserId` null is the "Everyone" grant, and the
+ * `use-subshell-shares`: `granteeUserId` null is the "Everyone" grant, and the
  * PUT replaces the whole set. Both routes are MANAGER-only (owner, or admin on
  * `local`) — an `edit` grantee may configure the node but never reads or moves
  * the grant list, so callers gate both on `Node.canManage` (server-derived;

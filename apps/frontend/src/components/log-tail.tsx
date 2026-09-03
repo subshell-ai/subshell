@@ -32,7 +32,7 @@ export interface LogTailProps {
 }
 
 /**
- * The exited-session panel: a headline ("Session exited (code …)"), an action
+ * The exited-subshell panel: a headline ("Subshell exited (code …)"), an action
  * row, and the pane log's tail — the only record of why a harness that died
  * before anyone attached bailed out. Scrolls; long lines wrap.
  *
@@ -45,7 +45,7 @@ export function LogTail({ lines, truncated = false, exitCode, children }: LogTai
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
-        <p className="text-muted-foreground text-sm">Session exited{exitSuffix(exitCode)}</p>
+        <p className="text-muted-foreground text-sm">Subshell exited{exitSuffix(exitCode)}</p>
         {children != null && <div className="flex items-center gap-2">{children}</div>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">

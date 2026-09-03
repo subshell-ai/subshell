@@ -70,7 +70,7 @@ function WorkspacesPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Workspaces"
-        subtitle="Tiled layouts of your sessions"
+        subtitle="Tiled layouts of your subshells"
         action={
           <Button onClick={() => void createAndEnter()} disabled={creating}>
             <Plus /> {creating ? "Creating…" : "New workspace"}
@@ -104,7 +104,7 @@ function WorkspacesPage() {
         <EmptyState
           icon={LayoutDashboard}
           title="No workspaces yet"
-          description="Group sessions into a tiled layout to work across them at once."
+          description="Group subshells into a tiled layout to work across them at once."
           actionLabel="Create your first workspace"
           onAction={() => void createAndEnter()}
           busy={creating}
@@ -139,7 +139,7 @@ function WorkspacesPage() {
                 },
               ]}
             >
-              <p>{w.sessionCount === 1 ? "1 session" : `${w.sessionCount} sessions`}</p>
+              <p>{w.subshellCount === 1 ? "1 subshell" : `${w.subshellCount} subshells`}</p>
             </EntityCard>
           ))}
         </div>

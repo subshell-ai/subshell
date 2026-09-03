@@ -4,7 +4,7 @@ import { safeRedirect } from "@/lib/redirect";
 describe("safeRedirect", () => {
   it("accepts same-origin absolute paths", () => {
     expect(safeRedirect("/workspaces")).toBe("/workspaces");
-    expect(safeRedirect("/sessions/abc?tab=logs")).toBe("/sessions/abc?tab=logs");
+    expect(safeRedirect("/subshells/abc?tab=logs")).toBe("/subshells/abc?tab=logs");
   });
   it("rejects anything that could leave the app", () => {
     expect(safeRedirect("//evil.com")).toBeNull();

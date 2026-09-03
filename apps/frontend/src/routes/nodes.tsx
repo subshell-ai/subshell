@@ -49,7 +49,7 @@ function NodesPage() {
     try {
       await deleteNode.mutateAsync(node.id);
     } catch (err) {
-      // 409 NODE_RUNNING_SESSIONS: the backend message names the count and
+      // 409 NODE_RUNNING_SUBSHELLS: the backend message names the count and
       // the ?force=true path — surface it verbatim rather than re-wording it.
       setActionError(errMessage(err, "Failed to delete node"));
     }
@@ -59,7 +59,7 @@ function NodesPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Nodes"
-        subtitle="Machines sessions can run on — this host plus enrolled agents"
+        subtitle="Machines subshells can run on — this host plus enrolled agents"
         action={
           <Button onClick={() => setDialogOpen(true)}>
             <Plus /> Add node
@@ -93,7 +93,7 @@ function NodesPage() {
         <EmptyState
           icon={Server}
           title="No nodes yet"
-          description="Enroll another machine with a setup key to run sessions on it."
+          description="Enroll another machine with a setup key to run subshells on it."
           actionLabel="Add your first node"
           onAction={() => setDialogOpen(true)}
         />

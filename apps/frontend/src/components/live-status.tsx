@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Whether this page is receiving live session updates.
+ * Whether this page is receiving live subshell updates.
  *
  * It replaces a bare "live" / "offline" badge, which named the transport
  * rather than saying anything a reader could act on, and sat next to the view
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * beside it.
  *
  * The disconnected wording is "reconnecting", not "offline", because that is
- * what is actually happening: `useLiveSessions` retries with a fresh token on
+ * what is actually happening: `useLiveSubshells` retries with a fresh token on
  * every drop, and the list still renders from the REST fetch meanwhile. A
  * brief flap during a reconnect therefore reads as a transient state instead
  * of an error.
@@ -26,7 +26,7 @@ export function LiveStatus({ connected }: { connected: boolean }): JSX.Element {
       aria-live="polite"
       title={
         connected
-          ? "This list updates on its own as sessions start, finish and produce output."
+          ? "This list updates on its own as subshells start, finish and produce output."
           : "Live updates were interrupted and are being retried. What you see may be out of date until they resume."
       }
     >

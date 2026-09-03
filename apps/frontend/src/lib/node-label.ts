@@ -4,7 +4,7 @@ import type { Node } from "@/types/node";
  * The ONE spelling of "this node is a down agent" on the web side: the
  * offline rule covers agents only — `local`'s status is a projection that
  * never gates (mirrors the server's liveness check). Pickers' disabled
- * states, the " — offline" label, the compat matrix (`lib/session-compat`)
+ * states, the " — offline" label, the compat matrix (`lib/subshell-compat`)
  * and the launch hints all derive from this so they cannot disagree about
  * what offline means.
  * @param node - Any node row (list or detail)

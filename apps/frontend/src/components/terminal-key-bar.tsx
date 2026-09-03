@@ -30,7 +30,7 @@ export const KEY_BAR_ROWS: KeyBarButton[][] = [
     // prompts answer identically from the bar or a hardware keyboard.
     { label: "⏎", aria: "Send Enter", bytes: "\r" },
     // The touch stand-in for Shift+Enter: ESC+CR, which the harnesses read as
-    // "insert a newline" (session-terminal maps the physical combo to this).
+    // "insert a newline" (subshell-terminal maps the physical combo to this).
     { label: "⇧⏎", aria: "Insert newline", bytes: "\x1b\r" },
   ],
   [
@@ -48,7 +48,7 @@ export const KEY_BAR_ROWS: KeyBarButton[][] = [
 export const KEY_BAR_BUTTONS: KeyBarButton[] = KEY_BAR_ROWS.flat();
 
 export interface TerminalKeyBarProps {
-  /** Grayed until the session WS is attached */
+  /** Grayed until the subshell WS is attached */
   disabled: boolean;
   /** Write raw bytes to the pane */
   onBytes: (bytes: string) => void;

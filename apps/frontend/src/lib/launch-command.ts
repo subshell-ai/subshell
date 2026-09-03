@@ -1,6 +1,6 @@
 /**
  * Rendering of a profile as the shell command fragment it contributes when a
- * session launches.
+ * subshell launches.
  */
 
 /**
@@ -13,14 +13,14 @@ export function quotePosix(value: string): string {
 }
 
 /**
- * The profile's share of a session's launch command:
+ * The profile's share of a subshell's launch command:
  * `KEY='value' … <binary> 'flag' 'value' …`.
  *
  * Deliberately only what a *profile* contributes. The real launch additionally
- * wraps this in `env -i` with a curated host environment, mints per-session
- * `SUBSHELL_*` credentials (including the session API key), and lets the harness
- * plugin inject session-runtime args (`--mcp-config`, `--settings`, `--name`)
- * — none of which exist until a session starts, so none are previewed here.
+ * wraps this in `env -i` with a curated host environment, mints per-subshell
+ * `SUBSHELL_*` credentials (including the subshell API key), and lets the harness
+ * plugin inject subshell-runtime args (`--mcp-config`, `--settings`, `--name`)
+ * — none of which exist until a subshell starts, so none are previewed here.
  *
  * Corrupt stored blobs degrade to empty rather than throwing; this is a
  * display surface.

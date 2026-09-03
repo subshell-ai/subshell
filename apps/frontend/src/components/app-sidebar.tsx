@@ -13,11 +13,11 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { useSessionsList } from "@/hooks/use-sessions";
+import { useSubshellsList } from "@/hooks/use-subshells";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
-import { recentSessionLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
+import { recentSubshellLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
@@ -35,9 +35,9 @@ export interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  // Terminal, like the empty sessions box — sessions are terminal harnesses,
+  // Terminal, like the empty subshells box — subshells are terminal harnesses,
   // not a grid (the grid icon belongs to the tiles/list view toggle).
-  { to: "/", label: "Sessions", icon: TerminalSquare },
+  { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal, short: "Prof" },
@@ -94,13 +94,13 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   // Admin-nav gate for the Server entry (spec 2026-09-02 settings-split §4) —
   // the same cached query the emergency banner / Add-node dialog use.
   const { data: publicSettings } = usePublicSettings();
-  // "Recent" sub-lists under Sessions / Workspaces — the quick jump that the
-  // session page's switcher strip used to offer. Same query keys as the home
+  // "Recent" sub-lists under Subshells / Workspaces — the quick jump that the
+  // subshell page's switcher strip used to offer. Same query keys as the home
   // page, so every mutation and the page's polling keep these current; shown
   // only while the rail is expanded.
-  const { data: sessions } = useSessionsList();
+  const { data: subshells } = useSubshellsList();
   const { data: workspaces } = useWorkspaces();
-  const recentSessions = recentSessionLinks(sessions);
+  const recentSubshells = recentSubshellLinks(subshells);
   const recentWorkspaces = recentWorkspaceLinks(workspaces);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
@@ -197,18 +197,18 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
               </Link>
               {!collapsed &&
                 item.to === "/" &&
-                recentSessions.map((r) => (
+                recentSubshells.map((r) => (
                   <Link
                     key={r.id}
-                    to="/sessions/$id"
+                    to="/subshells/$id"
                     params={{ id: r.id }}
                     title={r.path ? `${r.label} — ${r.path}` : undefined}
-                    className={recentClass(location.pathname === `/sessions/${r.id}`)}
+                    className={recentClass(location.pathname === `/subshells/${r.id}`)}
                   >
                     <span className="block truncate">{r.label}</span>
                     {/* Working dir under the name — the same reading posture
                         the phone header took: the path is what locates a
-                        session, the name alone does not. */}
+                        subshell, the name alone does not. */}
                     {r.path ? <span className="block truncate text-[10px] opacity-70">{r.path}</span> : null}
                   </Link>
                 ))}

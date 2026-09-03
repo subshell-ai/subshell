@@ -17,7 +17,7 @@ interface ExploreResult {
 /**
  * A text input for an absolute directory path that expands the server-side
  * folder picker (container paths) the moment it is clicked. Shared by the
- * new-session form's working-directory field.
+ * new-subshell form's working-directory field.
  *
  * Fully controlled: `value`/`onChange` come from the parent, and the panel
  * always shows the folder the input names. Every row click — folder, Recent,

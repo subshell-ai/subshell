@@ -17,7 +17,7 @@ export const Route = createFileRoute("/workspaces_/$id")({
  * (narrow viewports), nothing else.
  *
  * Each presentation renders `<WorkspaceHeader>` itself, with its own
- * `<SessionPicker>` in the header's actions slot — only the presentation
+ * `<SubshellPicker>` in the header's actions slot — only the presentation
  * knows how to add a pane (the dock splits, the tab strip appends), so the
  * bar is shared but the control that lives in it is not.
  */

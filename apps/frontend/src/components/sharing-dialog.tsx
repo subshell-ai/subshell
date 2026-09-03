@@ -1,28 +1,28 @@
 import { SharingDialogCore } from "@/components/sharing-dialog-core";
-import { type ShareDraft, useSetShares, useSharableUsers, useShares } from "@/hooks/use-session-shares";
+import { type ShareDraft, useSetShares, useSharableUsers, useShares } from "@/hooks/use-subshell-shares";
 
 /**
- * Session sharing control (spec 2026-08-31 §4) — the thin session-flavoured
- * wrapper around {@link SharingDialogCore}: it owns the session-shares hooks
+ * Subshell sharing control (spec 2026-08-31 §4) — the thin subshell-flavoured
+ * wrapper around {@link SharingDialogCore}: it owns the subshell-shares hooks
  * and the copy, and keeps the EXACT props every call site already passes
- * (`sessionId` + open state). Nodes use `NodeSharingDialog`
+ * (`subshellId` + open state). Nodes use `NodeSharingDialog`
  * (`components/nodes/node-sharing-dialog.tsx`), which shares the same core.
  *
- * Owner-only in practice — opened from the session's actions menu — so
+ * Owner-only in practice — opened from the subshell's actions menu — so
  * `canManage` stays at the core's default.
  */
 export function SharingDialog({
-  sessionId,
+  subshellId,
   open,
   onOpenChange,
 }: {
-  sessionId: string;
+  subshellId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const shares = useShares(sessionId, open);
+  const shares = useShares(subshellId, open);
   const roster = useSharableUsers(open);
-  const setShares = useSetShares(sessionId);
+  const setShares = useSetShares(subshellId);
 
   const serverGrants: ShareDraft[] = (shares.data?.shares ?? []).map((s) => ({
     granteeUserId: s.granteeUserId,
@@ -33,8 +33,8 @@ export function SharingDialog({
     <SharingDialogCore
       open={open}
       onOpenChange={onOpenChange}
-      title="Share session"
-      description="Let others see or use this session. Sharing is private by default."
+      title="Share subshell"
+      description="Let others see or use this subshell. Sharing is private by default."
       isLoading={shares.isLoading}
       serverGrants={serverGrants}
       roster={roster.data ?? []}

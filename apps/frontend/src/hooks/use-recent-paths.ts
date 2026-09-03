@@ -1,20 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
-/** One recently used working directory, as recorded by session creation. */
+/** One recently used working directory, as recorded by subshell creation. */
 export interface RecentPath {
   /** Absolute directory path. */
   path: string;
-  /** Display label (the session name it was last used with), if any. */
+  /** Display label (the subshell name it was last used with), if any. */
   label: string | null;
 }
 
 /**
  * The caller's recently used working directories (newest first), recorded
- * whenever a session is created. Feeds the new-session form's pre-fill; the
+ * whenever a subshell is created. Feeds the new-subshell form's pre-fill; the
  * folder picker gets the same list inside every explore response.
  * @param nodeId - Launch node to scope the list to. The server records each
- *                 session-create touch under the session's resolved node and
+ *                 subshell-create touch under the subshell's resolved node and
  *                 filters `/recent` by this param; omitted (or `local`) means
  *                 the control-plane host, byte-identical to the pre-nodes
  *                 request. A node the caller cannot see answers 404, so the

@@ -15,7 +15,7 @@ export interface SegmentedOption<T extends string> {
 }
 
 export interface SegmentedProps<T extends string> {
-  /** Group label announced on the fieldset (e.g. "Where to add the session") */
+  /** Group label announced on the fieldset (e.g. "Where to add the subshell") */
   ariaLabel: string;
   /** Choices, rendered in order */
   options: SegmentedOption<T>[];
@@ -32,10 +32,10 @@ export interface SegmentedProps<T extends string> {
  * active option gets the `secondary` fill and every option carries
  * `aria-pressed`.
  *
- * The tiled/list toggle, the add-session dialog's mode switch, and the
+ * The tiled/list toggle, the add-subshell dialog's mode switch, and the
  * split-placement picker were three hand-rolled copies of this. Buttons stay
  * real `<button type="button">`s with their option label as the accessible
- * name — e2e locates some of them by name ("New session").
+ * name — e2e locates some of them by name ("New subshell").
  */
 export function Segmented<T extends string>({ ariaLabel, options, value, onChange, className }: SegmentedProps<T>) {
   return (

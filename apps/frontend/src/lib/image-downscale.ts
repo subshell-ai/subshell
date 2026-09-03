@@ -1,5 +1,5 @@
 /**
- * Client-side image downsizing ahead of a session upload.
+ * Client-side image downsizing ahead of a subshell upload.
  *
  * Screenshots arrive as multi-megabyte PNGs at 2×/3× density; pasted into an
  * agent prompt as a PATH, the harness Reads the file and its base64 then rides
@@ -7,7 +7,7 @@
  * and the model call balloons to tens of MB and stalls. Claude's vision input
  * itself samples at {@link MAX_EDGE_PX} at most, so bytes beyond that budget
  * buy the agent nothing while costing every turn. Shrinking here keeps the
- * stored file small on local AND node sessions (the node relay ships 512 KiB
+ * stored file small on local AND node subshells (the node relay ships 512 KiB
  * RPC chunks — one downsized image is typically one chunk).
  *
  * Deliberately conservative: only still raster formats the canvas can decode

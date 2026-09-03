@@ -127,7 +127,7 @@ function ProfilesPage() {
         <EmptyState
           icon={SlidersHorizontal}
           title="No profiles yet"
-          description="A profile is a saved launch configuration — env vars, flags, whether sessions restart themselves — that every session starts from."
+          description="A profile is a saved launch configuration — env vars, flags, whether subshells restart themselves — that every subshell starts from."
           actionLabel="Create your first profile"
           onAction={() => setShowCreate(true)}
         />

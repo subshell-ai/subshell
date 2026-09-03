@@ -25,7 +25,7 @@ export interface AnsiSpan {
 
 /**
  * The 16 base colours, matching the palette xterm renders in the real
- * terminal views, so a preview and its session don't disagree about what
+ * terminal views, so a preview and its subshell don't disagree about what
  * "red" looks like.
  */
 const BASE_COLORS = [

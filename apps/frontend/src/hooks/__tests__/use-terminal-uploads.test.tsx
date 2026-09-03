@@ -11,7 +11,7 @@ import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
  */
 
 /** Recording XHR double — the transport assertion lives here rather than in a
- * module mock, because `mock.module` on `@/lib/session-uploads` leaks its
+ * module mock, because `mock.module` on `@/lib/subshell-uploads` leaks its
  * replacement into later test files in the same `bun test` process. */
 class FakeXhr {
   static instances: FakeXhr[] = [];
@@ -63,7 +63,7 @@ describe("useTerminalUploads.openImagePicker", () => {
 
     const { result } = renderHook(() =>
       useTerminalUploads({
-        sessionId: "s1",
+        subshellId: "s1",
         wsRef: { current: null },
         termRef: { current: null },
       }),
@@ -92,7 +92,7 @@ describe("useTerminalUploads.openImagePicker", () => {
     const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
 
     const { result } = renderHook(() =>
-      useTerminalUploads({ sessionId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+      useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
     );
     result.current.openImagePicker();
 
@@ -109,7 +109,7 @@ describe("useTerminalUploads.openImagePicker", () => {
     await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
     const xhr = FakeXhr.instances[0];
     expect(xhr.method).toBe("POST");
-    expect(xhr.url).toBe("/api/sessions/s1/uploads");
+    expect(xhr.url).toBe("/api/subshells/s1/uploads");
     // The SAME File object rode the batch — tiny PNGs pass prepareForUpload
     // untouched, and the picker did not fork a private upload path.
     expect(xhr.sentBody?.get("file")).toBe(file);
@@ -119,9 +119,9 @@ describe("useTerminalUploads.openImagePicker", () => {
   });
 });
 
-/** Minimal host element wiring the hook exactly like SessionTerminal does. */
+/** Minimal host element wiring the hook exactly like SubshellTerminal does. */
 function Probe() {
-  const uploads = useTerminalUploads({ sessionId: "s1", wsRef: { current: null }, termRef: { current: null } });
+  const uploads = useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } });
   return (
     <div
       {...uploads.getRootProps({ className: "root" })}
@@ -179,7 +179,7 @@ describe("useTerminalUploads clipboard-file interception", () => {
 
     expect(ev.defaultPrevented).toBe(true); // xterm never sees the keystroke
     await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
-    expect(FakeXhr.instances[0].url).toBe("/api/sessions/s1/uploads");
+    expect(FakeXhr.instances[0].url).toBe("/api/subshells/s1/uploads");
     expect(FakeXhr.instances[0].sentBody?.get("file")).toBe(file);
   });
 
@@ -195,7 +195,7 @@ describe("useTerminalUploads clipboard-file interception", () => {
 
     expect(ev.defaultPrevented).toBe(true); // must not reach the harness CLI
     await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
-    expect(FakeXhr.instances[0].url).toBe("/api/sessions/s1/uploads");
+    expect(FakeXhr.instances[0].url).toBe("/api/subshells/s1/uploads");
     expect(FakeXhr.instances[0].sentBody?.get("file")).toBe(file);
   });
 
@@ -330,7 +330,7 @@ describe("useTerminalUploads — Ctrl+V that produces NO paste event", () => {
       term.dispatchEvent(ctrlVKeyDown()); // and no paste event ever follows
 
       await waitFor(() => expect(FakeXhr.instances).toHaveLength(1), { timeout: 2000 });
-      expect(FakeXhr.instances[0].url).toBe("/api/sessions/s1/uploads");
+      expect(FakeXhr.instances[0].url).toBe("/api/subshells/s1/uploads");
       const sent = FakeXhr.instances[0].sentBody?.get("file") as File;
       expect(sent.name).toMatch(/^pasted-image-\d{14}\.png$/);
     } finally {

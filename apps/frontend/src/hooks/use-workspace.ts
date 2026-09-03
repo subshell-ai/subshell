@@ -6,7 +6,7 @@ import type { WorkspaceDetail } from "@/types/workspace";
 /**
  * One workspace with its panes.
  *
- * Polled on a fixed interval so panes notice their sessions exiting.
+ * Polled on a fixed interval so panes notice their subshells exiting.
  */
 export function useWorkspace(id: string) {
   return useQuery({
