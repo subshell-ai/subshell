@@ -1,22 +1,15 @@
-import { useEffect, useState } from "react";
+import { useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { apiFetch } from "@/lib/api";
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * Live subshell list for the home page.
+ * Live subshell list for the home page — the thin READ end of the root feed.
  *
- * Prefers an SSE stream (`GET /api/events`) for near-real-time card updates.
- * Because EventSource cannot send the HttpOnly session cookie, auth uses the
- * same short-lived ws token as the WS attach path (POST /api/auth/ws-token →
- * `?token=` query param). Tokens are single-use and expire after 30s, so the
- * stream is (re)opened with a fresh token whenever the previous one dies.
- *
- * Falls back to the plain REST list (`GET /api/subshells`) when the stream is
- * unavailable (e.g. older backend without /api/events), so the page always
- * renders something. The REST failure is reported separately from emptiness:
- * when neither feed has anything (`isError`), the page shows an honest error
- * instead of the "No subshells yet" card.
+ * The EventSource transport moved to `LiveSubshellsFeedProvider` in
+ * `__root.tsx` (spec 2026-09-03 sidebar-quickadd §6); this hook now just
+ * merges the provider's most recent frame with the REST query (initial load,
+ * older backends without `/api/events`, and the invalidation-driven refresh).
+ * The returned shape is unchanged.
  */
 export function useLiveSubshells(): {
   subshells: SubshellView[];
@@ -27,69 +20,16 @@ export function useLiveSubshells(): {
   /** Re-runs the REST list fetch (the retry affordance for `isError`) */
   refetch: () => Promise<unknown>;
 } {
-  const [subshells, setSubshells] = useState<SubshellView[] | null>(null);
-  const [connected, setConnected] = useState(false);
-
-  // REST fallback + initial load (also feeds invalidation after notes PATCH).
   const rest = useSubshellsList();
-
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    async function connect() {
-      try {
-        const { token } = await apiFetch<{ token: string }>("/api/auth/ws-token", { method: "POST" });
-        if (cancelled) return;
-        // One connection per token (tokens are single-use + 30s TTL).
-        es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
-        es.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data as string) as { subshells: SubshellView[] };
-            setSubshells(data.subshells);
-            setConnected(true);
-          } catch {
-            // ignore malformed frame
-          }
-        };
-        // EventSource auto-reconnects on network errors, but the consumed/expired
-        // token would 401 forever — tear the stream down and retry with a fresh
-        // token (bounded backoff).
-        es.onerror = () => {
-          setConnected(false);
-          es?.close();
-          es = null;
-          if (!cancelled) {
-            const delay = reconnectTimer ? 3000 : 1000;
-            reconnectTimer = setTimeout(() => {
-              reconnectTimer = null;
-              void connect();
-            }, delay);
-          }
-        };
-      } catch {
-        // token fetch failed; rely on the REST fallback below
-        setConnected(false);
-      }
-    }
-    void connect();
-
-    return () => {
-      cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      es?.close();
-    };
-  }, []);
-
-  // `isError` is deliberately gated on `subshells === null`: once the stream
+  const feed = useLiveSubshellsFeed();
+  // `isError` is deliberately gated on `lastList === null`: once the stream
   // has delivered a list, the page has current data no matter what the REST
   // fallback did, and calling that an error would be a lie of its own.
   return {
-    subshells: subshells ?? rest.data ?? [],
-    connected,
-    isLoading: rest.isLoading && subshells === null,
-    isError: rest.isError && subshells === null,
+    subshells: feed.lastList ?? rest.data ?? [],
+    connected: feed.connected,
+    isLoading: rest.isLoading && feed.lastList === null,
+    isError: rest.isError && feed.lastList === null,
     refetch: rest.refetch,
   };
 }
