@@ -9,9 +9,11 @@ import {
   TerminalSquare,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
+import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useWorkspaces } from "@/hooks/use-workspaces";
@@ -197,33 +199,56 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
               </Link>
               {!collapsed &&
                 item.to === "/" &&
-                recentSubshells.map((r) => (
-                  <Link
-                    key={r.id}
-                    to="/subshells/$id"
-                    params={{ id: r.id }}
-                    title={r.path ? `${r.label} — ${r.path}` : undefined}
-                    className={recentClass(location.pathname === `/subshells/${r.id}`)}
-                  >
-                    <span className="block truncate">{r.label}</span>
-                    {/* Working dir under the name — the same reading posture
-                        the phone header took: the path is what locates a
-                        subshell, the name alone does not. */}
-                    {r.path ? <span className="block truncate text-[10px] opacity-70">{r.path}</span> : null}
-                  </Link>
-                ))}
+                recentSubshells.map((r) => {
+                  // The projection drives the row's look; the FULL entity
+                  // (same query it was projected from) drives the right-click
+                  // menu. Vanished between renders → plain link, no menu.
+                  const full = subshells?.find((s) => s.id === r.id);
+                  const row = (
+                    <Link
+                      key={r.id}
+                      to="/subshells/$id"
+                      params={{ id: r.id }}
+                      title={r.path ? `${r.label} — ${r.path}` : undefined}
+                      className={recentClass(location.pathname === `/subshells/${r.id}`)}
+                    >
+                      <span className="block truncate">{r.label}</span>
+                      {/* Working dir under the name — the same reading posture
+                          the phone header took: the path is what locates a
+                          subshell, the name alone does not. */}
+                      {r.path ? <span className="block truncate text-[10px] opacity-70">{r.path}</span> : null}
+                    </Link>
+                  );
+                  return full ? (
+                    <SubshellActionsMenu key={r.id} subshell={full}>
+                      {row}
+                    </SubshellActionsMenu>
+                  ) : (
+                    <Fragment key={r.id}>{row}</Fragment>
+                  );
+                })}
               {!collapsed &&
                 item.to === "/workspaces" &&
-                recentWorkspaces.map((r) => (
-                  <Link
-                    key={r.id}
-                    to="/workspaces/$id"
-                    params={{ id: r.id }}
-                    className={recentClass(location.pathname === `/workspaces/${r.id}`)}
-                  >
-                    {r.label}
-                  </Link>
-                ))}
+                recentWorkspaces.map((r) => {
+                  const full = workspaces?.find((w) => w.id === r.id);
+                  const row = (
+                    <Link
+                      key={r.id}
+                      to="/workspaces/$id"
+                      params={{ id: r.id }}
+                      className={recentClass(location.pathname === `/workspaces/${r.id}`)}
+                    >
+                      {r.label}
+                    </Link>
+                  );
+                  return full ? (
+                    <WorkspaceActionsMenu key={r.id} workspace={full}>
+                      {row}
+                    </WorkspaceActionsMenu>
+                  ) : (
+                    <Fragment key={r.id}>{row}</Fragment>
+                  );
+                })}
             </div>
           );
         })}
