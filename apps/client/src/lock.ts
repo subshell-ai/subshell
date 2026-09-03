@@ -1,9 +1,9 @@
 import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { agentHome } from "./config.js";
+import { clientHome } from "./config.js";
 
 /**
- * `<agentHome>/daemon.lock` — the local-liveness file `subshell run` keeps
+ * `<clientHome>/daemon.lock` — the local-liveness file `subshell run` keeps
  * and `subshell status` reads (fix wave 1, spec §7 posture).
  *
  * Why this exists: `status` used to probe with a live WS connect
@@ -34,7 +34,7 @@ export interface DaemonLock {
 
 /** Path to the lock file for the current agent home. */
 export function lockPath(): string {
-  return join(agentHome(), "daemon.lock");
+  return join(clientHome(), "daemon.lock");
 }
 
 /**
@@ -45,7 +45,7 @@ export function lockPath(): string {
  * @throws whatever fs throws — callers treat the lock as best-effort and log.
  */
 export function writeLock(lock: DaemonLock): void {
-  mkdirSync(agentHome(), { recursive: true, mode: 0o700 });
+  mkdirSync(clientHome(), { recursive: true, mode: 0o700 });
   writeFileSync(lockPath(), `${JSON.stringify(lock, null, 2)}\n`, { mode: 0o600 });
   // Same re-tightening pass config.saveConfig does: write mode is umask-masked
   // AND applies only on create, so this also pulls a lock left at 644 by an

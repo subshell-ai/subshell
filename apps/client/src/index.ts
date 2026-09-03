@@ -6,7 +6,7 @@
 
 export { NODE_CLOSE_SUPERSEDED, NODE_CLOSE_UPDATE_REQUIRED } from "@internal/subshell-protocol";
 export { BACKOFF_BASE_MS, BACKOFF_CAP_MS, backoffDelay } from "./backoff.js";
-export { type AgentConfig, agentHome, configPath, loadConfig, saveConfig } from "./config.js";
+export { type AgentConfig, clientHome, configPath, loadConfig, saveConfig } from "./config.js";
 export {
   type DaemonDeps,
   HEARTBEAT_MS,

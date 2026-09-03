@@ -20,7 +20,7 @@ import { SubshellMetaStore } from "../subshell-meta.js";
 /**
  * The phase-2 command executors under a scripted fake tmux (spec §7). One real
  * `SubshellMetaStore` on a temp dataDir (the preload already moved
- * SUBSHELL_AGENT_HOME), a fake `ws` collecting events, and a plain-object
+ * SUBSHELL_CONFIG_HOME), a fake `ws` collecting events, and a plain-object
  * TmuxRunner double — every emitted result `data` is additionally run through
  * the Task-1 contract validators (`parse*`) so the agent side can never drift
  * from the backend's expectations.

@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { agentHome, saveConfig } from "./config.js";
+import { clientHome, saveConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -28,7 +28,7 @@ export interface EnrollOptions {
   setupKey: string;
   /** Display name; defaults to the hostname. */
   name?: string;
-  /** Data dir for the identity keypair; defaults to `<SUBSHELL_AGENT_HOME>/data`. */
+  /** Data dir for the identity keypair; defaults to `<SUBSHELL_CONFIG_HOME>/data`. */
   dataDir?: string;
 }
 
@@ -58,7 +58,7 @@ export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }
         : `the default node name (hostname '${name}') is ${name.length} characters — at most ${MAX_NAME_LEN} are accepted; pass --name <short-name>`,
     );
   }
-  const dataDir = opts.dataDir ?? join(agentHome(), "data");
+  const dataDir = opts.dataDir ?? join(clientHome(), "data");
   const identity = await loadOrCreateIdentity(dataDir);
 
   const body = {
@@ -104,13 +104,13 @@ export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }
 
 /** The node can't run anything without tmux — refuse before touching the network. */
 function assertTmux(): void {
-  if (process.env.SUBSHELL_AGENT_SKIP_TMUX_CHECK === "1") return;
+  if (process.env.SUBSHELL_CLIENT_SKIP_TMUX_CHECK === "1") return;
   // @types/bun 1.3.14 omits `.error` from the spawnSync result type; Bun sets it
   // (ENOENT etc.) while `exitCode` stays null — runtime field, untyped.
   const probe = Bun.spawnSync(["tmux", "-V"]) as ReturnType<typeof Bun.spawnSync> & { error?: Error };
   if (probe.error) {
     const hint = process.platform === "darwin" ? " — on macOS: brew install tmux" : "";
-    throw new Error(`tmux not found${hint}; install it and retry (escape hatch: SUBSHELL_AGENT_SKIP_TMUX_CHECK=1)`);
+    throw new Error(`tmux not found${hint}; install it and retry (escape hatch: SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1)`);
   }
 }
 

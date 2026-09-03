@@ -19,7 +19,7 @@ const RING_CAP = 400;
 
 /** Everything one spawned agent needs; paths are the caller's (cleanup too). */
 export interface StartAgentOptions {
-  /** `SUBSHELL_AGENT_HOME` — config + daemon.lock live here. */
+  /** `SUBSHELL_CONFIG_HOME` — config + daemon.lock live here. */
   home: string;
   /** `--data-dir` — identity keypair + subshell meta/logs on the node. */
   dataDir: string;
@@ -52,7 +52,7 @@ function agentEnv(o: StartAgentOptions): NodeJS.ProcessEnv {
   const { TMUX: _tmux, TMUX_PANE: _pane, ...rest } = process.env;
   return {
     ...rest,
-    SUBSHELL_AGENT_HOME: o.home,
+    SUBSHELL_CONFIG_HOME: o.home,
     PI_PATH: STUB_PI,
     TMUX_TMPDIR: o.tmuxBase,
   };

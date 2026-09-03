@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { type AgentConfig, configPath, loadConfig, saveConfig } from "../config.js";
+import { dirname, join } from "node:path";
+import { type AgentConfig, clientHome, configPath, loadConfig, saveConfig } from "../config.js";
 import { newHome } from "../test-preload.js";
 
 const sample: AgentConfig = {
@@ -81,4 +81,19 @@ test("loadConfig rejects a JSON file that is not a usable config object", async 
   mkdirSync(dirname(configPath()), { recursive: true });
   writeFileSync(configPath(), JSON.stringify({ serverUrl: "http://x" }));
   await expect(loadConfig()).rejects.toThrow(/corrupt/);
+});
+
+describe("clientHome", () => {
+  test("defaults to ~/.config/subshell with no env override", () => {
+    delete process.env.SUBSHELL_CONFIG_HOME;
+    // homedir() is host truth; assert the tail, not the whole path.
+    expect(clientHome().endsWith(join(".config", "subshell"))).toBe(true);
+    process.env.SUBSHELL_CONFIG_HOME = newHome();
+  });
+
+  test("SUBSHELL_CONFIG_HOME overrides the default", () => {
+    const dir = newHome();
+    process.env.SUBSHELL_CONFIG_HOME = dir;
+    expect(clientHome()).toBe(dir);
+  });
 });

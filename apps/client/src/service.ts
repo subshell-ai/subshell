@@ -14,7 +14,7 @@ import type { CliResult } from "./cli.js";
 export interface ServiceDeps {
   /** Runtime platform — only `linux` and `darwin` have a service manager here. */
   platform: NodeJS.Platform;
-  /** User home the unit/plist paths hang off (NOT `SUBSHELL_AGENT_HOME`). */
+  /** User home the unit/plist paths hang off (NOT `SUBSHELL_CONFIG_HOME`). */
   home: string;
   /** Numeric uid — builds the launchd `gui/<uid>` domain target. */
   uid: number;
