@@ -47,7 +47,7 @@ export interface Node {
   lastSeenAt: string | null;
   /** subshell version from `ready`, null until first ready */
   agentVersion: string | null;
-  /** Node protocol version from `ready`, null until first ready — compare against `NODE_PROTOCOL_VERSION` to spot an agent too old to speak to this control plane */
+  /** Node protocol version from `ready`, null until first ready — compare against `NODE_PROTOCOL_MIN_VERSION` (the compat floor) to spot an agent too old to speak to this control plane; versions below `NODE_PROTOCOL_VERSION` but at/above the floor connect and merely lack newer features (e.g. v3's fs_ls folder browsing) */
   protocolVersion: number | null;
   /** The caller's effective access (drives which controls render) */
   access: NodeAccess;

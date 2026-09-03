@@ -284,6 +284,11 @@ export function NewSubshellForm({
           id={ids.workingDir}
           value={value.workingDir}
           onChange={(workingDir) => onChange({ ...value, workingDir })}
+          // The picker browses the machine this subshell will start on — the
+          // same node the recents pre-fill is scoped to. `local` rides the
+          // request as an omitted param (byte-identical local browse).
+          nodeId={value.nodeId !== "local" ? value.nodeId : undefined}
+          nodeName={selectedNode?.name}
         />
       </div>
 

@@ -1,3 +1,4 @@
+import { BackendErrorCodes } from "@internal/backend-errors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, ChevronRight, FolderOpen, Star } from "lucide-react";
 import type { JSX } from "react";
@@ -30,6 +31,13 @@ interface ExploreResult {
  * saves the path as a favorite without leaving the panel — the successor to
  * the removed bookmarks feature. Favorites render under Recent; a path the
  * user starred stops showing in Recent so nothing appears twice.
+ *
+ * When a `nodeId` is supplied (and is not `local`), the panel browses THAT
+ * node's filesystem — the explore request carries `?node=<id>` exactly as the
+ * recents hook does, so the picker follows the node selected in the new-
+ * subshell form. The backend answers identically-shaped listings for either
+ * transport; a node whose agent predates remote browsing answers 409
+ * `NODE_OUTDATED`, surfaced here as a clear update prompt.
  */
 export function DirectoryPickerInput({
   id,
@@ -37,6 +45,8 @@ export function DirectoryPickerInput({
   onChange,
   placeholder,
   helper,
+  nodeId,
+  nodeName,
 }: {
   /** Optional `id` for the input/label association. */
   id?: string;
@@ -48,7 +58,15 @@ export function DirectoryPickerInput({
   placeholder?: string;
   /** Optional helper text rendered under the picker. */
   helper?: string;
+  /** Browse this node instead of the control plane; `local`/undefined = local. */
+  nodeId?: string;
+  /** Human label for `nodeId`, shown in the too-old prompt when set. */
+  nodeName?: string;
 }) {
+  // `local` (and an absent pick) mean the control plane — the node param is
+  // then omitted entirely, keeping the request byte-identical to local.
+  const remoteNode = nodeId && nodeId !== "local" ? nodeId : undefined;
+  const remoteLabel = nodeName || remoteNode || "that node";
   const [pickerPath, setPickerPath] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -91,15 +109,24 @@ export function DirectoryPickerInput({
     };
   }, [pickerOpen]);
 
+  // The node rides the query key too: the same path on a different machine
+  // is a different listing, and switching nodes mid-open must refetch.
   const { data: explore, error } = useQuery({
-    queryKey: ["explore", pickerPath],
-    queryFn: () => apiFetch<ExploreResult>(`/api/files/explore?path=${encodeURIComponent(pickerPath)}`),
+    queryKey: remoteNode ? (["explore", remoteNode, pickerPath] as const) : (["explore", pickerPath] as const),
+    queryFn: () =>
+      apiFetch<ExploreResult>(
+        `/api/files/explore?path=${encodeURIComponent(pickerPath)}${
+          remoteNode ? `&node=${encodeURIComponent(remoteNode)}` : ""
+        }`,
+      ),
     enabled: pickerOpen,
   });
   // A typed path that does not exist (404) is a different message from a
   // browse failure (500/forbidden/network): one invites a correction, the
-  // other only explains.
+  // other only explains. A too-old node (409 NODE_OUTDATED) is neither —
+  // nothing about the path or a retry helps; the node's agent must update.
   const notFound = error instanceof ApiError && error.status === 404;
+  const nodeOutdated = error instanceof ApiError && error.code === BackendErrorCodes.NODE_OUTDATED;
 
   /** Stars/unstars a path; sections refresh from the same responses. */
   const favorite = useMutation({
@@ -172,6 +199,15 @@ export function DirectoryPickerInput({
                 >
                   Start over
                 </button>
+              </div>
+            ) : nodeOutdated ? (
+              <div className="flex h-56 items-center px-2 text-sm">
+                {/* One unbroken text run naming the machine — the remedy is
+                    on the NODE (update the subshell app), so neither the
+                    path correction nor Start over applies here. */}
+                <p className="text-muted-foreground">
+                  The subshell app on {remoteLabel} is too old to browse folders there — update it.
+                </p>
               </div>
             ) : (
               <div className="flex h-56 items-center px-2 text-destructive text-sm">
@@ -259,11 +295,19 @@ export function DirectoryPickerInput({
                           <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <span className="truncate">{e.name}</span>
                         </button>
-                        <StarButton
-                          path={e.path}
-                          starred={false}
-                          onToggle={(on) => favorite.mutate({ path: e.path, on })}
-                        />
+                        {/* Favorites are a control-plane concept (the table has
+                            no node column — the remote browse ships its
+                            Favorites section empty). Starring a node path
+                            would plant a dead click in every later LOCAL
+                            panel, so the star is simply not offered while
+                            browsing another machine. */}
+                        {!remoteNode && (
+                          <StarButton
+                            path={e.path}
+                            starred={false}
+                            onToggle={(on) => favorite.mutate({ path: e.path, on })}
+                          />
+                        )}
                       </div>
                     ))}
                 </div>

@@ -9,7 +9,9 @@ import { DirectoryPickerInput } from "@/components/directory-picker-input";
  * the forms that use this component. That round-trip is what the component's
  * typed-path sync has to stay correct against.
  */
-function renderField(opts: { value?: string; onChange?: (path: string) => void } = {}) {
+function renderField(
+  opts: { value?: string; onChange?: (path: string) => void; nodeId?: string; nodeName?: string } = {},
+) {
   // retry: 0 so the error state settles on the first failed fetch.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let current = opts.value ?? "/tmp";
@@ -22,6 +24,8 @@ function renderField(opts: { value?: string; onChange?: (path: string) => void }
           opts.onChange?.(p);
           apply(p);
         }}
+        nodeId={opts.nodeId}
+        nodeName={opts.nodeName}
       />
     </QueryClientProvider>
   );
@@ -76,8 +80,9 @@ function exploreBody(
  * answers `{ ok: true }` and lands in `favorites` (the calls), so a test can
  * assert the star's wire shape.
  */
-function mockExplore(tree: Record<string, unknown>) {
+function mockExplore(tree: Record<string, unknown>, opts: { nodeCode?: string; nodeStatus?: number } = {}) {
   const requested: string[] = [];
+  const requestedNode: (string | null)[] = [];
   const favoriteCalls: { url: string; init?: unknown }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: unknown) => {
@@ -88,6 +93,22 @@ function mockExplore(tree: Record<string, unknown>) {
     }
     const path = url.searchParams.get("path") ?? "";
     requested.push(path);
+    requestedNode.push(url.searchParams.get("node"));
+    // A `nodeCode` answer models the too-old-node refusal (409 NODE_OUTDATED):
+    // a structured body so `ApiError.code` carries the machine code.
+    if (opts.nodeCode) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            errId: "t",
+            code: opts.nodeCode,
+            message: "The subshell app on this node is too old to browse folders there — update it.",
+            statusCode: opts.nodeStatus ?? 409,
+          }),
+          { status: opts.nodeStatus ?? 409 },
+        ),
+      );
+    }
     // A `null` tree entry answers like the backend's 404: structured body,
     // not_found status — what ApiError carries the status on.
     if (tree[path] === null) {
@@ -104,6 +125,7 @@ function mockExplore(tree: Record<string, unknown>) {
   }) as typeof fetch;
   return {
     requested,
+    requestedNode,
     favoriteCalls,
     restore: () => {
       globalThis.fetch = original;
@@ -146,6 +168,60 @@ describe("DirectoryPickerInput", () => {
       renderField();
       fireEvent.focus(screen.getByRole("textbox"));
       await waitFor(() => expect(screen.getByText("Couldn't browse this path.")).toBeDefined());
+    } finally {
+      restore();
+    }
+  });
+
+  it("threads the selected node through the explore request; 'local' keeps the param off — byte-identical local browse", async () => {
+    const remote = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+    try {
+      renderField({ value: "/srv", nodeId: "node-7", nodeName: "Mac Mini" });
+      fireEvent.focus(screen.getByRole("textbox"));
+      await screen.findByText("data");
+      expect(remote.requested).toEqual(["/srv"]);
+      expect(remote.requestedNode).toEqual(["node-7"]);
+    } finally {
+      remote.restore();
+    }
+    // The second render needs the first unmounted, or "data" matches twice.
+    cleanup();
+    const local = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+    try {
+      renderField({ value: "/srv", nodeId: "local" });
+      fireEvent.focus(screen.getByRole("textbox"));
+      await screen.findByText("data");
+      expect(local.requestedNode).toEqual([null]);
+    } finally {
+      local.restore();
+    }
+  });
+
+  it("a too-old node names the machine and the remedy — not the generic browse failure", async () => {
+    const { restore } = mockExplore({}, { nodeCode: "NODE_OUTDATED" });
+    try {
+      renderField({ value: "/srv", nodeId: "node-7", nodeName: "Mac Mini" });
+      fireEvent.focus(screen.getByRole("textbox"));
+      await screen.findByText(/Mac Mini is too old to browse folders there — update it\./);
+      expect(screen.queryByText("Couldn't browse this path.")).toBeNull();
+      // Neither the path-correction branch nor Start over applies: the path
+      // was fine, the AGENT is not.
+      expect(screen.queryByRole("button", { name: "Start over" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("drops the favorite star while browsing another machine (favorites are not node-scoped)", async () => {
+    const { favoriteCalls, restore } = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+    try {
+      renderField({ value: "/srv", nodeId: "node-7" });
+      fireEvent.focus(screen.getByRole("textbox"));
+      await screen.findByText("data");
+      expect(screen.queryByRole("button", { name: "Favorite /srv/data" })).toBeNull();
+      // The row itself is still pickable — only the star is withheld.
+      fireEvent.click(screen.getByText("data"));
+      expect(favoriteCalls).toHaveLength(0);
     } finally {
       restore();
     }

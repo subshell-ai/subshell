@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { NODE_PROTOCOL_MIN_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -262,6 +262,19 @@ describe("NodeDetailPage agent-too-old chip", () => {
   it("stays silent for a current protocol", async () => {
     // Rides the constant: v1 became stale with the 2026-09-02 frame rename.
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("agent too old")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent for an in-window older agent (v2 while the plane speaks v3)", async () => {
+    // v3 (fs_ls) is additive — a v2 agent still connects and serves every
+    // frame but folder browsing, so it is NOT the "too old to speak" chip.
+    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_MIN_VERSION }));
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
