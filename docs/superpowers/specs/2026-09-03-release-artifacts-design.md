@@ -35,8 +35,8 @@ standalone download is actually operable without a repo checkout.
 
 | Surface | Client | Server |
 | --- | --- | --- |
-| directory | `apps/client` (was `apps/agent`) | `apps/backend` (unchanged) |
-| package | `@internal/client` (was `@internal/agent`) | `@internal/backend` |
+| directory | `apps/client` (was `apps/agent`) | `apps/server` (was `apps/server`) |
+| package | `@internal/client` (was `@internal/agent`) | `@internal/server` (was `@internal/backend`) |
 | binary | `subshell` (unchanged) | `subshell-server` (new) |
 | config/data home | `~/.config/subshell` (was `~/.config/subshell-agent`) | `~/.config/subshell-server` (was `~/.config/subshell`) |
 | env override | `SUBSHELL_CONFIG_HOME` (was `SUBSHELL_AGENT_HOME`) | `SUBSHELL_SERVER_DATA_DIR` (unchanged) |
@@ -58,7 +58,7 @@ the steps.
 
 Code touchpoints (from grep): root `package.json` scripts, `e2e/stub/agent.ts`
 (`AGENT_MAIN` → point at `apps/client/src/main.ts`, file renamed
-`stub/client.ts`), `apps/backend`/`e2e` comment references, `AGENTS.md`
+`stub/client.ts`), `apps/server`/`e2e` comment references, `AGENTS.md`
 (root + both apps), `docs/architecture.md`. The backend never imports
 `apps/*` code; comment-only mentions update in the same commit.
 
@@ -127,7 +127,7 @@ subshell-server service install | uninstall | status
   are deleted from the client's `release.ts`; the comments retire risk #9 with
   a pointer to this spec's spike. Minimum release bun: **1.4.0** (asserted in
   both scripts' preflight).
-- Server gets `apps/backend/src/scripts/release.ts` cloning the client
+- Server gets `apps/server/src/scripts/release.ts` cloning the client
   script's shape: pure exports (`buildTargets`, `buildArgs`, `buildAll`,
   `publishArtifacts`) + DI deps + `import.meta.main` CLI. Targets:
   `linux-x64 linux-arm64 darwin-arm64`. Shared helpers (`digestFile`,
@@ -168,7 +168,7 @@ them, so we tag ourselves):
    to cut a release). `concurrency: ${{ workflow }}-${{ ref }}`, permissions
    `contents: write`, `pull-requests: write`.
 2. **`prepare` job** — same push, gated on head commit title == `chore:
-   release package(s)`: read `apps/backend`/`apps/client` versions; emit
+   release package(s)`: read `apps/server`/`apps/client` versions; emit
    matrix entries `{app, triple}` for every component whose tag
    (`server-vX.Y.Z` / `client-vX.Y.Z`) does not exist yet. Empty matrix →
    skip downstream. This job also CREATES the missing tags (one per
