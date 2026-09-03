@@ -1,7 +1,21 @@
+// LOAD-BEARING IMPORT ORDER — do not re-sort this block. The entry prelude
+// must be the FIRST import in the graph: it applies the config.env layer
+// before `@/constants.js` runs dotenvx (which only fills unset keys — this
+// ordering is what implements `config.env > .env`), and it dispatches CLI
+// subcommands before any of the modules below evaluate — several have
+// import-time side effects (`@/auth.js` builds better-auth, which OPENS
+// SQLite; `@/db/index.js` is lazy by contract). ESM evaluates imports before
+// body statements, so a body statement could not claim this position, and
+// the dispatch must not SUSPEND either (measured on bun 1.4.0: a prelude
+// top-level await lets the remaining imports and the entry body evaluate
+// while it is pending) — handled commands exit synchronously.
+// biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
+import "./cli-bootstrap.js";
 import { resolve } from "node:path";
 import { getHarness } from "@internal/harnesses";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
+import { isCliEngaged } from "@/cli.js";
 import { assertProdAuthSecret, DATABASE_PATH, HOST, SERVER_PORT } from "@/constants.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
@@ -23,13 +37,21 @@ import { sweepWsTokens } from "@/ws/ws-token.js";
 
 export type { App } from "@/server.js";
 
+// Plan 2 CLI gate: `isCliEngaged()` flips synchronously inside the prelude's
+// `dispatchCli` call the moment a subcommand is recognised, so an async CLI
+// command (Task C's prompts) that yields mid-run can never have the server
+// boot underneath it. Today's handled commands exit synchronously before
+// this body runs at all — the gate is what keeps that true once they can't.
+const bootRequested = !isCliEngaged();
+
 // Fail before ANYTHING (imports' side effects have run, but no DB write, no
 // listener, no handler wiring): a production boot with the placeholder
 // BETTER_AUTH_SECRET would sign cookies with a publicly known key. Thrown at
 // module top level (not inside the boot IIFE) so the error reaches stderr as
 // a real crash rather than an unhandled rejection whose console output can
-// be lost to process.exit's truncation.
-assertProdAuthSecret();
+// be lost to process.exit's truncation. Skipped for CLI invocations: `status`
+// REPORTS a missing/placeholder secret, it must not die on one.
+if (bootRequested) assertProdAuthSecret();
 
 process.on("unhandledRejection", (reason, promise) => {
   const log = getLogger().withPrefix("[Unhandled Rejection]");
@@ -48,7 +70,9 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-(async () => {
+if (bootRequested) void bootServer();
+
+async function bootServer(): Promise<void> {
   // Name the database before the first write touches it: a migration or
   // seeding failure is undiagnosable if the log never says which file was
   // opened (the path is config-driven — `DATABASE_PATH`, default
@@ -143,4 +167,4 @@ process.on("uncaughtException", (error) => {
   setInterval(() => {
     void idleWatcher.tick(Date.now());
   }, IDLE_TICK_MS);
-})();
+}

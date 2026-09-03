@@ -20,6 +20,12 @@ import { logger } from "@/utils/logger.js";
 export const AUTH_OPTIONS = {
   baseURL: APP_BASE_URL,
   secret: AUTH_SECRET,
+  // NOTE (plan 2 CLI hygiene audit): this calls `authDatabase()` at import
+  // time (better-auth opens the handle inside its constructor, so a lazy
+  // getter defers nothing). That is fine because the CLI path
+  // (`cli-bootstrap.ts`) exits SYNCHRONOUSLY inside `dispatchCli` and never
+  // evaluates this module; do not import `@/auth.js` from anything the CLI
+  // graph touches.
   database: authDatabase(),
   emailAndPassword: {
     enabled: true,
