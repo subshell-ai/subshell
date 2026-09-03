@@ -30,9 +30,9 @@
 #                 the Linux self-hosted runners have NO gh CLI (measured).
 #
 # Retry semantics: a mid-flight failure leaves the tag (and maybe a draft
-# release). Re-dispatching SKIPS the tagged app — finish by hand (upload the
-# artifacts + flip the draft) or `git push origin :refs/tags/<tag>` and
-# re-dispatch. The workflow owns all tags; never cut them by hand.
+# release). Re-dispatching COMPLETES the half-cut (plan treats tag-without-
+# release as the retry state; only tag+PUBLISHED-release skips). The workflow
+# owns all tags; never cut them by hand.
 name: Release
 
 on:
@@ -112,6 +112,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           APP_INPUT: ${{ inputs.app }}
           VERSION_INPUT: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$EVENT" != "workflow_dispatch" ]; then
@@ -135,13 +136,21 @@ jobs:
             [ -n "$version" ] || version=$(jq -r .version "apps/$app/package.json")
             tag="$app-v$version"
             if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
-              echo "::notice::$tag already exists — skipping (delete the tag to re-cut)"
-              continue
+              if curl -fsS -o /dev/null -H "Authorization: Bearer $GITHUB_TOKEN" \
+                   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
+                echo "::notice::$tag already has a release — skipping (delete the release+tag to re-cut)"
+                continue
+              fi
+              # Retry state (spec §7.2): a prior cut tagged but never shipped
+              # (build/publish died mid-flight). Complete it — softprops will
+              # create the release on the EXISTING tag.
+              echo "::warning::tag $tag exists without a release — completing the cut"
+            else
+              # Tag BEFORE any build starts (spec §7.2): a failed build then
+              # leaves tag-without-release, which is the retry state above.
+              git tag "$tag" "$GITHUB_SHA"
+              git push origin "$tag"
             fi
-            # Tag BEFORE any build starts (spec §7.2): a failed build then
-            # leaves tag-without-release, which is the documented retry state.
-            git tag "$tag" "$GITHUB_SHA"
-            git push origin "$tag"
             [ -z "$appsjson" ] || appsjson="$appsjson,"
             appsjson="$appsjson{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\"}"
             case "$app" in
@@ -172,14 +181,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: ${{ matrix.entry.app }} ${{ matrix.entry.triple }}
+    name: ${{ matrix.app }} ${{ matrix.triple }}
     needs: plan
     # Guard BEFORE the matrix is expanded: an empty include array makes this
     # job fail the run (measured — the job never materialises) because its
     # runs-on reads from the matrix. A false `if` skips it cleanly.
     if: needs.plan.outputs.matrix != '[]'
     timeout-minutes: 45
-    runs-on: ${{ matrix.entry.runner }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -200,10 +209,10 @@ jobs:
       # bundles packages/*, the server embeds apps/frontend/dist).
       - run: bun run build
 
-      - name: Release build (scoped to ${{ matrix.entry.triple }})
+      - name: Release build (scoped to ${{ matrix.triple }})
         env:
-          APP: ${{ matrix.entry.app }}
-          TRIPLE: ${{ matrix.entry.triple }}
+          APP: ${{ matrix.app }}
+          TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
         run: |
           set -euo pipefail
@@ -216,10 +225,10 @@ jobs:
 
       - name: Smoke
         env:
-          APP: ${{ matrix.entry.app }}
-          TRIPLE: ${{ matrix.entry.triple }}
-          VERSION: ${{ matrix.entry.version }}
-          SMOKE: ${{ matrix.entry.smoke }}
+          APP: ${{ matrix.app }}
+          TRIPLE: ${{ matrix.triple }}
+          VERSION: ${{ matrix.version }}
+          SMOKE: ${{ matrix.smoke }}
         run: |
           set -euo pipefail
           if [ "$APP" = "server" ]; then
@@ -313,12 +322,12 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.entry.app }}-${{ matrix.entry.triple }}
+          name: ${{ matrix.app }}-${{ matrix.triple }}
           path: dist-rel/*
           if-no-files-found: error
 
   publish:
-    name: Release ${{ matrix.entry.app }}
+    name: Release ${{ matrix.app }}
     needs: [plan, build]
     if: needs.plan.outputs.apps != '[]'
     runs-on: [self-hosted, Linux, X64]
@@ -332,22 +341,22 @@ jobs:
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: ${{ matrix.entry.app }}-*
+          pattern: ${{ matrix.app }}-*
           path: dist
 
       # Draft first: a failed upload never ships a live release.
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          tag_name: ${{ matrix.entry.tag }}
-          name: ${{ matrix.entry.tag }}
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.tag }}
           target_commitish: ${{ github.sha }}
           draft: true
-          files: dist/${{ matrix.entry.app }}-*/*
+          files: dist/${{ matrix.app }}-*/*
           fail_on_unmatched_files: true
 
       # Same tag + draft omitted = update the existing draft and publish it
       # (softprops v2.6 semantics, confirmed against the action's input docs).
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          tag_name: ${{ matrix.entry.tag }}
-          name: ${{ matrix.entry.tag }}
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.tag }}
