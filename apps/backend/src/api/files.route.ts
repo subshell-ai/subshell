@@ -87,7 +87,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // (bearer subshell keys / system keys) are rejected outright: filesystem
       // browsing is a human-in-the-browser affordance, not a harness API.
       if (actor !== "cookie") {
-        throw new FilesError("forbidden", "Folder browsing is restricted to browser subshells", 403);
+        throw new FilesError("forbidden", "Folder browsing is restricted to browser sessions", 403);
       }
 
       const raw = query.path?.trim() || homedir();
@@ -159,7 +159,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       detail: {
         operationId: "exploreFiles",
         tags: ["files"],
-        description: "Lists a directory (folder picker; browser subshells only)",
+        description: "Lists a directory (folder picker; browser sessions only)",
       },
     },
   )
@@ -169,7 +169,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // Browser-only, like /explore: this pre-fills the new-subshell form —
       // a human-in-the-browser affordance, not a harness API.
       if (actor !== "cookie") {
-        throw new FilesError("forbidden", "Recent paths are restricted to browser subshells", 403);
+        throw new FilesError("forbidden", "Recent paths are restricted to browser sessions", 403);
       }
       const nodeId = query.node?.trim() || LOCAL_NODE_ID;
       // Omitted/'local' needs no visibility check — own local recents are
@@ -209,7 +209,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       detail: {
         operationId: "recentFilePaths",
         tags: ["files"],
-        description: "Lists recently used working directories for one node (browser subshells only)",
+        description: "Lists recently used working directories for one node (browser sessions only)",
       },
     },
   )
@@ -218,7 +218,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
     async ({ body, user, actor }) => {
       // Browser-only, like its siblings: starring is a picker affordance.
       if (actor !== "cookie") {
-        throw new FilesError("forbidden", "Favoriting paths is restricted to browser subshells", 403);
+        throw new FilesError("forbidden", "Favoriting paths is restricted to browser sessions", 403);
       }
       const path = body.path.trim();
       if (!path) {
@@ -239,7 +239,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       detail: {
         operationId: "setPathFavorite",
         tags: ["files"],
-        description: "Star or unstar a directory for the folder picker (browser subshells only)",
+        description: "Star or unstar a directory for the folder picker (browser sessions only)",
       },
     },
   );

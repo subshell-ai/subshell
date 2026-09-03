@@ -18,7 +18,7 @@ export const subshellSharesRoutes = new Elysia()
     "/:id/shares",
     async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
-      requireCookieActor(actor, "Subshell sharing is restricted to browser subshells");
+      requireCookieActor(actor, "Subshell sharing is restricted to browser sessions");
       return await ctx.services.subshells.getShares(user.id, params.id, actor);
     },
     {
@@ -39,7 +39,7 @@ export const subshellSharesRoutes = new Elysia()
     "/:id/shares",
     async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      requireCookieActor(actor, "Subshell sharing is restricted to browser subshells");
+      requireCookieActor(actor, "Subshell sharing is restricted to browser sessions");
       const shares = body.shares.map((s) => ({ granteeUserId: s.granteeUserId ?? null, permission: s.permission }));
       return await ctx.services.subshells.setShares(user.id, params.id, shares, actor);
     },

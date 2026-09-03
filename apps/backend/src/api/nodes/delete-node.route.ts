@@ -41,7 +41,7 @@ export const deleteNodeRoute = new Elysia()
   .delete(
     "/:id",
     async ({ params, query, user, actor, status }) => {
-      requireCookieActor(actor, "Node deletion is restricted to browser subshells");
+      requireCookieActor(actor, "Node deletion is restricted to browser sessions");
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));

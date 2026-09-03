@@ -47,7 +47,7 @@ export const AUTH_OPTIONS = {
     },
   },
   // API keys for machine access (MCP bearer tokens + admin-managed system
-  // keys). Rate limiting is off: sessions long-poll channel reads and would
+  // keys). Rate limiting is off: subshells long-poll channel reads and would
   // trip per-minute request ceilings for no protective benefit on a local
   // service (keys themselves are the credential boundary).
   plugins: [

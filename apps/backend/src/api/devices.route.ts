@@ -6,7 +6,7 @@ import { apiModels } from "@/schema/index.js";
 
 // One policy string for both verbs — the notifications route does the same with
 // NOTIFICATIONS_403 so the wire bytes can't drift per endpoint.
-const DEVICES_403 = "Device enrollment is restricted to browser subshells";
+const DEVICES_403 = "Device enrollment is restricted to browser sessions";
 
 /**
  * Native-device push enrollment (spec 2026-08-31-mobile-native-app §Backend

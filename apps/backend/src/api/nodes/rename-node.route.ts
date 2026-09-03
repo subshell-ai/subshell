@@ -28,7 +28,7 @@ export const renameNodeRoute = new Elysia()
   .patch(
     "/:id",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node renaming is restricted to browser subshells");
+      requireCookieActor(actor, "Node renaming is restricted to browser sessions");
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));

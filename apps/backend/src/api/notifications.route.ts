@@ -42,7 +42,7 @@ const NotificationSettingsSchema = t.Object({
 });
 
 /** 403 message kept byte-identical when the gate moved into auth-guard (existing tests assert it). */
-const NOTIFICATIONS_403 = "Notifications are restricted to browser subshells";
+const NOTIFICATIONS_403 = "Notifications are restricted to browser sessions";
 
 /**
  * Probes the VAPID public key (the same source `/config` degrades on) and
@@ -84,7 +84,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
       detail: {
         operationId: "notificationsConfig",
         tags: ["notifications"],
-        description: "VAPID public key (browser subshells only)",
+        description: "VAPID public key (browser sessions only)",
       },
     },
   )
@@ -149,7 +149,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
       detail: {
         operationId: "getNotificationSettings",
         tags: ["notifications"],
-        description: "The caller's notification master switch (browser subshells only)",
+        description: "The caller's notification master switch (browser sessions only)",
       },
     },
   )
@@ -171,7 +171,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
       detail: {
         operationId: "setNotificationSettings",
         tags: ["notifications"],
-        description: "Set the caller's notification master switch (browser subshells only)",
+        description: "Set the caller's notification master switch (browser sessions only)",
       },
     },
   );

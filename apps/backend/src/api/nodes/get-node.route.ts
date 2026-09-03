@@ -24,7 +24,7 @@ export const getNodeRoute = new Elysia()
     async ({ params, user, actor, status }) => {
       requireCookieActor(
         actor,
-        "Node reads are restricted to browser subshells (bearer read deferred until a machine consumer exists)",
+        "Node reads are restricted to browser sessions (bearer read deferred until a machine consumer exists)",
       );
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {

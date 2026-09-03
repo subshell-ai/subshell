@@ -12,9 +12,9 @@ import { shellQuote } from "./shell.js";
  * keeps cleanup simple (killing the last subshell removes the socket dir).
  */
 /** Attempts {@link TmuxRunner.newSubshell} adds when it loses the server-shutdown race. */
-const NEW_SUBSHELL_RACE_RETRIES = 3;
+const NEW_SESSION_RACE_RETRIES = 3;
 /** Pause between those attempts — long enough for the dying server to release its socket. */
-const NEW_SUBSHELL_RACE_BACKOFF_MS = 60;
+const NEW_SESSION_RACE_BACKOFF_MS = 60;
 
 /**
  * Whether a failed tmux command is the "the server was shutting down as I
@@ -195,8 +195,8 @@ export class TmuxRunner {
         // Only the shutdown race is retried, and only within the budget: any
         // other failure (bad cwd, duplicate name, tmux missing) is a real
         // answer the caller must see immediately, not after a stall.
-        if (attempt >= NEW_SUBSHELL_RACE_RETRIES || !isServerShutdownRace(err)) throw err;
-        Bun.sleepSync(NEW_SUBSHELL_RACE_BACKOFF_MS);
+        if (attempt >= NEW_SESSION_RACE_RETRIES || !isServerShutdownRace(err)) throw err;
+        Bun.sleepSync(NEW_SESSION_RACE_BACKOFF_MS);
       }
     }
   }

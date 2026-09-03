@@ -27,7 +27,7 @@ export const listNodesRoute = new Elysia()
     async ({ user, actor }) => {
       requireCookieActor(
         actor,
-        "Node listing is restricted to browser subshells (bearer read deferred until a machine consumer exists)",
+        "Node listing is restricted to browser sessions (bearer read deferred until a machine consumer exists)",
       );
       // `findAccessible` returns owned/shared rows only, so the resolved access
       // is never "none" — the flatMap discard is a type witness, not behavior.

@@ -56,7 +56,7 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
  * Classify a request's credential the way `authGuard` does, minimally:
  * "cookie" (live better-auth session), "machine" (a bearer key the guard
  * itself would accept — see `isIssuedCredential`; raw `verifyApiKey` is
- * WEAKER than the guard and was finding M-1), or throw 401. A valid subshell
+ * WEAKER than the guard and was finding M-1), or throw 401. A valid session
  * token outranks a bearer header and duplicate cookies select first-match,
  * both same as the guard — and the cookie extraction is literally the
  * guard's helper, so the https `__Secure-` spelling can never diverge here
@@ -66,8 +66,8 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
 async function resolveSetupActor(request: Request): Promise<"cookie" | "machine"> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   if (extractSessionToken(cookieHeader)) {
-    const subshell = await resolveCookieSession(cookieHeader);
-    if (!subshell) throw new UnauthorizedError();
+    const session = await resolveCookieSession(cookieHeader);
+    if (!session) throw new UnauthorizedError();
     return "cookie";
   }
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
