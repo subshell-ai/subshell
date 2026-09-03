@@ -7,7 +7,7 @@ import { setTerminalFontSize, TERM_FONT_DEFAULT, terminalFontSize } from "@/lib/
 const SIZES = [13, 15, 17, 19, 22];
 
 /**
- * Settings → the per-DEVICE terminal text size (see lib/terminal-font-size).
+ * Account → the per-DEVICE terminal text size (see lib/terminal-font-size).
  * The deliberate alternative to iOS Safari's page zoom (the aA control):
  * a home-screen install that inherits a 115% page zoom renders its whole
  * layout into a shrunken viewport with a dead band below, while a larger

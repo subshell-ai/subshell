@@ -6,7 +6,7 @@ import { errMessage } from "@/lib/api";
 import { getMasterSwitch, setMasterSwitch } from "@/lib/notifications";
 
 /**
- * Settings → Notifications: the account-wide master switch (spec
+ * Account → Notifications: the account-wide master switch (spec
  * 2026-08-31). One value shared across every device, stored in `user_meta`;
  * off means NO session push is ever sent to this user, whatever the per-device
  * opt-ins or per-session bells say. It complements (does not replace) the

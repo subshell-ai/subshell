@@ -18,7 +18,7 @@ export function EmergencyLoginBanner() {
   return (
     <ErrorBanner
       tone="warning"
-      message="Emergency admin login is enabled. Admins should set a new password now (Settings → Change password), then remove SUBSHELL_EMERGENCY_PASSWORD and restart the server."
+      message="Emergency admin login is enabled. Admins should set a new password now (Account → Change password), then remove SUBSHELL_EMERGENCY_PASSWORD and restart the server."
     />
   );
 }

@@ -5,7 +5,7 @@ import { errMessage } from "@/lib/api";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
 
 /**
- * Settings → Notifications: per-device web-push opt-in (spec
+ * Account → Notifications: per-device web-push opt-in (spec
  * 2026-08-30-harness-notifications). Deliberately dumb — every word shown
  * here is decided by the `PushState` that `@/lib/notifications` computed;
  * the card adds no judgement of its own. The three hooks are injectable

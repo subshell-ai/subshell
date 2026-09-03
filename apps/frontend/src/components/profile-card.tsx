@@ -19,7 +19,7 @@ export function nameIsUsable(raw: string): string | null {
 }
 
 /**
- * Settings → Account: the user's own identity. Name is editable through
+ * Account: the user's own identity. Name is editable through
  * better-auth's `updateUser`; email is the credential and stays read-only.
  * Saving invalidates the `["current-user"]` query so the sidebar user menu
  * (and this card's fallback) pick up the new name.

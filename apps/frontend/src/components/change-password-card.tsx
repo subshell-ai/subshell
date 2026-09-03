@@ -7,9 +7,8 @@ import { authClient } from "@/lib/auth-client";
 
 /**
  * Change-password as a standalone card (spec 2026-09-02 settings-split §1.2) —
- * lifted verbatim out of the old Settings page so /account can own it. Until
- * the Settings page surgery lands it exists in both places; this component is
- * the one that survives.
+ * lifted verbatim out of the old Settings page; the Account page (/account)
+ * is its only home since the split landed.
  */
 export function ChangePasswordCard() {
   // Change-password form state.
