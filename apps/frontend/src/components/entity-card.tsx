@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 /**
  * The card shell every entity list shares: the whole card is a link to the
@@ -22,6 +23,7 @@ export function EntityCard({
   accessory,
   headerExtra,
   children,
+  className,
 }: {
   /** In-app destination, e.g. `/workspaces/$id` */
   to: string;
@@ -49,12 +51,14 @@ export function EntityCard({
   headerExtra?: ReactNode;
   /** Optional CardContent body */
   children?: ReactNode;
+  /** Extra classes for the root wrapper — e.g. a drag-over ring from the workspaces grid (spec 2026-09-03 sidebar-quickadd §5d). */
+  className?: string;
 }) {
   // Either menu flavour occupies the same floated slot; with neither, the
   // card has no menu at all and the slot collapses.
   const menuSlot = menu ?? (items ? <ActionsMenu label={title} items={items} /> : null);
   return (
-    <div className="relative h-full">
+    <div className={cn("relative h-full", className)}>
       {/* The one link boundary for entity grids: `to`/`params` are plain
           strings here, checked by nothing but the app at runtime — every
           other menu or button reaches routes through the caller's own typed
