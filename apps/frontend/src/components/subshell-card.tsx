@@ -5,37 +5,23 @@ import { TerminalPreview } from "@/components/terminal-preview";
 import { Badge } from "@/components/ui/badge";
 import { WaitingChip } from "@/components/waiting-chip";
 import { useNodes } from "@/hooks/use-nodes";
-import { isWaiting } from "@/lib/subshell-order";
+import { INDICATOR_LABEL, INDICATOR_VARIANT, subshellIndicator } from "@/lib/subshell-indicator";
 import type { Node } from "@/types/node";
 import type { SubshellView } from "@/types/subshell";
 
-const ACTIVITY_LABEL: Record<SubshellView["activity"], string> = {
-  active: "working",
-  idle: "idle",
-  terminated: "ended",
-};
-const ACTIVITY_VARIANT: Record<SubshellView["activity"], "success" | "warning" | "muted"> = {
-  active: "success",
-  idle: "warning",
-  terminated: "muted",
-};
-
 /**
- * The card's corner badge: `node unreachable` outranks `exited`, which
- * outranks `waiting for you`, which outranks the plain activity chip. An
- * unreachable node supersedes both lower arms because neither is knowable
- * from here — the agent is down, so `alive`/`waitingSince` are last-known
- * facts, not current state (spec 2026-08-31 §5.6: the subshell may still be
- * running there). (An exited subshell is never waiting — `isWaiting` requires
- * `alive` — so those two arms are disjoint anyway.) `exited`/`nodeOffline`
- * are computed once by {@link SubshellCard} and passed in — they drive the
- * body's exit rows too.
+ * The card's corner badge: delegates the state to the shared
+ * `subshellIndicator` precedence (node unreachable → exited → waiting-for-you
+ * → activity — see lib/subshell-indicator.ts) and renders it. `WaitingChip`
+ * self-guards, but the indicator branch keeps it explicit: the waiting arm
+ * outranks the plain activity chip.
  */
-function accessoryFor(subshell: SubshellView, exited: boolean, nodeOffline: boolean): ReactNode {
-  if (nodeOffline) return <Badge variant="warning">node unreachable</Badge>;
-  if (exited) return <Badge variant="muted">exited</Badge>;
-  if (isWaiting(subshell)) return <WaitingChip subshell={subshell} />;
-  return <Badge variant={ACTIVITY_VARIANT[subshell.activity]}>{ACTIVITY_LABEL[subshell.activity]}</Badge>;
+function accessoryFor(subshell: SubshellView): ReactNode {
+  const indicator = subshellIndicator(subshell);
+  if (indicator === "node-offline") return <Badge variant="warning">{INDICATOR_LABEL["node-offline"]}</Badge>;
+  if (indicator === "exited") return <Badge variant="muted">{INDICATOR_LABEL.exited}</Badge>;
+  if (indicator === "waiting") return <WaitingChip subshell={subshell} />;
+  return <Badge variant={INDICATOR_VARIANT[indicator]}>{INDICATOR_LABEL[indicator]}</Badge>;
 }
 
 /**
@@ -97,7 +83,7 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
       title={subshell.name}
       description={subshell.harnessId}
       menu={<SubshellActionsMenu subshell={subshell} />}
-      accessory={accessoryFor(subshell, exited, nodeOffline)}
+      accessory={accessoryFor(subshell)}
       // A subshell is a process *somewhere*, so the directory and (for remote
       // rows) the node pill ride in the subtitle block with the harness —
       // the preview area below stays purely about output.
