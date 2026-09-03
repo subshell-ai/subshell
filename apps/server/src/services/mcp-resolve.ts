@@ -75,13 +75,21 @@ export function probeMcpLaunch(env: NodeJS.ProcessEnv = process.env, io: McpReso
   const execPath = io.execPath ?? process.execPath;
 
   if (env.SUBSHELL_MCP_COMMAND) {
-    return {
-      spec: {
-        command: env.SUBSHELL_MCP_COMMAND,
-        args: env.SUBSHELL_MCP_ARGS ? (JSON.parse(env.SUBSHELL_MCP_ARGS) as string[]) : [],
-      },
-      source: "env",
-    };
+    let args: string[] = [];
+    if (env.SUBSHELL_MCP_ARGS) {
+      try {
+        const parsed: unknown = JSON.parse(env.SUBSHELL_MCP_ARGS);
+        if (!Array.isArray(parsed) || parsed.some((a) => typeof a !== "string")) throw new Error("not a string array");
+        args = parsed as string[];
+      } catch {
+        // The probe NEVER throws — `status` runs it on the sync-exit CLI path,
+        // where a throw would suspend the entry mid-command and let the boot
+        // graph evaluate (better-auth opening SQLite in the CWD; see
+        // cli-entry.test.ts). A malformed override is a resolution failure.
+        return { spec: null, error: `SUBSHELL_MCP_ARGS is not a JSON string array (got "${env.SUBSHELL_MCP_ARGS}")` };
+      }
+    }
+    return { spec: { command: env.SUBSHELL_MCP_COMMAND, args }, source: "env" };
   }
   if (basename(execPath).startsWith(SERVER_BINARY)) {
     const sibling = join(dirname(execPath), MCP_BINARY);

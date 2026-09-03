@@ -25,6 +25,19 @@ describe("probeMcpLaunch", () => {
     expect(probe.spec).toEqual({ command: "/opt/custom/mcp", args: [] });
   });
 
+  it("a malformed SUBSHELL_MCP_ARGS is a probe ERROR, never a throw (status keeps sync-exit)", () => {
+    // The operator-typo shape: a bare `mcp` instead of `["mcp"]`. An
+    // unguarded JSON.parse here would suspend the entry mid-`status` — the
+    // litter scenario pinned in cli-entry.test.ts.
+    const probe = probeMcpLaunch({ SUBSHELL_MCP_COMMAND: "/opt/custom/mcp", SUBSHELL_MCP_ARGS: "mcp" }, NOTHING);
+    expect(probe.spec).toBeNull();
+    expect(probe.error).toContain("SUBSHELL_MCP_ARGS");
+    // JSON that parses but isn't an array is the same class of typo.
+    const notArray = probeMcpLaunch({ SUBSHELL_MCP_COMMAND: "/x", SUBSHELL_MCP_ARGS: '{"a":1}' }, NOTHING);
+    expect(notArray.spec).toBeNull();
+    expect(notArray.error).toContain("SUBSHELL_MCP_ARGS");
+  });
+
   it("compiled sibling: a subshell-mcp beside the subshell-server executable", () => {
     const probe = probeMcpLaunch(
       {},

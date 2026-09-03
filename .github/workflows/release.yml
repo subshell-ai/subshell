@@ -187,7 +187,9 @@ jobs:
     # job fail the run (measured — the job never materialises) because its
     # runs-on reads from the matrix. A false `if` skips it cleanly.
     if: needs.plan.outputs.matrix != '[]'
-    timeout-minutes: 45
+    # Server darwin shards now do TWO sign+notarize round trips (server + mcp
+    # companion), each blocking on notarytool --wait — the old 45 got tight.
+    timeout-minutes: 60
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -333,9 +335,25 @@ jobs:
             restore
           }
 
+          mcp_smoke() {
+            # The companion is a stdio server with no version subcommand: it
+            # must FAIL fast without the pane env (the mcp-core contract is a
+            # clear SUBSHELL_API_KEY error), and that failure is the proof its
+            # compiled JS graph actually boots — existence+magic alone would
+            # ship a companion that dies on first spawn.
+            local out
+            out=$("$MCP_BIN" </dev/null 2>&1) && { echo "mcp companion unexpectedly exited 0"; return 1; }
+            echo "$out"
+            echo "$out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp companion failed for the wrong reason"; return 1; }
+            echo "mcp companion boot smoke OK (clean env-contract refusal)"
+          }
+
           case "$SMOKE" in
             exec)
               exec_smoke ""
+              # (an `A && B` statement would return 1 for client shards and
+              # trip set -e — use if/fi)
+              if [ "$APP" = "server" ]; then mcp_smoke; fi
               ;;
             rosetta)
               # Degrade only when Rosetta itself is missing — a binary that
