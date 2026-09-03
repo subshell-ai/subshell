@@ -148,7 +148,13 @@ describe("CloneSubshellDialog", () => {
   it("shows the copied node, profile and working directory read-only and launches with the typed name", async () => {
     const { calls, restore } = mockFetch();
     try {
-      await renderDialog(makeSource());
+      // Captures every onOpenChange argument so the success path can assert the
+      // close, not just the POST (Task 2 review gap-closer — the component
+      // already does this; the assertion is what was missing).
+      const openArgs: boolean[] = [];
+      await renderDialog(makeSource(), (o) => {
+        openArgs.push(o);
+      });
       expect(await screen.findByText("mac-mini · darwin/arm64")).toBeDefined();
       expect(screen.getByText("Claude (claude)")).toBeDefined();
       expect(screen.getByText("/home/theo/projects/demo")).toBeDefined();
@@ -166,6 +172,9 @@ describe("CloneSubshellDialog", () => {
           },
         }),
       );
+      // A successful launch closes the dialog (the navigate that follows leaves
+      // a still-open dialog over a dead route otherwise).
+      await waitFor(() => expect(openArgs).toContain(false));
     } finally {
       restore();
     }
