@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { isSubshellDead, isSubshellExited } from "@/components/subshell-terminal";
 import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { isNotFoundSubshellError } from "@/lib/subshell-not-found";
 import type { SubshellView } from "@/types/subshell";
 
 /** Everything the subshell page reads about the subshell it is showing. */
@@ -14,6 +15,10 @@ export interface SubshellData {
   isLoading: boolean;
   /** True when the record could not be fetched at all (gone/unknown id) */
   isError: boolean;
+  /** True when the record's fetch was answered 404: gone or never shared —
+   * it will never arrive, so the page shows the not-found card instead of
+   * mounting a terminal whose attach is doomed (spec 2026-09-03 §3). */
+  isNotFound: boolean;
   /** True when the harness process has died while the record still says running */
   exited: boolean;
   /** True for either dead-but-kept shape: crashed-while-managed or terminated */
@@ -32,11 +37,13 @@ export function useSubshellData(id: string): SubshellData {
     data: subshell,
     isLoading,
     isError,
+    error,
   } = useQuery({
     queryKey: [...SUBSHELL_QUERY_KEY, id],
     queryFn: () => apiFetch<SubshellView>(`/api/subshells/${id}`),
   });
 
+  const isNotFound = isNotFoundSubshellError(error);
   const exited = isSubshellExited(subshell);
   const dead = isSubshellDead(subshell);
 
@@ -55,5 +62,5 @@ export function useSubshellData(id: string): SubshellData {
     return () => clearInterval(timer);
   }, [dead, id, queryClient]);
 
-  return { subshell, isLoading, isError, exited, dead };
+  return { subshell, isLoading, isError, isNotFound, exited, dead };
 }

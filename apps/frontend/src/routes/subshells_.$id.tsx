@@ -6,6 +6,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
+import { SubshellNotFoundCard } from "@/components/not-found-page";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
@@ -44,7 +45,7 @@ function SubshellPage() {
   const [replaced, setReplaced] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { subshell, isLoading, isError, exited, dead } = useSubshellData(id);
+  const { subshell, isLoading, isError, isNotFound, exited, dead } = useSubshellData(id);
 
   /** Renames this subshell in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {
@@ -119,6 +120,15 @@ function SubshellPage() {
   // `isLoading` is NOT a reconnect: the terminal is not even mounted yet, and
   // claiming "reconnecting…" before a first attach would be a lie.
   const showPill = !connected && !closed && !replaced && !dead && !restarting && !isLoading;
+
+  // Gone is gone: a 404 means the record will never arrive (deleted, or never
+  // shared with this viewer — the backend answers 404 for both), so do NOT
+  // mount the terminal: its token POST and WS attach are both doomed, and the
+  // not-running panel would offer Restart/Delete on a row that doesn't exist.
+  // Only while NO record is cached — one deleted mid-view keeps the live-pane
+  // path below (spec 2026-09-03 §3). Placed after the LAST hook call in the
+  // component, so the early return never skips a hook.
+  if (isNotFound && !subshell) return <SubshellNotFoundCard />;
 
   return (
     <main className="flex h-full flex-col">
