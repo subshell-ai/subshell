@@ -117,7 +117,9 @@ biome check --write --unsafe src
 lefthook installs itself via the root `prepare` script, so `bun install` in a fresh clone
 wires the hooks up. To resync by hand: `bunx lefthook install`.
 
-`pre-commit` formats/lints staged files; `pre-push` runs `verify-types`, `lint:check`, `test`.
+`pre-commit` formats/lints staged files; `pre-push` runs `verify-types` and `lint:check`
+only — the test suite belongs to CI (`.github/workflows/test.yml`) so pushes stay fast.
+Run `bun run test` yourself before pushing work you want green on the first try.
 
 ### Cleaning
 

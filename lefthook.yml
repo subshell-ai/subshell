@@ -36,7 +36,5 @@ pre-push:
       run: bun run lint:check
       tags:
         - lint
-    "test":
-      run: bun run test
-      tags:
-        - test
+    # NOTE: the test suite deliberately does NOT run here — CI (.github/workflows/test.yml)
+    # owns it; a local push shouldn't cost 30+ s. Run `bun run test` by hand when you want it.

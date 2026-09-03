@@ -10,7 +10,8 @@ bun run test
 
 If any of these fail, fix the issues before considering the task complete. Do not proceed to commits or other work until all three pass.
 
-These are the same three commands the `pre-push` hook runs, so a clean local run means a clean push.
+`pre-push` runs only the first two (types + lint) — CI owns the test suite. Run all three
+yourself before pushing anything you expect to be green on the first try.
 
 ## `lint` vs `lint:check`
 
