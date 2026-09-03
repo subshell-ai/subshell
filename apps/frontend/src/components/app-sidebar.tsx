@@ -1,5 +1,14 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, LayoutDashboard, type LucideIcon, Server, Settings, TerminalSquare, Users } from "lucide-react";
+import {
+  ChevronLeft,
+  LayoutDashboard,
+  type LucideIcon,
+  Server,
+  Settings,
+  SlidersHorizontal,
+  TerminalSquare,
+  Users,
+} from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
@@ -31,7 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Sessions", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  { to: "/profiles", label: "Profiles", icon: Settings, short: "Prof" },
+  { to: "/profiles", label: "Profiles", icon: SlidersHorizontal, short: "Prof" },
   { to: "/settings", label: "Server", icon: Settings, requiresAdmin: true },
   { to: "/users", label: "Users", icon: Users, short: "Users" },
 ];
