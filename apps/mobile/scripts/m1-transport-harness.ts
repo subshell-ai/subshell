@@ -12,7 +12,7 @@
  *   SUBSHELL_BASE_URL=http://127.0.0.1:3080 SUBSHELL_EMAIL=… SUBSHELL_PASSWORD=… bun run harness:m1
  *
  * Set SUBSHELL_SEND_INPUT=1 to additionally type a newline into a subshell you name
- * with SUBSHELL_SUBSHELL_HINT (matched against the subshell name). Off by default:
+ * with SUBSHELL_HINT (matched against the subshell name). Off by default:
  * keystrokes go to a real agent's pane, and the token's owner can inject into
  * any subshell they own.
  */
@@ -25,7 +25,7 @@ const BASE = process.env.SUBSHELL_BASE_URL ?? "http://127.0.0.1:3080";
 const EMAIL = process.env.SUBSHELL_EMAIL ?? "";
 const PASSWORD = process.env.SUBSHELL_PASSWORD ?? "";
 const SEND_INPUT = process.env.SUBSHELL_SEND_INPUT === "1";
-const HINT = process.env.SUBSHELL_SUBSHELL_HINT ?? "";
+const HINT = process.env.SUBSHELL_HINT ?? "";
 
 let failures = 0;
 const ok = (label: string, detail = ""): void => {
