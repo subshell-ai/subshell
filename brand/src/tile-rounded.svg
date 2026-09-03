@@ -8,7 +8,7 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="113" fill="#0a0a0a"/>
-  <g font-family="Acherus Grotesque Thin" font-size="340" letter-spacing="3.74">
+  <g font-family="Acherus Grotesque Light" font-size="340" letter-spacing="3.74">
     <text x="111" y="375" fill="url(#slash)">/</text>
     <text x="234" y="375" fill="#e6dbef">s</text>
   </g>

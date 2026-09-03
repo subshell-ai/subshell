@@ -7,7 +7,7 @@
       <stop offset="1" stop-color="#d9c6e8"/>
     </linearGradient>
   </defs>
-  <g font-family="Acherus Grotesque Thin" font-size="100" letter-spacing="1.1">
+  <g font-family="Acherus Grotesque Light" font-size="100" letter-spacing="1.1">
     <text x="0" y="100" fill="url(#slash)">/</text>
     <text x="36.2" y="100" fill="#e6dbef">s</text>
   </g>

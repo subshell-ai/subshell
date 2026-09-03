@@ -7,7 +7,7 @@ Tailwind theme, adopting Acherus as a UI font (UI stays on the system stack).
 
 ## 1. The identity
 
-Wordmark `/subshell` set in **Acherus Grotesque Thin (weight 100)**, styled as a directory
+Wordmark `/subshell` set in **Acherus Grotesque Light (weight 300)**, styled as a directory
 path with a terminal "bitcrash" dust tail. Favicon/app mark is the derived glyph **`/s`**.
 
 ### 1.1 Color tokens
@@ -37,7 +37,9 @@ decorative (exempt). All text-bearing elements clear WCAG AA for large text.
 Single line, left to right: gradient slash, `sub` in `brand.sub`, `shell` in `brand.shell`,
 dust tail off the final "ll".
 
-- **Type:** Acherus Grotesque Thin (100), letter-spacing ≈ `0.011em`, lowercase.
+- **Type:** Acherus Grotesque Light (300), letter-spacing ≈ `0.011em`, lowercase. (The lockup
+  was first approved in Thin 100; the operator moved it to Light on 2026-09-03 because Thin
+  read too weak beside the UI's label weights.)
 - **Slash:** the font's own `/`, filled by a vertical `linearGradient`
   (`top→bottom`, stops per §1.1). No other element carries a gradient.
 - **Dust:** six squares (≈ 2px corner rounding at 48px wordmark height) trailing off the
@@ -57,10 +59,9 @@ dust tail off the final "ll".
 
 `/s` — gradient slash + `s` in `brand.shell`, on an `#0a0a0a` tile with ~22% corner radius.
 **The mark never carries dust** — the dust tail belongs to the wordmark only (operator
-decision, 2026-09-02). The mark is **Thin 100 like the wordmark** — the operator chose the
-faithful cut over heavier ones after seeing them rendered at 16/32/64px (2026-09-02); the
-glyph therefore fills ≈⅔ of the tile to buy back legibility, and is centered optically (the
-slash leans left; ~1% right nudge). For maskable PWA and apple-touch variants the tile is
+decision, 2026-09-02). The mark follows the wordmark's weight — Light 300 since
+2026-09-03 (originally Thin 100, revised as too weak beside the UI); the glyph fills ≈⅔ of
+the tile and is centered optically (the slash leans left; ~1% right nudge). For maskable PWA and apple-touch variants the tile is
 full-bleed square and the glyph is kept inside the central 80% safe zone.
 
 ### 1.4 Scale rules
@@ -88,7 +89,7 @@ The font license we hold **prohibits embedding/distributing the font file**. The
    they carry no font data and are build inputs, never served. They live **outside**
    `public/`, so nothing text-based reaches a client.
 4. **Every shipped brand artifact is a PNG** produced by the generator (§3). The licensed
-   fonts stay on the operator's machine (default lookup `~/fonts/acherus/`, overridable with
+   fonts stay on the operator's machine (default lookup `~/fonts/acherus/` (currently `Acherus-Grotesque-Light.otf`), overridable with
    `SUBSHELL_BRAND_FONTS_DIR`). Regeneration is a maintainer act; CI and consumers only ever
    see committed PNGs.
 5. `apps/frontend/public/icons/` previously held served SVG brand files
@@ -101,8 +102,8 @@ The font license we hold **prohibits embedding/distributing the font file**. The
 
 - **Renderer:** `@resvg/resvg-js` (devDependency, pinned). Deterministic rasterizer, proper
   `linearGradient` and text support; fonts supplied explicitly per-run via
-  `fontFiles: [Acherus-Grotesque-Thin.otf]` resolved from `SUBSHELL_BRAND_FONTS_DIR`.
-- **Fail-fast:** if the font dir or the Thin OTF is missing, exit non-zero with a clear
+  `fontFiles: [Acherus-Grotesque-Light.otf]` resolved from `SUBSHELL_BRAND_FONTS_DIR`.
+- **Fail-fast:** if the font dir or the Light OTF is missing, exit non-zero with a clear
   message — never emit fallback-font PNGs.
 - **Single source of truth for sizes:** a `SIZES` table in the script drives every output.
 

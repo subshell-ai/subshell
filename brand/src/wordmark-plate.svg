@@ -9,7 +9,7 @@
   </defs>
   <rect x="-32" y="-12" width="648" height="166" fill="#0a0a0a"/>
   <g transform="translate(30,8)">
-    <g font-family="Acherus Grotesque Thin" font-size="100" letter-spacing="1.1">
+    <g font-family="Acherus Grotesque Light" font-size="100" letter-spacing="1.1">
       <text x="0" y="100" fill="url(#slash)">/</text>
       <text x="36.2" y="100" fill="#9c71ae">sub</text>
       <text x="218.5" y="100" fill="#e6dbef">shell</text>

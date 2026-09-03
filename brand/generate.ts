@@ -21,8 +21,8 @@ const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
 // brand:generate is a root script, not a turbo task — no cache key to declare for.
 // biome-ignore lint/suspicious/noUndeclaredEnvVars: maintainer-local font path, outside turbo
 const fontDir = process.env.SUBSHELL_BRAND_FONTS_DIR ?? path.join(homedir(), "fonts", "acherus");
-/** Everything — wordmark and mark — is Thin 100 (operator choice after a 16px shoot-out). */
-const fontFiles = ["Acherus-Grotesque-Thin.otf"].map((f) => path.join(fontDir, f));
+/** Everything — wordmark and mark — is Light 300 (operator choice 2026-09-03: Thin read too weak beside the UI's label weights). */
+const fontFiles = ["Acherus-Grotesque-Light.otf"].map((f) => path.join(fontDir, f));
 for (const f of fontFiles) {
   if (!existsSync(f)) {
     console.error(
@@ -64,7 +64,7 @@ function render(master: string, mode: Mode, size: number): Buffer {
     font: {
       fontFiles,
       loadSystemFonts: false, // deterministic: only the licensed faces exist here
-      defaultFontFamily: "Acherus Grotesque Thin",
+      defaultFontFamily: "Acherus Grotesque Light",
     },
   });
   return Buffer.from(resvg.render().asPng());
