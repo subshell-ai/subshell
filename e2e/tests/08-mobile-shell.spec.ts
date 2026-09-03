@@ -26,10 +26,18 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     await expect(page.locator("aside")).toHaveCount(0);
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("link", { name: "Settings" }).click();
+    await page.getByRole("link", { name: "Server" }).click();
     await expect(page).toHaveURL(/\/settings$/);
     // Navigating dismisses the drawer (route-change effect).
     await expect(page.getByRole("dialog")).toHaveCount(0);
+    // The user menu (spec 2026-09-02 settings-split §3) replaces Logout in
+    // the drawer: Account settings must reach /account. The drawer was
+    // dismissed above, so it rides the same burger-open path as any tap.
+    await burger.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: /Account —/ }).click();
+    await page.getByRole("menuitem", { name: "Account settings" }).click();
+    await expect(page).toHaveURL(/\/account$/);
   } else {
     await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
     await expect(page.locator("aside")).toBeVisible();

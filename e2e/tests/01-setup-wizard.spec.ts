@@ -67,8 +67,10 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   expect(delStatus.status).toBe(409);
   expect(delStatus.stillThere).toBe(true);
 
-  // Logout, then real login through the form.
-  await page.getByRole("button", { name: "Logout" }).click();
+  // Sign out through the sidebar user menu (spec 2026-09-02 settings-split
+  // §3 — it replaced the bare Logout button), then real login through the form.
+  await page.getByRole("button", { name: /Account —/ }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
