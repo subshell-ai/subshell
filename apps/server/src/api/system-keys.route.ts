@@ -3,7 +3,7 @@ import { HttpError, requireAdmin } from "@/api/auth-guard.js";
 import type { ApiKeyListRow, CreatedApiKey } from "@/auth/apikey-store.js";
 import { deleteApiKey, isSystemKey, listSystemKeys, setApiKeyEnabled } from "@/auth/apikey-store.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { audit } from "@/services/audit.js";
 
 const KeyRowSchema = t.Object({
@@ -78,7 +78,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
     "/",
     async ({ body, user }) => {
       const systemUserId = await ensureSystemUser();
-      const created = (await auth.api.createApiKey({
+      const created = (await getAuth().api.createApiKey({
         body: {
           name: body.name,
           userId: systemUserId,

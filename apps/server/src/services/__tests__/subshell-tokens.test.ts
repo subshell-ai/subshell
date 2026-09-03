@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { extendSubshellToken, issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
@@ -54,7 +54,7 @@ describe("subshell tokens", () => {
     const row = await new SubshellsRepository(db).findById(sid);
     expect(row?.apiKeyId).toBeTruthy();
 
-    const res = (await auth.api.verifyApiKey({ body: { key } })) as unknown as {
+    const res = (await getAuth().api.verifyApiKey({ body: { key } })) as unknown as {
       valid: boolean;
       key: {
         id: string;
@@ -74,7 +74,7 @@ describe("subshell tokens", () => {
     expect(await extendSubshellToken(sid)).toBe(true);
 
     await revokeSubshellToken(sid);
-    const after = (await auth.api.verifyApiKey({ body: { key } })) as unknown as { valid: boolean };
+    const after = (await getAuth().api.verifyApiKey({ body: { key } })) as unknown as { valid: boolean };
     expect(after.valid).toBe(false);
     // revoking twice and extending an unknown subshell are harmless
     await revokeSubshellToken(sid);

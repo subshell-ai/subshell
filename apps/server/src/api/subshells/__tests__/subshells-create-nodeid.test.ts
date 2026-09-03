@@ -8,7 +8,7 @@ import { spawnSync } from "bun";
 import { Elysia } from "elysia";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
@@ -338,7 +338,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     // user's (a foreign profile 404s before node resolution — correct, and
     // not what this test is about).
     const systemProfile = await mkProfile(systemId, "no-such-harness");
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "cnode-sys", userId: systemId, metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     const res = await post(base(systemProfile), created.key);

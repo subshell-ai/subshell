@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { sql } from "kysely";
 import { setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 
@@ -36,7 +36,7 @@ describe("passkey plugin (server)", () => {
   });
 
   it("generate-register-options refuses an anonymous request", async () => {
-    const res = await auth.handler(
+    const res = await getAuth().handler(
       new Request("http://localhost:3080/api/auth/passkey/generate-register-options", {
         headers: { origin: "http://localhost:5173" },
       }),
@@ -45,7 +45,7 @@ describe("passkey plugin (server)", () => {
   });
 
   it("generate-register-options returns WebAuthn options for a subshell", async () => {
-    const res = await auth.handler(
+    const res = await getAuth().handler(
       new Request("http://localhost:3080/api/auth/passkey/generate-register-options", {
         headers: { origin: "http://localhost:5173", cookie: `better-auth.session_token=${token}` },
       }),

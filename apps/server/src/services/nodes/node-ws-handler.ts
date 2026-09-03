@@ -7,7 +7,7 @@ import {
   parseNodeEvent,
 } from "@internal/subshell-protocol";
 import { HttpError } from "@/api/auth-guard.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeStatus } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
@@ -129,7 +129,7 @@ export function getNodeWsDeps(): NodeWsDeps {
     prodDeps = {
       verifyApiKey: async (rawKey) => {
         try {
-          const res = (await auth.api.verifyApiKey({ body: { key: rawKey } })) as unknown as {
+          const res = (await getAuth().api.verifyApiKey({ body: { key: rawKey } })) as unknown as {
             valid: boolean;
             key?: NodeVerifiedKey;
           };

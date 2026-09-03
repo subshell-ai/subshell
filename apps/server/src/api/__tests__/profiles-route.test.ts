@@ -5,7 +5,7 @@ import { usableHarnessIds } from "@/api/harness-utils.js";
 import { profileRoutes } from "@/api/profiles.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -105,7 +105,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
     const row = await new SubshellsRepository(db).findById(subshellId);
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
 
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "profw-sys-test", userId: await ensureSystemUser(), metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);

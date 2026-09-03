@@ -4,7 +4,7 @@ import { Elysia } from "elysia";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
@@ -81,7 +81,7 @@ describe("settings routes (admin cookie only)", () => {
     const row = await new SubshellsRepository(db).findById(subshellId);
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
 
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "settings-sys-test", userId: await ensureSystemUser(), metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);

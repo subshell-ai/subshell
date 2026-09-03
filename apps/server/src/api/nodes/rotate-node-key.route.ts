@@ -4,7 +4,7 @@ import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import type { CreatedApiKey, NodeKeyMetadata } from "@/auth/apikey-store.js";
 import { setApiKeyEnabled } from "@/auth/apikey-store.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
@@ -48,7 +48,7 @@ export const rotateNodeKeyRoute = new Elysia()
 
       // 1. Mint FIRST (least-privilege + kind-tagged, exactly like enroll).
       const metadata: NodeKeyMetadata = { kind: "node", nodeId: gate.row.id };
-      const created = (await auth.api.createApiKey({
+      const created = (await getAuth().api.createApiKey({
         body: {
           name: `node:${gate.row.id}`,
           userId: gate.row.ownerUserId,

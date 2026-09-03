@@ -5,7 +5,7 @@ import { authGuard, ForbiddenError, requireAdmin, requirePerm } from "@/api/auth
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -123,7 +123,7 @@ describe("authGuard bearer path", () => {
 
   it("system key bearer authenticates as its owning (system) user", async () => {
     const systemUserId = await ensureSystemUser();
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "sys-test", userId: systemUserId, metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);
@@ -145,13 +145,13 @@ describe("authGuard bearer path", () => {
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
     expect((await bearerGet(legit)).status).toBe(200); // control: the real token works
 
-    const forged = (await auth.api.createApiKey({
+    const forged = (await getAuth().api.createApiKey({
       body: { name: "forged", userId, metadata: { kind: "subshell", subshellId: sid } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(forged.id);
     expect((await bearerGet(forged.key)).status).toBe(401); // never linked to the subshell
 
-    const fakeSystem = (await auth.api.createApiKey({
+    const fakeSystem = (await getAuth().api.createApiKey({
       body: { name: "fake-system", userId, metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(fakeSystem.id);
@@ -165,7 +165,7 @@ describe("authGuard bearer path", () => {
     // generic "Unauthorized". Asserting the MESSAGE names node keys pins the
     // explicit guard branch, so it can never silently degrade back to the
     // accidental path (or be widened) without a test failure.
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "node-rest-test", userId, metadata: { kind: "node", nodeId: "n1" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);
@@ -241,7 +241,7 @@ describe("authGuard bearer path", () => {
     expect((await adminProbe.fetch(authedRequest("/admin-probe", adminToken))).status).toBe(200);
     // a plain user's cookie is 403, a system-key bearer is 403 too (not cookie)
     expect((await adminProbe.fetch(authedRequest("/admin-probe", plainToken))).status).toBe(403);
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "sys-admin-test", userId: await ensureSystemUser(), metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);

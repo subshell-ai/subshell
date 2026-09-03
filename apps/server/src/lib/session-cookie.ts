@@ -1,5 +1,5 @@
 import type { Session, User } from "better-auth";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 
 /**
  * better-auth's session cookie name under an http baseURL. Over https it
@@ -52,7 +52,7 @@ export async function resolveCookieSession(cookieHeader: string): Promise<Cookie
   const token = extractSessionToken(cookieHeader);
   if (!token) return null;
   try {
-    const result = await auth.api.getSession({
+    const result = await getAuth().api.getSession({
       headers: new Headers({
         cookie: `${SESSION_COOKIE}=${token}; ${SECURE_SESSION_COOKIE}=${token}`,
       }),

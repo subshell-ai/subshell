@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 
 /**
  * Mounts better-auth's fetch handler at /api/auth/*.
@@ -25,5 +25,5 @@ export const authPlugin = new Elysia({ name: "auth" })
   // so GET /api/auth/get-session would otherwise 404 (or get index.html).
   // A same-path `.get()` here outranks the fallback on specificity, and the
   // duplicate registration is harmless — the first matching route wins.
-  .get("/api/auth/*", ({ request }) => auth.handler(request))
-  .all("/api/auth/*", ({ request }) => auth.handler(request));
+  .get("/api/auth/*", ({ request }) => getAuth().handler(request))
+  .all("/api/auth/*", ({ request }) => getAuth().handler(request));

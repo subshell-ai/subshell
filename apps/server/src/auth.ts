@@ -110,8 +110,34 @@ export const AUTH_OPTIONS = {
   },
 };
 
-/** The better-auth instance built from {@link AUTH_OPTIONS}. */
-export const auth = betterAuth(AUTH_OPTIONS);
+/** Builds the better-auth instance. Its constructor OPENS SQLite — so this
+ *  never runs at module evaluation (import-purity invariant, spec 2026-09-03):
+ *  the entry graph must stay IO-free for the `mcp` subcommand's lifetime. */
+function buildAuth() {
+  return betterAuth(AUTH_OPTIONS);
+}
+
+type Auth = ReturnType<typeof buildAuth>;
+let instance: Auth | undefined;
+
+/**
+ * The better-auth instance (singleton per the code-style rule), built on
+ * FIRST USE. Everything that needs auth does so at boot or per-request —
+ * both well after module evaluation — so the laziness is invisible in
+ * behavior and visible only in the absence of import-time side effects.
+ */
+export function getAuth(): Auth {
+  instance ??= buildAuth();
+  return instance;
+}
+
+/**
+ * Drops the memoized instance. Only for tests that need a fresh build.
+ * @internal
+ */
+export function resetAuthForTests(): void {
+  instance = undefined;
+}
 
 let appDb: import("kysely").Kysely<import("@/db/types/index.js").Database> | undefined;
 

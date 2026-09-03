@@ -3,7 +3,7 @@ import { Elysia, t } from "elysia";
 import { HttpError } from "@/api/auth-guard.js";
 import { assertImportablePublicJwk } from "@/api/public-jwk.js";
 import type { CreatedApiKey, NodeKeyMetadata } from "@/auth/apikey-store.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
@@ -191,7 +191,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       // spec §5.4), least-privilege, and kind-tagged so REST refuses it
       // (auth-guard) and only /ws/node accepts it.
       const metadata: NodeKeyMetadata = { kind: "node", nodeId };
-      const created = (await auth.api.createApiKey({
+      const created = (await getAuth().api.createApiKey({
         body: {
           name: `node:${nodeId}`,
           userId: keyRow.ownerUserId,

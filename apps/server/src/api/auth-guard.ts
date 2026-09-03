@@ -1,7 +1,7 @@
 import type { Session, User } from "better-auth";
 import { Elysia } from "elysia";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -38,7 +38,7 @@ async function deriveFromApiKey(bearer: string) {
   let valid = false;
   let row: VerifiedKeyRow | undefined;
   try {
-    const res = (await auth.api.verifyApiKey({ body: { key: bearer } })) as unknown as {
+    const res = (await getAuth().api.verifyApiKey({ body: { key: bearer } })) as unknown as {
       valid: boolean;
       key?: VerifiedKeyRow;
     };
