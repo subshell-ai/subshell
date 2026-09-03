@@ -45,7 +45,7 @@ export interface ServiceDeps {
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
 export const SYSTEMD_UNIT_NAME = "subshell.service";
 /** launchd label (plist: `~/Library/LaunchAgents/<label>.plist`). */
-export const LAUNCHD_LABEL = "dev.subshell.agent";
+export const LAUNCHD_LABEL = "dev.subshell.client";
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);

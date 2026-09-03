@@ -9,7 +9,7 @@ import { execLine, installService, type ServiceDeps, uninstallService } from "..
  */
 const HOME = "/home/tester";
 const UNIT = join(HOME, ".config", "systemd", "user", "subshell.service");
-const PLIST = join(HOME, "Library", "LaunchAgents", "dev.subshell.agent.plist");
+const PLIST = join(HOME, "Library", "LaunchAgents", "dev.subshell.client.plist");
 const LOG = join(HOME, "Library", "Logs", "subshell.log");
 
 /** What a stubbed runCmd answers per invocation (default: success, silent). */
@@ -131,7 +131,7 @@ describe("installService — macOS (launchd agent)", () => {
 
     expect(res.code).toBe(0);
     const plist = s.files.get(PLIST) ?? ""; // "" on a miss ⇒ the first toInclude below fails loudly
-    expect(plist).toInclude("<string>dev.subshell.agent</string>");
+    expect(plist).toInclude("<string>dev.subshell.client</string>");
     expect(plist).toInclude("<key>KeepAlive</key>");
     expect(plist).toInclude("<key>RunAtLoad</key>");
     expect(plist).toInclude("<string>/usr/local/bin/subshell</string>");
@@ -154,7 +154,7 @@ describe("installService — macOS (launchd agent)", () => {
     const res = await installService(s.deps);
     expect(res.code).toBe(0);
     expect(s.calls).toEqual([
-      ["launchctl", "bootout", "gui/1000/dev.subshell.agent"],
+      ["launchctl", "bootout", "gui/1000/dev.subshell.client"],
       ["launchctl", "bootstrap", "gui/1000", PLIST],
     ]);
   });
@@ -229,7 +229,7 @@ describe("uninstallService — macOS (launchd agent)", () => {
 
     const res = await uninstallService(s.deps);
     expect(res.code).toBe(0);
-    expect(s.calls).toEqual([["launchctl", "bootout", "gui/1000/dev.subshell.agent"]]);
+    expect(s.calls).toEqual([["launchctl", "bootout", "gui/1000/dev.subshell.client"]]);
     expect(s.removed).toEqual([PLIST]);
     expect(s.files.has(PLIST)).toBe(false);
     expect(res.out).toInclude("Removed");
