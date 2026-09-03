@@ -7,6 +7,57 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Rewrites the legacy dockview component key on a persisted layout.
+ *
+ * The workspace rename changed the panel content renderer's id from
+ * `"session"` to `"subshell"` (components map in `workspace-dock.tsx`), but
+ * saved layouts predate it: dockview 8.2's `DockviewComponent.toJSON()`
+ * stamps every panel's renderer id into `panels[id].contentComponent`, and
+ * `fromJSON` throws while deserializing a key the components registry no
+ * longer has (`ReactPart.createPortal` rejects the undefined component),
+ * which would drop the user back on a fresh full-rebuild layout.
+ *
+ * Only `contentComponent` carries the key. Panels are added as
+ * `addPanel({ id: pane.id })` — the server's pane UUID — and every other
+ * serialized reference (grid leaf `views`/`activeView`/`tabGroups`,
+ * `activeGroup`) names panels and groups by those ids, never by component
+ * name; per-panel `tabComponent` is never set here (the app uses
+ * `defaultTabComponent`). So a recursive rewrite of that one field is
+ * complete — no id/reference rewriting is needed.
+ *
+ * Copy-on-write: an input with no legacy key is returned as the same
+ * reference; a changed subtree is cloned, never mutated in place.
+ *
+ * @param layout - A serialized layout, or anything at all
+ * @returns The same layout with every `contentComponent: "session"` rewritten to `"subshell"`
+ */
+export function normalizeLegacyLayout(layout: unknown): unknown {
+  if (Array.isArray(layout)) {
+    let changed = false;
+    const items = layout.map((item) => {
+      const next = normalizeLegacyLayout(item);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? items : layout;
+  }
+  if (!isRecord(layout)) return layout;
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(layout)) {
+    if (key === "contentComponent" && value === "session") {
+      changed = true;
+      out[key] = "subshell";
+      continue;
+    }
+    const next = normalizeLegacyLayout(value);
+    if (next !== value) changed = true;
+    out[key] = next;
+  }
+  return changed ? out : layout;
+}
+
+/**
  * Every panel id referenced by a serialized dockview layout.
  *
  * @param layout - A serialized layout, or anything at all

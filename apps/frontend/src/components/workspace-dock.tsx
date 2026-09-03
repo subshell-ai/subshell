@@ -20,7 +20,12 @@ import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { apiFetch, errMessage } from "@/lib/api";
 import { confirmDeleteSubshell, confirmTerminateSubshell } from "@/lib/subshell-confirmations";
-import { panelIdsInLayout, panesMissingFromLayout, resolveAddPosition } from "@/lib/workspace-layout";
+import {
+  normalizeLegacyLayout,
+  panelIdsInLayout,
+  panesMissingFromLayout,
+  resolveAddPosition,
+} from "@/lib/workspace-layout";
 import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -121,9 +126,14 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     // restore failure falls through to laying every pane out fresh — not
     // just the ones absent from the (unrestored) stored layout's panel ids.
     let restored = false;
-    if (detail.workspace.layout) {
+    // Saved layouts predating the component rename still name the panel
+    // renderer `"session"`; `fromJSON` throws on the unknown key, which
+    // would silently rebuild every workspace's arrangement once. Rewrite
+    // before restore (see `normalizeLegacyLayout`).
+    const layout = detail.workspace.layout ? normalizeLegacyLayout(detail.workspace.layout) : null;
+    if (layout) {
       try {
-        event.api.fromJSON(detail.workspace.layout as Parameters<typeof event.api.fromJSON>[0]);
+        event.api.fromJSON(layout as Parameters<typeof event.api.fromJSON>[0]);
         restored = true;
       } catch {
         // A layout we cannot restore is not worth losing the workspace
@@ -133,9 +143,9 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     // Everything already in the restored layout counts as known even
     // though `addPanel` was never called for it here.
     if (restored) {
-      for (const id of panelIdsInLayout(detail.workspace.layout)) knownPaneIdsRef.current.add(id);
+      for (const id of panelIdsInLayout(layout)) knownPaneIdsRef.current.add(id);
     }
-    for (const pane of panesMissingFromLayout(restored ? detail.workspace.layout : null, detail.panes)) {
+    for (const pane of panesMissingFromLayout(restored ? layout : null, detail.panes)) {
       // Same defensive check the reconciliation effect makes: a `fromJSON`
       // that threw partway can leave panels behind, and adding a duplicate id
       // would throw from inside dockview's own initialisation.
