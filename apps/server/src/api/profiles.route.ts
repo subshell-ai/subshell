@@ -9,7 +9,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { loadNodeAccess } from "@/lib/node-access.js";
-import { resolveMcpLaunchForDisplay } from "@/services/mcp-launch.js";
+import { resolveMcpLaunchForDisplay } from "@/services/mcp-resolve.js";
 
 /** POSIX-style env var name; anything else is rejected before storage. */
 const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;

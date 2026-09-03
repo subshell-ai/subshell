@@ -259,6 +259,13 @@ jobs:
           fi
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
           test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
+          # Server triple's MCP companion: existence + sidecar + magic ONLY —
+          # it is a stdio server with no version subcommand, never exec'd here.
+          if [ "$APP" = "server" ]; then
+            MCP_BIN="dist-rel/subshell-mcp-$TRIPLE"
+            test -f "$MCP_BIN"        || { echo "missing artifact $MCP_BIN"; exit 1; }
+            test -f "$MCP_BIN.sha256" || { echo "missing digest sidecar $MCP_BIN.sha256"; exit 1; }
+          fi
           # `file` magic sanity applies to every mode; the arch hint doubles as
           # the fallback assertion when the binary cannot be executed here.
           case "$TRIPLE" in
@@ -268,6 +275,9 @@ jobs:
             darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
           esac
           file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
+          if [ "$APP" = "server" ]; then
+            file "$MCP_BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$MCP_BIN")"; exit 1; }
+          fi
 
           exec_smoke() {
             # $1: command prefix ("" native, "arch -x86_64" under Rosetta)

@@ -200,6 +200,25 @@ PATH), and `StartLimitIntervalSec=0` (Restart=always must survive an
 EADDRINUSE crash loop). macOS: launchd agent `dev.subshell.server` →
 `~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log`.
 
+### MCP entrypoint resolution
+
+Every subshell create spawns `subshell mcp`; HOW it's found is the pure ladder
+in `src/services/mcp-resolve.ts` (split out of `mcp-launch.ts` so the
+side-effect-free CLI can import it): `SUBSHELL_MCP_COMMAND`/`_ARGS` override →
+`subshell-mcp` sibling of a `subshell-server*` executable (the `compile`
+layout AND the release install: `compile:release` publishes a
+`subshell-mcp-<triple>` beside every server binary — install the PAIR side by
+side) → the dist entry (`dist/mcp/main.js` / dev `src/mcp/main.ts`) → the
+`subshell` node agent on PATH (`subshell mcp` — safety net for installs that
+predate the companion artifact) → throw with the `SUBSHELL_MCP_COMMAND` hint.
+A release install matching NONE of these 500s on create — `subshell-server
+status` prints the resolved command and its rung
+(`mcp entrypoint = … (via …)`, or `UNRESOLVED`) so the gap shows up before a
+user hits it. (A `subshell-server mcp` subcommand is NOT an option: the
+sync-exit entry contract means a long-running command lets `@/auth.js` open
+SQLite at import — that's why `src/mcp/main.ts` is its own tiny entry, and why
+the companion binary is what the release ships.)
+
 ### Embedded SPA + release dance
 
 `selectStaticPlugin` picks the static source at boot: an on-disk frontend
@@ -223,7 +242,11 @@ The pipeline embeds the SPA (the generator overwrites the stub; the stub is
 restored with `git checkout` in a `finally` — embedded bytes are release
 noise, never a commit), builds the three `SERVER_TARGETS` triples
 (`linux-x64`, `linux-arm64`, `darwin-arm64` — deliberately no darwin-x64;
-`@internal/subshell-protocol` `paths.ts`), each with `--bytecode` (bun ≥
+`@internal/subshell-protocol` `paths.ts`) — each triple a PAIR: the
+SPA-embedded `subshell-server-<triple>` plus the standalone `subshell-mcp-<triple>`
+companion (entry `src/mcp/main.ts`, no embed) so an operator installing the
+pair gets `resolveMcpLaunch`'s compiled-sibling rung on a server-only host —
+each with `--bytecode` (bun ≥
 1.4.0 asserted; `SUBSHELL_SERVER_RELEASE_TRIPLES` scopes a subset for CI),
 darwin targets are signed + notarized first when `SUBSHELL_RELEASE_SIGN_CMD`
 is set (CI sets it to `scripts/macos-sign-notarize.sh` on mac-builder — see
