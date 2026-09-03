@@ -1,5 +1,18 @@
 # @internal/server
 
+## 1.2.1
+
+### Patch Changes
+
+- [`58d3941`](https://github.com/subshell-ai/subshell/commit/58d3941dd87458b91e91b36491144b8b7764bbbc) Thanks [@theogravity](https://github.com/theogravity)! - fix: opening the web UI on a fresh (never-registered) instance no longer
+  freezes the browser tab — the first-run redirect into the setup wizard
+  deadlocked itself in a render-phase navigation storm.
+
+- [`edc49f4`](https://github.com/subshell-ai/subshell/commit/edc49f4dbf05bdf283d4f8918f0658eb0f2d9703) Thanks [@theogravity](https://github.com/theogravity)! - macOS release binaries are now Developer-ID signed and Apple-notarized by CI,
+  so a browser-downloaded `subshell-server-darwin-*` / `subshell-darwin-*`
+  passes Gatekeeper with the ordinary one-time "downloaded from the internet"
+  confirmation instead of the "is damaged and can't be opened" refusal.
+
 ## 1.2.0
 
 ### Minor Changes
