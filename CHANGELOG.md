@@ -1,3 +1,5 @@
+- `subshell-server` 1.0.0 and `subshell` 0.1.0 published as GitHub Releases (linux x64/arm64, darwin arm64 + client darwin x64), built by `.github/workflows/release.yml` on the self-hosted runner matrix; changesets govern version bumps (`bunx changeset`).
+
 # subshell
 
 ## Unreleased

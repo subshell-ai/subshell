@@ -307,3 +307,29 @@ embedded copy, so existing deployments are byte-identical until switched.
 Both `init`/`configure` and `service install` refuse without tmux
 (the `local` node needs it; escape hatch `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`).
 Details: `apps/server/AGENTS.md` ("Standalone binary & CLI").
+
+---
+
+## 2026-09-03 (evening): Mac-mini is live via the release binaries
+
+`mac-mini` (172.16.2.177, arm64) now runs BOTH deployables from the GitHub
+Releases, digest-verified before exec:
+
+- **Server**: `subshell-server` 1.0.0 at `~/.local/bin`, launched by
+  launchd `dev.subshell.server` (installed by `subshell-server service
+  install`), bound 0.0.0.0:3080 behind `https://subshell.ein.disaresta.com`,
+  config in `~/.config/subshell-server/config.env` (0600, NODE_ENV=production).
+  Accounts: `theo@suteki.nu` (password in `/tmp/mac-admin-pw.txt` on the
+  control-plane host — rotate after first login).
+- **Client**: `subshell` 0.1.0 as node **mac-mini**, enrolled to this host
+  (`https://mote.ein.disaresta.com`), launchd `dev.subshell.client`. Verified
+  online with 5 harnesses; a launched subshell reached `running` on it.
+
+Control-plane note: a CI account `deploy@subshell.local` (admin, password in
+`/tmp/ci-admin-pw.txt` here) was created for key-minting — DELETE it in
+Settings when no longer needed; it exists only because scripted login needs
+the registration toggle flipped.
+
+Update flow from now on: `gh release download <tag> -p 'subshell-*-darwin-arm64'`,
+`shasum -a 256 -c`, move over `~/.local/bin`, `launchctl kickstart -k
+gui/$(id -u)/dev.subshell.server` (or `.client`).
