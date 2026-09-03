@@ -48,11 +48,13 @@ standalone download is actually operable without a repo checkout.
 The homes swap halves of their old names: the server vacates
 `~/.config/subshell` first, then the client moves in. **Rollout ordering is
 load-bearing** — `mv ~/.config/subshell ~/.config/subshell-server` BEFORE
-`mv ~/.config/subshell-agent ~/.config/subshell`. Both defaults change in code
-(`apps/client/src/config.ts`; the server defaults live in
-`packages/subshell-protocol/src/paths.ts` — `DEFAULT_DATABASE_PATH` and
-`defaultSubshellServerDataDir`). No compat shim (precedent: the mote→subshell
-rollout was a clean cut); the rollout doc gains the steps.
+`mv ~/.config/subshell-agent ~/.config/subshell`. The client's default changes
+in code (`apps/client/src/config.ts`); the server's OLD location was never a
+code default — `paths.ts` `DEFAULT_DATABASE_PATH` is `./data/subshell.db` and
+`~/.config/subshell` arrives only via `svc.sh`/`docker-compose.yaml`, so the
+server half of the swap is DEPLOY-FILE changes only. No compat shim
+(precedent: the mote→subshell rollout was a clean cut); the rollout doc gains
+the steps.
 
 Code touchpoints (from grep): root `package.json` scripts, `e2e/stub/agent.ts`
 (`AGENT_MAIN` → point at `apps/client/src/main.ts`, file renamed
