@@ -37,8 +37,8 @@ const DownloadQuerySchema = t.Object({
 });
 
 /**
- * Cookie-OR-setup-key gate (spec §8): a browser downloads with its subshell
- * cookie, the install pipeline downloads with `?setup_key=`. The cookie probe
+ * Cookie-OR-setup-key gate (spec §8): a browser downloads with its
+ * session cookie, the install pipeline downloads with `?setup_key=`. The cookie probe
  * mirrors `authGuard`/`resolveSetupActor` semantics — a PRESENT cookie must
  * be valid (credential precedence; the bearer-ish path is never tried under a
  * stale subshell) — and the key path is `peekValid`, i.e. consumption-free:

@@ -140,7 +140,7 @@ describe("emergency admin login (SUBSHELL_EMERGENCY_PASSWORD)", () => {
     // better-auth format-validates the email (z.email(), sign-in.mjs:316)
     // and 400s a padded one BEFORE any lookup — so the hatch must never
     // rewrite for it either: the old trimmed lookup rewrote the hash and
-    // then better-auth refused, killing the password with no subshell.
+    // then better-auth refused, killing the password with no session.
     // (Mixed-case emails pass z.email() and are looked up lowercased —
     // sign-in.mjs:317 — which is the shape the rewrite lookup must match.)
     process.env[ENV] = ENV_VALUE;

@@ -65,8 +65,8 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   } else {
     // Same shared extraction as the REST guard — accepts the https
     // `__Secure-` spelling and re-presents it under both names.
-    const subshell = await resolveCookieSession(cookieHeader);
-    userId = subshell?.user.id ?? null;
+    const session = await resolveCookieSession(cookieHeader);
+    userId = session?.user.id ?? null;
   }
   if (!userId) {
     ws.close(4001, "unauthorized");

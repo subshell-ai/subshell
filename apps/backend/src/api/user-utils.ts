@@ -9,7 +9,7 @@ export async function isAdmin(user: Pick<User, "id">): Promise<boolean> {
 
 /**
  * The ONE spelling of the cookie-admin invariant: a HUMAN admin is a
- * live subshell COOKIE whose user_meta role is "admin". The actor clause is
+ * live session cookie whose user_meta role is "admin". The actor clause is
  * load-bearing, not decoration — authGuard maps a bearer token's `user` to
  * its subshell OWNER (a bearer is never rejected just because its owner is
  * an admin), so `isAdmin` alone would paint admin chrome and flags from an

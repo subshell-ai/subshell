@@ -12,7 +12,7 @@ import type { Database } from "@/db/types/index.js";
  * Security-audit 2026-08 fixes in `src/auth.ts`:
  *
  * - F5: the better-auth `cookieCache` must be bounded (5 min, not 7 days) so
- *   a copied/stale cookie jar stops passing better-auth's own requireSubshell
+ *   a copied/stale cookie jar stops passing better-auth's own requireSession
  *   endpoints long after sign-out.
  * - F6a: the registration gate must FAIL CLOSED on an unparseable
  *   `allow_registrations` value (missing row still means open — the pre-setup

@@ -27,7 +27,7 @@ const PublicSettingsSchema = t.Object({
   }),
   viewerIsAdmin: t.Boolean({
     description:
-      "True when the caller is a signed-in admin via COOKIE subshell (drives the Server nav entry); bearer actors always read false",
+      "True when the caller is a signed-in admin via COOKIE session (drives the Server nav entry); bearer actors always read false",
   }),
 });
 
