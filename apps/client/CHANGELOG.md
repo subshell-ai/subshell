@@ -1,5 +1,11 @@
 # @internal/client
 
+## 0.2.1
+
+### Patch Changes
+
+- [`87d9edb`](https://github.com/subshell-ai/subshell/commit/87d9edb5716a9f08dbb0ddf376ddfb3cb11f998d) Thanks [@theogravity](https://github.com/theogravity)! - Reliability: the agent's subshell-meta mirror can no longer be poisoned by a read racing a forget — a per-id generation counter refuses the stale refill, so a forgotten subshell actually reads as gone (this was the watcher tests' historical flake).
+
 ## 0.2.0
 
 ### Minor Changes
