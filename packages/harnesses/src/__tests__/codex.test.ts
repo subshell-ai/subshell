@@ -8,8 +8,8 @@ function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition 
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
 }
 
-const launch: McpLaunchSpec = { command: "/opt/mote/mote-mcp", args: [] };
-const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/mote/dist/mcp/main.js"] };
+const launch: McpLaunchSpec = { command: "/opt/subshell/subshell-mcp", args: [] };
+const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/subshell/dist/mcp/main.js"] };
 
 describe("CodexPlugin", () => {
   it("has stable metadata", () => {
@@ -89,7 +89,7 @@ describe("CodexPlugin", () => {
       profile: profile({ settings: { model: "gpt-5" }, flags: ["--search"] }),
       mcp: {
         fileContent: "",
-        args: ["-c", 'mcp_servers.mote.command="/opt/mote/mote-mcp"'],
+        args: ["-c", 'mcp_servers.subshell.command="/opt/subshell/subshell-mcp"'],
       },
       extraFlags: ["-p", "work"],
     });
@@ -98,7 +98,7 @@ describe("CodexPlugin", () => {
       "-m",
       "gpt-5",
       "-c",
-      'mcp_servers.mote.command="/opt/mote/mote-mcp"',
+      'mcp_servers.subshell.command="/opt/subshell/subshell-mcp"',
       "--search",
       "-p",
       "work",
@@ -124,9 +124,9 @@ describe("CodexPlugin", () => {
     expect(reg?.env).toBeUndefined();
     expect(reg?.args).toEqual([
       "-c",
-      'mcp_servers.mote.command="/usr/bin/bun"',
+      'mcp_servers.subshell.command="/usr/bin/bun"',
       "-c",
-      'mcp_servers.mote.args=["/opt/mote/dist/mcp/main.js"]',
+      'mcp_servers.subshell.args=["/opt/subshell/dist/mcp/main.js"]',
     ]);
   });
 
@@ -134,17 +134,17 @@ describe("CodexPlugin", () => {
     const reg = plugin.mcpRegistration?.(launch, "/data/sess.toml");
     expect(reg?.args).toEqual([
       "-c",
-      'mcp_servers.mote.command="/opt/mote/mote-mcp"',
+      'mcp_servers.subshell.command="/opt/subshell/subshell-mcp"',
       "-c",
-      "mcp_servers.mote.args=[]",
+      "mcp_servers.subshell.args=[]",
     ]);
   });
 
   it("mcpRegistration: file fragment is the manual-setup reference, no secrets", () => {
     const reg = plugin.mcpRegistration?.(bunLaunch, "/data/sess.toml");
-    expect(reg?.fileContent).toContain("[mcp_servers.mote]");
+    expect(reg?.fileContent).toContain("[mcp_servers.subshell]");
     expect(reg?.fileContent).toContain('command = "/usr/bin/bun"');
-    expect(reg?.fileContent).toContain('args = ["/opt/mote/dist/mcp/main.js"]');
+    expect(reg?.fileContent).toContain('args = ["/opt/subshell/dist/mcp/main.js"]');
     expect(reg?.fileContent).toContain("MANUAL-SETUP REFERENCE");
     expect(reg?.fileContent).not.toMatch(/KEY|TOKEN/);
   });

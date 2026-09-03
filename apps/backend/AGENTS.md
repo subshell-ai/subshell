@@ -76,7 +76,7 @@ every enrolled node.
 Cross-session comms (`subshell mcp`) is registered per harness by the plugin
 itself: `services/mcp-launch.ts:registerSessionMcp` asks the plugin for its
 dialect (claude: `--mcp-config` file; opencode: merged config layer +
-`OPENCODE_CONFIG`; codex: per-invocation `-c mcp_servers.mote.*` overrides —
+`OPENCODE_CONFIG`; codex: per-invocation `-c mcp_servers.subshell.*` overrides —
 no per-session file), while harnesses without a per-session format (hermes, pi)
 write nothing and expose one-time registration steps via `GET
 /api/profiles/harnesses/:id/schema` (rendered by the profile editor). See

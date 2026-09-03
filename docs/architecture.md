@@ -202,7 +202,7 @@ How the child gets spawned is the harness plugin's dialect decision
   `SUBSHELL_*` < profile env < wiring env), so a profile setting `OPENCODE_CONFIG`
   cannot silently drop the session's comms.
 - **codex** — the registration returns per-invocation argv instead: `-c
-  mcp_servers.mote.command="…" -c mcp_servers.mote.args=[…]` (dotted config
+  mcp_servers.subshell.command="…" -c mcp_servers.subshell.args=[…]` (dotted config
   paths, values parsed as TOML), which codex merges over the user's
   `~/.codex/config.toml` for that run only. There is no wiring env — the `-c`
   argv IS the wiring, and `CODEX_HOME` (which holds the user's auth.json) is
