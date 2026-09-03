@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSessionsList } from "@/hooks/use-sessions";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { authClient } from "@/lib/auth-client";
@@ -21,12 +22,14 @@ import { cn } from "@/lib/utils";
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
 
 /** Sidebar item: route target + icon. */
-interface NavItem {
+export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
   /** Optional short label shown when the rail is collapsed. */
   short?: string;
+  /** When true, the item shows only while the server reports the viewer is an admin. */
+  requiresAdmin?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -36,9 +39,19 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   { to: "/profiles", label: "Profiles", icon: Settings, short: "Prof" },
-  { to: "/settings", label: "Settings", icon: Settings, short: "Sets" },
+  { to: "/settings", label: "Server", icon: Settings, requiresAdmin: true },
   { to: "/users", label: "Users", icon: Users, short: "Users" },
 ];
+
+/**
+ * The nav items a viewer may see (spec 2026-09-02 settings-split §4):
+ * admin-only entries hide unless the server says so — and while the flag is
+ * still unknown (first fetch) they stay hidden (unknown ≠ open). Pure so the
+ * rule is testable without a router.
+ */
+export function visibleNavItems(isAdmin: boolean | undefined): readonly NavItem[] {
+  return NAV_ITEMS.filter((item) => !item.requiresAdmin || isAdmin === true);
+}
 
 /** Classes for a "recent" sub-link: a compact row under its nav item. */
 function recentClass(active: boolean): string {
@@ -72,6 +85,9 @@ async function signOut() {
  */
 export function AppSidebar({ forceExpanded = false, className }: { forceExpanded?: boolean; className?: string }) {
   const location = useLocation();
+  // Admin-nav gate for the Server entry (spec 2026-09-02 settings-split §4) —
+  // the same cached query the emergency banner / Add-node dialog use.
+  const { data: publicSettings } = usePublicSettings();
   // "Recent" sub-lists under Sessions / Workspaces — the quick jump that the
   // session page's switcher strip used to offer. Same query keys as the home
   // page, so every mutation and the page's polling keep these current; shown
@@ -145,7 +161,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
-        {NAV_ITEMS.map((item) => {
+        {visibleNavItems(publicSettings?.viewerIsAdmin).map((item) => {
           const active = location.pathname === item.to;
           return (
             <div key={item.to}>

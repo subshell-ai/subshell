@@ -16,6 +16,12 @@ export interface PublicSettings {
    * the Nodes dialog warns about; a remote node must dial a reachable address.
    */
   appBaseUrl: string;
+  /**
+   * True for admin COOKIE sessions (spec 2026-09-02 settings-split §5) —
+   * gates the Server nav entry and the /settings page body. Bearer actors
+   * always read false.
+   */
+  viewerIsAdmin: boolean;
 }
 
 /**
