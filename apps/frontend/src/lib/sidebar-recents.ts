@@ -1,4 +1,3 @@
-import type { SubshellView } from "@/types/subshell";
 import type { WorkspaceRow } from "@/types/workspace";
 
 /** A compact entry in one of the sidebar's "recent" sub-lists. */
@@ -11,18 +10,14 @@ export interface SidebarRecentLink {
   path?: string;
 }
 
-/** How many entries each sub-list shows. */
-const RECENT_LIMIT = 3;
-
 /**
- * The most recent subshells. The `/api/subshells` list already arrives
- * newest-first (`createdAt desc`), so this is a plain truncation.
- * @param subshells - The caller's subshell list, or undefined while it loads
- * @returns Up to {@link RECENT_LIMIT} links, newest first
+ * How many entries each sub-list shows. (Spec 2026-09-03 sidebar-quickadd §3:
+ * 3 was too few to spot a session among; the nav scrolls, so 8 costs nothing
+ * structurally.) Exported because the sidebar slices its own recents to this
+ * number — rows render FULL entities (status dot, menu, drag), not the
+ * projection, so the old `recentSubshellLinks` helper has no job left.
  */
-export function recentSubshellLinks(subshells: SubshellView[] | undefined): SidebarRecentLink[] {
-  return (subshells ?? []).slice(0, RECENT_LIMIT).map((s) => ({ id: s.id, label: s.name, path: s.workingDir }));
-}
+export const RECENT_LIMIT = 8;
 
 /**
  * The most recently touched workspaces. `/api/workspaces` comes back

@@ -10,7 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { Fragment, useState } from "react";
-import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
+import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
@@ -19,7 +19,7 @@ import { useSubshellsList } from "@/hooks/use-subshells";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
-import { recentSubshellLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
+import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
@@ -102,7 +102,6 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   // only while the rail is expanded.
   const { data: subshells } = useSubshellsList();
   const { data: workspaces } = useWorkspaces();
-  const recentSubshells = recentSubshellLinks(subshells);
   const recentWorkspaces = recentWorkspaceLinks(workspaces);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
@@ -199,34 +198,11 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
               </Link>
               {!collapsed &&
                 item.to === "/" &&
-                recentSubshells.map((r) => {
-                  // The projection drives the row's look; the FULL entity
-                  // (same query it was projected from) drives the right-click
-                  // menu. Vanished between renders → plain link, no menu.
-                  const full = subshells?.find((s) => s.id === r.id);
-                  const row = (
-                    <Link
-                      key={r.id}
-                      to="/subshells/$id"
-                      params={{ id: r.id }}
-                      title={r.path ? `${r.label} — ${r.path}` : undefined}
-                      className={recentClass(location.pathname === `/subshells/${r.id}`)}
-                    >
-                      <span className="block truncate">{r.label}</span>
-                      {/* Working dir under the name — the same reading posture
-                          the phone header took: the path is what locates a
-                          subshell, the name alone does not. */}
-                      {r.path ? <span className="block truncate text-[10px] opacity-70">{r.path}</span> : null}
-                    </Link>
-                  );
-                  return full ? (
-                    <SubshellActionsMenu key={r.id} subshell={full}>
-                      {row}
-                    </SubshellActionsMenu>
-                  ) : (
-                    <Fragment key={r.id}>{row}</Fragment>
-                  );
-                })}
+                (subshells ?? [])
+                  .slice(0, RECENT_LIMIT)
+                  .map((s) => (
+                    <SubshellRecentRow key={s.id} subshell={s} active={location.pathname === `/subshells/${s.id}`} />
+                  ))}
               {!collapsed &&
                 item.to === "/workspaces" &&
                 recentWorkspaces.map((r) => {

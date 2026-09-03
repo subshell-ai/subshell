@@ -1,28 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { recentSubshellLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
-import type { SubshellView } from "@/types/subshell";
+import { recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import type { WorkspaceRow } from "@/types/workspace";
 
-/** The sidebar only reads id/name/workingDir/updatedAt — cast the fixtures. */
-const subshell = (id: string, name: string, workingDir = `/home/theo/${id}`): SubshellView =>
-  ({ id, name, workingDir }) as SubshellView;
+/** The sidebar only reads id/name/updatedAt — cast the fixtures. */
 const workspace = (id: string, name: string, updatedAt: string): WorkspaceRow =>
   ({ id, name, updatedAt }) as WorkspaceRow;
-
-describe("recentSubshellLinks", () => {
-  it("takes the first three of the (already newest-first) list, with the working dir", () => {
-    const links = recentSubshellLinks([subshell("a", "A"), subshell("b", "B"), subshell("c", "C"), subshell("d", "D")]);
-    expect(links).toEqual([
-      { id: "a", label: "A", path: "/home/theo/a" },
-      { id: "b", label: "B", path: "/home/theo/b" },
-      { id: "c", label: "C", path: "/home/theo/c" },
-    ]);
-  });
-
-  it("is empty while the list is loading", () => {
-    expect(recentSubshellLinks(undefined)).toEqual([]);
-  });
-});
 
 describe("recentWorkspaceLinks", () => {
   it("re-sorts the alphabetical list by updatedAt, newest first", () => {
@@ -34,15 +16,12 @@ describe("recentWorkspaceLinks", () => {
     expect(links.map((l) => l.id)).toEqual(["new", "mid", "old"]);
   });
 
-  it("caps at three entries without mutating the input", () => {
-    const four = [
-      workspace("a", "A", "2026-01-01T00:00:00.000Z"),
-      workspace("b", "B", "2026-02-01T00:00:00.000Z"),
-      workspace("c", "C", "2026-03-01T00:00:00.000Z"),
-      workspace("d", "D", "2026-04-01T00:00:00.000Z"),
-    ];
-    expect(recentWorkspaceLinks(four).map((l) => l.id)).toEqual(["d", "c", "b"]);
-    expect(four.map((w) => w.id)).toEqual(["a", "b", "c", "d"]);
+  it("caps at eight entries without mutating the input", () => {
+    const many = Array.from({ length: 9 }, (_, i) => workspace(`w${i}`, `W${i}`, `2026-0${i + 1}-01T00:00:00.000Z`));
+    const links = recentWorkspaceLinks(many);
+    expect(links).toHaveLength(8);
+    expect(links[0]?.id).toBe("w8");
+    expect(many.map((w) => w.id)).toEqual(Array.from({ length: 9 }, (_, i) => `w${i}`));
   });
 
   it("is empty while the list is loading", () => {
