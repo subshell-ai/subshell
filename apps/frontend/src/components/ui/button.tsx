@@ -7,7 +7,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // Dreamframe M1: primary buttons are a sunk plum gradient with frost
+        // text — deliberately quieter than --primary, which stays bright for
+        // links/glows. Gradient can't ride the color token, so it lives here.
+        default:
+          "border-transparent bg-[linear-gradient(135deg,oklch(0.34_0.10_322),oklch(0.40_0.10_340))] text-[oklch(0.90_0.05_320)] hover:bg-[linear-gradient(135deg,oklch(0.40_0.11_322),oklch(0.46_0.11_340))]",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",

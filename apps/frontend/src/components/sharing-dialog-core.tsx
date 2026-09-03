@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -146,10 +147,14 @@ export function SharingDialogCore({
                     Remove
                   </Button>
                 </>
+              ) : g.permission === "edit" ? (
+                // Dreamframe N2: edit is a lit plum chip, view stays bare muted
+                // text — the permission levels contrast by presence, not hue.
+                <Badge className="border-[oklch(0.48_0.10_322)] bg-[oklch(0.38_0.09_322)] text-[oklch(0.92_0.06_318)]">
+                  View + edit
+                </Badge>
               ) : (
-                <span className="text-muted-foreground text-sm">
-                  {g.permission === "edit" ? "View + edit" : "View"}
-                </span>
+                <span className="text-muted-foreground text-sm">View</span>
               )}
             </div>
           ))}

@@ -26,7 +26,8 @@ path with a terminal "bitcrash" dust tail. Favicon/app mark is the derived glyph
 | `brand.dust.deep` | `#744b8d` | Dust bits (final) |
 
 These values are canonical for brand output only; changing the app's UI accent from
-`#67c3ec` to the brand purple is **not** part of this spec.
+`#67c3ec` to the brand purple is **not** part of this spec — it landed one day later in
+`2026-09-03-dreamframe-theme-design.md`.
 
 Contrast on `#0a0a0a`: `shell` ≈ 14:1, `sub`/slash-mid ≈ 5.3:1, smallest dust bits are
 decorative (exempt). All text-bearing elements clear WCAG AA for large text.

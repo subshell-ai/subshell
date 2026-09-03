@@ -125,7 +125,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
       )}
     >
       {/* Brand — collapsed: a centered /s mark that expands the rail */}
-      <div className="flex items-center justify-between border-border border-b px-3 py-4">
+      <div className="flex items-center justify-between px-3 py-4">
         {collapsed ? (
           <button
             type="button"
@@ -145,10 +145,10 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
           <>
             <Link to="/" className="flex items-center gap-2" aria-label="Subshell">
               <img
-                src="/icons/wordmark-40.png"
-                srcSet="/icons/wordmark-80.png 2x, /icons/wordmark-120.png 3x"
+                src="/icons/wordmark-80.png"
+                srcSet="/icons/wordmark-80.png 1x, /icons/wordmark-120.png 2x"
                 alt="Subshell"
-                className="h-5 w-auto"
+                className="h-7 w-auto"
               />
             </Link>
             {!forceExpanded && (
@@ -179,7 +179,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                   "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
                   collapsed ? "justify-center px-2" : "gap-3",
                   active
-                    ? "bg-accent font-medium text-accent-foreground"
+                    ? "bg-[linear-gradient(90deg,oklch(0.30_0.10_322),oklch(0.38_0.11_340))] font-medium text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
                 )}
               >
