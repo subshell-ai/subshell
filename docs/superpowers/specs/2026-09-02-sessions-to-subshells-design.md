@@ -58,7 +58,7 @@ explicitly rejected.
 | Shared package | `@internal/session-protocol` (`packages/session-protocol`) | `@internal/subshell-protocol` (`packages/subshell-protocol`) |
 | Harness env vars | `SUBSHELL_SESSION_ID`, `SUBSHELL_SESSION_NAME` | `SUBSHELL_ID`, `SUBSHELL_NAME` |
 | Backend data-dir env | `SESSION_DATA_DIR` | `SUBSHELL_SERVER_DATA_DIR` — chosen to avoid collision with the agent's existing `SUBSHELL_DATA_DIR` |
-| API-key scope tokens | `sessions:*` | `subshells:*` |
+| API-key scope tokens | — none exist: keys carry a free-form optional permission array, there is no `sessions:*` wire token | nothing to rename (plan-phase correction) |
 
 `SUBSHELL_NODE_ARTIFACTS_DIR`, `SUBSHELL_API_KEY`, `SUBSHELL_BASE_URL`, `SUBSHELL_DATA_DIR`
 (agent's own dir) are unchanged.
@@ -78,9 +78,10 @@ It applies:
   interfaces' camelCase `sessionId` fields follow to `subshellId`).
 - `sessions.harness_session_id` **stays** — it holds the harness's own session id
   (a foreign sense per §1.1), not a reference to the entity.
-- A data rewrite of stored API-key **permission JSON**: replace the `sessions` scope
-  token with `subshells` so existing long-lived system keys keep authorizing after the
-  scope vocabulary changes.
+- `harness_session_id` stays untouched (foreign sense, §1.1).
+- No API-key permission rewrite — planning verified that keys carry free-form
+  optional permission arrays; no `sessions`-named scope exists on the wire or in
+  stored JSON (this supersedes the earlier draft assumption).
 
 The Kysely type file `db/types/sessions.db-types.ts` → `subshells.db-types.ts` and its
 `session-shares` sibling follow the table rename; `session-status.ts` (a status enum,
