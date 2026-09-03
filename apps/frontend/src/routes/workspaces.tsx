@@ -1,59 +1,26 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { LayoutDashboard, Plus } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { EntityCard } from "@/components/entity-card";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
+import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
 import { Button } from "@/components/ui/button";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
-import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
-import { apiFetch, errMessage } from "@/lib/api";
+import { useWorkspaces } from "@/hooks/use-workspaces";
 
 export const Route = createFileRoute("/workspaces")({
   component: WorkspacesPage,
 });
 
-/** Placeholder name for a fresh workspace, e.g. `Aug 28, 4:45 PM`. */
-function defaultWorkspaceName(): string {
-  const stamp = new Date().toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return stamp;
-}
-
 function WorkspacesPage() {
-  const navigate = useNavigate();
-  const invalidate = useInvalidateWorkspaces();
   const { data: workspaces, isLoading, isError, refetch } = useWorkspaces();
 
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  /**
-   * Creates a workspace with a placeholder name and enters it — naming and
-   * describing happen inside the workspace, where clicking the title edits
-   * it in place.
-   */
-  async function createAndEnter() {
-    setCreating(true);
-    setError(null);
-    try {
-      const created = await apiFetch<{ id: string }>("/api/workspaces", {
-        method: "POST",
-        body: JSON.stringify({ name: defaultWorkspaceName() }),
-      });
-      await invalidate();
-      await navigate({ to: "/workspaces/$id", params: { id: created.id } });
-    } catch (err) {
-      setError(errMessage(err, "Failed to create workspace"));
-    } finally {
-      setCreating(false);
-    }
-  }
+  // Creating moved into NewWorkspaceDialog (spec 2026-09-03 sidebar-quickadd
+  // §4b): the page asks, the dialog seeds panes, enters, and names inside.
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
@@ -61,8 +28,8 @@ function WorkspacesPage() {
         title="Workspaces"
         subtitle="Tiled layouts of your subshells"
         action={
-          <Button onClick={() => void createAndEnter()} disabled={creating}>
-            <Plus /> {creating ? "Creating…" : "New workspace"}
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus /> New workspace
           </Button>
         }
       />
@@ -95,9 +62,7 @@ function WorkspacesPage() {
           title="No workspaces yet"
           description="Group subshells into a tiled layout to work across them at once."
           actionLabel="Create your first workspace"
-          onAction={() => void createAndEnter()}
-          busy={creating}
-          busyLabel="Creating…"
+          onAction={() => setDialogOpen(true)}
         />
       )}
 
@@ -118,6 +83,8 @@ function WorkspacesPage() {
           ))}
         </div>
       )}
+
+      <NewWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </main>
   );
 }

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Fragment, useState } from "react";
 import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialog";
+import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,8 +113,9 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
   // Quick-add dialogs (spec 2026-09-03 sidebar-quickadd §3): the rail's + buttons
-  // open in place; the NewWorkspace half arrives with its own task.
+  // open in place.
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const q = subshellQuery.trim();
   const listedSubshells = q
     ? filterSubshells(subshells ?? [], subshellQuery)
@@ -211,6 +213,18 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                 <item.icon className="h-4 w-4 shrink-0" />
                 {!collapsed && item.label}
               </Link>
+              {!collapsed && item.to === "/workspaces" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="New workspace"
+                  title="New workspace"
+                  className="absolute top-2 right-1 h-6 w-6 text-muted-foreground"
+                  onClick={() => setNewWorkspaceOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              )}
               {!collapsed && item.to === "/" && (
                 <Button
                   variant="ghost"
@@ -272,6 +286,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
       </nav>
 
       <LaunchSubshellDialog open={launchOpen} onOpenChange={setLaunchOpen} />
+      <NewWorkspaceDialog open={newWorkspaceOpen} onOpenChange={setNewWorkspaceOpen} />
 
       <div className="border-border border-t p-2">
         <UserMenu
