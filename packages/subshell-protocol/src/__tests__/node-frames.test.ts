@@ -106,7 +106,9 @@ describe("parseNodeCommandBody", () => {
   });
 
   it("pins the protocol version constant", () => {
-    expect(NODE_PROTOCOL_VERSION).toBe(1);
+    // v2: the 2026-09-02 sessions→subshells rename changed frozen frame keys;
+    // pre-rename agents are refused at `ready` (close 4406).
+    expect(NODE_PROTOCOL_VERSION).toBe(2);
   });
 });
 

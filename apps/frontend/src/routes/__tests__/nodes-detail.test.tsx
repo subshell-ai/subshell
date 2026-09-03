@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -259,7 +260,8 @@ describe("NodeDetailPage agent-too-old chip", () => {
   });
 
   it("stays silent for a current protocol", async () => {
-    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 1 }));
+    // Rides the constant: v1 became stale with the 2026-09-02 frame rename.
+    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION }));
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");

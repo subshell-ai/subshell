@@ -62,8 +62,20 @@ function parseMeta(raw: string, file: string): SubshellMeta | null {
     log(`subshell meta unreadable (not JSON): ${file}`);
     return null;
   }
-  const obj = parsed as Record<(typeof META_FIELDS)[number], unknown> | null;
-  if (typeof obj !== "object" || obj === null || META_FIELDS.some((f) => typeof obj[f] !== "string")) {
+  const obj = parsed as Record<string, unknown> | null;
+  if (typeof obj !== "object" || obj === null) {
+    log(`subshell meta malformed (missing string fields): ${file}`);
+    return null;
+  }
+  // Pre-rename meta (rollout 2026-09-02 step 4 `mv`s the files but not their
+  // bytes): a record whose JSON still says `sessionId` IS this subshell's
+  // meta — migrate the key on read. The store's own write path (`record`)
+  // always serializes the typed object, so the next write lands the new key.
+  if (obj.subshellId === undefined && typeof obj.sessionId === "string") {
+    obj.subshellId = obj.sessionId;
+    delete obj.sessionId;
+  }
+  if (META_FIELDS.some((f) => typeof obj[f] !== "string")) {
     log(`subshell meta malformed (missing string fields): ${file}`);
     return null;
   }

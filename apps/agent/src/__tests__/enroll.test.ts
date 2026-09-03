@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type CliResult, run } from "../cli.js";
 import { configPath, loadConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
@@ -315,7 +316,9 @@ test("version prints agent version + node protocol version", async () => {
   const res = await run(["version"]);
   expect(res.code).toBe(0);
   expect(res.out).toInclude("0.1.0");
-  expect(res.out).toInclude("protocol v1");
+  // Format pinned; the number rides the protocol constant (v2 since the
+  // 2026-09-02 frame rename — `node-frames.test.ts` pins the constant itself).
+  expect(res.out).toInclude(`protocol v${NODE_PROTOCOL_VERSION}`);
 });
 
 test("status probes the node socket (T13) and never prints the node key", async () => {

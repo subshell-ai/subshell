@@ -11,8 +11,14 @@ import type { JsonValue } from "./json.js";
  * inherit exactly the node key's trust (spec §3.3, §12.6).
  */
 
-/** Bumped on any breaking frame-shape change; both ends refuse mismatches. */
-export const NODE_PROTOCOL_VERSION = 1;
+/**
+ * Bumped on any breaking frame-shape change; both ends refuse mismatches.
+ * v2 (2026-09-02): the sessions→subshells rename changed frozen frame keys
+ * (`sessionId`→`subshellId`, `sessions_report`→`subshells_report`, …), so a
+ * pre-rename agent must be refused — the backend answers `ready` with close
+ * UPDATE_REQUIRED (4406) and the Nodes page shows the "agent too old" chip.
+ */
+export const NODE_PROTOCOL_VERSION = 2;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -99,7 +105,7 @@ export type NodeCommandBody =
   | {
       /** Start a harness pane: cwd + env + argv inputs, MCP file, output log path */
       type: "launch";
-      /** subshell subshell id */
+      /** subshell id */
       subshellId: string;
       /** tmux socket name (tmuxSocketFor(subshellId)) */
       socket: string;

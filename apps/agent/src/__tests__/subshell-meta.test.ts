@@ -73,6 +73,28 @@ describe("SubshellMetaStore", () => {
     expect(listed.map((m) => m.subshellId)).toEqual(["f00d"]);
   });
 
+  it("pre-rename meta (sessionId key) migrates on read; junk still rejected", async () => {
+    const { store, dataDir } = freshStore("legacy-key");
+    mkdirSync(join(dataDir, "subshells"), { recursive: true });
+    const legacy = {
+      sessionId: UUID,
+      cwd: `/work/${UUID}`,
+      socket: `/run/subshell/${UUID}.sock`,
+      harnessId: "claude-code",
+      name: `sess-${UUID}`,
+      startedAt: "2026-09-01T00:00:00.000Z",
+    };
+    writeFileSync(join(dataDir, "subshells", `${UUID}.meta.json`), `${JSON.stringify(legacy)}\n`);
+    // The rollout's `mv` carries pre-rename bytes; get/list must see a valid
+    // meta with subshellId populated (from sessionId), never a silent miss.
+    // (`legacy` differs from `meta(UUID)` only by the key name.)
+    expect(await store.get(UUID)).toEqual(meta(UUID));
+    // Genuinely malformed stays malformed: no subshellId, no sessionId string.
+    writeFileSync(join(dataDir, "subshells", "f00d.meta.json"), JSON.stringify({ ...legacy, sessionId: 42 }));
+    expect(await store.get("f00d")).toBeUndefined();
+    expect((await store.list()).map((m) => m.subshellId)).toEqual([UUID]);
+  });
+
   it("list scans the subshells dir, .meta.json only, sorted by id; empty when dir absent", async () => {
     const { store, dataDir } = freshStore("list");
     await store.record(meta("a2"));

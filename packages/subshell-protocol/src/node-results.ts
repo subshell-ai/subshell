@@ -4,7 +4,10 @@
  * member carries. The agent is the sole producer, the backend's RemoteLauncher
  * the sole consumer — but both sides validate, and this package is the shared
  * source of truth so the two tracks cannot drift. Additive contract file
- * (phase-2): NODE_PROTOCOL_VERSION stays 1 because no frozen frame changed.
+ * (phase-2): arrived while NODE_PROTOCOL_VERSION was still 1 (no frozen frame
+ * changed then); the 2026-09-02 sessions→subshells rename THEN broke the
+ * frames — frozen keys moved to `subshellId`/`subshell*` here too, and the
+ * version is now 2 so pre-rename agents are refused at `ready`.
  *
  * `launch` / `terminate` / `kill` / `input` / `resize` / `tail_start` /
  * `tail_stop` / `remove_paths` / `inventory` / `ping` carry no data — their
@@ -27,7 +30,7 @@ function isNonEmptyStr(value: unknown): value is string {
 
 /** One row of a `probe` batch result (spec §6.3 reconcile: has-session + exit + title + optional capture). */
 export interface NodeProbeEntry {
-  /** subshell subshell id this row describes */
+  /** subshell id this row describes */
   subshellId: string;
   /** True while the pane process is alive on the node */
   alive: boolean;
