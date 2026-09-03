@@ -1,5 +1,6 @@
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
@@ -32,6 +33,9 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
+
+/** Stable-identity redirect element — see the gate note in `Shell`. */
+const NAVIGATE_TO_SETUP = <Navigate to="/setup" />;
 
 /**
  * The guarded app frame: everything below the providers. Responsive shell
@@ -77,6 +81,13 @@ function Shell() {
     staleTime: Infinity,
   });
   const needsSetup = setupStatus?.needsSetup;
+  // See the gate below: the redirect elements need identities stable across
+  // renders, so the one that carries per-location state is memoized on the
+  // only input it reads.
+  const loginRedirect = useMemo(
+    () => <Navigate to="/login" search={{ redirect: location.pathname }} />,
+    [location.pathname],
+  );
 
   // The whole first-paint / signed-out guard is the tested lib/shell-gate.ts
   // predicate (regressions #7/#8: a down server must be an offline notice,
@@ -92,8 +103,13 @@ function Shell() {
   });
   if (gate === "blank" || gate === "holdSetup") return null;
   if (gate === "offlineHold") return <OfflineBanner />;
-  if (gate === "toSetup") return <Navigate to="/setup" />;
-  if (gate === "toLogin") return <Navigate to="/login" search={{ redirect: location.pathname }} />;
+  // The redirect elements MUST keep a stable identity across renders:
+  // <Navigate> diffs its props by reference and re-navigates whenever they
+  // change, and each navigation re-renders this component — inline JSX here
+  // is a fresh element every render, which hangs the tab in a
+  // render→navigate→render storm (fresh-instance redirect, 2026-09-03).
+  if (gate === "toSetup") return NAVIGATE_TO_SETUP;
+  if (gate === "toLogin") return loginRedirect;
 
   return (
     <div

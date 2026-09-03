@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { LayoutGrid, List, Plus, TerminalSquare } from "lucide-react";
 import { useState } from "react";
@@ -11,7 +10,6 @@ import { SubshellSearch } from "@/components/subshell-search";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
-import { apiFetch } from "@/lib/api";
 import { filterSubshells, groupSubshells } from "@/lib/subshell-filter";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
@@ -46,15 +44,12 @@ function SubshellsPage() {
   const { view = "tiled" } = Route.useSearch();
   const { subshells, connected, isLoading, isError, refetch } = useLiveSubshells();
   const [query, setQuery] = useState("");
-  const { data: setup } = useQuery({
-    queryKey: ["setup-status"],
-    queryFn: () => apiFetch<{ needsSetup: boolean }>("/api/setup/status"),
-  });
-
-  if (setup?.needsSetup) {
-    navigate({ to: "/setup" });
-    return null;
-  }
+  // No needsSetup guard here on purpose: the root shell's gate owns that
+  // redirect. While the shell is navigating to the lazy /setup route, the
+  // router keeps the previous match mounted for a frame — a render-phase
+  // navigate() in this window restarts the very navigation it waits for,
+  // and the loop saturates the main thread (fresh-instance hang, 2026-09-03;
+  // regression: e2e spec 01).
 
   const filtered = filterSubshells(subshells, query);
   const groups = groupSubshells(filtered);
