@@ -1,5 +1,5 @@
 {
-  "name": "@internal/backend",
+  "name": "@internal/server",
   "description": "",
   "version": "1.0.0",
   "type": "module",

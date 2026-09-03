@@ -14,7 +14,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
  * marker must appear nowhere in the database files.
  */
 
-/** apps/backend root (this file lives in src/__tests__). */
+/** apps/server root (this file lives in src/__tests__). */
 const BACKEND_DIR = new URL("../../", import.meta.url).pathname;
 const BUN = process.execPath;
 

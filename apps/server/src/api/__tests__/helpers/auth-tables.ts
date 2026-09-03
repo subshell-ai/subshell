@@ -23,7 +23,7 @@ import { runMigrations } from "@/db/migrate.js";
  *    alive` — invisible in this repo's dev/CI environment because
  *    `subshells` is already migrated there, but real on a pristine database
  *    (fresh clone, fresh CI runner, a new contributor's machine — `bun
- *    test` never calls `runMigrations()`, only `apps/backend/src/index.ts`
+ *    test` never calls `runMigrations()`, only `apps/server/src/index.ts`
  *    does at server boot, and `data/subshell.db` is gitignored).
  * 2. For better-auth's own tables it was actively wrong, not just stale:
  *    hand-rolling them through this file's `db` (which has Kysely's
@@ -46,14 +46,14 @@ import { runMigrations } from "@/db/migrate.js";
 
 /**
  * Ensures better-auth's tables and the app's own tables exist, via the same
- * migration runners `apps/backend/src/index.ts` calls at server boot.
+ * migration runners `apps/server/src/index.ts` calls at server boot.
  *
  * Returns nothing to tear down: the schema is migration-owned, not created
  * per test run, so there is nothing for a suite to drop afterwards. Suites
  * still clean up their own fixture *rows*.
  */
 export async function setupAuthTables(): Promise<void> {
-  // Same order as `apps/backend/src/index.ts` at boot. There are no
+  // Same order as `apps/server/src/index.ts` at boot. There are no
   // cross-table foreign keys between the app tables and better-auth's, so the
   // order is immaterial today — but a pristine-database bug is exactly what
   // this helper exists to prevent, so the suite exercises production's order

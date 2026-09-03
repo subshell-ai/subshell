@@ -14,7 +14,7 @@
     "verify-types": "tsc --noEmit"
   },
   "devDependencies": {
-    "@internal/backend": "workspace:*",
+    "@internal/server": "workspace:*",
     "@internal/frontend": "workspace:*",
     "@internal/mcp-core": "workspace:*",
     "@internal/tsconfig": "workspace:*",

@@ -5,7 +5,7 @@ import path from "node:path";
 import { BASE_URL, PORTS } from "./ports";
 
 const ROOT = path.join(import.meta.dirname, "..");
-const BACKEND_DIR = path.join(ROOT, "apps", "backend");
+const BACKEND_DIR = path.join(ROOT, "apps", "server");
 const STUB_PI = path.join(ROOT, "e2e", "stub", "pi");
 
 interface Stack {

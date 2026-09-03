@@ -2,7 +2,7 @@
  * The backend's structured error contract, mirrored for the native client.
  *
  * Every non-2xx from subshell carries `ApiErrorResponseSchema`
- * (`apps/backend/src/schema/error.type.ts`):
+ * (`apps/server/src/schema/error.type.ts`):
  * `{ errId, code, message, statusCode, reqId?, metadata? }`. The web app has the
  * same helpers in `apps/frontend/src/lib/api.ts`; they live in two apps rather
  * than one package because there is no shared client package yet — if a third

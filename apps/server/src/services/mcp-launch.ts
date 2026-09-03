@@ -24,7 +24,7 @@ export const MCP_BINARY = "subshell-mcp";
 
 /**
  * Fallback launch spec used only for DISPLAY when the real one cannot be
- * resolved — named after the compile artifact (apps/backend/package.json
+ * resolved — named after the compile artifact (apps/server/package.json
  * `compile` --outfile); keep the two spellings in sync.
  */
 export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: MCP_BINARY, args: [] };

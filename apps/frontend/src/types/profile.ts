@@ -1,7 +1,7 @@
 /**
  * A harness profile as returned by the profiles API.
  * This is the client-facing subset of `ProfileSchema` in the backend
- * (apps/backend/src/api/models.ts): it carries the fields the frontend uses
+ * (apps/server/src/api/models.ts): it carries the fields the frontend uses
  * and omits `userId`, `createdAt`, and `updatedAt`.
  */
 export interface ProfileRow {

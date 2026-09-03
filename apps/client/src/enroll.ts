@@ -7,7 +7,7 @@ import { AGENT_VERSION } from "./version.js";
 
 /**
  * The control plane's os vocabulary — mirrors the `t.Literal` set of
- * EnrollBodySchema in apps/backend/src/api/nodes/enroll.route.ts (which in turn
+ * EnrollBodySchema in apps/server/src/api/nodes/enroll.route.ts (which in turn
  * mirrors the `ready` frame validator). Anything else must map to "unknown";
  * inventing a value here gets the enroll rejected with a 400.
  */
@@ -34,7 +34,7 @@ export interface EnrollOptions {
 
 const ENROLL_TIMEOUT_MS = 30_000;
 
-/** Mirrors the `name` maxLength of EnrollBodySchema (apps/backend/src/api/nodes/enroll.route.ts). */
+/** Mirrors the `name` maxLength of EnrollBodySchema (apps/server/src/api/nodes/enroll.route.ts). */
 const MAX_NAME_LEN = 64;
 
 /**
@@ -174,7 +174,7 @@ async function enrollFailure(res: Response, name: string): Promise<Error> {
  * Renders the field-level failures of a `400 INPUT_VALIDATION_ERROR` body into a
  * suffix like `; invalid input — setupKey: Expected string length greater or
  * equal to 8`. The shape mirrors the server: the VALIDATION branch of
- * apps/backend/src/plugins/error-handler.plugin.ts puts Elysia's `error.all`
+ * apps/server/src/plugins/error-handler.plugin.ts puts Elysia's `error.all`
  * items under `validationError.validation[]`, each carrying a JSON-pointer
  * `path` ("/name") and a human `message`. Field names only — never the offending
  * values (a rejected `publicKey` echo would be noise, a rejected key would be a

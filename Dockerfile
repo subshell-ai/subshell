@@ -14,7 +14,7 @@ WORKDIR /app
 # (apps/*, packages/*, e2e) — `--frozen-lockfile` fails on a missing one.
 FROM base AS deps
 COPY package.json bun.lock turbo.json ./
-COPY apps/backend/package.json apps/backend/
+COPY apps/server/package.json apps/server/
 COPY apps/frontend/package.json apps/frontend/
 COPY e2e/package.json e2e/
 COPY packages/harnesses/package.json packages/harnesses/
@@ -36,7 +36,7 @@ RUN bun run --cwd packages/subshell-protocol build \
  && bun run --cwd packages/backend-errors build \
  && bun run --cwd packages/backend-client build \
  && bun run --cwd apps/frontend build \
- && bun run --cwd apps/backend build
+ && bun run --cwd apps/server build
 
 # ---- Runtime (slim) ----
 FROM oven/bun:1.4-slim AS runtime
@@ -72,7 +72,7 @@ USER subshell
 COPY --from=deps /app/. ./
 
 # Built artifacts (backend imports @internal/* from the workspace root).
-COPY --from=build /app/apps/backend/dist ./apps/backend/dist
+COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/frontend/dist ./apps/frontend/dist
 COPY --from=build /app/packages ./packages
 
@@ -83,4 +83,4 @@ ENV NODE_ENV=production
 
 EXPOSE 3080
 
-CMD ["bun", "run", "./apps/backend/dist/index.js"]
+CMD ["bun", "run", "./apps/server/dist/index.js"]

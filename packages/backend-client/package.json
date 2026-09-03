@@ -23,7 +23,7 @@
     "elysia": "1.4.29"
   },
   "devDependencies": {
-    "@internal/backend": "workspace:*",
+    "@internal/server": "workspace:*",
     "@internal/tsconfig": "workspace:*",
     "hash-runner": "4.0.0",
     "tsdown": "0.22.14"

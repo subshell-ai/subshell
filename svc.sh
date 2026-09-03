@@ -46,7 +46,7 @@ check_prereqs() {
 
   command -v bun >/dev/null || fail "bun not on PATH (needed at install time to record its path)"
 
-  [[ -f "$REPO_DIR/apps/backend/dist/index.js" ]] || fail "backend not built — run: turbo build"
+  [[ -f "$REPO_DIR/apps/server/dist/index.js" ]] || fail "backend not built — run: turbo build"
   [[ -f "$REPO_DIR/apps/frontend/dist/index.html" ]] || fail "frontend not built — run: turbo build"
 
   local envfile="$REPO_DIR/.env"
@@ -76,7 +76,7 @@ Environment=HOST=0.0.0.0
 Environment=SERVER_PORT=$PORT
 Environment=DATABASE_PATH=$HOME/.config/subshell/subshell.db
 Environment=PATH=$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=$(command -v bun) run ./apps/backend/dist/index.js
+ExecStart=$(command -v bun) run ./apps/server/dist/index.js
 Restart=unless-stopped
 RestartSec=3
 

@@ -4,12 +4,12 @@
   "tasks": {
     "clean": {},
     "build": {
-      "dependsOn": ["@internal/backend#build"],
+      "dependsOn": ["@internal/server#build"],
       "inputs": ["*.json", "*.ts", "src/**"],
       "outputs": ["dist/**"]
     },
     "build:dev": {
-      "dependsOn": ["@internal/backend#build"],
+      "dependsOn": ["@internal/server#build"],
       "inputs": ["*.json", "*.ts", "src/**"],
       "outputs": ["dist/**"]
     },

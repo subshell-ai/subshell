@@ -4,7 +4,7 @@
  * better-auth names its cookie by the instance's scheme:
  * `better-auth.session_token` over http, `__Secure-better-auth.session_token`
  * over https — **the same token, a different name**. Getting this wrong is not
- * hypothetical: `apps/backend/src/lib/session-cookie.ts:1-12` records an
+ * hypothetical: `apps/server/src/lib/session-cookie.ts:1-12` records an
  * incident on the TLS-terminated proxy where sign-in returned 200 and every
  * guarded route then 401ed, because extraction was hardcoded to one spelling.
  *
