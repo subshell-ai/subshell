@@ -1,12 +1,16 @@
+import { Check } from "lucide-react";
 import type { JSX } from "react";
 import { SubshellSearch } from "@/components/subshell-search";
 import { RowStatusBadges, relativeElapsed } from "@/components/subshell-status";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { priorityRunning } from "@/lib/subshell-order";
+import { cn } from "@/lib/utils";
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * The searchable list of subshells that can be added to a workspace.
+ * The searchable list of subshells that can be added to a workspace — in
+ * two selection modes: single-pick (the add-dialog) or checkbox multi-select
+ * (the new-workspace dialog) when `selected` + `onToggle` are passed.
  *
  * This replaces three parallel dropdown submenus, which listed every subshell
  * three times with no way to search: fine for four subshells, unusable for
@@ -26,6 +30,8 @@ export function ExistingSubshellList({
   loading,
   onPick,
   busyId,
+  selected,
+  onToggle,
 }: {
   /** Subshells not already on this workspace. */
   subshells: SubshellView[];
@@ -49,11 +55,21 @@ export function ExistingSubshellList({
    * would be a lie about data the dialog hasn't seen yet.
    */
   loading: boolean;
-  /** Adds the picked subshell. */
-  onPick: (subshellId: string) => void;
+  /** Adds the picked subshell (single-pick mode). */
+  onPick?: (subshellId: string) => void;
   /** Id of the subshell currently being added, if any. */
-  busyId: string | null;
+  busyId?: string | null;
+  /**
+   * Multi-select mode (the new-workspace dialog, spec 2026-09-03
+   * sidebar-quickadd §4b): when BOTH this and `onToggle` are present, rows
+   * render as checkboxes reflecting `selected` and clicking toggles instead
+   * of picking. Absent = today's single-pick rows, byte-identical.
+   */
+  selected?: Set<string>;
+  /** Toggles a row's membership in `selected`. */
+  onToggle?: (id: string) => void;
 }): JSX.Element {
+  const multi = selected !== undefined && onToggle !== undefined;
   const onNode = nodeId === undefined ? subshells : subshells.filter((s) => (s.nodeId ?? "local") === nodeId);
   const filtered = priorityRunning(filterSubshells(onNode, query));
 
@@ -83,10 +99,27 @@ export function ExistingSubshellList({
               <li key={subshell.id}>
                 <button
                   type="button"
-                  disabled={busyId !== null}
-                  onClick={() => onPick(subshell.id)}
+                  disabled={busyId != null}
+                  // A spread, not two ternary attributes: the linter cannot
+                  // see a conditional `role` and would flag aria-checked as
+                  // unsupported on a plain button. TS narrows via `multi`.
+                  {...(multi ? { role: "checkbox" as const, "aria-checked": selected.has(subshell.id) } : {})}
+                  onClick={multi ? () => onToggle(subshell.id) : () => onPick?.(subshell.id)}
                   className="flex w-full items-center gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-accent disabled:opacity-50"
                 >
+                  {multi && (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                        selected.has(subshell.id)
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input",
+                      )}
+                    >
+                      {selected.has(subshell.id) && <Check className="h-3 w-3" />}
+                    </span>
+                  )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-sm">{subshell.name}</span>
                     <span className="block truncate font-mono text-muted-foreground text-xs">

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import type { SubshellView } from "@/types/subshell";
 
@@ -156,5 +156,44 @@ describe("ExistingSubshellList", () => {
       render(<ExistingSubshellList {...base} subshells={[]} nodeId="mac" />);
       expect(screen.getByText(/Every subshell is already on this workspace/)).toBeDefined();
     });
+  });
+});
+
+describe("ExistingSubshellList (multi-select mode)", () => {
+  afterEach(cleanup);
+
+  it("renders checkbox rows and toggles via onToggle when selected + onToggle are given", () => {
+    const toggled: string[] = [];
+    const list = [makeSubshell({ id: "s1", name: "One" })];
+    render(
+      <ExistingSubshellList
+        subshells={list}
+        query=""
+        onQueryChange={() => {}}
+        loadFailed={false}
+        loading={false}
+        selected={new Set()}
+        onToggle={(id) => toggled.push(id)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /One/ }));
+    expect(toggled).toEqual(["s1"]);
+  });
+
+  it("single-pick mode is untouched when no selection props are passed", () => {
+    const picked: string[] = [];
+    const list = [makeSubshell({ id: "s2", name: "Two" })];
+    render(
+      <ExistingSubshellList
+        subshells={list}
+        query=""
+        onQueryChange={() => {}}
+        loadFailed={false}
+        loading={false}
+        onPick={(id) => picked.push(id)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Two/ }));
+    expect(picked).toEqual(["s2"]);
   });
 });
