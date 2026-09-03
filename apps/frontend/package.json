@@ -8,7 +8,6 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf .turbo node_modules dist",
-    "gen:icons": "bun scripts/gen-icons.ts",
     "lint": "biome check --no-errors-on-unmatched --write --unsafe src",
     "lint:check": "biome check --no-errors-on-unmatched src",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
@@ -54,7 +53,6 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.0.5",
-    "sharp": "0.35.4",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.2.1"

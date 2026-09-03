@@ -124,7 +124,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
         className,
       )}
     >
-      {/* Brand — collapsed: a centered diamond that expands the rail */}
+      {/* Brand — collapsed: a centered /s mark that expands the rail */}
       <div className="flex items-center justify-between border-border border-b px-3 py-4">
         {collapsed ? (
           <button
@@ -132,14 +132,24 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
             onClick={toggle}
             title="Expand sidebar"
             aria-label="Expand sidebar"
-            className="flex w-full cursor-pointer items-center justify-center rounded-md py-1 font-bold text-lg text-primary transition-colors hover:bg-accent/50"
+            className="flex w-full cursor-pointer items-center justify-center rounded-md py-1 transition-colors hover:bg-accent/50"
           >
-            ◆
+            <img
+              src="/icons/mark-40.png"
+              srcSet="/icons/mark-80.png 2x, /icons/mark-120.png 3x"
+              alt=""
+              className="h-6 w-auto"
+            />
           </button>
         ) : (
           <>
-            <Link to="/" className="flex items-center gap-2 font-bold text-lg">
-              <span className="text-primary">◆</span> Subshell
+            <Link to="/" className="flex items-center gap-2" aria-label="Subshell">
+              <img
+                src="/icons/wordmark-40.png"
+                srcSet="/icons/wordmark-80.png 2x, /icons/wordmark-120.png 3x"
+                alt="Subshell"
+                className="h-5 w-auto"
+              />
             </Link>
             {!forceExpanded && (
               <Button

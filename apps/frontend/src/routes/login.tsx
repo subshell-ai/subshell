@@ -66,7 +66,8 @@ function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center p-6">
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-8 p-6">
+      <img src="/icons/wordmark-96.png" srcSet="/icons/wordmark-192.png 2x" alt="Subshell" className="h-14 w-auto" />
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Sign in to Subshell</CardTitle>
