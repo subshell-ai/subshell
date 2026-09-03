@@ -15,20 +15,18 @@ jobs:
       - id: x
         run: |
           echo 'matrix=[{"app":"server","triple":"linux-x64","runner":["self-hosted","Linux","X64"],"smoke":"exec"}]' >> "$GITHUB_OUTPUT"
-      - run: echo "output set"
 
   b:
     needs: p
     if: needs.p.outputs.matrix != '[]'
-    runs-on: ${{ matrix.entry.runner }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.p.outputs.matrix) }}
     steps:
       - run: |
-          echo "app=${{ matrix.entry.app }}"
-          echo "runner-array ok"
-          env
+          echo "app=${{ matrix.app }}"
+          echo "runner ok"
         env:
-          MATRIX_TRIPLE: ${{ matrix.entry.triple }}
+          MATRIX_TRIPLE: ${{ matrix.triple }}
