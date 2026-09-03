@@ -187,6 +187,13 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       });
       expect(run.code).not.toBe(0);
       expect(`${run.stdout}${run.stderr}`).toContain("SUBSHELL_API_KEY");
+      // The header promise, ACTUALLY asserted: the pinned port stayed dark
+      // (sync LISTEN-table read — a connect probe would be async, the very
+      // hazard this suite pins), and the CWD shows no boot litter — neither a
+      // `data/` directory (a boot mkdirs it even before the first file lands)
+      // nor any sqlite artifact.
+      expect(syncPortListening("127.0.0.1", port)).toBe(false);
+      expect(readdirSync(cwd)).not.toContain("data");
       expect(walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f))).toEqual([]);
     },
     TIMEOUT,
