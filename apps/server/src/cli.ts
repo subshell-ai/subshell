@@ -1,6 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readSync, writeSync } from "node:fs";
 import { DEFAULT_DATABASE_PATH } from "@internal/subshell-protocol";
-import { resolveConfig } from "@/config-env.js";
+import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
+import { runInit } from "@/commands/init.js";
+import { resolveConfig, serverConfigDir } from "@/config-env.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -18,12 +20,17 @@ import { SERVER_VERSION } from "@/version.js";
  *    (`cli-bootstrap.ts`) therefore never `await`s before exit: any
  *    suspension — even `await null` — lets Bun evaluate the REST of the
  *    entry graph and even the entry body while the await is pending, which
- *    would boot the server on `subshell-server version`. Async handlers are
- *    only safe behind the {@link isCliEngaged} flag (index.ts skips its boot
- *    body when engaged) — Task C's interactive commands get that for free.
+ *    would boot the server on `subshell-server version`. This is why the
+ *    interactive `init`/`configure` are written FULLY SYNCHRONOUSLY (sync
+ *    fs + the `readSync(0, …)` prompt below): a readline-based command would
+ *    suspend, `@/auth.js` would build better-auth in the gap — which OPENS
+ *    the SQLite file, littering the CWD with `data/subshell.db` — and the
+ *    engaged-flag gate would save only the port bind, not the DB. Verified
+ *    subprocess-side in `__tests__/cli-entry.test.ts`.
  * 2. `dispatchCli` sets the engaged flag synchronously, before its first
  *    possible await, so the entry body (which evaluates inside any such
- *    window) sees it.
+ *    window) sees it — the last-resort net, not something a command may
+ *    rely on (see 1).
  *
  * Import hygiene: this module must stay free of import-time side effects —
  * no `@/constants.js` (dotenvx runs at ITS import time), no `@/db` (Kysely
@@ -38,10 +45,11 @@ export interface CliDeps {
   /** stderr writer for usage/errors (default: `console.error`). */
   error?: (line: string) => void;
   /**
-   * Interactive prompt (question → answer). Reserved for Task C's
-   * `init`/`configure` commands; no shipped command reads it yet.
+   * Interactive prompt for `init`/`configure` (default: {@link promptLineSync}
+   * — sync `readSync(0, …)`, honoring cli.ts invariant 1). Returns the raw
+   * answer or null on EOF.
    */
-  prompt?: (question: string) => Promise<string>;
+  prompt?: (question: string, def: string) => string | null;
   /** Process exit, injectable so tests observe codes (default: `process.exit`). */
   exit?: (code: number) => void;
   /**
@@ -49,6 +57,17 @@ export interface CliDeps {
    * Returns true/false, or null when the platform offers no probe at all.
    */
   probePort?: (host: string, port: number) => boolean | null;
+  /**
+   * Config home for `init`/`configure` (default: `serverConfigDir()`).
+   * Injectable so the suites write to a temp dir, never `~/.config`.
+   */
+  configDir?: string;
+  /** Env source for the command flows (default: `process.env`). */
+  env?: Record<string, string | undefined>;
+  /** Executable lookup for the tmux preflight (default: `Bun.which`). */
+  which?: (name: string) => string | null;
+  /** Interactive-TTY signal for the command flows (default: `process.stdin.isTTY`). */
+  isTTY?: boolean;
 }
 
 const USAGE = `subshell-server — the Subshell control plane
@@ -57,6 +76,10 @@ usage:
   subshell-server                run the server (boot path: no subcommand)
   subshell-server version        print the version and exit
   subshell-server status         print the resolved config view and exit
+  subshell-server init           first run: config home + auth secret + config.env
+  subshell-server configure      (re)write config.env; interactive unless --yes
+
+init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
 
 config precedence: process env > config.env > .env > built-in defaults
 `;
@@ -104,11 +127,135 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       runStatus(log, deps);
       exit(0);
       return true;
+    case "init":
+    case "configure": {
+      const opts = parseConfigFlags(argv.slice(1), error);
+      if (!opts) {
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      const cmdDeps: CommandDeps = {
+        prompt: deps.prompt ?? promptLineSync,
+        log,
+        error,
+        configDir: deps.configDir ?? serverConfigDir(),
+        env: deps.env ?? process.env,
+        which: deps.which ?? ((name) => Bun.which(name) ?? null),
+        isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+      };
+      // runInit/runConfigure are fully synchronous (invariant 1) and return
+      // the exit code; the command itself never calls exit — this line does.
+      exit(command === "init" ? runInit(opts, cmdDeps) : runConfigure(opts, cmdDeps));
+      return true;
+    }
     default:
       error(`subshell-server: unknown command '${command}'`);
       error(USAGE);
       exit(1);
       return true;
+  }
+}
+
+/** Value-taking flags of `init`/`configure` (client `cli.ts` pattern — no flag library). */
+const CONFIG_VALUE_FLAGS = new Set(["--port", "--host", "--base-url", "--db-path"]);
+
+/**
+ * Hand-rolled `init`/`configure` flag parser: `--port <n> --host <h>
+ * --base-url <u> --db-path <p> --yes`, with the `--flag=value` form accepted
+ * alongside (split on the FIRST `=`, so values may contain `=`). Raw strings
+ * — range/URL validation is the command's job (its messages are unit-tested);
+ * this layer only owns shape: unknown flag, stray positional, missing or
+ * empty value, and `--yes` with a value all mean "usage + exit 1".
+ *
+ * @returns the parsed options, or null after writing the error line
+ */
+function parseConfigFlags(rest: string[], error: (line: string) => void): ConfigureOpts | null {
+  const opts: ConfigureOpts = {};
+  const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string | null => {
+    const value = inline ?? next;
+    if (value === undefined || (inline === undefined && value.startsWith("--")) || value === "") {
+      error(`subshell-server: flag '${flag}' requires a value`);
+      return null;
+    }
+    return value;
+  };
+  for (let i = 0; i < rest.length; i++) {
+    const token = rest[i] as string;
+    const eq = token.startsWith("--") ? token.indexOf("=") : -1;
+    const flag = eq === -1 ? token : token.slice(0, eq);
+    const inline = eq === -1 ? undefined : token.slice(eq + 1);
+    if (flag === "--yes") {
+      if (inline !== undefined) {
+        error(`subshell-server: flag '--yes' takes no value`);
+        return null;
+      }
+      opts.yes = true;
+      continue;
+    }
+    if (!token.startsWith("-")) {
+      error(`subshell-server: unexpected argument '${token}'`);
+      return null;
+    }
+    if (!CONFIG_VALUE_FLAGS.has(flag)) {
+      error(`subshell-server: unknown flag '${flag}'`);
+      return null;
+    }
+    const value = takeValue(flag, inline, rest[i + 1]);
+    if (value === null) return null;
+    if (inline === undefined) i++; // consumed the separate-token value
+    switch (flag) {
+      case "--port":
+        opts.port = value;
+        break;
+      case "--host":
+        opts.host = value;
+        break;
+      case "--base-url":
+        opts.baseUrl = value;
+        break;
+      case "--db-path":
+        opts.dbPath = value;
+        break;
+    }
+  }
+  return opts;
+}
+
+/** Decode a line's worth of bytes collected one at a time from stdin. */
+const decodeLine = (bytes: number[]): string => Buffer.from(bytes).toString("utf8").replace(/\r$/, "");
+
+/**
+ * Production prompt: `writeSync(1, …)` + one-byte blocking `readSync(0, …)`
+ * until LF. Deliberately NOT readline — readline is promise/event-driven and
+ * would suspend the prelude, breaking cli.ts invariant 1 (the boot graph
+ * imports the moment the command awaits — see the module docstring). A
+ * canonical-mode TTY delivers whole lines, so byte-at-a-time reads simply
+ * block on the tty driver; multi-byte UTF-8 reassembles at decode. EOF
+ * (Ctrl-D, or a closed stdin) returns null so the caller aborts with zero
+ * writes. EAGAIN (a non-blocking stdin under some launcher) parks briefly
+ * and retries rather than fabricating an answer.
+ */
+export function promptLineSync(question: string, def: string): string | null {
+  writeSync(1, `${question} [${def}]: `);
+  const bytes: number[] = [];
+  const one = Buffer.alloc(1);
+  for (;;) {
+    let n: number;
+    try {
+      n = readSync(0, one, 0, 1, null);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN") {
+        Bun.sleepSync(5);
+        continue;
+      }
+      if (code === "EIO") return null; // hangup on the far end — treat as closed stdin
+      throw err;
+    }
+    if (n === 0) return bytes.length > 0 ? decodeLine(bytes) : null;
+    if (one[0] === 0x0a) return decodeLine(bytes);
+    bytes.push(one[0] as number);
   }
 }
 
