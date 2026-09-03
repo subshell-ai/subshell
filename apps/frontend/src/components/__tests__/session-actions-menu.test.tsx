@@ -156,6 +156,19 @@ describe("SessionActionsMenu — access gating (spec §4.1)", () => {
     }
   });
 
+  it("Clone… appears for edit grantees and opens the clone dialog", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSession({ access: "edit" }));
+      await openMenu("session");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Clone…" }));
+      expect(await screen.findByLabelText("Clone name")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Launch clone" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
   it("Edit title opens the rename dialog and a save PATCHes the trimmed name", async () => {
     const { calls, restore } = mockFetch();
     try {

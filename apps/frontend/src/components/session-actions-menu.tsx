@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   Bell,
   BellOff,
+  Copy,
   History,
   NotebookPen,
   Pin,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { type JSX, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
+import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { NotesDialog } from "@/components/ui/notes-dialog";
 import { ReplayLinesDialog } from "@/components/ui/replay-lines-dialog";
@@ -47,6 +49,7 @@ export function SessionActionsMenu({
   const [notesOpen, setNotesOpen] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
   const navigate = useNavigate();
   const { data: profiles } = useProfiles();
   const { terminate, restart, remove, toggleTitleLock, toggleNotify, busy } = useSessionMutations(session.id, session, {
@@ -114,6 +117,13 @@ export function SessionActionsMenu({
                 label: session.status === "running" ? "Restart" : "Start again",
                 onSelect: () => void restart(),
               },
+          {
+            icon: Copy,
+            label: "Clone…",
+            // A clone is a FRESH launch under the caller's account — unlike
+            // "Start again", which revives this row. Spec 2026-09-02 §2.
+            onSelect: () => setCloneOpen(true),
+          },
         ]
       : []),
     ...(profile
@@ -159,6 +169,12 @@ export function SessionActionsMenu({
         onOpenChange={setNotesOpen}
       />
       {isOwner && <SharingDialog sessionId={session.id} open={shareOpen} onOpenChange={setShareOpen} />}
+      {/* Mounted only while open, so every open starts from a blank name and a
+          cleared POST error. Title/NotesDialog deliberately keep their draft
+          across closes; a clone is a one-shot launch, so a stale name or error
+          from a previous attempt would be a wrong prefill — remount-on-open
+          gives the fresh state for free (Task 2 review). */}
+      {cloneOpen && <CloneSubshellDialog source={session} open onOpenChange={setCloneOpen} />}
       {/* Keyed by session id (suffixed, see NotesDialog above) so each
           session opens with its own stored cap. */}
       <ReplayLinesDialog
