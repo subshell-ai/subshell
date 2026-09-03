@@ -1,19 +1,12 @@
-import { Link, useLocation } from "@tanstack/react-router";
-import {
-  ChevronLeft,
-  LayoutDashboard,
-  LogOut,
-  type LucideIcon,
-  Server,
-  Settings,
-  TerminalSquare,
-  Users,
-} from "lucide-react";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { ChevronLeft, LayoutDashboard, type LucideIcon, Server, Settings, TerminalSquare, Users } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { UserMenu } from "@/components/user-menu";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSessionsList } from "@/hooks/use-sessions";
 import { useWorkspaces } from "@/hooks/use-workspaces";
+import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { recentSessionLinks, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { cn } from "@/lib/utils";
@@ -85,6 +78,10 @@ async function signOut() {
  */
 export function AppSidebar({ forceExpanded = false, className }: { forceExpanded?: boolean; className?: string }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  // Identity for the user menu (footer). While in flight the menu shows the
+  // "Signed in" fallback — accepted per the Task 3 design.
+  const { data: user } = useCurrentUser();
   // Admin-nav gate for the Server entry (spec 2026-09-02 settings-split §4) —
   // the same cached query the emergency banner / Add-node dialog use.
   const { data: publicSettings } = usePublicSettings();
@@ -214,15 +211,13 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
       </nav>
 
       <div className="border-border border-t p-2">
-        <Button
-          variant="ghost"
-          size={collapsed ? "icon" : "sm"}
-          className={cn("text-muted-foreground", !collapsed && "w-full justify-start gap-2")}
-          title={collapsed ? "Logout" : undefined}
-          onClick={() => void signOut()}
-        >
-          <LogOut className="h-4 w-4 shrink-0" /> {!collapsed && "Logout"}
-        </Button>
+        <UserMenu
+          name={user?.name ?? ""}
+          email={user?.email ?? "Signed in"}
+          collapsed={collapsed}
+          onAccountSettings={() => void navigate({ to: "/account" })}
+          onSignOut={() => void signOut()}
+        />
       </div>
     </aside>
   );
