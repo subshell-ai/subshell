@@ -6,8 +6,8 @@ test.use({ storageState: ADMIN_STATE });
 /**
  * The attach-geometry + image-paste contract, end-to-end in a real browser
  * (guards the 2026-09-01 "unjumbles over 10s / PWA can't paste images" report):
- *   1. attach a live session at a wide viewport and paint a long line;
- *   2. reopen the SAME session at a narrow viewport: the WS URL must carry
+ *   1. attach a live subshell at a wide viewport and paint a long line;
+ *   2. reopen the SAME subshell at a narrow viewport: the WS URL must carry
  *      cols/rows AND the `replay` frame the server ships must contain no
  *      row wider than the client's cols (wider rows are the jumble — xterm
  *      re-wraps them over the grid, and nothing repaints until a resize);
@@ -20,7 +20,7 @@ interface Frame {
   data: string;
 }
 
-/** Wraps WebSocket so every text frame of the session socket is recorded. */
+/** Wraps WebSocket so every text frame of the subshell socket is recorded. */
 async function armWsRecorder(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
     const store: { url: string; data: string }[] = [];
@@ -29,7 +29,7 @@ async function armWsRecorder(page: import("@playwright/test").Page) {
     class RecordingWebSocket extends Orig {
       constructor(url: string | URL, protocols?: string | string[]) {
         super(url as string, protocols);
-        if (String(url).includes("/ws?session=")) {
+        if (String(url).includes("/ws?subshell=")) {
           this.addEventListener("message", (ev) => {
             if (typeof ev.data === "string") store.push({ url: String(url), data: ev.data });
           });
@@ -46,7 +46,7 @@ async function armWsRecorder(page: import("@playwright/test").Page) {
   });
 }
 
-async function sessionFrames(page: import("@playwright/test").Page): Promise<Frame[]> {
+async function subshellFrames(page: import("@playwright/test").Page): Promise<Frame[]> {
   return (await page.evaluate(() => (window as any).__wsFrames)) as Frame[];
 }
 
@@ -65,7 +65,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   test.setTimeout(180_000);
   const name = `probe-jumble-${test.info().retry}`;
 
-  // ── 1. Wide attach: create the session at 1440px and paint a long line.
+  // ── 1. Wide attach: create the subshell at 1440px and paint a long line.
   const wide = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: ADMIN_STATE });
   const p1 = await wide.newPage();
   await armWsRecorder(p1);
@@ -75,16 +75,16 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await p1.fill("#working-dir", "/tmp");
   await p1.fill("#name", name);
   await p1.keyboard.press("Escape");
-  await p1.getByRole("button", { name: "Start session" }).click();
-  await expect(p1).toHaveURL(/\/sessions\/.+/, { timeout: 60_000 });
-  const sessionId = new URL(p1.url()).pathname.split("/").pop()!;
+  await p1.getByRole("button", { name: "Start subshell" }).click();
+  await expect(p1).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
+  const subshellId = new URL(p1.url()).pathname.split("/").pop()!;
 
   await p1.waitForFunction(
     () => ((window as any).__wsFrames ?? []).some((f: Frame) => f.data.includes('"replay"')),
     undefined,
     { timeout: 60_000 },
   );
-  const wideUrl = (await sessionFrames(p1))[0].url;
+  const wideUrl = (await subshellFrames(p1))[0].url;
   expect(new URL(wideUrl).searchParams.get("cols")).toBeTruthy();
 
   await p1.locator(".xterm-helper-textarea").click();
@@ -96,8 +96,8 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   const narrow = await browser.newContext({ viewport: { width: 640, height: 480 }, storageState: ADMIN_STATE });
   const p2 = await narrow.newPage();
   await armWsRecorder(p2);
-  const ws2 = p2.waitForEvent("websocket", { predicate: (w) => w.url().includes("/ws?session="), timeout: 60_000 });
-  await p2.goto(`/sessions/${sessionId}`, { waitUntil: "domcontentloaded" });
+  const ws2 = p2.waitForEvent("websocket", { predicate: (w) => w.url().includes("/ws?subshell="), timeout: 60_000 });
+  await p2.goto(`/subshells/${subshellId}`, { waitUntil: "domcontentloaded" });
   const attachUrl = (await ws2).url();
   const params = new URL(attachUrl).searchParams;
   const cols = Number(params.get("cols"));
@@ -110,7 +110,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
     undefined,
     { timeout: 60_000 },
   );
-  const replay = JSON.parse((await sessionFrames(p2)).find((f) => f.data.includes('"replay"'))!.data) as {
+  const replay = JSON.parse((await subshellFrames(p2)).find((f) => f.data.includes('"replay"'))!.data) as {
     data: string;
   };
   const widest = Math.max(
@@ -197,7 +197,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
     { timeout: 30_000 },
   );
 
-  // Cleanup: terminate + delete the probe session.
+  // Cleanup: terminate + delete the probe subshell.
   await p2.goto("/");
   const actions = p2.getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
@@ -205,7 +205,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await p2.getByRole("menuitem", { name: "Terminate" }).click();
   await p2.getByRole("button", { name: "Terminate" }).click();
   await actions.click();
-  await p2.getByRole("menuitem", { name: "Delete session" }).click();
+  await p2.getByRole("menuitem", { name: "Delete subshell" }).click();
   await p2.getByRole("button", { name: "Delete" }).click();
   await narrow.close();
 });

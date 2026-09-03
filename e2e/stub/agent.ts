@@ -21,7 +21,7 @@ const RING_CAP = 400;
 export interface StartAgentOptions {
   /** `SUBSHELL_AGENT_HOME` — config + daemon.lock live here. */
   home: string;
-  /** `--data-dir` — identity keypair + session meta/logs on the node. */
+  /** `--data-dir` — identity keypair + subshell meta/logs on the node. */
   dataDir: string;
   /** `TMUX_TMPDIR` — every tmux server the agent daemonises lands under here. */
   tmuxBase: string;

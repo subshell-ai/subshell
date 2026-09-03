@@ -31,11 +31,11 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
     timeout: SPAWN_TIMEOUT,
   });
   const socket = page.waitForEvent("websocket", {
-    predicate: (w) => w.url().includes("/ws?session="),
+    predicate: (w) => w.url().includes("/ws?subshell="),
     timeout: SPAWN_TIMEOUT,
   });
-  await page.getByRole("button", { name: "Start session" }).click();
-  await expect(page).toHaveURL(/\/sessions\/.+/, { timeout: SPAWN_TIMEOUT });
+  await page.getByRole("button", { name: "Start subshell" }).click();
+  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
   await tokenRes;
   await socket;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
@@ -53,11 +53,11 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   await bar.getByRole("button", { name: "Send Escape" }).click();
   await bar.getByRole("button", { name: "Send Enter" }).click();
 
-  // URL already asserted to be /sessions/<id>; "" only degrades a lookup to
+  // URL already asserted to be /subshells/<id>; "" only degrades a lookup to
   // a failed poll, never a false green.
   const id = new URL(page.url()).pathname.split("/").pop() ?? "";
   const logText = async () => {
-    const res = await page.request.get(`/api/sessions/${id}/log`);
+    const res = await page.request.get(`/api/subshells/${id}/log`);
     if (!res.ok()) return "";
     const body = (await res.json()) as { lines: string[] };
     return body.lines.join("\n");
@@ -73,6 +73,6 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   await expect.poll(async () => (await logText()).includes("/"), { timeout: 10_000 }).toBe(true);
 
   // Clean up after itself (shared-DB ordering contract).
-  expect((await page.request.post(`/api/sessions/${id}/terminate`)).ok()).toBe(true);
-  expect((await page.request.delete(`/api/sessions/${id}`)).ok()).toBe(true);
+  expect((await page.request.post(`/api/subshells/${id}/terminate`)).ok()).toBe(true);
+  expect((await page.request.delete(`/api/subshells/${id}`)).ok()).toBe(true);
 });

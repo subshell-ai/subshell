@@ -23,11 +23,11 @@ backend, `NODE_ENV=development`, `SUBSHELL_TEST_MODE=false`) with:
 
 - `SERVER_PORT=3199` (see `ports.ts`) — far from the dev 3080, no collision
   with a running `turbo watch dev`.
-- a fresh `mkdtemp` dir for `DATABASE_PATH` and `SESSION_DATA_DIR` — wiped on
+- a fresh `mkdtemp` dir for `DATABASE_PATH` and `SUBSHELL_SERVER_DATA_DIR` — wiped on
   teardown, so every run is a pristine first-boot instance.
 - `PI_PATH` pointed at `e2e/stub/pi` — a loop-forever script that answers
   `--version` for detection, so the harness registry reports `pi` installed and
-  sessions launch a real tmux pane without any agent CLI.
+  subshells launch a real tmux pane without any agent CLI.
 
 The backend serves the frontend bundle, so **one origin = the whole app**; all
 specs use `baseURL` from `ports.ts`.
@@ -61,7 +61,7 @@ so the CWD the run is launched from never matters.
 xterm.js paints through the **WebGL addon into a `<canvas>`** — pane text is
 NOT in the DOM and must never be asserted. Prove liveness through server/
 network truth instead: `POST /api/auth/ws-token` returns 200, the
-`/ws?session=…` WebSocket upgrade fires, the "reconnecting…" pill is absent,
+`/ws?subshell=…` WebSocket upgrade fires, the "reconnecting…" pill is absent,
 and status chips (`working` / `running` on the detail badge / `ended` /
 `exited`) reflect the API. See `.sdd` design notes or the spec doc,
 "Terminal gotchas", and spec `06` for the pattern.

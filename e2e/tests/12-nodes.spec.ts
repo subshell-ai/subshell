@@ -50,7 +50,7 @@ async function pollUntil(
  * (`$TMUX_TMPDIR/tmux-<uid>/<socket>`) — the agent is spawned with
  * TMUX_TMPDIR pointed there, so every server it daemonises is addressable
  * inside it, exactly like the stack's own teardown. The socket NAME is the
- * backend's `tmuxSocketFor(sessionId)` hash — deliberately not recomputed
+ * backend's `tmuxSocketFor(subshellId)` hash — deliberately not recomputed
  * here: enumerating the dir pins agent-side truth without coupling the spec
  * to the hashing scheme. Empty while the dir does not exist yet.
  */
@@ -125,7 +125,7 @@ test("nodes: Local renders online; Add-node mints a setup key + install command"
  * remote launch. A real `subshell` (spawned from source via
  * `e2e/stub/agent.ts` — no compiled binary, plan deviation #1) redeems a
  * setup key minted through the Add-node dialog, holds the signed node socket,
- * and hosts a session launched from the browser: online → inventory → chips
+ * and hosts a subshell launched from the browser: online → inventory → chips
  * → tmux pane ON THE NODE → relayed log → WS attach → terminate → gone.
  *
  * Fixture choice (brief Step 2): ONE test, agent start/stop around a
@@ -133,12 +133,12 @@ test("nodes: Local renders online; Add-node mints a setup key + install command"
  * no global fixture hook; a serial `describe` would skip the later tests on a
  * mid-story failure and the `afterAll` is not guaranteed to run before the
  * runner reports — one test's `finally` always runs, which is what the
- * no-leaves contract needs under `workers: 1`. Node/session names carry
+ * no-leaves contract needs under `workers: 1`. Node/subshell names carry
  * `test.info().retry` (spec 06's idiom) so a CI retry never collides with
  * attempt 0's row (the temp DB survives attempts within a run).
  *
  * Protocol friction found (recorded for the errata; SINCE FIXED by P3-T8b):
- * inventory used to be PULL-ONLY — the agent pushed `ready` + `sessions_report`
+ * inventory used to be PULL-ONLY — the agent pushed `ready` + `subshells_report`
  * at connect but never an inventory, and the create-time harness gate is strict
  * (FRESH snapshot saying installed), so a freshly enrolled node was ONLINE yet
  * rejected every launch with 409 "disabled or not installed" until something
@@ -155,7 +155,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   const nonce = test.info().retry;
   const nodeName = `e2e-node-${nonce}`;
   const keyLabel = `e2e-key-${nonce}`; // the dialog's LABEL — distinct from the node name so the /nodes row filter stays unambiguous
-  const sessionName = `e2e-remote-${nonce}`;
+  const subshellName = `e2e-remote-${nonce}`;
 
   // ── 1. API truth: the server's own address is loopback under the e2e stack,
   // which is what makes the dialog's amber hint (step 2) a mandatory render.
@@ -199,7 +199,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   mkdirSync(tmuxBase, { recursive: true }); // tmux will not mkdir the TMUX_TMPDIR base itself (stack.ts)
   let agent: RunningAgent | undefined;
   let nodeId: string | undefined;
-  let sessionId: string | undefined;
+  let subshellId: string | undefined;
   try {
     agent = await startAgent({ home, dataDir, tmuxBase, setupKey, name: nodeName });
 
@@ -275,7 +275,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await page.getByPlaceholder("Choose a node").click();
     await nodeOption.click();
     await page.fill("#working-dir", workingDir);
-    await page.fill("#name", sessionName);
+    await page.fill("#name", subshellName);
     // The directory-picker panel opens on focus and covers the fields below;
     // Escape is the dismissal that works outside a modal (spec 06's note).
     await page.keyboard.press("Escape");
@@ -284,15 +284,15 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       timeout: SPAWN_TIMEOUT,
     });
     const socket = page.waitForEvent("websocket", {
-      predicate: (w) => w.url().includes("/ws?session="),
+      predicate: (w) => w.url().includes("/ws?subshell="),
       timeout: SPAWN_TIMEOUT,
     });
-    await page.getByRole("button", { name: "Start session" }).click();
-    await expect(page).toHaveURL(/\/sessions\/.+/, { timeout: SPAWN_TIMEOUT });
-    sessionId = new URL(page.url()).pathname.split("/").pop() as string;
+    await page.getByRole("button", { name: "Start subshell" }).click();
+    await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+    subshellId = new URL(page.url()).pathname.split("/").pop() as string;
     await tokenRes;
     const ws = await socket;
-    expect(ws.url()).toContain("/ws?session=");
+    expect(ws.url()).toContain("/ws?subshell=");
     // "running" on the detail badge: the control plane's launch RPC answered
     // ok AND the reconcile saw the pane alive — ON THE NODE's tmux server.
     await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
@@ -300,29 +300,29 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
 
     // The pane is genuinely on the node (its own tmux server, under our
     // TMUX_TMPDIR — not the control plane's) …
-    const pane = sessionId;
+    const pane = subshellId;
     await pollUntil(`no tmux pane "${pane}" on the node`, agent, async () => nodeHasPane(tmuxBase, pane), 1_500);
     // …and the log relay (log_read over the node socket) carries its output.
     // The one-shot startup banner can scroll out before pipe-pane attaches
     // (the agent pipes the pane only after new-session), so any `tick <n>` —
     // the stub's every-5s liveness line — is an equally valid signal.
     await pollUntil("relayed log never showed the stub banner or a tick line", agent, async () => {
-      const res = await request.get(`/api/sessions/${pane}/log`);
+      const res = await request.get(`/api/subshells/${pane}/log`);
       if (!res.ok()) return false;
       return /(stub harness ready|\btick \d+)/.test(((await res.json()) as { lines: string[] }).lines.join("\n"));
     });
 
-    // ── 7. Terminate from the sessions list (spec 06's idiom): the card
+    // ── 7. Terminate from the subshells list (spec 06's idiom): the card
     // reaches "ended" via the agent's exit event, and the pane dies on the
     // node (has-session flips false once tmux reaps it).
     await page.goto("/");
-    const actions = page.getByRole("button", { name: `Actions for ${sessionName}` });
+    const actions = page.getByRole("button", { name: `Actions for ${subshellName}` });
     await expect(actions).toBeVisible();
     await actions.click();
     await page.getByRole("menuitem", { name: "Terminate" }).click();
-    await expect(page.getByText(`Terminate session "${sessionName}"?`)).toBeVisible();
+    await expect(page.getByText(`Terminate subshell "${subshellName}"?`)).toBeVisible();
     await page.getByRole("button", { name: "Terminate" }).click();
-    const card = page.getByRole("link").filter({ hasText: sessionName });
+    const card = page.getByRole("link").filter({ hasText: subshellName });
     await expect(card.getByText("ended", { exact: true })).toBeVisible({ timeout: SPAWN_TIMEOUT });
     await pollUntil(
       `pane "${pane}" outlived terminate on the node`,
@@ -332,12 +332,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     );
 
     // Delete the row (its node artifacts unhook via remove_paths), leaving a
-    // clean node for the teardown's node delete (no running sessions).
+    // clean node for the teardown's node delete (no running subshells).
     await actions.click();
-    await page.getByRole("menuitem", { name: "Delete session" }).click();
-    await expect(page.getByText(`Delete session "${sessionName}"?`)).toBeVisible();
+    await page.getByRole("menuitem", { name: "Delete subshell" }).click();
+    await expect(page.getByText(`Delete subshell "${subshellName}"?`)).toBeVisible();
     await page.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText(sessionName)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
+    await expect(page.getByText(subshellName)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
   } finally {
     const leaks: string[] = [];
     // Order matters: daemon first (the node must flip offline before DELETE),

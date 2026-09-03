@@ -9,9 +9,9 @@ test.use({ storageState: ADMIN_STATE });
 const isPhone = () => test.info().project.name === "mobile";
 
 test("no horizontal overflow on the main routes", async ({ page }) => {
-  // /sessions/does-not-exist renders the not-running panel — a real mobile
+  // /subshells/does-not-exist renders the not-running panel — a real mobile
   // layout surface, not just an empty route.
-  for (const path of ["/", "/workspaces", "/settings", "/account", "/users", "/sessions/does-not-exist"]) {
+  for (const path of ["/", "/workspaces", "/settings", "/account", "/users", "/subshells/does-not-exist"]) {
     await page.goto(path);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, `${path} overflows by ${overflow}px`).toBeLessThanOrEqual(1);
@@ -51,7 +51,7 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
   }
 });
 
-test("add-session dialog fits and scrolls on small screens", async ({ page }, testInfo) => {
+test("add-subshell dialog fits and scrolls on small screens", async ({ page }, testInfo) => {
   // Workspace via API, not the "New workspace" button: the UI auto-names with
   // a minute-granularity timestamp and the backend enforces per-user name
   // uniqueness on the ONE shared DB — spec 05 already created one this run
@@ -84,8 +84,8 @@ test("add-session dialog fits and scrolls on small screens", async ({ page }, te
     expect(tabStripHeight).toBe("44px"); // coarse-pointer bump (Task 7)
   }
 
-  await page.getByRole("button", { name: "Add a session to this workspace" }).click();
-  await expect(page.getByRole("heading", { name: "Add a session" })).toBeVisible();
+  await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
+  await expect(page.getByRole("heading", { name: "Add a subshell" })).toBeVisible();
   const dialog = page.getByRole("dialog");
   const box = await dialog.boundingBox();
   const vp = page.viewportSize();
@@ -95,9 +95,10 @@ test("add-session dialog fits and scrolls on small screens", async ({ page }, te
   expect(dialogHeight, `dialog ${dialogHeight}px vs viewport ${viewportHeight}px`).toBeLessThanOrEqual(
     viewportHeight + 1,
   );
-  // The bottom of the form (Start session) must be reachable — scroll inside
-  // the dialog, the whole point of the max-h/overflow change.
-  const start = page.getByRole("button", { name: "New session" });
+  // A control near the bottom of the dialog ("New subshell" tab) must be
+  // reachable — scroll inside the dialog, the whole point of the
+  // max-h/overflow change.
+  const start = page.getByRole("button", { name: "New subshell" });
   await start.scrollIntoViewIfNeeded();
   await expect(start).toBeInViewport();
   await page.keyboard.press("Escape");
@@ -117,18 +118,18 @@ test.describe("iPhone landscape (852x393)", () => {
     expect(overflow, `home overflows by ${overflow}px`).toBeLessThanOrEqual(1);
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
 
-    // The session page is the tall-traffic surface: its header and terminal
+    // The subshell page is the tall-traffic surface: its header and terminal
     // panel must stack inside 393px with no page-level scroll. f54c3ed gated
-    // the key bar to live-session terminals (`coarse && session` in
-    // routes/sessions_.$id.tsx) — the not-running panel shows no bar at all
+    // the key bar to live-subshell terminals (`coarse && subshell` in
+    // routes/subshells_.$id.tsx) — the not-running panel shows no bar at all
     // anymore, so THIS route asserts its absence; the bar's live-geometry
-    // coverage lives in spec 09 (real stub-pi session, key bytes included).
-    await page.goto("/sessions/does-not-exist");
+    // coverage lives in spec 09 (real stub-pi subshell, key bytes included).
+    await page.goto("/subshells/does-not-exist");
     await expect(page.getByRole("toolbar", { name: "Terminal special keys" })).toHaveCount(0);
     const fits = await page.evaluate(
       () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
     );
-    expect(fits, "session page scrolls vertically").toBeLessThanOrEqual(1);
+    expect(fits, "subshell page scrolls vertically").toBeLessThanOrEqual(1);
 
     // Detail pages keep the merged header: exactly one burger, no fallback bar.
     const created = await page.request.post("/api/workspaces", { data: { name: `landscape-${Date.now()}` } });

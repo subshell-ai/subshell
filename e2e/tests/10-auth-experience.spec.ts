@@ -45,7 +45,7 @@ test("members see the roster but no management UI", async ({ browser }) => {
   const adminPage = await adminCtx.newPage();
   await adminPage.goto("/users");
   await expect(adminPage.getByRole("button", { name: "Add user" })).toBeVisible();
-  await expect(adminPage.getByText("Latest session lifecycle")).toBeVisible();
+  await expect(adminPage.getByText("Latest subshell lifecycle")).toBeVisible();
   await adminCtx.close();
 
   const ctx = await browser.newContext();
@@ -65,7 +65,7 @@ test("members see the roster but no management UI", async ({ browser }) => {
   // headings — CardTitle renders a <div>, so heading-role queries would be
   // vacuously true. The admin positive control above pins non-vacuity.
   await expect(page.getByRole("button", { name: "Add user" })).toHaveCount(0);
-  await expect(page.getByText("Latest session lifecycle")).toHaveCount(0);
+  await expect(page.getByText("Latest subshell lifecycle")).toHaveCount(0);
 
   // And unreachable: the API keeps enforcing, not just the UI hiding.
   const post = await ctx.request.post("/api/users", {

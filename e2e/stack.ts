@@ -33,8 +33,8 @@ async function waitForReady(timeoutMs = 60_000): Promise<void> {
 }
 
 /**
- * Boots the real backend against scratch state: temp file DB, temp session
- * dir, and the `pi` stub as the only harness binary. `detached` puts it in its
+ * Boots the real backend against scratch state: temp file DB, temp subshell
+ * data dir, and the `pi` stub as the only harness binary. `detached` puts it in its
  * own process group so teardown can kill the whole tree (bun forks; killing
  * only the parent leaves the server holding the port).
  */
@@ -64,14 +64,14 @@ export async function startStack(): Promise<void> {
       SERVER_PORT: String(PORTS.backend),
       HOST: "127.0.0.1",
       DATABASE_PATH: path.join(dir, "subshell.db"),
-      SESSION_DATA_DIR: path.join(dir, "sessions"),
+      SUBSHELL_SERVER_DATA_DIR: path.join(dir, "data"),
       APP_BASE_URL: BASE_URL,
       BETTER_AUTH_SECRET: "e2e-secret-not-used-outside-tests-0000000000",
       // Detection re-probes per request, so the stub appears as installed.
       PI_PATH: STUB_PI,
       // `tmux -L <name>` resolves its socket path to $TMUX_TMPDIR/tmux-<uid>/
       // <name>, so pointing TMUX_TMPDIR at the scratch dir makes EVERY tmux
-      // server this run spawns (specs 05/06 start real sessions) addressable
+      // server this run spawns (specs 05/06 start real subshells) addressable
       // inside it — stopStack kills them by socket instead of leaking
       // daemonised servers forever: the tmux server detaches away from the
       // backend's process group, so the group SIGTERM below never reaches it.

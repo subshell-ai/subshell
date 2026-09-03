@@ -34,7 +34,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(piRow.getByText("enabled", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Finish setup" }).click();
-  await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Subshells" })).toBeVisible();
 
   // The wizard must never show again on a DB with users.
   await page.goto("/setup");
@@ -43,7 +43,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   // Auto-defaulted profile: registration seeded a "Default" for each enabled
   // harness; GET /api/profiles filters to INSTALLED ones, so on the e2e stack
   // (stub pi installed, the rest absent) the admin already has exactly the pi
-  // Default — a session can be started without ever touching the profile UI.
+  // Default — a subshell can be started without ever touching the profile UI.
   const profiles = await page.evaluate(async () => {
     return (await (await fetch("/api/profiles")).json()) as {
       id: string;

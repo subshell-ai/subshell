@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
  * UX only; the 401s below remain the actual security boundary.
  */
 test("protected APIs reject anonymous callers", async ({ request }) => {
-  for (const path of ["/api/sessions", "/api/profiles", "/api/workspaces"]) {
+  for (const path of ["/api/subshells", "/api/profiles", "/api/workspaces"]) {
     const res = await request.get(path);
     expect(res.status(), path).toBe(401);
   }

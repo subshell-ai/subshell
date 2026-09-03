@@ -12,15 +12,15 @@ const SPAWN_TIMEOUT = 30_000;
  * xterm paints to a WebGL canvas, so "the terminal is live" is asserted
  * through server-side truth: the ws-token mint + /ws upgrade + the absence of
  * the reconnecting pill — never canvas pixels. Independent of spec 05's
- * leftover `e2e-pane` session; cleans up after itself.
+ * leftover `e2e-pane` subshell; cleans up after itself.
  */
-test("session: create -> attach -> terminate -> delete", async ({ page }) => {
+test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // Config leaves the 30 s default per-test timeout; real tmux spawn plus two
   // round-trips through confirm dialogs needs more headroom.
   test.setTimeout(120_000);
 
   // Unique per attempt (spec 07's pattern): a CI retry must not collide with
-  // attempt 0's leftover session — duplicate cards would break the strict
+  // attempt 0's leftover subshell — duplicate cards would break the strict
   // list locators and mask the real failure.
   const name = `e2e-lifecycle-${test.info().retry}`;
 
@@ -40,31 +40,31 @@ test("session: create -> attach -> terminate -> delete", async ({ page }) => {
   await page.keyboard.press("Escape");
 
   // The detail page mints a one-shot WS token (POST /api/auth/ws-token), then
-  // opens /ws?session=… — both listeners must be armed BEFORE the click.
+  // opens /ws?subshell=… — both listeners must be armed BEFORE the click.
   const tokenRes = page.waitForResponse((r) => r.url().includes("/api/auth/ws-token") && r.status() === 200, {
     timeout: SPAWN_TIMEOUT,
   });
   const socket = page.waitForEvent("websocket", {
-    predicate: (w) => w.url().includes("/ws?session="),
+    predicate: (w) => w.url().includes("/ws?subshell="),
     timeout: SPAWN_TIMEOUT,
   });
 
-  await page.getByRole("button", { name: "Start session" }).click();
+  await page.getByRole("button", { name: "Start subshell" }).click();
   // The POST spawns tmux before the navigate happens, hence the long leash.
-  await expect(page).toHaveURL(/\/sessions\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
 
   // Terminal attached: token minted, socket opened, and the reconnecting pill
   // gone — it renders only while the socket is down, so count 0 IS the proof.
   await tokenRes;
   const ws = await socket;
-  expect(ws.url()).toContain("/ws?session=");
+  expect(ws.url()).toContain("/ws?subshell=");
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 
   // The header badge shows the raw server status — proof the stub harness is
-  // alive in its pane (a dead-on-arrival session would read "exited").
+  // alive in its pane (a dead-on-arrival subshell would read "exited").
   await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
 
-  // Terminate from the sessions list via the actions menu + confirm. (Cards
+  // Terminate from the subshells list via the actions menu + confirm. (Cards
   // carry activity chips — "working"/"idle"/"ended" — never "running", so
   // that is what these list assertions key on.)
   await page.goto("/");
@@ -72,18 +72,18 @@ test("session: create -> attach -> terminate -> delete", async ({ page }) => {
   await expect(actions).toBeVisible();
   await actions.click();
   await page.getByRole("menuitem", { name: "Terminate" }).click();
-  await expect(page.getByText(`Terminate session "${name}"?`)).toBeVisible();
+  await expect(page.getByText(`Terminate subshell "${name}"?`)).toBeVisible();
   await page.getByRole("button", { name: "Terminate" }).click();
   // Card-scoped: spec 05's leftover `e2e-pane` card could also reach "ended"
   // eventually, so an unscoped first() could pass off the wrong card. The
-  // whole SessionCard is one <a>, and the activity chip lives inside it.
+  // whole SubshellCard is one <a>, and the activity chip lives inside it.
   const card = page.getByRole("link").filter({ hasText: name });
   await expect(card.getByText("ended", { exact: true })).toBeVisible({ timeout: SPAWN_TIMEOUT });
 
   // Delete it and prove it is gone.
   await actions.click();
-  await page.getByRole("menuitem", { name: "Delete session" }).click();
-  await expect(page.getByText(`Delete session "${name}"?`)).toBeVisible();
+  await page.getByRole("menuitem", { name: "Delete subshell" }).click();
+  await expect(page.getByText(`Delete subshell "${name}"?`)).toBeVisible();
   await page.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 });

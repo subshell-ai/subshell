@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stub "pi" harness for e2e runs. Real sessions launch `env -i PATH=... <argv>`
+# Stub "pi" harness for e2e runs. Real subshells launch `env -i PATH=... <argv>`
 # with no shell, so the stub must be an executable that ignores every argument,
 # prints something observable (pane-log capture proves the pipe works), then
 # stays alive like a real interactive harness.
