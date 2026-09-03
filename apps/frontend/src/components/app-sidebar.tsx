@@ -12,6 +12,7 @@ import {
 import { Fragment, useState } from "react";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -20,6 +21,7 @@ import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
+import { filterSubshells } from "@/lib/subshell-filter";
 import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
@@ -103,6 +105,14 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   const { data: subshells } = useSubshellsList();
   const { data: workspaces } = useWorkspaces();
   const recentWorkspaces = recentWorkspaceLinks(workspaces);
+  // Filter mode replaces the 8 recents with matches over the FULL cached list
+  // (no server call — the list is already client-side). Same predicate as
+  // the home page and the add-subshell dialog (lib/subshell-filter).
+  const [subshellQuery, setSubshellQuery] = useState("");
+  const q = subshellQuery.trim();
+  const listedSubshells = q
+    ? filterSubshells(subshells ?? [], subshellQuery)
+    : (subshells ?? []).slice(0, RECENT_LIMIT);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -196,13 +206,25 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                 <item.icon className="h-4 w-4 shrink-0" />
                 {!collapsed && item.label}
               </Link>
+              {!collapsed && item.to === "/" && (
+                <div className="px-2 pt-1 pb-2">
+                  <Input
+                    value={subshellQuery}
+                    onChange={(e) => setSubshellQuery(e.target.value)}
+                    placeholder="Filter subshells…"
+                    aria-label="Filter subshells"
+                    className="h-7 text-xs"
+                  />
+                </div>
+              )}
+              {!collapsed && item.to === "/" && q !== "" && listedSubshells.length === 0 && (
+                <p className="px-3 py-1 text-[10px] text-muted-foreground">No matches.</p>
+              )}
               {!collapsed &&
                 item.to === "/" &&
-                (subshells ?? [])
-                  .slice(0, RECENT_LIMIT)
-                  .map((s) => (
-                    <SubshellRecentRow key={s.id} subshell={s} active={location.pathname === `/subshells/${s.id}`} />
-                  ))}
+                listedSubshells.map((s) => (
+                  <SubshellRecentRow key={s.id} subshell={s} active={location.pathname === `/subshells/${s.id}`} />
+                ))}
               {!collapsed &&
                 item.to === "/workspaces" &&
                 recentWorkspaces.map((r) => {
