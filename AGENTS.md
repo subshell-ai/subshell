@@ -160,6 +160,16 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   NOTHING — never a half set.
 - `turbo build` wipes the compiled `apps/client/dist/subshell` dev binary;
   re-create it with `cd apps/client && bun run compile`.
+- Separately, `bun run release:server` builds the **control-plane** binary
+  (not a Nodes download artifact): the three `SERVER_TARGETS` triples
+  (`linux-x64`, `linux-arm64`, `darwin-arm64`), each `--bytecode`, with the
+  built SPA **embedded** so the binary serves the UI with no frontend dist
+  on the host (an embed step overwrites — then `git checkout` restores —
+  the tracked `embedded-web.ts` stub). Published atomically to
+  `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — a
+  local drop dir to scp/deploy; there is no data-dir ladder here. See
+  `apps/server/AGENTS.md` ("Standalone binary & CLI") for the CLI
+  (`init`/`configure`/`status`/`service install|uninstall`) and config.env.
 
 ## Build Dependencies
 

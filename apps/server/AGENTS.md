@@ -15,7 +15,8 @@ Server-specific documentation for the ElysiaJS API server (`apps/server`, `@inte
 ```bash
 bun run dev                # Watch-mode dev server (bun run --watch src/index.ts)
 bun run build              # tsc + tsc-alias -> dist/ (plain JS, what `turbo build` runs)
-bun run compile            # bun build --compile binaries (backend + subshell-mcp)
+bun run compile            # bun build --compile host dev binaries (dist/subshell-server + dist/subshell-mcp)
+bun run compile:release    # release pipeline — embedded SPA + SERVER triples (see "Standalone binary & CLI")
 bun run prod               # Run ./dist/index.js
 bun run test               # bun test src (see Testing below)
 bun run verify-types       # tsc --noEmit
@@ -54,13 +55,13 @@ src/
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
-├── mcp/            # `subshell-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the agent's `subshell mcp`, per the TmuxRunner precedent)
+├── mcp/            # `subshell-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the node client's `subshell mcp`, per the TmuxRunner precedent)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
-├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node agent can reuse it
+├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node client can reuse it
 ├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; agent-node rows relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
+├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
@@ -146,6 +147,88 @@ appears on the wire for every error, but only **logged** errors (5xx and
 explicit `throwApiError`) also emit a server log line carrying it — expected 4xx
 are `doNotLog` and are deliberately not written to the log. `reqId` is declared
 in the schema but only populated once request-scoped logging attaches it.
+
+## Standalone binary & CLI
+
+`src/index.ts` is BOTH the boot entry and the `subshell-server` CLI entry:
+`bun build --compile` of it yields a self-contained binary — no bun, no repo
+checkout on the host, and the built SPA **embedded** (see below). The boot
+contract is untouched: no subcommand, or a leading flag, IS the boot path,
+so the svc.sh/systemd deployment behaves byte-identically (spec 2026-09-03).
+
+### Subcommands (hand-rolled dispatch in `src/cli.ts`, no flag library)
+
+| Command | |
+| --- | --- |
+| `version` | print `subshell-server <version>` and exit |
+| `status` | "what WOULD this boot with" — config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, port liveness, service definition on disk; reads only, never boots |
+| `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
+| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --db-path --yes` |
+| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |
+| `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
+
+An unknown word exits 1 with usage. **Sync-exit design** (load-bearing,
+`cli.ts` invariants): a handled command must run to completion and
+`process.exit` SYNCHRONOUSLY inside `dispatchCli` — on bun 1.4.0 (measured,
+not spec) ANY await in the entry prelude lets the rest of the entry graph
+and the boot body evaluate, so `version` would boot the server and `init`
+would litter the CWD with `data/subshell.db` (`@/auth.js` builds better-auth
+at import). Hence: sync fs, `readSync(0, …)` prompts (not readline),
+`Bun.spawnSync` for the service manager.
+
+### config.env (`src/config-env.ts`)
+
+`~/.config/subshell-server/config.env` — home overridden by
+`SUBSHELL_SERVER_CONFIG_DIR`; dir 0700, file 0600, written via temp +
+rename. The boot entry's first-imported `cli-bootstrap.ts` applies it with
+SETDEFAULT semantics BEFORE `constants.ts` runs dotenvx, so the precedence
+is **process env > config.env > `.env` (dotenvx, when the CWD has one) >
+built-in defaults**. `configure` owns four keys — `SERVER_PORT`, `HOST`,
+`APP_BASE_URL`, `DATABASE_PATH` — and `init` persists the secret (an
+existing value is never rotated). tmux preflight: `init`, `configure` and
+`service install` refuse before any write when tmux is absent (the `local`
+node launches every pane through it); escape hatch
+`SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`.
+
+`service install` (`src/service.ts`) writes `subshell-server.service` under
+`~/.config/systemd/user/` — **the same unit name `svc.sh` writes; one owner
+per host** (see `docs/subshell-rollout.md`) — with `WorkingDirectory=` and
+`EnvironmentFile=` pointed at the config home (systemd and the binary's own
+loader read the same file, so they cannot disagree), the installing shell's
+PATH baked (a Homebrew/Nix tmux would vanish under the manager's stock
+PATH), and `StartLimitIntervalSec=0` (Restart=always must survive an
+EADDRINUSE crash loop). macOS: launchd agent `dev.subshell.server` →
+`~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log`.
+
+### Embedded SPA + release dance
+
+`selectStaticPlugin` picks the static source at boot: an on-disk frontend
+dist wins (dev + svc.sh stay byte-identical), else the SPA baked into the
+binary by `scripts/embed-web.ts` (`src/generated/embedded-web.ts` — a
+TRACKED stub keeps the unconditional import legal on a fresh clone;
+embedded responses carry a strong `ETag`, the tell of memory mode), else
+boot fails loudly. Caveat measured on bun 1.4.0: the compiled binary bakes
+its BUILD-TIME source path into `import.meta.url`, so on the build machine
+the repo's own `apps/frontend/dist` shadows the embedded copy — hide that
+path (e.g. a bind-mount sandbox) before asserting embedded mode is live.
+
+From the repo root:
+
+```bash
+bunx turbo build           # 1. apps/frontend/dist must exist (embed preflight)
+bun run release:server     # 2. = apps/server compile:release (src/scripts/release.ts)
+```
+
+The pipeline embeds the SPA (the generator overwrites the stub; the stub is
+restored with `git checkout` in a `finally` — embedded bytes are release
+noise, never a commit), builds the three `SERVER_TARGETS` triples
+(`linux-x64`, `linux-arm64`, `darwin-arm64` — deliberately no darwin-x64;
+`@internal/subshell-protocol` `paths.ts`), each with `--bytecode` (bun ≥
+1.4.0 asserted; `SUBSHELL_SERVER_RELEASE_TRIPLES` scopes a subset for CI),
+and publishes atomically (tmp + rename + `.sha256` sidecar) to
+`SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — an
+operator drop dir to scp/deploy, not a data-dir ladder like the client's
+node artifacts. A failed target publishes NOTHING.
 
 ## Testing
 

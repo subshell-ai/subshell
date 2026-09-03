@@ -16,6 +16,19 @@
 - Release pipeline: root `release:agent` → `release:client`; all four served
   triples now build with `--bytecode` (bun ≥ 1.4.0 enforced, risk #9 retired —
   spec 2026-09-03 §5) and `SUBSHELL_RELEASE_TRIPLES` scopes a subset for CI
+- `subshell-server` now ships as a standalone compiled binary with the SPA
+  embedded — `bun run release:server` builds the three `SERVER_TARGETS`
+  triples (`linux-x64`, `linux-arm64`, `darwin-arm64`) into
+  `dist-server/` (`SUBSHELL_SERVER_RELEASE_DIR`); the binary serves the UI
+  with no frontend dist on the host (disk dist still wins when present)
+- Built-in server CLI: `subshell-server version | status | init | configure |
+  service install | service uninstall` (bare invocation still boots; handled
+  commands run fully synchronously and exit before the boot graph can
+  evaluate). Config home `~/.config/subshell-server/config.env` (0600,
+  precedence process env > config.env > `.env` > defaults), tmux preflight
+  (`SUBSHELL_SERVER_SKIP_TMUX_CHECK=1` to skip), and per-user service
+  install (systemd user unit / launchd agent `dev.subshell.server`) —
+  see `docs/subshell-rollout.md` (Addendum 2026-09-03, later)
 - No compatibility shims — migrate in order per `docs/subshell-rollout.md`
   (Addendum 2026-09-03)
 

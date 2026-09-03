@@ -277,3 +277,33 @@ vacates ~/.config/subshell BEFORE the client moves in.
 deployment names are unchanged (`subshell-server.service`,
 `SUBSHELL_SERVER_DATA_DIR`); the root release script is `bun run
 release:client`.
+
+## Addendum 2026-09-03 (later): subshell-server binary + CLI
+
+The control plane also ships as ONE self-contained binary with the SPA
+embedded (`bun run release:server` → `dist-server/subshell-server-<triple>`,
+triples `linux-x64|linux-arm64|darwin-arm64`), carrying a CLI:
+`subshell-server version | status | init | configure | service install |
+service uninstall` (a bare invocation still boots — plan 2, spec 2026-09-03).
+Nothing is forced by it: the disk-built frontend still wins over the
+embedded copy, so existing deployments are byte-identical until switched.
+
+- **This host: keep svc.sh.** `subshell-server service install` writes the
+  SAME unit name as `svc.sh` (`~/.config/systemd/user/subshell-server.service`)
+  — one owner per host. Until a deliberate cutover, the CLI here is
+  read-mostly (`status` is a safe view of what the boot would resolve);
+  the cutover itself would be `./svc.sh uninstall`, then `init` +
+  `service install`, moving the repo `.env` values the unit currently
+  exports into `~/.config/subshell-server/config.env` (0600) — the two
+  flows share the DATA dir but not the config source (svc.sh: repo `.env`
+  via `EnvironmentFile=`; CLI: `config.env`).
+- **Mac host: the CLI is the binary-flow path.** Drop the
+  `subshell-server-darwin-arm64` binary on it — no bun, no checkout, no
+  frontend dist needed (the SPA is embedded) — then
+  `./subshell-server init && ./subshell-server service install` registers
+  launchd agent `dev.subshell.server` (`~/Library/LaunchAgents/`, log
+  `~/Library/Logs/subshell-server.log`).
+
+Both `init`/`configure` and `service install` refuse without tmux
+(the `local` node needs it; escape hatch `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`).
+Details: `apps/server/AGENTS.md` ("Standalone binary & CLI").
