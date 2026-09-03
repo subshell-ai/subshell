@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildHarnessCommand, ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
-import type { NodeCommandBody, NodeProbeEntry } from "@internal/session-protocol";
+import type { NodeCommandBody, NodeProbeEntry } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";

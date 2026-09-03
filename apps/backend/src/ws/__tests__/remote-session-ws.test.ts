@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import type { JsonValue, NodeCommandBody } from "@internal/session-protocol";
+import type { JsonValue, NodeCommandBody } from "@internal/subshell-protocol";
 import { runMigrations } from "@/db/migrate.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import {

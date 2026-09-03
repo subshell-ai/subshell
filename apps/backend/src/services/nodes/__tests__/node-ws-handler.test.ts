@@ -4,7 +4,7 @@ import {
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";

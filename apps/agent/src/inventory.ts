@@ -1,5 +1,5 @@
 import { type HarnessInventoryEntry, scanHarnesses } from "@internal/harnesses";
-import type { NodeEvent } from "@internal/session-protocol";
+import type { NodeEvent } from "@internal/subshell-protocol";
 
 /** The `inventory` event shape (spec §3.3) — what the backend's `applyInventory` persists. */
 export type InventoryEvent = Extract<NodeEvent, { type: "inventory" }>;

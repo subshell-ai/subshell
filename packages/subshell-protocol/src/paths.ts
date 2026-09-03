@@ -14,7 +14,7 @@
  *    Same failure shape as 2: publish under one name, serve under another.
  *
  * Apps never import each other, so cross-boundary contracts live in
- * `@internal/session-protocol` (precedent: WS frames, upload limits).
+ * `@internal/subshell-protocol` (precedent: WS frames, upload limits).
  */
 
 /** One {@link NODE_TARGETS} entry. */

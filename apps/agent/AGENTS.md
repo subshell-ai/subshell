@@ -26,7 +26,7 @@ bun run verify-types     # tsc --noEmit
   documented duplicate of the backend's default in `apps/backend/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
   the tsdown output) — re-create with `cd apps/agent && bun run compile`.
-- Workspace deps (`harnesses`, `session-protocol`, `mcp-core`, `backend-errors`):
+- Workspace deps (`harnesses`, `subshell-protocol`, `mcp-core`, `backend-errors`):
   the compiled binary BUNDLES their dists, so `turbo build` must run first —
   `compile:release` preflights and refuses otherwise. The agent imports
   packages, never `apps/backend` code, and never opens the app database.

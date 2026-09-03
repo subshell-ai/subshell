@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@internal/harnesses";
-import type { NodeCommandBody, NodeEvent } from "@internal/session-protocol";
+import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { launcherFor, resetLauncherRegistryForTests } from "@/services/nodes/launcher-registry.js";
 import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";

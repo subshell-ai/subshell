@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NodeCommandBody } from "@internal/session-protocol";
+import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { db } from "@/db/index.js";

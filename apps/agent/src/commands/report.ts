@@ -1,4 +1,4 @@
-import type { NodeEvent } from "@internal/session-protocol";
+import type { NodeEvent } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 

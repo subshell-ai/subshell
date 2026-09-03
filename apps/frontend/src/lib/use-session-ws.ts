@@ -1,4 +1,4 @@
-import type { ServerFrame } from "@internal/session-protocol";
+import type { ServerFrame } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";

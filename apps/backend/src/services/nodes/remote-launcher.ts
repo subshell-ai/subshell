@@ -8,7 +8,7 @@ import {
   parseNodeProbeResume,
   parseNodePromptDeliver,
   parseNodeStatDirResult,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { logger } from "@/utils/logger.js";

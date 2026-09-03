@@ -1,4 +1,4 @@
-import { type NodeCommandBody, type NodeEvent, signCommand } from "@internal/session-protocol";
+import { type NodeCommandBody, type NodeEvent, signCommand } from "@internal/subshell-protocol";
 import { loadControlKeys } from "./control-keys.js";
 import { getLive, type NodeConnection } from "./node-registry.js";
 

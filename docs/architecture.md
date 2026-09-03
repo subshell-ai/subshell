@@ -58,7 +58,7 @@ Key properties:
   a compromised agent process cannot reach SQLite or auth secrets directly.
 - **The terminal transport does not fork for mobile.** The accessory key
   bar sends the same JSON `input` WS frames defined in
-  `packages/session-protocol` that desktop keystrokes already use
+  `packages/subshell-protocol` that desktop keystrokes already use
   ([spec](superpowers/specs/2026-08-30-mobile-support-design.md)).
 
 ## 2. Credentials & trust boundaries
@@ -398,7 +398,7 @@ guard rejects `kind: "node"` keys outright (spec §5.5); its whole blast radius
 is impersonating that node on `/ws/node`.
 
 **The wire.** Commands flow control-plane → agent as JWS-signed envelopes
-(`packages/session-protocol/src/node-signing.ts`; the signing keypair is
+(`packages/subshell-protocol/src/node-signing.ts`; the signing keypair is
 generated once at `<SESSION_DATA_DIR>/node-signing.json`, mode 0600,
 `services/nodes/control-keys.ts`). Signing proves authenticity/freshness/target
 (`iss`/`aud`/`exp`/`jti` + a per-connection `seq` hint) — not confidentiality

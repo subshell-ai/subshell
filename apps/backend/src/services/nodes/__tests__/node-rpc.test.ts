@@ -7,7 +7,7 @@ import {
   parseNodeEvent,
   SeqTracker,
   verifyCommand,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { loadControlKeys } from "../control-keys.js";
 import { attachConnection, type NodeSocket, resetNodeRegistryForTests } from "../node-registry.js";
 import { failConnPendings, type NodeResultEvent, NodeRpcError, resolveResult, sendCommand } from "../node-rpc.js";

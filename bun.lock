@@ -33,7 +33,7 @@
         "@internal/backend-errors": "workspace:*",
         "@internal/harnesses": "workspace:*",
         "@internal/mcp-core": "workspace:*",
-        "@internal/session-protocol": "workspace:*",
+        "@internal/subshell-protocol": "workspace:*",
         "jose": "6.2.9",
       },
       "devDependencies": {
@@ -56,7 +56,7 @@
         "@internal/backend-errors": "workspace:*",
         "@internal/harnesses": "workspace:*",
         "@internal/mcp-core": "workspace:*",
-        "@internal/session-protocol": "workspace:*",
+        "@internal/subshell-protocol": "workspace:*",
         "@loglayer/elysia": "2.4.0",
         "@loglayer/transport-simple-pretty-terminal": "3.3.0",
         "better-auth": "1.7.1",
@@ -97,7 +97,7 @@
         "@better-auth/passkey": "1.7.1",
         "@internal/backend-client": "workspace:*",
         "@internal/backend-errors": "workspace:*",
-        "@internal/session-protocol": "workspace:*",
+        "@internal/subshell-protocol": "workspace:*",
         "@loglayer/transport-simple-pretty-terminal": "3.3.0",
         "@tanstack/react-query": "5.101.4",
         "@tanstack/react-router": "1.170.30",
@@ -142,7 +142,7 @@
       "dependencies": {
         "@expo/vector-icons": "15.1.1",
         "@internal/backend-errors": "workspace:*",
-        "@internal/session-protocol": "workspace:*",
+        "@internal/subshell-protocol": "workspace:*",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@shopify/flash-list": "2.0.2",
         "@tanstack/react-query": "5.101.4",
@@ -250,8 +250,8 @@
         "tsdown": "0.22.14",
       },
     },
-    "packages/session-protocol": {
-      "name": "@internal/session-protocol",
+    "packages/subshell-protocol": {
+      "name": "@internal/subshell-protocol",
       "version": "1.0.0",
       "dependencies": {
         "jose": "6.2.9",
@@ -713,7 +713,7 @@
 
     "@internal/mobile": ["@internal/mobile@workspace:apps/mobile"],
 
-    "@internal/session-protocol": ["@internal/session-protocol@workspace:packages/session-protocol"],
+    "@internal/subshell-protocol": ["@internal/subshell-protocol@workspace:packages/subshell-protocol"],
 
     "@internal/tsconfig": ["@internal/tsconfig@workspace:packages/tsconfig"],
 

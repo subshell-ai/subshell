@@ -39,7 +39,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/frontend/.migration/`) |
 | Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per session), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
-| WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/session-protocol` |
+| WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
 | Workspaces | Per-user tiling layout of session panes via `dockview-react`; `layout_json` holds the split tree. Below 1024px it renders as tabs and never writes the layout, so a phone visit cannot flatten a desktop arrangement |
 | Mobile | <1024px = drawer shell + tab workspaces (`useIsWide`, `WORKSPACE_TILING_MIN_WIDTH`); ≥1024px = today's desktop shell; accessory terminal key bar sends raw WS `input` frames (same path as desktop keystrokes); PWA manifest, no service worker — spec [`superpowers/specs/2026-08-30-mobile-support-design.md`](superpowers/specs/2026-08-30-mobile-support-design.md) |
@@ -54,7 +54,7 @@ apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
 packages/harnesses         HarnessPlugin interface + four built-in harness plugins
 packages/backend-errors    shared error handler (scaffold)
 packages/backend-client    Eden Treaty client (scaffold; types inferred from backend's `App` type)
-packages/session-protocol  WS frame contract shared by backend + frontend
+packages/subshell-protocol WS frame contract shared by backend + frontend
 packages/mcp-core          stdio `subshell mcp` server, shared by backend's subshell-mcp binary and the agent
 packages/tsconfig          shared TS config (scaffold)
 ```

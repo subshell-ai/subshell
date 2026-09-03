@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TmuxRunner } from "@internal/harnesses";
-import type { NodeCommandBody, NodeEvent } from "@internal/session-protocol";
+import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import type { CommandContext, CommandResult } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";

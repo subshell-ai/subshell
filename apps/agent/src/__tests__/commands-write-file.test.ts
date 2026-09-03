@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type NodeCommandBody, parseNodeWriteFileResult } from "@internal/session-protocol";
+import { type NodeCommandBody, parseNodeWriteFileResult } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { cleanupStaleUploads, execWriteFile } from "../commands/write-file.js";

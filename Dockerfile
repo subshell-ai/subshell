@@ -18,7 +18,7 @@ COPY apps/backend/package.json apps/backend/
 COPY apps/frontend/package.json apps/frontend/
 COPY e2e/package.json e2e/
 COPY packages/harnesses/package.json packages/harnesses/
-COPY packages/session-protocol/package.json packages/session-protocol/
+COPY packages/subshell-protocol/package.json packages/subshell-protocol/
 COPY packages/backend-client/package.json packages/backend-client/
 COPY packages/backend-errors/package.json packages/backend-errors/
 COPY packages/tsconfig/package.json packages/tsconfig/
@@ -31,7 +31,7 @@ RUN bun install --frozen-lockfile --ignore-scripts
 FROM deps AS build
 COPY . .
 # Workspace packages must build first (backend imports their dist output).
-RUN bun run --cwd packages/session-protocol build \
+RUN bun run --cwd packages/subshell-protocol build \
  && bun run --cwd packages/harnesses build \
  && bun run --cwd packages/backend-errors build \
  && bun run --cwd packages/backend-client build \

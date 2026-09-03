@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "@internal/session-protocol";
+import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "@internal/subshell-protocol";
 import { injectText } from "../session-frames.js";
 import {
   insertionFailedMessage,

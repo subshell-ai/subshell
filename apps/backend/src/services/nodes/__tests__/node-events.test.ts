@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { NODE_CLOSE_UPDATE_REQUIRED, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/session-protocol";
+import { NODE_CLOSE_UPDATE_REQUIRED, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/subshell-protocol";
 import { dispatchOutput, resetNodeEventsForTests, setNodeLifecycleHooks, subscribeOutput } from "../node-events.js";
 import { resetNodeRegistryForTests } from "../node-registry.js";
 import {

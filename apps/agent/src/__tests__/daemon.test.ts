@@ -12,7 +12,7 @@ import {
   type NodeEvent,
   parseNodeEvent,
   signCommand,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { run as runCli } from "../cli.js";
 import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";

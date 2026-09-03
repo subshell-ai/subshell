@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { type ControlKeyPair, generateControlKeys } from "@internal/session-protocol";
+import { type ControlKeyPair, generateControlKeys } from "@internal/subshell-protocol";
 import { SESSION_DATA_DIR } from "@/constants.js";
 
 /**

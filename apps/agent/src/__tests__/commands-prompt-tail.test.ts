@@ -8,7 +8,7 @@ import {
   type NodeLogReadResult,
   parseNodeLogReadResult,
   parseNodePromptDeliver,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import type { CommandContext, CommandWs } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { execPromptDeliver } from "../commands/prompt.js";
@@ -23,7 +23,7 @@ import { SessionMetaStore } from "../session-meta.js";
  * tail tests use REAL temp files (the pump reads through `Bun.file` +
  * `fs.watch`, which is exactly the code under test) under a temp home — never
  * `~/.config`. Results are asserted against the REAL Task-1 validators from
- * `@internal/session-protocol` (`parseNodePromptDeliver`,
+ * `@internal/subshell-protocol` (`parseNodePromptDeliver`,
  * `parseNodeLogReadResult`) — an agent answer the backend would reject is a bug.
  */
 

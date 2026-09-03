@@ -1,4 +1,4 @@
-import type { NodeCommandBody } from "@internal/session-protocol";
+import type { NodeCommandBody } from "@internal/subshell-protocol";
 import {
   execCapture,
   execInput,

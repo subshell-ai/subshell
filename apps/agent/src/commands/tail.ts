@@ -1,5 +1,5 @@
 import { type FSWatcher, watch } from "node:fs";
-import type { JsonValue, NodeEvent, NodeLogReadResult } from "@internal/session-protocol";
+import type { JsonValue, NodeEvent, NodeLogReadResult } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { isSessionId } from "../session-meta.js";
 import type { Cmd, CommandContext, CommandResult, TailHandle } from "./context.js";

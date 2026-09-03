@@ -1,4 +1,4 @@
-import { type JsonValue, type NodeCommandBody, parseNodeCommandBody } from "@internal/session-protocol";
+import { type JsonValue, type NodeCommandBody, parseNodeCommandBody } from "@internal/subshell-protocol";
 import {
   attachConnection,
   detachConnection,

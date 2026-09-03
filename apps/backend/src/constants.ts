@@ -6,7 +6,7 @@ import { config } from "@dotenvx/dotenvx";
 import {
   DEFAULT_DATABASE_PATH,
   defaultSessionDataDir as sharedDefaultSessionDataDir,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
 
 // A missing .env is not an error: deployments (Docker, systemd, CI) inject
@@ -127,7 +127,7 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
 /**
  * The database file's directory, or `./data` when the path is not file-backed
  * (an in-memory database or a SQLite URI has no meaningful dirname). The rule
- * itself lives in `@internal/session-protocol` (paths.ts) because the agent's
+ * itself lives in `@internal/subshell-protocol` (paths.ts) because the agent's
  * release pipeline must derive the SAME node-artifacts default — the ladder
  * is a cross-process contract, not a backend secret.
  */

@@ -1,6 +1,6 @@
 import { appendFile, lstat, mkdir, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import type { NodeCommandBody } from "@internal/session-protocol";
+import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { enforceMode } from "../fs-mode.js";
 import { log } from "../log.js";
 import { pathAllowed } from "../path-policy.js";

@@ -1,5 +1,5 @@
 import { stripAnsi } from "@internal/backend-errors";
-import type { JsonValue, NodePromptDeliverResult } from "@internal/session-protocol";
+import type { JsonValue, NodePromptDeliverResult } from "@internal/subshell-protocol";
 import { resolveSocket } from "./basics.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 

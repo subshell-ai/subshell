@@ -1,6 +1,6 @@
 import { realpath, stat, unlink } from "node:fs/promises";
 import { getHarness, tmuxSocketFor } from "@internal/harnesses";
-import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/session-protocol";
+import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSessionId } from "../session-meta.js";

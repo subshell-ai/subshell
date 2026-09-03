@@ -4,7 +4,7 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
   parseNodeEvent,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { HttpError } from "@/api/auth-guard.js";
 import { auth } from "@/auth.js";
 import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
-import { parseNodeWriteFileResult } from "@internal/session-protocol";
+import { parseNodeWriteFileResult } from "@internal/subshell-protocol";
 import { fileTypeFromBuffer } from "file-type";
 import sanitize from "sanitize-filename";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";

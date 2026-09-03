@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";

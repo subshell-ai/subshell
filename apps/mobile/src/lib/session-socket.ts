@@ -1,4 +1,4 @@
-import type { ClientFrame, ServerFrame } from "@internal/session-protocol";
+import type { ClientFrame, ServerFrame } from "@internal/subshell-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SubshellClient } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";

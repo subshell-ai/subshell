@@ -65,7 +65,7 @@ export function isNodeSessionId(id: string): boolean {
 /**
  * Structural JSON mirror of `@internal/harnesses`' `ProfileDefinition`.
  *
- * Deliberately a copy: session-protocol is bundled by the frontend and must
+ * Deliberately a copy: subshell-protocol is bundled by the frontend and must
  * not pull harnesses (which imports node:fs) at runtime (spec §3.2). The
  * agent decodes the blob against the real `ProfileDefinition` at launch.
  */

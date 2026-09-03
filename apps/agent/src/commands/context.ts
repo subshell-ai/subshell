@@ -1,5 +1,5 @@
 import type { TmuxRunner } from "@internal/harnesses";
-import type { JsonValue, NodeCommandBody, NodeEvent } from "@internal/session-protocol";
+import type { JsonValue, NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import type { AgentConfig } from "../config.js";
 import type { SessionMetaStore } from "../session-meta.js";
 
@@ -117,7 +117,7 @@ export interface CommandContext {
 /**
  * One command's answer — the body of the `result` frame the daemon sends.
  * `data` must satisfy the per-command validator in
- * `@internal/session-protocol` `node-results.ts` when that command has one.
+ * `@internal/subshell-protocol` `node-results.ts` when that command has one.
  */
 export type CommandResult = { ok: true; data?: JsonValue } | { ok: false; error: string };
 

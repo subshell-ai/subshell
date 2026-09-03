@@ -1,4 +1,4 @@
-import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "@internal/session-protocol";
+import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "@internal/subshell-protocol";
 
 /** One key-bar button — every button sends raw bytes, like a physical key. */
 export interface KeyBarButton {

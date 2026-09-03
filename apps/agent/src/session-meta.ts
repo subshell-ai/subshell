@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isNodeSessionId } from "@internal/session-protocol";
+import { isNodeSessionId } from "@internal/subshell-protocol";
 import { enforceMode } from "./fs-mode.js";
 import { log } from "./log.js";
 
@@ -30,7 +30,7 @@ const META_SUFFIX = ".meta.json";
 
 /**
  * Agent-side name for the protocol package's ONE session-id guard
- * (`isNodeSessionId` in `@internal/session-protocol` — ids interpolated into
+ * (`isNodeSessionId` in `@internal/subshell-protocol` — ids interpolated into
  * node-side paths; wire contract shared by backend RemoteLauncher gates and
  * the agent path policy). The alias keeps every call site below reading as
  * the agent's own boundary check. The boundary matters: ids arrive over a

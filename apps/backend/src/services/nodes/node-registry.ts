@@ -1,4 +1,4 @@
-import { NODE_CLOSE_SUPERSEDED } from "@internal/session-protocol";
+import { NODE_CLOSE_SUPERSEDED } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NodeRpcError } from "./node-rpc.js";
 

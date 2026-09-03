@@ -1,6 +1,6 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { MAX_UPLOAD_BYTES } from "@internal/session-protocol";
+import { MAX_UPLOAD_BYTES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
@@ -15,7 +15,7 @@ import { logger } from "@/utils/logger.js";
 /** Multipart body: exactly one file per request. */
 const UploadBodySchema = t.Object({
   file: t.File({
-    // Shared with the browser via @internal/session-protocol so the two caps
+    // Shared with the browser via @internal/subshell-protocol so the two caps
     // cannot drift; a drift would be silent, with the client accepting files
     // the server then refuses.
     maxSize: MAX_UPLOAD_BYTES,

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tmuxSocketFor } from "@internal/harnesses";
-import type { NodeEvent } from "@internal/session-protocol";
+import type { NodeEvent } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import type { AgentConfig } from "../config.js";

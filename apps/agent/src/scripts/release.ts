@@ -19,7 +19,7 @@ import { copyFile, mkdir, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/session-protocol";
+import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/subshell-protocol";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -41,7 +41,7 @@ const REPO_ROOT = resolve(AGENT_DIR, "..", "..");
 /**
  * The closed set of cross-compiled platform triples — the SAME served set
  * the backend's downloads route gates on (single source of truth in
- * `@internal/session-protocol`). Named `CROSS_TARGETS` here because in the
+ * `@internal/subshell-protocol`). Named `CROSS_TARGETS` here because in the
  * build schedule every entry is a cross build UNLESS the host wins it.
  */
 export const CROSS_TARGETS = NODE_TARGETS;
@@ -174,7 +174,7 @@ export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, de
 /**
  * The publish destination — the env ladder shared with the backend's
  * `NODE_ARTIFACTS_DIR` via `resolveNodeArtifactsDir`
- * (`@internal/session-protocol` paths.ts): `SUBSHELL_NODE_ARTIFACTS_DIR`, else
+ * (`@internal/subshell-protocol` paths.ts): `SUBSHELL_NODE_ARTIFACTS_DIR`, else
  * `<SESSION_DATA_DIR>/node-artifacts`, else the DATABASE_PATH-derived data
  * dir. Resolved against THIS cwd (the ladder is the contract; the cwd
  * difference between the two apps is why only the ladder is shared).

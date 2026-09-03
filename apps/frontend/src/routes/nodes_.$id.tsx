@@ -1,4 +1,4 @@
-import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { RefreshCw, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";

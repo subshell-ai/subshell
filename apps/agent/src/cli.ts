@@ -1,5 +1,5 @@
 import { readMcpEnv } from "@internal/mcp-core";
-import { NODE_PROTOCOL_VERSION } from "@internal/session-protocol";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type AgentConfig, loadConfig } from "./config.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";

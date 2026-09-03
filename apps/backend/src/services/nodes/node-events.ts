@@ -1,4 +1,4 @@
-import type { NodeEvent } from "@internal/session-protocol";
+import type { NodeEvent } from "@internal/subshell-protocol";
 
 /**
  * The backend event plane for `/ws/node` (spec 2026-08-31 §3.3, phase 2).

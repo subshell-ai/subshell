@@ -19,7 +19,7 @@ subshell/
 │   ├── tsconfig/                   # Shared TypeScript configuration
 │   ├── backend-errors/             # Error emission and handling for the backend
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
-│   ├── session-protocol/           # Session contract shared by backend and frontend: WS frames, upload limits
+│   ├── subshell-protocol/          # Session contract shared by backend and frontend: WS frames, upload limits
 │   ├── harnesses/                  # Harness plugin interface and built-in agent harness plugins
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── turbo.json                      # Turbo task configuration
@@ -166,11 +166,11 @@ systemctl --user restart subshell-server.service     # 3. the backend serves the
 
 The Turbo pipeline ensures correct build order:
 
-1. `@internal/backend-errors`, `@internal/session-protocol`, and `@internal/mcp-core` build first (no internal deps)
-2. `@internal/backend` depends on backend-errors, session-protocol, harnesses, and mcp-core
+1. `@internal/backend-errors`, `@internal/subshell-protocol`, and `@internal/mcp-core` build first (no internal deps)
+2. `@internal/backend` depends on backend-errors, subshell-protocol, harnesses, and mcp-core
 3. `@internal/backend-client` depends on backend (imports the `App` type for Eden Treaty)
-4. `apps/frontend` depends on backend-client and session-protocol
-5. `@internal/agent` (`apps/agent`) depends on backend-errors, session-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:agent` (and the reverse hazard: the build wipes `apps/agent/dist/subshell`)
+4. `apps/frontend` depends on backend-client and subshell-protocol
+5. `@internal/agent` (`apps/agent`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:agent` (and the reverse hazard: the build wipes `apps/agent/dist/subshell`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 

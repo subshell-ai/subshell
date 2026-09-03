@@ -1,4 +1,4 @@
-import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, type ClientFrame } from "@internal/session-protocol";
+import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, type ClientFrame } from "@internal/subshell-protocol";
 
 /** Serializes and sends a frame when the socket is open; a no-op otherwise. */
 function send(ws: WebSocket | null, frame: ClientFrame): void {

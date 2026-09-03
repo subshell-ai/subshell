@@ -10,7 +10,7 @@ import {
   type NodeEvent,
   SeqTracker,
   verifyCommand,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
@@ -46,7 +46,7 @@ import { AGENT_VERSION } from "./version.js";
 /**
  * Terminal close codes (spec §5.3): 4409 — another agent superseded this
  * node's identity; 4406 — protocol mismatch, the agent binary must be
- * updated. The values live in `@internal/session-protocol` (hoisted so the
+ * updated. The values live in `@internal/subshell-protocol` (hoisted so the
  * daemon's terminal-close check and the backend registry share one source);
  * `src/index.ts` re-exports them from the package directly.
  */

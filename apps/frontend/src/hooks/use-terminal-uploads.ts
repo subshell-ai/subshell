@@ -1,4 +1,4 @@
-import { MAX_UPLOAD_BYTES } from "@internal/session-protocol";
+import { MAX_UPLOAD_BYTES } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type FileRejection, useDropzone } from "react-dropzone";

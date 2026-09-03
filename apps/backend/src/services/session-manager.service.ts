@@ -10,7 +10,7 @@ import {
   type TmuxRunner,
   tmuxSocketFor,
 } from "@internal/harnesses";
-import { type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/session-protocol";
+import { type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";

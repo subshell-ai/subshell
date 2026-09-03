@@ -1,6 +1,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
-import { parseClientFrame } from "@internal/session-protocol";
+import { parseClientFrame } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
@@ -620,7 +620,7 @@ function startPanePoll(ws: WsSocket, data: WsData): void {
 /**
  * Client → server frame dispatch.
  *
- * Every client frame is JSON (see `@internal/session-protocol`). Elysia's
+ * Every client frame is JSON (see `@internal/subshell-protocol`). Elysia's
  * WebSocket middleware JSON-parses frames that start with `{`, so `message`
  * may arrive as either the raw text or an already-parsed object;
  * `parseClientFrame` accepts both. Anything that is not a valid frame is

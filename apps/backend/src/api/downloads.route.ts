@@ -1,7 +1,7 @@
 import { type Stats, statSync } from "node:fs";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/session-protocol";
+import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";

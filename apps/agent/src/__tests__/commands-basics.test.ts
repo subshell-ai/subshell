@@ -10,7 +10,7 @@ import {
   parseNodeProbeEntries,
   parseNodeProbeResume,
   parseNodeStatDirResult,
-} from "@internal/session-protocol";
+} from "@internal/subshell-protocol";
 import { PROBE_RESULT_BUDGET_BYTES } from "../commands/basics.js";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
