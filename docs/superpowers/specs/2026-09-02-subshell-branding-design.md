@@ -54,10 +54,12 @@ dust tail off the final "ll".
 
 ### 1.3 Mark (favicon / app icon)
 
-`/s` — slash + lowercase s from the same face — **Thin 100**, gradient slash, `s` in
-`brand.shell`, on an `#0a0a0a` tile with ~22% corner radius. **The mark never carries dust**
-— the dust tail belongs to the wordmark only (operator decision, 2026-09-02). Centered optically (the slash
-leans left; nudge ~2% right). For maskable PWA and apple-touch variants the tile is
+`/s` — gradient slash + `s` in `brand.shell`, on an `#0a0a0a` tile with ~22% corner radius.
+**The mark never carries dust** — the dust tail belongs to the wordmark only (operator
+decision, 2026-09-02). The mark is **Thin 100 like the wordmark** — the operator chose the
+faithful cut over heavier ones after seeing them rendered at 16/32/64px (2026-09-02); the
+glyph therefore fills ≈⅔ of the tile to buy back legibility, and is centered optically (the
+slash leans left; ~1% right nudge). For maskable PWA and apple-touch variants the tile is
 full-bleed square and the glyph is kept inside the central 80% safe zone.
 
 ### 1.4 Scale rules

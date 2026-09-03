@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Subshell</title>
+  <defs>
+    <linearGradient id="slash" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#744b8d"/>
+      <stop offset="0.62" stop-color="#a678bd"/>
+      <stop offset="1" stop-color="#d9c6e8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="113" fill="#0a0a0a"/>
+  <g font-family="Acherus Grotesque Thin" font-size="340" letter-spacing="3.74">
+    <text x="111" y="375" fill="url(#slash)">/</text>
+    <text x="234" y="375" fill="#e6dbef">s</text>
+  </g>
+</svg>
