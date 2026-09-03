@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/assets/subshell-wordmark@2x.png" width="640" alt="Subshell" />
+</div>
+
 # Subshell
 
 A web application for creating, viewing, and managing interactive **agent harness sessions**
