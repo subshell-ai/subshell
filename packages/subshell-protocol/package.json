@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./release-artifacts": {
+      "types": "./dist/release-artifacts.d.ts",
+      "import": "./dist/release-artifacts.js"
     }
   },
   "types": "dist/index.d.ts",

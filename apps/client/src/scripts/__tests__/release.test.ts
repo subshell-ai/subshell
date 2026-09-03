@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { digestFile } from "@internal/subshell-protocol";
+import { digestFile } from "@internal/subshell-protocol/release-artifacts";
 import {
   type BuildAllResult,
   buildAll,

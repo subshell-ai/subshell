@@ -17,6 +17,7 @@
 - Env renames: `SUBSHELL_AGENT_HOME` → `SUBSHELL_CONFIG_HOME`, `SUBSHELL_AGENT_SKIP_TMUX_CHECK` → `SUBSHELL_CLIENT_SKIP_TMUX_CHECK`.
 - No dynamic imports (project rule). Pinned dep versions only. Scripts run with `bun`/`bunx`, never npm.
 - Verification after every code task: `bun run verify-types && bun run lint:check && bun run test` from repo root (the e2e Playwright suite is NOT in `bun run test`; do not run it here — it needs a live tmux + `bunx playwright install`).
+- **Any task touching `packages/` additionally runs `bunx turbo build`** (`.claude/rules/build.md`) — and for `subshell-protocol` specifically, must keep its barrel `node:*`-free (apps/mobile Metro imports it; `bunx expo export --platform android` in `apps/mobile` is the regression gate — added after Task 4 review).
 - Release scripts must refuse to run on bun < 1.4.0 (bytecode-cross spike floor).
 - Commits: Conventional Commits (commitlint hook). Work on branch `feat/release-artifacts`.
 
@@ -265,32 +266,24 @@ Expected: FAIL — cannot resolve `../release-artifacts.js`.
  */
 ```
 
-- [ ] **Step 4: Export from the index**
+- [ ] **Step 4: Export via SUBPATH, not the barrel** (amended post-review: the barrel is
+  Metro-imported by `apps/mobile` and must stay free of `node:*` — `expo export` is the gate)
 
-Append to `packages/subshell-protocol/src/index.ts` (after the `./paths.js` block):
-
-```typescript
-export {
-  type BuiltArtifact,
-  digestFile,
-  publishArtifacts,
-} from "./release-artifacts.js";
-```
+Add a second tsdown entry for `src/release-artifacts.ts` in the protocol package's build
+config and a `./release-artifacts` entry in `packages/subshell-protocol/package.json`
+`exports` (types + import, mirroring the root entry's style). `src/index.ts` does NOT
+export these symbols.
 
 - [ ] **Step 5: Rewire the client script**
 
 In `apps/client/src/scripts/release.ts`: DELETE the local `digestFile`, `BuiltArtifact`, and `publishArtifacts` definitions and their now-unused node imports; change the protocol import line to:
 
 ```typescript
-import {
-  type BuiltArtifact,
-  digestFile,
-  NODE_TARGETS,
-  nodeArtifactFileName,
-  publishArtifacts,
-  resolveNodeArtifactsDir,
-} from "@internal/subshell-protocol";
+import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/subshell-protocol";
+import { type BuiltArtifact, digestFile, publishArtifacts } from "@internal/subshell-protocol/release-artifacts";
 ```
+
+(The test file `apps/client/src/scripts/__tests__/release.test.ts` imports `digestFile` from the same subpath — amend its Task-4-added import line identically.)
 
 Re-export nothing. In `apps/client/src/scripts/__tests__/release.test.ts` keep the remaining tests and add (so the MOVED helpers stay covered through the production import):
 

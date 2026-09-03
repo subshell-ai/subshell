@@ -17,14 +17,8 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  type BuiltArtifact,
-  digestFile,
-  NODE_TARGETS,
-  nodeArtifactFileName,
-  publishArtifacts,
-  resolveNodeArtifactsDir,
-} from "@internal/subshell-protocol";
+import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/subshell-protocol";
+import { type BuiltArtifact, digestFile, publishArtifacts } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */

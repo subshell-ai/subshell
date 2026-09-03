@@ -59,9 +59,7 @@ export {
   nodeArtifactFileName,
   resolveNodeArtifactsDir,
 } from "./paths.js";
-export {
-  type BuiltArtifact,
-  digestFile,
-  publishArtifacts,
-} from "./release-artifacts.js";
+// NOTE: release-artifacts.ts (node: builtins) is intentionally NOT re-exported
+// here — this barrel is imported by apps/mobile through Metro, which cannot
+// resolve `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts".
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
