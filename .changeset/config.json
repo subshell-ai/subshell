@@ -1,6 +1,11 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "subshell-ai/subshell" }],
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "subshell-ai/subshell"
+    }
+  ],
   "access": "restricted",
   "baseBranch": "main",
   "ignore": [
@@ -14,5 +19,9 @@
     "@internal/mobile",
     "@internal/subshell-protocol",
     "@internal/tsconfig"
-  ]
+  ],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  }
 }
