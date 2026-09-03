@@ -6,6 +6,7 @@ import { sessionRoutes } from "@/api/sessions/index.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -33,6 +34,11 @@ describe("harness enable/disable", () => {
     // POSIX runner and answers `--version` with exit 0.
     process.env.CLAUDE_PATH = "/bin/true";
     await setupAuthTables();
+    // The session-create call below takes resolveLaunchNode's step 3 (the
+    // seeded local node). That row arrives with app boot in production, and
+    // with whichever test file booted first in the full suite — this file
+    // must not depend on suite order (CI ordering proved it does).
+    await ensureLocalNode(db);
     email = `enable-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(password), role: "user" });
     token = await signIn(email, password);
