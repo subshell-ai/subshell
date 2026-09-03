@@ -14,18 +14,24 @@ this move — "brand palette as canonical if/when the UI accent moves to purple"
 
 ## Token map (`apps/frontend/src/styles.css`)
 
+The first pass rode a near-black violet void (`oklch(0.13 0.045 318)`); the operator
+rejected it in favour of the mid slate-indigo seen on the option sheets — the ground is
+now **`#1d182a` exactly**, hue 296° (indigo side, calmer than the 318° magenta), with the
+ramp rebuilt around it at lower chroma.
+
 | Token | Value |
 |---|---|
-| `--background` | `oklch(0.13 0.045 318)` |
+| `--background` | `oklch(0.224 0.035 296)` (= `#1d182a`, operator-approved swatch) |
 | `--foreground` / card / popover fg | `oklch(0.92 0.03 312)` frost |
-| `--card` / `--popover` | `oklch(0.175 0.05 318)` |
+| `--card` / `--popover` | `oklch(0.255 0.032 296)` |
 | `--primary` / `--ring` | `oklch(0.75 0.17 322)` orchid / `oklch(0.62 0.13 322)` |
 | `--primary-foreground` | `oklch(0.16 0.05 322)` |
-| `--secondary` / `--muted` | `oklch(0.23 0.05 318)` |
-| `--accent` | `oklch(0.3 0.06 318)` |
-| `--border` / `--input` | `oklch(0.32 0.06 318)` |
+| `--secondary` / `--muted` | `oklch(0.29 0.034 296)` |
+| `--muted-foreground` | `oklch(0.74 0.04 310)` |
+| `--accent` | `oklch(0.33 0.04 296)` |
+| `--border` / `--input` | `oklch(0.33 0.035 296)` |
 | `--success` / `--warning` / `--destructive` | **unchanged semantics** |
-| terminal strip / canvas / tab | `#1d1230` / `#150c24` / `#26173d` |
+| terminal strip / canvas / tab | `#221c32` / `#181226` / `#2b243e` |
 
 `--primary` intentionally stays **bright** — links, focus rings, the active-tab underline
 (`border-primary`), switch tracks and hover glows ride it. Quietness is applied at the
