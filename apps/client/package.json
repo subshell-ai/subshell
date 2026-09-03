@@ -1,6 +1,6 @@
 {
-  "name": "@internal/agent",
-  "description": "subshell — node daemon: enrolls with the control plane and executes signed commands",
+  "name": "@internal/client",
+  "description": "subshell — node client daemon: enrolls with the control plane and executes signed commands",
   "version": "0.1.0",
   "type": "module",
   "private": true,

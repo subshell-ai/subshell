@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
-import { type RunningAgent, startAgent } from "../stub/agent";
+import { type RunningAgent, startAgent } from "../stub/client";
 import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
