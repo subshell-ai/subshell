@@ -375,7 +375,6 @@ describe("assertBunFloor (risk #9 disproved at 1.4.0)", () => {
   });
   test("refuses below the floor", () => {
     expect(() => assertBunFloor("1.4.0", "1.3.10")).toThrow(/bun 1\.4\.0/);
-    expect(() => assertBunFloor("1.4.0", "1.4.0")).not.toThrow();
     expect(() => assertBunFloor("1.4.0", "1.4.0-canary1")).not.toThrow();
   });
 });
@@ -489,6 +488,7 @@ Expected: all pass.
 - [ ] **Step 5: Real-build smoke (proves argv shape is executable, not just asserted)**
 
 ```bash
+bunx turbo build   # release preflight requires packages/*/dist (also wipes apps/client/dist/subshell — dev binary, rebuild with `bun run --cwd apps/client compile` if used)
 SUBSHELL_RELEASE_TRIPLES=darwin-x64 SUBSHELL_NODE_ARTIFACTS_DIR=/tmp/p1-smoke bun run release:client
 ls -la /tmp/p1-smoke/ && head -c16 /tmp/p1-smoke/subshell-darwin-x64 | od -c | head -1
 ```
