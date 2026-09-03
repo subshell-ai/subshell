@@ -16,10 +16,10 @@ test("signed-out deep-link round-trips through /login?redirect", async ({ page }
   await expect(page).toHaveURL(/\/login/);
   expect(new URL(page.url()).searchParams.has("redirect")).toBe(true);
   // The login frame is bare: no sidebar (desktop), no drawer bar (mobile),
-  // and no Logout affordance anywhere.
+  // and no signed-in user menu (the post-split Account/Sign-out affordance).
   await expect(page.locator("aside")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
-  await expect(page.getByText("Logout")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Account —/ })).toHaveCount(0);
 
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
