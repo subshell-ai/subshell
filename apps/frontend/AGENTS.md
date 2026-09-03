@@ -32,6 +32,19 @@ src/
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
 
+**The sidebar (`components/app-sidebar.tsx` + `components/sidebar/`) is more
+than nav.** Recent subshell rows carry a status dot and are the drag source of
+"drag a session into a workspace" (targets: `workspace-dock.tsx`'s tiles
+wrapper and the `/workspaces` cards; the payload contract is
+`lib/subshell-dnd.ts` — handlers react ONLY to its MIME, which is what keeps
+xterm's file-drop and dockview's tab-drag untouched). Status words/precedence
+live once in `lib/subshell-indicator.ts` (home card badges consume it), and
+the dot fills beside it. Subshell lists everywhere are kept current by ONE
+SSE feed — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
+signed-in-only — which writes each `/api/events` frame into
+`SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
+by opening another EventSource.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 Add-node dialog renders the install one-liner from `GET /api/settings/public →
