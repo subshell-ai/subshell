@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { nameIsUsable, ProfileCard } from "@/components/profile-card";
 import * as auth from "@/lib/auth";
+import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 /** The Profile card's only rule (spec 2026-09-02 settings-split §1.1): the
  * display name saves trimmed and must not be blank; email is read-only. */
@@ -40,7 +41,7 @@ describe("ProfileCard", () => {
   ) {
     spies.push(spyOn(auth, "getSessionUser").mockImplementation(refresh));
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    qc.setQueryData(["current-user"], USER);
+    qc.setQueryData(CURRENT_USER_QUERY_KEY, USER);
     render(
       <QueryClientProvider client={qc}>
         <ProfileCard updateUser={updateUser} />

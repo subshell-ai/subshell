@@ -79,8 +79,8 @@ async function signOut() {
 export function AppSidebar({ forceExpanded = false, className }: { forceExpanded?: boolean; className?: string }) {
   const location = useLocation();
   const navigate = useNavigate();
-  // Identity for the user menu (footer). While in flight the menu shows the
-  // "Signed in" fallback — accepted per the Task 3 design.
+  // Identity for the user menu (footer). "" fields while in flight — the
+  // menu renders its own "Signed in" placeholder (UserMenu owns that string).
   const { data: user } = useCurrentUser();
   // Admin-nav gate for the Server entry (spec 2026-09-02 settings-split §4) —
   // the same cached query the emergency banner / Add-node dialog use.
@@ -213,7 +213,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
       <div className="border-border border-t p-2">
         <UserMenu
           name={user?.name ?? ""}
-          email={user?.email ?? "Signed in"}
+          email={user?.email ?? ""}
           collapsed={collapsed}
           onAccountSettings={() => void navigate({ to: "/account" })}
           onSignOut={() => void signOut()}

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { isAdmin } from "@/api/user-utils.js";
+import { isCookieAdmin } from "@/api/user-utils.js";
 import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
@@ -48,10 +48,9 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         allowRegistrations: allow,
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
-        // Cookie-only on purpose: the guard's bearer `user` is the session
-        // OWNER, so isAdmin alone would let an admin-owned token flip admin
-        // chrome (same reasoning as GET / below).
-        viewerIsAdmin: actor === "cookie" && (await isAdmin(user)),
+        // Cookie-admin rule in one place (user-utils): bearer actors read
+        // false even when their owner is an admin.
+        viewerIsAdmin: await isCookieAdmin(user, actor),
       } as const;
     },
     {
@@ -67,12 +66,11 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
   .get(
     "/",
     async ({ user, actor }) => {
-      // Cookie-only admins, mirroring requireAdmin / users.route.ts: a bearer
-      // actor's synthetic `user` is the session OWNER (auth-guard), so
-      // isAdmin(user) alone would let an admin-owned session token read and
-      // write instance settings. Machine credentials cannot manage the
-      // instance.
-      if (actor !== "cookie" || !(await isAdmin(user))) {
+      // The shared cookie-admin rule (user-utils): a bearer actor's synthetic
+      // `user` is the session OWNER, so isAdmin alone would let an
+      // admin-owned session token read instance settings. Machine
+      // credentials cannot manage the instance.
+      if (!(await isCookieAdmin(user, actor))) {
         throw new SettingsError("forbidden", "Admins only (cookie session)");
       }
       const repo = new SettingsRepository(db);
@@ -93,7 +91,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     async ({ body, user, actor }) => {
       // Same cookie+admin gate as GET / above: bearer keys (session or system)
       // never reach settings writes even when their owner is an admin.
-      if (actor !== "cookie" || !(await isAdmin(user))) {
+      if (!(await isCookieAdmin(user, actor))) {
         throw new SettingsError("forbidden", "Admins only (cookie session)");
       }
       const repo = new SettingsRepository(db);

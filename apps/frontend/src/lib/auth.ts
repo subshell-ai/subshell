@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { authClient } from "@/lib/auth-client";
+import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 export interface SessionUser {
   id: string;
@@ -24,7 +25,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 /** React Query hook for the current user. */
 export function useCurrentUser() {
   return useQuery({
-    queryKey: ["current-user"],
+    queryKey: CURRENT_USER_QUERY_KEY,
     queryFn: getSessionUser,
     staleTime: 30_000,
   });

@@ -10,6 +10,9 @@
  * invalidation prefixes — `invalidateQueries` matches on array prefix.
  */
 
+/** The current user's identity (`getSessionUser` via better-auth); read via `useCurrentUser`. */
+export const CURRENT_USER_QUERY_KEY = ["current-user"] as const;
+
 /** The caller's session list (`GET /api/sessions`); read via `useSessionsList`. */
 export const SESSIONS_QUERY_KEY = ["sessions"] as const;
 

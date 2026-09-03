@@ -27,7 +27,9 @@ export function initialsOf(name: string, email: string): string {
 export interface UserMenuProps {
   /** Signed-in user's display name (may be empty) */
   name: string;
-  /** Signed-in user's email; the avatar fallback and name-less display */
+  /** Signed-in user's email; "" while the identity query resolves — the
+   * loading placeholder ("Signed in") is THIS component's decision, not the
+   * caller's, so the string never masquerades as an address in the header. */
   email: string;
   /** Icon-only trigger for the collapsed rail */
   collapsed: boolean;
@@ -38,7 +40,7 @@ export interface UserMenuProps {
 }
 
 export function UserMenu({ name, email, collapsed, onAccountSettings, onSignOut }: UserMenuProps): JSX.Element {
-  const display = name.trim() || email;
+  const display = name.trim() || email || "Signed in";
   const avatar = (
     <span
       aria-hidden
@@ -72,8 +74,8 @@ export function UserMenu({ name, email, collapsed, onAccountSettings, onSignOut 
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-56">
         <div className="px-2 py-1.5">
-          <p className="truncate font-medium text-sm">{name.trim() || "(no name)"}</p>
-          <p className="truncate text-muted-foreground text-xs">{email}</p>
+          <p className="truncate font-medium text-sm">{name.trim() || (email ? "(no name)" : "Signed in")}</p>
+          {email ? <p className="truncate text-muted-foreground text-xs">{email}</p> : null}
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onAccountSettings}>

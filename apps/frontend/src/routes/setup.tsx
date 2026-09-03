@@ -11,6 +11,7 @@ import { useHarnessToggles } from "@/hooks/use-harness-toggles";
 import { useHarnesses, useRecheckHarnesses } from "@/hooks/use-harnesses";
 import { apiFetch } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -65,7 +66,7 @@ function SetupPage() {
       // Sign-up just created the session cookie, but the shell's guard still
       // holds the pre-registration `null` session (30 s staleTime) and would
       // bounce this SPA navigation to /login. Refresh it so the guard knows.
-      queryClient.invalidateQueries({ queryKey: ["current-user"] });
+      queryClient.invalidateQueries({ queryKey: CURRENT_USER_QUERY_KEY });
       setStep(1);
     } catch {
       setRegError("Network error");

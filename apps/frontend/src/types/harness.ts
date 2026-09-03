@@ -1,6 +1,7 @@
 /**
  * A harness plugin as reported by `GET /api/setup/harnesses` — the shape the
- * setup wizard, the settings page and the profile forms all read.
+ * setup wizard and the profile forms read (harness enablement itself lives
+ * per node, `/nodes/:id`).
  */
 export interface HarnessInfo {
   /** Plugin id, e.g. "claude-code" — stored on profiles as `harnessId` */

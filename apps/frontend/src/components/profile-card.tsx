@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
+import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * The Profile card's only rule (spec 2026-09-02 settings-split §1.1): the
@@ -77,7 +78,7 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
       setSaved(true);
       // One source of truth: the sidebar menu and this card both read the
       // ["current-user"] query — refresh it and the new name shows everywhere.
-      await queryClient.invalidateQueries({ queryKey: ["current-user"] });
+      await queryClient.invalidateQueries({ queryKey: CURRENT_USER_QUERY_KEY });
     } catch {
       setError("Network error");
     } finally {

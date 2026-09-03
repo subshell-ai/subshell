@@ -1,8 +1,8 @@
 import { hashPassword } from "better-auth/crypto";
 import { Elysia, t } from "elysia";
 import { authGuard, requireAdmin } from "@/api/auth-guard.js";
+import { isCookieAdmin } from "@/api/user-utils.js";
 import { db } from "@/db/index.js";
-import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { audit } from "@/services/audit.js";
 import { ensureDefaultProfilesForUser } from "@/services/default-profiles.js";
@@ -106,11 +106,10 @@ export const usersRoutes = new Elysia({ prefix: "/api/users" })
     "/",
     async ({ user, actor }) => {
       const users = await new UsersRepository(db).listWithRoles();
-      // Same semantics as requireAdmin: cookie actor AND user_meta role
-      // "admin". Anyone else (member cookie, any bearer) sees the roster
-      // read-only.
-      const viewerIsAdmin =
-        actor === "cookie" && !!user && (await new UserMetaRepository(db).getRole(user.id)) === "admin";
+      // The shared cookie-admin rule (user-utils) — same semantics as
+      // requireAdmin: cookie actor AND user_meta role "admin". Anyone else
+      // (member cookie, any bearer) sees the roster read-only.
+      const viewerIsAdmin = await isCookieAdmin(user, actor);
       return { viewerIsAdmin, users };
     },
     {
