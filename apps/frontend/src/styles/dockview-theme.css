@@ -26,32 +26,32 @@
  */
 .dockview-theme-abyss.dockview-theme-abyss {
   /* Base surface behind groups/gaps and behind each group's content area.
-     Matches the workspace canvas (#150c24) and the terminal strip
-     (#1d1230) respectively, same as the rest of the workspace chrome. */
-  --dv-background-color: #150c24;
-  --dv-group-view-background-color: #1d1230;
+     Matches the workspace canvas (#181226) and the terminal strip
+     (#221c32) respectively, same as the rest of the workspace chrome. */
+  --dv-background-color: #181226;
+  --dv-group-view-background-color: #221c32;
 
   /* Tab bar (the "tabs and actions container" that also hosts
      GroupHeaderActions). */
-  --dv-tabs-and-actions-container-background-color: #150c24;
+  --dv-tabs-and-actions-container-background-color: #181226;
   --dv-tabs-and-actions-container-font-size: 13px;
   --dv-tabs-and-actions-container-height: 36px;
   --dv-tabs-container-scrollbar-color: var(--border);
 
   /* Active tab in the focused group: the one surface that should read as
      "selected" everywhere at once. */
-  --dv-activegroup-visiblepanel-tab-background-color: #1d1230;
+  --dv-activegroup-visiblepanel-tab-background-color: #221c32;
   --dv-activegroup-visiblepanel-tab-color: var(--foreground);
   /* Background tabs in the focused group. */
-  --dv-activegroup-hiddenpanel-tab-background-color: #150c24;
+  --dv-activegroup-hiddenpanel-tab-background-color: #181226;
   --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
 
   /* Same pair, but for a group that doesn't currently have focus — kept a
      shade flatter than the active group's tabs so focus is readable at a
      glance across tiles. */
-  --dv-inactivegroup-visiblepanel-tab-background-color: #150c24;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #181226;
   --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: #150c24;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #181226;
   --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
 
   --dv-tab-divider-color: var(--border);

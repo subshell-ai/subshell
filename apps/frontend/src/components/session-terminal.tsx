@@ -30,7 +30,7 @@ import "@xterm/xterm/css/xterm.css";
  * from this object rather than re-hardcoding the palette.
  */
 export const TERMINAL_THEME = {
-  background: "#1d1230", // == --terminal-strip (kept in sync by hand, see comment)
+  background: "#221c32", // == --terminal-strip (kept in sync by hand, see comment)
   foreground: "#e4e4e7", // neutral on purpose: code output outranks theme tint
   cursor: "#df86ed", // dreamframe orchid (oklch(0.75 0.17 322))
   selectionBackground: "#56335b",

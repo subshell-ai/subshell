@@ -17,32 +17,35 @@
  */
 :root,
 .dark {
-  --background: oklch(0.13 0.045 318);
+  /* Ground is the operator-approved slate-indigo #1d182a (oklch 0.224); the ramp
+     steps around it, hue 296° — indigo side of the family, calmer than the
+     318° magenta first pass. */
+  --background: oklch(0.224 0.035 296);
   --foreground: oklch(0.92 0.03 312);
 
-  --card: oklch(0.175 0.05 318);
+  --card: oklch(0.255 0.032 296);
   --card-foreground: oklch(0.92 0.03 312);
 
-  --popover: oklch(0.175 0.05 318);
+  --popover: oklch(0.255 0.032 296);
   --popover-foreground: oklch(0.92 0.03 312);
 
   --primary: oklch(0.75 0.17 322);
   --primary-foreground: oklch(0.16 0.05 322);
 
-  --secondary: oklch(0.23 0.05 318);
-  --secondary-foreground: oklch(0.88 0.03 315);
+  --secondary: oklch(0.29 0.034 296);
+  --secondary-foreground: oklch(0.9 0.025 312);
 
-  --muted: oklch(0.23 0.05 318);
-  --muted-foreground: oklch(0.72 0.05 315);
+  --muted: oklch(0.29 0.034 296);
+  --muted-foreground: oklch(0.74 0.04 310);
 
-  --accent: oklch(0.3 0.06 318);
+  --accent: oklch(0.33 0.04 296);
   --accent-foreground: oklch(0.95 0.02 315);
 
   --destructive: oklch(0.65 0.2 25);
   --destructive-foreground: oklch(0.98 0 0);
 
-  --border: oklch(0.32 0.06 318);
-  --input: oklch(0.32 0.06 318);
+  --border: oklch(0.33 0.035 296);
+  --input: oklch(0.33 0.035 296);
   --ring: oklch(0.62 0.13 322);
 
   /* Status colors for anything outside Badge (dots, inline confirmations).
@@ -54,9 +57,9 @@
   /* Terminal/workspace surfaces. Raw hexes because xterm's theme and
      dockview-theme.css consume the same literals — these vars are the one
      home every layer reads. Values match session-terminal.tsx's TERMINAL_THEME. */
-  --terminal-strip: #1d1230;
-  --terminal-canvas: #150c24;
-  --terminal-tab-active: #26173d;
+  --terminal-strip: #221c32;
+  --terminal-canvas: #181226;
+  --terminal-tab-active: #2b243e;
 
   --radius: 0.5rem;
 
