@@ -18,13 +18,34 @@ export function nameIsUsable(raw: string): string | null {
   return t === "" ? null : t;
 }
 
+/** Input to the name-save mutation — mirrors better-auth's `updateUser`. */
+export interface ProfileUpdateInput {
+  /** Trimmed display name */
+  name: string;
+}
+
+/** Result shape the card reads: better-auth's `error` (message or null). */
+export interface ProfileUpdateResult {
+  /** null/undefined on success; carries `message` for the error line */
+  error?: { message?: string } | null;
+}
+
+export interface ProfileCardProps {
+  /**
+   * Name-save mutation, injectable for tests (the real `authClient` is a
+   * proxy whose methods cannot be spied). Defaults to better-auth's
+   * `updateUser` — same pattern NotificationsCard uses for its lib hooks.
+   */
+  updateUser?: (input: ProfileUpdateInput) => Promise<ProfileUpdateResult>;
+}
+
 /**
  * Account: the user's own identity. Name is editable through
  * better-auth's `updateUser`; email is the credential and stays read-only.
  * Saving invalidates the `["current-user"]` query so the sidebar user menu
  * (and this card's fallback) pick up the new name.
  */
-export function ProfileCard() {
+export function ProfileCard({ updateUser = (input) => authClient.updateUser(input) }: ProfileCardProps) {
   const queryClient = useQueryClient();
   const { data: user } = useCurrentUser();
   // Edit buffer: null until the user touches the field, so the input always
@@ -43,15 +64,20 @@ export function ProfileCard() {
     setError(null);
     setSaved(false);
     try {
-      const { error: updateErr } = await authClient.updateUser({ name });
+      const { error: updateErr } = await updateUser({ name });
       if (updateErr) {
         setError(updateErr.message ?? "Couldn't update your profile.");
         return;
       }
+      // Show exactly what was saved: the draft still holds the raw input
+      // (padding and all) — normalize it to the trimmed name the server kept.
+      // First, so the field settles even while the cache refresh below is in
+      // flight (the UI must not wait on an unrelated query to be truthful).
+      setNameDraft(name);
+      setSaved(true);
       // One source of truth: the sidebar menu and this card both read the
       // ["current-user"] query — refresh it and the new name shows everywhere.
       await queryClient.invalidateQueries({ queryKey: ["current-user"] });
-      setSaved(true);
     } catch {
       setError("Network error");
     } finally {

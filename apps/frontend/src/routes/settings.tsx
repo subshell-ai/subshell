@@ -38,6 +38,11 @@ function SettingsPage() {
   } = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiFetch<{ allowRegistrations: boolean }>("/api/settings"),
+    // Admin-only endpoint: without this gate a non-admin visiting /settings
+    // (the page renders the "admins only" sentence for them) fired two
+    // silent 403s per mount. Unknown ≠ open — fetch only once the server
+    // says this viewer IS an admin.
+    enabled: viewerIsAdmin === true,
   });
 
   async function toggleRegistrations() {
