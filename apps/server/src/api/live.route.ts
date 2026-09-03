@@ -1,8 +1,5 @@
 import { Elysia } from "elysia";
-import { db } from "@/db/index.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { SubshellManagerService } from "@/services/subshell-manager.service.js";
+import { contextPlugin } from "@/plugins/context.plugin.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 const SSE_INTERVAL_MS = 1500;
@@ -14,7 +11,13 @@ const SSE_INTERVAL_MS = 1500;
  * for EventSource, so the client fetches a short-lived ws token via
  * `POST /api/auth/ws-token` and passes it as `?token=`.
  *
- * Emits one JSON event per tick containing the full (cheap) subshell list.
+ * Emits one JSON event per tick containing the full (cheap) subshell list —
+ * built by `SubshellsService.listSubshells`, the SAME sharing/admin-aware
+ * method `GET /api/subshells` answers with. The client writes both producers
+ * into one query cache, so a frame that resolves a different set than the
+ * REST list would make rows flicker in and out (live report 2026-09-03: an
+ * admin's SSE frames were owner-only while REST was admin-wide). The owner-
+ * only `SubshellManagerService.listSubshells` must never back this feed.
  *
  * Known design debt (local service, accepted):
  * - Token TTL (30s) is shorter than the stream lifetime, so the client
@@ -29,9 +32,9 @@ const SSE_INTERVAL_MS = 1500;
 // NOTE: this route deliberately does NOT use authGuard — the client cannot
 // send the HttpOnly cookie on an EventSource, so auth is via the ws-token
 // query param only (single-use, 30s TTL).
-export const liveRoutes = new Elysia({ prefix: "/api/events" }).get(
+export const liveRoutes = new Elysia({ prefix: "/api/events" }).use(contextPlugin).get(
   "/",
-  async ({ query, set, request }) => {
+  async ({ query, set, request, ctx }) => {
     const userId = query.token ? consumeWsToken(query.token) : null;
     if (!userId) {
       set.status = 401;
@@ -41,16 +44,15 @@ export const liveRoutes = new Elysia({ prefix: "/api/events" }).get(
     set.headers["cache-control"] = "no-cache";
     set.headers["connection"] = "keep-alive";
 
-    const manager = new SubshellManagerService({
-      subshells: new SubshellsRepository(db),
-      profiles: new ProfilesRepository(db),
-    });
+    // One long-lived request ⇒ ctx is resolved once and the closure reuses
+    // it; the services below are stateless over the shared `db` singleton.
+    const services = ctx.services;
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         const tick = async () => {
           try {
-            const subshells = await manager.listSubshells(userId);
+            const subshells = await services.subshells.listSubshells(userId);
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ subshells })}\n\n`));
           } catch {
             // subshell list errors are non-fatal; keep the feed alive
