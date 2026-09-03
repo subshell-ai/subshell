@@ -333,3 +333,14 @@ the registration toggle flipped.
 Update flow from now on: `gh release download <tag> -p 'subshell-*-darwin-arm64'`,
 `shasum -a 256 -c`, move over `~/.local/bin`, `launchctl kickstart -k
 gui/$(id -u)/dev.subshell.server` (or `.client`).
+
+### 2026-09-03 (late): this host's data-dir migration — INCIDENT NOTE
+
+`svc.sh install` regenerated this host's unit (new `DATABASE_PATH=~/.config/subshell-server/…`)
+BEFORE the data `mv` ran; the next service restart opened a fresh empty DB — looked like a
+full reset. Reality: nothing was lost. Recovery = stop service, shelve the interim DB files
+(`*.interim-20260903`), move the REAL `subshell.db*` PLUS `node-signing.json`, `identities/`,
+`vapid.json`, `mcp/`, `subshells/`, `node-artifacts/` into `~/.config/subshell-server/`, start.
+Migrating the DB path and the data payload is ONE atomic step — do the `mv` in the same
+window as the unit regen, every host. (Node reconnected without re-enrollment; signing keys
+moved intact.)
