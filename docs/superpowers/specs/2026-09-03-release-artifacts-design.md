@@ -21,7 +21,7 @@ standalone download is actually operable without a repo checkout.
 
 ### Spike evidence (2026-09-03, bun 1.4.0)
 
-- `bun build --compile` of `apps/backend/src/index.ts` bundles clean (1913
+- `bun build --compile` of `apps/server/src/index.ts` bundles clean (1913
   modules); the binary boots, applies all 19 migrations from the static map,
   seeds the system user, and serves `/docs`.
 - Cross-compiles with `--bytecode` succeed for **all four** triples (the old
@@ -101,7 +101,7 @@ subshell-server service install | uninstall | status
 
 ## 4. Embedded SPA in the server binary
 
-- Build-time generator `apps/backend/src/scripts/embed-web.ts` (outside the
+- Build-time generator `apps/server/src/scripts/embed-web.ts` (outside the
   runtime import graph, `import.meta.main`-guarded like the client's
   `release.ts`): walks `apps/frontend/dist`, emits gitignored
   `src/generated/embedded-web.ts` — a static `export const EMBEDDED_WEB:
@@ -152,7 +152,7 @@ PRs touch only the two releasable apps; their versions drift independently
 stands: changesets still versions private packages (it merely skips npm
 publish, which we don't do at all).
 
-Per-app `CHANGELOG.md` under `apps/backend/` and `apps/client/` (changesets-
+Per-app `CHANGELOG.md` under `apps/server/` and `apps/client/` (changesets-
 generated); root `CHANGELOG.md` stays as the hand-written highlights log.
 Contributor flow: `bunx changeset` → pick app(s) + semver bump → version PR on
 merge to main → release (below).
@@ -235,7 +235,7 @@ occasional.
 
 - Root `AGENTS.md`: publish dance section gains `release:server`, the tag
   scheme, and the GitHub Releases flow; `release:agent` → `release:client`.
-- `apps/client/AGENTS.md` (moved), `apps/backend/AGENTS.md` (server CLI +
+- `apps/client/AGENTS.md` (moved), `apps/server/AGENTS.md` (server CLI +
   release section), `docs/architecture.md` path mentions.
 - New `docs/release-rollout.md` (or a dated section in the existing
   `docs/subshell-rollout.md`): the two ordered `mv`s, `launchctl remove
