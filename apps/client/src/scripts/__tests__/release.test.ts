@@ -4,15 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { NODE_TARGETS } from "@internal/subshell-protocol";
 import { digestFile } from "@internal/subshell-protocol/release-artifacts";
-import {
-  assertBunFloor,
-  type BuildAllResult,
-  buildAll,
-  buildArgs,
-  buildTargets,
-  parseScope,
-  resolveArtifactsDir,
-} from "../release.js";
+import { type BuildAllResult, buildAll, buildArgs, buildTargets, parseScope, resolveArtifactsDir } from "../release.js";
 
 describe("buildArgs (always-bytecode, spec 2026-09-03 §5)", () => {
   test("every triple compiles with --bytecode AND an explicit --target", () => {
@@ -35,25 +27,19 @@ describe("buildTargets", () => {
   });
 });
 
-describe("parseScope", () => {
+// The client's parseScope is a thin wrapper over the protocol's generalized
+// parseScope (plan 2 Task E DRY-up) — the parse, the shared refusal shape and
+// the assertBunFloor/semverLt primitives are tested at the source
+// (`packages/subshell-protocol/src/__tests__/release-artifacts.test.ts`);
+// these cases pin THAT wrapper pins the right known set + env name.
+describe("parseScope (wrapper over the shared parse, NODE_TARGETS)", () => {
   test("undefined → null (full set)", () => expect(parseScope(undefined)).toBeNull());
 
   test("whitespace-separated subset passes through", () =>
     expect(parseScope(" linux-arm64\tdarwin-x64 ")).toEqual(["linux-arm64", "darwin-x64"]));
 
-  test("unknown triple throws", () => expect(() => parseScope("win32-x64")).toThrow(/unknown target/i));
-});
-
-describe("assertBunFloor (risk #9 disproved at 1.4.0)", () => {
-  test("accepts the floor and newer", () => {
-    expect(() => assertBunFloor("1.4.0", "1.4.0")).not.toThrow();
-    expect(() => assertBunFloor("1.4.0", "1.12.3")).not.toThrow();
-  });
-
-  test("refuses below the floor", () => {
-    expect(() => assertBunFloor("1.4.0", "1.3.10")).toThrow(/bun 1\.4\.0/);
-    expect(() => assertBunFloor("1.4.0", "1.4.0-canary1")).not.toThrow();
-  });
+  test("unknown triple throws, naming this app's env var", () =>
+    expect(() => parseScope("win32-x64")).toThrow(/unknown target .* SUBSHELL_RELEASE_TRIPLES/));
 });
 
 describe("buildAll", () => {

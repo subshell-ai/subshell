@@ -58,6 +58,9 @@ export {
   type NodeTarget,
   nodeArtifactFileName,
   resolveNodeArtifactsDir,
+  SERVER_TARGETS,
+  type ServerTarget,
+  serverArtifactFileName,
 } from "./paths.js";
 // NOTE: release-artifacts.ts (node: builtins) is intentionally NOT re-exported
 // here — this barrel is imported by apps/mobile through Metro, which cannot

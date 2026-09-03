@@ -1,16 +1,19 @@
 /**
  * Shared release-artifact primitives (spec 2026-09-03 §5): the streaming
  * digest + the atomic tmp+rename publish that BOTH apps' `compile:release`
- * pipelines use. Lives here beside NODE_TARGETS for the same reason — the
- * apps never import each other.
+ * pipelines use, plus the shared schedule/scoping helpers the two pipelines
+ * were duplicating (plan 2 Task E): the {@link parseScope} env override, the
+ * {@link semverLt} comparator and the {@link assertBunFloor} bytecode-version
+ * guard. Lives here beside NODE_TARGETS for the same reason — the apps never
+ * import each other. Node builtins only (like the rest of this module), so it
+ * stays OFF the Metro-safe barrel; pipelines import the subpath.
  */
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { copyFile, mkdir, rename } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { nodeArtifactFileName } from "./paths.js";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -42,17 +45,72 @@ export interface BuiltArtifact {
  * the previous digest. That fails SAFE (install.sh's digest check refuses the
  * exec; a retry gets the pair) on a rare operator-published path — noted so
  * the atomicity claim is never stronger than the mechanism.
+ *
+ * The published NAME is the artifact file's OWN basename (each pipeline names
+ * its outputs via `nodeArtifactFileName`/`serverArtifactFileName` at build
+ * time) — publish mirrors the build, so the two binaries can share this
+ * primitive without sharing a name pattern.
  * @param artifacts - triple → built artifact map assembled by the caller's
  *   build phase — both apps' release pipelines call this only on a complete build
  * @param destDir - directory to publish into (created when missing)
  */
 export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, destDir: string): Promise<void> {
   await mkdir(destDir, { recursive: true });
-  for (const [triple, { path, digest }] of artifacts) {
-    const dest = join(destDir, nodeArtifactFileName(triple));
+  for (const [, { path, digest }] of artifacts) {
+    const dest = join(destDir, basename(path));
     const tmp = `${dest}.tmp-${process.pid}`;
     await copyFile(path, tmp);
     await rename(tmp, dest);
     await Bun.write(`${dest}.sha256`, `${digest}\n`);
+  }
+}
+
+/**
+ * Parse a release-triples scope override (a `SUBSHELL_*_RELEASE_TRIPLES` env
+ * value): whitespace-separated triples, each unknown → hard refusal (a typo'd
+ * scope silently publishing a partial set is exactly the half-release the
+ * pipelines exist to prevent). Generalized from the client pipeline (plan 2
+ * Task E) so both apps share one parse and one refusal shape.
+ * @param raw - the env value verbatim (undefined/blank → the full set)
+ * @param knownTargets - the app's closed target set (NODE_TARGETS / SERVER_TARGETS)
+ * @param envName - the variable `raw` came from, named in the refusal so the
+ *   operator sees WHICH env to fix
+ * @returns null when unset/blank (the full set)
+ */
+export function parseScope(raw: string | undefined, knownTargets: readonly string[], envName: string): string[] | null {
+  const parts = (raw ?? "").split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  for (const p of parts) {
+    if (!knownTargets.includes(p)) {
+      throw new Error(`unknown target "${p}" in ${envName} (known: ${knownTargets.join(" ")})`);
+    }
+  }
+  return parts;
+}
+
+/**
+ * Compare `a` vs `b` numerically over the dotted-numeric prefix (suffixes
+ * ignored — a `-canary` tag never makes a build OLDER than its floor).
+ */
+export function semverLt(a: string, b: string): boolean {
+  const nums = (v: string) => (v.match(/^\d+(\.\d+)*/)?.[0] ?? "0").split(".").map(Number);
+  const [av, bv] = [nums(a), nums(b)];
+  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+    const d = (av[i] ?? 0) - (bv[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
+}
+
+/**
+ * Refuses (throws) a bun older than the version the bytecode-cross spike
+ * proved — every release target ships `--bytecode`, so the floor guards BOTH
+ * pipelines (spec 2026-09-03 §5, risk #9 retired at 1.4.0).
+ * @param minimum - the floor version, e.g. `"1.4.0"`
+ * @param version - version to test (default: the running bun)
+ */
+export function assertBunFloor(minimum: string, version: string = process.versions.bun): void {
+  if (semverLt(version, minimum)) {
+    throw new Error(`release builds need bun ${minimum} or newer (bytecode cross-compiles); found ${version}`);
   }
 }

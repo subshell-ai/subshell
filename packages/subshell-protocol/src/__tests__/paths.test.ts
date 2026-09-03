@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { defaultSubshellServerDataDir, resolveNodeArtifactsDir } from "../paths.js";
+import {
+  defaultSubshellServerDataDir,
+  NODE_TARGETS,
+  nodeArtifactFileName,
+  resolveNodeArtifactsDir,
+  SERVER_TARGETS,
+  serverArtifactFileName,
+} from "../paths.js";
 
 /**
  * The env ladder both the backend's NODE_ARTIFACTS_DIR (constants.ts) and
@@ -54,5 +61,24 @@ describe("resolveNodeArtifactsDir", () => {
       "/srv/subshell/data/node-artifacts",
     );
     expect(resolveNodeArtifactsDir({})).toBe("./data/node-artifacts");
+  });
+});
+
+describe("NODE_TARGETS / SERVER_TARGETS", () => {
+  test("node set is the four served triples (spec 2026-08-31 §8)", () => {
+    expect(NODE_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]);
+  });
+
+  test("server set is the plan-2 triple set — narrower: NO darwin-x64", () => {
+    expect(SERVER_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-arm64"]);
+    expect((SERVER_TARGETS as readonly string[]).includes("darwin-x64")).toBe(false);
+  });
+
+  test("the two artifact names never collide on a shared triple", () => {
+    for (const triple of SERVER_TARGETS) {
+      expect(nodeArtifactFileName(triple)).toBe(`subshell-${triple}`);
+      expect(serverArtifactFileName(triple)).toBe(`subshell-server-${triple}`);
+      expect(serverArtifactFileName(triple)).not.toBe(nodeArtifactFileName(triple));
+    }
   });
 });

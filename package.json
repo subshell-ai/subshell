@@ -29,7 +29,8 @@
     "test": "turbo run test --continue --",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:install": "turbo run install-browsers",
-    "release:client": "bun run --cwd apps/client compile:release"
+    "release:client": "bun run --cwd apps/client compile:release",
+    "release:server": "bun run --cwd apps/server compile:release"
   },
   "dependencies": {
     "@elysiajs/eden": "1.4.9",

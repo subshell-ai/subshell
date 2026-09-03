@@ -3,7 +3,15 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BuiltArtifact, digestFile, publishArtifacts } from "../release-artifacts.js";
+import { SERVER_TARGETS } from "../paths.js";
+import {
+  assertBunFloor,
+  type BuiltArtifact,
+  digestFile,
+  parseScope,
+  publishArtifacts,
+  semverLt,
+} from "../release-artifacts.js";
 
 describe("publishArtifacts", () => {
   let workDir = "";
@@ -53,5 +61,66 @@ describe("publishArtifacts", () => {
     expect(existsSync(destDir)).toBe(false);
     await publishArtifacts(artifacts, destDir);
     expect(existsSync(join(destDir, "subshell-darwin-arm64"))).toBe(true);
+  });
+
+  test("publishes under the artifact file's OWN basename — server-named artifacts coexist (Task E)", async () => {
+    const srcDirLocal = join(workDir, "build-server");
+    await mkdir(srcDirLocal, { recursive: true });
+    const destDir = join(workDir, "dest-mixed");
+    const mixed = new Map<string, BuiltArtifact>();
+    for (const triple of SERVER_TARGETS) {
+      const path = join(srcDirLocal, `subshell-server-${triple}`);
+      await writeFile(path, `server-${triple}`);
+      mixed.set(triple, { path, digest: await digestFile(path) });
+    }
+    await publishArtifacts(mixed, destDir);
+    const names = (await readdir(destDir)).sort();
+    expect(names).toEqual(
+      SERVER_TARGETS.flatMap((t) => [`subshell-server-${t}`, `subshell-server-${t}.sha256`]).sort(),
+    );
+  });
+});
+
+describe("parseScope (generalized from the client pipeline, Task E)", () => {
+  test("undefined/blank → null (the full set)", () => {
+    expect(parseScope(undefined, SERVER_TARGETS, "TEST_TRIPLES")).toBeNull();
+    expect(parseScope("   ", SERVER_TARGETS, "TEST_TRIPLES")).toBeNull();
+  });
+
+  test("whitespace-separated subset passes through unmodified", () => {
+    expect(parseScope(" linux-arm64\tdarwin-arm64 ", SERVER_TARGETS, "TEST_TRIPLES")).toEqual([
+      "linux-arm64",
+      "darwin-arm64",
+    ]);
+  });
+
+  test("unknown triple throws, naming the env var AND the known set", () => {
+    expect(() => parseScope("win32-x64", SERVER_TARGETS, "SUBSHELL_SERVER_RELEASE_TRIPLES")).toThrow(
+      /unknown target "win32-x64" in SUBSHELL_SERVER_RELEASE_TRIPLES/,
+    );
+    expect(() => parseScope("win32-x64", SERVER_TARGETS, "TEST_TRIPLES")).toThrow(/linux-x64/);
+  });
+
+  test("a target known to the OTHER pipeline is unknown here (darwin-x64 ∉ SERVER_TARGETS)", () => {
+    expect(() => parseScope("darwin-x64", SERVER_TARGETS, "TEST_TRIPLES")).toThrow(/unknown target/);
+    // …and the generalization is parameterized, not server-hardcoded:
+    expect(parseScope("darwin-x64", ["linux-x64", "darwin-x64"], "TEST_TRIPLES")).toEqual(["darwin-x64"]);
+  });
+});
+
+describe("semverLt / assertBunFloor (bytecode floor, spec 2026-09-03 §5)", () => {
+  test("semverLt orders dotted numerics, not strings", () => {
+    expect(semverLt("1.3.10", "1.4.0")).toBe(true);
+    expect(semverLt("1.4.0", "1.12.3")).toBe(true);
+    expect(semverLt("1.4.0", "1.4.0")).toBe(false);
+    expect(semverLt("1.4.0", "1.3.99")).toBe(false);
+    expect(semverLt("2.0", "2.0.1")).toBe(true);
+  });
+
+  test("assertBunFloor accepts the floor and newer, refuses older", () => {
+    expect(() => assertBunFloor("1.4.0", "1.4.0")).not.toThrow();
+    expect(() => assertBunFloor("1.4.0", "1.12.3")).not.toThrow();
+    expect(() => assertBunFloor("1.4.0", "1.4.0-canary1")).not.toThrow(); // suffix ≠ older
+    expect(() => assertBunFloor("1.4.0", "1.3.10")).toThrow(/bun 1\.4\.0/);
   });
 });

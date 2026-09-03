@@ -21,7 +21,13 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/subshell-protocol";
-import { type BuiltArtifact, digestFile, publishArtifacts } from "@internal/subshell-protocol/release-artifacts";
+import {
+  assertBunFloor,
+  type BuiltArtifact,
+  digestFile,
+  parseScope as parseScopeTargets,
+  publishArtifacts,
+} from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/client` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
@@ -68,38 +74,14 @@ export function buildArgs(triple: string, outDir: string): string[] {
 }
 
 /**
- * Parse the `SUBSHELL_RELEASE_TRIPLES` scope override: whitespace-separated
- * triples, each unknown → hard refusal (a typo'd scope silently publishing a
- * partial set is exactly the half-release this pipeline exists to prevent).
+ * Parse the `SUBSHELL_RELEASE_TRIPLES` scope override against NODE_TARGETS —
+ * the parse/refusal itself moved to the shared {@link parseScopeTargets}
+ * (plan 2 Task E DRY-up) so both apps' pipelines reject typos identically;
+ * this wrapper only pins the known set and the env-var name to cite.
  * @returns null when unset/blank (the full set)
  */
 export function parseScope(raw: string | undefined): string[] | null {
-  const parts = (raw ?? "").split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return null;
-  for (const p of parts) {
-    if (!(NODE_TARGETS as readonly string[]).includes(p)) {
-      throw new Error(`unknown target "${p}" in SUBSHELL_RELEASE_TRIPLES (known: ${NODE_TARGETS.join(" ")})`);
-    }
-  }
-  return parts;
-}
-
-/** Compare `a` vs `b` numerically over the dotted-numeric prefix (suffixes ignored). */
-export function semverLt(a: string, b: string): boolean {
-  const nums = (v: string) => (v.match(/^\d+(\.\d+)*/)?.[0] ?? "0").split(".").map(Number);
-  const [av, bv] = [nums(a), nums(b)];
-  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
-    const d = (av[i] ?? 0) - (bv[i] ?? 0);
-    if (d !== 0) return d < 0;
-  }
-  return false;
-}
-
-/** Refuses (throws) a bun older than the version the bytecode-cross spike proved. */
-export function assertBunFloor(minimum: string, version: string = process.versions.bun): void {
-  if (semverLt(version, minimum)) {
-    throw new Error(`release builds need bun ${minimum} or newer (bytecode cross-compiles); found ${version}`);
-  }
+  return parseScopeTargets(raw, NODE_TARGETS, "SUBSHELL_RELEASE_TRIPLES");
 }
 
 /** Injectable build runner for tests (a real spawn in `main`). */
