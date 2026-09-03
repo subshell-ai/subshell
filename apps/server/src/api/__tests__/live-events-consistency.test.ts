@@ -38,12 +38,12 @@ async function firstFrame(userId: string): Promise<{ id: string }[]> {
   const res = await app.fetch(new Request(`http://localhost:3080/api/events?token=${encodeURIComponent(token)}`));
   expect(res.status).toBe(200);
   const reader = res.body?.getReader();
-  expect(reader).toBeDefined();
+  if (!reader) throw new Error("SSE response has no body to read");
   const decoder = new TextDecoder();
   let buffer = "";
   try {
     for (let i = 0; i < 10; i += 1) {
-      const { value, done } = await reader!.read();
+      const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const line = buffer.split("\n\n").find((l) => l.startsWith("data: "));
@@ -53,7 +53,7 @@ async function firstFrame(userId: string): Promise<{ id: string }[]> {
       }
     }
   } finally {
-    await reader?.cancel().catch(() => {});
+    await reader.cancel().catch(() => {});
   }
   throw new Error(`no SSE frame arrived (buffer: ${buffer.slice(0, 120)})`);
 }
