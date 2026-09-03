@@ -1,0 +1,45 @@
+name: Probe runners (temporary — P3 environment survey)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe-linux:
+    name: Probe Linux self-hosted
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Environment
+        run: |
+          echo "hostname=$(hostname)"
+          echo "uname=$(uname -srm)"
+          echo "bun=$(bun --version 2>&1 | head -1 || echo MISSING)"
+          echo "node=$(node --version 2>&1 | head -1 || echo MISSING)"
+          echo "gh=$(gh --version 2>&1 | head -1 || echo MISSING)"
+          echo "jq=$(jq --version 2>&1 | head -1 || echo MISSING)"
+          echo "file=$(file --version 2>&1 | head -1 || echo MISSING)"
+          echo "git=$(git --version 2>&1 | head -1 || echo MISSING)"
+          echo "curl=$(curl --version 2>&1 | head -1 || echo MISSING)"
+          echo "PATH=$PATH"
+
+  probe-mac:
+    name: Probe macOS self-hosted
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Environment
+        run: |
+          echo "hostname=$(hostname)"
+          echo "uname=$(uname -srm)"
+          echo "bun=$(bun --version 2>&1 | head -1 || echo MISSING)"
+          echo "node=$(node --version 2>&1 | head -1 || echo MISSING)"
+          echo "gh=$(gh --version 2>&1 | head -1 || echo MISSING)"
+          echo "jq=$(jq --version 2>&1 | head -1 || echo MISSING)"
+          echo "file=$(file --version 2>&1 | head -1 || echo MISSING)"
+          echo "git=$(git --version 2>&1 | head -1 || echo MISSING)"
+          echo "curl=$(curl --version 2>&1 | head -1 || echo MISSING)"
+          echo "rosetta=$(arch -x86_64 /usr/bin/true 2>&1 && echo OK || echo MISSING)"
+          echo "PATH=$PATH"
