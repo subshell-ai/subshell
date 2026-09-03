@@ -72,6 +72,7 @@ must move in one pass.
    ```bash
    tbl=$(sqlite3 ~/.config/subshell/subshell.db \
      "SELECT name FROM sqlite_master WHERE name IN ('sessions','subshells') LIMIT 1;")
+   [ -n "$tbl" ] || { echo "neither sessions nor subshells table exists" >&2; false; }
    sqlite3 ~/.config/subshell/subshell.db \
      "UPDATE $tbl SET working_dir = replace(working_dir, '/home/theo/projects/mote', '/home/theo/projects/subshell') WHERE working_dir LIKE '/home/theo/projects/mote%';"
    ```

@@ -151,7 +151,7 @@ Environment variables (see `apps/backend/src/constants.ts`):
 | `SERVER_PORT` | `3080` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address (`0.0.0.0` in Docker) |
 | `DATABASE_PATH` | `./data/subshell.db` | SQLite file; per-subshell logs are `data/subshells/`. Ignored under `SUBSHELL_TEST_MODE` |
-| `SUBSHELL_TEST_MODE` | unset | Set by the test preload. Forces an in-memory database and a temp log dir, so a test run can never write to real data |
+| `SUBSHELL_TEST_MODE` | unset | Set by the test preload. Forces a per-process temp-file database (unlinked on exit) and a temp log dir, so a test run can never write to real data |
 | `APP_BASE_URL` | `http://localhost:$SERVER_PORT` | Auth cookies / redirects; its origin is trusted automatically |
 | `TRUSTED_ORIGINS` | `http://localhost:5174,http://localhost:5173` | Comma-separated **additional** allowed origins (dev Vite server). The instance always trusts its own: both loopback spellings of `SERVER_PORT`, plus `HOST` when it is a concrete address |
 | `SUBSHELL_MCP_COMMAND` | (sibling `subshell-mcp` binary) | Override how the `subshell mcp` stdio server is launched for a subshell |

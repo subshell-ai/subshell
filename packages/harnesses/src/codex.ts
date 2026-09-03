@@ -80,8 +80,8 @@ function tomlStringArray(values: string[]): string {
  * A bare launch (no subcommand, no prompt) opens the interactive TUI. Codex
  * has no create-time flag for naming its own session and no way to pin a
  * conversation id, so neither the subshell name nor a resume capability is
- * forwarded —
- * restarts start a fresh conversation (the documented default). The pane's
+ * forwarded — restarts start a fresh conversation (the documented default).
+ * The pane's
  * cwd is already the working directory, so `-C/--cd` is never passed, and
  * `--dangerously-bypass-approvals-and-sandbox` is NEVER baked into a launch
  * (a user may put it in their own profile flags — that is their call).

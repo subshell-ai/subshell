@@ -227,3 +227,8 @@ roundtrip-tests the rewrite (`down()` reverses it, `up()` re-applies it) alongsi
 the untouched system/node-kind rows. The rewrite is required and implemented; the
 earlier text above is left in place as the historical record of the (incorrect)
 planning conclusion.
+
+Second amendment (post-merge code review): §2.1's `canEdit` placement for "Clone…"
+is superseded — profiles are strictly per-user, so an `edit` grantee's clone can
+never launch (guaranteed 404). The item is owner-only in
+`subshell-actions-menu.tsx`; the edit grantee's menu omits it entirely.
