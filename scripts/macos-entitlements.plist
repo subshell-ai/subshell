@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  Entitlements for `bun build --compile` binaries under the hardened runtime
-  (required for notarization). These are the keys Bun's own docs prescribe for
-  signing compiled executables: JavaScriptCore maps writable executable pages
-  and JITs, and the embedded runtime self-loads — hence library validation is
-  off. Scope: release-time signing of our own compiled artifacts only.
--->
 <plist version="1.0">
 <dict>
 	<key>com.apple.security.cs.allow-jit</key>
