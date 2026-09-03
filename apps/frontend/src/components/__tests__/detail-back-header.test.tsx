@@ -29,11 +29,14 @@ async function renderHeader(extra: { subtitle?: string } = {}) {
   return document.querySelector("header");
 }
 
-/** matchMedia whose queries all answer `matches` (viewport width simulator). */
-function forceViewport(matches: boolean) {
+/**
+ * matchMedia simulator answering the two queries the header reads:
+ * `wide` for the tiling-width query, `coarse` for `(pointer: coarse)`.
+ */
+function forceViewport({ wide, coarse }: { wide: boolean; coarse: boolean }) {
   const original = globalThis.matchMedia;
   globalThis.matchMedia = ((query: string) => ({
-    matches,
+    matches: query.includes("pointer") ? coarse : wide,
     media: query,
     onchange: null,
     addListener: () => {},
@@ -50,9 +53,9 @@ describe("DetailBackHeader", () => {
 
   // NOTE: no relying on the ambient matchMedia — happy-dom's own answers
   // width queries against a 1024px window (i.e. "wide"), so every test
-  // forces its viewport explicitly.
-  it("narrow: chrome row, then the title with the subtitle stacked UNDER it", async () => {
-    const restore = forceViewport(false);
+  // forces its viewport and pointer explicitly.
+  it("phone (narrow, coarse pointer): chrome row, then the title with the subtitle stacked UNDER it", async () => {
+    const restore = forceViewport({ wide: false, coarse: true });
     try {
       const header = await renderHeader({ subtitle: "/home/theo/projects/subshell" });
       expect(header?.className).toContain("flex-col");
@@ -67,8 +70,25 @@ describe("DetailBackHeader", () => {
     }
   });
 
-  it("wide: one row, subtitle inline after the title", async () => {
-    const restore = forceViewport(true);
+  it("narrow desktop window (fine pointer): one row, title over subtitle inside it", async () => {
+    const restore = forceViewport({ wide: false, coarse: false });
+    try {
+      const header = await renderHeader({ subtitle: "/home/theo/projects/subshell" });
+      // One row: the header itself is a horizontal bar, no chrome/title split.
+      expect(header?.className).not.toContain("flex-col");
+      const title = screen.getByText("Alpha");
+      const subtitle = screen.getByText("/home/theo/projects/subshell");
+      // Two lines: title and subtitle share a vertical block flanked by the
+      // chrome and actions, rather than competing for one baseline.
+      expect(subtitle.parentElement).toBe(title.parentElement);
+      expect(title.parentElement?.className).toContain("flex-col");
+    } finally {
+      restore();
+    }
+  });
+
+  it("wide: one row with the title/subtitle block beside the actions", async () => {
+    const restore = forceViewport({ wide: true, coarse: false });
     try {
       const header = await renderHeader({ subtitle: "/tmp/x" });
       expect(header?.className).not.toContain("flex-col");
@@ -79,8 +99,8 @@ describe("DetailBackHeader", () => {
     }
   });
 
-  it("subtitle absent: narrow layout carries just the title", async () => {
-    const restore = forceViewport(false);
+  it("subtitle absent: phone layout carries just the title", async () => {
+    const restore = forceViewport({ wide: false, coarse: true });
     try {
       const header = await renderHeader();
       expect(header?.className).toContain("flex-col");
