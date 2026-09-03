@@ -203,6 +203,13 @@ jobs:
         with:
           bun-version: 1.4.0
 
+      # tsdown/rolldown bins carry a `#!/usr/bin/env node` shebang and need
+      # node >= 20.12 (util.styleText); the Linux runners ship node 18 (macOS
+      # ships 22 — that asymmetry only shows up here, never on hosted CI).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
       - run: bun install --frozen-lockfile
 
       # Both release scripts preflight the workspace dist outputs (the client
