@@ -28,6 +28,12 @@ import { parseEnvFile } from "@/config-env.js";
  * once-generated `BETTER_AUTH_SECRET` — is carried forward verbatim, key
  * order included. Comments are NOT preserved (documented in the file header
  * itself); `config.env` is generated output, not an edited artifact.
+ *
+ * Prompt defaults follow the file: when an interactive re-run finds a stored
+ * value for a question, that value is the default (ENTER keeps it), so
+ * pressing ENTER through a configured install no longer resets a customised
+ * port/host/etc. to the built-ins. `--yes`/non-TTY semantics are unchanged —
+ * built-in defaults + flags only.
  */
 
 /** Env var that skips the tmux preflight (mirrors the client's escape hatch). */
@@ -195,10 +201,17 @@ function validateOwned(key: (typeof OWNED_KEYS)[number], value: string): string 
 }
 
 /**
- * Run the configure flow: tmux preflight → resolve each answer (flag > prompt
- * under TTY-and-no-`--yes` > default) with immediate per-answer validation →
- * LAN/loopback warning → atomic preservation-preserving rewrite of
- * config.env. NOTHING is written before the last validation passes.
+ * Run the configure flow: tmux preflight → read the existing config.env (an
+ * unreadable one is refused BEFORE any question is spent) → resolve each
+ * answer (flag > prompt under TTY-and-no-`--yes` > default) with immediate
+ * per-answer validation → LAN/loopback warning → atomic
+ * preservation-preserving rewrite of config.env. NOTHING is written before
+ * the last validation passes.
+ *
+ * Interactive prompt defaults are the CURRENT stored values (falling back to
+ * the built-ins per key when the file has none), so an ENTER-through re-run
+ * keeps a customised install. `--yes`/non-TTY still answer with built-in
+ * defaults + flags only.
  *
  * @param opts - parsed flags (`--port --host --base-url --db-path --yes`)
  * @param deps - injected stdio/IO/env seams; the command touches no other globals
@@ -208,7 +221,22 @@ function validateOwned(key: (typeof OWNED_KEYS)[number], value: string): string 
 export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   if (!tmuxPreflight(deps)) return 1;
 
+  // Read the existing file BEFORE asking: its values become the interactive
+  // defaults, and a file we cannot read is refused before a single question
+  // (never clobber what you cannot read). The same map backs the preservation
+  // merge at the bottom — no second read.
+  let existing: Record<string, string>;
+  try {
+    existing = readExistingConfig(deps.configDir);
+  } catch (err) {
+    deps.error(`subshell-server: refusing to rewrite ${join(deps.configDir, "config.env")}: ${(err as Error).message}`);
+    return 1;
+  }
+
   const interactive = !opts.yes && deps.isTTY;
+  /** Prompt default for one owned key: the stored value when interactive, else the built-in. */
+  const dflt = (key: (typeof OWNED_KEYS)[number], builtin: string): string =>
+    (interactive ? existing[key] : undefined) ?? builtin;
   /** Resolve one answer (flag > trimmed prompt/ENTER-default > default); null = EOF. */
   const ask = (question: string, def: string, flag: string | undefined): string | null => {
     if (flag !== undefined) return flag.trim();
@@ -243,20 +271,31 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     return value;
   };
 
-  const port = resolve("SERVER_PORT", "Server port", "3080", opts.port);
+  const port = resolve("SERVER_PORT", "Server port", dflt("SERVER_PORT", "3080"), opts.port);
   if (port === null) return 1;
-  const host = resolve("HOST", "Bind address — stay loopback-only, or bind LAN? type 0.0.0.0", "127.0.0.1", opts.host);
+  const host = resolve(
+    "HOST",
+    "Bind address — stay loopback-only, or bind LAN? type 0.0.0.0",
+    dflt("HOST", "127.0.0.1"),
+    opts.host,
+  );
   if (host === null) return 1;
   // The base-URL default follows the ANSWERED port (constants.ts derives it
-  // from SERVER_PORT at boot too — mirrors each other).
+  // from SERVER_PORT at boot too — mirrors each other) unless the file stores
+  // one — then the stored URL is the default, unchanged.
   const baseUrl = resolve(
     "APP_BASE_URL",
     "Public base URL (browsers and remote nodes dial this)",
-    `http://localhost:${port}`,
+    dflt("APP_BASE_URL", `http://localhost:${port}`),
     opts.baseUrl,
   );
   if (baseUrl === null) return 1;
-  const dbPath = resolve("DATABASE_PATH", "SQLite database file", join(deps.configDir, "subshell.db"), opts.dbPath);
+  const dbPath = resolve(
+    "DATABASE_PATH",
+    "SQLite database file",
+    dflt("DATABASE_PATH", join(deps.configDir, "subshell.db")),
+    opts.dbPath,
+  );
   if (dbPath === null) return 1;
 
   // The enroll-time loopback trap (spec 2026-08-31), warned at write time:
@@ -270,13 +309,6 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     );
   }
 
-  let existing: Record<string, string>;
-  try {
-    existing = readExistingConfig(deps.configDir);
-  } catch (err) {
-    deps.error(`subshell-server: refusing to rewrite ${join(deps.configDir, "config.env")}: ${(err as Error).message}`);
-    return 1;
-  }
   const values: Record<string, string> = {
     ...existing,
     SERVER_PORT: port,

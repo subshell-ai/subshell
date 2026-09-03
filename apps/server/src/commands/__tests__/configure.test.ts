@@ -207,6 +207,65 @@ describe("runConfigure — interactive flow", () => {
   });
 });
 
+describe("runConfigure — interactive re-run defaults come from the file", () => {
+  test("ENTER through a stored config keeps it: the port default is the CURRENT value, not the built-in", () => {
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", ""] });
+    writeFileSync(envFile(dir), "SERVER_PORT=9999\n", { mode: 0o600 });
+    expect(runConfigure({}, deps)).toBe(0);
+    expect(prompts[0]?.[1]).toBe("9999");
+    // No stored base URL → the built-in default, following the ANSWERED (here:
+    // stored) port — the dflt layer only replaces the base, not the derivation.
+    expect(prompts[2]?.[1]).toBe("http://localhost:9999");
+    expect(readCfg(dir).SERVER_PORT).toBe("9999");
+  });
+
+  test("all four stored keys become the four prompt defaults; foreign keys carry through", () => {
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", ""] });
+    writeFileSync(
+      envFile(dir),
+      "SERVER_PORT=9999\n" +
+        "HOST=0.0.0.0\n" +
+        "APP_BASE_URL=https://public.example\n" +
+        "DATABASE_PATH=/srv/db/subshell.db\n" +
+        "BETTER_AUTH_SECRET=abc\n",
+      { mode: 0o600 },
+    );
+    expect(runConfigure({}, deps)).toBe(0);
+    expect(prompts.map((p) => p[1])).toEqual(["9999", "0.0.0.0", "https://public.example", "/srv/db/subshell.db"]);
+    expect(readCfg(dir)).toMatchObject({
+      SERVER_PORT: "9999",
+      HOST: "0.0.0.0",
+      APP_BASE_URL: "https://public.example",
+      DATABASE_PATH: "/srv/db/subshell.db",
+      BETTER_AUTH_SECRET: "abc",
+    });
+  });
+
+  test("flags still outrank stored values in an interactive run", () => {
+    const { deps, dir } = makeDeps({ isTTY: true, answers: ["", "", ""] });
+    writeFileSync(envFile(dir), "SERVER_PORT=9999\n", { mode: 0o600 });
+    expect(runConfigure({ port: "4100" }, deps)).toBe(0);
+    expect(readCfg(dir).SERVER_PORT).toBe("4100");
+    expect(readCfg(dir).APP_BASE_URL).toBe("http://localhost:4100");
+  });
+
+  test("--yes ignores stored values: built-in defaults + flags only (semantics unchanged)", () => {
+    const { deps, dir } = makeDeps();
+    writeFileSync(envFile(dir), "SERVER_PORT=9999\nHOST=0.0.0.0\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true }, deps)).toBe(0);
+    expect(readCfg(dir)).toMatchObject({ SERVER_PORT: "3080", HOST: "127.0.0.1" });
+  });
+
+  test("unreadable existing file is refused BEFORE any question is spent", () => {
+    const { deps, dir, prompts, err } = makeDeps({ isTTY: true });
+    mkdirSync(envFile(dir)); // EISDIR on read
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(prompts).toEqual([]);
+    expect(err.join("\n")).toContain("config.env");
+    expect(() => readFileSync(envFile(dir))).toThrow(); // still the directory — no clobber
+  });
+});
+
 describe("runConfigure — file hygiene", () => {
   test("pre-existing file with 0644 is replaced at 0600 (tmp+rename, new inode)", () => {
     const { deps, dir } = makeDeps();
