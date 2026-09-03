@@ -61,3 +61,35 @@ describe("ActionsMenu", () => {
     expect((screen.getByRole("button", { name: "Actions for web" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+/**
+ * Context mode (spec 2026-09-03): children replace the ⋯ button — the menu
+ * opens on RIGHT-CLICK of the wrapped subtree, anchored at the cursor by
+ * Base UI's ContextMenu.
+ */
+describe("ActionsMenu — context mode (children)", () => {
+  afterEach(cleanup);
+
+  it("renders the wrapped element verbatim — no ⋯ button", () => {
+    render(
+      <ActionsMenu label="web" items={ITEMS}>
+        <a href="/x">row link</a>
+      </ActionsMenu>,
+    );
+    expect(screen.getByText("row link")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Actions for web" })).toBeNull();
+  });
+
+  it("right-click opens the menu and choosing an item runs its onSelect", async () => {
+    let fired = 0;
+    render(
+      <ActionsMenu label="web" items={[{ label: "Terminate", icon: Square, onSelect: () => fired++ }]}>
+        <a href="/x">row link</a>
+      </ActionsMenu>,
+    );
+    fireEvent.contextMenu(screen.getByText("row link"));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Terminate" }));
+    expect(fired).toBe(1);
+  });
+});
