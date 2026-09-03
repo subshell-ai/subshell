@@ -8,16 +8,16 @@ import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { sessionLogPath } from "@/services/nodes/session-paths.js";
+import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
-import { SessionManagerService } from "@/services/session-manager.service.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { getLogger } from "@/utils/logger.js";
 import { sweepWsTokens } from "@/ws/ws-token.js";
 
@@ -63,7 +63,7 @@ process.on("uncaughtException", (error) => {
   await ensureSystemUser();
   // Upgrade backfill: existing installs get a blank "Default" profile for any
   // (user, enabled-harness) pair that has none, so no one has to create a
-  // profile before their first session. Idempotent; new users get the same
+  // profile before their first subshell. Idempotent; new users get the same
   // seeding at registration. See services/default-profiles.ts.
   // Wrapped: this is a convenience sweep over healthy schema+data, and an
   // optional insert failing (SQLITE_BUSY behind a stale lock holder) must
@@ -81,23 +81,23 @@ process.on("uncaughtException", (error) => {
   await startServer({ port: SERVER_PORT, host: HOST });
 
   // Background housekeeping: expire WS attach tokens, reconcile tmux state.
-  const sessions = new SessionsRepository(db);
+  const subshells = new SubshellsRepository(db);
   const nodes = new NodesRepository(db);
-  const manager = new SessionManagerService({
-    sessions,
+  const manager = new SubshellManagerService({
+    subshells,
     profiles: new ProfilesRepository(db),
   });
   // Node lifecycle events (spec §3.3/§6.3): the sweep's manager instance is
-  // the hook host, so `exit` events and the reconnect `sessions_report`
+  // the hook host, so `exit` events and the reconnect `subshells_report`
   // census converge through the SAME death/revive transitions (and the same
   // in-process restart lease) as the periodic sweep. Without this the frames
   // warn-and-drop.
   setNodeLifecycleHooks({
-    onExit: (nodeId, sessionId, exitCode, at) => manager.applyRemoteExit(nodeId, sessionId, exitCode, at),
-    onSessionsReport: (nodeId, report) => manager.applySessionsReport(nodeId, report),
+    onExit: (nodeId, subshellId, exitCode, at) => manager.applyRemoteExit(nodeId, subshellId, exitCode, at),
+    onSubshellsReport: (nodeId, report) => manager.applySubshellsReport(nodeId, report),
   });
-  // Restore alive/exit state at boot: a backend restart mid-session must not
-  // leave stale alive=1 rows (tmux sessions died with the old process).
+  // Restore alive/exit state at boot: a backend restart mid-subshell must not
+  // leave stale alive=1 rows (tmux subshells died with the old process).
   await manager.reconcileAll();
   setInterval(() => {
     sweepWsTokens();
@@ -113,31 +113,31 @@ process.on("uncaughtException", (error) => {
   }, 60_000);
 
   // Quiet-output idle watcher (services/notify-idle.ts): for harnesses
-  // without native attention hooks (opencode/hermes/pi) a session log that
+  // without native attention hooks (opencode/hermes/pi) a subshell log that
   // stops growing means the turn is done → push + "waiting for you" stamp.
   // Hooked harnesses (claude-code) ring via their hooks; the watcher only
   // clears their waiting state on renewed output. Ticks start one
-  // IDLE_TICK_MS after boot (setInterval never fires immediately); sessions
+  // IDLE_TICK_MS after boot (setInterval never fires immediately); subshells
   // that were already idle never ring because the watcher seeds an
   // already-quiet log as fired — only new output re-arms it.
   const idleWatcher = createIdleWatcher({
-    listRows: () => sessions.listRunning(),
+    listRows: () => subshells.listRunning(),
     statMtimeMs: async (id) => {
       try {
-        return (await Bun.file(sessionLogPath(id)).stat()).mtime.getTime();
+        return (await Bun.file(subshellLogPath(id)).stat()).mtime.getTime();
       } catch {
         return null; // no log yet — nothing to measure
       }
     },
     harnessHasHooks: (harnessId) => getHarness(harnessId)?.supportsAttentionHooks === true,
-    notifySession: async (id, kind) => {
-      await getNotifyService().notifySession(id, kind);
+    notifySubshell: async (id, kind) => {
+      await getNotifyService().notifySubshell(id, kind);
     },
     setWaiting: async (id) => {
-      await sessions.update(id, { waitingSince: new Date().toISOString() });
+      await subshells.update(id, { waitingSince: new Date().toISOString() });
     },
     clearWaiting: async (id) => {
-      await sessions.update(id, { waitingSince: null });
+      await subshells.update(id, { waitingSince: null });
     },
   });
   setInterval(() => {

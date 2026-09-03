@@ -7,7 +7,7 @@ import { hashPassword } from "better-auth/crypto";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import {
   attachConnection,
@@ -21,7 +21,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 
 /**
  * Route-level contract for the terminal-upload relay to agent nodes (spec
- * §3.4): a session pinned to an agent node NEVER touches the backend's
+ * §3.4): a subshell pinned to an agent node NEVER touches the backend's
  * filesystem — the file ships as ordered `write_file` chunks over the signed
  * RPC, and every failure maps to the structured error contract:
  * offline pre-gate / mid-stream disconnect → 409 `NODE_OFFLINE`, agent
@@ -53,10 +53,10 @@ function payload(size: number): Uint8Array {
 }
 
 /** Builds a multipart upload request carrying one file. */
-function uploadRequest(sessionId: string, token: string, file: File): Request {
+function uploadRequest(subshellId: string, token: string, file: File): Request {
   const body = new FormData();
   body.set("file", file);
-  return authedRequest(`/api/sessions/${sessionId}/uploads`, token, { method: "POST", body });
+  return authedRequest(`/api/subshells/${subshellId}/uploads`, token, { method: "POST", body });
 }
 
 /** The `write_file` slice of the command union (the relay's only command). */
@@ -128,7 +128,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   let ownerEmail: string;
   let ownerToken: string;
   const workDirs: string[] = [];
-  const createdSessionIds: string[] = [];
+  const createdSubshellIds: string[] = [];
   const createdNodeIds: string[] = [];
 
   beforeAll(async () => {
@@ -144,8 +144,8 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
 
   afterAll(async () => {
     resetNodeRegistryForTests();
-    for (const id of createdSessionIds) {
-      await db.deleteFrom("sessions").where("id", "=", id).execute();
+    for (const id of createdSubshellIds) {
+      await db.deleteFrom("subshells").where("id", "=", id).execute();
     }
     for (const id of createdNodeIds) await new NodesRepository(db).deleteById(id);
     await deleteUserByEmailOrId(ownerEmail);
@@ -156,7 +156,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     resetNodeRegistryForTests();
   });
 
-  /** Creates an agent node row (sessions.node_id has a real FK). */
+  /** Creates an agent node row (subshells.node_id has a real FK). */
   async function mkAgentNode(): Promise<string> {
     const id = crypto.randomUUID();
     createdNodeIds.push(id);
@@ -170,11 +170,11 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     return id;
   }
 
-  /** Inserts a session row owned by the caller, pinned to `nodeId`. */
-  async function makeSession(workingDir: string, nodeId: string): Promise<string> {
+  /** Inserts a subshell row owned by the caller, pinned to `nodeId`. */
+  async function makeSubshell(workingDir: string, nodeId: string): Promise<string> {
     const id = crypto.randomUUID();
-    createdSessionIds.push(id);
-    await new SessionsRepository(db).create({
+    createdSubshellIds.push(id);
+    await new SubshellsRepository(db).create({
       id,
       userId: ownerId,
       name: "uprem-test",
@@ -197,7 +197,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("relays a 1 MiB file as exactly two 512 KiB chunks and answers the local response shape", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     const agent = attachFakeAgent(nodeId);
     try {
       const res = await uploadsRoutes.fetch(
@@ -228,7 +228,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("gives two same-second relays of the same file distinct paths, each echoed by its own response", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     // Fresh fake agent per upload: its `received` total is stream-running,
     // and each relay is a fresh stream the agent restarts at 0.
     const agentA = attachFakeAgent(nodeId);
@@ -267,7 +267,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("splits a 1,048,577-byte file into three chunks with a 1-byte tail", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     const agent = attachFakeAgent(nodeId);
     try {
       const res = await uploadsRoutes.fetch(
@@ -284,7 +284,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("stops at a mid-stream refusal: 409 NODE_UNREACHABLE, generic body, no frames after the failing chunk", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     // 3 chunks of data, refusal on chunk 1 — a genuinely mid-stream failure.
     const agent = attachFakeAgent(nodeId, { failAt: 1 });
     try {
@@ -310,7 +310,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("refuses an offline node with 409 NODE_OFFLINE before sending a single frame", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     // Attach then detach: the registry reads exactly "no live connection" and
     // the recording socket proves the pre-gate fired before any send.
     const agent = attachFakeAgent(nodeId);
@@ -326,7 +326,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("409s when the agent's eof `received` total disagrees with the byte count", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     const agent = attachFakeAgent(nodeId, { eofReceivedDelta: -1 });
     try {
       const res = await uploadsRoutes.fetch(
@@ -343,7 +343,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   it("maps a mid-stream disconnect to 409 NODE_OFFLINE with only the pre-drop frames sent", async () => {
     const nodeId = await mkAgentNode();
     const ws = tempWorkDir();
-    const id = await makeSession(ws, nodeId);
+    const id = await makeSubshell(ws, nodeId);
     // Chunk 0 is answered, then the socket dies — chunk 1's sendCommand finds
     // no live connection (the offline twin of the refusal path — both 409,
     // distinct only by code: NODE_OFFLINE vs NODE_UNREACHABLE).
@@ -366,7 +366,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
 
   it("rejects a target that is not an absolute path with 400 and zero frames (never sign an empty path)", async () => {
     const nodeId = await mkAgentNode();
-    const id = await makeSession("", nodeId); // composes ".subshell/uploads/<name>" — a relative target
+    const id = await makeSubshell("", nodeId); // composes ".subshell/uploads/<name>" — a relative target
     const agent = attachFakeAgent(nodeId);
     try {
       const res = await uploadsRoutes.fetch(

@@ -5,7 +5,7 @@ import { RemoteLauncher } from "./remote-launcher.js";
 
 /**
  * `nodeId → NodeLauncher` resolution (spec 2026-08-31 §6.3) — the seam the
- * session manager and the WS attach handler call instead of holding one
+ * subshell manager and the WS attach handler call instead of holding one
  * launcher. `local` (the seeded control-plane host row) gets the shared
  * {@link LocalLauncher}; every agent node gets a module-cached
  * {@link RemoteLauncher} per id: the class is stateless besides its nodeId

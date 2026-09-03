@@ -4,7 +4,7 @@
  * (the TmuxRunner precedent: extracted so both apps consume one copy).
  *
  * The tree is deliberately self-contained: it speaks the pane-env contract
- * (`env.ts`: SUBSHELL_API_KEY / SUBSHELL_BASE_URL / SUBSHELL_SESSION_ID / SUBSHELL_SESSION_NAME
+ * (`env.ts`: SUBSHELL_API_KEY / SUBSHELL_BASE_URL / SUBSHELL_ID / SUBSHELL_NAME
  * / SUBSHELL_DATA_DIR), raw `process.stderr.write`, node builtins, `jose`,
  * `zod` and `@modelcontextprotocol/server` — no db/auth/server chain, so a
  * client process never opens the app database.

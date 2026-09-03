@@ -31,7 +31,7 @@ const STALE_UPLOAD_MAX_AGE_MS = 60 * 60 * 1000;
 
 /**
  * The write_file policy roots, recomputed on EVERY call (never cached):
- * `<dataDir>` + every tracked session's launch cwd (spec §7). Fresh by
+ * `<dataDir>` + every tracked subshell's launch cwd (spec §7). Fresh by
  * construction, because both the cwd set and the symlinks beneath it drift
  * during a long-lived stream.
  */
@@ -128,7 +128,7 @@ export async function execWriteFile(ctx: CommandContext, cmd: Cmd): Promise<Comm
  * Sweep orphaned upload temps at daemon startup (spec §3.4): a crash between
  * chunk 0 and eof leaves a `.part` behind, so every boot deletes
  * `.*.part` REGULAR FILES older than {@link STALE_UPLOAD_MAX_AGE_MS} in
- * `<dataDir>` and each tracked session's cwd. The scan is deliberately
+ * `<dataDir>` and each tracked subshell's cwd. The scan is deliberately
  * SHALLOW (top-level entries of those dirs only — cheaply enumerable at boot);
  * deeper strays are harmless until a same-named restart truncates them.
  * Missing/unreadable directories are skipped silently and the function NEVER

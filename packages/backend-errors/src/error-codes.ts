@@ -7,7 +7,7 @@ export enum BackendErrorCodes {
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
   /**
-   * The phase-1 placeholder refusing any non-local `POST /api/sessions` body.
+   * The phase-1 placeholder refusing any non-local `POST /api/subshells` body.
    * Phase 2 removed the gate it served (§6.6 resolution is live); kept for
    * enum stability — the published value set never churns. Nothing throws it
    * anymore and no client references it (the old frontend belt comment is
@@ -21,7 +21,7 @@ export enum BackendErrorCodes {
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
   NODE_REQUIRED = "NODE_REQUIRED",
-  NODE_RUNNING_SESSIONS = "NODE_RUNNING_SESSIONS",
+  NODE_RUNNING_SUBSHELLS = "NODE_RUNNING_SUBSHELLS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
@@ -77,8 +77,8 @@ export const BackendErrorCodeDefs = {
     message: "No launch-eligible node — pick one",
     statusCode: 400,
   },
-  [BackendErrorCodes.NODE_RUNNING_SESSIONS]: {
-    message: "Node has running sessions",
+  [BackendErrorCodes.NODE_RUNNING_SUBSHELLS]: {
+    message: "Node has running subshells",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_UNREACHABLE]: {

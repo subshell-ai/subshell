@@ -13,8 +13,8 @@ import { parseArgs, run } from "../cli.js";
 const MCP_ENV_KEYS = [
   "SUBSHELL_API_KEY",
   "SUBSHELL_BASE_URL",
-  "SUBSHELL_SESSION_ID",
-  "SUBSHELL_SESSION_NAME",
+  "SUBSHELL_ID",
+  "SUBSHELL_NAME",
   "SUBSHELL_DATA_DIR",
   "SUBSHELL_CHANNEL_PIN",
 ] as const;
@@ -51,11 +51,11 @@ describe("subshell mcp (CLI wiring)", () => {
     expect(res.out).toBe("");
   });
 
-  test("SUBSHELL_API_KEY without SUBSHELL_SESSION_ID → exit 2 naming SUBSHELL_SESSION_ID", async () => {
+  test("SUBSHELL_API_KEY without SUBSHELL_ID → exit 2 naming SUBSHELL_ID", async () => {
     process.env.SUBSHELL_API_KEY = "subshell_test_key";
     const res = await run(["mcp"]);
     expect(res.code).toBe(2);
-    expect(msgLine(res.err)).toInclude("SUBSHELL_SESSION_ID is not set");
+    expect(msgLine(res.err)).toInclude("SUBSHELL_ID is not set");
     expect(res.err).not.toInclude("SUBSHELL_API_KEY is not set");
   });
 

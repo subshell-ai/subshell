@@ -214,7 +214,7 @@ export async function toNodeViews(
   return out;
 }
 
-/** Share rows → wire shape with grantee display names resolved (session-shares mirror). */
+/** Share rows → wire shape with grantee display names resolved (subshell-shares mirror). */
 export async function toNodeShareViews(rows: NodeShareTable[]): Promise<Static<typeof NodeShareSchema>[]> {
   const named = rows.map((r) => r.granteeUserId).filter((x): x is string => x !== null);
   const names = await new UsersRepository(db).displayNamesByIds(named);

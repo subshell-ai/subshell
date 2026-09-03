@@ -1,20 +1,20 @@
 import { Elysia } from "elysia";
 import { db } from "@/db/index.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
-import { SessionManagerService } from "@/services/session-manager.service.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 const SSE_INTERVAL_MS = 1500;
 
 /**
- * Server-Sent Events feed of the user's live sessions (cards on the home page).
+ * Server-Sent Events feed of the user's live subshells (cards on the home page).
  *
  * Auth: like the WS attach path, the browser cannot read the HttpOnly cookie
  * for EventSource, so the client fetches a short-lived ws token via
  * `POST /api/auth/ws-token` and passes it as `?token=`.
  *
- * Emits one JSON event per tick containing the full (cheap) session list.
+ * Emits one JSON event per tick containing the full (cheap) subshell list.
  *
  * Known design debt (local service, accepted):
  * - Token TTL (30s) is shorter than the stream lifetime, so the client
@@ -41,8 +41,8 @@ export const liveRoutes = new Elysia({ prefix: "/api/events" }).get(
     set.headers["cache-control"] = "no-cache";
     set.headers["connection"] = "keep-alive";
 
-    const manager = new SessionManagerService({
-      sessions: new SessionsRepository(db),
+    const manager = new SubshellManagerService({
+      subshells: new SubshellsRepository(db),
       profiles: new ProfilesRepository(db),
     });
     const encoder = new TextEncoder();
@@ -50,10 +50,10 @@ export const liveRoutes = new Elysia({ prefix: "/api/events" }).get(
       async start(controller) {
         const tick = async () => {
           try {
-            const sessions = await manager.listSessions(userId);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ sessions })}\n\n`));
+            const subshells = await manager.listSubshells(userId);
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ subshells })}\n\n`));
           } catch {
-            // session list errors are non-fatal; keep the feed alive
+            // subshell list errors are non-fatal; keep the feed alive
           }
         };
         await tick();
@@ -72,6 +72,6 @@ export const liveRoutes = new Elysia({ prefix: "/api/events" }).get(
     });
   },
   {
-    detail: { operationId: "streamLiveSessions", tags: ["sessions"], description: "SSE: live session list" },
+    detail: { operationId: "streamLiveSubshells", tags: ["subshells"], description: "SSE: live subshell list" },
   },
 );

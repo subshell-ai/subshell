@@ -1,5 +1,5 @@
 /**
- * A workspace: a saved tiling layout of sessions, private to one user.
+ * A workspace: a saved tiling layout of subshells, private to one user.
  */
 export interface WorkspaceTable {
   /** Unique workspace id (uuid) */

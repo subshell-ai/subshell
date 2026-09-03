@@ -32,7 +32,7 @@ const CreateProfileBodySchema = t.Object({
   flags: t.Optional(t.Array(t.String(), { description: "Extra CLI flags" })),
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
-  restartOnExit: t.Optional(t.Boolean({ description: "New sessions auto-restart on exit" })),
+  restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
   nodeId: t.Optional(
     t.Nullable(t.String({ minLength: 1, description: "Node id to pin this profile to" }), {
       description: "Pinned launch node; null/omitted = any node",
@@ -64,8 +64,8 @@ async function assertNodeVisible(userId: string, nodeId: string): Promise<void> 
  * Profile endpoints. Reads (list, harness ids, harness schema) stay open to
  * every authenticated actor — the agent toolset needs `GET /api/profiles`
  * (list_profiles). Writes are cookie-only: profile.env OUTRANKS the
- * SUBSHELL_* credential layer when a session starts, so a bearer key that could
- * edit the owner's profiles could redirect every future session/auto-restart
+ * SUBSHELL_* credential layer when a subshell starts, so a bearer key that could
+ * edit the owner's profiles could redirect every future subshell/auto-restart
  * and harvest its bearer token. Machine credentials must not manage profiles.
  */
 export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
@@ -123,7 +123,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       const repo = new ProfilesRepository(db);
       const rows = await repo.listByUser(user.id, query.harnessId);
       // A disabled or not-installed harness makes its profiles unavailable:
-      // they are not listed anywhere (cards, new-session pickers), and
+      // they are not listed anywhere (cards, new-subshell pickers), and
       // re-enabling/installing the harness brings them back — nothing here
       // is ever deleted.
       // The gate is LOCAL by nature (usableHarnessIds() probes this machine).
@@ -142,7 +142,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       // tool only projects {id,name,harnessId} — the REST body's `envJson`
       // was every operator secret (profile.env is secret storage by
       // convention, and it OUTRANKS the SUBSHELL_* credential layer) harvestable
-      // by any session token. Redact it for machine actors. `flagsJson` and
+      // by any subshell token. Redact it for machine actors. `flagsJson` and
       // `settingsJson` are NOT secret storage by convention and stay
       // (nothing strips or seals them elsewhere either), so only envJson is
       // nulled. The cookie/browser profile editor keeps the full rows.

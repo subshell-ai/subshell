@@ -46,19 +46,19 @@ export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
 export const NODE_CLOSE_SUPERSEDED = 4409;
 
 /* ------------------------------------------------------------------ */
-/* session-id policy                                                    */
+/* subshell-id policy                                                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * The uuid-ish session-id guard: ids interpolated into node-side paths;
+ * The uuid-ish subshell-id guard: ids interpolated into node-side paths;
  * wire contract shared by backend RemoteLauncher gates and the agent path
- * policy (the agent's `isSessionId` is an alias of this; the backend's
- * `SESSION_ID_RE` mirrors it until its wave adopts the import). Session ids
+ * policy (the agent's `isSubshellId` is an alias of this; the backend's
+ * `SUBSHELL_ID_RE` mirrors it until its wave adopts the import). Subshell ids
  * are minted as uuids, so hex + hyphen (≤ 64 chars) is all a legitimate id
  * ever contains — a hostile `../../../../x` must never reach path
  * interpolation on either side of the link.
  */
-export function isNodeSessionId(id: string): boolean {
+export function isNodeSubshellId(id: string): boolean {
   return /^[0-9a-fA-F-]{1,64}$/.test(id);
 }
 
@@ -74,7 +74,7 @@ export interface ProfileDefinitionWire {
   name: string;
   /** Optional longer description */
   description?: string | null;
-  /** Extra environment variables to set on the session (validated key names) */
+  /** Extra environment variables to set on the subshell (validated key names) */
   env: Record<string, string>;
   /** Extra CLI flags to pass to the harness binary */
   flags: string[];
@@ -82,7 +82,7 @@ export interface ProfileDefinitionWire {
   settings: Record<string, unknown> | null;
   /** If true, only this profile's config sources apply (isolation) */
   configIsolation: boolean;
-  /** If true, new sessions from this profile auto-restart on exit */
+  /** If true, new subshells from this profile auto-restart on exit */
   restartOnExit?: boolean;
 }
 
@@ -99,9 +99,9 @@ export type NodeCommandBody =
   | {
       /** Start a harness pane: cwd + env + argv inputs, MCP file, output log path */
       type: "launch";
-      /** subshell session id */
-      sessionId: string;
-      /** tmux socket name (tmuxSocketFor(sessionId)) */
+      /** subshell subshell id */
+      subshellId: string;
+      /** tmux socket name (tmuxSocketFor(subshellId)) */
       socket: string;
       /** Absolute working dir ON THE NODE (already stat-verified via stat_dir) */
       cwd: string;
@@ -115,29 +115,29 @@ export type NodeCommandBody =
       mcp?: { path: string; fileContent: string };
       /** Resume pin for harnesses that support it */
       harnessSession?: HarnessSessionWire;
-      /** tmux session name (the session id) */
-      sessionName: string;
+      /** tmux subshell name (the subshell id) */
+      subshellName: string;
       /** Initial terminal geometry */
       cols?: number;
       /** Initial terminal geometry */
       rows?: number;
       /**
        * Revive parity (phase-2): when true the agent downgrades a log-attach
-       * failure (sessions-dir mkdir + pipe-pane) to a logged note and still
+       * failure (subshells-dir mkdir + pipe-pane) to a logged note and still
        * answers `{ ok: true }` — the pane is live. Wire twin of
        * `LaunchPlan.bestEffortLog`; absent ⇒ a log failure fails the launch
        * (today's behavior).
        */
       bestEffortLog?: boolean;
     }
-  | { type: "terminate"; sessionId: string }
-  | { type: "kill"; sessionId: string }
-  | { type: "input"; sessionId: string; data: string }
-  | { type: "resize"; sessionId: string; cols: number; rows: number }
+  | { type: "terminate"; subshellId: string }
+  | { type: "kill"; subshellId: string }
+  | { type: "input"; subshellId: string; data: string }
+  | { type: "resize"; subshellId: string; cols: number; rows: number }
   | {
       /** Agent-side prompt settle loop: capture-poll until the pane is quiet, type + Enter */
       type: "prompt_deliver";
-      sessionId: string;
+      subshellId: string;
       text: string;
       settleTimeoutMs: number;
       pollMs: number;
@@ -145,15 +145,15 @@ export type NodeCommandBody =
   | {
       /** Pane snapshot; optional `lines` prepends that many reflowed history rows (attach replay). */
       type: "capture";
-      sessionId: string;
+      subshellId: string;
       /** Optional scrollback budget for the capture. Absent from (and stripped by) pre-replay agents. */
       lines?: number;
     }
-  | { type: "probe"; sessionIds: string[] }
+  | { type: "probe"; subshellIds: string[] }
   | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
   | { type: "stat_dir"; path: string }
-  | { type: "log_read"; sessionId: string; fromByte: number; maxBytes: number }
-  | { type: "tail_start"; sessionId: string; subId: string; fromByte: number }
+  | { type: "log_read"; subshellId: string; fromByte: number; maxBytes: number }
+  | { type: "tail_start"; subshellId: string; subId: string; fromByte: number }
   | { type: "tail_stop"; subId: string }
   | { type: "remove_paths"; paths: string[] }
   | { type: "inventory" }
@@ -193,9 +193,9 @@ export type NodeEvent =
   | { type: "heartbeat"; ts: string }
   | { type: "result"; ref: string; ok: true; data?: JsonValue }
   | { type: "result"; ref: string; ok: false; error: string }
-  | { type: "output"; sessionId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
-  | { type: "exit"; sessionId: string; exitCode: number | null; at: string }
-  | { type: "sessions_report"; sessions: { sessionId: string; alive: boolean; exitCode: number | null }[] }
+  | { type: "output"; subshellId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
+  | { type: "exit"; subshellId: string; exitCode: number | null; at: string }
+  | { type: "subshells_report"; subshells: { subshellId: string; alive: boolean; exitCode: number | null }[] }
   | { type: "error"; code: string; message: string };
 
 /* ------------------------------------------------------------------ */
@@ -257,9 +257,9 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
   if (!isRecord(value) || !isStr(value.type)) return null;
   switch (value.type) {
     case "launch": {
-      if (!isStr(value.sessionId) || !isStr(value.socket) || !isStr(value.cwd) || !isStr(value.harnessId)) return null;
+      if (!isStr(value.subshellId) || !isStr(value.socket) || !isStr(value.cwd) || !isStr(value.harnessId)) return null;
       if (!validProfileWire(value.profile) || !isStringMap(value.subshellEnv)) return null;
-      if (!isStr(value.sessionName)) return null;
+      if (!isStr(value.subshellName)) return null;
       if ("mcp" in value) {
         const m = value.mcp;
         if (!isRecord(m) || !isStr(m.path) || !isStr(m.fileContent)) return null;
@@ -275,22 +275,22 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     }
     case "terminate":
     case "kill":
-      return isStr(value.sessionId) ? ({ type: value.type, sessionId: value.sessionId } as NodeCommandBody) : null;
+      return isStr(value.subshellId) ? ({ type: value.type, subshellId: value.subshellId } as NodeCommandBody) : null;
     case "capture": {
-      if (!isStr(value.sessionId)) return null;
+      if (!isStr(value.subshellId)) return null;
       // Additive optional field (protocol v1 unchanged): a positive int or
       // absent. An agent predating the field strips this key here and answers
       // with the visible grid only — the old replay, no refusal.
       if ("lines" in value) {
         if (!isInt(value.lines) || (value.lines as number) <= 0) return null;
-        return { type: "capture", sessionId: value.sessionId, lines: value.lines as number };
+        return { type: "capture", subshellId: value.subshellId, lines: value.lines as number };
       }
-      return { type: "capture", sessionId: value.sessionId };
+      return { type: "capture", subshellId: value.subshellId };
     }
     case "input":
-      return isStr(value.sessionId) && isStr(value.data) ? (value as unknown as NodeCommandBody) : null;
+      return isStr(value.subshellId) && isStr(value.data) ? (value as unknown as NodeCommandBody) : null;
     case "resize":
-      return isStr(value.sessionId) &&
+      return isStr(value.subshellId) &&
         isInt(value.cols) &&
         isInt(value.rows) &&
         (value.cols as number) > 0 &&
@@ -298,7 +298,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         ? (value as unknown as NodeCommandBody)
         : null;
     case "prompt_deliver":
-      return isStr(value.sessionId) &&
+      return isStr(value.subshellId) &&
         isStr(value.text) &&
         isNum(value.settleTimeoutMs) &&
         (value.settleTimeoutMs as number) > 0 &&
@@ -307,7 +307,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         ? (value as unknown as NodeCommandBody)
         : null;
     case "probe":
-      return isStrArray(value.sessionIds) ? { type: "probe", sessionIds: value.sessionIds } : null;
+      return isStrArray(value.subshellIds) ? { type: "probe", subshellIds: value.subshellIds } : null;
     case "probe_resume":
       return isStr(value.harnessId) && isStr(value.harnessSessionId) && isStr(value.cwd)
         ? { type: "probe_resume", harnessId: value.harnessId, harnessSessionId: value.harnessSessionId, cwd: value.cwd }
@@ -315,7 +315,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "stat_dir":
       return isStr(value.path) ? { type: "stat_dir", path: value.path } : null;
     case "log_read":
-      return isStr(value.sessionId) &&
+      return isStr(value.subshellId) &&
         isInt(value.fromByte) &&
         isInt(value.maxBytes) &&
         (value.fromByte as number) >= 0 &&
@@ -323,8 +323,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         ? (value as unknown as NodeCommandBody)
         : null;
     case "tail_start":
-      return isStr(value.sessionId) && isStr(value.subId) && isInt(value.fromByte) && (value.fromByte as number) >= 0
-        ? { type: "tail_start", sessionId: value.sessionId, subId: value.subId, fromByte: value.fromByte }
+      return isStr(value.subshellId) && isStr(value.subId) && isInt(value.fromByte) && (value.fromByte as number) >= 0
+        ? { type: "tail_start", subshellId: value.subshellId, subId: value.subId, fromByte: value.fromByte }
         : null;
     case "tail_stop":
       return isStr(value.subId) ? { type: "tail_stop", subId: value.subId } : null;
@@ -396,7 +396,7 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       }
       return isStr(value.error) ? { type: "result", ref: value.ref, ok: false, error: value.error } : null;
     case "output":
-      return isStr(value.sessionId) &&
+      return isStr(value.subshellId) &&
         isStr(value.subId) &&
         isInt(value.fromByte) &&
         isInt(value.toByte) &&
@@ -407,13 +407,13 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         ? (value as unknown as NodeEvent)
         : null;
     case "exit":
-      return isStr(value.sessionId) && isStr(value.at) && (value.exitCode === null || isInt(value.exitCode))
+      return isStr(value.subshellId) && isStr(value.at) && (value.exitCode === null || isInt(value.exitCode))
         ? (value as unknown as NodeEvent)
         : null;
-    case "sessions_report": {
-      if (!Array.isArray(value.sessions)) return null;
-      for (const s of value.sessions) {
-        if (!isRecord(s) || !isStr(s.sessionId) || !isBool(s.alive)) return null;
+    case "subshells_report": {
+      if (!Array.isArray(value.subshells)) return null;
+      for (const s of value.subshells) {
+        if (!isRecord(s) || !isStr(s.subshellId) || !isBool(s.alive)) return null;
         if (!(s.exitCode === null || isInt(s.exitCode))) return null;
       }
       return value as unknown as NodeEvent;

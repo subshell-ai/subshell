@@ -4,7 +4,7 @@ import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_BACKSTOP_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
-import { sessionLogDir, sessionLogPath } from "./session-paths.js";
+import { subshellLogDir, subshellLogPath } from "./subshell-paths.js";
 
 /** Today's exact tmux/fs behavior behind the launcher seam (spec §6.3). */
 export class LocalLauncher implements NodeLauncher {
@@ -18,7 +18,7 @@ export class LocalLauncher implements NodeLauncher {
     // between construction and launch), but constructing a launcher is also
     // what direct consumers (attach, tests seeding panes) rely on.
     try {
-      mkdirSync(sessionLogDir(), { recursive: true });
+      mkdirSync(subshellLogDir(), { recursive: true });
     } catch {
       // best-effort; launch()'s mkdir is the one that gates real spawns
     }
@@ -35,9 +35,9 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   /**
-   * One harness start, verbatim from the pre-seam `createSession` sequence:
+   * One harness start, verbatim from the pre-seam `createSubshell` sequence:
    * compose the pane command (throws on a bad env key — before anything
-   * spawns), create the detached session, make sure the log dir exists, then
+   * spawns), create the detached subshell, make sure the log dir exists, then
    * pipe-pane the output log. With {@link LaunchPlan.bestEffortLog} set, only
    * the LOG ATTACH (dir mkdir + pipe-pane) degrades — a failure there is
    * logged (debug) and swallowed, exactly like the pre-seam revive did.
@@ -48,21 +48,21 @@ export class LocalLauncher implements NodeLauncher {
       plan.binary,
       plan.cwd,
       plan.profile,
-      plan.sessionName,
+      plan.subshellName,
       plan.subshellEnv,
       plan.mcp,
       plan.harnessSession,
     );
-    this.#tmux.newSession(plan.socket, plan.id, plan.cwd, cmd);
-    // Stream all pane output to a per-session log file for attach replay.
-    const logFile = sessionLogPath(plan.id);
+    this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd);
+    // Stream all pane output to a per-subshell log file for attach replay.
+    const logFile = subshellLogPath(plan.id);
     if (plan.bestEffortLog) {
       // Revive-only (see LaunchPlan.bestEffortLog): the pane is live and the
       // row must come back even when the replay log refuses to attach — and
       // "attach" is BOTH steps: a mkdir throw (log dir wiped mid-flight and
       // the re-create refused) escapes a revive just as fatally as a pipe-pane
       // throw, so the guarded region wraps mkdir + pipePane together.
-      // buildHarnessCommand/newSession above stay strict by design.
+      // buildHarnessCommand/newSubshell above stay strict by design.
       try {
         this.#ensureLogDir(logFile);
         this.#tmux.pipePane(plan.socket, plan.id, logFile);
@@ -90,7 +90,7 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   /**
-   * Kills the session, THROWING when tmux refuses (unlike {@link killSession},
+   * Kills the subshell, THROWING when tmux refuses (unlike {@link killSubshell},
    * which swallows "already gone") — the strict form the interface owes a
    * caller that must learn the kill failed.
    */
@@ -98,13 +98,13 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.run(["-L", socket, "kill-session", "-t", id], {});
   }
 
-  /** Kills the session, swallowing "already gone" (TmuxRunner.killSession semantics). */
-  async killSession(socket: string, id: string): Promise<void> {
-    this.#tmux.killSession(socket, id);
+  /** Kills the subshell, swallowing "already gone" (TmuxRunner.killSubshell semantics). */
+  async killSubshell(socket: string, id: string): Promise<void> {
+    this.#tmux.killSubshell(socket, id);
   }
 
-  async hasSession(socket: string, id: string): Promise<boolean> {
-    return this.#tmux.hasSession(socket, id);
+  async hasSubshell(socket: string, id: string): Promise<boolean> {
+    return this.#tmux.hasSubshell(socket, id);
   }
 
   /**
@@ -113,8 +113,8 @@ export class LocalLauncher implements NodeLauncher {
    * nature; this exists so the local manager's sync `isAlive` can keep its
    * boolean signature.
    */
-  hasSessionSync(socket: string, id: string): boolean {
-    return this.#tmux.hasSession(socket, id);
+  hasSubshellSync(socket: string, id: string): boolean {
+    return this.#tmux.hasSubshell(socket, id);
   }
 
   async paneExitCode(socket: string, id: string): Promise<number | null> {
@@ -179,7 +179,7 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   logPath(id: string): string {
-    return sessionLogPath(id);
+    return subshellLogPath(id);
   }
 
   async readLogTail(id: string): Promise<{ lines: string[]; truncated: boolean }> {
@@ -210,7 +210,7 @@ export class LocalLauncher implements NodeLauncher {
   /**
    * Streams log appends from `fromByte` onward to `onChunk`, seeded by an
    * immediate catch-up read. Port of the WS attach pump (`startLogTail` in
-   * `ws/session-ws.ts`): `fs.watch` (inotify on Linux) delivers the moment
+   * `ws/subshell-ws.ts`): `fs.watch` (inotify on Linux) delivers the moment
    * pipe-pane appends, and a slow interval covers lost watch events; both
    * paths share the size-based read so delivery is identical either way.
    * The returned disposer closes the watcher and clears the timer, and is
@@ -282,11 +282,11 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   /**
-   * The local machine owns exactly one per-session file: the pipe-pane replay
-   * log (the MCP config under `sessionMcpConfigPath` is a control-plane file —
-   * `deleteSession` unlinks it directly for local and remote rows alike).
+   * The local machine owns exactly one per-subshell file: the pipe-pane replay
+   * log (the MCP config under `subshellMcpConfigPath` is a control-plane file —
+   * `deleteSubshell` unlinks it directly for local and remote rows alike).
    */
-  sessionArtifacts(id: string): string[] {
+  subshellArtifacts(id: string): string[] {
     return [this.logPath(id)];
   }
 
@@ -302,5 +302,5 @@ export class LocalLauncher implements NodeLauncher {
   }
 }
 
-/** Module-level default (mirrors the constructor default; used by readSessionLogTail). */
+/** Module-level default (mirrors the constructor default; used by readSubshellLogTail). */
 export const defaultLocalLauncher = new LocalLauncher();

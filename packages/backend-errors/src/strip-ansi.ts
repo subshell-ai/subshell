@@ -1,5 +1,5 @@
 /**
- * ANSI/control-character stripping shared by the backend (session previews)
+ * ANSI/control-character stripping shared by the backend (subshell previews)
  * and the frontend (transcript search): both consume the same raw terminal
  * output, so the two consumers must agree on what counts as escape noise.
  *

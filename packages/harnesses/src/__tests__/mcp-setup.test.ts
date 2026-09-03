@@ -8,7 +8,7 @@ import type { McpLaunchSpec } from "../types.js";
 
 /**
  * Per-harness MCP registration contract (the mechanism behind subshell's
- * cross-session comms): auto harnesses render a per-session config file in
+ * cross-subshell comms): auto harnesses render a per-subshell config file in
  * their native dialect; manual harnesses expose copy-paste one-time steps.
  */
 

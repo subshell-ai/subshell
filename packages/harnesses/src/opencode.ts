@@ -23,7 +23,7 @@ const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
   {
     key: "agent",
     label: "Agent",
-    description: "Agent to use for the session",
+    description: "Agent to use for the subshell",
     type: "string",
   },
   {
@@ -36,8 +36,8 @@ const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
   // OPENCODE_CONFIG is deliberately NOT suggested: subshell owns it — it points
-  // at each session's generated MCP config layer (mcpRegistration), and a
-  // profile that set it would shadow its own cross-session comms. Users who
+  // at each subshell's generated MCP config layer (mcpRegistration), and a
+  // profile that set it would shadow its own cross-subshell comms. Users who
   // want their own extra layer use OPENCODE_CONFIG_CONTENT (independent merge
   // source) or OPENCODE_CONFIG_DIR.
   { key: "OPENCODE_CONFIG_CONTENT", description: "Inline JSON config merged at runtime" },
@@ -51,7 +51,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   { flag: "--agent plan", description: "Start with a specific agent" },
   { flag: "--auto", description: "Auto-approve permissions not explicitly denied" },
   { flag: "--pure", description: "Run without external plugins" },
-  { flag: "--prompt <text>", description: "Initial prompt for the session" },
+  { flag: "--prompt <text>", description: "Initial prompt for the subshell" },
   { flag: "--mini", description: "Start the minimal interactive interface" },
   { flag: "--print-logs", description: "Print logs to stderr (helps debugging)" },
 ];
@@ -63,17 +63,17 @@ const PLUGIN_KNOWN_PATHS = [".opencode/bin/opencode"];
  *
  * Launch shape:
  *   opencode [-m <model>] [--agent <a>] [--auto] [profile flags] [extra flags]
- * A bare launch opens the TUI. opencode has no create-time session-name flag,
- * so the subshell session name is deliberately not forwarded. Settings arrive as
+ * A bare launch opens the TUI. opencode has no create-time subshell-name flag,
+ * so the subshell subshell name is deliberately not forwarded. Settings arrive as
  * per-invocation flags (verified against opencode 1.18.18).
  *
  * subshell MCP is wired automatically: OpenCode merges any object under the
  * OPENCODE_CONFIG env-var path into its config (verified against 1.18.18 —
  * "Custom config is loaded between global and project configs", files are
- * merged not replaced). subshell writes a per-session config file holding just an
+ * merged not replaced). subshell writes a per-subshell config file holding just an
  * `mcp.subshell` local stdio entry and points OPENCODE_CONFIG at it, so the user's
  * own global/project servers are preserved. The spawned `subshell mcp` child
- * inherits the session's baked SUBSHELL_* env for its credential.
+ * inherits the subshell's baked SUBSHELL_* env for its credential.
  */
 export class OpencodePlugin implements HarnessPlugin {
   readonly id = "opencode";
@@ -150,12 +150,12 @@ export class OpencodePlugin implements HarnessPlugin {
     return { fileContent: `${JSON.stringify(doc, null, 2)}\n`, env: { OPENCODE_CONFIG: configPath } };
   }
 
-  /** Auto: subshell writes a merged config layer + OPENCODE_CONFIG for every session. */
+  /** Auto: subshell writes a merged config layer + OPENCODE_CONFIG for every subshell. */
   mcpSetup(_launch: McpLaunchSpec): McpSetupInfo {
     return {
       mode: "auto",
       summary:
-        "Subshell registers itself with every OpenCode session automatically (a merged config layer + OPENCODE_CONFIG).",
+        "Subshell registers itself with every OpenCode subshell automatically (a merged config layer + OPENCODE_CONFIG).",
     };
   }
 

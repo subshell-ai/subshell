@@ -7,11 +7,11 @@ import { channelRoutes } from "@/api/channels/index.js";
 import { identityRoutes } from "@/api/identities.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setNudgeTransportForTests } from "@/services/channels/nudge.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -54,7 +54,7 @@ describe("channels route", () => {
   const aliceEmail = `ch-alice-${crypto.randomUUID()}@subshell.local`;
   const bobEmail = `ch-bob-${crypto.randomUUID()}@subshell.local`;
   const pw = "channe1-pass!";
-  const createdSessions: string[] = [];
+  const createdSubshells: string[] = [];
   const nudges: { socket: string; name: string; text: string }[] = [];
 
   beforeAll(async () => {
@@ -67,7 +67,7 @@ describe("channels route", () => {
   });
 
   afterAll(async () => {
-    for (const id of createdSessions) await db.deleteFrom("sessions").where("id", "=", id).execute();
+    for (const id of createdSubshells) await db.deleteFrom("subshells").where("id", "=", id).execute();
     await deleteUserByEmailOrId(aliceEmail);
     await deleteUserByEmailOrId(bobEmail);
   });
@@ -279,21 +279,21 @@ describe("channels route", () => {
     expect(noKid.status).toBe(400);
   });
 
-  it("nudge types into running recipient sessions only, skipping the author", async () => {
+  it("nudge types into running recipient subshells only, skipping the author", async () => {
     nudges.length = 0;
     class FakeTmux extends TmuxRunner {
-      override sendInput(socket: string, sessionName: string, input: string): void {
-        nudges.push({ socket, name: sessionName, text: input });
+      override sendInput(socket: string, subshellName: string, input: string): void {
+        nudges.push({ socket, name: subshellName, text: input });
       }
     }
     setNudgeTransportForTests(new FakeTmux());
     try {
       await registerIdentity(aliceToken);
       await call(channelRoutes, "/api/channels", aliceToken, postJson({ name: "ping" }));
-      // a running recipient session for bob
+      // a running recipient subshell for bob
       const bobSess = crypto.randomUUID();
-      createdSessions.push(bobSess);
-      await new SessionsRepository(db).create({
+      createdSubshells.push(bobSess);
+      await new SubshellsRepository(db).create({
         id: bobSess,
         userId: bob,
         profileId: "p",
@@ -303,7 +303,7 @@ describe("channels route", () => {
         tmuxSocket: "sock-b",
         alive: 1,
       });
-      // Alice is already a member (creator). First post: no session recipients
+      // Alice is already a member (creator). First post: no subshell recipients
       // addressed → nothing to nudge.
       await call(
         channelRoutes,
@@ -312,8 +312,8 @@ describe("channels route", () => {
         postJson({ envelope: envelope("x", [`user:${alice}`]), recipientIds: [`user:${alice}`], nudge: true }),
       );
       expect(nudges.length).toBe(0); // no sess recipients
-      // Now add the bob session as a member via a session bearer token and nudge it.
-      const key = await issueSessionToken(bobSess, bob);
+      // Now add the bob subshell as a member via a subshell bearer token and nudge it.
+      const key = await issueSubshellToken(bobSess, bob);
       const { publicJwk } = await generateKeypair();
       const idres = await identityRoutes.fetch(
         new Request("http://localhost:3080/api/identities", {
@@ -340,7 +340,7 @@ describe("channels route", () => {
       expect(nudges[0]).toMatchObject({ socket: "sock-b", name: bobSess });
       expect(nudges[0].text).toContain("#ping");
       // token hygiene
-      const row = await new SessionsRepository(db).findById(bobSess);
+      const row = await new SubshellsRepository(db).findById(bobSess);
       if (row?.apiKeyId) authDatabase().run("DELETE FROM apikey WHERE id = ?", [row.apiKeyId]);
     } finally {
       setNudgeTransportForTests(null);

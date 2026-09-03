@@ -3,7 +3,7 @@ import { getHarness, tmuxSocketFor } from "@internal/harnesses";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
-import { isSessionId } from "../session-meta.js";
+import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { stopWatcher } from "./report.js";
 
@@ -22,45 +22,45 @@ import { stopWatcher } from "./report.js";
 export const PROBE_RESULT_BUDGET_BYTES = NODE_MAX_FRAME_BYTES - 64 * 1024;
 
 /**
- * Resolve the tmux socket for a wire-supplied session id (spec §6.3): the
+ * Resolve the tmux socket for a wire-supplied subshell id (spec §6.3): the
  * socket recorded at launch wins — `meta.get` answers from the store's
  * record mirror after the first lookup, so per-keystroke commands never
  * re-read the file — and `tmuxSocketFor` is the orphan fallback. The id is
  * format-checked BEFORE any store touch — the store throws on a malformed
  * id, and the message the dispatcher answers must be exactly
- * `invalid session id`. Shared with prompt.ts (the settle loop captures and
+ * `invalid subshell id`. Shared with prompt.ts (the settle loop captures and
  * types on the same socket the other pane executors use).
  */
-export async function resolveSocket(ctx: CommandContext, sessionId: string): Promise<string> {
-  if (!isSessionId(sessionId)) throw new Error("invalid session id");
-  return (await ctx.meta.get(sessionId))?.socket ?? tmuxSocketFor(sessionId);
+export async function resolveSocket(ctx: CommandContext, subshellId: string): Promise<string> {
+  if (!isSubshellId(subshellId)) throw new Error("invalid subshell id");
+  return (await ctx.meta.get(subshellId))?.socket ?? tmuxSocketFor(subshellId);
 }
 
 /**
  * `terminate` (spec §7): STRICT `kill-session` — a tmux refusal is the answer
- * (`{ok:false}`), mirroring `LocalLauncher.terminate`. The session's exit
+ * (`{ok:false}`), mirroring `LocalLauncher.terminate`. The subshell's exit
  * watcher is stopped FIRST: a deliberate kill must not double-report a death
  * the control plane just ordered (Task 4's report.ts owns the watchers).
  */
 export async function execTerminate(ctx: CommandContext, cmd: Cmd<"terminate">): Promise<CommandResult> {
-  const socket = await resolveSocket(ctx, cmd.sessionId);
-  stopWatcher(ctx, cmd.sessionId);
-  ctx.tmux.run(["-L", socket, "kill-session", "-t", cmd.sessionId], {});
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  stopWatcher(ctx, cmd.subshellId);
+  ctx.tmux.run(["-L", socket, "kill-session", "-t", cmd.subshellId], {});
   return { ok: true };
 }
 
 /**
  * `kill` (spec §7): best-effort `kill-session` — "already gone" is success,
- * mirroring `LocalLauncher.killSession` (the restart/terminate sweeps call it
+ * mirroring `LocalLauncher.killSubshell` (the restart/terminate sweeps call it
  * on panes that may have died on their own). Like `terminate`, stops the exit
  * watcher before killing so the death never arrives as a surprise `exit`
  * event.
  */
 export async function execKill(ctx: CommandContext, cmd: Cmd<"kill">): Promise<CommandResult> {
-  const socket = await resolveSocket(ctx, cmd.sessionId);
-  stopWatcher(ctx, cmd.sessionId);
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  stopWatcher(ctx, cmd.subshellId);
   try {
-    ctx.tmux.killSession(socket, cmd.sessionId);
+    ctx.tmux.killSubshell(socket, cmd.subshellId);
   } catch {
     // already gone — the pane is dead, which is all `kill` promises
   }
@@ -69,22 +69,22 @@ export async function execKill(ctx: CommandContext, cmd: Cmd<"kill">): Promise<C
 
 /** `input` (spec §7): raw keystrokes into the pane, byte-for-byte (`send-keys -l`). */
 export async function execInput(ctx: CommandContext, cmd: Cmd<"input">): Promise<CommandResult> {
-  const socket = await resolveSocket(ctx, cmd.sessionId);
-  ctx.tmux.sendInput(socket, cmd.sessionId, cmd.data);
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  ctx.tmux.sendInput(socket, cmd.subshellId, cmd.data);
   return { ok: true };
 }
 
 /** `resize` (spec §7): fit the pane to the viewing terminal's geometry. */
 export async function execResize(ctx: CommandContext, cmd: Cmd<"resize">): Promise<CommandResult> {
-  const socket = await resolveSocket(ctx, cmd.sessionId);
-  ctx.tmux.resizeWindow(socket, cmd.sessionId, cmd.cols, cmd.rows);
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  ctx.tmux.resizeWindow(socket, cmd.subshellId, cmd.cols, cmd.rows);
   return { ok: true };
 }
 
 /** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay). */
 export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Promise<CommandResult> {
-  const socket = await resolveSocket(ctx, cmd.sessionId);
-  return { ok: true, data: ctx.tmux.capturePane(socket, cmd.sessionId, cmd.lines) };
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  return { ok: true, data: ctx.tmux.capturePane(socket, cmd.subshellId, cmd.lines) };
 }
 
 /**
@@ -96,24 +96,24 @@ export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Pro
 export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise<CommandResult> {
   // Same id-format gate as resolveSocket (probe never touches the store, but
   // a hostile id must not reach tmux either): one bad id fails the batch.
-  for (const sessionId of cmd.sessionIds) {
-    if (!isSessionId(sessionId)) throw new Error("invalid session id");
+  for (const subshellId of cmd.subshellIds) {
+    if (!isSubshellId(subshellId)) throw new Error("invalid subshell id");
   }
   const entries: NodeProbeEntry[] = [];
-  for (const sessionId of cmd.sessionIds) {
-    const socket = tmuxSocketFor(sessionId); // same derivation the launcher uses — no stored state needed
-    if (!ctx.tmux.hasSession(socket, sessionId)) {
-      entries.push({ sessionId, alive: false, exitCode: ctx.tmux.paneExitCode(socket, sessionId) });
+  for (const subshellId of cmd.subshellIds) {
+    const socket = tmuxSocketFor(subshellId); // same derivation the launcher uses — no stored state needed
+    if (!ctx.tmux.hasSubshell(socket, subshellId)) {
+      entries.push({ subshellId, alive: false, exitCode: ctx.tmux.paneExitCode(socket, subshellId) });
       continue;
     }
-    const pane = ctx.tmux.paneTitle(socket, sessionId);
-    const entry: NodeProbeEntry = { sessionId, alive: true, exitCode: null };
+    const pane = ctx.tmux.paneTitle(socket, subshellId);
+    const entry: NodeProbeEntry = { subshellId, alive: true, exitCode: null };
     if (pane) {
       entry.title = pane.title;
       entry.command = pane.command;
     }
     try {
-      entry.capture = ctx.tmux.capturePane(socket, sessionId);
+      entry.capture = ctx.tmux.capturePane(socket, subshellId);
     } catch {
       // raced death — the row still reports alive from the has-session above
     }
@@ -167,7 +167,7 @@ export async function execStatDir(_ctx: CommandContext, cmd: Cmd<"stat_dir">): P
 
 /**
  * `remove_paths` (spec §7): delete cleanup (pane log + mcp config). ALL paths
- * are policy-checked against <dataDir> + every tracked session's launch cwd
+ * are policy-checked against <dataDir> + every tracked subshell's launch cwd
  * BEFORE any deletion — one refused path refuses the whole batch
  * (`path refused: <path>`), so a hostile entry can never ride along with a
  * legitimate one. Absent files count not toward `removed`.

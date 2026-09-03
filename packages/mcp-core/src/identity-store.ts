@@ -4,12 +4,12 @@ import { generateKeypair, type IdentityKeyPair } from "./crypto.js";
 
 /**
  * File-backed persistence for the local `subshell mcp` process's keypair, so a
- * session keeps the SAME principal identity across MCP restarts (the channel
+ * subshell keeps the SAME principal identity across MCP restarts (the channel
  * roster addresses it by `sess:<id>`, and sealed posts must stay readable).
  *
  * Lives under <dataDir>/identities/<principal>.json with mode 0600. The file
  * stamps its principal; a path/principal mismatch is refused rather than
- * silently overwritten (losing the key would orphan the session's history).
+ * silently overwritten (losing the key would orphan the subshell's history).
  *
  * Fail-closed: ONLY a genuinely missing file (ENOENT) triggers fresh key
  * generation. Any other read/parse failure on a PRESENT file means key

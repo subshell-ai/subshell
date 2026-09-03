@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type ControlKeyPair, generateControlKeys } from "@internal/subshell-protocol";
-import { SESSION_DATA_DIR } from "@/constants.js";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 
 /**
  * Control-plane command-signing keypair store (spec 2026-08-31 §4). One ES256
@@ -17,7 +17,7 @@ import { SESSION_DATA_DIR } from "@/constants.js";
  * regenerating would silently orphan every enrolled node (their pinned public
  * half stops verifying our commands), so corruption throws, never rotates.
  */
-const KEY_PATH = `${SESSION_DATA_DIR}/node-signing.json`;
+const KEY_PATH = `${SUBSHELL_SERVER_DATA_DIR}/node-signing.json`;
 
 let cached: Promise<ControlKeyPair> | undefined;
 

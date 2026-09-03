@@ -78,7 +78,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   { flag: "--dangerously-skip-permissions", description: "Skip all permission prompts" },
   { flag: "--permission-mode plan", description: "Start in plan mode" },
   { flag: "--model sonnet", description: "Use a specific model alias" },
-  { flag: "--effort high", description: "Effort level for the session" },
+  { flag: "--effort high", description: "Effort level for the subshell" },
   { flag: "--fallback-model opus", description: "Fall back when the primary model is overloaded" },
   { flag: "--agent reviewer", description: "Use a custom agent definition" },
   { flag: "--append-system-prompt <text>", description: "Append to the system prompt" },
@@ -97,17 +97,17 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/claude", ".local/share/claude/versions/c
 /**
  * Fire-and-forget attention reporting. Each hook runs `bun -e` (bun is on the
  * pane PATH — the image ships it, and no curl exists there) and POSTs the
- * session's own bearer to the attention endpoint; the server gates delivery
- * on the session's bell and derives the "waiting for you" state. The env
- * vars are baked into the pane by the backend (`sessionMcpEnv`), and every
+ * subshell's own bearer to the attention endpoint; the server gates delivery
+ * on the subshell's bell and derives the "waiting for you" state. The env
+ * vars are baked into the pane by the backend (`subshellMcpEnv`), and every
  * failure path is swallowed: a missing hook event costs one notification,
- * never a broken session turn. SUBSHELL_BASE_URL must be reachable from inside
+ * never a broken subshell turn. SUBSHELL_BASE_URL must be reachable from inside
  * the pane's network — in the container that means the published port, which
  * compose already passes via APP_BASE_URL.
  */
 const attentionPing = (kind: string): string =>
   `bun -e '` +
-  `fetch(process.env.SUBSHELL_BASE_URL+"/api/sessions/"+process.env.SUBSHELL_SESSION_ID+"/attention",` +
+  `fetch(process.env.SUBSHELL_BASE_URL+"/api/subshells/"+process.env.SUBSHELL_ID+"/attention",` +
   `{method:"POST",headers:{authorization:"Bearer "+process.env.SUBSHELL_API_KEY,"content-type":"application/json"},` +
   `body:JSON.stringify({kind:${JSON.stringify(kind)}}),signal:AbortSignal.timeout(5000)})` +
   `.catch(()=>{}).finally(()=>process.exit(0))'`;
@@ -133,7 +133,7 @@ function projectSlug(cwd: string): string {
  * Built-in harness: Claude Code.
  *
  * Launch shape:
- *   claude --settings <json> --name <session> [profile flags] [extra flags]
+ *   claude --settings <json> --name <subshell> [profile flags] [extra flags]
  * Settings are passed as a JSON string via `--settings` (per-invocation, so
  * profile config never needs to write into the user's real ~/.claude).
  */
@@ -186,22 +186,22 @@ export class ClaudeCodePlugin implements HarnessPlugin {
    * so subshell always knows the exact id to resume by, and resume mode adds
    * `--resume <id>` (Claude appends to the same transcript, so one id
    * survives repeated restarts). Pinning is what avoids both `--continue`'s
-   * "most recent in this directory" ambiguity — several subshell sessions can
+   * "most recent in this directory" ambiguity — several subshell subshells can
    * share a cwd — and parsing the exit banner back out of the pane log.
    */
   readonly resume: HarnessResume = {
-    allocateSessionId: () => crypto.randomUUID(),
-    canResume: (sessionId, cwd) =>
-      existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${sessionId}.jsonl`)),
+    allocateSubshellId: () => crypto.randomUUID(),
+    canResume: (subshellId, cwd) =>
+      existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${subshellId}.jsonl`)),
   };
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, sessionName, extraFlags, mcp, harnessSession } = input;
+    const { binary, profile, subshellName, extraFlags, mcp, harnessSession } = input;
 
     const args: string[] = [binary];
 
-    // Subshell channels + session orchestration: the registration's own argv
-    // (--mcp-config <per-session file>) lands right after the binary.
+    // Subshell channels + subshell orchestration: the registration's own argv
+    // (--mcp-config <per-subshell file>) lands right after the binary.
     if (mcp?.args) args.push(...mcp.args);
 
     // Conversation identity for restart-resume (see `resume` above).
@@ -216,8 +216,8 @@ export class ClaudeCodePlugin implements HarnessPlugin {
     const settings = { ...(profile.settings ?? {}), hooks: ATTENTION_HOOKS };
     args.push("--settings", JSON.stringify(settings));
 
-    if (sessionName) {
-      args.push("--name", sessionName);
+    if (subshellName) {
+      args.push("--name", subshellName);
     }
 
     // Each stored flag is one complete argv token (see opencode.ts note).
@@ -238,11 +238,11 @@ export class ClaudeCodePlugin implements HarnessPlugin {
     };
   }
 
-  /** Auto: `buildCommand` wires `--mcp-config` into every session. */
+  /** Auto: `buildCommand` wires `--mcp-config` into every subshell. */
   mcpSetup(_launch: McpLaunchSpec): McpSetupInfo {
     return {
       mode: "auto",
-      summary: "Subshell registers itself with every Claude Code session automatically (via --mcp-config).",
+      summary: "Subshell registers itself with every Claude Code subshell automatically (via --mcp-config).",
     };
   }
 

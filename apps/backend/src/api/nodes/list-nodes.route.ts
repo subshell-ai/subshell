@@ -15,7 +15,7 @@ import { apiModels } from "@/schema/index.js";
  * ids cannot be probed from the list either).
  *
  * COOKIE-ONLY for phase 1: no machine token has a reason to enumerate nodes
- * yet, and mirroring the session rule (bearer actor, sharing/admin-boost off)
+ * yet, and mirroring the subshell rule (bearer actor, sharing/admin-boost off)
  * would be unused surface — bearer read deferred until a machine consumer
  * exists.
  */
@@ -27,7 +27,7 @@ export const listNodesRoute = new Elysia()
     async ({ user, actor }) => {
       requireCookieActor(
         actor,
-        "Node listing is restricted to browser sessions (bearer read deferred until a machine consumer exists)",
+        "Node listing is restricted to browser subshells (bearer read deferred until a machine consumer exists)",
       );
       // `findAccessible` returns owned/shared rows only, so the resolved access
       // is never "none" — the flatMap discard is a type witness, not behavior.

@@ -7,18 +7,18 @@ import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
  * GET/PATCH /api/settings are admin-COOKIE routes.
  *
- * The regression these pin: authGuard maps a session token's `user` to its
- * OWNER, so an admin-owned session token used to pass `isAdmin(user)` and
+ * The regression these pin: authGuard maps a subshell token's `user` to its
+ * OWNER, so an admin-owned subshell token used to pass `isAdmin(user)` and
  * read/write instance settings; and SettingsError carried no status, so every
  * denial surfaced as a 500 instead of a 403. Both gates are asserted here:
  * role (non-admin cookie -> 403) AND actor (any bearer -> 403, not 500).
@@ -36,9 +36,9 @@ describe("settings routes (admin cookie only)", () => {
   const nonAdminPassword = "settings-user-pass-1";
   let adminCookie: string;
   let nonAdminCookie: string;
-  let adminSessionKey: string;
+  let adminSubshellKey: string;
   let systemKey: string;
-  let sessionId: string;
+  let subshellId: string;
   const createdKeyIds: string[] = [];
 
   /** Bearer-authenticated request against the settings routes. */
@@ -65,11 +65,11 @@ describe("settings routes (admin cookie only)", () => {
     adminCookie = await signIn(adminEmail, adminPassword);
     nonAdminCookie = await signIn(nonAdminEmail, nonAdminPassword);
 
-    // A session OWNED BY THE ADMIN, with its real MCP token: the exact
+    // A subshell OWNED BY THE ADMIN, with its real MCP token: the exact
     // credential that used to inherit the admin's settings rights.
-    sessionId = crypto.randomUUID();
-    await new SessionsRepository(db).create({
-      id: sessionId,
+    subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
       userId: adminId,
       profileId: "p",
       harnessId: "claude-code",
@@ -77,8 +77,8 @@ describe("settings routes (admin cookie only)", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    adminSessionKey = await issueSessionToken(sessionId, adminId);
-    const row = await new SessionsRepository(db).findById(sessionId);
+    adminSubshellKey = await issueSubshellToken(subshellId, adminId);
+    const row = await new SubshellsRepository(db).findById(subshellId);
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
 
     const created = (await auth.api.createApiKey({
@@ -91,7 +91,7 @@ describe("settings routes (admin cookie only)", () => {
   afterAll(async () => {
     // Restore the instance-wide default this suite toggles, then drop fixtures.
     await new SettingsRepository(db).set("allow_registrations", true);
-    await db.deleteFrom("sessions").where("id", "=", sessionId).execute();
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     await db.deleteFrom("userMeta").where("userId", "=", adminId).execute();
     await db.deleteFrom("userMeta").where("userId", "=", nonAdminId).execute();
@@ -142,11 +142,11 @@ describe("settings routes (admin cookie only)", () => {
     expect((await app.fetch(authedRequest("/api/settings", nonAdminCookie))).status).toBe(403);
   });
 
-  it("admin-owned session token is rejected on GET and PATCH (403, not 500)", async () => {
-    const get = await app.fetch(bearerRequest("/api/settings", adminSessionKey));
+  it("admin-owned subshell token is rejected on GET and PATCH (403, not 500)", async () => {
+    const get = await app.fetch(bearerRequest("/api/settings", adminSubshellKey));
     expect(get.status).toBe(403);
     const patch = await app.fetch(
-      bearerRequest("/api/settings", adminSessionKey, {
+      bearerRequest("/api/settings", adminSubshellKey, {
         method: "PATCH",
         body: JSON.stringify({ allowRegistrations: false }),
       }),
@@ -180,8 +180,8 @@ describe("settings routes (admin cookie only)", () => {
     // anonymous today) and 200 for any authenticated actor, bearer included.
     const anon = await app.fetch(new Request("http://localhost:3080/api/settings/public"));
     expect(anon.status).toBe(401);
-    const viaSessionKey = await app.fetch(bearerRequest("/api/settings/public", adminSessionKey));
-    expect(viaSessionKey.status).toBe(200);
+    const viaSubshellKey = await app.fetch(bearerRequest("/api/settings/public", adminSubshellKey));
+    expect(viaSubshellKey.status).toBe(200);
   });
 
   it("GET /public reports emergencyLoginActive around the env var", async () => {
@@ -234,7 +234,7 @@ describe("settings routes (admin cookie only)", () => {
   /**
    * `viewerIsAdmin` (spec 2026-09-02 settings-split §5): the ONE client-side
    * admin signal for the Server nav entry. Cookie humans get the truth;
-   * bearer actors (whose synthetic user is the session OWNER — possibly an
+   * bearer actors (whose synthetic user is the subshell OWNER — possibly an
    * admin) must read false: a machine token must not paint admin chrome.
    */
   it("GET /public reports viewerIsAdmin per actor+role", async () => {
@@ -248,7 +248,7 @@ describe("settings routes (admin cookie only)", () => {
     };
     expect(user.viewerIsAdmin).toBe(false);
 
-    const bearer = await app.fetch(bearerRequest("/api/settings/public", adminSessionKey));
+    const bearer = await app.fetch(bearerRequest("/api/settings/public", adminSubshellKey));
     expect(bearer.status).toBe(200);
     expect(((await bearer.json()) as { viewerIsAdmin: boolean }).viewerIsAdmin).toBe(false);
   });

@@ -17,11 +17,11 @@ import { runMigrations } from "@/db/migrate.js";
  * this instead of running the real migrations, for two reasons that both
  * turned out to be wrong:
  *
- * 1. It drifts. `sessions` alone gained 8 columns across migrations 0002
+ * 1. It drifts. `subshells` alone gained 8 columns across migrations 0002
  *    and 0003 that a hand-rolled snapshot of 0001 never had, so
- *    `SessionsRepository.create()` broke against it with `no such column:
+ *    `SubshellsRepository.create()` broke against it with `no such column:
  *    alive` — invisible in this repo's dev/CI environment because
- *    `sessions` is already migrated there, but real on a pristine database
+ *    `subshells` is already migrated there, but real on a pristine database
  *    (fresh clone, fresh CI runner, a new contributor's machine — `bun
  *    test` never calls `runMigrations()`, only `apps/backend/src/index.ts`
  *    does at server boot, and `data/subshell.db` is gitignored).

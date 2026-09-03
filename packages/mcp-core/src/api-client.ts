@@ -1,6 +1,6 @@
 /**
  * Thin REST client used by `subshell mcp` to reach the subshell backend over
- * `Authorization: Bearer <session token>`. Deliberately tiny: it knows only
+ * `Authorization: Bearer <subshell token>`. Deliberately tiny: it knows only
  * how to send authenticated JSON and surface HTTP failures as {@link ApiError}
  * (the tool layer turns those into agent-facing guidance).
  */

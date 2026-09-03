@@ -15,8 +15,8 @@ const WsTokenResponseSchema = t.Object({
  * token as a query param on the /ws connection.
  *
  * Cookie-only: interactive terminal attach is a human path, and issueWsToken
- * binds the token to the *owner* — a session token could otherwise mint an
- * attach token for ANY of the owner's sessions and inject keystrokes into a
+ * binds the token to the *owner* — a subshell token could otherwise mint an
+ * attach token for ANY of the owner's subshells and inject keystrokes into a
  * sibling agent's pane. No agent tool path calls this route (mcp/ never
  * touches /api/auth/ws-token or /ws).
  */

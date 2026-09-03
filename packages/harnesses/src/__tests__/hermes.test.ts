@@ -20,7 +20,7 @@ describe("HermesPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/hermes",
       cwd: "/tmp/ws",
-      sessionName: "ignored",
+      subshellName: "ignored",
       profile: profile({
         settings: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
         flags: ["--yolo"],
@@ -44,7 +44,7 @@ describe("HermesPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/hermes",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ flags: ["--skills", "my skill"] }),
     });
     expect(cmd).toEqual(["/usr/bin/hermes", "--skills", "my skill"]);

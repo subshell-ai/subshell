@@ -8,14 +8,14 @@ import { Elysia } from "elysia";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
- * Route-level tests for session file uploads. The heavy sanitization and
+ * Route-level tests for subshell file uploads. The heavy sanitization and
  * containment logic is covered in uploads.service.test.ts; these assert the
  * HTTP contract: ownership, working-directory state, and the success shape.
  */
@@ -23,7 +23,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 const password = "upload-route-pass-1";
 const workDirs: string[] = [];
 
-/** Creates a throwaway working directory for a session row to point at. */
+/** Creates a throwaway working directory for a subshell row to point at. */
 function tempWorkDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "subshell-upload-route-"));
   workDirs.push(dir);
@@ -31,13 +31,13 @@ function tempWorkDir(): string {
 }
 
 /** Builds a multipart request carrying one file. */
-function uploadRequest(sessionId: string, token: string, file: File): Request {
+function uploadRequest(subshellId: string, token: string, file: File): Request {
   const body = new FormData();
   body.set("file", file);
-  return authedRequest(`/api/sessions/${sessionId}/uploads`, token, { method: "POST", body });
+  return authedRequest(`/api/subshells/${subshellId}/uploads`, token, { method: "POST", body });
 }
 
-describe("session uploads route", () => {
+describe("subshell uploads route", () => {
   let ownerId: string;
   let otherId: string;
   let ownerEmail: string;
@@ -64,16 +64,16 @@ describe("session uploads route", () => {
     for (const dir of workDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  /** Inserts a session row owned by `userId` pointing at a real directory. */
-  async function makeSession(userId: string, workingDir: string): Promise<string> {
+  /** Inserts a subshell row owned by `userId` pointing at a real directory. */
+  async function makeSubshell(userId: string, workingDir: string): Promise<string> {
     const id = crypto.randomUUID();
-    await new SessionsRepository(db).create({
+    await new SubshellsRepository(db).create({
       id,
       userId,
       name: "upload-test",
       workingDir,
       harnessId: "claude-code",
-      // No foreign key on sessions.profile_id (see migration 0001-init.ts),
+      // No foreign key on subshells.profile_id (see migration 0001-init.ts),
       // so a random id is sufficient without creating a profile row.
       profileId: crypto.randomUUID(),
       status: "running",
@@ -83,18 +83,18 @@ describe("session uploads route", () => {
   }
 
   it("anonymous -> 401", async () => {
-    const id = await makeSession(ownerId, tempWorkDir());
+    const id = await makeSubshell(ownerId, tempWorkDir());
     const body = new FormData();
     body.set("file", new File(["x"], "a.txt", { type: "text/plain" }));
     const res = await uploadsRoutes.fetch(
-      new Request(`http://localhost:3080/api/sessions/${id}/uploads`, { method: "POST", body }),
+      new Request(`http://localhost:3080/api/subshells/${id}/uploads`, { method: "POST", body }),
     );
     expect(res.status).toBe(401);
   });
 
   it("stores the file in the working directory and returns its path", async () => {
     const ws = tempWorkDir();
-    const id = await makeSession(ownerId, ws);
+    const id = await makeSubshell(ownerId, ws);
     const res = await uploadsRoutes.fetch(
       uploadRequest(id, ownerToken, new File(["hello"], "notes.txt", { type: "text/plain" })),
     );
@@ -108,22 +108,22 @@ describe("session uploads route", () => {
 
   it("git-excludes .subshell so the working directory stays clean", async () => {
     const ws = tempWorkDir();
-    const id = await makeSession(ownerId, ws);
+    const id = await makeSubshell(ownerId, ws);
     await Bun.$`git init -q`.cwd(ws).quiet();
     await uploadsRoutes.fetch(uploadRequest(id, ownerToken, new File(["x"], "a.txt", { type: "text/plain" })));
     const status = await Bun.$`git status --porcelain`.cwd(ws).text();
     expect(status.trim()).toBe("");
   });
 
-  it("unknown session -> 404", async () => {
+  it("unknown subshell -> 404", async () => {
     const res = await uploadsRoutes.fetch(
       uploadRequest(crypto.randomUUID(), ownerToken, new File(["x"], "a.txt", { type: "text/plain" })),
     );
     expect(res.status).toBe(404);
   });
 
-  it("another user's session -> 404 (does not leak existence)", async () => {
-    const id = await makeSession(ownerId, tempWorkDir());
+  it("another user's subshell -> 404 (does not leak existence)", async () => {
+    const id = await makeSubshell(ownerId, tempWorkDir());
     const res = await uploadsRoutes.fetch(
       uploadRequest(id, otherToken, new File(["x"], "a.txt", { type: "text/plain" })),
     );
@@ -132,7 +132,7 @@ describe("session uploads route", () => {
 
   it("missing working directory -> 409", async () => {
     const ws = tempWorkDir();
-    const id = await makeSession(ownerId, ws);
+    const id = await makeSubshell(ownerId, ws);
     rmSync(ws, { recursive: true, force: true });
     const res = await uploadsRoutes.fetch(
       uploadRequest(id, ownerToken, new File(["x"], "a.txt", { type: "text/plain" })),
@@ -142,7 +142,7 @@ describe("session uploads route", () => {
 
   it("read-only working directory -> 409", async () => {
     const ws = tempWorkDir();
-    const id = await makeSession(ownerId, ws);
+    const id = await makeSubshell(ownerId, ws);
     chmodSync(ws, 0o500);
     try {
       const res = await uploadsRoutes.fetch(
@@ -157,7 +157,7 @@ describe("session uploads route", () => {
 
   it("enforces the shared upload cap in bytes, not some other unit", async () => {
     const ws = tempWorkDir();
-    const id = await makeSession(ownerId, ws);
+    const id = await makeSubshell(ownerId, ws);
 
     // Over the cap must be refused, and THIS is the assertion that pins the
     // unit: the schema passes MAX_UPLOAD_BYTES (a plain byte count) where it
@@ -190,19 +190,19 @@ describe("session uploads route", () => {
     expect(accepted.status).toBe(200);
   });
 
-  // F4 (security audit 2026-08): uploads write into the session's working
+  // F4 (security audit 2026-08): uploads write into the subshell's working
   // directory and are browser-only — the `subshell mcp` binary never calls this
   // endpoint (see the endpoint census in packages/mcp-core/src/tools.ts), and the frontend
   // posts with `credentials: "include"`. A bearer key must not act as owner.
-  it("bearer session key -> 403 and nothing written", async () => {
+  it("bearer subshell key -> 403 and nothing written", async () => {
     const ws = tempWorkDir();
-    const id = await makeSession(ownerId, ws);
-    const key = await issueSessionToken(id, ownerId);
+    const id = await makeSubshell(ownerId, ws);
+    const key = await issueSubshellToken(id, ownerId);
 
     const body = new FormData();
     body.set("file", new File(["x"], "a.txt", { type: "text/plain" }));
     const res = await uploadsRoutes.fetch(
-      new Request(`http://localhost:3080/api/sessions/${id}/uploads`, {
+      new Request(`http://localhost:3080/api/subshells/${id}/uploads`, {
         method: "POST",
         headers: { authorization: `Bearer ${key}` },
         body,
@@ -211,8 +211,8 @@ describe("session uploads route", () => {
     expect(res.status).toBe(403);
     expect(existsSync(join(ws, ".subshell"))).toBe(false);
 
-    const row = await new SessionsRepository(db).findById(id);
+    const row = await new SubshellsRepository(db).findById(id);
     if (row?.apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [row.apiKeyId]);
-    await db.deleteFrom("sessions").where("id", "=", id).execute();
+    await db.deleteFrom("subshells").where("id", "=", id).execute();
   });
 });

@@ -1,16 +1,16 @@
 /**
- * One pane in a workspace's tiling layout, holding exactly one session.
+ * One pane in a workspace's tiling layout, holding exactly one subshell.
  *
  * Both foreign keys cascade on delete, so a pane cannot outlive its workspace
- * or its session.
+ * or its subshell.
  */
 export interface WorkspacePaneTable {
   /** Unique pane id (uuid) */
   id: string;
   /** Owning workspace (FK, cascades) */
   workspaceId: string;
-  /** Session rendered in this pane (FK, cascades) */
-  sessionId: string;
+  /** Subshell rendered in this pane (FK, cascades) */
+  subshellId: string;
   /** ISO 8601 timestamp when the pane was created */
   createdAt: string;
   /** ISO 8601 timestamp of the last update */

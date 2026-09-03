@@ -151,7 +151,7 @@ systemctl --user restart subshell-server.service     # 3. the backend serves the
   + `rename()` (the atomic swap the downloads route's mtime-keyed cache
   requires). See `apps/agent/AGENTS.md` for the app itself.
 - Publish destination: `SUBSHELL_NODE_ARTIFACTS_DIR`, else
-  `<SESSION_DATA_DIR>/node-artifacts` — the same default the backend resolves.
+  `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — the same default the backend resolves.
   From a plain shell none of those vars are set (the service gets them from its
   unit/`EnvironmentFile`), so the ladder silently publishes to
   `apps/agent/data/node-artifacts` where the backend never looks — pass

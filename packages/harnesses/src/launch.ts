@@ -11,7 +11,7 @@ import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "./types.
 export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * Builds the shell command tmux runs for a harness session. Env precedence,
+ * Builds the shell command tmux runs for a harness subshell. Env precedence,
  * lowest to highest: curated host env (`curatedEnv()`) < SUBSHELL_* credentials <
  * profile env < the MCP registration's wiring env (see the inline note — the
  * wiring layer wins on purpose). The harness argv itself is built by the
@@ -25,24 +25,24 @@ export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Local launcher (backend) and remote agents (subshell) assemble pane
  * commands through this exact function — byte-identity is the spec (§6.4).
  * @throws Error when a merged env key is not a valid shell variable name
- * (names the offending key). Session creation surfaces it to the caller.
+ * (names the offending key). Subshell creation surfaces it to the caller.
  */
 export function buildHarnessCommand(
   harness: HarnessPlugin,
   binary: string,
   cwd: string,
   profile: ProfileDefinition,
-  sessionName: string,
+  subshellName: string,
   subshellEnv: Record<string, string> = {},
   mcp?: McpRegistration,
   harnessSession?: { id: string; mode: "start" | "resume" },
 ): string {
-  const argv = harness.buildCommand({ binary, cwd, profile, sessionName, mcp, harnessSession });
+  const argv = harness.buildCommand({ binary, cwd, profile, subshellName, mcp, harnessSession });
   // Precedence, lowest to highest: curated host env < SUBSHELL_* credentials
   // (a profile may deliberately override SUBSHELL_BASE_URL) < the profile's own
   // env < the registration's wiring env. Wiring env goes LAST on purpose:
   // a key like OPENCODE_CONFIG is transport plumbing, not a user knob — a
-  // profile setting it would otherwise silently drop the session's subshell
+  // profile setting it would otherwise silently drop the subshell's subshell
   // tools while the UI still promised automatic registration.
   const env = { ...curatedEnv(), ...subshellEnv, ...profile.env, ...(mcp?.env ?? {}) };
   // Defense-in-depth at the last chokepoint before the shell string exists:

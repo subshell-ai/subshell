@@ -2,14 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Kysely } from "kysely";
 import webpush from "web-push";
-import { SESSION_DATA_DIR } from "@/constants.js";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
-import type { SessionTable } from "@/db/types/sessions.db-types.js";
+import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import {
   badgeCount,
   buildExpoMessages,
@@ -22,7 +22,7 @@ import { isNodeOffline } from "@/services/nodes/node-registry.js";
 import { logger } from "@/utils/logger.js";
 
 /**
- * What happened to a session. The wire contract with the hooks and the
+ * What happened to a subshell. The wire contract with the hooks and the
  * watcher. `crashed_final` is backend-internal (the reconcile sweep only):
  * it marks a crash whose auto-restart backoff is exhausted, so the copy must
  * not promise a restart. It is deliberately NOT part of the `/attention`
@@ -33,19 +33,19 @@ export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crash
 const BODY: Record<NotifyKind, string> = {
   turn_complete: "Done — waiting for you",
   needs_attention: "Needs your approval",
-  exited: "Session exited",
+  exited: "Subshell exited",
   crashed: "Crashed — auto-restarting",
   crashed_final: "Crashed",
 };
 
 /**
  * The push payload the service worker turns into an OS notification. `tag`
- * is the session id so a newer event replaces that session's older
+ * is the subshell id so a newer event replaces that subshell's older
  * notification instead of stacking. The URL is relative (same-origin), the
  * SW resolves it against its own scope.
  */
 export function buildNotificationPayload(row: { id: string; name: string }, kind: NotifyKind) {
-  return { title: row.name, body: BODY[kind], url: `/sessions/${row.id}`, tag: row.id };
+  return { title: row.name, body: BODY[kind], url: `/subshells/${row.id}`, tag: row.id };
 }
 
 /**
@@ -56,7 +56,7 @@ export function buildNotificationPayload(row: { id: string; name: string }, kind
  * for a permanently-unusable endpoint (404/410 = gone; 403 = the gateway
  * rejects our VAPID JWT for this binding — Apple's BadJwtToken after a
  * server key rotation; that is exactly what `web-push` does);
- * `notifySession` deletes the subscription row on those codes. A sender that
+ * `notifySubshell` deletes the subscription row on those codes. A sender that
  * instead RESOLVES with `{ statusCode: ... }` does NOT prune — the row is
  * kept as if the send had succeeded. Any other outcome (rejection with
  * another code, or a plain success) keeps the row: transient by contract.
@@ -70,7 +70,7 @@ export type PushSender = (
 type VapidPair = { publicKey: string; privateKey: string; subject: string };
 
 export interface NotifyServiceDeps {
-  sessions: Kysely<Database>;
+  subshells: Kysely<Database>;
   subs: NotificationsRepository;
   sender?: PushSender;
   /** Native-device transport; absent = pre-mobile behaviour (spec invariant 2). */
@@ -106,8 +106,8 @@ export function createNotifyService(deps: NotifyServiceDeps) {
   // override (which implies a singleton reset), then the production client.
   const expoSend: ExpoPushSender = deps.expoSender ?? expoSenderOverride ?? createExpoPushSender();
   // One repository per service — both transports read the same db handle.
-  const sessionsRepo = new SessionsRepository(deps.sessions);
-  const userMetaRepo = new UserMetaRepository(deps.sessions);
+  const subshellsRepo = new SubshellsRepository(deps.subshells);
+  const userMetaRepo = new UserMetaRepository(deps.subshells);
 
   /**
    * Device fan-out (spec §Push): opaque messages built from ids and counts,
@@ -115,7 +115,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
    * built without the device transport behaves exactly as it did before the
    * mobile app existed (invariant 2).
    */
-  async function notifyDevices(row: SessionTable, kind: NotifyKind): Promise<void> {
+  async function notifyDevices(row: SubshellTable, kind: NotifyKind): Promise<void> {
     if (!deps.devices) return;
     const enrolled = await deps.devices.listByUser(row.userId);
     if (enrolled.length === 0) return;
@@ -131,9 +131,9 @@ export function createNotifyService(deps: NotifyServiceDeps) {
     if (live.length === 0) return;
     // F1: the badge count must ignore waiting rows whose node is
     // unreachable — the blessed predicate comes from the registry (importing
-    // it from session-manager would cycle: session-manager already imports
+    // it from subshell-manager would cycle: subshell-manager already imports
     // this module).
-    const counts = await sessionsRepo.countsByUser(row.userId, isNodeOffline);
+    const counts = await subshellsRepo.countsByUser(row.userId, isNodeOffline);
     const badge = badgeCount(counts.waiting, kind, row.waitingSince);
     const messages = buildExpoMessages(
       live.map((t) => t.token),
@@ -165,19 +165,19 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       return (await keys()).publicKey;
     },
     /**
-     * Ring every one of the session OWNER's devices — web-push subscriptions
-     * and native devices alike — but only if the session's bell is on. The
+     * Ring every one of the subshell OWNER's devices — web-push subscriptions
+     * and native devices alike — but only if the subshell's bell is on. The
      * bell check is the SINGLE policy point above both transports (spec
      * §Push): flipping it takes effect on the next event with nothing to
      * invalidate. A dead web endpoint (403/404/410) or a DeviceNotRegistered
      * ticket prunes its row; every other failure keeps it (transient).
      */
-    async notifySession(sessionId: string, kind: NotifyKind): Promise<void> {
+    async notifySubshell(subshellId: string, kind: NotifyKind): Promise<void> {
       try {
-        const row = await sessionsRepo.findById(sessionId);
+        const row = await subshellsRepo.findById(subshellId);
         if (row?.notify !== 1) return;
         // Per-user master switch (spec 2026-08-31): off ⇒ total silence
-        // regardless of any session bells. Read of user_meta only; a missing
+        // regardless of any subshell bells. Read of user_meta only; a missing
         // row reads as enabled (getNotifyEnabled defaults to on).
         if (!(await userMetaRepo.getNotifyEnabled(row.userId))) return;
         // The transports are independent. Start the device fan-out NOW, before
@@ -209,7 +209,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
         await deviceDelivery;
       } catch (err) {
         // Notifications must never break the caller (sweep / hook route).
-        logger.withError(err).warn(`notifySession(${sessionId}, ${kind}) failed`);
+        logger.withError(err).warn(`notifySubshell(${subshellId}, ${kind}) failed`);
       }
     },
   };
@@ -226,7 +226,7 @@ export function getNotifyService(): NotifyService {
   singleton ??= createNotifyService({
     // The typed app db is structurally the same Kysely<Database> the
     // repositories already take everywhere.
-    sessions: db,
+    subshells: db,
     subs: new NotificationsRepository(db),
     devices: new DeviceTokensRepository(db),
     // No explicit expoSender: the createExpoPushSender() fallback keeps
@@ -261,7 +261,7 @@ const VAPID_FILE = "vapid.json";
 let cachedVapid: VapidPair | null = null;
 let vapidDirOverride: string | null = null;
 
-/** @internal Test isolation: read VAPID keys from `dir` instead of SESSION_DATA_DIR. */
+/** @internal Test isolation: read VAPID keys from `dir` instead of SUBSHELL_SERVER_DATA_DIR. */
 export function __setVapidDirForTests(dir: string | null): void {
   vapidDirOverride = dir;
   cachedVapid = null;
@@ -278,7 +278,7 @@ export function __setVapidDirForTests(dir: string | null): void {
  */
 function loadOrGenerateVapid(): VapidPair {
   if (cachedVapid) return cachedVapid;
-  const dir = vapidDirOverride ?? SESSION_DATA_DIR;
+  const dir = vapidDirOverride ?? SUBSHELL_SERVER_DATA_DIR;
   const file = join(dir, VAPID_FILE);
   mkdirSync(dir, { recursive: true });
   let pair: VapidPair | null = null;

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { config } from "@dotenvx/dotenvx";
 import {
   DEFAULT_DATABASE_PATH,
-  defaultSessionDataDir as sharedDefaultSessionDataDir,
+  defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
 } from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
 
@@ -76,7 +76,7 @@ const TEST_DATABASE_PATH = join(tmpdir(), `subshell-test-${process.pid}-${random
  * — the one `.env.example` ships, which every developer copies — is already
  * in `process.env` by then. Filling the value in only when absent therefore
  * pointed the suites at the developer's live database, where they create and
- * delete users, sessions and saved paths. That is a data-loss bug, not a
+ * delete users, subshells and saved paths. That is a data-loss bug, not a
  * configuration preference, so there is no opt-out.
  */
 export const DATABASE_PATH = IS_TEST
@@ -84,30 +84,30 @@ export const DATABASE_PATH = IS_TEST
   : env.get("DATABASE_PATH").default(DEFAULT_DATABASE_PATH).asString();
 
 /**
- * Directory holding per-session output logs (see `sessionLogPath`).
+ * Directory holding per-subshell output logs (see `subshellLogPath`).
  *
  * Defaults to the database file's own directory, so a normal deployment needs
  * no extra configuration — `DATABASE_PATH=/data/subshell.db` puts logs in
- * `/data/sessions/`. It stays separately overridable for the one case the
+ * `/data/subshells/`. It stays separately overridable for the one case the
  * derived value cannot serve: an in-memory database has no directory to
  * derive from.
  *
  * Under {@link IS_TEST} it is a fresh temp directory and the environment is
- * ignored, for the same reason {@link DATABASE_PATH} is: `sessionLogPath`
+ * ignored, for the same reason {@link DATABASE_PATH} is: `subshellLogPath`
  * writes real files, and deriving this from a configured path would drop test
- * logs into the developer's `data/sessions/`.
+ * logs into the developer's `data/subshells/`.
  *
  * The value is always resolved to an absolute path, even when configured
  * relative: it leaves this process as data the *harness* dereferences
  * (`--mcp-config <path>`, `SUBSHELL_DATA_DIR`) and as the target of tmux's
- * pipe-pane shell — all of which run under the session's working directory,
+ * pipe-pane shell — all of which run under the subshell's working directory,
  * not the backend's. A relative `./data` made claude look for
- * `<session-cwd>/data/mcp/<id>.json`, which never exists, and every session
+ * `<subshell-cwd>/data/mcp/<id>.json`, which never exists, and every subshell
  * died at once with "MCP config file not found".
  */
-export const SESSION_DATA_DIR = IS_TEST
+export const SUBSHELL_SERVER_DATA_DIR = IS_TEST
   ? mkdtempSync(join(tmpdir(), "subshell-test-data-"))
-  : resolve(env.get("SESSION_DATA_DIR").default(defaultSessionDataDir()).asString());
+  : resolve(env.get("SUBSHELL_SERVER_DATA_DIR").default(defaultSubshellServerDataDir()).asString());
 
 /**
  * Directory `GET /api/downloads/node/*` serves the prebuilt `subshell`
@@ -116,13 +116,15 @@ export const SESSION_DATA_DIR = IS_TEST
  * that populates it is separate (e2e Task 16) — serving a directory that does
  * not exist yet is a plain 404, so no boot check.
  *
- * Under {@link IS_TEST} it hangs off the temp {@link SESSION_DATA_DIR} (the
+ * Under {@link IS_TEST} it hangs off the temp {@link SUBSHELL_SERVER_DATA_DIR} (the
  * environment is ignored, same reasoning as there), which lets route tests
  * write fixtures straight into it.
  */
 export const NODE_ARTIFACTS_DIR = IS_TEST
-  ? join(SESSION_DATA_DIR, "node-artifacts")
-  : resolve(env.get("SUBSHELL_NODE_ARTIFACTS_DIR").default(join(SESSION_DATA_DIR, "node-artifacts")).asString());
+  ? join(SUBSHELL_SERVER_DATA_DIR, "node-artifacts")
+  : resolve(
+      env.get("SUBSHELL_NODE_ARTIFACTS_DIR").default(join(SUBSHELL_SERVER_DATA_DIR, "node-artifacts")).asString(),
+    );
 
 /**
  * The database file's directory, or `./data` when the path is not file-backed
@@ -131,8 +133,8 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
  * release pipeline must derive the SAME node-artifacts default — the ladder
  * is a cross-process contract, not a backend secret.
  */
-function defaultSessionDataDir(): string {
-  return sharedDefaultSessionDataDir({ DATABASE_PATH: process.env.DATABASE_PATH });
+function defaultSubshellServerDataDir(): string {
+  return sharedDefaultSubshellServerDataDir({ DATABASE_PATH: process.env.DATABASE_PATH });
 }
 
 /**
@@ -244,8 +246,8 @@ export const IS_PROD = process.env.NODE_ENV === "production";
 export const BACKEND_LOG_LEVEL = env.get("BACKEND_LOG_LEVEL").default("debug").asString();
 
 /**
- * Trailing lines of a session's log that the terminal WS replays on attach
- * before switching to the live tail. Long sessions used to ship their ENTIRE
+ * Trailing lines of a subshell's log that the terminal WS replays on attach
+ * before switching to the live tail. Long subshells used to ship their ENTIRE
  * pipe-pane log into every attach, so the terminal took minutes to open.
  * Hard-capped at 200 — the setting exists to bound load time, not to
  * re-enable the full history. Garbage/unset values fall back to 100.
@@ -266,7 +268,7 @@ export const TERMINAL_REPLAY_LINES = (() => {
  * (`node_modules/better-auth/dist/context/create-context.mjs`), so an unset
  * `BETTER_AUTH_SECRET` under `NODE_ENV=production` would otherwise boot
  * silently and mint cookies signed with a publicly known, in-repo key —
- * trivially forged admin sessions. Called first in `src/index.ts`, i.e. on
+ * trivially forged admin subshells. Called first in `src/index.ts`, i.e. on
  * every production surface: `bun run prod` and the compiled binary alike.
  *
  * Dev and test (`IS_TEST` ⇒ `NODE_ENV !== "production"`) keep the placeholder

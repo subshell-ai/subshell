@@ -9,19 +9,19 @@ import type { ToolApi } from "./tools.js";
 import {
   channelMembers,
   createChannel,
-  createSession,
-  deleteSession,
+  createSubshell,
+  deleteSubshell,
   describeToolError,
-  getSession,
+  getSubshell,
   joinChannel,
   listChannels,
   listProfiles,
-  listSessions,
+  listSubshells,
   postChannel,
   readChannel,
-  restartSession,
-  terminateSession,
-  updateSessionNotes,
+  restartSubshell,
+  terminateSubshell,
+  updateSubshellNotes,
 } from "./tools.js";
 
 /** Wraps a tool result as an MCP text-content payload (JSON-encoded). */
@@ -50,7 +50,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     "list_channels",
     {
       title: "List channels",
-      description: "List all cross-session channels on this subshell instance.",
+      description: "List all cross-subshell channels on this subshell instance.",
       inputSchema: z.object({}),
     },
     guard(() => listChannels(deps)),
@@ -107,36 +107,40 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     ),
   );
 
-  // --- sessions ---
+  // --- subshells ---
   server.registerTool(
-    "list_sessions",
-    { title: "List sessions", description: "List your sessions with status and activity.", inputSchema: z.object({}) },
-    guard(() => listSessions(deps)),
+    "list_subshells",
+    {
+      title: "List subshells",
+      description: "List your subshells with status and activity.",
+      inputSchema: z.object({}),
+    },
+    guard(() => listSubshells(deps)),
   );
   server.registerTool(
-    "get_session",
+    "get_subshell",
     {
-      title: "Get session",
-      description: "Get one session's details by id.",
+      title: "Get subshell",
+      description: "Get one subshell's details by id.",
       inputSchema: z.object({ id: z.string() }),
     },
-    guard(({ id }: { id: string }) => getSession(deps, id)),
+    guard(({ id }: { id: string }) => getSubshell(deps, id)),
   );
   server.registerTool(
     "list_profiles",
     {
       title: "List profiles",
-      description: "List the profiles usable to launch a session (pass a profile name to create_session).",
+      description: "List the profiles usable to launch a subshell (pass a profile name to create_subshell).",
       inputSchema: z.object({}),
     },
     guard(() => listProfiles(deps)),
   );
   server.registerTool(
-    "create_session",
+    "create_subshell",
     {
-      title: "Create session",
+      title: "Create subshell",
       description:
-        "Spawn a new agent session from a profile name + working directory; an optional prompt is typed into the harness once it settles.",
+        "Spawn a new agent subshell from a profile name + working directory; an optional prompt is typed into the harness once it settles.",
       inputSchema: z.object({
         name: z.string().optional(),
         profile: z.string(),
@@ -155,45 +159,45 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
         profile: string;
         working_dir: string;
         prompt?: string;
-      }) => createSession(deps, { name, profile, workingDir: working_dir, prompt }),
+      }) => createSubshell(deps, { name, profile, workingDir: working_dir, prompt }),
     ),
   );
   server.registerTool(
-    "restart_session",
+    "restart_subshell",
     {
-      title: "Restart session",
+      title: "Restart subshell",
       description:
-        "Restart a session in place (same id): kills its process tree and respawns it from the same profile + directory. Calling it on your OWN session terminates you.",
+        "Restart a subshell in place (same id): kills its process tree and respawns it from the same profile + directory. Calling it on your OWN subshell terminates you.",
       inputSchema: z.object({ id: z.string() }),
     },
-    guard(({ id }: { id: string }) => restartSession(deps, id)),
+    guard(({ id }: { id: string }) => restartSubshell(deps, id)),
   );
   server.registerTool(
-    "terminate_session",
+    "terminate_subshell",
     {
-      title: "Terminate session",
-      description: "Kill a running session's process tree and revoke its token.",
+      title: "Terminate subshell",
+      description: "Kill a running subshell's process tree and revoke its token.",
       inputSchema: z.object({ id: z.string() }),
     },
-    guard(({ id }: { id: string }) => terminateSession(deps, id)),
+    guard(({ id }: { id: string }) => terminateSubshell(deps, id)),
   );
   server.registerTool(
-    "delete_session",
+    "delete_subshell",
     {
-      title: "Delete session",
-      description: "Terminate (if running) and delete a session.",
+      title: "Delete subshell",
+      description: "Terminate (if running) and delete a subshell.",
       inputSchema: z.object({ id: z.string() }),
     },
-    guard(({ id }: { id: string }) => deleteSession(deps, id)),
+    guard(({ id }: { id: string }) => deleteSubshell(deps, id)),
   );
   server.registerTool(
-    "update_session_notes",
+    "update_subshell_notes",
     {
-      title: "Update session notes",
-      description: "Set or clear a session's operator note.",
+      title: "Update subshell notes",
+      description: "Set or clear a subshell's operator note.",
       inputSchema: z.object({ id: z.string(), notes: z.string().nullable() }),
     },
-    guard(({ id, notes }: { id: string; notes: string | null }) => updateSessionNotes(deps, id, notes)),
+    guard(({ id, notes }: { id: string; notes: string | null }) => updateSubshellNotes(deps, id, notes)),
   );
 }
 
@@ -201,7 +205,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
 const EXTEND_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 /**
- * Boots the `subshell mcp` stdio server: reads env, persists this session's
+ * Boots the `subshell mcp` stdio server: reads env, persists this subshell's
  * identity, registers its public key with the backend, arms a token-extension
  * timer, and serves the tools over stdio until the client disconnects.
  *
@@ -210,14 +214,14 @@ const EXTEND_INTERVAL_MS = 12 * 60 * 60 * 1000;
 export async function runSubshellMcp(): Promise<void> {
   const env = readMcpEnv();
   const api = new SubshellApi({ baseUrl: env.baseUrl, apiKey: env.apiKey });
-  const own = await loadOrCreateIdentity(env.dataDir, `sess:${env.sessionId}`);
+  const own = await loadOrCreateIdentity(env.dataDir, `sess:${env.subshellId}`);
   // Register/rotate our key so members can seal replies to us. Best-effort: a
   // 409 (identity_required handled server-side only gates create/join) must
   // not stop us from serving read-only tools.
   try {
     await api.req("/api/identities", {
       method: "POST",
-      body: { publicKey: own.publicJwk, displayName: env.sessionName },
+      body: { publicKey: own.publicJwk, displayName: env.subshellName },
     });
   } catch (err) {
     process.stderr.write(`subshell mcp: identity registration failed: ${describeToolError(err).message}\n`);
@@ -225,7 +229,7 @@ export async function runSubshellMcp(): Promise<void> {
 
   const timer = setInterval(() => {
     void api
-      .req(`/api/sessions/${env.sessionId}/extend-token`, { method: "POST" })
+      .req(`/api/subshells/${env.subshellId}/extend-token`, { method: "POST" })
       .catch((e: unknown) =>
         process.stderr.write(`subshell mcp: token extend failed: ${describeToolError(e).message}\n`),
       );
@@ -240,5 +244,5 @@ export async function runSubshellMcp(): Promise<void> {
   registerTools(server, { api, own });
 
   await server.connect(new StdioServerTransport());
-  process.stderr.write(`subshell mcp: ready (session ${env.sessionId})\n`);
+  process.stderr.write(`subshell mcp: ready (subshell ${env.subshellId})\n`);
 }

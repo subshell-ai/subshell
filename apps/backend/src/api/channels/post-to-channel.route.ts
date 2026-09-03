@@ -14,7 +14,7 @@ const PostBodySchema = t.Object({
     maxItems: 256,
     description: "Every recipient must already be a channel member",
   }),
-  nudge: t.Optional(t.Boolean({ default: false, description: "Type a heads-up line into recipient session panes" })),
+  nudge: t.Optional(t.Boolean({ default: false, description: "Type a heads-up line into recipient subshell panes" })),
 });
 
 const PostResultSchema = t.Object({

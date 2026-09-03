@@ -29,7 +29,7 @@ const HERMES_SETTINGS_FIELDS: SettingsField[] = [
   {
     key: "toolsets",
     label: "Toolsets",
-    description: "Comma-separated toolsets to enable for the session",
+    description: "Comma-separated toolsets to enable for the subshell",
     type: "string",
   },
 ];
@@ -62,10 +62,10 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/hermes"];
  *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [profile flags] [extra flags]
  * A bare launch starts interactive chat; which interface (classic REPL vs
  * --tui) is left to the user's own display.interface config. Hermes has no
- * create-time session-name flag, so the subshell session name is not forwarded.
+ * create-time subshell-name flag, so the subshell subshell name is not forwarded.
  *
  * CAVEAT — the `hermes` on PATH is a bash launcher script that execs the venv
- * binary. Session launches are safe: `buildHarnessCommand` runs everything
+ * binary. Subshell launches are safe: `buildHarnessCommand` runs everything
  * through `env -i`, so inherited shell state cannot reach it. But a backend
  * started from a shell that exports SHELLOPTS containing `onecmd` would break
  * the launcher for probe calls like getVersion() (bash exits after the first
@@ -73,9 +73,9 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/hermes"];
  *
  * NOTE: subshell MCP is NOT auto-injected. Hermes reads MCP servers only from the
  * fixed ~/.hermes/config.yaml (no --config flag / env override exists), so a
- * per-session file is impossible. mcpSetup() surfaces a one-time `hermes mcp
- * add` command instead; the registration is session-correct on shared hosts
- * because the subshell-mcp child inherits each session's baked SUBSHELL_* env.
+ * per-subshell file is impossible. mcpSetup() surfaces a one-time `hermes mcp
+ * add` command instead; the registration is subshell-correct on shared hosts
+ * because the subshell-mcp child inherits each subshell's baked SUBSHELL_* env.
  */
 export class HermesPlugin implements HarnessPlugin {
   readonly id = "hermes";
@@ -152,9 +152,9 @@ export class HermesPlugin implements HarnessPlugin {
   /**
    * Manual, one-time registration (verified against the installed hermes CLI:
    * `hermes mcp add` is non-interactive and writes the global config itself).
-   * Hermes has no per-session config override, so this registration covers all
-   * hermes sessions at once; each `subshell mcp` child inherits its pane's baked
-   * SUBSHELL_* env, making the single entry per-session-correct. The `--args`
+   * Hermes has no per-subshell config override, so this registration covers all
+   * hermes subshells at once; each `subshell mcp` child inherits its pane's baked
+   * SUBSHELL_* env, making the single entry per-subshell-correct. The `--args`
    * flag must come last (hermes' own parser requirement).
    */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo {

@@ -3,13 +3,13 @@ import type { NodeSharePermission, NodeShareTable } from "@/db/types/node-shares
 
 /**
  * One entry of a replace: who gets what. A null grantee is the Everyone
- * grant. Deliberately its own type — node shares and session shares are
+ * grant. Deliberately its own type — node shares and subshell shares are
  * separate contracts (spec §2), not aliases of each other.
  */
 export type NodeShareEntry = { granteeUserId: string | null; permission: NodeSharePermission };
 
 /**
- * Per-node access grants — the node mirror of `session-shares.repository`
+ * Per-node access grants — the node mirror of `subshell-shares.repository`
  * (spec 2026-08-31 §2). A node is private to its owner by default; these rows
  * widen it to "Everyone" and/or named users at a `view` or `edit` level.
  * Authorization is decided from these rows elsewhere — this repository only

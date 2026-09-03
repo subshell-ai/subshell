@@ -12,10 +12,10 @@ import { logger } from "@/utils/logger.js";
  * prove the first two — the pane's contents at attach time and the exact
  * bytes it sent. That is what this dumps:
  *
- *   /tmp/subshell-attach-debug/<session>/<timestamp>/pre-resize.txt  the pane
+ *   /tmp/subshell-attach-debug/<subshell>/<timestamp>/pre-resize.txt  the pane
  *     grid BEFORE the pre-capture resize (the state the pane was in when the
  *     viewer arrived)
- *   /tmp/subshell-attach-debug/<session>/<timestamp>/replay.txt      the EXACT
+ *   /tmp/subshell-attach-debug/<subshell>/<timestamp>/replay.txt      the EXACT
  *     `replay` frame the client was sent (post marker-strip, post-resize
  *     capture)
  *
@@ -57,7 +57,7 @@ export function forensicsEnabled(): boolean {
  * writable, full disk) is logged at debug and swallowed — forensics must
  * never break an attach.
  *
- * @param sessionId - the session being attached to (subdirectory name)
+ * @param subshellId - the subshell being attached to (subdirectory name)
  * @param preResize - the pane's visible grid captured BEFORE the pre-capture
  *   resize (`null` when no resize ran — stale geometry or a missing pane
  *   state, in which case the dump still records the replay)
@@ -65,24 +65,24 @@ export function forensicsEnabled(): boolean {
  * @returns the per-attach directory, or `null` when forensics are disabled or
  *   a write failed
  */
-export function writeAttachForensics(sessionId: string, preResize: string | null, replay: string): string | null {
+export function writeAttachForensics(subshellId: string, preResize: string | null, replay: string): string | null {
   if (!enabled) return null;
   try {
-    const dir = `${FORENSICS_ROOT}/${sessionId}/${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    const dir = `${FORENSICS_ROOT}/${subshellId}/${new Date().toISOString().replace(/[:.]/g, "-")}`;
     mkdirSync(dir, { recursive: true });
     writeFileSync(`${dir}/pre-resize.txt`, preResize ?? "<no pre-resize capture>", "utf8");
     writeFileSync(`${dir}/replay.txt`, replay, "utf8");
     return dir;
   } catch (err) {
-    logger.withError(err).debug(`attach forensics dump failed for ${sessionId}`);
+    logger.withError(err).debug(`attach forensics dump failed for ${subshellId}`);
     return null;
   }
 }
 
 /** What one attach's paint is recorded with (both attach paths report the same facts). */
 export interface AttachPaintFacts {
-  /** Session that was painted. */
-  sessionId: string;
+  /** Subshell that was painted. */
+  subshellId: string;
   /** The pane grid captured before the pre-capture resize; null when forensics are off or no resize ran. */
   preResize: string | null;
   /** The exact replay frame content sent to the client. */
@@ -107,9 +107,9 @@ export interface AttachPaintFacts {
  * downstream of the capture.
  */
 export function recordAttachPaint(facts: AttachPaintFacts): void {
-  const dir = writeAttachForensics(facts.sessionId, facts.preResize, facts.replay);
+  const dir = writeAttachForensics(facts.subshellId, facts.preResize, facts.replay);
   logger.info(
-    `ws attach ${facts.sessionId}: painted repainted=${facts.repainted} nudged=${facts.nudged} ` +
+    `ws attach ${facts.subshellId}: painted repainted=${facts.repainted} nudged=${facts.nudged} ` +
       `replay=${facts.replay.length}B dump=${dir ?? "off"}`,
   );
 }

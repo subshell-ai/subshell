@@ -10,9 +10,9 @@ import { metaRoutes } from "@/api/meta.route.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { notificationsRoutes } from "@/api/notifications.route.js";
 import { profileRoutes } from "@/api/profiles.route.js";
-import { sessionRoutes } from "@/api/sessions/index.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
+import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { usersRoutes } from "@/api/users.route.js";
@@ -48,7 +48,7 @@ const coreRoutes = new Elysia()
   .use(downloadsRoutes);
 
 const computeRoutes = new Elysia()
-  .use(sessionRoutes)
+  .use(subshellRoutes)
   .use(uploadsRoutes)
   .use(profileRoutes)
   .use(filesRoutes)

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
-import { sessionRoutes } from "@/api/sessions/index.js";
+import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
@@ -36,13 +36,13 @@ describe("authGuard cookie path", () => {
   });
 
   it("accepts the plain cookie name (http deployments)", async () => {
-    const res = await sessionRoutes.fetch(authedRequest("/api/sessions", token));
+    const res = await subshellRoutes.fetch(authedRequest("/api/subshells", token));
     expect(res.status).toBe(200);
   });
 
   it("accepts the __Secure- cookie name better-auth issues over https", async () => {
-    const res = await sessionRoutes.fetch(
-      new Request("http://localhost:3080/api/sessions", {
+    const res = await subshellRoutes.fetch(
+      new Request("http://localhost:3080/api/subshells", {
         headers: { cookie: `__Secure-better-auth.session_token=${token}` },
       }),
     );

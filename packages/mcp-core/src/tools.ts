@@ -62,7 +62,7 @@ export function describeToolError(err: unknown): Error {
   if (err instanceof ApiError) {
     if (err.status === 401) {
       return new Error(
-        "subshell: session token rejected (revoked or expired) — restart this session to mint a new one",
+        "subshell: subshell token rejected (revoked or expired) — restart this subshell to mint a new one",
       );
     }
     if (err.status === 403) return new Error(`subshell: permission denied — ${err.message}`);
@@ -175,8 +175,8 @@ export async function readChannel(
   return { posts, undecryptable, nextSince: data.nextSince };
 }
 
-/** A session as listed by the API (subset the tools surface). */
-export interface SessionRow {
+/** A subshell as listed by the API (subset the tools surface). */
+export interface SubshellRow {
   id: string;
   name: string;
   harnessId: string;
@@ -192,14 +192,14 @@ interface ProfileRow {
   harnessId: string;
 }
 
-/** `list_sessions` */
-export async function listSessions(deps: ToolDeps): Promise<SessionRow[]> {
-  return await deps.api.req<SessionRow[]>("/api/sessions");
+/** `list_subshells` */
+export async function listSubshells(deps: ToolDeps): Promise<SubshellRow[]> {
+  return await deps.api.req<SubshellRow[]>("/api/subshells");
 }
 
-/** `get_session` */
-export async function getSession(deps: ToolDeps, id: string): Promise<SessionRow> {
-  return await deps.api.req<SessionRow>(`/api/sessions/${encodeURIComponent(id)}`);
+/** `get_subshell` */
+export async function getSubshell(deps: ToolDeps, id: string): Promise<SubshellRow> {
+  return await deps.api.req<SubshellRow>(`/api/subshells/${encodeURIComponent(id)}`);
 }
 
 /** `list_profiles` */
@@ -208,8 +208,8 @@ export async function listProfiles(deps: ToolDeps): Promise<ProfileRow[]> {
   return rows.map(({ id, name, harnessId }) => ({ id, name, harnessId }));
 }
 
-/** `create_session` — resolves the profile by NAME (ids are not shared context). */
-export async function createSession(
+/** `create_subshell` — resolves the profile by NAME (ids are not shared context). */
+export async function createSubshell(
   deps: ToolDeps,
   args: { name?: string; profile: string; workingDir: string; prompt?: string },
 ): Promise<{ id: string; promptDelivered: boolean }> {
@@ -218,21 +218,21 @@ export async function createSession(
   if (!match) {
     throw new Error(`subshell: no profile named '${args.profile}' — call list_profiles for options`);
   }
-  return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/sessions", {
+  return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/subshells", {
     method: "POST",
     body: { profileId: match.id, workingDir: args.workingDir, name: args.name, prompt: args.prompt },
   });
 }
 
-/** `restart_session` */
-export const restartSession = (deps: ToolDeps, id: string) =>
-  deps.api.req(`/api/sessions/${encodeURIComponent(id)}/restart`, { method: "POST" });
-/** `terminate_session` */
-export const terminateSession = (deps: ToolDeps, id: string) =>
-  deps.api.req(`/api/sessions/${encodeURIComponent(id)}/terminate`, { method: "POST" });
-/** `delete_session` */
-export const deleteSession = (deps: ToolDeps, id: string) =>
-  deps.api.req(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-/** `update_session_notes` */
-export const updateSessionNotes = (deps: ToolDeps, id: string, notes: string | null) =>
-  deps.api.req(`/api/sessions/${encodeURIComponent(id)}/notes`, { method: "PATCH", body: { notes } });
+/** `restart_subshell` */
+export const restartSubshell = (deps: ToolDeps, id: string) =>
+  deps.api.req(`/api/subshells/${encodeURIComponent(id)}/restart`, { method: "POST" });
+/** `terminate_subshell` */
+export const terminateSubshell = (deps: ToolDeps, id: string) =>
+  deps.api.req(`/api/subshells/${encodeURIComponent(id)}/terminate`, { method: "POST" });
+/** `delete_subshell` */
+export const deleteSubshell = (deps: ToolDeps, id: string) =>
+  deps.api.req(`/api/subshells/${encodeURIComponent(id)}`, { method: "DELETE" });
+/** `update_subshell_notes` */
+export const updateSubshellNotes = (deps: ToolDeps, id: string, notes: string | null) =>
+  deps.api.req(`/api/subshells/${encodeURIComponent(id)}/notes`, { method: "PATCH", body: { notes } });

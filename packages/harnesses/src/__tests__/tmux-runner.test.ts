@@ -9,9 +9,9 @@ const runner = new TmuxRunner();
 
 /**
  * Sockets of every server this file spawns. Tests historically tracked only the
- * most recent socket and killed only the SESSION — a mid-test assertion failure
+ * most recent socket and killed only the SUBSHELL — a mid-test assertion failure
  * skipped the kill, and a pane blocked on `read` outlived the suite (the server
- * never exits while a session lives). `afterAll` now reaps WHOLE servers for
+ * never exits while a subshell lives). `afterAll` now reaps WHOLE servers for
  * every socket spawned here, so a failing test cannot leak a daemon.
  */
 const spawnedSockets = new Set<string>();
@@ -61,49 +61,49 @@ describe("TmuxRunner", () => {
     expect(a).toMatch(/^subshell-/);
   });
 
-  it("creates and kills a session", async () => {
-    const socket = freshSocket("session");
-    runner.newSession(socket, "s1", "/tmp", "echo hello-test; exec sleep 30");
-    expect(runner.hasSession(socket, "s1")).toBe(true);
+  it("creates and kills a subshell", async () => {
+    const socket = freshSocket("subshell");
+    runner.newSubshell(socket, "s1", "/tmp", "echo hello-test; exec sleep 30");
+    expect(runner.hasSubshell(socket, "s1")).toBe(true);
 
     // Give the shell a moment to render before capturing
     await Bun.sleep(300);
     const out = runner.capturePane(socket, "s1");
     expect(out).toContain("hello-test");
 
-    runner.killSession(socket, "s1");
-    expect(runner.hasSession(socket, "s1")).toBe(false);
+    runner.killSubshell(socket, "s1");
+    expect(runner.hasSubshell(socket, "s1")).toBe(false);
   });
 
-  it("lists session names on a socket in one spawn (batched liveness)", async () => {
+  it("lists subshell names on a socket in one spawn (batched liveness)", async () => {
     const socket = freshSocket("list");
-    runner.newSession(socket, "ls-a", "/tmp", "exec sleep 30");
-    runner.newSession(socket, "ls-b", "/tmp", "exec sleep 30");
-    expect(runner.listSessionNames(socket).sort()).toEqual(["ls-a", "ls-b"]);
+    runner.newSubshell(socket, "ls-a", "/tmp", "exec sleep 30");
+    runner.newSubshell(socket, "ls-b", "/tmp", "exec sleep 30");
+    expect(runner.listSubshellNames(socket).sort()).toEqual(["ls-a", "ls-b"]);
 
-    runner.killSession(socket, "ls-a");
-    expect(runner.listSessionNames(socket)).toEqual(["ls-b"]);
-    runner.killSession(socket, "ls-b");
-    // Server gone / no sessions: swallow-errors like hasSession — just empty.
-    expect(runner.listSessionNames(socket)).toEqual([]);
-    expect(runner.listSessionNames("subshell-no-such-server")).toEqual([]);
+    runner.killSubshell(socket, "ls-a");
+    expect(runner.listSubshellNames(socket)).toEqual(["ls-b"]);
+    runner.killSubshell(socket, "ls-b");
+    // Server gone / no subshells: swallow-errors like hasSubshell — just empty.
+    expect(runner.listSubshellNames(socket)).toEqual([]);
+    expect(runner.listSubshellNames("subshell-no-such-server")).toEqual([]);
   });
 
   // Tri-state probe (design 2026-09-02 §1): the exit watcher must be able to
   // tell "socket answered, pane missing" (death) from "socket did not answer"
   // (blip-or-death — indistinguishable from here; the threshold decides).
 
-  it("listSessionsChecked: live socket ⇒ ok:true with every name", () => {
+  it("listSubshellsChecked: live socket ⇒ ok:true with every name", () => {
     const socket = freshSocket("checked");
-    runner.newSession(socket, "ck-a", "/tmp", "exec sleep 30");
-    const probe = runner.listSessionsChecked(socket);
+    runner.newSubshell(socket, "ck-a", "/tmp", "exec sleep 30");
+    const probe = runner.listSubshellsChecked(socket);
     expect(probe).toEqual({ ok: true, names: ["ck-a"] });
-    runner.killSession(socket, "ck-a");
+    runner.killSubshell(socket, "ck-a");
   });
 
-  it("listSessionsChecked: absent socket ⇒ ok:false whose detail names the socket/connection error", () => {
+  it("listSubshellsChecked: absent socket ⇒ ok:false whose detail names the socket/connection error", () => {
     const socket = freshSocket("checked-absent"); // never started — no server, no socket file
-    const probe = runner.listSessionsChecked(socket);
+    const probe = runner.listSubshellsChecked(socket);
     expect(probe.ok).toBe(false);
     if (!probe.ok) {
       // Real tmux 3.x answers "error connecting to /tmp/tmux-<uid>/<name>
@@ -114,12 +114,12 @@ describe("TmuxRunner", () => {
     }
   });
 
-  it("listSessionsChecked: after the server dies ⇒ ok:false (where listSessionNames lies with [])", () => {
+  it("listSubshellsChecked: after the server dies ⇒ ok:false (where listSubshellNames lies with [])", () => {
     const socket = freshSocket("checked-dead");
-    runner.newSession(socket, "ck-d", "/tmp", "exec sleep 30");
-    expect(runner.listSessionsChecked(socket).ok).toBe(true);
+    runner.newSubshell(socket, "ck-d", "/tmp", "exec sleep 30");
+    expect(runner.listSubshellsChecked(socket).ok).toBe(true);
     spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
-    const probe = runner.listSessionsChecked(socket);
+    const probe = runner.listSubshellsChecked(socket);
     expect(probe.ok).toBe(false);
     if (!probe.ok) expect(probe.detail.length).toBeGreaterThan(0);
   });
@@ -128,14 +128,14 @@ describe("TmuxRunner", () => {
     const socket = freshSocket("pipe");
     const outFile = `/tmp/subshell-pipe-${Date.now()}.txt`;
     // pipe-pane only captures output written AFTER it attaches. This test used
-    // to echo at session start and then attach, so it raced the attach and
+    // to echo at subshell start and then attach, so it raced the attach and
     // usually captured nothing. Start a pane that stays quiet until it is fed
     // input, attach, and only then produce the output being asserted on.
     // Ordering needs no sleep: TmuxRunner.run uses spawnSync, so pipe-pane has
     // fully applied before sendInput is issued, and the pty buffers the input
     // even if `read` has not been reached yet — so no output can escape the
     // capture window.
-    runner.newSession(socket, "s1", "/tmp", "bash -c 'read l; echo piped-$l; exec sleep 30'");
+    runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read l; echo piped-$l; exec sleep 30'");
     runner.pipePane(socket, "s1", outFile);
     runner.sendInput(socket, "s1", "line\r");
     try {
@@ -150,7 +150,7 @@ describe("TmuxRunner", () => {
     } finally {
       // try/finally so a failed assertion does not leak the file into /tmp.
       if (existsSync(outFile)) unlinkSync(outFile);
-      runner.killSession(socket, "s1");
+      runner.killSubshell(socket, "s1");
     }
   });
 
@@ -186,9 +186,9 @@ describe("TmuxRunner", () => {
     }
   });
 
-  it("sends input to the session, submitting only on an explicit CR", async () => {
+  it("sends input to the subshell, submitting only on an explicit CR", async () => {
     const socket = freshSocket("key");
-    runner.newSession(socket, "s1", "/tmp", "bash -c 'read line; echo got-$line; exec sleep 30'");
+    runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read line; echo got-$line; exec sleep 30'");
     await Bun.sleep(300);
     // Typed one keystroke at a time, exactly as xterm's onData delivers it.
     for (const ch of "typed-input") {
@@ -203,7 +203,7 @@ describe("TmuxRunner", () => {
     const out = runner.capturePane(socket, "s1");
     expect(out).toContain("typed-input");
     expect(out).toContain("got-typed-input");
-    runner.killSession(socket, "s1");
+    runner.killSubshell(socket, "s1");
   });
 
   // Polls, never sleeps: the fixed 400/500 ms windows this test used to carry
@@ -218,7 +218,7 @@ describe("TmuxRunner", () => {
     // sentinel is written AFTER stty, so "ready" means the reader is live.
     // (`cat > file`, not `>>`: the append form lagged its flush here and
     // reported a short file even though every byte had been delivered.)
-    runner.newSession(socket, "s1", "/tmp", `bash -c 'stty raw -echo; echo ready > ${readyFile}; cat > ${outFile}'`);
+    runner.newSubshell(socket, "s1", "/tmp", `bash -c 'stty raw -echo; echo ready > ${readyFile}; cat > ${outFile}'`);
     await waitForFileToContain(readyFile, "ready", 4_000);
     // Key names, flag-looking text and backslash escapes must all stay
     // literal, and control/escape bytes must pass through untouched.
@@ -239,7 +239,7 @@ describe("TmuxRunner", () => {
       }
       await Bun.sleep(25);
     }
-    runner.killSession(socket, "s1");
+    runner.killSubshell(socket, "s1");
     expect(
       received.length,
       `pane received ${received.length} of ${expected.length} bytes; got ${JSON.stringify(Array.from(received))}`,
@@ -250,22 +250,22 @@ describe("TmuxRunner", () => {
   }, 15_000);
 
   it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", () => {
-    // THE restart bug: killing a socket's last session makes its tmux server
+    // THE restart bug: killing a socket's last subshell makes its tmux server
     // exit, but the socket file outlives the decision by a moment — a
     // `new-session` that connects in that window is answered by a server on
     // its way out, which dies under the client ("server exited unexpectedly")
-    // having created nothing. `restartSession` reuses the row's socket with
+    // having created nothing. `restartSubshell` reuses the row's socket with
     // the kill immediately before the spawn, so this is the normal case, not
     // a rare one: bare tmux reproduces it 5/5. Unretried it surfaced as a
     // restart button that throws and rolls the row back to `terminated`.
     const socket = freshSocket("revive-race");
-    runner.newSession(socket, "s1", "/tmp", "exec sleep 30");
+    runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
     runner.pipePane(socket, "s1", `/tmp/subshell-revive-race-${Date.now()}.log`);
-    runner.killSession(socket, "s1"); // last session ⇒ the server starts exiting
+    runner.killSubshell(socket, "s1"); // last subshell ⇒ the server starts exiting
     // Back-to-back, exactly as #reviveRow does — no sleep to paper over it.
-    runner.newSession(socket, "s1", "/tmp", "exec sleep 30");
-    expect(runner.hasSession(socket, "s1")).toBe(true);
-    runner.killSession(socket, "s1");
+    runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
+    expect(runner.hasSubshell(socket, "s1")).toBe(true);
+    runner.killSubshell(socket, "s1");
   });
 
   it("retries only the shutdown race — a real refusal throws on the first answer", async () => {
@@ -283,7 +283,7 @@ describe("TmuxRunner", () => {
 n=$(cat '${countFile}' 2>/dev/null || echo 0)
 n=$((n+1)); echo "$n" > '${countFile}'
 case "$2" in
-  refuse) echo "duplicate session: s1" >&2; exit 1 ;;
+  refuse) echo "duplicate subshell: s1" >&2; exit 1 ;;
 esac
 if [ "$n" -le 2 ]; then echo "server exited unexpectedly" >&2; exit 1; fi
 exit 0
@@ -292,12 +292,12 @@ exit 0
     );
     try {
       // Race message ⇒ retried until it succeeds (3rd attempt).
-      new TmuxRunner(stub).newSession("sock", "s1", "/tmp", "cmd");
+      new TmuxRunner(stub).newSubshell("sock", "s1", "/tmp", "cmd");
       expect((await Bun.file(countFile).text()).trim()).toBe("3");
 
       // A non-race failure ⇒ exactly ONE attempt, error surfaced verbatim.
       writeFileSync(countFile, "0");
-      expect(() => new TmuxRunner(stub).newSession("refuse", "s1", "/tmp", "cmd")).toThrow(/duplicate session/);
+      expect(() => new TmuxRunner(stub).newSubshell("refuse", "s1", "/tmp", "cmd")).toThrow(/duplicate subshell/);
       expect((await Bun.file(countFile).text()).trim()).toBe("1");
     } finally {
       rmSync(stubDir, { recursive: true, force: true });
@@ -318,7 +318,7 @@ echo "server exited unexpectedly" >&2; exit 1
       { mode: 0o755 },
     );
     try {
-      expect(() => new TmuxRunner(stub).newSession("sock", "s1", "/tmp", "cmd")).toThrow(/server exited unexpectedly/);
+      expect(() => new TmuxRunner(stub).newSubshell("sock", "s1", "/tmp", "cmd")).toThrow(/server exited unexpectedly/);
       // Bounded: the initial attempt plus the retry budget, never an endless spin.
       expect((await Bun.file(countFile).text()).trim()).toBe("4");
     } finally {
@@ -328,11 +328,11 @@ echo "server exited unexpectedly" >&2; exit 1
 
   it("captures escape sequences with -e", async () => {
     const socket = freshSocket("esc");
-    runner.newSession(socket, "s1", "/tmp", "printf '\\033[31mRED\\033[0m normal\\n'; exec sleep 30");
+    runner.newSubshell(socket, "s1", "/tmp", "printf '\\033[31mRED\\033[0m normal\\n'; exec sleep 30");
     await Bun.sleep(300);
     const out = runner.capturePane(socket, "s1");
     expect(out).toContain("[31m");
-    runner.killSession(socket, "s1");
+    runner.killSubshell(socket, "s1");
   });
 });
 

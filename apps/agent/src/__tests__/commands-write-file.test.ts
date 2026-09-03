@@ -20,7 +20,7 @@ import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { cleanupStaleUploads, execWriteFile } from "../commands/write-file.js";
 import type { AgentConfig } from "../config.js";
-import { SessionMetaStore } from "../session-meta.js";
+import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
  * Task 6: the `write_file` chunk receiver (spec 2026-08-31 §3.4/§7). No tmux
@@ -66,7 +66,7 @@ function setup(
     // write_file never touches tmux; a bare cast keeps the "unstubbed throws"
     // discipline of the other suites (any tmux call here is a test bug).
     tmux: {} as CommandContext["tmux"],
-    meta: new SessionMetaStore(dataDir),
+    meta: new SubshellMetaStore(dataDir),
     nowMs,
     ws: { send: () => {} },
     watchers: new Map(),
@@ -76,10 +76,10 @@ function setup(
   return { dataDir, work, outside, ctx };
 }
 
-/** Record `cwd` as a session launch dir so the policy roots include it. */
+/** Record `cwd` as a subshell launch dir so the policy roots include it. */
 async function track(ctx: CommandContext, cwd: string, id = S1): Promise<void> {
   await ctx.meta.record({
-    sessionId: id,
+    subshellId: id,
     cwd,
     socket: "test.sock",
     harnessId: "claude-code",
@@ -269,11 +269,11 @@ describe("cleanupStaleUploads (daemon-start sweep)", () => {
   });
 
   it("never throws: no dirs, no metas, and a file where a dir name was expected", async () => {
-    const { ctx } = setup("sweep-quiet"); // empty dataDir/sessions → meta.list is []
+    const { ctx } = setup("sweep-quiet"); // empty dataDir/subshells → meta.list is []
     await cleanupStaleUploads(ctx); // must resolve, silently
     const { dataDir, ctx: ctx2 } = setup("sweep-noise");
-    writeFileSync(join(dataDir, "sessions"), "not a directory"); // sessions path is a plain file
+    writeFileSync(join(dataDir, "subshells"), "not a directory"); // subshells path is a plain file
     await cleanupStaleUploads(ctx2);
-    expect(existsSync(join(dataDir, "sessions"))).toBe(true); // untouched, unbothered
+    expect(existsSync(join(dataDir, "subshells"))).toBe(true); // untouched, unbothered
   });
 });

@@ -2,14 +2,14 @@ import type { NodeEvent } from "@internal/subshell-protocol";
 
 /**
  * The backend event plane for `/ws/node` (spec 2026-08-31 §3.3, phase 2).
- * Two module-scope pieces the WS handler feeds, plus the slot the session
+ * Two module-scope pieces the WS handler feeds, plus the slot the subshell
  * manager fills (Task 10):
  *
  * - **Output bus** — `subscribe_output` commands hand a `subId` to the agent;
  *   every `output` frame for it fans out through {@link dispatchOutput}.
  *   Subscribers are whoever opened the tail (terminal attaches); the map is
  *   module-scope because the socket handler has no natural owner for it.
- * - **Lifecycle hooks** — `exit` and `sessions_report` events drive session
+ * - **Lifecycle hooks** — `exit` and `subshells_report` events drive subshell
  *   state reconciliation. Until Task 10 registers the hooks (and on test
  *   imports of the raw handler), the slot is empty and those frames produce
  *   one warn line each, nothing else — deliberately NOT an error: agents send
@@ -56,7 +56,7 @@ export function subscribeOutput(subId: string, handler: (ev: OutputEvent) => voi
  * Routing is subId-only — the accepted trust boundary for §3.3 events: the
  * frame arrived on a socket already authenticated as that node, and subIds
  * are unguessable uuids minted by the subscriber, so nothing here re-checks
- * the frame's `sessionId` against the subscription's session.
+ * the frame's `subshellId` against the subscription's subshell.
  * @param ev - the parsed `output` event
  * @returns true when at least one handler received it, false for an unknown subId
  */
@@ -69,18 +69,18 @@ export function dispatchOutput(ev: OutputEvent): boolean {
 }
 
 /**
- * Server-side consumers of the agent's session lifecycle events (spec §3.3).
+ * Server-side consumers of the agent's subshell lifecycle events (spec §3.3).
  * `nodeId` is always the SOCKET's authenticated identity — never anything the
  * frame claims — so a compromised agent cannot attribute events to a
  * different node.
  */
 export interface NodeLifecycleHooks {
   /** The agent reports one of its supervised harness panes exited. */
-  onExit(nodeId: string, sessionId: string, exitCode: number | null, at: string): Promise<void> | void;
-  /** The agent's full supervised-session census (reconcile after reconnect). */
-  onSessionsReport(
+  onExit(nodeId: string, subshellId: string, exitCode: number | null, at: string): Promise<void> | void;
+  /** The agent's full supervised-subshell census (reconcile after reconnect). */
+  onSubshellsReport(
     nodeId: string,
-    report: Extract<NodeEvent, { type: "sessions_report" }>["sessions"],
+    report: Extract<NodeEvent, { type: "subshells_report" }>["subshells"],
   ): Promise<void> | void;
 }
 
@@ -88,7 +88,7 @@ let lifecycleHooks: NodeLifecycleHooks | undefined;
 
 /**
  * Install (or clear, with `undefined`) the lifecycle hooks. Task 10 calls
- * this at boot; until then `exit`/`sessions_report` frames warn-and-drop.
+ * this at boot; until then `exit`/`subshells_report` frames warn-and-drop.
  * @param hooks - the implementation to install, or `undefined` to clear
  */
 export function setNodeLifecycleHooks(hooks: NodeLifecycleHooks | undefined): void {
@@ -97,7 +97,7 @@ export function setNodeLifecycleHooks(hooks: NodeLifecycleHooks | undefined): vo
 
 /**
  * The currently installed lifecycle hooks (`undefined` = slot empty).
- * @returns the hooks the WS handler should invoke for exit/sessions_report
+ * @returns the hooks the WS handler should invoke for exit/subshells_report
  */
 export function getNodeLifecycleHooks(): NodeLifecycleHooks | undefined {
   return lifecycleHooks;

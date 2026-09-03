@@ -28,7 +28,7 @@ const PI_SETTINGS_FIELDS: SettingsField[] = [
   {
     key: "thinking",
     label: "Thinking level",
-    description: "Thinking budget for the session",
+    description: "Thinking budget for the subshell",
     type: "select",
     choices: ["off", "minimal", "low", "medium", "high", "xhigh"],
   },
@@ -36,7 +36,7 @@ const PI_SETTINGS_FIELDS: SettingsField[] = [
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
   { key: "PI_CODING_AGENT_DIR", description: "Config directory (default: ~/.pi/agent) — isolation knob" },
-  { key: "PI_CODING_AGENT_SESSION_DIR", description: "Session storage directory" },
+  { key: "PI_CODING_AGENT_SESSION_DIR", description: "Subshell storage directory" },
   { key: "PI_OFFLINE", description: "Disable startup network operations (1/true)" },
   { key: "PI_TELEMETRY", description: "Override install telemetry (1/0)" },
   { key: "ANTHROPIC_API_KEY", description: "Anthropic API key" },
@@ -46,11 +46,11 @@ const SUGGESTED_ENV: { key: string; description: string }[] = [
 const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   { flag: "--model sonnet:high", description: "Model pattern with thinking shorthand" },
   { flag: "--provider anthropic", description: "Provider name" },
-  { flag: "--thinking high", description: "Thinking level for the session" },
+  { flag: "--thinking high", description: "Thinking level for the subshell" },
   { flag: "--tools read,grep,find,ls", description: "Allowlist of tool names to enable" },
   { flag: "--exclude-tools ask_question", description: "Denylist of tool names to disable" },
   { flag: "--append-system-prompt <text>", description: "Append to the system prompt" },
-  { flag: "--no-session", description: "Ephemeral session (nothing saved)" },
+  { flag: "--no-session", description: "Ephemeral subshell (nothing saved)" },
   { flag: "--offline", description: "Skip startup network operations" },
 ];
 
@@ -60,16 +60,16 @@ const PLUGIN_KNOWN_PATHS = [".bun/bin/pi"];
  * Built-in harness: pi (pi.dev, Earendil Works).
  *
  * Launch shape:
- *   pi [--model <m>] [--provider <p>] [--thinking <l>] --name <session> \
+ *   pi [--model <m>] [--provider <p>] [--thinking <l>] --name <subshell> \
  *      [profile flags] [extra flags]
  * A bare launch opens the TUI. Unlike the other harnesses, pi supports a
- * create-time session name (`--name`), so the subshell session name is forwarded.
+ * create-time subshell name (`--name`), so the subshell subshell name is forwarded.
  *
  * NOTE: subshell MCP is NOT auto-injected. pi deliberately has no built-in MCP —
  * it comes from the community `pi-mcp-adapter` extension, which must be
  * installed once per host. mcpSetup() surfaces the exact steps (install +
  * the standard mcpServers snippet the adapter reads from ~/.config/mcp/mcp.json
- * or a project .mcp.json); the spawned child inherits each session's SUBSHELL_* env.
+ * or a project .mcp.json); the spawned child inherits each subshell's SUBSHELL_* env.
  */
 export class PiPlugin implements HarnessPlugin {
   readonly id = "pi";
@@ -115,7 +115,7 @@ export class PiPlugin implements HarnessPlugin {
   }
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, sessionName, extraFlags } = input;
+    const { binary, profile, subshellName, extraFlags } = input;
     const args: string[] = [binary];
 
     const s = profile.settings ?? {};
@@ -123,7 +123,7 @@ export class PiPlugin implements HarnessPlugin {
     if (typeof s.provider === "string" && s.provider) args.push("--provider", s.provider);
     if (typeof s.thinking === "string" && s.thinking) args.push("--thinking", s.thinking);
 
-    if (sessionName) args.push("--name", sessionName);
+    if (subshellName) args.push("--name", subshellName);
 
     // Each stored flag is one complete argv token (see opencode.ts note).
     for (const flag of profile.flags) args.push(flag);

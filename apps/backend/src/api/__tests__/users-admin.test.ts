@@ -176,8 +176,8 @@ describe("users-admin + audit routes", () => {
     await auditRepo.create({
       id: eventId,
       actorUserId: adminId,
-      action: "session.create",
-      targetType: "session",
+      action: "subshell.create",
+      targetType: "subshell",
       targetId: "sess-audit-test",
       metadataJson: JSON.stringify({ name: "audit test" }),
       createdAt: now,
@@ -186,7 +186,7 @@ describe("users-admin + audit routes", () => {
     // Repo: newest-first listing includes the event.
     const latest = await auditRepo.listLatest(50);
     const found = latest.find((e) => e.id === eventId);
-    expect(found?.action).toBe("session.create");
+    expect(found?.action).toBe("subshell.create");
     expect(found?.actorUserId).toBe(adminId);
 
     const token = await signIn(adminEmail, adminPassword);

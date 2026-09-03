@@ -48,7 +48,7 @@ describe("harness schema route", () => {
     expect(body.suggestedEnv.map((e) => e.key)).toContain("ANTHROPIC_API_KEY");
     expect(body.suggestedFlags.map((f) => f.flag)).toContain("--dangerously-skip-permissions");
     for (const e of body.suggestedEnv) expect(typeof e.description).toBe("string");
-    // Cross-session comms: claude-code needs nothing from the user.
+    // Cross-subshell comms: claude-code needs nothing from the user.
     expect(body.mcp.mode).toBe("auto");
     expect(typeof body.mcp.summary).toBe("string");
   });

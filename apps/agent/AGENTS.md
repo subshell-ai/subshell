@@ -22,7 +22,7 @@ bun run verify-types     # tsc --noEmit
   cost of the normal build/test path. Publish is atomic (tmp + `rename()` per
   artifact + fresh `.sha256` sidecar — the downloads route's mtime-keyed cache
   contract) and all-or-nothing (a failed target publishes NOTHING). Destination:
-  `SUBSHELL_NODE_ARTIFACTS_DIR`, else `<SESSION_DATA_DIR>/node-artifacts` (a
+  `SUBSHELL_NODE_ARTIFACTS_DIR`, else `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` (a
   documented duplicate of the backend's default in `apps/backend/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
   the tsdown output) — re-create with `cd apps/agent && bun run compile`.

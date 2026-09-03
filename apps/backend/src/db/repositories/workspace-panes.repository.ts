@@ -48,7 +48,7 @@ export class WorkspacePanesRepository extends BaseRepository {
 
   /**
    * Pane counts for every workspace of one user, in a single grouped query —
-   * the list endpoint merges these in so cards can show their session count
+   * the list endpoint merges these in so cards can show their subshell count
    * without an N+1. Workspaces with no panes have no entry; treat a missing
    * key as zero.
    */

@@ -13,7 +13,7 @@ import {
 /**
  * Task 7 event plane: the output bus (subscribe/dispose/dispatch), the agent
  * facts stashed on the connection by `ready`, the lifecycle-hook slot fed by
- * `exit`/`sessions_report`, and per-socket serialized dispatch (spec §3.3,
+ * `exit`/`subshells_report`, and per-socket serialized dispatch (spec §3.3,
  * P1-T10 carry).
  */
 
@@ -91,7 +91,7 @@ const readyFrame = (over: Record<string, unknown> = {}) => ({
 
 const outputFrame = (over: Record<string, unknown> = {}) => ({
   type: "output",
-  sessionId: "s1",
+  subshellId: "s1",
   subId: "sub-1",
   fromByte: 0,
   toByte: 2,
@@ -119,7 +119,7 @@ describe("subscribeOutput / dispatchOutput (spec §3.3)", () => {
 
     expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(true);
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.sessionId).toBe("s1");
+    expect(seen[0]?.subshellId).toBe("s1");
 
     dispose();
     expect(dispatchOutput(outputFrame() as Extract<NodeEvent, { type: "output" }>)).toBe(false);
@@ -209,14 +209,14 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
 
 /* ------------------ lifecycle hook slot -------------------------- */
 
-describe("exit / sessions_report → lifecycle hooks (spec §3.3)", () => {
+describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
   it("exit reaches the registered hook with the SOCKET's nodeId, never a frame-supplied one", async () => {
     const seen: [string, string, number | null, string][] = [];
     setNodeLifecycleHooks({
-      onExit: (nodeId, sessionId, exitCode, at) => {
-        seen.push([nodeId, sessionId, exitCode, at]);
+      onExit: (nodeId, subshellId, exitCode, at) => {
+        seen.push([nodeId, subshellId, exitCode, at]);
       },
-      onSessionsReport: () => {},
+      onSubshellsReport: () => {},
     });
     const h = makeHarness();
     const ws = fakeSocket("n1");
@@ -225,26 +225,32 @@ describe("exit / sessions_report → lifecycle hooks (spec §3.3)", () => {
     await handleNodeMessage(
       h.deps,
       ws,
-      JSON.stringify({ type: "exit", nodeId: "victim-node", sessionId: "s9", exitCode: 3, at: "2026-09-01T00:00:00Z" }),
+      JSON.stringify({
+        type: "exit",
+        nodeId: "victim-node",
+        subshellId: "s9",
+        exitCode: 3,
+        at: "2026-09-01T00:00:00Z",
+      }),
     );
 
     expect(seen).toEqual([["n1", "s9", 3, "2026-09-01T00:00:00Z"]]);
   });
 
-  it("sessions_report reaches the hook with the socket's nodeId and the session list", async () => {
+  it("subshells_report reaches the hook with the socket's nodeId and the subshell list", async () => {
     const seen: { nodeId: string; report: unknown }[] = [];
     setNodeLifecycleHooks({
       onExit: () => {},
-      onSessionsReport: (nodeId, report) => {
+      onSubshellsReport: (nodeId, report) => {
         seen.push({ nodeId, report });
       },
     });
     const h = makeHarness();
-    const sessions = [{ sessionId: "s1", alive: false, exitCode: 0 }];
+    const subshells = [{ subshellId: "s1", alive: false, exitCode: 0 }];
 
-    await handleNodeMessage(h.deps, fakeSocket("n7"), JSON.stringify({ type: "sessions_report", sessions }));
+    await handleNodeMessage(h.deps, fakeSocket("n7"), JSON.stringify({ type: "subshells_report", subshells }));
 
-    expect(seen).toEqual([{ nodeId: "n7", report: sessions }]);
+    expect(seen).toEqual([{ nodeId: "n7", report: subshells }]);
   });
 
   it("no hook registered ⇒ frames are ingested with a warn line and nothing else", async () => {
@@ -252,10 +258,10 @@ describe("exit / sessions_report → lifecycle hooks (spec §3.3)", () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     await expect(
-      handleNodeMessage(h.deps, ws, JSON.stringify({ type: "exit", sessionId: "s", exitCode: null, at: "now" })),
+      handleNodeMessage(h.deps, ws, JSON.stringify({ type: "exit", subshellId: "s", exitCode: null, at: "now" })),
     ).resolves.toBeUndefined();
     await expect(
-      handleNodeMessage(h.deps, ws, JSON.stringify({ type: "sessions_report", sessions: [] })),
+      handleNodeMessage(h.deps, ws, JSON.stringify({ type: "subshells_report", subshells: [] })),
     ).resolves.toBeUndefined();
     expect(h.order).toEqual([]);
     expect(ws.closed).toHaveLength(0);

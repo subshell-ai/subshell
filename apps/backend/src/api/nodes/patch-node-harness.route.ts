@@ -48,7 +48,7 @@ export const patchNodeHarnessRoute = new Elysia()
   .patch(
     "/:id/harnesses/:harnessId",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Harness toggles are restricted to browser sessions");
+      requireCookieActor(actor, "Harness toggles are restricted to browser subshells");
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));

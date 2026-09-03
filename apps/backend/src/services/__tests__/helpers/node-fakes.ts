@@ -8,7 +8,7 @@ import {
 } from "@/services/nodes/node-registry.js";
 
 /**
- * Shared fakes for the node/launcher seam, used by the session-manager suites
+ * Shared fakes for the node/launcher seam, used by the subshell-manager suites
  * (remote create/restart, reconciler partition, exit/report application).
  * Both pieces are deliberately loud recorders: every suite asserts on what
  * the fake SAW, which is how the tests pin "agent rows never touch the local
@@ -22,13 +22,13 @@ export class FakeNodeLauncher implements NodeLauncher {
   readonly kills: string[] = [];
   /** Paths arrays handed to `removeArtifacts`, one entry per call. */
   readonly removedPaths: string[][] = [];
-  hasSessionCalls = 0;
-  /** Ids `hasSession` was called with — the local-probe path's fingerprint. */
+  hasSubshellCalls = 0;
+  /** Ids `hasSubshell` was called with — the local-probe path's fingerprint. */
   readonly probedIds: string[] = [];
   captureCalls = 0;
-  /** Answer for `hasSession` / `paneTitle` — false stands in for "pane absent". */
+  /** Answer for `hasSubshell` / `paneTitle` — false stands in for "pane absent". */
   alive = true;
-  /** When set, `killSession` throws it instead of recording (terminate-path tests). */
+  /** When set, `killSubshell` throws it instead of recording (terminate-path tests). */
   killError: Error | undefined;
   revokes = 0;
 
@@ -44,12 +44,12 @@ export class FakeNodeLauncher implements NodeLauncher {
     this.plans.push(plan);
   }
   async terminate(): Promise<void> {}
-  async killSession(_socket: string, id: string): Promise<void> {
+  async killSubshell(_socket: string, id: string): Promise<void> {
     if (this.killError) throw this.killError;
     this.kills.push(id);
   }
-  async hasSession(_socket: string, id: string): Promise<boolean> {
-    this.hasSessionCalls++;
+  async hasSubshell(_socket: string, id: string): Promise<boolean> {
+    this.hasSubshellCalls++;
     this.probedIds.push(id);
     return this.alive;
   }
@@ -73,14 +73,14 @@ export class FakeNodeLauncher implements NodeLauncher {
   }
   /** Present on RemoteLauncher only; the fake mirrors it so delete-path tests can assert it. */
   metaArtifactPath(id: string): string {
-    return "/node-data/sessions/".concat(id, ".meta.json");
+    return "/node-data/subshells/".concat(id, ".meta.json");
   }
   /**
-   * Mirrors {@link RemoteLauncher.sessionArtifacts}: the delete-time triple,
+   * Mirrors {@link RemoteLauncher.subshellArtifacts}: the delete-time triple,
    * with the MCP path composed under `nodeOnline()`'s default `/node-data`
    * dataDir (the same source the manager's inline delete reads).
    */
-  sessionArtifacts(id: string): string[] {
+  subshellArtifacts(id: string): string[] {
     return [this.logPath(id), `/node-data/mcp/${id}.json`, this.metaArtifactPath(id)];
   }
   async readLogTail(): Promise<{ lines: string[]; truncated: boolean }> {

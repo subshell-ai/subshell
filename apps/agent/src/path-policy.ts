@@ -3,7 +3,7 @@ import { resolve, sep } from "node:path";
 
 /**
  * The agent-side path allowlist (spec 2026-08-31 §7): `write_file` and
- * `remove_paths` are accepted only under <dataDir> or a tracked session's
+ * `remove_paths` are accepted only under <dataDir> or a tracked subshell's
  * launch cwd. Defense-in-depth against a compromised control plane — the
  * commands are signed, but signing proves WHO, not WHETHER.
  */
@@ -15,7 +15,7 @@ export async function realpathRoots(roots: string[]): Promise<string[]> {
     try {
       out.push(await realpath(root));
     } catch {
-      // A vanished root cannot authorize anything; drop it (tracked cwd deleted under a dead session).
+      // A vanished root cannot authorize anything; drop it (tracked cwd deleted under a dead subshell).
     }
   }
   return out;

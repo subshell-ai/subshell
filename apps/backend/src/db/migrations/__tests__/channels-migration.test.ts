@@ -29,8 +29,8 @@ describe("0009-channels migration", () => {
     });
   }
 
-  it("sessions gains api_key_id", async () => {
-    const r = await sql<{ name: string }>`SELECT name FROM pragma_table_info('sessions')`.execute(db);
+  it("subshells gains api_key_id", async () => {
+    const r = await sql<{ name: string }>`SELECT name FROM pragma_table_info('subshells')`.execute(db);
     expect(r.rows.map((x) => x.name)).toContain("api_key_id");
   });
 

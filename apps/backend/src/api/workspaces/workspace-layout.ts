@@ -65,7 +65,7 @@ export function panelIdsInLayout(layout: unknown): string[] {
  * empty by their removal.
  *
  * This is the server's half of keeping `layout_json` honest against
- * `workspace_panes`: a session delete cascades a pane away without touching the
+ * `workspace_panes`: a subshell delete cascades a pane away without touching the
  * stored layout, so the layout is filtered on read rather than swept in the
  * background.
  *

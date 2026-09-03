@@ -5,25 +5,25 @@ import { authDatabase } from "@/auth/database.js";
  * `metadata.kind` vocabulary that discriminates the three bearer kinds.
  *
  * Why raw SQL: the `@better-auth/api-key` plugin's update/list/delete
- * endpoints are session-guarded and unusable server-side (spike finding) —
+ * endpoints are subshell-guarded and unusable server-side (spike finding) —
  * see also {@link ensureSystemUser} for the same raw-handle pattern. Column
  * names are better-auth's physical camelCase, which the app's Kysely
  * CamelCasePlugin would mangle; hence this module, on the auth handle.
  *
  * Why the metadata contract lives here: all three key kinds share one table and
- * only `metadata.kind` tells them apart. Mint sites (session-tokens, the
+ * only `metadata.kind` tells them apart. Mint sites (subshell-tokens, the
  * system-keys route) and the guard's kind check all import these names, so
  * a rename is a one-file change instead of a cross-file grep.
  */
 
 /** The three kinds of bearer key this app mints. */
-export type ApiKeyKind = "session" | "system" | "node";
+export type ApiKeyKind = "subshell" | "system" | "node";
 
-/** metadata payload for a per-session token. */
-export interface SessionKeyMetadata {
-  kind: "session";
-  /** The session this token authenticates as. */
-  sessionId: string;
+/** metadata payload for a per-subshell token. */
+export interface SubshellKeyMetadata {
+  kind: "subshell";
+  /** The subshell this token authenticates as. */
+  subshellId: string;
 }
 
 /** metadata payload for an admin-managed system key. */
@@ -64,7 +64,7 @@ export interface ApiKeyListRow {
 }
 
 /**
- * SQL scoping system keys apart from session tokens. json_extract (not a
+ * SQL scoping system keys apart from subshell tokens. json_extract (not a
  * LIKE on the serialized form) so a change in better-auth's metadata
  * whitespace or key ordering can never silently un-scope the admin surface
  * — a key that fails to match here would stop being disable-able while still

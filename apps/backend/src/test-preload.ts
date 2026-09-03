@@ -10,13 +10,13 @@ import { join } from "node:path";
  * Registered via `bunfig.toml`'s `[test] preload`, so it applies to every
  * `bun test` invocation — `bun run test`, `turbo test`, and a bare `bun test`
  * typed by hand. That breadth is the point: the suites create and delete
- * users, sessions and paths, and must never do it in `./data/subshell.db`,
+ * users, subshells and paths, and must never do it in `./data/subshell.db`,
  * the developer's real database. Putting the override in the `test` script alone
  * would have left the bare invocation pointed at live data.
  *
  * Setting the flag is this file's first act; its second is registering the
  * temp-database cleanup below. `constants.ts` reads the flag and forces both
- * the database path and the session-log directory to disposable locations,
+ * the database path and the subshell-log directory to disposable locations,
  * ignoring whatever the environment says. That split matters: this file
  * cannot decide the question by filling in variables that are unset, because
  * Bun loads `.env` before a preload runs — so `DATABASE_PATH` from a

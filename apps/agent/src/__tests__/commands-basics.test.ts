@@ -15,11 +15,11 @@ import { PROBE_RESULT_BUDGET_BYTES } from "../commands/basics.js";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import type { AgentConfig } from "../config.js";
-import { SessionMetaStore } from "../session-meta.js";
+import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
  * The phase-2 command executors under a scripted fake tmux (spec §7). One real
- * `SessionMetaStore` on a temp dataDir (the preload already moved
+ * `SubshellMetaStore` on a temp dataDir (the preload already moved
  * SUBSHELL_AGENT_HOME), a fake `ws` collecting events, and a plain-object
  * TmuxRunner double — every emitted result `data` is additionally run through
  * the Task-1 contract validators (`parse*`) so the agent side can never drift
@@ -31,7 +31,7 @@ const S2 = "22222222-2222-4222-8222-222222222222";
 
 let base: string;
 let dataDir: string;
-let workDir: string; // a tracked session's recorded launch cwd
+let workDir: string; // a tracked subshell's recorded launch cwd
 let outside: string; // under no root
 
 beforeAll(() => {
@@ -52,8 +52,8 @@ interface FakeTmux {
 
 interface Spec {
   run?: (args: string[]) => { stdout: string; stderr: string };
-  hasSession?: (socket: string, id: string) => boolean;
-  killSession?: (socket: string, id: string) => void;
+  hasSubshell?: (socket: string, id: string) => boolean;
+  killSubshell?: (socket: string, id: string) => void;
   sendInput?: (socket: string, id: string, input: string) => void;
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
   capturePane?: (socket: string, id: string) => string;
@@ -74,8 +74,8 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
   };
   const raw = {
     run: method("run"),
-    hasSession: method("hasSession"),
-    killSession: method("killSession"),
+    hasSubshell: method("hasSubshell"),
+    killSubshell: method("killSubshell"),
     sendInput: method("sendInput"),
     resizeWindow: method("resizeWindow"),
     capturePane: method("capturePane"),
@@ -93,7 +93,7 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
   const ctx: CommandContext = {
     config,
     tmux: raw as unknown as CommandContext["tmux"],
-    meta: new SessionMetaStore(dataDir),
+    meta: new SubshellMetaStore(dataDir),
     nowMs: () => 1_700_000_000_000,
     ws: { send: (ev) => events.push(ev) },
     watchers: new Map(),
@@ -124,17 +124,17 @@ describe("command executors (spec §7)", () => {
   it("terminate: strict kill-session — recorded socket wins, tmuxSocketFor is the orphan fallback", async () => {
     const { ctx, tmux } = makeCtx({ run: () => ({ stdout: "", stderr: "" }) }, []);
     await ctx.meta.record({
-      sessionId: S1,
+      subshellId: S1,
       cwd: workDir,
       socket: "recorded-sock",
       harnessId: "pi",
       name: "s1",
       startedAt: "2026-09-01T00:00:00.000Z",
     });
-    expect(await dispatchCommand(ctx, { type: "terminate", sessionId: S1 })).toEqual({ ok: true });
+    expect(await dispatchCommand(ctx, { type: "terminate", subshellId: S1 })).toEqual({ ok: true });
     expect(argsOf(tmux, "run")).toEqual([[["-L", "recorded-sock", "kill-session", "-t", S1], {}]]);
 
-    expect(await dispatchCommand(ctx, { type: "terminate", sessionId: S2 })).toEqual({ ok: true });
+    expect(await dispatchCommand(ctx, { type: "terminate", subshellId: S2 })).toEqual({ ok: true });
     expect(argsOf(tmux, "run")[1]?.[0]).toEqual(["-L", tmuxSocketFor(S2), "kill-session", "-t", S2]);
   });
 
@@ -147,7 +147,7 @@ describe("command executors (spec §7)", () => {
       },
       [],
     );
-    expect(await dispatchCommand(ctx, { type: "terminate", sessionId: S1 })).toEqual({
+    expect(await dispatchCommand(ctx, { type: "terminate", subshellId: S1 })).toEqual({
       ok: false,
       error: "no server running",
     });
@@ -156,34 +156,34 @@ describe("command executors (spec §7)", () => {
   it("kill swallows the tmux throw (already-gone is success)", async () => {
     const { ctx, tmux } = makeCtx(
       {
-        killSession: () => {
+        killSubshell: () => {
           throw new Error("no server running");
         },
       },
       [],
     );
-    expect(await dispatchCommand(ctx, { type: "kill", sessionId: S2 })).toEqual({ ok: true });
-    expect(argsOf(tmux, "killSession")).toEqual([[tmuxSocketFor(S2), S2]]);
+    expect(await dispatchCommand(ctx, { type: "kill", subshellId: S2 })).toEqual({ ok: true });
+    expect(argsOf(tmux, "killSubshell")).toEqual([[tmuxSocketFor(S2), S2]]);
   });
 
   it("input/resize delegate to sendInput/resizeWindow", async () => {
     const { ctx, tmux } = makeCtx({ sendInput: () => {}, resizeWindow: () => {} }, []);
-    expect(await dispatchCommand(ctx, { type: "input", sessionId: S2, data: "hello\r" })).toEqual({ ok: true });
-    expect(await dispatchCommand(ctx, { type: "resize", sessionId: S2, cols: 132, rows: 43 })).toEqual({ ok: true });
+    expect(await dispatchCommand(ctx, { type: "input", subshellId: S2, data: "hello\r" })).toEqual({ ok: true });
+    expect(await dispatchCommand(ctx, { type: "resize", subshellId: S2, cols: 132, rows: 43 })).toEqual({ ok: true });
     expect(argsOf(tmux, "sendInput")).toEqual([[tmuxSocketFor(S2), S2, "hello\r"]]);
     expect(argsOf(tmux, "resizeWindow")).toEqual([[tmuxSocketFor(S2), S2, 132, 43]]);
   });
 
   it("capture answers the bare screen string", async () => {
     const { ctx } = makeCtx({ capturePane: () => "screen" }, []);
-    const result = await dispatchCommand(ctx, { type: "capture", sessionId: S1 });
+    const result = await dispatchCommand(ctx, { type: "capture", subshellId: S1 });
     expect(result).toEqual({ ok: true, data: "screen" });
     expect(parseNodeCaptureResult(result.ok ? result.data : null)).toBe("screen");
   });
 
   it("capture forwards the optional scrollback budget to capturePane (attach replay)", async () => {
     const { ctx, tmux } = makeCtx({ capturePane: () => "screen" }, []);
-    expect(await dispatchCommand(ctx, { type: "capture", sessionId: S1, lines: 100 })).toEqual({
+    expect(await dispatchCommand(ctx, { type: "capture", subshellId: S1, lines: 100 })).toEqual({
       ok: true,
       data: "screen",
     });
@@ -195,26 +195,26 @@ describe("command executors (spec §7)", () => {
   it("probe: live row carries title/command/capture; dead row carries the exit code and NO capture", async () => {
     const { ctx } = makeCtx(
       {
-        hasSession: (_s, id) => id === S1,
+        hasSubshell: (_s, id) => id === S1,
         paneTitle: () => ({ title: "Doing", command: "node" }),
         capturePane: () => "CAP",
         paneExitCode: () => 3,
       },
       [],
     );
-    const result = await dispatchCommand(ctx, { type: "probe", sessionIds: [S1, S2] });
+    const result = await dispatchCommand(ctx, { type: "probe", subshellIds: [S1, S2] });
     expect(result.ok).toBe(true);
     const entries = parseNodeProbeEntries(result.ok ? result.data : null);
     expect(entries).not.toBeNull();
     expect(entries?.[0]).toEqual({
-      sessionId: S1,
+      subshellId: S1,
       alive: true,
       exitCode: null,
       title: "Doing",
       command: "node",
       capture: "CAP",
     });
-    expect(entries?.[1]).toEqual({ sessionId: S2, alive: false, exitCode: 3 });
+    expect(entries?.[1]).toEqual({ subshellId: S2, alive: false, exitCode: 3 });
     expect(entries?.[1]).not.toHaveProperty("capture");
   });
 
@@ -223,13 +223,13 @@ describe("command executors (spec §7)", () => {
     const ids = Array.from({ length: 200 }, (_, i) => i.toString(16).padStart(4, "0")); // 200 × 8 KiB ≈ 1.6 MiB
     const { ctx } = makeCtx(
       {
-        hasSession: () => true,
+        hasSubshell: () => true,
         paneTitle: () => ({ title: "t", command: "c" }),
         capturePane: () => "x".repeat(8 * 1024),
       },
       [],
     );
-    const result = await dispatchCommand(ctx, { type: "probe", sessionIds: ids });
+    const result = await dispatchCommand(ctx, { type: "probe", subshellIds: ids });
     expect(result.ok).toBe(true);
     const data = result.ok ? result.data : null;
     expect(Buffer.byteLength(JSON.stringify(data))).toBeLessThanOrEqual(PROBE_RESULT_BUDGET_BYTES);
@@ -280,7 +280,7 @@ describe("command executors (spec §7)", () => {
   it("remove_paths: unlinks what exists under the roots; an absent path counts not", async () => {
     const { ctx } = makeCtx({}, []);
     await ctx.meta.record({
-      sessionId: S1,
+      subshellId: S1,
       cwd: workDir,
       socket: "s",
       harnessId: "pi",
@@ -313,14 +313,14 @@ describe("command executors (spec §7)", () => {
   it("remove_paths: a `..`-bearing (bad-id style) path refuses via the SAME check and message", async () => {
     const keep = join(dataDir, "keep2.txt");
     writeFileSync(keep, "k");
-    const hostile = `${join(dataDir, "sessions")}/../../escape.txt`; // interpolating a hostile session id
+    const hostile = `${join(dataDir, "subshells")}/../../escape.txt`; // interpolating a hostile subshell id
     const { ctx } = makeCtx({}, []);
     const result = await dispatchCommand(ctx, { type: "remove_paths", paths: [keep, hostile] });
     expect(result).toEqual({ ok: false, error: `path refused: ${hostile}` });
     expect(existsSync(keep)).toBe(true);
   });
 
-  it("a malformed sessionId answers invalid session id BEFORE the meta store is touched", async () => {
+  it("a malformed subshellId answers invalid subshell id BEFORE the meta store is touched", async () => {
     const { ctx, tmux } = makeCtx(
       {
         run: () => {
@@ -329,13 +329,13 @@ describe("command executors (spec §7)", () => {
       },
       [],
     );
-    expect(await dispatchCommand(ctx, { type: "terminate", sessionId: "../evil" })).toEqual({
+    expect(await dispatchCommand(ctx, { type: "terminate", subshellId: "../evil" })).toEqual({
       ok: false,
-      error: "invalid session id",
+      error: "invalid subshell id",
     });
-    expect(await dispatchCommand(ctx, { type: "probe", sessionIds: [S1, "has space"] })).toEqual({
+    expect(await dispatchCommand(ctx, { type: "probe", subshellIds: [S1, "has space"] })).toEqual({
       ok: false,
-      error: "invalid session id",
+      error: "invalid subshell id",
     });
     expect(tmux.calls).toEqual([]);
   });

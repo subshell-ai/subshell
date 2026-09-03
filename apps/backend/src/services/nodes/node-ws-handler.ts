@@ -33,7 +33,7 @@ import { failConnPendings, resolveResult, sendCommand } from "./node-rpc.js";
  * which is what the per-connection identity checks below enforce.
  *
  * The handler is a plain function set over an injected {@link NodeWsDeps}
- * (same separation `session-ws.ts` keeps from `ws.plugin.ts`), so tests
+ * (same separation `subshell-ws.ts` keeps from `ws.plugin.ts`), so tests
  * drive it with a scripted fake socket and fake deps — no HTTP layer.
  */
 
@@ -182,7 +182,7 @@ export async function authenticateNodeUpgrade(
 
   const meta = row.metadata;
   if (meta?.kind !== "node" || typeof meta.nodeId !== "string" || !meta.nodeId) {
-    // A session/system key is a valid credential elsewhere, but not here:
+    // A subshell/system key is a valid credential elsewhere, but not here:
     // only node-kind keys open /ws/node (spec §5.5 is its mirror on REST).
     throw new HttpError(401, "Not a node key");
   }
@@ -229,7 +229,7 @@ function frameBytes(raw: string | object): number {
  * auth). Byte-capped per spec §3.1 (Bun's maxPayloadLength is global, so the
  * node cap is enforced in-handler); unrecognized frames are dropped, never
  * fatal. Phase-2 events land on their consumers: `output` on the
- * {@link dispatchOutput} bus, `exit`/`sessions_report` on the lifecycle-hook
+ * {@link dispatchOutput} bus, `exit`/`subshells_report` on the lifecycle-hook
  * slot (`node-events.ts`), `ready` additionally stashes the agent's facts on
  * the connection (spec §3.3/§6.4).
  *
@@ -297,7 +297,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       return;
     case "output":
       // Tail subscribers (spec §3.3): unknown subId = nobody is watching that
-      // session anymore (detach raced a flush) — drop, never fatal.
+      // subshell anymore (detach raced a flush) — drop, never fatal.
       if (!dispatchOutput(event)) {
         logger.debug(`node ws: output for unknown subId ${event.subId} dropped`);
       }
@@ -305,17 +305,17 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "exit": {
       const hooks = getNodeLifecycleHooks();
       // nodeId is the SOCKET identity — a frame-supplied nodeId is ignored.
-      if (hooks) await hooks.onExit(nodeId, event.sessionId, event.exitCode, event.at);
-      else logger.warn(`node ws: exit for ${event.sessionId} with no lifecycle hook`);
+      if (hooks) await hooks.onExit(nodeId, event.subshellId, event.exitCode, event.at);
+      else logger.warn(`node ws: exit for ${event.subshellId} with no lifecycle hook`);
       return;
     }
-    case "sessions_report": {
+    case "subshells_report": {
       const hooks = getNodeLifecycleHooks();
-      if (hooks) await hooks.onSessionsReport(nodeId, event.sessions);
+      if (hooks) await hooks.onSubshellsReport(nodeId, event.subshells);
       // Census frames arrive on every connect even before Task 10 installs the
       // reconcile hooks — a routine no-op, so debug-drop (the `output` unknown-
       // subId rule), not warn: a reconnecting fleet must not spam the log.
-      else logger.debug(`node ws: sessions_report (${event.sessions.length}) with no lifecycle hook`);
+      else logger.debug(`node ws: subshells_report (${event.subshells.length}) with no lifecycle hook`);
       return;
     }
     case "result": {

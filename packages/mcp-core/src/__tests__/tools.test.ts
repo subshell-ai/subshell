@@ -6,7 +6,7 @@ import { ApiError, SubshellApi } from "../api-client.js";
 import { generateKeypair, open, seal } from "../crypto.js";
 import { reloadPinSettingsForTests } from "../pin-store.js";
 import {
-  createSession,
+  createSubshell,
   describeToolError,
   listProfiles,
   postChannel,
@@ -158,26 +158,26 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(calls[1].query).toMatchObject({ since: 7 });
   });
 
-  it("create_session resolves the profile by name and reports prompt delivery", async () => {
+  it("create_subshell resolves the profile by name and reports prompt delivery", async () => {
     const own = await generateKeypair();
     const { api, calls } = fakeApi((req) => {
       if (req.path === "/api/profiles") return [{ id: "prof-1", name: "Dev", harnessId: "claude-code" }];
-      if (req.path === "/api/sessions") return { id: "s1", promptDelivered: true };
+      if (req.path === "/api/subshells") return { id: "s1", promptDelivered: true };
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    const res = await createSession(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
+    const res = await createSubshell(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
     expect(res).toEqual({ id: "s1", promptDelivered: true });
-    const create = calls.find((c) => c.path === "/api/sessions");
+    const create = calls.find((c) => c.path === "/api/subshells");
     expect(create?.body?.profileId).toBe("prof-1");
     expect(create?.body?.prompt).toBe("do it");
   });
 
-  it("create_session over the REAL SubshellApi with fetch stubbed makes the expected REST calls", async () => {
+  it("create_subshell over the REAL SubshellApi with fetch stubbed makes the expected REST calls", async () => {
     // Folded in from the agent's port-parity suite (which this package replaced):
     // no fakeApi — a stubbed global fetch (api-client.test pattern), so the full
     // client path (SubshellApi.req → fetch) is proven: GET /api/profiles (bearer),
-    // then POST /api/sessions with the NAME-resolved profileId and the prompt.
+    // then POST /api/subshells with the NAME-resolved profileId and the prompt.
     const savedFetch = globalThis.fetch;
     const seen: Request[] = [];
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -194,11 +194,11 @@ describe("mcp tools (handler-level, real crypto)", () => {
         api: new SubshellApi({ apiKey: "subshell_key123", baseUrl: "http://h:3080" }),
         own: { principalId: "sess:me", ...own },
       };
-      const res = await createSession(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
+      const res = await createSubshell(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
       expect(res).toEqual({ id: "s1", promptDelivered: true });
       expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual([
         "GET http://h:3080/api/profiles",
-        "POST http://h:3080/api/sessions",
+        "POST http://h:3080/api/subshells",
       ]);
       expect(seen[0]?.headers.get("authorization")).toBe("Bearer subshell_key123");
       const body = (await seen[1]?.json()) as Record<string, unknown>;
@@ -210,11 +210,11 @@ describe("mcp tools (handler-level, real crypto)", () => {
     }
   });
 
-  it("create_session with an unknown profile name gives guidance, not a stack trace", async () => {
+  it("create_subshell with an unknown profile name gives guidance, not a stack trace", async () => {
     const own = await generateKeypair();
     const { api } = fakeApi(() => [{ id: "prof-1", name: "Dev", harnessId: "claude-code" }]);
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    await expect(createSession(deps, { profile: "nope", workingDir: "/tmp" })).rejects.toThrow(
+    await expect(createSubshell(deps, { profile: "nope", workingDir: "/tmp" })).rejects.toThrow(
       /no profile named 'nope'.*list_profiles/,
     );
   });
@@ -223,7 +223,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
     // M-6a (final review): GET /api/profiles redaction for bearers relies on
     // THIS client-side projection — if it ever passed rows through, envJson
     // (profile env, may hold provider tokens) and flags would resurface to
-    // every session key. Pinned here so a "simplification" trips first.
+    // every subshell key. Pinned here so a "simplification" trips first.
     const own = await generateKeypair();
     const { api } = fakeApi((req) => {
       if (req.path === "/api/profiles") {
@@ -247,7 +247,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
   });
 
   it("describeToolError turns a 401 into restart guidance", () => {
-    expect(describeToolError(new ApiError(401, "no")).message).toContain("restart this session");
+    expect(describeToolError(new ApiError(401, "no")).message).toContain("restart this subshell");
     expect(describeToolError(new ApiError(403, "Recipient")).message).toContain("permission denied");
   });
 });

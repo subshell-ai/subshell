@@ -198,32 +198,32 @@ describe("resolveArtifactsDir", () => {
   const saved = { ...process.env };
   afterAll(() => {
     process.env.SUBSHELL_NODE_ARTIFACTS_DIR = saved.SUBSHELL_NODE_ARTIFACTS_DIR;
-    process.env.SESSION_DATA_DIR = saved.SESSION_DATA_DIR;
+    process.env.SUBSHELL_SERVER_DATA_DIR = saved.SUBSHELL_SERVER_DATA_DIR;
     process.env.DATABASE_PATH = saved.DATABASE_PATH;
   });
 
   test("SUBSHELL_NODE_ARTIFACTS_DIR wins outright", () => {
     process.env.SUBSHELL_NODE_ARTIFACTS_DIR = "/custom/artifacts";
-    process.env.SESSION_DATA_DIR = "/should/not/be/used";
+    process.env.SUBSHELL_SERVER_DATA_DIR = "/should/not/be/used";
     expect(resolveArtifactsDir()).toBe("/custom/artifacts");
   });
 
-  test("SESSION_DATA_DIR falls through to <it>/node-artifacts", () => {
+  test("SUBSHELL_SERVER_DATA_DIR falls through to <it>/node-artifacts", () => {
     delete process.env.SUBSHELL_NODE_ARTIFACTS_DIR;
-    process.env.SESSION_DATA_DIR = "/srv/subshell-data";
+    process.env.SUBSHELL_SERVER_DATA_DIR = "/srv/subshell-data";
     expect(resolveArtifactsDir()).toBe("/srv/subshell-data/node-artifacts");
   });
 
   test("no env at all mirrors the backend default: DATABASE_PATH's directory + /node-artifacts", () => {
     delete process.env.SUBSHELL_NODE_ARTIFACTS_DIR;
-    delete process.env.SESSION_DATA_DIR;
+    delete process.env.SUBSHELL_SERVER_DATA_DIR;
     process.env.DATABASE_PATH = "/srv/subshell/db/subshell.db";
     expect(resolveArtifactsDir()).toBe("/srv/subshell/db/node-artifacts");
   });
 
   test("non-file DATABASE_PATH (URI/memory/bare-name) falls back to ./data/node-artifacts like the backend", () => {
     delete process.env.SUBSHELL_NODE_ARTIFACTS_DIR;
-    delete process.env.SESSION_DATA_DIR;
+    delete process.env.SUBSHELL_SERVER_DATA_DIR;
     for (const raw of ["file::memory:?cache=shared", ":memory:", "subshell.db"]) {
       process.env.DATABASE_PATH = raw;
       expect(resolveArtifactsDir()).toBe(join(process.cwd(), "data", "node-artifacts"));
@@ -232,7 +232,7 @@ describe("resolveArtifactsDir", () => {
 
   test("unset DATABASE_PATH defaults to ./data/subshell.db semantics", () => {
     delete process.env.SUBSHELL_NODE_ARTIFACTS_DIR;
-    delete process.env.SESSION_DATA_DIR;
+    delete process.env.SUBSHELL_SERVER_DATA_DIR;
     delete process.env.DATABASE_PATH;
     expect(resolveArtifactsDir()).toBe(join(process.cwd(), "data", "node-artifacts"));
   });

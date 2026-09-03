@@ -2,7 +2,7 @@ import type { NotifyKind } from "@/services/notify.service.js";
 import { logger } from "@/utils/logger.js";
 
 /**
- * How long a session log must produce no new bytes before the watcher calls
+ * How long a subshell log must produce no new bytes before the watcher calls
  * the turn done. Comfortably longer than any realistic output burst — a
  * streaming harness writes constantly, so quiet really means "stopped".
  */
@@ -18,10 +18,10 @@ export const IDLE_SETTLE_MS = 8_000;
 
 /**
  * The per-row fields the watcher reads — a structural subset of
- * `SessionTable`, so `SessionsRepository.listRunning()` satisfies it.
+ * `SubshellTable`, so `SubshellsRepository.listRunning()` satisfies it.
  */
 export interface IdleWatcherRow {
-  /** Session id (also the session-log file name) */
+  /** Subshell id (also the subshell-log file name) */
   id: string;
   /** 1 = pane process alive; dead rows are ignored (reconcile owns them) */
   alive: number;
@@ -35,19 +35,19 @@ export interface IdleWatcherRow {
 export interface IdleWatcherDeps {
   /** Lists the rows to consider (production: `listRunning()` — status-filtered). */
   listRows: () => Promise<IdleWatcherRow[]>;
-  /** Session log mtime in epoch ms; null when the log does not exist (yet). */
+  /** Subshell log mtime in epoch ms; null when the log does not exist (yet). */
   statMtimeMs: (id: string) => Promise<number | null>;
   /** True when the harness delivers native attention hooks (claude-code). */
   harnessHasHooks: (harnessId: string) => boolean;
-  /** Rings the session owner's devices (bell gating lives inside). */
-  notifySession: (id: string, kind: NotifyKind) => Promise<void>;
+  /** Rings the subshell owner's devices (bell gating lives inside). */
+  notifySubshell: (id: string, kind: NotifyKind) => Promise<void>;
   /** Stamps the "waiting for you" state (production: `waitingSince` write). */
   setWaiting: (id: string) => Promise<void>;
   /** Clears the "waiting for you" state. */
   clearWaiting: (id: string) => Promise<void>;
 }
 
-/** Per-session watcher memory: last seen log mtime + whether it was consumed. */
+/** Per-subshell watcher memory: last seen log mtime + whether it was consumed. */
 interface IdleState {
   /** Last observed log mtime (epoch ms) */
   mtime: number;
@@ -57,21 +57,21 @@ interface IdleState {
 
 /**
  * The universal "turn done" tier for harnesses without native attention
- * hooks (opencode/hermes/pi): when a session's output log goes quiet for
+ * hooks (opencode/hermes/pi): when a subshell's output log goes quiet for
  * {@link IDLE_QUIET_MS}, the turn is over → push `turn_complete` and stamp
  * the waiting state.
  *
  * Firing rule (per tick, per `alive === 1` row):
  * - Unseen id → seed `{mtime, fired: nowMs - mtime >= IDLE_QUIET_MS}` and
  *   never fire on the seeding tick itself. A log already quiet at first
- *   sight — e.g. a session that was idle when the backend booted, or one
+ *   sight — e.g. a subshell that was idle when the backend booted, or one
  *   reappearing after pruning — seeds consumed, so it never rings; only an
  *   mtime change re-arms (`fired = false`).
  * - mtime changed (grew) → new output: `clearWaiting` when the row was
  *   waiting (the watcher is the universal waiting-CLEARER, hooked harnesses
  *   included — their hooks only SET waiting), store the new mtime, re-arm.
  * - mtime unchanged AND quiet ≥ {@link IDLE_QUIET_MS} AND not yet fired →
- *   mark fired; hook-less harnesses additionally `notifySession(id,
+ *   mark fired; hook-less harnesses additionally `notifySubshell(id,
  *   "turn_complete")` + `setWaiting(id)`. Hooked harnesses get nothing from
  *   the fire path — their hook owns the chip.
  * - Rows no longer listed → dropped from state (bounded memory); a
@@ -121,7 +121,7 @@ export function createIdleWatcher(deps: IdleWatcherDeps): {
     if (nowMs - mtime >= IDLE_QUIET_MS && !seen.fired) {
       seen.fired = true; // consume the fire even when the push path below skips it
       if (!deps.harnessHasHooks(row.harnessId)) {
-        await deps.notifySession(row.id, "turn_complete");
+        await deps.notifySubshell(row.id, "turn_complete");
         await deps.setWaiting(row.id);
       }
     }
@@ -148,7 +148,7 @@ export function createIdleWatcher(deps: IdleWatcherDeps): {
       }
     }
 
-    // Bound memory: forget sessions that left the running list.
+    // Bound memory: forget subshells that left the running list.
     for (const id of state.keys()) {
       if (!alive.has(id)) state.delete(id);
     }

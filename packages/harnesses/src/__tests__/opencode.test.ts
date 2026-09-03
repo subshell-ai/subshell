@@ -18,7 +18,7 @@ describe("OpencodePlugin", () => {
 
   it("buildCommand: bare launch with no profile extra", () => {
     expect(
-      plugin.buildCommand({ binary: "/usr/bin/opencode", cwd: "/tmp/ws", sessionName: "", profile: profile() }),
+      plugin.buildCommand({ binary: "/usr/bin/opencode", cwd: "/tmp/ws", subshellName: "", profile: profile() }),
     ).toEqual(["/usr/bin/opencode"]);
   });
 
@@ -26,7 +26,7 @@ describe("OpencodePlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/opencode",
       cwd: "/tmp/ws",
-      sessionName: "ignored",
+      subshellName: "ignored",
       profile: profile({
         settings: { model: "anthropic/claude-sonnet-4-5", agent: "plan", auto: true },
         flags: ["--pure"],
@@ -49,7 +49,7 @@ describe("OpencodePlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/opencode",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ flags: ["--prompt", "be nice"] }),
     });
     expect(cmd).toEqual(["/usr/bin/opencode", "--prompt", "be nice"]);
@@ -59,7 +59,7 @@ describe("OpencodePlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/opencode",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ settings: { model: 42, agent: "", auto: "yes" } }),
     });
     expect(cmd).toEqual(["/usr/bin/opencode"]);

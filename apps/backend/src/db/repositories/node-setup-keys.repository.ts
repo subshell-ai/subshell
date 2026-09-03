@@ -79,7 +79,7 @@ export class NodeSetupKeysRepository extends BaseRepository {
       .executeTakeFirst();
     // Same dialect quirk as updates: kysely-bun-sqlite-dialect hands back
     // `numDeletedRows` (a bigint); read both spellings defensively, like
-    // sessions.repository's update-count guard.
+    // subshells.repository's update-count guard.
     const counts = res as unknown as { numDeleted?: number | bigint; numDeletedRows?: number | bigint };
     return Number(counts?.numDeletedRows ?? counts?.numDeleted ?? 0);
   }
@@ -149,7 +149,7 @@ export class NodeSetupKeysRepository extends BaseRepository {
         .executeTakeFirst();
       // Kysely types this as `numUpdated`, but kysely-bun-sqlite-dialect hands
       // back `numUpdatedRows` (a bigint) at runtime — read both (the quirk
-      // sessions.repository documents). Zero rows = another consumer won the
+      // subshells.repository documents). Zero rows = another consumer won the
       // race; this one gets nothing.
       const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
       if (Number(counts?.numUpdatedRows ?? counts?.numUpdated ?? 0) === 0) return null;

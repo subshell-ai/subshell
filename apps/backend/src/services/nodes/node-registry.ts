@@ -30,7 +30,7 @@ export const REVOKED_CLOSE_CODE = 4401;
 
 /**
  * Minimal structural socket shim — same discipline as `WsSocket` in
- * `ws/session-ws.ts`: only what the registry/RPC actually touches, so tests
+ * `ws/subshell-ws.ts`: only what the registry/RPC actually touches, so tests
  * drive fakes and the Bun ws object satisfies it structurally.
  */
 export interface NodeSocket {
@@ -141,18 +141,18 @@ export function getLive(nodeId: string): NodeConnection | undefined {
 }
 
 /**
- * Whether a session's launch node is currently unreachable (spec §5.6): an
+ * Whether a subshell's launch node is currently unreachable (spec §5.6): an
  * AGENT node whose id has no entry in the live-connection registry. Local
  * rows answer false by definition (the control-plane host has no agent
  * socket); the check is a Map probe, deliberately NOT a DB query, so it is
  * cheap in a per-row view loop. True means "the pane may still be running
- * there" — the UI shows a stale-banner, not a dead session.
+ * there" — the UI shows a stale-banner, not a dead subshell.
  *
  * The BLESSED liveness predicate — every "is this row's node reachable"
  * decision must go through it. It lives here because it is pure over the
  * registry above, which makes it importable by services and repositories'
  * callers without cycles (`notify.service` → registry is clean while
- * session-manager → notify already exists; the summarizer takes it as an
+ * subshell-manager → notify already exists; the summarizer takes it as an
  * injected predicate rather than importing this module).
  */
 export function isNodeOffline(nodeId: string): boolean {

@@ -56,7 +56,7 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
  * Classify a request's credential the way `authGuard` does, minimally:
  * "cookie" (live better-auth session), "machine" (a bearer key the guard
  * itself would accept — see `isIssuedCredential`; raw `verifyApiKey` is
- * WEAKER than the guard and was finding M-1), or throw 401. A valid session
+ * WEAKER than the guard and was finding M-1), or throw 401. A valid subshell
  * token outranks a bearer header and duplicate cookies select first-match,
  * both same as the guard — and the cookie extraction is literally the
  * guard's helper, so the https `__Secure-` spelling can never diverge here
@@ -66,14 +66,14 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
 async function resolveSetupActor(request: Request): Promise<"cookie" | "machine"> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   if (extractSessionToken(cookieHeader)) {
-    const session = await resolveCookieSession(cookieHeader);
-    if (!session) throw new UnauthorizedError();
+    const subshell = await resolveCookieSession(cookieHeader);
+    if (!subshell) throw new UnauthorizedError();
     return "cookie";
   }
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (bearer) {
-    // Same accept-set as authGuard (session keys must match their row's
-    // apiKeyId; non-session keys must be system-owned) — a self-minted or
+    // Same accept-set as authGuard (subshell keys must match their row's
+    // apiKeyId; non-subshell keys must be system-owned) — a self-minted or
     // unlinked key that 401s everywhere else must not 200 here.
     const issued = await isIssuedCredential(bearer).catch(() => false);
     if (issued) return "machine";
@@ -86,7 +86,7 @@ async function resolveSetupActor(request: Request): Promise<"cookie" | "machine"
  * F3): GETs need any authenticated actor; PATCH additionally needs a COOKIE
  * actor. PATCH flips this machine's harness enable/disable state — machine
  * configuration with no machine consumer (the `subshell mcp` binary never calls
- * it; its endpoint census in packages/mcp-core/src/tools.ts covers sessions, channels,
+ * it; its endpoint census in packages/mcp-core/src/tools.ts covers subshells, channels,
  * profiles reads and identities only), so bearer keys have no reason to
  * exist on this write and are refused with 403 after authenticating.
  */

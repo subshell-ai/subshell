@@ -7,8 +7,8 @@ import type { NotifyKind } from "@/services/notify.service.js";
  *
  * PRIVACY CONTRACT (spec invariant 6) — nothing crossing exp.host may name
  * anything: `to` is the device token, `title` is the constant "subshell", `body`
- * comes from KIND_COPY, plus an integer badge, the session UUID and the
- * kind. A session name, working directory, note or operator text in a
+ * comes from KIND_COPY, plus an integer badge, the subshell UUID and the
+ * kind. A subshell name, working directory, note or operator text in a
  * constructed message is a spec violation, caught by test.
  */
 
@@ -16,7 +16,7 @@ import type { NotifyKind } from "@/services/notify.service.js";
 export interface ExpoPushMessage {
   /** Single device token (batching happens in `chunk`, never via to[]) */
   to: string;
-  /** Constant app name — never the session name (privacy contract). */
+  /** Constant app name — never the subshell name (privacy contract). */
   title: string;
   /** Generic copy for the kind — the only human-readable text. */
   body: string;
@@ -30,7 +30,7 @@ export interface ExpoPushMessage {
    * Android notification tag — the relay passes it through to the FCM data
    * payload and it is the CLIENT (expo-notifications `FirebaseMessaging
    * Delegate`/`ExpoPresentationDelegate`, checked at 57.0.15) that uses it as
-   * the notification identifier, so a second push for the same session
+   * the notification identifier, so a second push for the same subshell
    * REPLACES the first in the tray. This is the web-`tag` parity the spec
    * asks for; `threadId` alone only groups.
    */
@@ -66,18 +66,18 @@ export interface ExpoPushMessage {
  * between a glance and a sprint — and it names nothing.
  */
 const KIND_COPY: Record<NotifyKind, string> = {
-  turn_complete: "A session needs you",
-  needs_attention: "A session needs you",
-  exited: "A session exited",
-  crashed: "A session crashed — auto-restarting",
-  crashed_final: "A session crashed",
+  turn_complete: "A subshell needs you",
+  needs_attention: "A subshell needs you",
+  exited: "A subshell exited",
+  crashed: "A subshell crashed — auto-restarting",
+  crashed_final: "A subshell crashed",
 };
 
 /**
  * Badge number at send time: the owner's waiting count, plus 1 when THIS
- * event will put the session into waiting but the row is not stamped yet.
+ * event will put the subshell into waiting but the row is not stamped yet.
  * The two call paths stamp in opposite orders — `recordAttention` stamps
- * BEFORE notifying (`sessions.service.ts`), the idle watcher notifies THEN
+ * BEFORE notifying (`subshells.service.ts`), the idle watcher notifies THEN
  * stamps (`notify-idle.ts`) — so without the +1 a watcher-fired push badges
  * one short. Deliberate; unit-pinned; do not "simplify".
  * @param waiting - The owner's current waiting count (from the summary query)
@@ -101,13 +101,13 @@ export function looksLikeExpoToken(token: string): boolean {
  * Builds one message per token. Receives ids and counts, never names —
  * the privacy contract is enforced by this signature.
  * @param tokens - Live device tokens (already filtered by looksLikeExpoToken)
- * @param sessionId - The session the event is about (opaque uuid)
+ * @param subshellId - The subshell the event is about (opaque uuid)
  * @param kind - Event class for the generic copy
  * @param badge - Final badge number (see badgeCount)
  */
 export function buildExpoMessages(
   tokens: readonly string[],
-  sessionId: string,
+  subshellId: string,
   kind: NotifyKind,
   badge: number,
 ): ExpoPushMessage[] {
@@ -117,15 +117,15 @@ export function buildExpoMessages(
     body: KIND_COPY[kind],
     badge,
     sound: "default" as const,
-    threadId: sessionId,
-    tag: sessionId,
-    collapseId: sessionId,
+    threadId: subshellId,
+    tag: subshellId,
+    collapseId: subshellId,
     // Names registered in apps/mobile/src/native/push.ts — keep the three in
     // sync or the lock-screen actions silently vanish on real devices.
-    categoryId: "session",
-    channelId: "subshell-sessions",
-    _channelId: "subshell-sessions",
-    data: { sid: sessionId, kind, origin: APP_BASE_URL },
+    categoryId: "subshell",
+    channelId: "subshell-subshells",
+    _channelId: "subshell-subshells",
+    data: { sid: subshellId, kind, origin: APP_BASE_URL },
   }));
 }
 
@@ -154,7 +154,7 @@ export function chunk<T>(items: readonly T[], size = 100): T[][] {
 /**
  * Function seam over the Expo push API so tests inject a fake (the sibling
  * of `PushSender` in notify.service). CONTRACT: returns one ticket per
- * message, in order — `notifySession` zips tickets against messages by
+ * message, in order — `notifySubshell` zips tickets against messages by
  * index to prune DeviceNotRegistered rows. A thrown error (transport
  * exception) is transient BY CONTRACT: every row survives.
  */

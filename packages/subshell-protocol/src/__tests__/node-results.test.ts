@@ -22,14 +22,14 @@ describe("node result contracts (spec §3.3, phase-2 wire note)", () => {
   it("probe entries: accept well-formed (incl. optional fields), reject junk", () => {
     expect(
       parseNodeProbeEntries([
-        { sessionId: "a", alive: true, exitCode: null },
-        { sessionId: "b", alive: false, exitCode: 1, title: "t", command: "c", capture: "screen" },
+        { subshellId: "a", alive: true, exitCode: null },
+        { subshellId: "b", alive: false, exitCode: 1, title: "t", command: "c", capture: "screen" },
       ]),
     ).toHaveLength(2);
     expect(parseNodeProbeEntries(null)).toBeNull();
-    expect(parseNodeProbeEntries([{ sessionId: "a" }])).toBeNull(); // alive missing
-    expect(parseNodeProbeEntries([{ sessionId: "a", alive: true, exitCode: 1.5 }])).toBeNull();
-    expect(parseNodeProbeEntries([{ sessionId: "a", alive: true, exitCode: null, title: 7 }])).toBeNull();
+    expect(parseNodeProbeEntries([{ subshellId: "a" }])).toBeNull(); // alive missing
+    expect(parseNodeProbeEntries([{ subshellId: "a", alive: true, exitCode: 1.5 }])).toBeNull();
+    expect(parseNodeProbeEntries([{ subshellId: "a", alive: true, exitCode: null, title: 7 }])).toBeNull();
   });
 
   it("log_read requires a strict-base64 payload and monotonic offsets", () => {
@@ -57,13 +57,13 @@ describe("node result contracts (spec §3.3, phase-2 wire note)", () => {
 describe("phase-2 additive frame fields (protocol stays v1)", () => {
   const launchCmd = {
     type: "launch",
-    sessionId: "s1",
+    subshellId: "s1",
     socket: "subshell-abc",
     cwd: "/home/u/repo",
     harnessId: "claude-code",
     profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
-    sessionName: "s1",
+    subshellName: "s1",
   };
 
   it("launch.bestEffortLog is an optional boolean", () => {

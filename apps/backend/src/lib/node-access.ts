@@ -45,9 +45,9 @@ export function resolveNodeAccess(
 }
 
 /**
- * TRUE when ANY share level grants launch — deliberately NOT the session rule,
+ * TRUE when ANY share level grants launch — deliberately NOT the subshell rule,
  * where launch sits at edit. Product decision (spec 2026-08-31 §2): a `view`
- * grantee may start sessions on a node (launching is not configuring); the
+ * grantee may start subshells on a node (launching is not configuring); the
  * capability rule for nodes is — any share grants launch; edit/owner grants
  * config; delete + managing shares require owner, EXCEPT the seeded `local`
  * node, whose shares/config admins manage (routes add that exception, since the
@@ -92,7 +92,7 @@ export interface NodeAccessDeps {
 /**
  * Loads a node and resolves one viewer's access to it in a single step, so
  * every gate (HTTP, RPC, launch) asks the same question the same way — the node
- * mirror of `loadSessionAccess` (spec 2026-08-31 §2).
+ * mirror of `loadSubshellAccess` (spec 2026-08-31 §2).
  *
  * A missing node is NOT an error here — it returns `{ row: undefined,
  * access: "none" }` so the caller can map it to the same 404 as an invisible

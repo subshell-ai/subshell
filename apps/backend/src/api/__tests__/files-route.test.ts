@@ -10,14 +10,14 @@ import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
  * The folder explorer is an authenticated-BROWSER convenience, not an API:
- * machine credentials (bearer session/system keys) must not be able to walk
+ * machine credentials (bearer subshell/system keys) must not be able to walk
  * the host filesystem, and SUBSHELL_FS_ROOT — when set — confines browsing to
  * that tree. (Unset means no confinement by design; the route docstring is
  * the contract, this pins it.)
@@ -27,7 +27,7 @@ describe("files route (folder explorer)", () => {
   let cookie: string;
   const email = `files-${crypto.randomUUID()}@subshell.local`;
   const password = "files-pass-1234";
-  const createdSessionIds: string[] = [];
+  const createdSubshellIds: string[] = [];
   const createdKeyIds: string[] = [];
 
   beforeAll(async () => {
@@ -41,7 +41,7 @@ describe("files route (folder explorer)", () => {
   });
 
   afterAll(async () => {
-    for (const sid of createdSessionIds) await db.deleteFrom("sessions").where("id", "=", sid).execute();
+    for (const sid of createdSubshellIds) await db.deleteFrom("subshells").where("id", "=", sid).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     await deleteUserByEmailOrId(email);
   });
@@ -54,11 +54,11 @@ describe("files route (folder explorer)", () => {
     return filesRoutes.fetch(new Request(url, { headers }));
   }
 
-  /** Creates a session row and mints its real bearer token. */
-  async function mintSessionKey(): Promise<string> {
+  /** Creates a subshell row and mints its real bearer token. */
+  async function mintSubshellKey(): Promise<string> {
     const id = crypto.randomUUID();
-    createdSessionIds.push(id);
-    await new SessionsRepository(db).create({
+    createdSubshellIds.push(id);
+    await new SubshellsRepository(db).create({
       id,
       userId,
       profileId: "p",
@@ -67,8 +67,8 @@ describe("files route (folder explorer)", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    const key = await issueSessionToken(id, userId);
-    const row = await new SessionsRepository(db).findById(id);
+    const key = await issueSubshellToken(id, userId);
+    const row = await new SubshellsRepository(db).findById(id);
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
     return key;
   }
@@ -93,8 +93,8 @@ describe("files route (folder explorer)", () => {
     expect((await explore({})).status).toBe(401);
   });
 
-  it("session key bearer -> 403 (no filesystem walking from a harness)", async () => {
-    const key = await mintSessionKey();
+  it("subshell key bearer -> 403 (no filesystem walking from a harness)", async () => {
+    const key = await mintSubshellKey();
     expect((await explore({ bearer: key, path: "/tmp" })).status).toBe(403);
   });
 
@@ -174,7 +174,7 @@ describe("files route (folder explorer)", () => {
 
     it("lists the user's recorded paths newest-first", async () => {
       const repo = new RecentPathsRepository(db);
-      await repo.touch(userId, "/tmp/older", "old session");
+      await repo.touch(userId, "/tmp/older", "old subshell");
       await repo.touch(userId, "/tmp/newer", null);
       const res = await recent({ cookieToken: cookie });
       expect(res.status).toBe(200);
@@ -188,7 +188,7 @@ describe("files route (folder explorer)", () => {
     });
 
     it("machine bearer -> 403 (browser affordance, like /explore)", async () => {
-      const key = await mintSessionKey();
+      const key = await mintSubshellKey();
       expect((await recent({ bearer: key })).status).toBe(403);
     });
 
@@ -237,9 +237,9 @@ describe("files route (folder explorer)", () => {
       });
 
       it("a path used on node X surfaces for ?node=X and NOT for omitted or local", async () => {
-        // Same touch a session-create on node X performs (the write site now
+        // Same touch a subshell-create on node X performs (the write site now
         // carries the resolved node — pinned end-to-end in
-        // sessions-create-nodeid.test.ts).
+        // subshells-create-nodeid.test.ts).
         await repo.touch(userId, "/tmp/remote-only", "on-x", ownNodeId);
         const onX = (await (await recentScoped(ownNodeId)).json()) as { paths: { path: string }[] };
         expect(onX.paths.map((p) => p.path)).toContain("/tmp/remote-only");
@@ -355,7 +355,7 @@ describe("files route (folder explorer)", () => {
     });
 
     it("machine bearer -> 403; unauthenticated -> 401", async () => {
-      const key = await mintSessionKey();
+      const key = await mintSubshellKey();
       expect((await favorite({ bearer: key, path: "/tmp/x", on: true })).status).toBe(403);
       expect((await favorite({ path: "/tmp/x", on: true })).status).toBe(401);
     });

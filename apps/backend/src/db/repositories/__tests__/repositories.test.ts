@@ -8,13 +8,15 @@ import * as profileDefaultFlagMigration from "@/db/migrations/0010-profile-defau
 import * as sessionNameLockedMigration from "@/db/migrations/0011-session-name-locked.js";
 import * as sessionHarnessIdMigration from "@/db/migrations/0013-session-harness-id.js";
 import * as sessionNotificationsMigration from "@/db/migrations/0014-session-notifications.js";
+import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
+import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
 
@@ -26,7 +28,7 @@ const db = new Kysely<Database>({
 const repos = {
   harnessPlugins: new HarnessPluginsRepository(db),
   profiles: new ProfilesRepository(db),
-  sessions: new SessionsRepository(db),
+  subshells: new SubshellsRepository(db),
   recentPaths: new RecentPathsRepository(db),
   settings: new SettingsRepository(db),
   userMeta: new UserMetaRepository(db),
@@ -39,16 +41,18 @@ beforeAll(async () => {
   await operatorUxMigration.up(db);
   await remoteOpsMigration.up(db);
   await profileDefaultFlagMigration.up(db); // ProfilesRepository.create writes is_default
-  await sessionNameLockedMigration.up(db); // SessionsRepository defaults name_locked
-  await sessionHarnessIdMigration.up(db); // sessions.harness_session_id
-  await sessionNotificationsMigration.up(db); // sessions.notify / waiting_since + subscriptions
+  await sessionNameLockedMigration.up(db); // SubshellsRepository defaults name_locked
+  await sessionHarnessIdMigration.up(db); // subshells.harness_session_id
+  await sessionNotificationsMigration.up(db); // subshells.notify / waiting_since + subscriptions
   await nodesMigration.up(db); // recent_paths.node_id + the (user, node, path) unique index
+  await sharingMigration.up(db); // 0019 renames session_shares
+  await subshellRenameMigration.up(db); // renamed schema the code sees
 });
 
 beforeEach(async () => {
   // fresh data per test
   await db.deleteFrom("recentPaths").execute();
-  await db.deleteFrom("sessions").execute();
+  await db.deleteFrom("subshells").execute();
   await db.deleteFrom("profiles").execute();
   await db.deleteFrom("harnessPlugins").execute();
   await db.deleteFrom("userMeta").execute();
@@ -154,28 +158,28 @@ describe("profiles repository", () => {
   });
 });
 
-describe("sessions repository", () => {
-  it("creates and lists sessions by owner and status", async () => {
-    const created = await repos.sessions.create({
+describe("subshells repository", () => {
+  it("creates and lists subshells by owner and status", async () => {
+    const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u1",
       profileId: "p1",
       harnessId: "claude-code",
-      name: "My Session",
+      name: "My Subshell",
       workingDir: "/tmp/work",
       tmuxSocket: "subshell-abc",
     });
     expect(created.status).toBe("running");
 
-    const running = await repos.sessions.listByUser("u1", "running");
+    const running = await repos.subshells.listByUser("u1", "running");
     expect(running).toHaveLength(1);
 
-    const terminated = await repos.sessions.listByUser("u1", "terminated");
+    const terminated = await repos.subshells.listByUser("u1", "terminated");
     expect(terminated).toHaveLength(0);
   });
 
-  it("marks sessions terminated and running", async () => {
-    const created = await repos.sessions.create({
+  it("marks subshells terminated and running", async () => {
+    const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u1",
       profileId: "p1",
@@ -186,13 +190,13 @@ describe("sessions repository", () => {
     });
 
     const now = new Date().toISOString();
-    await repos.sessions.markTerminated(created.id, now);
-    const after = await repos.sessions.findById(created.id);
+    await repos.subshells.markTerminated(created.id, now);
+    const after = await repos.subshells.findById(created.id);
     expect(after?.status).toBe("terminated");
     expect(after?.endedAt).toBe(now);
 
-    await repos.sessions.markRunning(created.id);
-    const revived = await repos.sessions.findById(created.id);
+    await repos.subshells.markRunning(created.id);
+    const revived = await repos.subshells.findById(created.id);
     expect(revived?.status).toBe("running");
     expect(revived?.endedAt).toBeNull();
   });
@@ -203,7 +207,7 @@ describe("sessions repository", () => {
     // affected-rows count `numUpdatedRows`, not Kysely's `numUpdated` — a
     // wrong read makes every call report 0 and turns successful restarts
     // into "orphans" that get killed.)
-    const created = await repos.sessions.create({
+    const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u-guard",
       profileId: "p1",
@@ -212,12 +216,12 @@ describe("sessions repository", () => {
       workingDir: "/tmp",
       tmuxSocket: "subshell-guard",
     });
-    expect(await repos.sessions.updateIfRunning(created.id, { alive: 1, backoffCount: 3 })).toBe(1);
-    expect((await repos.sessions.findById(created.id))?.backoffCount).toBe(3);
+    expect(await repos.subshells.updateIfRunning(created.id, { alive: 1, backoffCount: 3 })).toBe(1);
+    expect((await repos.subshells.findById(created.id))?.backoffCount).toBe(3);
 
-    await repos.sessions.markTerminated(created.id, new Date().toISOString());
-    expect(await repos.sessions.updateIfRunning(created.id, { alive: 1, backoffCount: 9 })).toBe(0);
-    const after = await repos.sessions.findById(created.id);
+    await repos.subshells.markTerminated(created.id, new Date().toISOString());
+    expect(await repos.subshells.updateIfRunning(created.id, { alive: 1, backoffCount: 9 })).toBe(0);
+    const after = await repos.subshells.findById(created.id);
     expect(after?.alive).toBe(1); // untouched by the rejected patch
     expect(after?.backoffCount).toBe(3);
     expect(after?.status).toBe("terminated");
@@ -227,8 +231,8 @@ describe("sessions repository", () => {
     // The manual-restart park is optimistic: it flips the row to
     // running/alive:0 only while the row is STILL as the restart read it.
     // (Regression pin, review #3: a terminate that lands after the read must
-    // make this no-op so a killed session is never resurrected by the park.)
-    const created = await repos.sessions.create({
+    // make this no-op so a killed subshell is never resurrected by the park.)
+    const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u-park",
       profileId: "p1",
@@ -238,10 +242,10 @@ describe("sessions repository", () => {
       tmuxSocket: "subshell-park",
     });
     // Expected state matches (running/alive 1) → parks.
-    expect(await repos.sessions.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(1);
-    expect((await repos.sessions.findById(created.id))?.alive).toBe(0);
+    expect(await repos.subshells.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(1);
+    expect((await repos.subshells.findById(created.id))?.alive).toBe(0);
     // Replaying with the pre-park expectation now misses (alive moved 1→0).
-    expect(await repos.sessions.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(0);
+    expect(await repos.subshells.parkForRestart(created.id, { status: "running", alive: 1 }, { alive: 0 })).toBe(0);
   });
 });
 

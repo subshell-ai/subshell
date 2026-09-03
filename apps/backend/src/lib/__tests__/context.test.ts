@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { db } from "@/db/index.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { ApiContext, getRequestlessContext, resetRequestlessContext } from "@/lib/context.js";
-import { SessionsService } from "@/services/sessions.service.js";
+import { SubshellsService } from "@/services/subshells.service.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
@@ -25,15 +25,15 @@ describe("getRequestlessContext", () => {
 
   it("builds the repositories", () => {
     const ctx = getRequestlessContext();
-    expect(ctx.repos.sessions).toBeInstanceOf(SessionsRepository);
+    expect(ctx.repos.subshells).toBeInstanceOf(SubshellsRepository);
     expect(ctx.repos.profiles).toBeInstanceOf(ProfilesRepository);
   });
 
   it("builds the services and links the sibling map", () => {
     const ctx = getRequestlessContext();
-    expect(ctx.services.sessions).toBeInstanceOf(SessionsService);
+    expect(ctx.services.subshells).toBeInstanceOf(SubshellsService);
     // BaseService.withServices wiring: every service sees the full map.
-    expect(ctx.services.sessions.services).toBe(ctx.services);
+    expect(ctx.services.subshells.services).toBe(ctx.services);
   });
 
   it("resetRequestlessContext drops the cached instance (@internal test hook)", () => {
@@ -50,7 +50,7 @@ describe("ApiContext", () => {
     const a = new ApiContext({ db, log: getLogger() });
     const b = new ApiContext({ db, log: getLogger() });
     expect(a).not.toBe(b);
-    expect(a.services.sessions).not.toBe(b.services.sessions);
+    expect(a.services.subshells).not.toBe(b.services.subshells);
     // ...but the database handle is the one shared instance.
     expect(a.db).toBe(b.db);
   });

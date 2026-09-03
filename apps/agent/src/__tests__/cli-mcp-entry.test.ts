@@ -39,8 +39,8 @@ test("`subshell mcp` stays alive after connect and answers initialize", async ()
       ...process.env,
       SUBSHELL_API_KEY: "subshell_entry_test",
       SUBSHELL_BASE_URL: `http://127.0.0.1:${stub.port}`,
-      SUBSHELL_SESSION_ID: "entry-test-1",
-      SUBSHELL_SESSION_NAME: "entry-test",
+      SUBSHELL_ID: "entry-test-1",
+      SUBSHELL_NAME: "entry-test",
       SUBSHELL_DATA_DIR: dataDir,
     },
   });

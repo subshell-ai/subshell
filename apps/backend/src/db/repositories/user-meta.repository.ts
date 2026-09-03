@@ -24,7 +24,7 @@ export class UserMetaRepository extends BaseRepository {
   }
 
   /**
-   * Whether this user receives session notifications (the master switch). A
+   * Whether this user receives subshell notifications (the master switch). A
    * missing row or the column default reads as enabled — notifications are on
    * by default (spec 2026-08-31).
    * @param userId - better-auth user id

@@ -9,7 +9,7 @@ import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repo
 import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { DEFAULT_PROFILE_NAME } from "@/services/default-profiles.js";
@@ -22,7 +22,7 @@ import {
 } from "@/services/nodes/node-registry.js";
 import { resolveResult } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -94,10 +94,10 @@ describe("/api/nodes harness state + recheck", () => {
   let aliceCookie = "";
   let bobCookie = "";
   let carolCookie = "";
-  let sessionKey = "";
+  let subshellKey = "";
 
   const createdNodeIds: string[] = [];
-  const createdSessionIds: string[] = [];
+  const createdSubshellIds: string[] = [];
 
   /** Agent node row optionally carrying a cached inventory snapshot. */
   async function mkAgent(inv?: { json: unknown[]; at: string | null }): Promise<string> {
@@ -155,8 +155,8 @@ describe("/api/nodes harness state + recheck", () => {
     outCookie = await signIn(emails.out, pw);
     await ensureLocalNode(db);
 
-    // A real session bearer key owned by alice — proves cookie-only enforcement.
-    await new SessionsRepository(db).create({
+    // A real subshell bearer key owned by alice — proves cookie-only enforcement.
+    await new SubshellsRepository(db).create({
       id: "s_nh10",
       userId: aliceId,
       profileId: "p",
@@ -165,14 +165,14 @@ describe("/api/nodes harness state + recheck", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    createdSessionIds.push("s_nh10");
-    sessionKey = await issueSessionToken("s_nh10", aliceId);
+    createdSubshellIds.push("s_nh10");
+    subshellKey = await issueSubshellToken("s_nh10", aliceId);
   });
 
   afterAll(async () => {
     resetNodeRegistryForTests();
     for (const id of createdNodeIds) await nodes.deleteById(id);
-    await db.deleteFrom("sessions").where("id", "in", createdSessionIds).execute();
+    await db.deleteFrom("subshells").where("id", "in", createdSubshellIds).execute();
     for (const email of Object.values(emails)) await deleteUserByEmailOrId(email);
   });
 
@@ -341,7 +341,7 @@ describe("/api/nodes harness state + recheck", () => {
     ).toBe(404);
     expect((await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { body: { enabled: true } })).status).toBe(401);
     expect(
-      (await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { bearer: sessionKey, body: { enabled: true } })).status,
+      (await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { bearer: subshellKey, body: { enabled: true } })).status,
     ).toBe(403);
   });
 
@@ -411,7 +411,7 @@ describe("/api/nodes harness state + recheck", () => {
     expect((await req("POST", `/api/nodes/nope-${crypto.randomUUID()}/recheck`, { cookie: aliceCookie })).status).toBe(
       404,
     );
-    expect((await req("POST", `/api/nodes/${id}/recheck`, { bearer: sessionKey })).status).toBe(403);
+    expect((await req("POST", `/api/nodes/${id}/recheck`, { bearer: subshellKey })).status).toBe(403);
     expect((await req("POST", `/api/nodes/${id}/recheck`)).status).toBe(401);
   });
 

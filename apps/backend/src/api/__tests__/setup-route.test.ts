@@ -5,10 +5,10 @@ import { setHasUsersProbeForTests, setupRoutes } from "@/api/setup.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -39,8 +39,8 @@ describe("/api/setup/harnesses conditional auth", () => {
   const password = "setup-pass-1234";
   let userId: string;
   let cookie: string;
-  let sessionKey = "";
-  let sessionId = "";
+  let subshellKey = "";
+  let subshellId = "";
   let apiKeyId: string | undefined;
   const createdKeyIds: string[] = [];
 
@@ -103,9 +103,9 @@ describe("/api/setup/harnesses conditional auth", () => {
       });
       cookie = await signIn(email, password);
 
-      sessionId = crypto.randomUUID();
-      await new SessionsRepository(db).create({
-        id: sessionId,
+      subshellId = crypto.randomUUID();
+      await new SubshellsRepository(db).create({
+        id: subshellId,
         userId,
         profileId: "p",
         harnessId: "claude-code",
@@ -113,8 +113,8 @@ describe("/api/setup/harnesses conditional auth", () => {
         workingDir: "/tmp",
         tmuxSocket: null,
       });
-      sessionKey = await issueSessionToken(sessionId, userId);
-      apiKeyId = (await new SessionsRepository(db).findById(sessionId))?.apiKeyId ?? undefined;
+      subshellKey = await issueSubshellToken(subshellId, userId);
+      apiKeyId = (await new SubshellsRepository(db).findById(subshellId))?.apiKeyId ?? undefined;
     });
 
     it("anonymous GET /harnesses -> 401", async () => {
@@ -125,34 +125,34 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect((await anonymousPatch()).status).toBe(401);
     });
 
-    it("session bearer GET /harnesses -> 200 (any authenticated actor)", async () => {
-      const res = await app.fetch(bearerRequest("/api/setup/harnesses", sessionKey));
+    it("subshell bearer GET /harnesses -> 200 (any authenticated actor)", async () => {
+      const res = await app.fetch(bearerRequest("/api/setup/harnesses", subshellKey));
       expect(res.status).toBe(200);
     });
 
-    it("session bearer PATCH /harnesses/:id -> 403 (machine-config write is cookie-only)", async () => {
-      const res = await app.fetch(bearerRequest(`/api/setup/harnesses/${HARNESS_ID}`, sessionKey, patchBody(false)));
+    it("subshell bearer PATCH /harnesses/:id -> 403 (machine-config write is cookie-only)", async () => {
+      const res = await app.fetch(bearerRequest(`/api/setup/harnesses/${HARNESS_ID}`, subshellKey, patchBody(false)));
       expect(res.status).toBe(403);
     });
 
     it("self-minted bearer key -> 401 (setup parser must match authGuard's accept-set)", async () => {
       // M-1 (final review): the old parser accepted ANY verifyApiKey-valid
-      // key. authGuard additionally requires session-kind keys to match their
-      // row's apiKeyId and non-session keys to be system-user-owned — so both
+      // key. authGuard additionally requires subshell-kind keys to match their
+      // row's apiKeyId and non-subshell keys to be system-user-owned — so both
       // classes below are 401 material there and must be 401 here too.
-      const forgedSession = (await auth.api.createApiKey({
-        body: { name: "setup-forged-session", userId, metadata: { kind: "session", sessionId } },
+      const forgedSubshell = (await auth.api.createApiKey({
+        body: { name: "setup-forged-subshell", userId, metadata: { kind: "subshell", subshellId } },
       })) as unknown as { id: string; key: string };
-      createdKeyIds.push(forgedSession.id);
+      createdKeyIds.push(forgedSubshell.id);
       const fakeSystem = (await auth.api.createApiKey({
         body: { name: "setup-fake-system", userId, metadata: { kind: "system" } },
       })) as unknown as { id: string; key: string };
       createdKeyIds.push(fakeSystem.id);
       // Control: both keys DO verify at the plugin level.
       expect(
-        (await auth.api.verifyApiKey({ body: { key: forgedSession.key } })) as unknown as { valid: boolean },
+        (await auth.api.verifyApiKey({ body: { key: forgedSubshell.key } })) as unknown as { valid: boolean },
       ).toMatchObject({ valid: true });
-      expect((await app.fetch(bearerRequest("/api/setup/harnesses", forgedSession.key))).status).toBe(401);
+      expect((await app.fetch(bearerRequest("/api/setup/harnesses", forgedSubshell.key))).status).toBe(401);
       expect((await app.fetch(bearerRequest("/api/setup/harnesses", fakeSystem.key))).status).toBe(401);
     });
 
@@ -175,7 +175,7 @@ describe("/api/setup/harnesses conditional auth", () => {
 
   afterAll(async () => {
     setHasUsersProbeForTests(null);
-    if (sessionId) await db.deleteFrom("sessions").where("id", "=", sessionId).execute();
+    if (subshellId) await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     if (userId) await db.deleteFrom("userMeta").where("userId", "=", userId).execute();

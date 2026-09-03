@@ -13,7 +13,7 @@ import { audit } from "@/services/audit.js";
 
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —
- * replace the whole grant set (same contract as session-shares; null grantee
+ * replace the whole grant set (same contract as subshell-shares; null grantee
  * is the Everyone grant, unknown grantee → 400). Manager-only cookie: owner,
  * or ADMIN for `local` — where the route accepts any valid list (the UI only
  * ever toggles Everyone/edit, but the API stays the honest superset).
@@ -28,7 +28,7 @@ export const setNodeSharesRoute = new Elysia()
   .put(
     "/:id/shares",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node sharing is restricted to browser sessions");
+      requireCookieActor(actor, "Node sharing is restricted to browser subshells");
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));

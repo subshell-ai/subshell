@@ -11,7 +11,7 @@ export type NodeKind = "local" | "agent";
  * TRUTH (phase boundary): phase 0 ships SCHEMA ONLY — no `local` row exists
  * yet. The row (owner: system user) and its Everyone/edit share are SEEDED AT
  * PHASE-1 BOOT (`ensureLocalNode`, phase 1A). Until then this constant is a
- * column DEFAULT value and a partition key for `recent_paths`/`sessions`
+ * column DEFAULT value and a partition key for `recent_paths`/`subshells`
  * (every pre-nodes row means 'local'), not a pointer to a live `nodes` row.
  */
 export const LOCAL_NODE_ID = "local";

@@ -10,7 +10,7 @@
  * what every pre-2026 terminal has lived with for decades; a guaranteed
  * 1s paint gate is the worse trade.
  *
- * Measured on a claude-code session: keystroke→paint ~1010 ms with the
+ * Measured on a claude-code subshell: keystroke→paint ~1010 ms with the
  * markers, 1–30 ms without them. Every byte the attach endpoints send
  * outbound (replay, live tail, pane-poll fallback) must pass through here —
  * do not reintroduce the markers anywhere on that path.

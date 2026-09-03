@@ -37,13 +37,13 @@ const DownloadQuerySchema = t.Object({
 });
 
 /**
- * Cookie-OR-setup-key gate (spec §8): a browser downloads with its session
+ * Cookie-OR-setup-key gate (spec §8): a browser downloads with its subshell
  * cookie, the install pipeline downloads with `?setup_key=`. The cookie probe
  * mirrors `authGuard`/`resolveSetupActor` semantics — a PRESENT cookie must
  * be valid (credential precedence; the bearer-ish path is never tried under a
- * stale session) — and the key path is `peekValid`, i.e. consumption-free:
+ * stale subshell) — and the key path is `peekValid`, i.e. consumption-free:
  * the same key later redeems at `/api/nodes/enroll`. Bearer API keys are not
- * a download credential (a node key is /ws/node-only, a session key has no
+ * a download credential (a node key is /ws/node-only, a subshell key has no
  * reason to fetch agent binaries).
  * @returns true when the request may download
  */

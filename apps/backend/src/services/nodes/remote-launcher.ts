@@ -21,7 +21,7 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "./node-rp
 
 /**
  * `NodeLauncher` over the signed command RPC (spec 2026-08-31 §6.3) — every
- * machine-local operation a session needs, executed by the node's agent as
+ * machine-local operation a subshell needs, executed by the node's agent as
  * one `sendCommand` round-trip per call. The behavior twin of
  * {@link LocalLauncher}: where a command's answer is ambiguous this class does
  * what local does for the same call (empty-log reads, swallow classes,
@@ -54,7 +54,7 @@ const REMOVE_PATHS_TIMEOUT_MS = 10_000;
 const PROMPT_DELIVER_SLACK_MS = 30_000;
 
 /** "Already gone" answers the agent gives for a dead pane (kill swallow class). */
-const ALREADY_GONE_RE = /no session|can't find session/i;
+const ALREADY_GONE_RE = /no subshell|can't find subshell/i;
 
 /** Agent-side launch failure that means "our inventory cache is stale" (spec §6.2). */
 const BINARY_MISSING_RE = /binary missing/i;
@@ -83,8 +83,8 @@ export class NoLiveConnectionError extends Error {}
  * {@link NoLiveConnectionError} (the sync throw the facts guard raises) and the
  * RPC-path twin `NodeRpcError("offline")`. Both are §5.6 NODE_OFFLINE to
  * callers; the two mappers import this instead of re-spelling the predicate —
- * `sessions.service.rethrowUnlessNodeOffline` (create/restart/log-tail →
- * structured 409) and `session-manager.terminateSession` (the kill step
+ * `subshells.service.rethrowUnlessNodeOffline` (create/restart/log-tail →
+ * structured 409) and `subshell-manager.terminateSubshell` (the kill step
  * swallows ONLY these, retiring the row `killUnverified`). `instanceof` only —
  * the mapping is deliberately not text-coupled, so either message may be
  * reworded without breaking the 409 mapping.
@@ -193,7 +193,7 @@ export class RemoteLauncher implements NodeLauncher {
     }
     const cmd: NodeCommandBody = {
       type: "launch",
-      sessionId: plan.id,
+      subshellId: plan.id,
       socket: plan.socket,
       cwd: plan.cwd,
       harnessId: plan.harness.id,
@@ -201,7 +201,7 @@ export class RemoteLauncher implements NodeLauncher {
       subshellEnv: plan.subshellEnv,
       mcp: plan.mcp ? { path: plan.mcpConfigPath as string, fileContent: plan.mcp.fileContent } : undefined,
       harnessSession: plan.harnessSession,
-      sessionName: plan.sessionName,
+      subshellName: plan.subshellName,
       bestEffortLog: plan.bestEffortLog,
     };
     try {
@@ -220,34 +220,34 @@ export class RemoteLauncher implements NodeLauncher {
    * `kill-session`.
    */
   async terminate(_socket: string, id: string): Promise<void> {
-    await this.#send({ type: "terminate", sessionId: id });
+    await this.#send({ type: "terminate", subshellId: id });
   }
 
   /**
    * Best-effort `kill`. The agent's own executor already swallows tmux's
    * "already gone"; a `failed` whose message matches
-   * `/no session|can't find session/i` is the same class arriving through
+   * `/no subshell|can't find subshell/i` is the same class arriving through
    * older/other paths — mapped to a no-op. Anything else rethrows.
    */
-  async killSession(_socket: string, id: string): Promise<void> {
+  async killSubshell(_socket: string, id: string): Promise<void> {
     try {
-      await this.#send({ type: "kill", sessionId: id });
+      await this.#send({ type: "kill", subshellId: id });
     } catch (err) {
       if (err instanceof NodeRpcError && err.code === "failed" && ALREADY_GONE_RE.test(err.message)) return;
       throw err;
     }
   }
 
-  /** One-entry `probe` (5 s) → the row for `id` (the agent echoes sessionId). */
-  async #probeEntry(sessionId: string): Promise<NodeProbeEntry | undefined> {
-    const data = await this.#send({ type: "probe", sessionIds: [sessionId] }, PROBE_TIMEOUT_MS);
+  /** One-entry `probe` (5 s) → the row for `id` (the agent echoes subshellId). */
+  async #probeEntry(subshellId: string): Promise<NodeProbeEntry | undefined> {
+    const data = await this.#send({ type: "probe", subshellIds: [subshellId] }, PROBE_TIMEOUT_MS);
     const entries = parseNodeProbeEntries(data);
     if (!entries) throw this.#malformed("probe");
     return entries[0];
   }
 
   /** `probe` row liveness (spec §6.3 reconcile shape). */
-  async hasSession(_socket: string, id: string): Promise<boolean> {
+  async hasSubshell(_socket: string, id: string): Promise<boolean> {
     const entry = await this.#probeEntry(id);
     return entry?.alive === true;
   }
@@ -273,8 +273,8 @@ export class RemoteLauncher implements NodeLauncher {
   async capture(_socket: string, id: string, scrollbackLines?: number): Promise<string> {
     const data = await this.#send(
       scrollbackLines && scrollbackLines > 0
-        ? { type: "capture", sessionId: id, lines: scrollbackLines }
-        : { type: "capture", sessionId: id },
+        ? { type: "capture", subshellId: id, lines: scrollbackLines }
+        : { type: "capture", subshellId: id },
     );
     const text = parseNodeCaptureResult(data);
     if (text === null) throw this.#malformed("capture");
@@ -283,12 +283,12 @@ export class RemoteLauncher implements NodeLauncher {
 
   /** `resize` verbatim — the agent fits the pane window like tmux does. */
   async resize(_socket: string, id: string, cols: number, rows: number): Promise<void> {
-    await this.#send({ type: "resize", sessionId: id, cols, rows });
+    await this.#send({ type: "resize", subshellId: id, cols, rows });
   }
 
   /** `input` verbatim, byte for byte (the agent's `send-keys -l --`). */
   async sendInput(_socket: string, id: string, input: string): Promise<void> {
-    await this.#send({ type: "input", sessionId: id, data: input });
+    await this.#send({ type: "input", subshellId: id, data: input });
   }
 
   /**
@@ -306,7 +306,7 @@ export class RemoteLauncher implements NodeLauncher {
   ): Promise<boolean> {
     try {
       const data = await this.#send(
-        { type: "prompt_deliver", sessionId: id, text, settleTimeoutMs, pollMs },
+        { type: "prompt_deliver", subshellId: id, text, settleTimeoutMs, pollMs },
         settleTimeoutMs + PROMPT_DELIVER_SLACK_MS,
       );
       return parseNodePromptDeliver(data)?.promptDelivered ?? false;
@@ -316,39 +316,39 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * The pane log's path ON THE NODE (`<agentDataDir>/sessions/<id>.log`,
+   * The pane log's path ON THE NODE (`<agentDataDir>/subshells/<id>.log`,
    * spec §6.4) — composed from the `ready` facts, no round-trip. Throws
    * {@link NoLiveConnectionError} when the node has no live `ready` (sync
    * member; there is no honest path to answer without facts).
    */
   logPath(id: string): string {
-    return factsPath(this.#requireFacts(), `sessions/${id}.log`);
+    return factsPath(this.#requireFacts(), `subshells/${id}.log`);
   }
 
   /**
-   * The agent's per-session record ON THE NODE:
-   * `<agentDataDir>/sessions/<id>.meta.json` — the twin of
-   * `apps/agent/src/session-meta.ts` (`SessionMetaStore.metaPath` =
-   * `join(dataDir, "sessions", `${id}${".meta.json"}`); pinned equal by test).
+   * The agent's per-subshell record ON THE NODE:
+   * `<agentDataDir>/subshells/<id>.meta.json` — the twin of
+   * `apps/agent/src/subshell-meta.ts` (`SubshellMetaStore.metaPath` =
+   * `join(dataDir, "subshells", `${id}${".meta.json"}`); pinned equal by test).
    * A deliberate kill leaves this file behind on purpose: the manager feeds it
    * into the delete-time `remove_paths` (with the log and the MCP config), so
-   * a deleted session unlinks all three artifacts it left on the node.
+   * a deleted subshell unlinks all three artifacts it left on the node.
    * Class-local (not on {@link NodeLauncher}) — the concept is agent-side
    * only; {@link LocalLauncher} has no meta file. Throws
    * {@link NoLiveConnectionError} offline (sync member, same shape as
    * {@link logPath}).
    */
   metaArtifactPath(id: string): string {
-    return factsPath(this.#requireFacts(), `sessions/${id}.meta.json`);
+    return factsPath(this.#requireFacts(), `subshells/${id}.meta.json`);
   }
 
   /**
-   * The session's MCP registration ON THE NODE: `<agentDataDir>/mcp/<id>.json`
+   * The subshell's MCP registration ON THE NODE: `<agentDataDir>/mcp/<id>.json`
    * (spec §6.4) — the delete-side twin of the launch-side path
-   * `mcp-launch.ts`'s `planRemoteSessionMcp` composes into the `launch`
+   * `mcp-launch.ts`'s `planRemoteSubshellMcp` composes into the `launch`
    * command from the same facts. The template is deliberately duplicated, not
-   * imported: `mcp-launch → remote-launcher → lib/context → sessions.service →
-   * session-manager → mcp-launch` is a cycle (pinned pair — change one, change
+   * imported: `mcp-launch → remote-launcher → lib/context → subshells.service →
+   * subshell-manager → mcp-launch` is a cycle (pinned pair — change one, change
    * both). Throws {@link NoLiveConnectionError} offline (sync member, same
    * shape as {@link logPath}).
    */
@@ -357,13 +357,13 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * The three files a session leaves on the node — log + MCP config + the
-   * agent's own meta record, in the order the pre-seam `deleteSession` block
+   * The three files a subshell leaves on the node — log + MCP config + the
+   * agent's own meta record, in the order the pre-seam `deleteSubshell` block
    * pushed them (spec §6.4). Empty when the node has no live `ready` facts:
    * no facts, no layout to name paths from, and the artifacts age out with
    * the node — the same offline skip every pre-seam path made individually.
    */
-  sessionArtifacts(id: string): string[] {
+  subshellArtifacts(id: string): string[] {
     if (!this.#facts()) return [];
     return [this.logPath(id), this.mcpArtifactPath(id), this.metaArtifactPath(id)];
   }
@@ -380,7 +380,7 @@ export class RemoteLauncher implements NodeLauncher {
     fromByte: number,
     maxBytes: number,
   ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
-    const data = await this.#send({ type: "log_read", sessionId: id, fromByte, maxBytes }, LOG_READ_TIMEOUT_MS);
+    const data = await this.#send({ type: "log_read", subshellId: id, fromByte, maxBytes }, LOG_READ_TIMEOUT_MS);
     const r = parseNodeLogReadResult(data);
     if (!r) throw this.#malformed("log_read");
     return { bytes: Buffer.from(r.bytes_b64, "base64"), next: r.next, size: r.size };
@@ -451,7 +451,7 @@ export class RemoteLauncher implements NodeLauncher {
     // Subscribe before the round-trip: the agent starts pumping as soon as
     // tail_start lands, and its result may arrive after the first frames.
     const unsubscribe = subscribeOutput(subId, (ev) => {
-      if (ev.sessionId !== id) return;
+      if (ev.subshellId !== id) return;
       queue = queue
         .then(async () => {
           if (disposed) return; // already disposed: queued bytes belong to the next subscriber
@@ -477,7 +477,7 @@ export class RemoteLauncher implements NodeLauncher {
         .catch((err: unknown) => logger.withError(err).warn(`remote tail relay failed for ${id}`));
     });
     try {
-      await this.#send({ type: "tail_start", sessionId: id, subId, fromByte }, TAIL_START_TIMEOUT_MS);
+      await this.#send({ type: "tail_start", subshellId: id, subId, fromByte }, TAIL_START_TIMEOUT_MS);
     } catch (err) {
       // The disposer below is the ONLY unsubscribe path — a rejecting
       // round-trip means the caller never gets one, so drop the bus handler

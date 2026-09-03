@@ -3,13 +3,13 @@ import { NODE_PROTOCOL_VERSION, parseNodeCommandBody, parseNodeEvent } from "../
 
 const launchCmd = {
   type: "launch",
-  sessionId: "s1",
+  subshellId: "s1",
   socket: "subshell-abc",
   cwd: "/home/u/repo",
   harnessId: "claude-code",
   profile: { name: "P", env: { A: "b" }, flags: [], settings: null, configIsolation: false },
   subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
-  sessionName: "s1",
+  subshellName: "s1",
   harnessSession: { id: "h1", mode: "start" as const },
 };
 
@@ -29,13 +29,13 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ ...launchCmd, cols: 0 })).toBeNull();
     expect(parseNodeCommandBody({ ...launchCmd, rows: 0 })).toBeNull();
     expect(
-      parseNodeCommandBody({ type: "prompt_deliver", sessionId: "s", text: "hi", settleTimeoutMs: 5000, pollMs: 0 }),
+      parseNodeCommandBody({ type: "prompt_deliver", subshellId: "s", text: "hi", settleTimeoutMs: 5000, pollMs: 0 }),
     ).toBeNull();
     expect(
-      parseNodeCommandBody({ type: "prompt_deliver", sessionId: "s", text: "hi", settleTimeoutMs: -1, pollMs: 250 }),
+      parseNodeCommandBody({ type: "prompt_deliver", subshellId: "s", text: "hi", settleTimeoutMs: -1, pollMs: 250 }),
     ).toBeNull();
     expect(
-      parseNodeCommandBody({ type: "prompt_deliver", sessionId: "s", text: "hi", settleTimeoutMs: 5000, pollMs: 250 }),
+      parseNodeCommandBody({ type: "prompt_deliver", subshellId: "s", text: "hi", settleTimeoutMs: 5000, pollMs: 250 }),
     ).not.toBeNull();
   });
 
@@ -46,14 +46,14 @@ describe("parseNodeCommandBody", () => {
   });
 
   it("validates the remaining command variants", () => {
-    expect(parseNodeCommandBody({ type: "log_read", sessionId: "s", fromByte: 0, maxBytes: 100 })).not.toBeNull();
-    expect(parseNodeCommandBody({ type: "log_read", sessionId: "s", fromByte: -1, maxBytes: 100 })).toBeNull();
-    expect(parseNodeCommandBody({ type: "tail_start", sessionId: "s", subId: "t", fromByte: 0 })).not.toBeNull();
-    expect(parseNodeCommandBody({ type: "tail_start", sessionId: "s", subId: "t", fromByte: -1 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "log_read", subshellId: "s", fromByte: 0, maxBytes: 100 })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "log_read", subshellId: "s", fromByte: -1, maxBytes: 100 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "tail_start", subshellId: "s", subId: "t", fromByte: 0 })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "tail_start", subshellId: "s", subId: "t", fromByte: -1 })).toBeNull();
     expect(parseNodeCommandBody({ type: "stat_dir", path: "/x" })).not.toBeNull();
     expect(parseNodeCommandBody({ type: "stat_dir" })).toBeNull();
-    expect(parseNodeCommandBody({ type: "probe", sessionIds: ["a"] })).not.toBeNull();
-    expect(parseNodeCommandBody({ type: "probe", sessionIds: ["a", 1] as unknown[] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "probe", subshellIds: ["a"] })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "probe", subshellIds: ["a", 1] as unknown[] })).toBeNull();
     expect(parseNodeCommandBody({ type: "remove_paths", paths: [] })).not.toBeNull();
     expect(parseNodeCommandBody({ type: "inventory" })).toEqual({ type: "inventory" });
     expect(parseNodeCommandBody({ type: "ping" })).toEqual({ type: "ping" });
@@ -73,24 +73,24 @@ describe("parseNodeCommandBody", () => {
   });
 
   it("capture: optional positive-int `lines` passes through; garbage is refused", () => {
-    expect(parseNodeCommandBody({ type: "capture", sessionId: "s" })).toEqual({ type: "capture", sessionId: "s" });
-    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: 100 })).toEqual({
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s" })).toEqual({ type: "capture", subshellId: "s" });
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: 100 })).toEqual({
       type: "capture",
-      sessionId: "s",
+      subshellId: "s",
       lines: 100,
     });
-    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: 0 })).toBeNull();
-    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: 1.5 })).toBeNull();
-    expect(parseNodeCommandBody({ type: "capture", sessionId: "s", lines: "100" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: 1.5 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: "100" })).toBeNull();
   });
 
   it("accepts input/resize/terminate/ping and checks their required fields", () => {
     expect(parseNodeCommandBody({ type: "ping" })).toEqual({ type: "ping" });
-    expect(parseNodeCommandBody({ type: "input", sessionId: "s", data: "" })).not.toBeNull();
-    expect(parseNodeCommandBody({ type: "input", sessionId: "s" })).toBeNull();
-    expect(parseNodeCommandBody({ type: "resize", sessionId: "s", cols: 80, rows: 24 })).not.toBeNull();
-    expect(parseNodeCommandBody({ type: "resize", sessionId: "s", cols: 0, rows: 24 })).toBeNull();
-    expect(parseNodeCommandBody({ type: "terminate", sessionId: "s" })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "input", subshellId: "s", data: "" })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "input", subshellId: "s" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "resize", subshellId: "s", cols: 80, rows: 24 })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "resize", subshellId: "s", cols: 0, rows: 24 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "terminate", subshellId: "s" })).not.toBeNull();
   });
 
   it("validates write_file chunk bounds and base64 payloads", () => {
@@ -134,19 +134,19 @@ describe("parseNodeEvent", () => {
   });
 
   it("rejects non-positive byte ranges and bad base64 on output", () => {
-    const good = { type: "output", sessionId: "s", subId: "t1", fromByte: 0, toByte: 3, data_b64: "aGk=" };
+    const good = { type: "output", subshellId: "s", subId: "t1", fromByte: 0, toByte: 3, data_b64: "aGk=" };
     expect(parseNodeEvent(good)).not.toBeNull();
     expect(parseNodeEvent({ ...good, fromByte: 5, toByte: 3 })).toBeNull();
     expect(parseNodeEvent({ ...good, data_b64: "%%%" })).toBeNull();
   });
 
-  it("parses result ok/error, exit, heartbeat, sessions_report, error; rejects garbage", () => {
+  it("parses result ok/error, exit, heartbeat, subshells_report, error; rejects garbage", () => {
     expect(parseNodeEvent({ type: "result", ref: "j1", ok: true })?.type).toBe("result");
     expect(parseNodeEvent({ type: "result", ref: "j1", ok: false, error: "nope" })?.type).toBe("result");
     expect(parseNodeEvent({ type: "result", ref: "j1", ok: false })).toBeNull();
     expect(parseNodeEvent({ type: "heartbeat", ts: "t" })?.type).toBe("heartbeat");
-    expect(parseNodeEvent({ type: "exit", sessionId: "s", exitCode: 1, at: "t" })?.type).toBe("exit");
-    expect(parseNodeEvent({ type: "sessions_report", sessions: [] })?.type).toBe("sessions_report");
+    expect(parseNodeEvent({ type: "exit", subshellId: "s", exitCode: 1, at: "t" })?.type).toBe("exit");
+    expect(parseNodeEvent({ type: "subshells_report", subshells: [] })?.type).toBe("subshells_report");
     expect(parseNodeEvent({ type: "error", code: "x", message: "y" })?.type).toBe("error");
     expect(parseNodeEvent("nope")).toBeNull();
     expect(parseNodeEvent({ type: "chat", text: "hi" })).toBeNull();

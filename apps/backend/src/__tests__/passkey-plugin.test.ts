@@ -44,7 +44,7 @@ describe("passkey plugin (server)", () => {
     expect([401, 403]).toContain(res.status);
   });
 
-  it("generate-register-options returns WebAuthn options for a session", async () => {
+  it("generate-register-options returns WebAuthn options for a subshell", async () => {
     const res = await auth.handler(
       new Request("http://localhost:3080/api/auth/passkey/generate-register-options", {
         headers: { origin: "http://localhost:5173", cookie: `better-auth.session_token=${token}` },

@@ -157,7 +157,7 @@ const unsupported = (action: string, platform: string): string =>
 /**
  * Install the per-user service and start it. Linux: write the unit, then
  * `daemon-reload` + `enable --now` — a failed reload (typically the classic
- * "Failed to connect to bus" without a systemd user session) aborts with the
+ * "Failed to connect to bus" without a systemd user subshell) aborts with the
  * systemctl stderr quoted; the unit file is deliberately left on disk.
  * macOS: write the plist, `bootout` the previous load when reinstalling
  * (failure tolerated — it usually means "not loaded"), then `bootstrap`.
@@ -173,7 +173,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
       return errLine(
         `systemctl --user daemon-reload failed (exit ${reload.code}): ` +
           `${cmdDetail(reload)} — the unit file was left at ${path}; ` +
-          "this usually means no systemd user session is running (container/SSH without loginctl)",
+          "this usually means no systemd user subshell is running (container/SSH without loginctl)",
       );
     }
     const enable = await deps.runCmd(["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME]);

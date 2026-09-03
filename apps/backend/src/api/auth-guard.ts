@@ -3,12 +3,12 @@ import { Elysia, t } from "elysia";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 
 /** How the request authenticated — drives permission and admin policy. */
-export type GuardActor = "cookie" | "system-key" | "session-key";
+export type GuardActor = "cookie" | "system-key" | "subshell-key";
 
 /** The api-key row subset the guard reads off a successful verification. */
 interface VerifiedKeyRow {
@@ -25,10 +25,10 @@ interface VerifiedKeyRow {
 /**
  * Verifies a bearer API key and maps it to the guard's context fields.
  *
- * Session tokens (metadata.kind === "session") resolve to the `sess:<id>`
+ * Subshell tokens (metadata.kind === "subshell") resolve to the `sess:<id>`
  * principal and carry their permissions for {@link requirePerm}; the synthetic
- * `user` is the session's OWNER so existing owner-scoped routes keep working.
- * A session token whose session row is gone is 401 even if the key itself is
+ * `user` is the subshell's OWNER so existing owner-scoped routes keep working.
+ * A subshell token whose subshell row is gone is 401 even if the key itself is
  * valid — the row is the lifecycle truth. System keys authenticate as their
  * owning user with no permission ceiling (plan decision: admins manage them).
  * Node-kind keys are rejected outright here — they are `/ws/node` credentials
@@ -50,20 +50,20 @@ async function deriveFromApiKey(bearer: string) {
   if (!valid || !row) throw new UnauthorizedError();
 
   const meta = row.metadata;
-  if (meta?.kind === "session" && typeof meta.sessionId === "string") {
-    const sessionRow = await new SessionsRepository(db).findById(meta.sessionId);
-    // The session's apiKeyId column is written ONLY by the server-side
-    // issueSessionToken, so `apiKeyId === row.id` proves this key is the one
-    // we minted for that session — not a self-forged key (the plugin's public
+  if (meta?.kind === "subshell" && typeof meta.subshellId === "string") {
+    const subshellRow = await new SubshellsRepository(db).findById(meta.subshellId);
+    // The subshell's apiKeyId column is written ONLY by the server-side
+    // issueSubshellToken, so `apiKeyId === row.id` proves this key is the one
+    // we minted for that subshell — not a self-forged key (the plugin's public
     // create endpoint lets any signed-in user attach arbitrary metadata).
-    // The row is additionally the lifecycle truth: a gone session 401s even
+    // The row is additionally the lifecycle truth: a gone subshell 401s even
     // while its key still verifies.
-    if (!sessionRow || sessionRow.apiKeyId !== row.id) throw new UnauthorizedError();
+    if (!subshellRow || subshellRow.apiKeyId !== row.id) throw new UnauthorizedError();
     return {
-      user: { id: sessionRow.userId } as User,
+      user: { id: subshellRow.userId } as User,
       session: undefined,
-      principal: `sess:${sessionRow.id}`,
-      actor: "session-key" as const,
+      principal: `sess:${subshellRow.id}`,
+      actor: "subshell-key" as const,
       apiKeyId: row.id,
       apiKeyPermissions: row.permissions ?? {},
     };
@@ -75,7 +75,7 @@ async function deriveFromApiKey(bearer: string) {
   }
   // System-key actor is reserved for keys owned by the `system` service user
   // (minted through admin-only routes); anything else reaching here is a
-  // self-minted key with no session metadata — not a credential we issue.
+  // self-minted key with no subshell metadata — not a credential we issue.
   if (!row.referenceId || row.referenceId !== (await ensureSystemUser())) throw new UnauthorizedError();
   return {
     user: { id: row.referenceId } as User,
@@ -90,7 +90,7 @@ async function deriveFromApiKey(bearer: string) {
 /**
  * True when `bearer` is a credential THIS instance issues — exactly the
  * accept-set of {@link deriveFromApiKey} (and therefore of {@link authGuard}):
- * a session-kind key linked to its session row's `apiKeyId`, or a key owned
+ * a subshell-kind key linked to its subshell row's `apiKeyId`, or a key owned
  * by the `system` user. Conditionally-authenticated routes (the setup harness
  * endpoints, which must stay public during the first-run window) classify
  * bearer keys through this instead of re-deriving a weaker check, so a key
@@ -149,20 +149,20 @@ export const authGuard = new Elysia({ name: "auth-guard" })
 export interface PermContext {
   /** How the request authenticated. */
   actor: GuardActor;
-  /** The session key's grants; null/undefined = unrestricted. */
+  /** The subshell key's grants; null/undefined = unrestricted. */
   apiKeyPermissions: Record<string, string[]> | null;
 }
 
 /**
  * Throws 403 unless the caller may `action` on `resource`.
  *
- * Cookie and system-key actors pass unconditionally; session tokens are
+ * Cookie and system-key actors pass unconditionally; subshell tokens are
  * checked against their key's `permissions` map (e.g. `{channels:["read"]}`
  * fails `requirePerm(ctx, "channels", "write")`). Call it at the top of a
  * handler — it is cheap and synchronous.
  */
-export function requirePerm(ctx: PermContext, resource: "channels" | "sessions", action: "read" | "write"): void {
-  if (ctx.actor !== "session-key") return;
+export function requirePerm(ctx: PermContext, resource: "channels" | "subshells", action: "read" | "write"): void {
+  if (ctx.actor !== "subshell-key") return;
   if (!(ctx.apiKeyPermissions?.[resource] ?? []).includes(action)) throw new ForbiddenError();
 }
 
@@ -220,21 +220,21 @@ export function requireCookieActor(actor: GuardActor, message: string): void {
  *
  *   .use(requireAdmin)   // instead of .use(authGuard)
  *
- * Composes the session guard internally and additionally resolves the acting
+ * Composes the subshell guard internally and additionally resolves the acting
  * user's role from the app's `user_meta` table, throwing a 403 for non-admins
  * (ForbiddenError carries `status = 403`, which Elysia maps to the response
- * code). Requires the session first: an expired/anonymous request gets a 401,
+ * code). Requires the subshell first: an expired/anonymous request gets a 401,
  * a known non-admin gets a 403. Injects { role } into context so handlers
  * can read the resolved role.
  *
  * Admin operations additionally require the COOKIE path: API keys (system or
- * session) are machine credentials and cannot manage the instance (403) —
+ * subshell) are machine credentials and cannot manage the instance (403) —
  * plan decision, spec §8.
  */
 export const requireAdmin = new Elysia({ name: "require-admin" })
   .use(authGuard)
   .derive({ as: "scoped" }, async ({ user, actor }) => {
-    // authGuard throws 401 before this derive when the session is missing,
+    // authGuard throws 401 before this derive when the subshell is missing,
     // so user is always present; the check keeps the type honest
     // (scoped plugins surface their derived values as optional here).
     if (!user) throw new UnauthorizedError();
@@ -245,5 +245,5 @@ export const requireAdmin = new Elysia({ name: "require-admin" })
   })
   .as("scoped");
 
-/** Optional session-name schema reused by session creation. */
-export const SessionNameSchema = t.Optional(t.String({ minLength: 1, maxLength: 120 }));
+/** Optional subshell-name schema reused by subshell creation. */
+export const SubshellNameSchema = t.Optional(t.String({ minLength: 1, maxLength: 120 }));

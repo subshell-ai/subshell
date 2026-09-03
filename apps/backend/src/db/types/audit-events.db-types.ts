@@ -1,7 +1,7 @@
 /**
  * Database table schema for the admin-visible audit trail.
  *
- * One row per audited action (session start/stop, user admin, config change).
+ * One row per audited action (subshell start/stop, user admin, config change).
  * Queries land in Task 10 (GET /api/audit).
  */
 export interface AuditEventsTable {
@@ -9,9 +9,9 @@ export interface AuditEventsTable {
   id: string;
   /** Id of the user who performed the action (null for system events) */
   actorUserId: string | null;
-  /** Action name, e.g. "session.delete" or "auth.sign_out" */
+  /** Action name, e.g. "subshell.delete" or "auth.sign_out" */
   action: string;
-  /** Kind of the entity the action applies to, e.g. "session", "user" */
+  /** Kind of the entity the action applies to, e.g. "subshell", "user" */
   targetType: string | null;
   /** Id of the specific target entity */
   targetId: string | null;

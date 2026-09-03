@@ -5,7 +5,7 @@ import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
-/** `GET /api/workspaces/:id` — one workspace with its panes and each pane's session summary. */
+/** `GET /api/workspaces/:id` — one workspace with its panes and each pane's subshell summary. */
 export const getWorkspaceRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
@@ -25,7 +25,7 @@ export const getWorkspaceRoute = new Elysia()
       detail: {
         operationId: "getWorkspace",
         tags: ["workspaces"],
-        description: "Gets one workspace with its panes and each pane's session summary",
+        description: "Gets one workspace with its panes and each pane's subshell summary",
       },
     },
   );

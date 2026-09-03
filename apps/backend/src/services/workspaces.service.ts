@@ -1,7 +1,7 @@
 import { pruneLayout } from "@/api/workspaces/workspace-layout.js";
-import type { SessionStatus } from "@/db/types/session-status.js";
+import type { SubshellStatus } from "@/db/types/subshell-status.js";
 import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
-import { accessAtLeast, loadSessionAccess } from "@/lib/session-access.js";
+import { accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService } from "@/services/base.service.js";
 
 /** Route error carrying an HTTP status; Elysia maps `status` to the response code. */
@@ -35,52 +35,52 @@ type WorkspaceResponse = Omit<WorkspaceTable, "layoutJson"> & {
   /** The serialized dockview layout, or null when absent/unparseable. */
   layout: unknown;
   /** Number of panes referencing this workspace. */
-  sessionCount: number;
+  subshellCount: number;
 };
 
 /**
  * Maps a workspace row to its API shape, replacing the stored `layoutJson`
  * string with the parsed `layout` and attaching the pane tally the cards show.
  */
-function toWorkspaceResponse(workspace: WorkspaceTable, sessionCount: number): WorkspaceResponse {
+function toWorkspaceResponse(workspace: WorkspaceTable, subshellCount: number): WorkspaceResponse {
   const { layoutJson, ...rest } = workspace;
-  return { ...rest, layout: layoutJson ? safeParse(layoutJson) : null, sessionCount };
+  return { ...rest, layout: layoutJson ? safeParse(layoutJson) : null, subshellCount };
 }
 
-/** One pane joined with a summary of the session it renders, as returned by `GET /:id`. */
+/** One pane joined with a summary of the subshell it renders, as returned by `GET /:id`. */
 interface WorkspacePaneView {
   /** Pane id */
   id: string;
-  /** Session rendered in this pane */
-  sessionId: string;
-  /** Session display name, joined for the pane title */
-  sessionName: string;
+  /** Subshell rendered in this pane */
+  subshellId: string;
+  /** Subshell display name, joined for the pane title */
+  subshellName: string;
   /** running | terminated */
-  sessionStatus: SessionStatus;
+  subshellStatus: SubshellStatus;
   /** False once the harness process has exited */
-  sessionAlive: boolean;
+  subshellAlive: boolean;
   /**
    * Exit code of the harness process once dead, null while alive or when the
    * exit predates the code being readable. Joined here because the
    * workspace's exited-pane panel renders the same LogTail headline as the
-   * detail page ("Session exited (code 137)").
+   * detail page ("Subshell exited (code 137)").
    */
-  sessionExitCode: number | null;
+  subshellExitCode: number | null;
   /**
-   * ISO ts of the attention event that put this session in waiting-for-you
+   * ISO ts of the attention event that put this subshell in waiting-for-you
    * state, null when not waiting. Joined here for the same reason as
-   * `sessionExitCode`: the dock tab decorates its title from the pane row.
+   * `subshellExitCode`: the dock tab decorates its title from the pane row.
    */
-  sessionWaitingSince: string | null;
-  /** Absolute working directory of the session */
+  subshellWaitingSince: string | null;
+  /** Absolute working directory of the subshell */
   workingDir: string;
 }
 
 /** Body of a detail read (`GET /:id`): the workspace plus its panes. */
 export interface WorkspaceDetail {
   /** The workspace in API shape, with its layout pruned against the live panes. */
-  workspace: Omit<WorkspaceTable, "layoutJson"> & { layout: unknown; sessionCount: number };
-  /** Every pane with a summary of the session it renders. */
+  workspace: Omit<WorkspaceTable, "layoutJson"> & { layout: unknown; subshellCount: number };
+  /** Every pane with a summary of the subshell it renders. */
   panes: WorkspacePaneView[];
 }
 
@@ -133,7 +133,7 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Gets one workspace with its panes and each pane's session summary.
+   * Gets one workspace with its panes and each pane's subshell summary.
    * @throws WorkspacesError 404 when absent or owned by someone else.
    */
   async getWorkspace(userId: string, id: string): Promise<WorkspaceDetail> {
@@ -141,32 +141,32 @@ export class WorkspacesService extends BaseService {
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
 
     const paneRows = await this.repos.workspacePanes.listByWorkspace(workspace.id);
-    const sessionsRepo = this.repos.sessions;
+    const subshellsRepo = this.repos.subshells;
     const panes: WorkspacePaneView[] = [];
     for (const pane of paneRows) {
-      const session = await sessionsRepo.findById(pane.sessionId);
-      // The FK cascade means the session always exists; the guard keeps the
+      const subshell = await subshellsRepo.findById(pane.subshellId);
+      // The FK cascade means the subshell always exists; the guard keeps the
       // types honest rather than covering a real case.
-      if (!session) continue;
+      if (!subshell) continue;
       panes.push({
         id: pane.id,
-        sessionId: pane.sessionId,
-        sessionName: session.name,
-        sessionStatus: session.status,
-        sessionAlive: session.alive === 1,
-        sessionExitCode: session.exitCode,
-        sessionWaitingSince: session.waitingSince,
-        workingDir: session.workingDir,
+        subshellId: pane.subshellId,
+        subshellName: subshell.name,
+        subshellStatus: subshell.status,
+        subshellAlive: subshell.alive === 1,
+        subshellExitCode: subshell.exitCode,
+        subshellWaitingSince: subshell.waitingSince,
+        workingDir: subshell.workingDir,
       });
     }
 
-    // layout_json is not touched when a session delete cascades a pane away,
+    // layout_json is not touched when a subshell delete cascades a pane away,
     // so it is filtered against the surviving panes here rather than swept.
     const stored = workspace.layoutJson ? safeParse(workspace.layoutJson) : null;
     const layout = pruneLayout(stored, new Set(panes.map((p) => p.id)));
 
     // The panes were just fetched for the response body; counting them here
-    // is free and keeps `sessionCount` consistent with `panes.length`.
+    // is free and keeps `subshellCount` consistent with `panes.length`.
     return { workspace: { ...toWorkspaceResponse(workspace, panes.length), layout }, panes };
   }
 
@@ -186,8 +186,8 @@ export class WorkspacesService extends BaseService {
     try {
       const updated = await repo.update(id, update);
       if (!updated) throw new WorkspacesError("not_found", "Workspace not found", 404);
-      const sessionCount = await this.repos.workspacePanes.countForWorkspace(id);
-      return toWorkspaceResponse(updated, sessionCount);
+      const subshellCount = await this.repos.workspacePanes.countForWorkspace(id);
+      return toWorkspaceResponse(updated, subshellCount);
     } catch (err) {
       if (err instanceof WorkspacesError) throw err;
       if (isUniqueViolation(err)) {
@@ -210,32 +210,32 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Adds a pane holding a session the caller can see (own or shared to them).
+   * Adds a pane holding a subshell the caller can see (own or shared to them).
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
-   * @throws WorkspacesError 404 when the session is absent or invisible to the
+   * @throws WorkspacesError 404 when the subshell is absent or invisible to the
    *   caller (reported as 404 so the endpoint never confirms another user's id).
    */
-  async addWorkspacePane(userId: string, workspaceId: string, sessionId: string): Promise<{ id: string }> {
+  async addWorkspacePane(userId: string, workspaceId: string, subshellId: string): Promise<{ id: string }> {
     const workspace = await this.repos.workspaces.findByIdForUser(workspaceId, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
 
-    // A pane may reference any session the caller can SEE — their own or one
+    // A pane may reference any subshell the caller can SEE — their own or one
     // shared to them (spec 2026-08-31 §4.3). Invisible (absent or unshared) is
-    // a 404, so the endpoint never confirms another user's session id.
-    const { row, access } = await loadSessionAccess(
-      { sessions: this.repos.sessions, shares: this.repos.sessionShares, userMeta: this.repos.userMeta },
+    // a 404, so the endpoint never confirms another user's subshell id.
+    const { row, access } = await loadSubshellAccess(
+      { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
       userId,
-      sessionId,
+      subshellId,
     );
     if (!row || !accessAtLeast(access, "view")) {
-      throw new WorkspacesError("not_found", "Session not found", 404);
+      throw new WorkspacesError("not_found", "Subshell not found", 404);
     }
 
     const panesRepo = this.repos.workspacePanes;
     const created = await panesRepo.create({
       id: crypto.randomUUID(),
       workspaceId: workspace.id,
-      sessionId,
+      subshellId,
     });
     return { id: created.id };
   }
@@ -253,7 +253,7 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Removes a pane from a workspace (the session is untouched).
+   * Removes a pane from a workspace (the subshell is untouched).
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
    * @throws WorkspacesError 404 when the pane is not part of that workspace.
    */

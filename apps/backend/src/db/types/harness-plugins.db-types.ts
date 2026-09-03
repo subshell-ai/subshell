@@ -7,7 +7,7 @@
 export interface HarnessPluginTable {
   /** Plugin id, e.g. "claude-code" */
   id: string;
-  /** 1 = enabled, 0 = disabled (hidden from setup + session creation) */
+  /** 1 = enabled, 0 = disabled (hidden from setup + subshell creation) */
   enabled: number;
   /** ISO 8601 timestamp when the row was created */
   createdAt: string;

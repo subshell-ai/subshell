@@ -51,11 +51,11 @@ function toKeyRow(row: ApiKeyListRow) {
 /**
  * Admin CRUD for system-wide API keys (spec §8). These are long-lived bearer
  * credentials owned by the `system` service user with no permission ceiling —
- * for LAN tooling and admin scripts, distinct from the ephemeral per-session
+ * for LAN tooling and admin scripts, distinct from the ephemeral per-subshell
  * tokens. Management is cookie-admin only (requireAdmin rejects machine
  * actors), and the plaintext key is returned exactly once at creation; the
  * table only ever holds its hash. All apikey-table access goes through the
- * shared apikey-store (the plugin's own endpoints are session-guarded).
+ * shared apikey-store (the plugin's own endpoints are subshell-guarded).
  */
 export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
   .use(requireAdmin)

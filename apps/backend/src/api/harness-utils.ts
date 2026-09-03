@@ -110,7 +110,7 @@ export async function toggleLocalHarness(
  * Usable = the plugin exists, is enabled, AND its binary is installed. The
  * install check is load-bearing here, matching the product rule "if it isn't
  * installed it stays unavailable": a missing binary hides the harness's
- * profiles and blocks new sessions even when the enabled flag defaults on.
+ * profiles and blocks new subshells even when the enabled flag defaults on.
  *
  * Node-aware (spec 2026-08-31 §6.2): with no `nodeId` (or `"local"`) this is
  * the process-local probe, verbatim — every existing zero-arg caller keeps

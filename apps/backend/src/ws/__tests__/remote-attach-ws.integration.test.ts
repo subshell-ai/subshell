@@ -9,16 +9,16 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { sessionLogPath } from "@/services/nodes/session-paths.js";
+import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { attachScriptedNode, ok, probeAllAlive, type ScriptedNode } from "@/test-helpers/scripted-node.js";
-import { cleanupSessionWs, handleSessionMessage, handleSessionWs, type WsSocket } from "@/ws/session-ws.js";
+import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs, type WsSocket } from "@/ws/subshell-ws.js";
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**
- * Task 14 (sibling of `sessions-remote.integration.test.ts`) — the live-attach
- * relay through the REAL dispatch entry: `handleSessionWs` consumes a real
+ * Task 14 (sibling of `subshells-remote.integration.test.ts`) — the live-attach
+ * relay through the REAL dispatch entry: `handleSubshellWs` consumes a real
  * single-use WS token, loads the row from the shared temp DB, routes it by
- * `nodeId` to `attachRemoteSessionWs`, and the relay speaks to a scripted node
+ * `nodeId` to `attachRemoteSubshellWs`, and the relay speaks to a scripted node
  * over the REAL registry + signed-RPC loop (Task 11's fixtures, now proving
  * the wiring ABOVE the relay — which unit suites bypassed by calling the relay
  * directly). Also lands the T11 carry: double-cleanup teardown is idempotent
@@ -72,10 +72,10 @@ function fakeBrowser(): FakeBrowser {
 }
 
 /** Runs the real handler with a real single-use WS token. */
-async function attach(userId: string, sessionId: string): Promise<FakeBrowser> {
-  const url = new URL(`ws://localhost/ws?session=${sessionId}&token=${issueWsToken(userId)}`);
+async function attach(userId: string, subshellId: string): Promise<FakeBrowser> {
+  const url = new URL(`ws://localhost/ws?subshell=${subshellId}&token=${issueWsToken(userId)}`);
   const fake = fakeBrowser();
-  await handleSessionWs(fake.ws, url);
+  await handleSubshellWs(fake.ws, url);
   return fake;
 }
 
@@ -93,10 +93,10 @@ const ATTACH_HANDLERS = {
       : { bytes_b64: b64(LOG), next: LOG.length, size: LOG.length },
 };
 
-function outputFrame(sessionId: string, subId: string, fromByte: number, text: string) {
+function outputFrame(subshellId: string, subId: string, fromByte: number, text: string) {
   return {
     type: "output" as const,
-    sessionId,
+    subshellId,
     subId,
     fromByte,
     toByte: fromByte + text.length,
@@ -114,7 +114,7 @@ async function seedAgentRow() {
   rowSeq += 1;
   const id = crypto.randomUUID();
   const { repos } = getRequestlessContext();
-  await repos.sessions.create({
+  await repos.subshells.create({
     id,
     userId: `u-it-ws-${rowSeq}`,
     profileId: "p-it",
@@ -138,7 +138,7 @@ afterEach(() => {
   resetNodeEventsForTests();
 });
 
-describe("remote attach through the real handleSessionWs dispatch", () => {
+describe("remote attach through the real handleSubshellWs dispatch", () => {
   it("token + row route to the relay: byte-exact browser contract over the real RPC loop", async () => {
     const { id, userId } = await seedAgentRow();
     const sim = attachScriptedNode(NODE_ID, ATTACH_HANDLERS);
@@ -151,9 +151,9 @@ describe("remote attach through the real handleSessionWs dispatch", () => {
       // EOF — the same command list the relay's own suite pins. Historical
       // log bytes are never re-played, so there is exactly ONE log_read.
       expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture", "tail_start"]);
-      expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", sessionId: id, lines: 100 }]);
+      expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
-        { type: "tail_start", sessionId: id, subId: expect.any(String), fromByte: LOG.length },
+        { type: "tail_start", subshellId: id, subId: expect.any(String), fromByte: LOG.length },
       ]);
 
       // Frame 1: the replay, exactly the local path's shape.
@@ -162,12 +162,12 @@ describe("remote attach through the real handleSessionWs dispatch", () => {
       // Owner access ⇒ keystrokes and geometry ride the signed RPC (the
       // geometry passthrough: launch carries no cols today, the attach's
       // resize IS the live sizing path — the pane obeys the client).
-      handleSessionMessage(ws, JSON.stringify({ type: "input", data: "ls\r" }));
+      handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "ls\r" }));
       await until(() => sim.countOf("input") === 1, "input on the wire");
-      expect(sim.cmdsOf("input")).toEqual([{ type: "input", sessionId: id, data: "ls\r" }]);
-      handleSessionMessage(ws, JSON.stringify({ type: "resize", cols: 132, rows: 43 }));
+      expect(sim.cmdsOf("input")).toEqual([{ type: "input", subshellId: id, data: "ls\r" }]);
+      handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 132, rows: 43 }));
       await until(() => sim.countOf("resize") === 1, "resize on the wire");
-      expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", sessionId: id, cols: 132, rows: 43 }]);
+      expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", subshellId: id, cols: 132, rows: 43 }]);
 
       // Live output: an agent `output` frame through the REAL bus becomes the
       // browser's `output` frame.
@@ -189,8 +189,8 @@ describe("remote attach through the real handleSessionWs dispatch", () => {
       await until(() => sim.countOf("tail_start") === 1, "tail armed");
       const sub = subIdOf(sim);
 
-      cleanupSessionWs(ws);
-      cleanupSessionWs(ws); // belt-and-braces second cleanup (close after error-path teardown)
+      cleanupSubshellWs(ws);
+      cleanupSubshellWs(ws); // belt-and-braces second cleanup (close after error-path teardown)
       await until(() => sim.countOf("tail_stop") === 1, "tail_stop on the wire");
       expect(await sawWithin(() => sim.countOf("tail_stop") > 1, 100)).toBe(false);
       expect(sim.cmdsOf("tail_stop")).toEqual([{ type: "tail_stop", subId: sub }]);
@@ -206,18 +206,18 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
   // The local branch reaches the real tmux CLI; stub the two pane-touching
   // members of the SHARED defaultLocalLauncher (the local-attach suite's
   // technique) and let fs.watch / the tail pump / the DB run for real.
-  const originals = { hasSession: defaultLocalLauncher.hasSession, capture: defaultLocalLauncher.capture };
+  const originals = { hasSubshell: defaultLocalLauncher.hasSubshell, capture: defaultLocalLauncher.capture };
   afterEach(() => {
-    defaultLocalLauncher.hasSession = originals.hasSession;
+    defaultLocalLauncher.hasSubshell = originals.hasSubshell;
     defaultLocalLauncher.capture = originals.capture;
   });
 
-  it("two cleanupSessionWs calls on a local attach: no throw, and the stream stays dead", async () => {
+  it("two cleanupSubshellWs calls on a local attach: no throw, and the stream stays dead", async () => {
     rowSeq += 1;
     const id = crypto.randomUUID();
     const userId = `u-it-ws-${rowSeq}`;
     const { repos } = getRequestlessContext();
-    await repos.sessions.create({
+    await repos.subshells.create({
       id,
       userId,
       profileId: "p-it",
@@ -226,24 +226,24 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
       workingDir: "/tmp",
       tmuxSocket: tmuxSocketFor(id), // nodeId defaults to `local`
     });
-    defaultLocalLauncher.hasSession = async () => true;
+    defaultLocalLauncher.hasSubshell = async () => true;
     defaultLocalLauncher.capture = async () => "SCREEN";
-    const logFile = sessionLogPath(id);
+    const logFile = subshellLogPath(id);
     await Bun.write(logFile, "old\n"); // log exists ⇒ startLogTail branch (fs.watch path)
 
     const { ws, sent } = await attach(userId, id);
     try {
       expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
       await new Promise((r) => setTimeout(r, 60)); // let the initial catch-up pump land
-      cleanupSessionWs(ws);
-      expect(() => cleanupSessionWs(ws)).not.toThrow(); // the parity claim: second is a no-op
+      cleanupSubshellWs(ws);
+      expect(() => cleanupSubshellWs(ws)).not.toThrow(); // the parity claim: second is a no-op
       const framesAtDisconnect = sent.length;
 
       appendFileSync(logFile, "after disconnect\n");
       await new Promise((r) => setTimeout(r, 1300)); // watcher fires ~instantly; backstop covers twice
       expect(sent.slice(framesAtDisconnect)).toEqual([]);
     } finally {
-      cleanupSessionWs(ws);
+      cleanupSubshellWs(ws);
     }
   });
 });

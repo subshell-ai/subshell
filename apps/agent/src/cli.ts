@@ -34,7 +34,7 @@ usage:
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell status [--json] [--probe]
   subshell version
-  subshell mcp            (stdio MCP server for a session pane — internal)
+  subshell mcp            (stdio MCP server for a subshell pane — internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -141,7 +141,7 @@ export async function run(argv: string[]): Promise<CliResult> {
       case "version":
         return { code: 0, out: `subshell ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
       case "mcp": {
-        // The stdio MCP server for a subshell session pane (spec §6.4). It is NOT
+        // The stdio MCP server for a subshell subshell pane (spec §6.4). It is NOT
         // an enrolled-daemon command: no config, no lock, no socket — just the
         // SUBSHELL_* env the launch injected. Missing env is a usage error: exit 2
         // with the actionable line (readMcpEnv's message names the variable),

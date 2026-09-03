@@ -38,7 +38,7 @@ const CODEX_SETTINGS_FIELDS: SettingsField[] = [
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
   // CODEX_HOME is deliberately NOT suggested: it locates ~/.codex, which
-  // holds the user's auth.json — pointing it elsewhere logs the session out
+  // holds the user's auth.json — pointing it elsewhere logs the subshell out
   // of ChatGPT and hides their config.toml. subshell never needs it: its MCP
   // wiring rides per-invocation `-c` overrides (mcpRegistration), so the
   // user's own dir is used as-is.
@@ -78,8 +78,8 @@ function tomlStringArray(values: string[]): string {
  *   codex [-m <model>] [-s <sandbox>] [-a <approval>] [mcp -c pairs]
  *         [profile flags] [extra flags]
  * A bare launch (no subcommand, no prompt) opens the interactive TUI. Codex
- * has no create-time session-name flag and no way to pin a conversation id,
- * so neither the subshell session name nor a resume capability is forwarded —
+ * has no create-time subshell-name flag and no way to pin a conversation id,
+ * so neither the subshell subshell name nor a resume capability is forwarded —
  * restarts start a fresh conversation (the documented default). The pane's
  * cwd is already the working directory, so `-C/--cd` is never passed, and
  * `--dangerously-bypass-approvals-and-sandbox` is NEVER baked into a launch
@@ -91,7 +91,7 @@ function tomlStringArray(values: string[]): string {
  * real binary), which codex merges over ~/.codex/config.toml for that run
  * only. No config file the harness must read, no CODEX_HOME redirect (that
  * dir holds the user's auth.json). The spawned `subshell mcp` child inherits
- * the session's baked SUBSHELL_* pane env for its credential, like every
+ * the subshell's baked SUBSHELL_* pane env for its credential, like every
  * harness.
  * (Flags/values verified against @openai/codex 2026-09 help output.)
  */
@@ -148,7 +148,7 @@ export class CodexPlugin implements HarnessPlugin {
     if (typeof s.sandbox === "string" && s.sandbox) args.push("-s", s.sandbox);
     if (typeof s.askForApproval === "string" && s.askForApproval) args.push("-a", s.askForApproval);
 
-    // Subshell channels + session orchestration: the registration's own argv
+    // Subshell channels + subshell orchestration: the registration's own argv
     // (-c mcp_servers.subshell.* overrides — see mcpRegistration) splices here.
     if (mcp?.args) args.push(...mcp.args);
 
@@ -169,7 +169,7 @@ export class CodexPlugin implements HarnessPlugin {
    */
   mcpRegistration(launch: McpLaunchSpec, _configPath: string): McpRegistration {
     const fragment = [
-      "# Subshell — cross-session MCP server, in the shape ~/.codex/config.toml expects.",
+      "# Subshell — cross-subshell MCP server, in the shape ~/.codex/config.toml expects.",
       "#",
       "# This file is a MANUAL-SETUP REFERENCE ONLY: subshell's own launches pass the",
       "# live values as `-c mcp_servers.subshell.*=…` per-invocation overrides, so codex",
@@ -197,12 +197,12 @@ export class CodexPlugin implements HarnessPlugin {
     };
   }
 
-  /** Auto: `buildCommand` wires `-c mcp_servers.subshell.*` into every session. */
+  /** Auto: `buildCommand` wires `-c mcp_servers.subshell.*` into every subshell. */
   mcpSetup(_launch: McpLaunchSpec): McpSetupInfo {
     return {
       mode: "auto",
       summary:
-        "Subshell registers itself with every Codex session automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified).",
+        "Subshell registers itself with every Codex subshell automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified).",
     };
   }
 

@@ -127,7 +127,7 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 30; i += 1) await Bun.sleep(0);
 }
 
-function outputEvent(over: Partial<OutputEvent> & { sessionId: string; subId: string }): OutputEvent {
+function outputEvent(over: Partial<OutputEvent> & { subshellId: string; subId: string }): OutputEvent {
   return { type: "output", fromByte: 0, toByte: 0, data_b64: "", ...over };
 }
 
@@ -228,8 +228,8 @@ describe("launch", () => {
     binary: "/usr/bin/claude",
     cwd: "/work",
     profile: testProfile,
-    sessionName: "s1",
-    subshellEnv: { SUBSHELL_SESSION_ID: "s1" },
+    subshellName: "s1",
+    subshellEnv: { SUBSHELL_ID: "s1" },
   });
 
   it("maps the plan to the launch command (60 s), no mcp when absent", async () => {
@@ -239,15 +239,15 @@ describe("launch", () => {
       {
         cmd: {
           type: "launch",
-          sessionId: "s1",
+          subshellId: "s1",
           socket: "subshell-abc",
           cwd: "/work",
           harnessId: "claude-code",
           profile: testProfile,
-          subshellEnv: { SUBSHELL_SESSION_ID: "s1" },
+          subshellEnv: { SUBSHELL_ID: "s1" },
           mcp: undefined,
           harnessSession: undefined,
-          sessionName: "s1",
+          subshellName: "s1",
           bestEffortLog: undefined,
         },
         timeoutMs: 60_000,
@@ -300,76 +300,76 @@ describe("launch", () => {
   });
 });
 
-describe("terminate / killSession", () => {
+describe("terminate / killSubshell", () => {
   it("terminate sends terminate and throws on ok:false", async () => {
     const h = makeHarness();
     await h.launcher.terminate("subshell-abc", "s1");
-    expect(h.calls).toEqual([{ cmd: { type: "terminate", sessionId: "s1" }, timeoutMs: 10_000 }]);
+    expect(h.calls).toEqual([{ cmd: { type: "terminate", subshellId: "s1" }, timeoutMs: 10_000 }]);
 
     const h2 = makeHarness();
     h2.answer("terminate", () => {
-      throw new NodeRpcError("failed", 'node "node-1" reported: can\'t find session: s1', "node-1");
+      throw new NodeRpcError("failed", 'node "node-1" reported: can\'t find subshell: s1', "node-1");
     });
     expect(((await rejection(h2.launcher.terminate("subshell-abc", "s1"))) as Error).message).toContain(
-      "can't find session",
+      "can't find subshell",
     );
   });
 
-  it("killSession swallows the already-gone class only", async () => {
-    for (const agentMsg of ["can't find session: s1", "no session: s1"]) {
+  it("killSubshell swallows the already-gone class only", async () => {
+    for (const agentMsg of ["can't find subshell: s1", "no subshell: s1"]) {
       const h = makeHarness();
       h.answer("kill", () => {
         throw new NodeRpcError("failed", `node "node-1" reported: ${agentMsg}`, "node-1");
       });
-      await h.launcher.killSession("subshell-abc", "s1"); // resolves
-      expect(h.calls).toEqual([{ cmd: { type: "kill", sessionId: "s1" }, timeoutMs: 10_000 }]);
+      await h.launcher.killSubshell("subshell-abc", "s1"); // resolves
+      expect(h.calls).toEqual([{ cmd: { type: "kill", subshellId: "s1" }, timeoutMs: 10_000 }]);
     }
     const h = makeHarness();
     h.answer("kill", () => {
       throw new NodeRpcError("failed", 'node "node-1" reported: no server running', "node-1");
     });
-    expect(((await rejection(h.launcher.killSession("subshell-abc", "s1"))) as Error).message).toContain(
+    expect(((await rejection(h.launcher.killSubshell("subshell-abc", "s1"))) as Error).message).toContain(
       "no server running",
     );
   });
 });
 
-describe("hasSession / paneExitCode / paneTitle (one-entry probe, 5 s)", () => {
-  it("hasSession reads entry.alive", async () => {
+describe("hasSubshell / paneExitCode / paneTitle (one-entry probe, 5 s)", () => {
+  it("hasSubshell reads entry.alive", async () => {
     const h = makeHarness();
-    h.answer("probe", [{ sessionId: "s1", alive: true, exitCode: null }]);
-    expect(await h.launcher.hasSession("sock", "s1")).toBe(true);
-    expect(h.calls).toEqual([{ cmd: { type: "probe", sessionIds: ["s1"] }, timeoutMs: 5_000 }]);
+    h.answer("probe", [{ subshellId: "s1", alive: true, exitCode: null }]);
+    expect(await h.launcher.hasSubshell("sock", "s1")).toBe(true);
+    expect(h.calls).toEqual([{ cmd: { type: "probe", subshellIds: ["s1"] }, timeoutMs: 5_000 }]);
 
     const h2 = makeHarness();
-    h2.answer("probe", [{ sessionId: "s1", alive: false, exitCode: null }]);
-    expect(await h2.launcher.hasSession("sock", "s1")).toBe(false);
+    h2.answer("probe", [{ subshellId: "s1", alive: false, exitCode: null }]);
+    expect(await h2.launcher.hasSubshell("sock", "s1")).toBe(false);
   });
 
   it("paneExitCode reads entry.exitCode (null while alive)", async () => {
     const h = makeHarness();
-    h.answer("probe", [{ sessionId: "s1", alive: false, exitCode: 3 }]);
+    h.answer("probe", [{ subshellId: "s1", alive: false, exitCode: 3 }]);
     expect(await h.launcher.paneExitCode("sock", "s1")).toBe(3);
   });
 
   it("paneTitle needs alive + title; command defaults to empty string", async () => {
     const h = makeHarness();
-    h.answer("probe", [{ sessionId: "s1", alive: true, exitCode: null, title: "working" }]);
+    h.answer("probe", [{ subshellId: "s1", alive: true, exitCode: null, title: "working" }]);
     expect(await h.launcher.paneTitle("sock", "s1")).toEqual({ title: "working", command: "" });
 
     const h2 = makeHarness();
-    h2.answer("probe", [{ sessionId: "s1", alive: false, exitCode: 0, title: "old" }]);
+    h2.answer("probe", [{ subshellId: "s1", alive: false, exitCode: 0, title: "old" }]);
     expect(await h2.launcher.paneTitle("sock", "s1")).toBeNull();
 
     const h3 = makeHarness();
-    h3.answer("probe", [{ sessionId: "s1", alive: true, exitCode: null }]);
+    h3.answer("probe", [{ subshellId: "s1", alive: true, exitCode: null }]);
     expect(await h3.launcher.paneTitle("sock", "s1")).toBeNull();
   });
 
   it("a malformed probe payload rejects", async () => {
     const h = makeHarness();
     h.answer("probe", { nope: true });
-    expect(((await rejection(h.launcher.hasSession("sock", "s1"))) as Error).message).toContain("malformed probe");
+    expect(((await rejection(h.launcher.hasSubshell("sock", "s1"))) as Error).message).toContain("malformed probe");
   });
 });
 
@@ -378,7 +378,7 @@ describe("capture / resize / sendInput / pressEnter", () => {
     const h = makeHarness();
     h.answer("capture", "  screen  ");
     expect(await h.launcher.capture("sock", "s1")).toBe("  screen  ");
-    expect(h.calls).toEqual([{ cmd: { type: "capture", sessionId: "s1" }, timeoutMs: 10_000 }]);
+    expect(h.calls).toEqual([{ cmd: { type: "capture", subshellId: "s1" }, timeoutMs: 10_000 }]);
   });
 
   it("resize and sendInput ride verbatim", async () => {
@@ -386,8 +386,8 @@ describe("capture / resize / sendInput / pressEnter", () => {
     await h.launcher.resize("sock", "s1", 120, 40);
     await h.launcher.sendInput("sock", "s1", "ls\r");
     expect(h.calls.map((c) => c.cmd)).toEqual([
-      { type: "resize", sessionId: "s1", cols: 120, rows: 40 },
-      { type: "input", sessionId: "s1", data: "ls\r" },
+      { type: "resize", subshellId: "s1", cols: 120, rows: 40 },
+      { type: "input", subshellId: "s1", data: "ls\r" },
     ]);
   });
 });
@@ -399,7 +399,7 @@ describe("deliverPrompt", () => {
     expect(await h.launcher.deliverPrompt("sock", "s1", "hello", 15_000, 500)).toBe(true);
     expect(h.calls).toEqual([
       {
-        cmd: { type: "prompt_deliver", sessionId: "s1", text: "hello", settleTimeoutMs: 15_000, pollMs: 500 },
+        cmd: { type: "prompt_deliver", subshellId: "s1", text: "hello", settleTimeoutMs: 15_000, pollMs: 500 },
         timeoutMs: 45_000,
       },
     ]);
@@ -421,19 +421,19 @@ describe("deliverPrompt", () => {
 describe("log paths and reads", () => {
   it("logPath composes from facts; throws NoLiveConnectionError (and sends nothing) without them", () => {
     const h = makeHarness();
-    expect(h.launcher.logPath("s1")).toBe("/home/u/.subshell/sessions/s1.log");
+    expect(h.launcher.logPath("s1")).toBe("/home/u/.subshell/subshells/s1.log");
     h.setFacts(undefined);
     expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
   });
 
-  it("metaArtifactPath pins the agent's `<dataDir>/sessions/<id>.meta.json` layout", () => {
-    // Pinned against apps/agent/src/session-meta.ts: SessionMetaStore.metaPath =
-    // join(dataDir, "sessions", `${id}${".meta.json"}`). The manager feeds this
+  it("metaArtifactPath pins the agent's `<dataDir>/subshells/<id>.meta.json` layout", () => {
+    // Pinned against apps/agent/src/subshell-meta.ts: SubshellMetaStore.metaPath =
+    // join(dataDir, "subshells", `${id}${".meta.json"}`). The manager feeds this
     // into the delete-time `remove_paths` so a deliberate delete unlinks the
-    // agent's per-session record alongside the log and the MCP config.
+    // agent's per-subshell record alongside the log and the MCP config.
     const h = makeHarness();
-    expect(h.launcher.metaArtifactPath("s1")).toBe("/home/u/.subshell/sessions/s1.meta.json");
+    expect(h.launcher.metaArtifactPath("s1")).toBe("/home/u/.subshell/subshells/s1.meta.json");
     h.setFacts(undefined);
     expect(() => h.launcher.metaArtifactPath("s1")).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
@@ -453,7 +453,7 @@ describe("log paths and reads", () => {
     expect(s).toEqual({ bytes: s.bytes, next: 5, size: 40 });
     expect(Buffer.from(s.bytes).toString("utf8")).toBe("hello");
     expect(h2.calls[0]).toEqual({
-      cmd: { type: "log_read", sessionId: "s1", fromByte: 0, maxBytes: 5 },
+      cmd: { type: "log_read", subshellId: "s1", fromByte: 0, maxBytes: 5 },
       timeoutMs: 10_000,
     });
   });
@@ -464,8 +464,8 @@ describe("log paths and reads", () => {
     h.answer("log_read", { bytes_b64: b64("l1\nl2\n"), next: 9, size: 9 });
     expect(await h.launcher.readLogTail("s1")).toEqual({ lines: ["l1", "l2"], truncated: false });
     expect(h.calls.map((c) => c.cmd)).toEqual([
-      { type: "log_read", sessionId: "s1", fromByte: 0, maxBytes: 1 },
-      { type: "log_read", sessionId: "s1", fromByte: 0, maxBytes: 256 * 1024 },
+      { type: "log_read", subshellId: "s1", fromByte: 0, maxBytes: 1 },
+      { type: "log_read", subshellId: "s1", fromByte: 0, maxBytes: 256 * 1024 },
     ]);
   });
 
@@ -476,7 +476,7 @@ describe("log paths and reads", () => {
     h.answer("log_read", { bytes_b64: b64("z"), next: 1, size });
     h.answer("log_read", { bytes_b64: b64("partial\nfull line\n"), next: size, size });
     expect(await h.launcher.readLogTail("s1")).toEqual({ lines: ["full line"], truncated: true });
-    expect(h.calls[1]?.cmd).toEqual({ type: "log_read", sessionId: "s1", fromByte: start, maxBytes: 256 * 1024 });
+    expect(h.calls[1]?.cmd).toEqual({ type: "log_read", subshellId: "s1", fromByte: start, maxBytes: 256 * 1024 });
   });
 
   it("an empty log (size 0) tails as { lines: [], truncated: false } like local", async () => {
@@ -496,7 +496,7 @@ describe("tailStart relay", () => {
       // The agent's catch-up pump can fire before the result lands: prove the
       // bus already has this subId by dispatching mid-round-trip.
       subscribedDuringRpc = dispatchOutput(
-        outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 0, toByte: 3, data_b64: b64("abc") }),
+        outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 0, toByte: 3, data_b64: b64("abc") }),
       );
       return undefined;
     });
@@ -522,11 +522,11 @@ describe("tailStart relay", () => {
     });
     expect(await rejection(h.launcher.tailStart("s1", "sub-1", 0, () => {}))).toBe(rpcErr);
     expect(
-      dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 0, toByte: 1, data_b64: b64("x") })),
+      dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 0, toByte: 1, data_b64: b64("x") })),
     ).toBe(false); // the bus dropped the handler (RED pre-fix: still subscribed ⇒ true)
     await flush();
     expect(h.calls).toEqual([
-      { cmd: { type: "tail_start", sessionId: "s1", subId: "sub-1", fromByte: 0 }, timeoutMs: 10_000 },
+      { cmd: { type: "tail_start", subshellId: "s1", subId: "sub-1", fromByte: 0 }, timeoutMs: 10_000 },
     ]); // disposer never returned ⇒ nothing sends tail_stop
   });
 
@@ -536,8 +536,8 @@ describe("tailStart relay", () => {
     const dispose = await h.launcher.tailStart("s1", "sub-1", 0, (b, next) =>
       chunks.push([Buffer.from(b).toString(), next]),
     );
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 0, toByte: 3, data_b64: b64("abc") }));
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 3, toByte: 6, data_b64: b64("def") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 0, toByte: 3, data_b64: b64("abc") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 3, toByte: 6, data_b64: b64("def") }));
     await flush();
     expect(chunks).toEqual([
       ["abc", 3],
@@ -553,11 +553,11 @@ describe("tailStart relay", () => {
     const dispose = await h.launcher.tailStart("s1", "sub-1", 100, (b, next) =>
       chunks.push([Buffer.from(b).toString(), next]),
     );
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 107, toByte: 110, data_b64: b64("xyz") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 107, toByte: 110, data_b64: b64("xyz") }));
     await flush();
     expect(h.calls).toEqual([
-      { cmd: { type: "tail_start", sessionId: "s1", subId: "sub-1", fromByte: 100 }, timeoutMs: 10_000 },
-      { cmd: { type: "log_read", sessionId: "s1", fromByte: 100, maxBytes: 7 }, timeoutMs: 10_000 },
+      { cmd: { type: "tail_start", subshellId: "s1", subId: "sub-1", fromByte: 100 }, timeoutMs: 10_000 },
+      { cmd: { type: "log_read", subshellId: "s1", fromByte: 100, maxBytes: 7 }, timeoutMs: 10_000 },
     ]);
     expect(chunks).toEqual([
       ["gapfill", 107],
@@ -575,7 +575,7 @@ describe("tailStart relay", () => {
     const dispose = await h.launcher.tailStart("s1", "sub-1", 100, (b, next) =>
       chunks.push([Buffer.from(b).toString(), next]),
     );
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 110, toByte: 113, data_b64: b64("xyz") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 110, toByte: 113, data_b64: b64("xyz") }));
     await flush();
     expect(chunks).toEqual([["xyz", 113]]);
     dispose();
@@ -590,7 +590,7 @@ describe("tailStart relay", () => {
     const dispose = await h.launcher.tailStart("s1", "sub-1", 100, (b, next) =>
       chunks.push([Buffer.from(b).toString(), next]),
     );
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 105, toByte: 108, data_b64: b64("xyz") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 105, toByte: 108, data_b64: b64("xyz") }));
     await flush();
     expect(chunks).toEqual([["xyz", 108]]);
     dispose();
@@ -602,8 +602,8 @@ describe("tailStart relay", () => {
     const dispose = await h.launcher.tailStart("s1", "sub-1", 0, (b, next) =>
       chunks.push([Buffer.from(b).toString(), next]),
     );
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 0, toByte: 5, data_b64: b64("hello") }));
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 2, toByte: 8, data_b64: b64("lloAB") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 0, toByte: 5, data_b64: b64("hello") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 2, toByte: 8, data_b64: b64("lloAB") }));
     await flush();
     expect(chunks).toEqual([
       ["hello", 5],
@@ -612,11 +612,11 @@ describe("tailStart relay", () => {
     dispose();
   });
 
-  it("events for another sessionId are ignored", async () => {
+  it("events for another subshellId are ignored", async () => {
     const h = makeHarness();
     const chunks: string[] = [];
     const dispose = await h.launcher.tailStart("s1", "sub-1", 0, (b) => chunks.push(Buffer.from(b).toString()));
-    dispatchOutput(outputEvent({ sessionId: "other", subId: "sub-1", fromByte: 0, toByte: 2, data_b64: b64("no") }));
+    dispatchOutput(outputEvent({ subshellId: "other", subId: "sub-1", fromByte: 0, toByte: 2, data_b64: b64("no") }));
     await flush();
     expect(chunks).toEqual([]);
     dispose();
@@ -636,7 +636,7 @@ describe("tailStart relay", () => {
     const dispose = await h.launcher.tailStart("s1", "sub-1", 100, (b, next) =>
       chunks.push([Buffer.from(b).toString(), next]),
     );
-    dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 107, toByte: 110, data_b64: b64("xyz") }));
+    dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 107, toByte: 110, data_b64: b64("xyz") }));
     await flush(); // the task is now parked mid-`await` on the backfill
     dispose(); // disposed WHILE the backfill responder is pending
     resolveBackfill?.({ bytes_b64: b64("gapfill"), next: 107, size: 200 });
@@ -645,7 +645,7 @@ describe("tailStart relay", () => {
     // And a fresh dispatch finds no subscriber — the bus was unsubscribed.
     expect(
       dispatchOutput(
-        outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 110, toByte: 113, data_b64: b64("123") }),
+        outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 110, toByte: 113, data_b64: b64("123") }),
       ),
     ).toBe(false);
     await flush();
@@ -674,11 +674,11 @@ describe("tailStart relay", () => {
     dispose();
     await flush();
     expect(h.calls).toEqual([
-      { cmd: { type: "tail_start", sessionId: "s1", subId: "sub-1", fromByte: 0 }, timeoutMs: 10_000 },
+      { cmd: { type: "tail_start", subshellId: "s1", subId: "sub-1", fromByte: 0 }, timeoutMs: 10_000 },
       { cmd: { type: "tail_stop", subId: "sub-1" }, timeoutMs: 5_000 },
     ]);
     expect(
-      dispatchOutput(outputEvent({ sessionId: "s1", subId: "sub-1", fromByte: 0, toByte: 1, data_b64: b64("x") })),
+      dispatchOutput(outputEvent({ subshellId: "s1", subId: "sub-1", fromByte: 0, toByte: 1, data_b64: b64("x") })),
     ).toBe(false); // nobody listening anymore — the bus dropped it
   });
 });
@@ -753,7 +753,7 @@ describe("offline short-circuit (no facts ⇒ no send)", () => {
         binary: "/b",
         cwd: "/w",
         profile: testProfile,
-        sessionName: "s1",
+        subshellName: "s1",
         subshellEnv: {},
       }),
     ); // launch still surfaces the failure

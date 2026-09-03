@@ -1,7 +1,7 @@
 import type { TmuxRunner } from "@internal/harnesses";
 import type { JsonValue, NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import type { AgentConfig } from "../config.js";
-import type { SessionMetaStore } from "../session-meta.js";
+import type { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
  * The command-executor seam (spec 2026-08-31 §7): everything an executor may
@@ -12,15 +12,15 @@ import type { SessionMetaStore } from "../session-meta.js";
  */
 
 /**
- * Handle over one live `tail_start` pump (created by tail.ts). The session id
+ * Handle over one live `tail_start` pump (created by tail.ts). The subshell id
  * is part of the pinned shape so the exit watcher's death sweep (report.ts
  * `dropTailsFor`) can stop every sub belonging to a dead pane.
  */
 export interface TailHandle {
   /** Stops the pump and releases its watcher/timer. Must be idempotent. */
   stop(): void;
-  /** The subshell session whose pane log this pump streams (death-sweep key). */
-  readonly sessionId: string;
+  /** The subshell subshell whose pane log this pump streams (death-sweep key). */
+  readonly subshellId: string;
 }
 
 /** The websocket surface an executor may use: emit events; optionally read backpressure. */
@@ -67,7 +67,7 @@ export interface WatcherRegistration {
   token: symbol;
   /**
    * Consecutive ticks on which this registration's socket probe FAILED to
-   * answer (`listSessionsChecked` ok:false). An authoritative ok:true answer
+   * answer (`listSubshellsChecked` ok:false). An authoritative ok:true answer
    * resets it; the threshold that finally reports death is
    * `NODE_EXIT_UNREACHABLE_TICKS` in report.ts (design 2026-09-02 §1 — a live
    * pane must not die from one tmux blip). A relaunch mints a fresh
@@ -82,17 +82,17 @@ export interface CommandContext {
   config: AgentConfig;
   /** The tmux runner all pane operations go through. */
   tmux: TmuxRunner;
-  /** Per-session launch records (socket, cwd) — the policy's second root source. */
-  meta: SessionMetaStore;
+  /** Per-subshell launch records (socket, cwd) — the policy's second root source. */
+  meta: SubshellMetaStore;
   /** Epoch-ms clock (injectable; stamps inventory `ts` and friends). */
   nowMs: () => number;
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
   /**
-   * The panes supervised for natural death, keyed by sessionId →
+   * The panes supervised for natural death, keyed by subshellId →
    * {@link WatcherRegistration} (socket + registration token + unreachable
    * counter; filled by
-   * launch/report.ts since Task 4; re-keyed from per-session timers to the
+   * launch/report.ts since Task 4; re-keyed from per-subshell timers to the
    * shared-tick set by the exit-watcher batching — ONE interval now ticks for
    * every entry, probing each distinct socket once per tick). Re-arming the
    * same id (a relaunch on a restarted row) REPLACES the entry with a fresh

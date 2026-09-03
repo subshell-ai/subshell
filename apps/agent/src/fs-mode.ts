@@ -3,7 +3,7 @@ import { chmod, stat } from "node:fs/promises";
 /**
  * chmods `path` to `want` if any group/other bit crept in despite the mode
  * argument. Shared between the two modules that persist secrets (config.ts,
- * session-meta.ts): mkdir/writeFile modes apply only to the created leaf AND
+ * subshell-meta.ts): mkdir/writeFile modes apply only to the created leaf AND
  * are masked by umask, so every secret-bearing path needs this re-tightening
  * pass right after creation.
  * @param path - file or directory just created/rewritten.

@@ -18,7 +18,7 @@ import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";
 import { type DaemonDeps, probeOnline, runDaemon, type WsConstructor, type WsLike, wsUrlFor } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
-import { SessionMetaStore } from "../session-meta.js";
+import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
 
@@ -334,22 +334,22 @@ test("frame signed by an unknown key → verify error event, NO result", async (
 // answer comes back as a result frame with the matching ref — answered here
 // through the id-format gate so NO tmux/spawn side effect can happen on the
 // test host (the launch happy path is covered in commands-launch.test.ts).
-test("launch (valid wire, hostile session id) → result ok:false invalid session id", async () => {
+test("launch (valid wire, hostile subshell id) → result ok:false invalid subshell id", async () => {
   const h = await startDaemon();
   const launch: NodeCommandBody = {
     type: "launch",
-    sessionId: "s1",
+    subshellId: "s1",
     socket: "subshell-s1",
     cwd: "/tmp",
     harnessId: "claude-code",
     profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: {},
-    sessionName: "s1",
+    subshellName: "s1",
   };
   const jti = await signAndSend(h, launch, { jti: "launch-1", seq: 1 });
   const result = await waitFor<Extract<NodeEvent, { type: "result" }>>(h, (e) => e.type === "result", "result");
   expect(result.ref).toBe(jti);
-  expect(result).toMatchObject({ ok: false, error: "invalid session id" });
+  expect(result).toMatchObject({ ok: false, error: "invalid subshell id" });
 });
 
 test("inventory command: inventory EVENT first, then result ok; harness list well-formed", async () => {
@@ -727,13 +727,13 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
       }
       return undefined;
     },
-    // The connect-time sessions_report scan needs it too — without `list` every
-    // connect logs "sessions_report failed" noise around this test.
+    // The connect-time subshells_report scan needs it too — without `list` every
+    // connect logs "subshells_report failed" noise around this test.
     list: async () => [],
-  } as unknown as SessionMetaStore;
+  } as unknown as SubshellMetaStore;
   const h = await startDaemon({ tmux: fakeTmux, meta: slowMeta });
-  const jtiT = await signAndSend(h, { type: "terminate", sessionId: HEX_A }, { jti: "ser-t", seq: 1 });
-  const jtiI = await signAndSend(h, { type: "input", sessionId: HEX_B, data: "x" }, { jti: "ser-i", seq: 2 });
+  const jtiT = await signAndSend(h, { type: "terminate", subshellId: HEX_A }, { jti: "ser-t", seq: 1 });
+  const jtiI = await signAndSend(h, { type: "input", subshellId: HEX_B, data: "x" }, { jti: "ser-i", seq: 2 });
   await waitFor(h, (e) => e.type === "result" && e.ref === jtiI, "input result");
   // The second's start FOLLOWS the first's end — strict serial, arrival order.
   expect(order).toEqual(["terminate:start", "terminate:awaited", "terminate:end", "input:start"]);
@@ -744,14 +744,14 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
 });
 
 /* ------------------------------------------------------------------ */
-/* Phase 2 Task 4: connect-time sessions_report (spec §3.3)            */
+/* Phase 2 Task 4: connect-time subshells_report (spec §3.3)            */
 /* ------------------------------------------------------------------ */
 
-test("sessions_report lands AFTER ready: one row per recorded meta, re-projection on connect", async () => {
+test("subshells_report lands AFTER ready: one row per recorded meta, re-projection on connect", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-report-"));
-  const store = new SessionMetaStore(dataDir); // simulates panes that survived an agent restart
+  const store = new SubshellMetaStore(dataDir); // simulates panes that survived an agent restart
   await store.record({
-    sessionId: HEX_A,
+    subshellId: HEX_A,
     cwd: dataDir,
     socket: "rep-sock",
     harnessId: "pi",
@@ -759,7 +759,7 @@ test("sessions_report lands AFTER ready: one row per recorded meta, re-projectio
     startedAt: "2026-09-01T00:00:00.000Z",
   });
   await store.record({
-    sessionId: HEX_B,
+    subshellId: HEX_B,
     cwd: dataDir,
     socket: "rep-sock",
     harnessId: "pi",
@@ -767,21 +767,21 @@ test("sessions_report lands AFTER ready: one row per recorded meta, re-projectio
     startedAt: "2026-09-01T00:00:00.000Z",
   });
   const fakeTmux = {
-    hasSession: (_socket: string, id: string) => id === HEX_A,
+    hasSubshell: (_socket: string, id: string) => id === HEX_A,
     paneExitCode: () => 5,
   } as unknown as TmuxRunner;
   try {
     const h = await startDaemon({ tmux: fakeTmux, meta: store });
-    const report = await waitFor<Extract<NodeEvent, { type: "sessions_report" }>>(
+    const report = await waitFor<Extract<NodeEvent, { type: "subshells_report" }>>(
       h,
-      (e) => e.type === "sessions_report",
-      "sessions_report frame",
+      (e) => e.type === "subshells_report",
+      "subshells_report frame",
     );
     const types = eventTypes(h);
-    expect(types.indexOf("sessions_report")).toBeGreaterThan(types.indexOf("ready")); // after ready (spec §3.3)
-    expect(report.sessions).toEqual([
-      { sessionId: HEX_A, alive: true, exitCode: null },
-      { sessionId: HEX_B, alive: false, exitCode: 5 },
+    expect(types.indexOf("subshells_report")).toBeGreaterThan(types.indexOf("ready")); // after ready (spec §3.3)
+    expect(report.subshells).toEqual([
+      { subshellId: HEX_A, alive: true, exitCode: null },
+      { subshellId: HEX_B, alive: false, exitCode: 5 },
     ]);
     expect(h.plane.unparsed).toEqual([]);
   } finally {
@@ -793,11 +793,11 @@ test("sessions_report lands AFTER ready: one row per recorded meta, re-projectio
 /* P3-T8b: connect-time initial inventory push (spec §7)                */
 /* ------------------------------------------------------------------ */
 
-test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node launches without a manual recheck", async () => {
+test("connect pushes an inventory snapshot AFTER subshells_report: a fresh node launches without a manual recheck", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-invpush-"));
-  const store = new SessionMetaStore(dataDir);
+  const store = new SubshellMetaStore(dataDir);
   await store.record({
-    sessionId: HEX_A,
+    subshellId: HEX_A,
     cwd: dataDir,
     socket: "inv-sock",
     harnessId: "pi",
@@ -805,7 +805,7 @@ test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node l
     startedAt: "2026-09-01T00:00:00.000Z",
   });
   const fakeTmux = {
-    hasSession: () => true,
+    hasSubshell: () => true,
     paneExitCode: () => null,
   } as unknown as TmuxRunner;
   try {
@@ -815,12 +815,12 @@ test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node l
       (e) => e.type === "inventory",
       "connect inventory frame",
     );
-    // The beat pinned (P3-T8b): ready → sessions_report → inventory. The backend
+    // The beat pinned (P3-T8b): ready → subshells_report → inventory. The backend
     // reconcile applies the census's exits BEFORE the snapshot lands, so the
     // inventory must never overtake the report.
     const types = eventTypes(h);
-    expect(types.indexOf("sessions_report")).toBeGreaterThan(types.indexOf("ready"));
-    expect(types.indexOf("inventory")).toBeGreaterThan(types.indexOf("sessions_report"));
+    expect(types.indexOf("subshells_report")).toBeGreaterThan(types.indexOf("ready"));
+    expect(types.indexOf("inventory")).toBeGreaterThan(types.indexOf("subshells_report"));
     expect(Array.isArray(inv.harnesses)).toBe(true);
     expect(inv.harnesses.length).toBeGreaterThan(0); // same builder the `inventory` command answers with
     expect(typeof inv.ts).toBe("string");
@@ -830,11 +830,11 @@ test("connect pushes an inventory snapshot AFTER sessions_report: a fresh node l
   }
 });
 
-test("a throwing sessions_report scan is catch-logged, never fatal to the connection", async () => {
+test("a throwing subshells_report scan is catch-logged, never fatal to the connection", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-report-fail-"));
-  const store = new SessionMetaStore(dataDir);
+  const store = new SubshellMetaStore(dataDir);
   await store.record({
-    sessionId: HEX_A,
+    subshellId: HEX_A,
     cwd: dataDir,
     socket: "x",
     harnessId: "pi",
@@ -842,7 +842,7 @@ test("a throwing sessions_report scan is catch-logged, never fatal to the connec
     startedAt: "2026-09-01T00:00:00.000Z",
   });
   const fakeTmux = {
-    hasSession: () => {
+    hasSubshell: () => {
       throw new Error("tmux exploded");
     },
   } as unknown as TmuxRunner;
@@ -850,7 +850,7 @@ test("a throwing sessions_report scan is catch-logged, never fatal to the connec
     const h = await startDaemon({ tmux: fakeTmux, meta: store });
     const jti = await signAndSend(h, { type: "ping" }, { jti: "after-report-fail", seq: 1 });
     await waitFor(h, (e) => e.type === "result" && e.ref === jti, "ping result after a failed report scan");
-    expect(count(h, (e) => e.type === "sessions_report")).toBe(0); // the scan failed, so no frame — and no close
+    expect(count(h, (e) => e.type === "subshells_report")).toBe(0); // the scan failed, so no frame — and no close
     // P3-T8b: the initial inventory push is INDEPENDENT of the census outcome —
     // a failed scan must still leave the node launchable (the push chains after
     // the report's catch, not after its success).
@@ -967,7 +967,7 @@ test("outbound guard: an oversize result is suppressed + logged, never sent; the
   const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
     lines.push(a.join(" "));
   });
-  const jti = await signAndSend(h, { type: "capture", sessionId: HEX_A }, { jti: "big-1", seq: 1 });
+  const jti = await signAndSend(h, { type: "capture", subshellId: HEX_A }, { jti: "big-1", seq: 1 });
   await sleep(100);
   spy.mockRestore();
   // Mirrors the inbound rule: suppress, do NOT close.
@@ -986,19 +986,19 @@ test("outbound guard: an oversize result is suppressed + logged, never sent; the
 
 test("socket close stops every live tail: no output into the dead ws, none resurrected on reconnect", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-tail-"));
-  mkdirSync(join(dataDir, "sessions"), { recursive: true });
-  const store = new SessionMetaStore(dataDir);
+  mkdirSync(join(dataDir, "subshells"), { recursive: true });
+  const store = new SubshellMetaStore(dataDir);
   const file = store.logPath(HEX_A);
   writeFileSync(file, "abc");
   try {
     const h = await startDaemon({ meta: store });
     await signAndSend(
       h,
-      { type: "tail_start", sessionId: HEX_A, subId: "d-1", fromByte: 0 },
+      { type: "tail_start", subshellId: HEX_A, subId: "d-1", fromByte: 0 },
       { jti: "tail-1", seq: 1 },
     );
     const out = await waitFor<Extract<NodeEvent, { type: "output" }>>(h, (e) => e.type === "output", "tail output");
-    expect(out).toMatchObject({ subId: "d-1", sessionId: HEX_A, fromByte: 0, toByte: 3 });
+    expect(out).toMatchObject({ subId: "d-1", subshellId: HEX_A, fromByte: 0, toByte: 3 });
 
     // Non-terminal close → finish() drains ctx.tails (stopAllTails) → reconnect.
     closeAllSockets(h.plane, 1001, "server restart");

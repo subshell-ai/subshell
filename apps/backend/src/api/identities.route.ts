@@ -10,7 +10,7 @@ const RegisterIdentityBodySchema = t.Object({
     maxLength: 2048,
     description: "JSON-serialized JWK (P-256 ECDH-ES public key)",
   }),
-  displayName: t.Optional(t.String({ maxLength: 120, description: "Convenience label (e.g. session name)" })),
+  displayName: t.Optional(t.String({ maxLength: 120, description: "Convenience label (e.g. subshell name)" })),
 });
 
 const IdentityResponseSchema = t.Object({
@@ -22,7 +22,7 @@ const IdentityResponseSchema = t.Object({
 
 /**
  * Principal encryption identities. Registration is SELF-ONLY: the principal
- * is derived from the caller's credential (cookie → user:<id>, session token
+ * is derived from the caller's credential (cookie → user:<id>, subshell token
  * → sess:<id>), so nobody can rotate anybody else's key. Re-registering the
  * same principal ROTATES the key (sealed delivery to old messages stops
  * working for that principal — by design, see spec §11).

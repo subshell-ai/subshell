@@ -1,6 +1,6 @@
 {
   "name": "@internal/subshell-protocol",
-  "description": "Session contract shared by the backend and frontend: WebSocket frames and upload limits",
+  "description": "Subshell contract shared by the backend and frontend: WebSocket frames and upload limits",
   "version": "1.0.0",
   "type": "module",
   "private": true,

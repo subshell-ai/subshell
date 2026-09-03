@@ -92,13 +92,13 @@ export const statDirEcho: ScriptedHandler = (cmd) =>
 /** `probe` → every requested id alive, no exit code (the healthy-agent answer). */
 export const probeAllAlive: ScriptedHandler = (cmd) =>
   cmd.type === "probe"
-    ? cmd.sessionIds.map((sessionId) => ({ sessionId, alive: true, exitCode: null }))
+    ? cmd.subshellIds.map((subshellId) => ({ subshellId, alive: true, exitCode: null }))
     : new Error(`probeAllAlive: wrong cmd ${cmd.type}`);
 
 /**
  * Attach a scripted agent for `nodeId`.
  * @param nodeId - the node id to install under (a `nodes` row must exist for
- *   session FKs, but no node API key: this stands in for the dialing agent at
+ *   subshell FKs, but no node API key: this stands in for the dialing agent at
  *   the registry seam — the dial/auth path is `node-ws-integration.test.ts`)
  * @param handlers - per-type answers; a command with no handler answers a
  *   loud `ok:false` so unscripted traffic fails the test that sent it

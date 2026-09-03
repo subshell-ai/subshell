@@ -11,9 +11,9 @@ import { audit } from "@/services/audit.js";
 import { disconnectNode, getLive, REVOKED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
 import { failConnPendings } from "@/services/nodes/node-rpc.js";
 
-/** `?force=true` skips the running-sessions guard (string form — no coercion surprises). */
+/** `?force=true` skips the running-subshells guard (string form — no coercion surprises). */
 const QuerySchema = t.Object({
-  force: t.Optional(t.String({ description: "'true' proceeds despite running sessions (offline nodes only)" })),
+  force: t.Optional(t.String({ description: "'true' proceeds despite running subshells (offline nodes only)" })),
 });
 
 const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success" }) });
@@ -22,7 +22,7 @@ const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success
  * `DELETE /api/nodes/:id` — retire a node (spec 2026-08-31 §5.4/§9). OWNER
  * only (admins included NOT — effective edit never extends to delete),
  * cookie-only, and `local` is undeletable (400). Guards, in order:
- * running sessions → 409 unless `?force=true`; force on a node that is
+ * running subshells → 409 unless `?force=true`; force on a node that is
  * ONLINE → 409 (force may not ambush a live machine — remote terminate is
  * phase 2, so "go offline first" is the honest instruction).
  *
@@ -32,7 +32,7 @@ const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success
  * evict + close a live socket (4401) and fail its in-flight commands —
  * AFTER the DB changes, so the socket can never outlive its credential by
  * even one frame's worth of trust.
- * Force-deleting an OFFLINE node deliberately leaves session rows alone:
+ * Force-deleting an OFFLINE node deliberately leaves subshell rows alone:
  * the machines are gone; those rows crash/reconcile on their own.
  */
 export const deleteNodeRoute = new Elysia()
@@ -41,7 +41,7 @@ export const deleteNodeRoute = new Elysia()
   .delete(
     "/:id",
     async ({ params, query, user, actor, status }) => {
-      requireCookieActor(actor, "Node deletion is restricted to browser sessions");
+      requireCookieActor(actor, "Node deletion is restricted to browser subshells");
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
@@ -56,14 +56,14 @@ export const deleteNodeRoute = new Elysia()
 
       const nodes = new NodesRepository(db);
       const force = query.force === "true";
-      const running = await nodes.countRunningSessions(gate.row.id);
+      const running = await nodes.countRunningSubshells(gate.row.id);
       if (running > 0 && !force) {
         return status(
           409,
           apiErrorBody({
-            code: BackendErrorCodes.NODE_RUNNING_SESSIONS,
-            message: `Node has ${running} running session${running === 1 ? "" : "s"} — delete again with ?force=true`,
-            metadataSafe: { runningSessions: running },
+            code: BackendErrorCodes.NODE_RUNNING_SUBSHELLS,
+            message: `Node has ${running} running subshell${running === 1 ? "" : "s"} — delete again with ?force=true`,
+            metadataSafe: { runningSubshells: running },
           }),
         );
       }
@@ -98,7 +98,7 @@ export const deleteNodeRoute = new Elysia()
         action: "node.delete",
         targetType: "node",
         targetId: gate.row.id,
-        metadataJson: JSON.stringify({ name: gate.row.name, runningSessions: running, forced: force }),
+        metadataJson: JSON.stringify({ name: gate.row.name, runningSubshells: running, forced: force }),
       });
       return { ok: true };
     },
@@ -116,7 +116,7 @@ export const deleteNodeRoute = new Elysia()
         operationId: "deleteNode",
         tags: ["nodes"],
         description:
-          "Delete a node (owner only; un-pins profiles, revokes its key; ?force=true for offline nodes with sessions)",
+          "Delete a node (owner only; un-pins profiles, revokes its key; ?force=true for offline nodes with subshells)",
       },
     },
   );

@@ -31,7 +31,7 @@ describe("ClaudeCodePlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: emptyProfile(),
     });
     expect(cmd).toEqual(["/usr/bin/claude", "--settings", expect.any(String)]);
@@ -42,7 +42,7 @@ describe("ClaudeCodePlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      sessionName: "My Session",
+      subshellName: "My Subshell",
       profile: {
         name: "p",
         env: {},
@@ -59,7 +59,7 @@ describe("ClaudeCodePlugin", () => {
     expect(JSON.parse(cmd[settingsIdx + 1])).toMatchObject({ permissionMode: "plan", model: "sonnet" });
     expect(JSON.parse(cmd[settingsIdx + 1]).hooks).toBeDefined();
     expect(cmd).toContain("--name");
-    expect(cmd[cmd.indexOf("--name") + 1]).toBe("My Session");
+    expect(cmd[cmd.indexOf("--name") + 1]).toBe("My Subshell");
     expect(cmd).toContain("--permission-mode");
     expect(cmd).toContain("plan");
   });
@@ -70,7 +70,7 @@ describe("ClaudeCodePlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: {
         name: "p",
         env: {},
@@ -121,7 +121,7 @@ describe("ClaudeCodePlugin MCP config injection", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
-      sessionName: "",
+      subshellName: "",
       mcp: {
         fileContent: "{}",
         args: ["--mcp-config", "/data/mcp/sess-1.json"],
@@ -135,7 +135,7 @@ describe("ClaudeCodePlugin MCP config injection", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
-      sessionName: "",
+      subshellName: "",
     });
     expect(cmd).not.toContain("--mcp-config");
   });
@@ -147,7 +147,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: emptyProfile(),
-      sessionName: "",
+      subshellName: "",
       harnessSession: { id: "11111111-1111-4111-8111-111111111111", mode: "start" },
     });
     expect(cmd).toEqual([
@@ -164,7 +164,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: emptyProfile(),
-      sessionName: "x",
+      subshellName: "x",
       harnessSession: { id: "11111111-1111-4111-8111-111111111111", mode: "resume" },
     });
     expect(cmd).toEqual([
@@ -183,7 +183,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: emptyProfile(),
-      sessionName: "",
+      subshellName: "",
     });
     expect(cmd).not.toContain("--resume");
     expect(cmd).not.toContain("--session-id");
@@ -207,7 +207,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
 
     it("is true only when the pinned transcript exists under the cwd's slug dir", () => {
       withConfigDir((dir) => {
-        const id = plugin.resume?.allocateSessionId() ?? "";
+        const id = plugin.resume?.allocateSubshellId() ?? "";
         expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         const slug = join(dir, "projects", "-tmp-my-project");
         mkdirSync(slug, { recursive: true });
@@ -231,7 +231,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: emptyProfile(),
-      sessionName: "",
+      subshellName: "",
     });
     const idx = cmd.indexOf("--settings");
     expect(idx).toBeGreaterThan(-1);
@@ -253,7 +253,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
-      sessionName: "",
+      subshellName: "",
     });
     const settings = JSON.parse(cmd[cmd.indexOf("--settings") + 1]) as Record<string, unknown>;
     expect(settings.model).toBe("sonnet");

@@ -3,15 +3,15 @@ import { unlinkSync } from "node:fs";
 import { ClaudeCodePlugin, HermesPlugin } from "@internal/harnesses";
 import {
   MCP_LAUNCH_PLACEHOLDER,
-  registerSessionMcp,
+  registerSubshellMcp,
   resolveMcpLaunch,
   resolveMcpLaunchForDisplay,
-  sessionMcpConfigPath,
+  subshellMcpConfigPath,
 } from "@/services/mcp-launch.js";
 
 /**
  * The resolver + registration half of `subshell mcp` launch wiring — the pieces
- * the session tests stub around rather than exercise.
+ * the subshell tests stub around rather than exercise.
  */
 describe("resolveMcpLaunch", () => {
   it("honors SUBSHELL_MCP_COMMAND + SUBSHELL_MCP_ARGS above all autodetection", () => {
@@ -39,18 +39,18 @@ describe("resolveMcpLaunchForDisplay", () => {
   });
 });
 
-describe("registerSessionMcp", () => {
+describe("registerSubshellMcp", () => {
   it("auto harness: writes the file (0600) and returns the registration", () => {
     const id = `launch-test-${crypto.randomUUID()}`;
-    const reg = registerSessionMcp(new ClaudeCodePlugin(), id);
+    const reg = registerSubshellMcp(new ClaudeCodePlugin(), id);
     expect(reg?.args).toEqual(["--mcp-config", expect.stringContaining("/mcp/")]);
     expect(JSON.parse(reg?.fileContent ?? "{}").mcpServers.subshell).toBeTruthy();
-    unlinkSync(sessionMcpConfigPath(id)); // throwaway dir, but leave no litter
+    unlinkSync(subshellMcpConfigPath(id)); // throwaway dir, but leave no litter
   });
 
   it("manual harness: returns undefined and writes nothing to register", () => {
-    // hermes has no mcpRegistration — the session launch carries no MCP wiring
-    // beyond SUBSHELL_* (asserted end-to-end in session-manager-mcp.test.ts).
-    expect(registerSessionMcp(new HermesPlugin(), "launch-test-hermes")).toBeUndefined();
+    // hermes has no mcpRegistration — the subshell launch carries no MCP wiring
+    // beyond SUBSHELL_* (asserted end-to-end in subshell-manager-mcp.test.ts).
+    expect(registerSubshellMcp(new HermesPlugin(), "launch-test-hermes")).toBeUndefined();
   });
 });

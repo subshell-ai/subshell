@@ -18,6 +18,7 @@ import * as devicePushTokensMigration from "@/db/migrations/0015-device-push-tok
 import * as sessionSharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as sessionReplayLinesMigration from "@/db/migrations/0018-session-replay-lines.js";
+import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -47,6 +48,7 @@ export async function runMigrations(): Promise<void> {
           "0016-session-sharing": sessionSharingMigration,
           "0017-nodes": nodesMigration,
           "0018-session-replay-lines": sessionReplayLinesMigration,
+          "0019-subshell-rename": subshellRenameMigration,
         };
       },
     },

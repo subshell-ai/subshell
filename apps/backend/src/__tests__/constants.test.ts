@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DATABASE_PATH, IS_TEST, SESSION_DATA_DIR } from "@/constants.js";
+import { DATABASE_PATH, IS_TEST, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 
 /** Absolute path to the module under test, for the out-of-process probes below. */
 const CONSTANTS_MODULE = join(dirname(import.meta.dir), "constants.ts");
@@ -10,7 +10,7 @@ const CONSTANTS_MODULE = join(dirname(import.meta.dir), "constants.ts");
 interface ProbeResult {
   IS_TEST: boolean;
   DATABASE_PATH: string;
-  SESSION_DATA_DIR: string;
+  SUBSHELL_SERVER_DATA_DIR: string;
   /** The probe process's cwd — what any relative path would resolve against. */
   cwd: string;
 }
@@ -30,8 +30,8 @@ function probeConstants(env: Record<string, string | undefined>): ProbeResult {
   const script = join(dir, "probe.ts");
   writeFileSync(
     script,
-    `import { DATABASE_PATH, IS_TEST, SESSION_DATA_DIR } from ${JSON.stringify(CONSTANTS_MODULE)};\n` +
-      `console.log(JSON.stringify({ IS_TEST, DATABASE_PATH, SESSION_DATA_DIR, cwd: process.cwd() }));\n`,
+    `import { DATABASE_PATH, IS_TEST, SUBSHELL_SERVER_DATA_DIR } from ${JSON.stringify(CONSTANTS_MODULE)};\n` +
+      `console.log(JSON.stringify({ IS_TEST, DATABASE_PATH, SUBSHELL_SERVER_DATA_DIR, cwd: process.cwd() }));\n`,
   );
 
   const proc = Bun.spawnSync(["bun", "run", script], {
@@ -70,7 +70,7 @@ describe("test-mode database resolution", () => {
     expect(IS_TEST).toBe(true);
     expect(DATABASE_PATH.startsWith(tmpdir())).toBe(true);
     expect(DATABASE_PATH).toMatch(TEST_DB_SHAPE);
-    expect(SESSION_DATA_DIR.startsWith(tmpdir())).toBe(true);
+    expect(SUBSHELL_SERVER_DATA_DIR.startsWith(tmpdir())).toBe(true);
   });
 
   // The regression this whole flag exists for: `.env.example` ships a
@@ -82,14 +82,14 @@ describe("test-mode database resolution", () => {
       SUBSHELL_TEST_MODE: "1",
       NODE_ENV: "development",
       DATABASE_PATH: "./data/subshell.db",
-      SESSION_DATA_DIR: "./data",
+      SUBSHELL_SERVER_DATA_DIR: "./data",
     });
 
     expect(result.IS_TEST).toBe(true);
     expect(result.DATABASE_PATH).toMatch(TEST_DB_SHAPE);
     expect(result.DATABASE_PATH.startsWith(tmpdir())).toBe(true);
-    expect(result.SESSION_DATA_DIR).not.toBe("./data");
-    expect(result.SESSION_DATA_DIR.startsWith(tmpdir())).toBe(true);
+    expect(result.SUBSHELL_SERVER_DATA_DIR).not.toBe("./data");
+    expect(result.SUBSHELL_SERVER_DATA_DIR.startsWith(tmpdir())).toBe(true);
   });
 
   test("NODE_ENV=test alone is enough, without the preload's flag", () => {
@@ -116,7 +116,7 @@ describe("test-mode database resolution", () => {
 
     expect(result.IS_TEST).toBe(false);
     expect(result.DATABASE_PATH).toBe("/srv/subshell/subshell.db");
-    expect(result.SESSION_DATA_DIR).toBe("/srv/subshell");
+    expect(result.SUBSHELL_SERVER_DATA_DIR).toBe("/srv/subshell");
   });
 
   test("outside test mode an unset DATABASE_PATH still defaults to ./data/subshell.db", () => {
@@ -128,21 +128,21 @@ describe("test-mode database resolution", () => {
     // processes (`--mcp-config`, SUBSHELL_DATA_DIR) and to tmux's pipe-pane
     // shell, all of which resolve paths against a *different* cwd than the
     // backend's. A relative "./data" pointed claude at
-    // <session-cwd>/data/mcp/<id>.json, which never exists — sessions died
+    // <subshell-cwd>/data/mcp/<id>.json, which never exists — subshells died
     // in milliseconds with "MCP config file not found".
-    expect(result.SESSION_DATA_DIR).toBe(join(result.cwd, "data"));
+    expect(result.SUBSHELL_SERVER_DATA_DIR).toBe(join(result.cwd, "data"));
   });
 
-  test("a relative SESSION_DATA_DIR override is resolved against the process cwd", () => {
-    const result = probeConstants({ NODE_ENV: "development", SESSION_DATA_DIR: "var/subshell" });
+  test("a relative SUBSHELL_SERVER_DATA_DIR override is resolved against the process cwd", () => {
+    const result = probeConstants({ NODE_ENV: "development", SUBSHELL_SERVER_DATA_DIR: "var/subshell" });
 
     expect(result.IS_TEST).toBe(false);
-    expect(result.SESSION_DATA_DIR).toBe(join(result.cwd, "var/subshell"));
+    expect(result.SUBSHELL_SERVER_DATA_DIR).toBe(join(result.cwd, "var/subshell"));
   });
 
-  test("an absolute SESSION_DATA_DIR passes through untouched", () => {
-    const result = probeConstants({ NODE_ENV: "development", SESSION_DATA_DIR: "/srv/subshell-data" });
+  test("an absolute SUBSHELL_SERVER_DATA_DIR passes through untouched", () => {
+    const result = probeConstants({ NODE_ENV: "development", SUBSHELL_SERVER_DATA_DIR: "/srv/subshell-data" });
 
-    expect(result.SESSION_DATA_DIR).toBe("/srv/subshell-data");
+    expect(result.SUBSHELL_SERVER_DATA_DIR).toBe("/srv/subshell-data");
   });
 });

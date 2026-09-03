@@ -4,7 +4,7 @@ import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/
 import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { ExpoPushMessage } from "@/services/expo-push.js";
 import { createNotifyService, type PushSender } from "@/services/notify.service.js";
 
@@ -17,12 +17,12 @@ import { createNotifyService, type PushSender } from "@/services/notify.service.
  */
 const uid = crypto.randomUUID();
 const userId = `device-user-${uid}`;
-const sessionIds: string[] = [];
+const subshellIds: string[] = [];
 const tokens: string[] = [];
 
-async function seedSession(id: string, opts: { notify?: boolean; waitingSince?: string | null } = {}) {
-  sessionIds.push(id);
-  await new SessionsRepository(db).create({
+async function seedSubshell(id: string, opts: { notify?: boolean; waitingSince?: string | null } = {}) {
+  subshellIds.push(id);
+  await new SubshellsRepository(db).create({
     id,
     userId,
     profileId: "p",
@@ -32,7 +32,7 @@ async function seedSession(id: string, opts: { notify?: boolean; waitingSince?: 
     tmuxSocket: null,
   });
   await db
-    .updateTable("sessions")
+    .updateTable("subshells")
     .set({ notify: opts.notify ? 1 : 0, waitingSince: opts.waitingSince ?? null })
     .where("id", "=", id)
     .execute();
@@ -54,7 +54,7 @@ function services(
 ) {
   const devices = new DeviceTokensRepository(db);
   const svc = createNotifyService({
-    sessions: db,
+    subshells: db,
     subs: new NotificationsRepository(db),
     devices,
     sender: neverWeb,
@@ -71,34 +71,34 @@ function services(
 const sentFor = (rec: { calls: ExpoPushMessage[][] }, sid: string) =>
   rec.calls.flat().filter((m) => m.data.sid === sid);
 
-describe("notifySession — device fan-out", () => {
+describe("notifySubshell — device fan-out", () => {
   beforeAll(async () => {
     await setupAuthTables(); // real migrations → device_tokens + alive exist
   });
 
   afterAll(async () => {
-    for (const id of sessionIds) await db.deleteFrom("sessions").where("id", "=", id).execute();
+    for (const id of subshellIds) await db.deleteFrom("subshells").where("id", "=", id).execute();
     for (const t of tokens) await db.deleteFrom("deviceTokens").where("token", "=", t).execute();
     await db.deleteFrom("notificationsSubscriptions").where("userId", "=", userId).execute();
     await deleteUserByEmailOrId(userId); // no user row was created; uniform cleanup no-op
   });
 
   it("stays silent unless the bell is on", async () => {
-    await seedSession(`${uid}-off`, { notify: false });
+    await seedSubshell(`${uid}-off`, { notify: false });
     await enroll(`ExponentPushToken[off${uid.slice(0, 8)}]`);
     const rec = { calls: [] as ExpoPushMessage[][] };
     const { svc } = services(rec);
-    await svc.notifySession(`${uid}-off`, "turn_complete");
+    await svc.notifySubshell(`${uid}-off`, "turn_complete");
     expect(sentFor(rec, `${uid}-off`)).toHaveLength(0);
   });
 
   it("rings devices even when the user has NO web subscriptions", async () => {
     // Regression pin for the old `if (subs.length === 0) return` early-exit:
     // the device fan-out must be independent of web-sub presence.
-    await seedSession(`${uid}-nosubs`, { notify: true });
+    await seedSubshell(`${uid}-nosubs`, { notify: true });
     const rec = { calls: [] as ExpoPushMessage[][] };
     const { svc } = services(rec);
-    await svc.notifySession(`${uid}-nosubs`, "turn_complete");
+    await svc.notifySubshell(`${uid}-nosubs`, "turn_complete");
     expect(sentFor(rec, `${uid}-nosubs`).length).toBeGreaterThan(0);
     expect(sentFor(rec, `${uid}-nosubs`)[0]).toMatchObject({
       title: "subshell",
@@ -107,17 +107,17 @@ describe("notifySession — device fan-out", () => {
     });
   });
 
-  it("fans out only to the session owner's devices", async () => {
+  it("fans out only to the subshell owner's devices", async () => {
     // Service-level pin for spec §Testing "owner-only fan-out" — the repository
     // proves listByUser scoping, but nothing pinned THIS path until now.
-    await seedSession(`${uid}-owneronly`, { notify: true });
+    await seedSubshell(`${uid}-owneronly`, { notify: true });
     await enroll(`ExponentPushToken[mine${uid.slice(0, 8)}]`);
     const otherTok = `ExponentPushToken[other${uid.slice(0, 8)}]`;
     await new DeviceTokensRepository(db).upsertForUser(crypto.randomUUID(), otherTok, "android");
     try {
       const rec = { calls: [] as ExpoPushMessage[][] };
       const { svc } = services(rec);
-      await svc.notifySession(`${uid}-owneronly`, "turn_complete");
+      await svc.notifySubshell(`${uid}-owneronly`, "turn_complete");
       const msgs = sentFor(rec, `${uid}-owneronly`);
       expect(msgs.length).toBeGreaterThan(0); // not a vacuous pass
       expect(msgs.map((m) => m.to)).not.toContain(otherTok);
@@ -127,10 +127,10 @@ describe("notifySession — device fan-out", () => {
   });
 
   it("never carries a name, path or operator text to the relay", async () => {
-    await seedSession(`${uid}-privacy`, { notify: true });
+    await seedSubshell(`${uid}-privacy`, { notify: true });
     const rec = { calls: [] as ExpoPushMessage[][] };
     const { svc } = services(rec);
-    await svc.notifySession(`${uid}-privacy`, "turn_complete");
+    await svc.notifySubshell(`${uid}-privacy`, "turn_complete");
     const wire = JSON.stringify(sentFor(rec, `${uid}-privacy`));
     expect(wire.length).toBeGreaterThan(10);
     expect(wire).not.toContain("resume-verify");
@@ -138,7 +138,7 @@ describe("notifySession — device fan-out", () => {
   });
 
   it("prunes DeviceNotRegistered tickets; keeps other errors and transient throws", async () => {
-    await seedSession(`${uid}-prune`, { notify: true });
+    await seedSubshell(`${uid}-prune`, { notify: true });
     const deadTok = `ExponentPushToken[dead${uid.slice(0, 8)}]`;
     const oursTok = `ExponentPushToken[ours${uid.slice(0, 8)}]`;
     await enroll(deadTok);
@@ -149,24 +149,24 @@ describe("notifySession — device fan-out", () => {
     const { svc, devices } = services(rec, (msgs) =>
       msgs.map((m) => errTicket(m.to === deadTok ? "DeviceNotRegistered" : "MessageTooBig")),
     );
-    await svc.notifySession(`${uid}-prune`, "turn_complete");
+    await svc.notifySubshell(`${uid}-prune`, "turn_complete");
     const left = (await devices.listByUser(userId)).map((r) => r.token);
     expect(left).not.toContain(deadTok); // relay says the device is gone
     expect(left).toContain(oursTok); // our-bug ticket keeps the row
 
-    await seedSession(`${uid}-throw`, { notify: true });
+    await seedSubshell(`${uid}-throw`, { notify: true });
     const keepTok = `ExponentPushToken[keep${uid.slice(0, 8)}]`;
     await enroll(keepTok);
     const rec2 = { calls: [] as ExpoPushMessage[][] };
     const s2 = services(rec2, "throw");
-    await s2.svc.notifySession(`${uid}-throw`, "turn_complete");
+    await s2.svc.notifySubshell(`${uid}-throw`, "turn_complete");
     const stillLeft = (await s2.devices.listByUser(userId)).map((r) => r.token);
     expect(stillLeft).toContain(keepTok); // transport exception = transient: rows survive
     expect(stillLeft).toContain(oursTok);
   });
 
   it("prunes junk-token rows and sends only to real ones", async () => {
-    await seedSession(`${uid}-junk`, { notify: true });
+    await seedSubshell(`${uid}-junk`, { notify: true });
     const junkTok = `https://junk.example/${uid}`;
     const realTok = `ExponentPushToken[real${uid.slice(0, 8)}]`;
     tokens.push(junkTok);
@@ -181,7 +181,7 @@ describe("notifySession — device fan-out", () => {
     await enroll(realTok);
     const rec = { calls: [] as ExpoPushMessage[][] };
     const { svc, devices } = services(rec);
-    await svc.notifySession(`${uid}-junk`, "turn_complete");
+    await svc.notifySubshell(`${uid}-junk`, "turn_complete");
     const sent = sentFor(rec, `${uid}-junk`).map((m) => m.to);
     expect(sent).toContain(realTok);
     expect(sent).not.toContain(junkTok);
@@ -192,31 +192,31 @@ describe("notifySession — device fan-out", () => {
     const subject = `${uid}-badge`;
     // Exact arithmetic holds because no OTHER test in this file stamps a waiting
     // row: waiting = {w1, w2} here; the dead row is never counted.
-    await seedSession(subject, { notify: true, waitingSince: null }); // not stamped (watcher order)
-    await seedSession(`${uid}-w1`, { notify: true, waitingSince: "2026-08-31T00:00:00.000Z" });
-    await seedSession(`${uid}-w2`, { notify: true, waitingSince: "2026-08-31T00:00:00.000Z" });
-    await seedSession(`${uid}-dead`, { notify: true, waitingSince: "2026-08-31T00:00:00.000Z" });
-    await db.updateTable("sessions").set({ alive: 0 }).where("id", "=", `${uid}-dead`).execute();
+    await seedSubshell(subject, { notify: true, waitingSince: null }); // not stamped (watcher order)
+    await seedSubshell(`${uid}-w1`, { notify: true, waitingSince: "2026-08-31T00:00:00.000Z" });
+    await seedSubshell(`${uid}-w2`, { notify: true, waitingSince: "2026-08-31T00:00:00.000Z" });
+    await seedSubshell(`${uid}-dead`, { notify: true, waitingSince: "2026-08-31T00:00:00.000Z" });
+    await db.updateTable("subshells").set({ alive: 0 }).where("id", "=", `${uid}-dead`).execute();
     const rec = { calls: [] as ExpoPushMessage[][] };
     const { svc } = services(rec);
-    await svc.notifySession(subject, "turn_complete");
+    await svc.notifySubshell(subject, "turn_complete");
     expect(sentFor(rec, subject)[0]?.badge).toBe(3); // 2 waiting + this one about to stamp
     await db
-      .updateTable("sessions")
+      .updateTable("subshells")
       .set({ waitingSince: "2026-08-31T00:00:01.000Z" })
       .where("id", "=", subject)
       .execute();
-    await svc.notifySession(subject, "needs_attention");
+    await svc.notifySubshell(subject, "needs_attention");
     expect(sentFor(rec, subject).at(-1)?.badge).toBe(3); // already inside the count: no double-bump
   });
 
   it("a service built WITHOUT the device transport never touches it (legacy pin)", async () => {
-    await seedSession(`${uid}-legacy`, { notify: true });
+    await seedSubshell(`${uid}-legacy`, { notify: true });
     const hits: string[] = [];
     let expoCalled = false;
     await new NotificationsRepository(db).upsertForUser(userId, `https://push/legacy-${uid}`, "k", "a");
     const svc = createNotifyService({
-      sessions: db,
+      subshells: db,
       subs: new NotificationsRepository(db),
       sender: async (sub) => {
         hits.push(sub.endpoint);
@@ -229,7 +229,7 @@ describe("notifySession — device fan-out", () => {
       vapid: { publicKey: "pk", privateKey: "sk", subject: "mailto:x@x" },
       // devices: intentionally absent — the pre-mobile shape from notify.service.test.ts.
     });
-    await svc.notifySession(`${uid}-legacy`, "turn_complete");
+    await svc.notifySubshell(`${uid}-legacy`, "turn_complete");
     expect(hits).toContain(`https://push/legacy-${uid}`);
     expect(expoCalled).toBe(false); // no repo → no fan-out even with a sender present
   });

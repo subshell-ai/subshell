@@ -5,17 +5,17 @@ import { TERMINAL_REPLAY_LINES } from "@/constants.js";
 export const LOG_TAIL_BYTES = 256 * 1024;
 /** Lines returned by {@link readLogTailFrom}, newest end of the log. */
 export const LOG_TAIL_LINES = 200;
-/** Hard ceiling on a per-session replay cap — a LOAD GUARANTEE, not a preference. */
+/** Hard ceiling on a per-subshell replay cap — a LOAD GUARANTEE, not a preference. */
 const REPLAY_LINE_CEILING = 200;
 
 /**
  * Resolve the effective terminal-replay line cap for one attach: null/undefined
- * (no per-session choice) falls back to the instance default; anything stored
+ * (no per-subshell choice) falls back to the instance default; anything stored
  * is coerced into [1, {@link REPLAY_LINE_CEILING}]. The clamp is re-applied at
  * READ time because the column predates the API and could hold an out-of-band
  * value — the ceiling keeps a bad row from turning one attach into a full-log
- * parse. Both attach paths (local `session-ws.ts` and the remote relay
- * `remote-session-ws.ts`) read through this so the guarantee cannot drift.
+ * parse. Both attach paths (local `subshell-ws.ts` and the remote relay
+ * `remote-subshell-ws.ts`) read through this so the guarantee cannot drift.
  * (The WRITE path is separate by design: the route schema validates/rejects
  * out-of-range input rather than clamping — different domain, not this helper.)
  */
@@ -59,7 +59,7 @@ export function tailLinesFromWindowText(text: string, startWasZero: boolean): { 
  * harness that exited before anyone attached (the WS refuses dead panes and
  * the live preview is empty for them). ANSI is stripped and the read is
  * bounded ({@link LOG_TAIL_BYTES} from the end, last {@link LOG_TAIL_LINES}
- * lines) so a long-lived session cannot balloon the response. A missing or
+ * lines) so a long-lived subshell cannot balloon the response. A missing or
  * unreadable log reads as empty; this is a display surface, not a gate.
  */
 export async function readLogTailFrom(path: string): Promise<{ lines: string[]; truncated: boolean }> {

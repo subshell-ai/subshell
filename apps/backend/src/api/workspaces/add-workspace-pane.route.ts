@@ -5,10 +5,10 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const AddPaneBodySchema = t.Object({
-  sessionId: t.String({ minLength: 1, description: "Session to render in the new pane" }),
+  subshellId: t.String({ minLength: 1, description: "Subshell to render in the new pane" }),
 });
 
-/** `POST /api/workspaces/:id/panes` — adds a pane holding one of the caller's sessions. */
+/** `POST /api/workspaces/:id/panes` — adds a pane holding one of the caller's subshells. */
 export const addWorkspacePaneRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
@@ -17,7 +17,7 @@ export const addWorkspacePaneRoute = new Elysia()
     "/:id/panes",
     async ({ params, body, actor, user, ctx }) => {
       requireCookieActor(actor);
-      return await ctx.services.workspaces.addWorkspacePane(user.id, params.id, body.sessionId);
+      return await ctx.services.workspaces.addWorkspacePane(user.id, params.id, body.subshellId);
     },
     {
       body: AddPaneBodySchema,
@@ -30,7 +30,7 @@ export const addWorkspacePaneRoute = new Elysia()
       detail: {
         operationId: "addWorkspacePane",
         tags: ["workspaces"],
-        description: "Adds a pane holding one of the caller's sessions",
+        description: "Adds a pane holding one of the caller's subshells",
       },
     },
   );

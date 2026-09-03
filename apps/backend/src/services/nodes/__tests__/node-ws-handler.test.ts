@@ -138,7 +138,7 @@ describe("authenticateNodeUpgrade (spec §5.3 pre-socket tier)", () => {
 
   it("refuses 401: non-node key kinds and node keys whose row is gone", async () => {
     const h = makeHarness();
-    h.keys.set("sess", { id: "k1", metadata: { kind: "session", sessionId: "s1" } });
+    h.keys.set("sess", { id: "k1", metadata: { kind: "subshell", subshellId: "s1" } });
     h.keys.set("orphan", { id: "k2", metadata: { kind: "node", nodeId: "n-gone" } });
     await expect(authenticateNodeUpgrade(h.deps, "Bearer sess")).rejects.toMatchObject({ status: 401 });
     await expect(authenticateNodeUpgrade(h.deps, "Bearer orphan")).rejects.toMatchObject({ status: 401 });
@@ -286,18 +286,18 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
   it("phase-2 events and error frames are ingested without repo writes", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "exit", sessionId: "s", exitCode: 0, at: "now" }));
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "exit", subshellId: "s", exitCode: 0, at: "now" }));
     await handleNodeMessage(
       h.deps,
       ws,
-      JSON.stringify({ type: "sessions_report", sessions: [{ sessionId: "s", alive: true, exitCode: null }] }),
+      JSON.stringify({ type: "subshells_report", subshells: [{ subshellId: "s", alive: true, exitCode: null }] }),
     );
     await handleNodeMessage(
       h.deps,
       ws,
       JSON.stringify({
         type: "output",
-        sessionId: "s",
+        subshellId: "s",
         subId: "t",
         fromByte: 0,
         toByte: 1,

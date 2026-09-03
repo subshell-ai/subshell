@@ -9,17 +9,17 @@ import type { CommandContext, CommandResult } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { execLaunch } from "../commands/launch.js";
 import {
-  buildSessionsReport,
+  buildSubshellsReport,
   EXIT_WATCH_INTERVAL_MS,
   runExitWatchTick,
   startExitWatcher,
   stopWatcher,
 } from "../commands/report.js";
 import type { AgentConfig } from "../config.js";
-import { type SessionMeta, SessionMetaStore } from "../session-meta.js";
+import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
 
 /**
- * Task 4: the `launch` executor, the exit watcher, and `sessions_report`
+ * Task 4: the `launch` executor, the exit watcher, and `subshells_report`
  * (spec 2026-08-31 §6.4/§7). Same fake-tmux discipline as commands-basics:
  * a plain-object double records ordered calls, unstubbed methods throw. The
  * harness under test is the REAL claude-code plugin — its `findBinary` honors
@@ -55,7 +55,7 @@ afterEach(() => {
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
-/** A fresh temp dataDir per test (mcp/sessions writes are file-visible). */
+/** A fresh temp dataDir per test (mcp/subshells writes are file-visible). */
 function freshDataDir(tag: string): string {
   const dir = join(base, tag);
   mkdirSync(dir, { recursive: true });
@@ -63,22 +63,22 @@ function freshDataDir(tag: string): string {
 }
 
 interface Spec {
-  newSession?: (socket: string, id: string, cwd: string, cmd: string) => void;
+  newSubshell?: (socket: string, id: string, cwd: string, cmd: string) => void;
   pipePane?: (socket: string, id: string, out: string) => void;
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
-  hasSession?: (socket: string, id: string) => boolean;
-  listSessionNames?: (socket: string) => string[];
+  hasSubshell?: (socket: string, id: string) => boolean;
+  listSubshellNames?: (socket: string) => string[];
   /**
    * Tri-state probe script (design 2026-09-02 §1). When UNSTUBBED, the fake
-   * derives `{ ok: true, names: listSessionNames(socket) }` from the switch
+   * derives `{ ok: true, names: listSubshellNames(socket) }` from the switch
    * above — so a pre-threshold test's `[]` keeps its old meaning (a socket
    * that ANSWERED with the pane missing, i.e. confirmed death), and its
    * spawn-count assertions still see the call recorded under
-   * "listSessionNames" (the derivation runs through that wrapper).
+   * "listSubshellNames" (the derivation runs through that wrapper).
    */
-  listSessionsChecked?: (socket: string) => { ok: true; names: string[] } | { ok: false; detail: string };
+  listSubshellsChecked?: (socket: string) => { ok: true; names: string[] } | { ok: false; detail: string };
   paneExitCode?: (socket: string, id: string) => number | null;
-  killSession?: (socket: string, id: string) => void;
+  killSubshell?: (socket: string, id: string) => void;
   run?: (args: string[]) => { stdout: string; stderr: string };
 }
 
@@ -90,7 +90,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 /**
- * A real {@link SessionMetaStore} that models a tick stuck INSIDE
+ * A real {@link SubshellMetaStore} that models a tick stuck INSIDE
  * `await ctx.meta.forget(...)`: the underlying forget work (mirror eviction +
  * unlink) runs first, then the returned promise is held on a test-resolved
  * gate. This is the production ordering the fix documents as self-healing —
@@ -99,7 +99,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
  * the tick's post-await sweep respected the newer registration, not proof
  * forget never ran.
  */
-class GateHeldMetaStore extends SessionMetaStore {
+class GateHeldMetaStore extends SubshellMetaStore {
   /** Resolves once the tick's first `forget` has done its underlying work and entered the held window. */
   readonly forgetEntered = deferred();
   /** While pending, every `forget` promise is held here — the relaunch interleaving window. */
@@ -117,7 +117,7 @@ function makeCtx(
   dataDir: string,
   spec: Spec,
   events: NodeEvent[],
-  meta?: SessionMetaStore,
+  meta?: SubshellMetaStore,
 ): { ctx: CommandContext; calls: Array<{ method: string; args: unknown[] }> } {
   const calls: Array<{ method: string; args: unknown[] }> = [];
   const method = (name: keyof Spec) => {
@@ -128,23 +128,23 @@ function makeCtx(
       return (impl as (...a: unknown[]) => unknown)(...args);
     };
   };
-  const listSessionNames = method("listSessionNames");
+  const listSubshellNames = method("listSubshellNames");
   const raw = {
-    newSession: method("newSession"),
+    newSubshell: method("newSubshell"),
     pipePane: method("pipePane"),
     resizeWindow: method("resizeWindow"),
-    hasSession: method("hasSession"),
-    listSessionNames,
-    listSessionsChecked: (socket: string): { ok: true; names: string[] } | { ok: false; detail: string } => {
-      calls.push({ method: "listSessionsChecked", args: [socket] });
-      const scripted = spec.listSessionsChecked;
+    hasSubshell: method("hasSubshell"),
+    listSubshellNames,
+    listSubshellsChecked: (socket: string): { ok: true; names: string[] } | { ok: false; detail: string } => {
+      calls.push({ method: "listSubshellsChecked", args: [socket] });
+      const scripted = spec.listSubshellsChecked;
       if (scripted) return scripted(socket);
-      // Unscripted: answer through the listSessionNames switch, always as a
+      // Unscripted: answer through the listSubshellNames switch, always as a
       // SUCCESSFUL probe — pre-threshold tests keep their exact meaning.
-      return { ok: true, names: listSessionNames(socket) as string[] };
+      return { ok: true, names: listSubshellNames(socket) as string[] };
     },
     paneExitCode: method("paneExitCode"),
-    killSession: method("killSession"),
+    killSubshell: method("killSubshell"),
     run: method("run"),
   };
   const config: AgentConfig = {
@@ -158,7 +158,7 @@ function makeCtx(
   const ctx: CommandContext = {
     config,
     tmux: raw as unknown as CommandContext["tmux"],
-    meta: meta ?? new SessionMetaStore(dataDir),
+    meta: meta ?? new SubshellMetaStore(dataDir),
     nowMs: () => FIXED_NOW,
     ws: { send: (ev) => events.push(ev) },
     watchers: new Map(),
@@ -173,22 +173,22 @@ type LaunchCmd = Extract<NodeCommandBody, { type: "launch" }>;
 function launchCmd(over: Partial<LaunchCmd> = {}): LaunchCmd {
   return {
     type: "launch",
-    sessionId: S1,
+    subshellId: S1,
     socket: "subshell-launch-test",
     cwd: base,
     harnessId: "claude-code",
     profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: { SUBSHELL_API_KEY: "k" },
-    sessionName: "s1",
+    subshellName: "s1",
     cols: 120,
     rows: 30,
     ...over,
   };
 }
 
-async function recordMeta(store: SessionMetaStore, sessionId: string, socket: string): Promise<void> {
+async function recordMeta(store: SubshellMetaStore, subshellId: string, socket: string): Promise<void> {
   await store.record({
-    sessionId,
+    subshellId,
     cwd: base,
     socket,
     harnessId: "claude-code",
@@ -227,15 +227,15 @@ function methodsOf(calls: Array<{ method: string }>): string[] {
 /* ------------------------------------------------------------------ */
 
 describe("execLaunch (spec §6.4/§7)", () => {
-  it("happy launch: meta recorded BEFORE newSession, call ORDER newSession→pipePane(logPath)→resize, {ok:true}", async () => {
+  it("happy launch: meta recorded BEFORE newSubshell, call ORDER newSubshell→pipePane(logPath)→resize, {ok:true}", async () => {
     const dataDir = freshDataDir("happy");
     const events: NodeEvent[] = [];
-    let probe: Promise<SessionMeta | undefined> | undefined;
+    let probe: Promise<SubshellMeta | undefined> | undefined;
     let paneCmd = "";
     const { ctx, calls } = makeCtx(
       dataDir,
       {
-        newSession: (socket, id, cwd, cmd) => {
+        newSubshell: (socket, id, cwd, cmd) => {
           // Ordering proof: the meta record is already readable when tmux is dialed.
           probe = ctx.meta.get(id);
           paneCmd = cmd;
@@ -251,15 +251,15 @@ describe("execLaunch (spec §6.4/§7)", () => {
     const result = await dispatchCommand(ctx, launchCmd());
     expect(result).toEqual({ ok: true });
     expect(events).toEqual([]); // the answer is the RESULT frame; no stray events
-    expect(methodsOf(calls)).toEqual(["newSession", "pipePane", "resizeWindow"]);
+    expect(methodsOf(calls)).toEqual(["newSubshell", "pipePane", "resizeWindow"]);
     expect(calls[1]?.args).toEqual(["subshell-launch-test", S1, ctx.meta.logPath(S1)]);
     expect(calls[2]?.args).toEqual(["subshell-launch-test", S1, 120, 30]);
 
-    // (4) meta recorded first — full record visible at newSession time and after.
+    // (4) meta recorded first — full record visible at newSubshell time and after.
     const recorded = await probe;
     expect(recorded).toBeDefined();
     expect(recorded).toMatchObject({
-      sessionId: S1,
+      subshellId: S1,
       cwd: base,
       socket: "subshell-launch-test",
       harnessId: "claude-code",
@@ -285,7 +285,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
     let paneCmd = "";
     const { ctx } = makeCtx(
       dataDir,
-      { newSession: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
       [],
     );
     const result = await dispatchCommand(ctx, launchCmd({ harnessSession: { id: S2, mode: "resume" } }));
@@ -296,10 +296,10 @@ describe("execLaunch (spec §6.4/§7)", () => {
 
   it("no geometry on the wire ⇒ no resizeWindow call", async () => {
     const dataDir = freshDataDir("no-geometry");
-    const { ctx, calls } = makeCtx(dataDir, { newSession: () => {}, pipePane: () => {} }, []);
+    const { ctx, calls } = makeCtx(dataDir, { newSubshell: () => {}, pipePane: () => {} }, []);
     const result = await dispatchCommand(ctx, launchCmd({ cols: undefined, rows: undefined }));
     expect(result).toEqual({ ok: true });
-    expect(methodsOf(calls)).toEqual(["newSession", "pipePane"]);
+    expect(methodsOf(calls)).toEqual(["newSubshell", "pipePane"]);
     stopWatcher(ctx, S1);
   });
 
@@ -322,20 +322,20 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(await ctx.meta.get(S1)).toBeUndefined();
   });
 
-  it("a malformed session id is refused before ANY harness/tmux/meta work", async () => {
+  it("a malformed subshell id is refused before ANY harness/tmux/meta work", async () => {
     const dataDir = freshDataDir("bad-id");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
-    const result = await dispatchCommand(ctx, launchCmd({ sessionId: "../evil" }));
-    expect(result).toEqual({ ok: false, error: "invalid session id" });
+    const result = await dispatchCommand(ctx, launchCmd({ subshellId: "../evil" }));
+    expect(result).toEqual({ ok: false, error: "invalid subshell id" });
     expect(calls).toEqual([]);
   });
 
-  it("newSession throws ⇒ ok:false + meta FORGOTTEN (rollback) + no watcher + no pipePane", async () => {
-    const dataDir = freshDataDir("newsession-throws");
+  it("newSubshell throws ⇒ ok:false + meta FORGOTTEN (rollback) + no watcher + no pipePane", async () => {
+    const dataDir = freshDataDir("newsubshell-throws");
     const { ctx, calls } = makeCtx(
       dataDir,
       {
-        newSession: () => {
+        newSubshell: () => {
           throw new Error("no server running");
         },
       },
@@ -345,7 +345,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(result).toEqual({ ok: false, error: "no server running" });
     expect(await ctx.meta.get(S1)).toBeUndefined(); // rolled back
     expect(ctx.watchers.size).toBe(0);
-    expect(methodsOf(calls)).toEqual(["newSession"]); // pipePane never attempted
+    expect(methodsOf(calls)).toEqual(["newSubshell"]); // pipePane never attempted
   });
 
   it("mcp path outside dataDir ⇒ ok:false 'mcp path refused', no spawn, no writes", async () => {
@@ -367,7 +367,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        newSession: (_s, _i, _c, cmd) => {
+        newSubshell: (_s, _i, _c, cmd) => {
           paneCmd = cmd;
         },
         pipePane: () => {},
@@ -398,7 +398,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
       const made = makeCtx(
         dataDir,
         {
-          newSession: () => {},
+          newSubshell: () => {},
           pipePane: () => {},
           resizeWindow: () => {},
         },
@@ -428,7 +428,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
       const { ctx, calls } = makeCtx(
         dataDir,
         {
-          newSession: () => {},
+          newSubshell: () => {},
           pipePane: () => {
             throw new Error("pipe-pane refused");
           },
@@ -439,7 +439,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
       const result = await dispatchCommand(ctx, launchCmd({ bestEffortLog: true }));
       expect(result).toEqual({ ok: true }); // the pane is live — revive parity
       expect(lines.filter((l) => l.includes("log attach"))).toHaveLength(1);
-      expect(methodsOf(calls)).toEqual(["newSession", "pipePane", "resizeWindow"]);
+      expect(methodsOf(calls)).toEqual(["newSubshell", "pipePane", "resizeWindow"]);
       expect(ctx.watchers.has(S1)).toBe(true);
       stopWatcher(ctx, S1);
     } finally {
@@ -447,7 +447,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
     }
   });
 
-  it("bestEffortLog wraps mkdir TOO: throwing sessions-dir mkdir ⇒ warn + {ok:true}, pipePane skipped", async () => {
+  it("bestEffortLog wraps mkdir TOO: throwing subshells-dir mkdir ⇒ warn + {ok:true}, pipePane skipped", async () => {
     const dataDir = freshDataDir("best-effort-mkdir");
     const lines: string[] = [];
     const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
@@ -457,42 +457,42 @@ describe("execLaunch (spec §6.4/§7)", () => {
       const { ctx, calls } = makeCtx(
         dataDir,
         {
-          newSession: () => {},
+          newSubshell: () => {},
           pipePane: () => {},
           resizeWindow: () => {},
         },
         [],
       );
-      const result = await launchWithSabotagedSessionsDir(ctx, launchCmd({ bestEffortLog: true }), dataDir);
+      const result = await launchWithSabotagedSubshellsDir(ctx, launchCmd({ bestEffortLog: true }), dataDir);
       expect(result).toEqual({ ok: true });
       expect(lines.filter((l) => l.includes("log attach"))).toHaveLength(1);
       // mkdir threw INSIDE the guard → pipePane never ran; the launch CONTINUES (resize still fits the pane).
-      expect(methodsOf(calls)).toEqual(["newSession", "resizeWindow"]);
+      expect(methodsOf(calls)).toEqual(["newSubshell", "resizeWindow"]);
       stopWatcher(ctx, S1);
     } finally {
       spy.mockRestore();
     }
   });
 
-  it("STRICT default: throwing log attach fails the launch (createSession parity), NO watcher", async () => {
+  it("STRICT default: throwing log attach fails the launch (createSubshell parity), NO watcher", async () => {
     const dataDir = freshDataDir("strict-mkdir");
     const { ctx, calls } = makeCtx(
       dataDir,
       {
-        newSession: () => {},
+        newSubshell: () => {},
         pipePane: () => {},
         resizeWindow: () => {},
       },
       [],
     );
-    const result = await launchWithSabotagedSessionsDir(ctx, launchCmd(), dataDir);
+    const result = await launchWithSabotagedSubshellsDir(ctx, launchCmd(), dataDir);
     expect(result.ok).toBe(false);
     expect(!result.ok && /EEXIST/.test(result.error)).toBe(true);
-    expect(methodsOf(calls)).toEqual(["newSession"]); // strict: nothing after the mkdir throw
+    expect(methodsOf(calls)).toEqual(["newSubshell"]); // strict: nothing after the mkdir throw
     expect(ctx.watchers.size).toBe(0);
     // strict failure keeps the record (parity with the local throw path); tidy up —
     // the record is already gone (the sabotage deleted its dir), restore-unlink-restore:
-    rmSync(join(dataDir, "sessions"), { force: true });
+    rmSync(join(dataDir, "subshells"), { force: true });
     await ctx.meta.forget(S1);
   });
 
@@ -506,7 +506,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
       const { ctx } = makeCtx(
         dataDir,
         {
-          newSession: () => {},
+          newSubshell: () => {},
           pipePane: () => {},
           resizeWindow: () => {
             throw new Error("can't find window");
@@ -524,22 +524,22 @@ describe("execLaunch (spec §6.4/§7)", () => {
 });
 
 /**
- * Run a launch whose step-(7) sessions-dir mkdir MUST throw: the sabotage
+ * Run a launch whose step-(7) subshells-dir mkdir MUST throw: the sabotage
  * lands between the meta record (which creates the dir) and the attach —
- * `newSession` swaps the sessions dir for a regular file, so
+ * `newSubshell` swaps the subshells dir for a regular file, so
  * `mkdir(dir, {recursive:true})` fails with EEXIST. The throwing-mkdir twin
  * of a throwing pipe-pane.
  */
-async function launchWithSabotagedSessionsDir(
+async function launchWithSabotagedSubshellsDir(
   ctx: CommandContext,
   cmd: LaunchCmd,
   dataDir: string,
 ): Promise<CommandResult> {
-  const original = ctx.tmux.newSession.bind(ctx.tmux);
-  (ctx.tmux as unknown as { newSession: (...a: unknown[]) => void }).newSession = (...a: unknown[]) => {
+  const original = ctx.tmux.newSubshell.bind(ctx.tmux);
+  (ctx.tmux as unknown as { newSubshell: (...a: unknown[]) => void }).newSubshell = (...a: unknown[]) => {
     (original as (...x: unknown[]) => void)(...a);
-    rmSync(join(dataDir, "sessions"), { recursive: true, force: true });
-    writeFileSync(join(dataDir, "sessions"), "sabotage");
+    rmSync(join(dataDir, "subshells"), { recursive: true, force: true });
+    writeFileSync(join(dataDir, "subshells"), "sabotage");
   };
   try {
     return await execLaunch(ctx, cmd);
@@ -559,7 +559,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const { ctx, calls } = makeCtx(
       dataDir,
       {
-        listSessionNames: () => (ticks++ === 0 ? [S1] : []), // alive on the first tick, gone after
+        listSubshellNames: () => (ticks++ === 0 ? [S1] : []), // alive on the first tick, gone after
         paneExitCode: () => 7,
       },
       events,
@@ -569,7 +569,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     startExitWatcher(ctx, S1, "w-sock", 20); // short interval, real timers (daemon-test polling style)
     expect(ctx.watchers.get(S1)?.socket).toBe("w-sock"); // supervised on the LAUNCH socket — no meta re-read
     await waitFor(() => events.length > 0, "exit event");
-    expect(events[0]).toEqual({ type: "exit", sessionId: S1, exitCode: 7, at: new Date(FIXED_NOW).toISOString() });
+    expect(events[0]).toEqual({ type: "exit", subshellId: S1, exitCode: 7, at: new Date(FIXED_NOW).toISOString() });
     expect(ctx.watchers.size).toBe(0); // unregistered on fire
     await waitForAsync(async () => (await ctx.meta.get(S1)) === undefined, "meta forgotten");
     expect(calls.some((c) => c.method === "paneExitCode" && c.args[0] === "w-sock" && c.args[1] === S1)).toBe(true);
@@ -581,12 +581,12 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   it("paneExitCode null (server gone before a status was read) ⇒ exitCode null rides the event", async () => {
     const dataDir = freshDataDir("watcher-null");
     const events: NodeEvent[] = [];
-    const { ctx, calls } = makeCtx(dataDir, { listSessionNames: () => [], paneExitCode: () => null }, events);
+    const { ctx, calls } = makeCtx(dataDir, { listSubshellNames: () => [], paneExitCode: () => null }, events);
     // NO meta record on purpose: the watcher must probe the socket it was
     // PASSED (launch's cmd.socket), not one recovered from the store.
     startExitWatcher(ctx, S1, "w2", 20);
     await waitFor(() => events.length > 0, "exit event");
-    expect(events[0]).toMatchObject({ type: "exit", sessionId: S1, exitCode: null });
+    expect(events[0]).toMatchObject({ type: "exit", subshellId: S1, exitCode: null });
     expect(calls.find((c) => c.method === "paneExitCode")?.args).toEqual(["w2", S1]);
   });
 
@@ -596,20 +596,20 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        listSessionNames: () => [], // an UNSUPPRESSED watcher would fire on its very next tick
+        listSubshellNames: () => [], // an UNSUPPRESSED watcher would fire on its very next tick
         paneExitCode: () => 9,
-        killSession: () => {},
+        killSubshell: () => {},
         run: () => ({ stdout: "", stderr: "" }),
       },
       events,
     );
     await recordMeta(ctx.meta, S1, "k-sock");
     startExitWatcher(ctx, S1, "k-sock", 20);
-    expect(await dispatchCommand(ctx, { type: "kill", sessionId: S1 })).toEqual({ ok: true });
+    expect(await dispatchCommand(ctx, { type: "kill", subshellId: S1 })).toEqual({ ok: true });
     expect(ctx.watchers.size).toBe(0);
     await recordMeta(ctx.meta, S2, "k-sock-2");
     startExitWatcher(ctx, S2, "k-sock-2", 20);
-    expect(await dispatchCommand(ctx, { type: "terminate", sessionId: S2 })).toEqual({ ok: true });
+    expect(await dispatchCommand(ctx, { type: "terminate", subshellId: S2 })).toEqual({ ok: true });
     expect(ctx.watchers.size).toBe(0);
     expect(ctx.watchTick).toBeUndefined(); // the second stop drained the set and killed the loop
     await new Promise((r) => setTimeout(r, 120)); // several 20 ms beats
@@ -625,19 +625,19 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const events: NodeEvent[] = [];
     const { ctx, calls } = makeCtx(
       dataDir,
-      { listSessionNames: (socket) => (socket === "b-sock" ? [S1, S2, S3] : []) },
+      { listSubshellNames: (socket) => (socket === "b-sock" ? [S1, S2, S3] : []) },
       events,
     );
     startExitWatcher(ctx, S1, "b-sock", 20);
     startExitWatcher(ctx, S2, "b-sock", 20);
     startExitWatcher(ctx, S3, "b-sock", 20);
-    const lists = () => calls.filter((c) => c.method === "listSessionNames");
+    const lists = () => calls.filter((c) => c.method === "listSubshellNames");
     await waitFor(() => lists().length >= 2, "two batched ticks");
     const spawnCount = lists().length;
     // The claim under test: 3 panes × 2+ ticks is ≥6 spawns per-pane (the old
     // loop), but ONE spawn per socket per tick for the shared loop — and the
     // per-pane probe is gone entirely.
-    expect(calls.filter((c) => c.method === "hasSession")).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "hasSubshell")).toHaveLength(0);
     expect(spawnCount).toBeLessThan(6);
     for (const l of lists()) expect(l.args).toEqual(["b-sock"]);
     expect(events).toEqual([]); // all three stayed alive
@@ -649,7 +649,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const dataDir = freshDataDir("watcher-group");
     const { ctx, calls } = makeCtx(
       dataDir,
-      { listSessionNames: (socket) => (socket === "sock-a" ? [S1, S2] : [S3]) },
+      { listSubshellNames: (socket) => (socket === "sock-a" ? [S1, S2] : [S3]) },
       [],
     );
     // 10 s interval: the timer never fires inside this test — the shared tick
@@ -659,10 +659,10 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     startExitWatcher(ctx, S3, "sock-b", 10_000);
     await runExitWatchTick(ctx);
     await runExitWatchTick(ctx);
-    expect(calls.filter((c) => c.method === "hasSession")).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "hasSubshell")).toHaveLength(0);
     // The per-pane loop would have spawned 3 probes per tick (6 here); the
     // shared loop asks each socket ONCE per tick, grouped by socket.
-    expect(calls.filter((c) => c.method === "listSessionNames").map((c) => c.args[0])).toEqual([
+    expect(calls.filter((c) => c.method === "listSubshellNames").map((c) => c.args[0])).toEqual([
       "sock-a",
       "sock-b",
       "sock-a",
@@ -678,7 +678,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     let tick = 0;
     const { ctx } = makeCtx(
       dataDir,
-      { listSessionNames: () => (tick++ === 0 ? [S1, S2] : []), paneExitCode: (_s, id) => (id === S1 ? 3 : 4) },
+      { listSubshellNames: () => (tick++ === 0 ? [S1, S2] : []), paneExitCode: (_s, id) => (id === S1 ? 3 : 4) },
       events,
     );
     startExitWatcher(ctx, S1, "d-sock", 10_000);
@@ -686,8 +686,8 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     await runExitWatchTick(ctx); // both alive
     await runExitWatchTick(ctx); // both gone in ONE batched answer
     expect(events).toEqual([
-      { type: "exit", sessionId: S1, exitCode: 3, at: new Date(FIXED_NOW).toISOString() },
-      { type: "exit", sessionId: S2, exitCode: 4, at: new Date(FIXED_NOW).toISOString() },
+      { type: "exit", subshellId: S1, exitCode: 3, at: new Date(FIXED_NOW).toISOString() },
+      { type: "exit", subshellId: S2, exitCode: 4, at: new Date(FIXED_NOW).toISOString() },
     ]);
     await runExitWatchTick(ctx); // supervision already drained — a third tick reports nothing
     expect(events.length).toBe(2);
@@ -705,9 +705,9 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        listSessionNames: (socket) => (socket === "w-sock" ? [] : [S1]), // old pane dead; relaunched pane alive
+        listSubshellNames: (socket) => (socket === "w-sock" ? [] : [S1]), // old pane dead; relaunched pane alive
         paneExitCode: () => 5,
-        newSession: () => {},
+        newSubshell: () => {},
         pipePane: () => {},
       },
       events,
@@ -724,11 +724,11 @@ describe("exit watcher (report.ts) — one shared tick", () => {
       // the fresh meta (step 4) before it re-arms the watcher (step 9).
       const relaunch = await dispatchCommand(
         ctx,
-        launchCmd({ socket: "w-sock-2", sessionName: "relaunched", cols: undefined, rows: undefined }),
+        launchCmd({ socket: "w-sock-2", subshellName: "relaunched", cols: undefined, rows: undefined }),
       );
       expect(relaunch).toEqual({ ok: true });
       // A tail of the relaunched pane attaches before the old forget returns.
-      ctx.tails.set("sub-relaunch", { sessionId: S1, stop: () => (tailStopped = true) });
+      ctx.tails.set("sub-relaunch", { subshellId: S1, stop: () => (tailStopped = true) });
     } finally {
       gated.forgetGate.resolve();
     }
@@ -736,9 +736,9 @@ describe("exit watcher (report.ts) — one shared tick", () => {
 
     // The old pane got its ONE death event; the relaunch keeps everything the
     // blind cleanup used to steal.
-    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 5, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(events).toEqual([{ type: "exit", subshellId: S1, exitCode: 5, at: new Date(FIXED_NOW).toISOString() }]);
     expect(ctx.watchers.has(S1)).toBe(true); // the NEWER registration still supervises
-    expect(await ctx.meta.get(S1)).toMatchObject({ sessionId: S1, socket: "w-sock-2", name: "relaunched" }); // new record intact
+    expect(await ctx.meta.get(S1)).toMatchObject({ subshellId: S1, socket: "w-sock-2", name: "relaunched" }); // new record intact
     expect(tailStopped).toBe(false); // the death sweep must not stop a live relaunch's tail pumps
     await runExitWatchTick(ctx); // the new socket lists S1 alive — no second event ever
     expect(events.length).toBe(1);
@@ -753,9 +753,9 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        listSessionNames: () => [], // BOTH panes are gone per the batch answer
+        listSubshellNames: () => [], // BOTH panes are gone per the batch answer
         paneExitCode: () => 8,
-        killSession: () => {},
+        killSubshell: () => {},
         run: () => ({ stdout: "", stderr: "" }),
       },
       events,
@@ -769,7 +769,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     const tick = runExitWatchTick(ctx);
     try {
       await gated.forgetEntered.promise; // inside S1's forget — S2's branch has NOT run since the list-sessions answer
-      expect(await dispatchCommand(ctx, { type: "kill", sessionId: S2 })).toEqual({ ok: true });
+      expect(await dispatchCommand(ctx, { type: "kill", subshellId: S2 })).toEqual({ ok: true });
     } finally {
       gated.forgetGate.resolve();
     }
@@ -777,7 +777,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
 
     // S1 died naturally (one event); S2 was deliberately killed after the
     // snapshot and must never arrive as a surprise death (re-check pin).
-    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 8, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(events).toEqual([{ type: "exit", subshellId: S1, exitCode: 8, at: new Date(FIXED_NOW).toISOString() }]);
     expect(ctx.watchers.size).toBe(0);
     expect(ctx.watchTick).toBeUndefined();
   });
@@ -807,15 +807,15 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   it("regression: plain natural death with a live tail ⇒ exactly ONE exit event, meta forgotten, tail stopped, loop drains when empty", async () => {
     const dataDir = freshDataDir("watcher-natural");
     const events: NodeEvent[] = [];
-    const { ctx } = makeCtx(dataDir, { listSessionNames: () => [], paneExitCode: () => 6 }, events);
+    const { ctx } = makeCtx(dataDir, { listSubshellNames: () => [], paneExitCode: () => 6 }, events);
     await recordMeta(ctx.meta, S1, "n-sock");
     startExitWatcher(ctx, S1, "n-sock", 10_000);
     let stops = 0;
-    ctx.tails.set("sub-n", { sessionId: S1, stop: () => (stops += 1) });
+    ctx.tails.set("sub-n", { subshellId: S1, stop: () => (stops += 1) });
 
     await runExitWatchTick(ctx);
 
-    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 6, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(events).toEqual([{ type: "exit", subshellId: S1, exitCode: 6, at: new Date(FIXED_NOW).toISOString() }]);
     expect(stops).toBe(1); // the owned registration's death STILL sweeps its tails
     expect(ctx.tails.size).toBe(0);
     expect(await ctx.meta.get(S1)).toBeUndefined();
@@ -830,7 +830,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
  * Design 2026-09-02 §1: a single failed probe must not report a LIVE pane
  * dead. ok:false ticks count toward a consecutive-unreachable threshold
  * (NODE_EXIT_UNREACHABLE_TICKS); ok:true stays authoritative. Each test also
- * scripts the legacy `listSessionNames` switch with the `[]`-via-error answer
+ * scripts the legacy `listSubshellNames` switch with the `[]`-via-error answer
  * the old swallow-everything probe produced — the RED marker: against the old
  * tick those fixtures fire an exit event on the FIRST blip.
  */
@@ -842,11 +842,11 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
     const { ctx, calls } = makeCtx(
       dataDir,
       {
-        listSessionsChecked: () =>
+        listSubshellsChecked: () =>
           tick++ === 0
             ? { ok: false, detail: "error connecting to /tmp/tmux-1000/b-sock (No such file or directory)" }
             : { ok: true, names: [S1] }, // probe recovered; the pane is RIGHT THERE
-        listSessionNames: () => [], // what the old probe returned for a blip — and what the old tick treated as death
+        listSubshellNames: () => [], // what the old probe returned for a blip — and what the old tick treated as death
         paneExitCode: () => 42,
       },
       events,
@@ -874,8 +874,8 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        listSessionsChecked: () => ({ ok: false, detail: "no server running on /tmp/tmux-1000/u-sock" }),
-        listSessionNames: () => [], // old-probe answer: the old tick reported death on tick 1 (RED marker)
+        listSubshellsChecked: () => ({ ok: false, detail: "no server running on /tmp/tmux-1000/u-sock" }),
+        listSubshellNames: () => [], // old-probe answer: the old tick reported death on tick 1 (RED marker)
         paneExitCode: () => null, // unreachable server ⇒ no status to read (the shape a dead socket always gave)
       },
       events,
@@ -883,14 +883,14 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
     await recordMeta(ctx.meta, S1, "u-sock");
     startExitWatcher(ctx, S1, "u-sock", 10_000);
     let stops = 0;
-    ctx.tails.set("sub-u", { sessionId: S1, stop: () => (stops += 1) });
+    ctx.tails.set("sub-u", { subshellId: S1, stop: () => (stops += 1) });
 
     await runExitWatchTick(ctx); // first unreachable tick — silent, below threshold
     expect(events).toEqual([]);
     expect(ctx.watchers.get(S1)?.unreachable).toBe(1);
 
     await runExitWatchTick(ctx); // second consecutive ⇒ at threshold: the SAME death sequence as confirmed
-    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: null, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(events).toEqual([{ type: "exit", subshellId: S1, exitCode: null, at: new Date(FIXED_NOW).toISOString() }]);
     expect(ctx.watchers.size).toBe(0); // registration dropped — at most one event
     expect(stops).toBe(1); // the escalation runs the tail sweep too
     expect(await ctx.meta.get(S1)).toBeUndefined(); // and the forget
@@ -903,7 +903,7 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        listSessionsChecked: () => ({ ok: true, names: [] }), // socket ANSWERED; the pane is gone — authoritative
+        listSubshellsChecked: () => ({ ok: true, names: [] }), // socket ANSWERED; the pane is gone — authoritative
         paneExitCode: () => 6,
       },
       events,
@@ -911,7 +911,7 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
     await recordMeta(ctx.meta, S1, "c-sock");
     startExitWatcher(ctx, S1, "c-sock", 10_000);
     await runExitWatchTick(ctx);
-    expect(events).toEqual([{ type: "exit", sessionId: S1, exitCode: 6, at: new Date(FIXED_NOW).toISOString() }]);
+    expect(events).toEqual([{ type: "exit", subshellId: S1, exitCode: 6, at: new Date(FIXED_NOW).toISOString() }]);
     expect(ctx.watchers.size).toBe(0);
     expect(await ctx.meta.get(S1)).toBeUndefined();
     expect(ctx.watchTick).toBeUndefined();
@@ -923,8 +923,8 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
     const { ctx } = makeCtx(
       dataDir,
       {
-        listSessionsChecked: () => ({ ok: false, detail: "no server running" }),
-        listSessionNames: () => [], // old-probe answer — RED marker: the old tick died on tick 1
+        listSubshellsChecked: () => ({ ok: false, detail: "no server running" }),
+        listSubshellNames: () => [], // old-probe answer — RED marker: the old tick died on tick 1
         paneExitCode: () => null,
       },
       events,
@@ -949,26 +949,26 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
 
 /* ------------------------------------------------------------------ */
 
-describe("buildSessionsReport (spec §3.3)", () => {
+describe("buildSubshellsReport (spec §3.3)", () => {
   it("one row per recorded meta: alive ⇒ null exit, dead ⇒ paneExitCode", async () => {
-    const dataDir = freshDataDir("sessions-report");
-    const { ctx } = makeCtx(dataDir, { hasSession: (_s, id) => id === S1, paneExitCode: () => 2 }, []);
+    const dataDir = freshDataDir("subshells-report");
+    const { ctx } = makeCtx(dataDir, { hasSubshell: (_s, id) => id === S1, paneExitCode: () => 2 }, []);
     await recordMeta(ctx.meta, S1, "sock-a");
     await recordMeta(ctx.meta, S2, "sock-b");
-    const report = await buildSessionsReport(ctx);
+    const report = await buildSubshellsReport(ctx);
     expect(report).toEqual({
-      type: "sessions_report",
-      sessions: [
-        { sessionId: S1, alive: true, exitCode: null },
-        { sessionId: S2, alive: false, exitCode: 2 },
+      type: "subshells_report",
+      subshells: [
+        { subshellId: S1, alive: true, exitCode: null },
+        { subshellId: S2, alive: false, exitCode: 2 },
       ],
     });
   });
 
-  it("no metas ⇒ an empty sessions list (still a valid event)", async () => {
-    const dataDir = freshDataDir("sessions-report-empty");
+  it("no metas ⇒ an empty subshells list (still a valid event)", async () => {
+    const dataDir = freshDataDir("subshells-report-empty");
     const { ctx } = makeCtx(dataDir, {}, []);
-    expect(await buildSessionsReport(ctx)).toEqual({ type: "sessions_report", sessions: [] });
+    expect(await buildSubshellsReport(ctx)).toEqual({ type: "subshells_report", subshells: [] });
   });
 });
 
@@ -991,7 +991,7 @@ it.skipIf(!HAS_TMUX)(
     process.env.CLAUDE_PATH = stub;
 
     const socket = `subshell-test-${crypto.randomUUID().slice(0, 8)}`;
-    const sessionId = crypto.randomUUID();
+    const subshellId = crypto.randomUUID();
     const events: NodeEvent[] = [];
     const runner = new TmuxRunner();
     const config: AgentConfig = {
@@ -1005,7 +1005,7 @@ it.skipIf(!HAS_TMUX)(
     const ctx: CommandContext = {
       config,
       tmux: runner,
-      meta: new SessionMetaStore(dataDir),
+      meta: new SubshellMetaStore(dataDir),
       nowMs: () => Date.now(),
       ws: { send: (ev) => events.push(ev) },
       watchers: new Map(),
@@ -1015,24 +1015,24 @@ it.skipIf(!HAS_TMUX)(
     try {
       const result = await dispatchCommand(
         ctx,
-        launchCmd({ sessionId, socket, cwd: workDir, cols: undefined, rows: undefined }),
+        launchCmd({ subshellId, socket, cwd: workDir, cols: undefined, rows: undefined }),
       );
       expect(result).toEqual({ ok: true });
-      expect(runner.hasSession(socket, sessionId)).toBe(true); // the pane is LIVE through real tmux
-      runner.killSession(socket, sessionId); // deliberate death — the watcher's job is to notice it
+      expect(runner.hasSubshell(socket, subshellId)).toBe(true); // the pane is LIVE through real tmux
+      runner.killSubshell(socket, subshellId); // deliberate death — the watcher's job is to notice it
       await waitFor(() => events.some((e) => e.type === "exit"), "exit event from the real-death watcher", 15_000);
       const exit = events.find((e) => e.type === "exit") as Extract<NodeEvent, { type: "exit" }>;
-      expect(exit.sessionId).toBe(sessionId);
+      expect(exit.subshellId).toBe(subshellId);
       expect(Number.isNaN(Date.parse(exit.at))).toBe(false);
       await waitForAsync(
-        async () => (await ctx.meta.get(sessionId)) === undefined,
+        async () => (await ctx.meta.get(subshellId)) === undefined,
         "meta forgotten after exit",
         15_000,
       );
     } finally {
-      // Always reap: killSession, then the WHOLE server on this socket, then the
+      // Always reap: killSubshell, then the WHOLE server on this socket, then the
       // socket file — a failed assertion must not leak a tmux daemon.
-      runner.killSession(socket, sessionId);
+      runner.killSubshell(socket, subshellId);
       spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
       runner.cleanSocket(socket);
       for (const id of [...ctx.watchers.keys()]) stopWatcher(ctx, id); // drains the set + stops the shared loop

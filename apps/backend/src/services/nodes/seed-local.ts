@@ -46,7 +46,7 @@ export async function ensureLocalNode(db: Kysely<Database>): Promise<void> {
       kind: "local",
       ...localPlatform(),
       // No Bun.hostname exists (the `hostname` in bun-types is on
-      // TCPSocketListener); node:os is what session-manager already uses.
+      // TCPSocketListener); node:os is what subshell-manager already uses.
       // Drop the mDNS `.local` suffix — it clashes with the node's id spelling
       // in UIs and is noise in the picker.
       hostname: hostname().replace(/\.local$/, "") || "localhost",

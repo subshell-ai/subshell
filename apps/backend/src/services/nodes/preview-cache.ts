@@ -1,7 +1,7 @@
 /**
- * Screen-preview cache for AGENT-node sessions (spec 2026-08-31 §6.3).
+ * Screen-preview cache for AGENT-node subshells (spec 2026-08-31 §6.3).
  *
- * The session list renders a preview per card, and the local path captures
+ * The subshell list renders a preview per card, and the local path captures
  * each pane straight from tmux. On an agent node a capture is a signed
  * round-trip — the list endpoint must never fan one out per card. Instead the
  * reconcile sweep's batched `probe` rides opportunistic screen captures back
@@ -29,8 +29,8 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 
 /**
- * Stores one session's latest screen (from a probe `capture` entry).
- * @param id - session id
+ * Stores one subshell's latest screen (from a probe `capture` entry).
+ * @param id - subshell id
  * @param lines - the tail-trimmed screen lines to serve until the next write or expiry
  */
 export function previewCachePut(id: string, lines: string[]): void {
@@ -38,8 +38,8 @@ export function previewCachePut(id: string, lines: string[]): void {
 }
 
 /**
- * Reads one session's cached screen, expiring stale entries on read.
- * @param id - session id
+ * Reads one subshell's cached screen, expiring stale entries on read.
+ * @param id - subshell id
  * @param now - clock for the TTL comparison (defaults to wall time; injectable for tests)
  * @returns the cached lines, or undefined when absent or older than the TTL
  */
@@ -54,9 +54,9 @@ export function previewCacheGet(id: string, now: number = Date.now()): string[] 
 }
 
 /**
- * Drops one session's cached preview — called on the death transition so a
+ * Drops one subshell's cached preview — called on the death transition so a
  * dead pane's last screen never outlives its row's alive state.
- * @param id - session id
+ * @param id - subshell id
  */
 export function previewCacheDrop(id: string): void {
   cache.delete(id);

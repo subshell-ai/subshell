@@ -58,15 +58,15 @@ const RecentResponseSchema = t.Object({
 });
 
 /**
- * Filesystem exploration for the folder picker (new session form).
+ * Filesystem exploration for the folder picker (new subshell form).
  *
  * **This is an authenticated-browser folder picker, not a sandbox.** It
  * browses the host filesystem by design — that is the entire point of the
- * feature — so the real security boundary is the session-user's filesystem
+ * feature — so the real security boundary is the subshell-user's filesystem
  * permissions: anything the backend's OS user can read is browsable. What
  * this route does control:
  *
- * - **Browser-only**: machine credentials (session keys, system keys) get
+ * - **Browser-only**: machine credentials (subshell keys, system keys) get
  *   403. A running harness holding its own bearer token must not be able to
  *   enumerate the operator's disk; only a signed-in human in the browser
  *   uses the picker (verified: the MCP server never calls this route).
@@ -84,10 +84,10 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
     "/explore",
     async ({ query, user, actor }) => {
       // Cookie-only by design — see the route docstring. Machine credentials
-      // (bearer session keys / system keys) are rejected outright: filesystem
+      // (bearer subshell keys / system keys) are rejected outright: filesystem
       // browsing is a human-in-the-browser affordance, not a harness API.
       if (actor !== "cookie") {
-        throw new FilesError("forbidden", "Folder browsing is restricted to browser sessions", 403);
+        throw new FilesError("forbidden", "Folder browsing is restricted to browser subshells", 403);
       }
 
       const raw = query.path?.trim() || homedir();
@@ -159,17 +159,17 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       detail: {
         operationId: "exploreFiles",
         tags: ["files"],
-        description: "Lists a directory (folder picker; browser sessions only)",
+        description: "Lists a directory (folder picker; browser subshells only)",
       },
     },
   )
   .get(
     "/recent",
     async ({ user, actor, query }) => {
-      // Browser-only, like /explore: this pre-fills the new-session form —
+      // Browser-only, like /explore: this pre-fills the new-subshell form —
       // a human-in-the-browser affordance, not a harness API.
       if (actor !== "cookie") {
-        throw new FilesError("forbidden", "Recent paths are restricted to browser sessions", 403);
+        throw new FilesError("forbidden", "Recent paths are restricted to browser subshells", 403);
       }
       const nodeId = query.node?.trim() || LOCAL_NODE_ID;
       // Omitted/'local' needs no visibility check — own local recents are
@@ -209,7 +209,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       detail: {
         operationId: "recentFilePaths",
         tags: ["files"],
-        description: "Lists recently used working directories for one node (browser sessions only)",
+        description: "Lists recently used working directories for one node (browser subshells only)",
       },
     },
   )
@@ -218,7 +218,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
     async ({ body, user, actor }) => {
       // Browser-only, like its siblings: starring is a picker affordance.
       if (actor !== "cookie") {
-        throw new FilesError("forbidden", "Favoriting paths is restricted to browser sessions", 403);
+        throw new FilesError("forbidden", "Favoriting paths is restricted to browser subshells", 403);
       }
       const path = body.path.trim();
       if (!path) {
@@ -239,7 +239,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       detail: {
         operationId: "setPathFavorite",
         tags: ["files"],
-        description: "Star or unstar a directory for the folder picker (browser sessions only)",
+        description: "Star or unstar a directory for the folder picker (browser subshells only)",
       },
     },
   );

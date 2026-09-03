@@ -12,7 +12,7 @@ export interface UserMetaTable {
   /** Role: "admin" or "user" */
   role: string;
   /**
-   * 1 = receive session notifications (per-user master switch); 0 = never push.
+   * 1 = receive subshell notifications (per-user master switch); 0 = never push.
    * `Generated` mirrors the column's `NOT NULL DEFAULT 1`: inserts may omit it,
    * reads always yield a number.
    */

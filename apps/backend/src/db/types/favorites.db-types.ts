@@ -1,5 +1,5 @@
 /**
- * What can be favorited. One value today; session/workspace kinds land
+ * What can be favorited. One value today; subshell/workspace kinds land
  * with their own UIs and reuse the same table.
  */
 export type FavoriteKind = "directory";

@@ -67,10 +67,10 @@ src/
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries from
 `NODE_ARTIFACTS_DIR` (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
-`<SESSION_DATA_DIR>/node-artifacts` — populated by `bun run release:agent`,
+`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:agent`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous;
 and `services/nodes/control-keys.ts` holds the command-signing keypair at
-`<SESSION_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
+`<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
 every enrolled node.
 
 Cross-session comms (`subshell mcp`) is registered per harness by the plugin

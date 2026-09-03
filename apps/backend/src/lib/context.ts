@@ -11,8 +11,8 @@ import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.j
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
-import { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
@@ -20,7 +20,7 @@ import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js
 import type { Database } from "@/db/types/index.js";
 import { ChannelsService } from "@/services/channels.service.js";
 import type { Services } from "@/services/index.js";
-import { SessionsService } from "@/services/sessions.service.js";
+import { SubshellsService } from "@/services/subshells.service.js";
 import { WorkspacesService } from "@/services/workspaces.service.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -48,7 +48,7 @@ export class ApiContext {
     this.db = params.db;
     this.log = params.log;
     this.repos = {
-      sessions: new SessionsRepository(params.db),
+      subshells: new SubshellsRepository(params.db),
       profiles: new ProfilesRepository(params.db),
       workspaces: new WorkspacesRepository(params.db),
       workspacePanes: new WorkspacePanesRepository(params.db),
@@ -56,7 +56,7 @@ export class ApiContext {
       channelPosts: new ChannelPostsRepository(params.db),
       identities: new IdentitiesRepository(params.db),
       recentPaths: new RecentPathsRepository(params.db),
-      sessionShares: new SessionSharesRepository(params.db),
+      subshellShares: new SubshellSharesRepository(params.db),
       userMeta: new UserMetaRepository(params.db),
       users: new UsersRepository(params.db),
       nodes: new NodesRepository(params.db),
@@ -77,7 +77,7 @@ export class ApiContext {
     };
 
     this.services = {
-      sessions: new SessionsService(serviceParams),
+      subshells: new SubshellsService(serviceParams),
       workspaces: new WorkspacesService(serviceParams),
       channels: new ChannelsService(serviceParams),
     };

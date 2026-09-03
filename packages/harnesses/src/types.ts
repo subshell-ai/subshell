@@ -1,6 +1,6 @@
 /**
  * Shared types for harness plugins. These are consumed by both the backend
- * (registry, session runner) and the frontend (profile editor forms).
+ * (registry, subshell runner) and the frontend (profile editor forms).
  */
 
 /** A harness profile as defined by the user (decoded JSON blobs). */
@@ -9,7 +9,7 @@ export interface ProfileDefinition {
   name: string;
   /** Optional longer description */
   description?: string | null;
-  /** Extra environment variables to set on the session */
+  /** Extra environment variables to set on the subshell */
   env: Record<string, string>;
   /** Extra CLI flags to pass to the harness binary */
   flags: string[];
@@ -17,7 +17,7 @@ export interface ProfileDefinition {
   settings: Record<string, unknown> | null;
   /** If true, only this profile's config sources apply (isolation) */
   configIsolation: boolean;
-  /** If true, new sessions from this profile auto-restart on exit */
+  /** If true, new subshells from this profile auto-restart on exit */
   restartOnExit?: boolean;
 }
 
@@ -34,7 +34,7 @@ export interface ProfileValidationResult {
   issues: ProfileValidationIssue[];
 }
 
-/** Everything a plugin needs to launch a session. */
+/** Everything a plugin needs to launch a subshell. */
 export interface BuildCommandInput {
   /** Resolved absolute path to the harness binary */
   binary: string;
@@ -42,12 +42,12 @@ export interface BuildCommandInput {
   cwd: string;
   /** The validated profile being used */
   profile: ProfileDefinition;
-  /** Session display name ("" = let the harness pick a default) */
-  sessionName: string;
+  /** Subshell display name ("" = let the harness pick a default) */
+  subshellName: string;
   /** Any additional CLI flags from route/request context */
   extraFlags?: string[];
   /**
-   * The session's MCP registration (channels + session orchestration), as
+   * The subshell's MCP registration (channels + subshell orchestration), as
    * produced by this plugin's own `mcpRegistration` and already written to
    * disk. Plugins consume ONLY `mcp.args` — splice them where your dialect
    * needs them (claude right after the binary). `mcp.env` is baked into the
@@ -68,20 +68,20 @@ export interface BuildCommandInput {
 
 /**
  * Restart-resume capability, implemented only by harnesses that can continue
- * a previous conversation. The backend pins {@link allocateSessionId} at
- * launch, stores it on the session row, and consults
+ * a previous conversation. The backend pins {@link allocateSubshellId} at
+ * launch, stores it on the subshell row, and consults
  * {@link canResume} before every restart to decide between continuing that
  * conversation and starting a fresh one.
  */
 export interface HarnessResume {
   /** Allocates the conversation id to pin at launch (a uuid for claude). */
-  allocateSessionId(): string;
+  allocateSubshellId(): string;
   /**
-   * Whether the conversation `sessionId` (last run in `cwd`) still exists
+   * Whether the conversation `subshellId` (last run in `cwd`) still exists
    * and can be resumed. False → the backend launches a fresh conversation
    * instead of handing the harness an id it would reject.
    */
-  canResume(sessionId: string, cwd: string): boolean;
+  canResume(subshellId: string, cwd: string): boolean;
 }
 
 /** How to spawn the `subshell mcp` stdio server — the shape the backend's `resolveMcpLaunch()` produces. */
@@ -92,9 +92,9 @@ export interface McpLaunchSpec {
   args: string[];
 }
 
-/** Per-session MCP registration rendered in the harness's own config dialect. */
+/** Per-subshell MCP registration rendered in the harness's own config dialect. */
 export interface McpRegistration {
-  /** File content the harness reads, written to the session's config path */
+  /** File content the harness reads, written to the subshell's config path */
   fileContent: string;
   /** argv the harness needs to load the file (e.g. claude's ["--mcp-config", path]) */
   args?: string[];
@@ -115,7 +115,7 @@ export interface McpSetupStep {
 }
 
 /**
- * How a harness gets the `subshell mcp` tools (channels + session orchestration).
+ * How a harness gets the `subshell mcp` tools (channels + subshell orchestration).
  * Discriminated on purpose: auto harnesses explain themselves in one line,
  * manual harnesses carry steps — a plugin cannot mix the two.
  */
@@ -169,7 +169,7 @@ export interface HarnessPlugin {
   findBinary(): Promise<string | null>;
   /** Reads the installed version, or null. */
   getVersion(): Promise<string | null>;
-  /** Builds the argv (no shell) used to launch a session. */
+  /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
   /**
    * Restart-resume support (omit on harnesses that always start a fresh
@@ -183,9 +183,9 @@ export interface HarnessPlugin {
    */
   supportsAttentionHooks?: boolean;
   /**
-   * Renders the per-session MCP registration in this harness's native config
+   * Renders the per-subshell MCP registration in this harness's native config
    * format (file content + whatever argv/env activates it). Omit the method
-   * when the harness cannot consume a per-session config file — subshell then
+   * when the harness cannot consume a per-subshell config file — subshell then
    * surfaces one-time manual setup via mcpSetup() instead.
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;

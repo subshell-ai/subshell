@@ -7,8 +7,8 @@ import type { NodeSharesRepository } from "@/db/repositories/node-shares.reposit
 import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
-import type { SessionSharesRepository } from "@/db/repositories/session-shares.repository.js";
-import type { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import type { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
+import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
@@ -21,7 +21,7 @@ import type { WorkspacesRepository } from "@/db/repositories/workspaces.reposito
  * service needs a new repository; remove it when the last consumer goes away.
  */
 export interface Repositories {
-  readonly sessions: SessionsRepository;
+  readonly subshells: SubshellsRepository;
   readonly profiles: ProfilesRepository;
   readonly workspaces: WorkspacesRepository;
   readonly workspacePanes: WorkspacePanesRepository;
@@ -29,7 +29,7 @@ export interface Repositories {
   readonly channelPosts: ChannelPostsRepository;
   readonly identities: IdentitiesRepository;
   readonly recentPaths: RecentPathsRepository;
-  readonly sessionShares: SessionSharesRepository;
+  readonly subshellShares: SubshellSharesRepository;
   readonly userMeta: UserMetaRepository;
   readonly users: UsersRepository;
   readonly nodes: NodesRepository;

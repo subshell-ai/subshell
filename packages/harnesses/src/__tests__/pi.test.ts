@@ -16,11 +16,11 @@ describe("PiPlugin", () => {
     expect(plugin.enabledByDefault).toBe(true);
   });
 
-  it("buildCommand: maps settings and forwards the session name", () => {
+  it("buildCommand: maps settings and forwards the subshell name", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/pi",
       cwd: "/tmp/ws",
-      sessionName: "Refactor auth",
+      subshellName: "Refactor auth",
       profile: profile({
         settings: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
         flags: ["--offline"],
@@ -42,8 +42,8 @@ describe("PiPlugin", () => {
     ]);
   });
 
-  it("buildCommand: no name flag when the session name is empty", () => {
-    const cmd = plugin.buildCommand({ binary: "/usr/bin/pi", cwd: "/tmp/ws", sessionName: "", profile: profile() });
+  it("buildCommand: no name flag when the subshell name is empty", () => {
+    const cmd = plugin.buildCommand({ binary: "/usr/bin/pi", cwd: "/tmp/ws", subshellName: "", profile: profile() });
     expect(cmd).toEqual(["/usr/bin/pi"]);
   });
 
@@ -51,7 +51,7 @@ describe("PiPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/pi",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ flags: ["--append-system-prompt", "be nice"] }),
     });
     expect(cmd).toEqual(["/usr/bin/pi", "--append-system-prompt", "be nice"]);

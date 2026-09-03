@@ -20,7 +20,7 @@ export const ProfileSchema = t.Object({
   flagsJson: t.Union([t.String({ description: "JSON CLI flags" }), t.Null()]),
   settingsJson: t.Union([t.String({ description: "JSON settings object" }), t.Null()]),
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
-  restartOnExit: t.Number({ description: "1 = new sessions auto-restart on exit" }),
+  restartOnExit: t.Number({ description: "1 = new subshells auto-restart on exit" }),
   nodeId: t.Nullable(t.String({ description: "Node id this profile is pinned to" }), {
     description: "Pinned launch node id (validated visible at pin time); null = any node",
   }),
@@ -29,12 +29,12 @@ export const ProfileSchema = t.Object({
   updatedAt: t.String({ description: "Updated timestamp" }),
 });
 
-export const SessionSchema = t.Object({
-  id: t.String({ description: "Session id" }),
+export const SubshellSchema = t.Object({
+  id: t.String({ description: "Subshell id" }),
   profileId: t.String({ description: "Profile id" }),
   harnessId: t.String({ description: "Harness plugin id" }),
-  nodeId: t.String({ description: "Node the session runs on ('local' = control-plane host)" }),
-  name: t.String({ description: "Session display name" }),
+  nodeId: t.String({ description: "Node the subshell runs on ('local' = control-plane host)" }),
+  name: t.String({ description: "Subshell display name" }),
   workingDir: t.String({ description: "Absolute working directory" }),
   status: t.String({ description: "running | terminated" }),
   createdAt: t.String({ description: "Created timestamp" }),
@@ -44,7 +44,7 @@ export const SessionSchema = t.Object({
   activity: t.Union([t.Literal("active"), t.Literal("idle"), t.Literal("terminated")], {
     description: "Rough activity state",
   }),
-  preview: t.Array(t.String({ description: "Recent output preview lines (running sessions only)" })),
+  preview: t.Array(t.String({ description: "Recent output preview lines (running subshells only)" })),
   alive: t.Boolean({ description: "True when the pane process is alive; false = crashed/paused" }),
   exitCode: t.Union([t.Number({ description: "Harness exit status" }), t.Null()]),
   startedAt: t.Union([t.String({ description: "Last process start (ISO)" }), t.Null()]),
@@ -55,19 +55,19 @@ export const SessionSchema = t.Object({
   notify: t.Boolean({ description: "True = pushes and waiting-for-you priority enabled (bell on)" }),
   waitingSince: t.Union([t.String({ description: "ISO ts of the attention event; null = not waiting" }), t.Null()]),
   access: t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
-    description: "Caller's effective access to this session (viewer-relative; never 'none' on a returned row)",
+    description: "Caller's effective access to this subshell (viewer-relative; never 'none' on a returned row)",
   }),
   terminalReplayLines: t.Nullable(
-    t.Number({ description: "Per-session terminal attach history cap (1–200)" }),
+    t.Number({ description: "Per-subshell terminal attach history cap (1–200)" }),
   ) /* null = instance default */,
   nodeOffline: t.Boolean({
     description:
-      "True when the session's agent node has no live connection — the session may still be running there (spec §5.6); always false for local sessions",
+      "True when the subshell's agent node has no live connection — the subshell may still be running there (spec §5.6); always false for local subshells",
   }),
 });
 
-/** Tail of a session's pane log — the diagnostic record of what it printed. */
-export const SessionLogTailSchema = t.Object({
+/** Tail of a subshell's pane log — the diagnostic record of what it printed. */
+export const SubshellLogTailSchema = t.Object({
   lines: t.Array(t.String({ description: "One captured output line (ANSI stripped)" }), {
     description: "Last lines of the pane log, oldest first; empty when no log exists",
   }),
@@ -86,8 +86,8 @@ const GranteeIdSchema = t.Nullable(t.String({ description: "Grantee user id" }),
   description: "Grantee user id, or null for the Everyone grant",
 });
 
-/** One sharing grant on a session, with the grantee's display name resolved. */
-export const SessionShareSchema = t.Object({
+/** One sharing grant on a subshell, with the grantee's display name resolved. */
+export const SubshellShareSchema = t.Object({
   id: t.String({ description: "Share row id" }),
   granteeUserId: GranteeIdSchema,
   granteeName: t.Nullable(t.String({ description: "Grantee display name" }), {
@@ -97,12 +97,12 @@ export const SessionShareSchema = t.Object({
 });
 
 /** Response of both the GET and PUT sharing routes: the full current grant set. */
-export const SessionSharesResponseSchema = t.Object({
-  shares: t.Array(SessionShareSchema, { description: "Every grant currently on the session" }),
+export const SubshellSharesResponseSchema = t.Object({
+  shares: t.Array(SubshellShareSchema, { description: "Every grant currently on the subshell" }),
 });
 
-/** Body of PUT /api/sessions/:id/shares — the complete replacement set. */
-export const SetSessionSharesBodySchema = t.Object({
+/** Body of PUT /api/subshells/:id/shares — the complete replacement set. */
+export const SetSubshellSharesBodySchema = t.Object({
   shares: t.Array(
     t.Object({
       granteeUserId: t.Optional(GranteeIdSchema),
@@ -124,23 +124,23 @@ export const WorkspaceSchema = t.Object({
   }),
   createdAt: t.String({ description: "Created timestamp" }),
   updatedAt: t.String({ description: "Updated timestamp" }),
-  sessionCount: t.Number({ description: "Number of sessions (panes) the workspace currently holds" }),
+  subshellCount: t.Number({ description: "Number of subshells (panes) the workspace currently holds" }),
 });
 
 export const WorkspacePaneSchema = t.Object({
   id: t.String({ description: "Pane id" }),
-  sessionId: t.String({ description: "Session rendered in this pane" }),
-  sessionName: t.String({ description: "Session display name, joined for the pane title" }),
-  sessionStatus: t.Union([t.Literal("running"), t.Literal("terminated")], {
-    description: "Lifecycle status of the pane's session",
+  subshellId: t.String({ description: "Subshell rendered in this pane" }),
+  subshellName: t.String({ description: "Subshell display name, joined for the pane title" }),
+  subshellStatus: t.Union([t.Literal("running"), t.Literal("terminated")], {
+    description: "Lifecycle status of the pane's subshell",
   }),
-  sessionAlive: t.Boolean({ description: "False once the harness process has exited" }),
-  sessionExitCode: t.Union([t.Number({ description: "Harness exit status of the pane's session" }), t.Null()]),
-  sessionWaitingSince: t.Union([
-    t.String({ description: "ISO ts of the attention event that put this session in waiting-for-you state" }),
+  subshellAlive: t.Boolean({ description: "False once the harness process has exited" }),
+  subshellExitCode: t.Union([t.Number({ description: "Harness exit status of the pane's subshell" }), t.Null()]),
+  subshellWaitingSince: t.Union([
+    t.String({ description: "ISO ts of the attention event that put this subshell in waiting-for-you state" }),
     t.Null(),
   ]),
-  workingDir: t.String({ description: "Absolute working directory of the session" }),
+  workingDir: t.String({ description: "Absolute working directory of the subshell" }),
 });
 
 export const WorkspaceDetailSchema = t.Object({
@@ -194,13 +194,13 @@ export const McpSetupStepSchema = t.Object({
 });
 
 /**
- * How this harness obtains the `subshell mcp` cross-session tools. Discriminated:
+ * How this harness obtains the `subshell mcp` cross-subshell tools. Discriminated:
  * auto harnesses carry only a summary line, manual harnesses only steps —
  * mirrors the harnesses package's McpSetupInfo union.
  */
 export const McpSetupSchema = t.Union([
   t.Object({
-    mode: t.Literal("auto", { description: "Wired into every subshell session automatically" }),
+    mode: t.Literal("auto", { description: "Wired into every subshell subshell automatically" }),
     summary: t.String({ description: "Human summary for the auto case" }),
   }),
   t.Object({

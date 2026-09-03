@@ -4,7 +4,7 @@ import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
-/** `DELETE /api/workspaces/:id/panes/:paneId` — removes a pane (the session is untouched). */
+/** `DELETE /api/workspaces/:id/panes/:paneId` — removes a pane (the subshell is untouched). */
 export const removeWorkspacePaneRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
@@ -24,7 +24,7 @@ export const removeWorkspacePaneRoute = new Elysia()
       detail: {
         operationId: "removeWorkspacePane",
         tags: ["workspaces"],
-        description: "Removes a pane from a workspace (the session is untouched)",
+        description: "Removes a pane from a workspace (the subshell is untouched)",
       },
     },
   );

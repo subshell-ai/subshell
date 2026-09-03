@@ -1,5 +1,5 @@
 /**
- * A named shared channel for cross-session communication. Global within the
+ * A named shared channel for cross-subshell communication. Global within the
  * instance: every authenticated principal can list, join, and post.
  */
 export interface ChannelTable {

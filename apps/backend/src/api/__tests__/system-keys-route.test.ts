@@ -114,8 +114,8 @@ describe("system keys route", () => {
     expect(((await res.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
   });
 
-  it("a session-kind key is never listed through the system routes", async () => {
-    // The seed in session-tokens suites proves list scoping is by metadata kind.
+  it("a subshell-kind key is never listed through the system routes", async () => {
+    // The seed in subshell-tokens suites proves list scoping is by metadata kind.
     const listed = await adminCall("/api/system-keys");
     for (const k of listed.body.keys as { name: string }[]) expect(k.name.startsWith("sess:")).toBe(false);
   });

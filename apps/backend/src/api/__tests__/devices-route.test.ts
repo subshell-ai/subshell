@@ -50,9 +50,9 @@ describe("devices route", () => {
     await deleteUserByEmailOrId(otherEmail);
   });
 
-  function req(path: string, init?: RequestInit, session?: string) {
+  function req(path: string, init?: RequestInit, subshell?: string) {
     const headers = new Headers(init?.headers);
-    if (session) headers.set("cookie", `better-auth.session_token=${session}`);
+    if (subshell) headers.set("cookie", `better-auth.session_token=${subshell}`);
     return app.fetch(new Request(`http://localhost:3080/api/devices${path}`, { ...init, headers }));
   }
   const enrollBody = (token = "ExponentPushToken[TestToken0001]") => json({ token, platform: "ios" });

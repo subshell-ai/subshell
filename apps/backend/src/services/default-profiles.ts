@@ -13,7 +13,7 @@ type Db = import("kysely").Kysely<Database>;
 /**
  * Auto-defaulted profiles.
  *
- * Most users open a session without ever touching the CLI flags a profile
+ * Most users open a subshell without ever touching the CLI flags a profile
  * carries, so every (user, enabled-harness) pair is guaranteed at least one
  * profile: a blank "Default" the user can edit or replace at leisure. This
  * removes profile creation from the first-run critical path (the wizard is now
@@ -30,7 +30,7 @@ type Db = import("kysely").Kysely<Database>;
  * them, migration 0010) but fully editable — the flag is what protects them,
  * not the name, so renaming a Default keeps it protected. Disabling or
  * uninstalling the harness hides its profiles everywhere and blocks new
- * sessions (`usableHarnessIds` / `harnessUsable`); the Default waits it out
+ * subshells (`usableHarnessIds` / `harnessUsable`); the Default waits it out
  * and returns with the harness.
  *
  * Enabled, not installed: a Default is seeded for every ENABLED harness so the

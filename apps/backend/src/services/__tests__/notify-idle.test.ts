@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { NotifyKind } from "@/services/notify.service.js";
 import { createIdleWatcher, IDLE_QUIET_MS, IDLE_TICK_MS } from "@/services/notify-idle.js";
 
-/** The row shape the watcher reads (a subset of `SessionTable`). */
+/** The row shape the watcher reads (a subset of `SubshellTable`). */
 interface FakeRow {
   id: string;
   alive: number;
@@ -16,7 +16,7 @@ function fakeRow(id: string, overrides: Partial<FakeRow> = {}): FakeRow {
 
 /** What the fake deps recorded, in call order. */
 interface FakeCalls {
-  /** `notifySession(id, kind)` calls. */
+  /** `notifySubshell(id, kind)` calls. */
   notified: Array<{ id: string; kind: NotifyKind }>;
   /** `setWaiting(id)` calls. */
   waitingSet: string[];
@@ -39,7 +39,7 @@ function makeWatcher(opts: {
     listRows: async () => opts.rows.map((r) => ({ ...r })),
     statMtimeMs: async (id) => opts.mtimes.get(id) ?? null,
     harnessHasHooks: (harnessId) => opts.hooked?.has(harnessId) === true,
-    notifySession: async (id, kind) => {
+    notifySubshell: async (id, kind) => {
       calls.notified.push({ id, kind });
     },
     setWaiting: async (id) => {
@@ -63,7 +63,7 @@ describe("idle watcher constants", () => {
 });
 
 describe("createIdleWatcher.tick", () => {
-  it("(a) first tick only seeds state — a long-idle session never rings at boot", async () => {
+  it("(a) first tick only seeds state — a long-idle subshell never rings at boot", async () => {
     const rows = [fakeRow("a")];
     const mtimes = new Map([["a", T0]]);
     const { watcher, calls } = makeWatcher({ rows, mtimes });
@@ -230,7 +230,7 @@ describe("createIdleWatcher.tick", () => {
     expect(calls.notified).toHaveLength(2); // re-armed by re-seed: fires again
   });
 
-  it("one row's failing notifySession does not stall the rest of the loop", async () => {
+  it("one row's failing notifySubshell does not stall the rest of the loop", async () => {
     const rows = [fakeRow("bad"), fakeRow("good")];
     const mtimes = new Map([
       ["bad", T0],
@@ -241,7 +241,7 @@ describe("createIdleWatcher.tick", () => {
       listRows: async () => rows.map((r) => ({ ...r })),
       statMtimeMs: async (id) => mtimes.get(id) ?? null,
       harnessHasHooks: () => false,
-      notifySession: async (id) => {
+      notifySubshell: async (id) => {
         if (id === "bad") throw new Error("boom");
       },
       setWaiting: async (id) => {
@@ -263,7 +263,7 @@ describe("createIdleWatcher.tick", () => {
       },
       statMtimeMs: async () => null,
       harnessHasHooks: () => false,
-      notifySession: async () => {},
+      notifySubshell: async () => {},
       setWaiting: async () => {},
       clearWaiting: async () => {},
     });

@@ -3,7 +3,7 @@ import type { AuditEventsTable, NewAuditEvent } from "@/db/types/audit-events.db
 
 /**
  * Repository over the admin-visible audit trail (`audit_events` table,
- * migration 0004). One row per audited action (session lifecycle, admin user
+ * migration 0004). One row per audited action (subshell lifecycle, admin user
  * management). Writes are fire-and-forget from the services; no read paths
  * exist yet outside the admin endpoint.
  */

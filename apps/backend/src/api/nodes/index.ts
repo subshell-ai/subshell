@@ -14,7 +14,7 @@ import { rotateNodeKeyRoute } from "@/api/nodes/rotate-node-key.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 
 /**
- * `/api/nodes` — one Elysia instance per endpoint (the sessions-directory
+ * `/api/nodes` — one Elysia instance per endpoint (the subshells-directory
  * convention): the public enroll endpoint (spec 2026-08-31 §5.2), the
  * setup-key trio (§5.1/§9), and the registry CRUD + shares + rotate-key set
  * (§9) plus the per-node harness toggle and re-check (Task 10, §6.2).

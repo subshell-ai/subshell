@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
 import { LocalLauncher } from "../local-launcher.js";
 import type { LaunchPlan } from "../node-launcher.js";
-import { sessionLogPath } from "../session-paths.js";
+import { subshellLogPath } from "../subshell-paths.js";
 
 const tmux = new TmuxRunner();
 const launcher = new LocalLauncher({ tmux });
@@ -15,20 +15,20 @@ const socket = tmuxSocketFor(id);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 afterAll(() => {
-  tmux.killSession(socket, id);
+  tmux.killSubshell(socket, id);
   tmux.cleanSocket(socket);
-  void Bun.file(sessionLogPath(id))
+  void Bun.file(subshellLogPath(id))
     .unlink()
     .catch(() => {});
 });
 
 describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
   beforeAll(() => {
-    tmux.newSession(socket, id, tmpdir(), "sleep 30");
+    tmux.newSubshell(socket, id, tmpdir(), "sleep 30");
   });
 
-  it("hasSession / capture / sendInput round-trip", async () => {
-    expect(await launcher.hasSession(socket, id)).toBe(true);
+  it("hasSubshell / capture / sendInput round-trip", async () => {
+    expect(await launcher.hasSubshell(socket, id)).toBe(true);
     await launcher.sendInput(socket, id, "marker-not-typed\r"); // no Enter yet
     expect(await launcher.capture(socket, id)).toContain("marker-not-typed");
     await launcher.resize(socket, id, 120, 40);
@@ -38,7 +38,7 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
 
   it("log plumbing: readLogTail / readLog / tailStart disposer (pane seeded directly)", async () => {
     // `launch()`'s command assembly is covered byte-identically by the
-    // pi-stub cases in session-manager.service.test.ts (routed through the
+    // pi-stub cases in subshell-manager.service.test.ts (routed through the
     // launcher by Step 3), so this file covers the LOG side: seed a pane
     // directly and pipe it to the launcher's own logPath, then read through
     // the launcher API.
@@ -49,8 +49,8 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     // `echo hi` loses that race deterministically on this host — the pane's
     // shell prints before the second tmux client call lands. Same reason the
     // production harnesses never hit this: real CLIs boot in 100ms+.
-    tmux.newSession(lsock, lid, tmpdir(), "sleep 0.2; echo hi; sleep 6");
-    tmux.pipePane(lsock, lid, sessionLogPath(lid));
+    tmux.newSubshell(lsock, lid, tmpdir(), "sleep 0.2; echo hi; sleep 6");
+    tmux.pipePane(lsock, lid, subshellLogPath(lid));
     await sleep(400); // pipe-pane flush
     const tail = await launcher.readLogTail(lid);
     expect(tail.lines.join("\n")).toContain("hi");
@@ -68,15 +68,15 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     tmux.sendInput(lsock, lid, "after-stop\r");
     await sleep(600);
     expect(chunks.reduce((n, c) => n + c.byteLength, 0)).toBe(before);
-    tmux.killSession(lsock, lid);
+    tmux.killSubshell(lsock, lid);
     tmux.cleanSocket(lsock);
-    await launcher.removeArtifacts([sessionLogPath(lid)]);
+    await launcher.removeArtifacts([subshellLogPath(lid)]);
     expect((await launcher.readLogTail(lid)).lines).toEqual([]); // missing log = empty
   });
 
-  it("terminate kills the session", async () => {
+  it("terminate kills the subshell", async () => {
     await launcher.terminate(socket, id);
-    expect(await launcher.hasSession(socket, id)).toBe(false);
+    expect(await launcher.hasSubshell(socket, id)).toBe(false);
   });
 });
 
@@ -86,20 +86,20 @@ describe("LocalLauncher.deliverPrompt (real panes)", () => {
     const psock = tmuxSocketFor(pid);
     // An interactive shell that prints a banner: capture settles, Enter runs
     // the typed echo, and the marker lands back in the pane.
-    tmux.newSession(psock, pid, tmpdir(), "echo ready; exec sh");
+    tmux.newSubshell(psock, pid, tmpdir(), "echo ready; exec sh");
     const delivered = await launcher.deliverPrompt(psock, pid, "echo delivered-marker", 5_000, 50);
     expect(delivered).toBe(true);
     await sleep(400); // the pane's shell needs a beat to run the echo
     expect(await launcher.capture(psock, pid)).toContain("delivered-marker");
-    tmux.killSession(psock, pid);
+    tmux.killSubshell(psock, pid);
     tmux.cleanSocket(psock);
 
     // A plain `sleep` pane never prints → capture stays blank → give up false.
     const bid = `${id}-blank`;
     const bsock = tmuxSocketFor(bid);
-    tmux.newSession(bsock, bid, tmpdir(), "sleep 30");
+    tmux.newSubshell(bsock, bid, tmpdir(), "sleep 30");
     expect(await launcher.deliverPrompt(bsock, bid, "echo never", 250, 50)).toBe(false);
-    tmux.killSession(bsock, bid);
+    tmux.killSubshell(bsock, bid);
     tmux.cleanSocket(bsock);
   }, 30_000);
 });
@@ -109,7 +109,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
   class ScriptedTmux extends TmuxRunner {
     spawns = 0;
     pipes = 0;
-    override newSession(_socket: string, _sessionName: string, _cwd: string, _cmd: string): void {
+    override newSubshell(_socket: string, _sessionName: string, _cwd: string, _cmd: string): void {
       this.spawns++;
     }
     override pipePane(): void {
@@ -136,7 +136,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
       configIsolation: false,
       restartOnExit: false,
     },
-    sessionName: "s",
+    subshellName: "s",
     subshellEnv: {},
     bestEffortLog,
   });
@@ -151,7 +151,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
     expect(scripted.pipes).toBe(1); // attach was attempted…
   });
 
-  it("strict path: the same throw escapes (createSession's semantics)", async () => {
+  it("strict path: the same throw escapes (createSubshell's semantics)", async () => {
     await expect(launcher2.launch(plan(false))).rejects.toThrow(/pipe-pane/);
     expect(scripted.spawns).toBe(2);
     expect(scripted.pipes).toBe(2);

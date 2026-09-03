@@ -11,7 +11,7 @@ import { apiModels } from "@/schema/index.js";
  * (cookie): the real owner of an agent node, or an ADMIN for the seeded
  * `local` node (T3 ruling). An edit grantee — admins included, on foreign
  * agent nodes — cannot read the grant list: managing who can see a node is
- * the owner's act (session-shares parity).
+ * the owner's act (subshell-shares parity).
  */
 export const getNodeSharesRoute = new Elysia()
   .use(authGuard)
@@ -19,7 +19,7 @@ export const getNodeSharesRoute = new Elysia()
   .get(
     "/:id/shares",
     async ({ params, user, actor, status }) => {
-      requireCookieActor(actor, "Node sharing is restricted to browser sessions");
+      requireCookieActor(actor, "Node sharing is restricted to browser subshells");
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));

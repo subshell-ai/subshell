@@ -4,12 +4,12 @@ import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 
 /**
- * Seed/inspector for the two-process cross-session e2e test (plan T13).
+ * Seed/inspector for the two-process cross-subshell e2e test (plan T13).
  *
  * Runs as a STANDALONE process against the same file database as the spawned
  * backend (`DATABASE_PATH=<file> NODE_ENV=development bun src/scripts/e2e-seed.ts <mode>`)
@@ -18,7 +18,7 @@ import { issueSessionToken } from "@/services/session-tokens.js";
  * produces DATA only; all assertions live in the test.
  *
  * Modes:
- * - `create`     seed user + profile + two session rows, print their tokens as JSON
+ * - `create`     seed user + profile + two subshell rows, print their tokens as JSON
  * - `ciphertext` JSON report of the stored `e2e` posts and a plaintext-marker
  *                byte-scan of the database files (incl. the WAL)
  */
@@ -28,7 +28,7 @@ async function prepareDb(): Promise<void> {
   await runAuthMigrations();
 }
 
-/** Print `{ userId, profileId, sessions: [{id, token}] }` for two fake sessions. */
+/** Print `{ userId, profileId, subshells: [{id, token}] }` for two fake subshells. */
 async function create(): Promise<void> {
   await prepareDb();
   const users = new UsersRepository(db);
@@ -50,17 +50,25 @@ async function create(): Promise<void> {
       configIsolation: 0,
     })
   ).id;
-  const sessions = new SessionsRepository(db);
+  const subshells = new SubshellsRepository(db);
   const out: { id: string; token: string }[] = [];
   for (const name of ["e2e-A", "e2e-B"]) {
     const id = crypto.randomUUID();
     // No tmuxSocket: reconcile treats a socket-less row as absent but NEVER
     // revokes its token (revocation lives in the has-socket crash branch), so
-    // the fake session keeps a valid credential for the test's lifetime.
-    await sessions.create({ id, userId, profileId, harnessId: "e2e-fake", name, workingDir: "/tmp", tmuxSocket: null });
-    out.push({ id, token: await issueSessionToken(id, userId) });
+    // the fake subshell keeps a valid credential for the test's lifetime.
+    await subshells.create({
+      id,
+      userId,
+      profileId,
+      harnessId: "e2e-fake",
+      name,
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    out.push({ id, token: await issueSubshellToken(id, userId) });
   }
-  process.stdout.write(`${JSON.stringify({ userId, profileId, sessions: out })}\n`);
+  process.stdout.write(`${JSON.stringify({ userId, profileId, subshells: out })}\n`);
 }
 
 /**

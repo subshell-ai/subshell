@@ -14,7 +14,7 @@ import {
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
-import { buildSessionsReport } from "./commands/report.js";
+import { buildSubshellsReport } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
@@ -22,7 +22,7 @@ import { mapOs } from "./enroll.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
-import { SessionMetaStore } from "./session-meta.js";
+import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
 /**
@@ -112,10 +112,10 @@ export interface DaemonDeps {
    */
   tmux?: TmuxRunner;
   /**
-   * Session-meta store for the executors (default `new SessionMetaStore(config.dataDir)`).
+   * Subshell-meta store for the executors (default `new SubshellMetaStore(config.dataDir)`).
    * @internal test seam — production never passes one.
    */
-  meta?: SessionMetaStore;
+  meta?: SubshellMetaStore;
 }
 
 interface WsClose {
@@ -185,9 +185,9 @@ function jtiOfUnverified(jws: string): string | undefined {
  * Capability gate for the `subshell mcp` subcommand — shipped since Task 13
  * (the `@internal/mcp-core` server behind `subshell mcp`), so this build advertises `mcp`
  * alongside `uploads` in `readyEvent` and the control plane registers the
- * per-session MCP config for launches on this node. The constant is the kill
+ * per-subshell MCP config for launches on this node. The constant is the kill
  * switch: flip it false (with the command removed from `cli.ts`) and the
- * backend's capability gate skips registration for every session launched here.
+ * backend's capability gate skips registration for every subshell launched here.
  */
 const HAS_MCP = true;
 
@@ -204,7 +204,7 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     // Phase 2 (Task 4): the capability set advertises the phase-2 command
     // surface. `uploads` names the terminal-upload relay pipeline; `mcp`
     // (HAS_MCP, shipped in Task 13) is what lets the control plane register
-    // `subshell mcp` for sessions launched here.
+    // `subshell mcp` for subshells launched here.
     capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
     // Task 1's additive field: the control plane composes the MCP launch spec
     // against this path (the agent re-runs the dialect locally regardless —
@@ -276,7 +276,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const ctx: CommandContext = {
     config,
     tmux: deps.tmux ?? new TmuxRunner(),
-    meta: deps.meta ?? new SessionMetaStore(config.dataDir),
+    meta: deps.meta ?? new SubshellMetaStore(config.dataDir),
     nowMs,
     ws: commandWs,
     watchers: new Map(),
@@ -480,7 +480,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
         send(ws, readyEvent(config));
-        // Connect-time `sessions_report` (spec §3.3): re-projects the panes
+        // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
         // refusing) must never cost the connection.
@@ -493,9 +493,9 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
           buildInventoryEvent(nowMs())
             .then((inv) => send(ws, inv))
             .catch((err: unknown) => log(`${label}: ${err instanceof Error ? err.message : String(err)}`));
-        void buildSessionsReport(ctx)
+        void buildSubshellsReport(ctx)
           .then((report) => send(ws, report))
-          .catch((err: unknown) => log(`sessions_report failed: ${err instanceof Error ? err.message : String(err)}`))
+          .catch((err: unknown) => log(`subshells_report failed: ${err instanceof Error ? err.message : String(err)}`))
           // Connect-time initial `inventory` push (spec §7 "inventory every 5 min
           // + on demand"; P3-T8b closed the missing first beat): the create-time
           // harness gate demands a FRESH snapshot, so without this a freshly

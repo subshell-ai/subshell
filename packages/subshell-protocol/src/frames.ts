@@ -10,7 +10,7 @@ export const BRACKETED_PASTE_START = "\x1b[200~";
 export const BRACKETED_PASTE_END = "\x1b[201~";
 
 /**
- * A frame sent by the browser to the session WebSocket.
+ * A frame sent by the browser to the subshell WebSocket.
  *
  * Every client frame is JSON. There is deliberately no "raw text means
  * input" fallback: that heuristic could not distinguish terminal input from
@@ -37,7 +37,7 @@ export type ClientFrame =
     };
 
 /**
- * A frame sent by the session WebSocket to the browser.
+ * A frame sent by the subshell WebSocket to the browser.
  */
 export interface ServerFrame {
   /** `replay` rebuilds history on attach; `output` is live pane output. */

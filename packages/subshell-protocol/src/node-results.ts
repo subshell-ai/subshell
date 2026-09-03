@@ -27,8 +27,8 @@ function isNonEmptyStr(value: unknown): value is string {
 
 /** One row of a `probe` batch result (spec §6.3 reconcile: has-session + exit + title + optional capture). */
 export interface NodeProbeEntry {
-  /** subshell session id this row describes */
-  sessionId: string;
+  /** subshell subshell id this row describes */
+  subshellId: string;
   /** True while the pane process is alive on the node */
   alive: boolean;
   /** Last observed exit code; null while alive or when the exit was never seen */
@@ -49,7 +49,7 @@ export interface NodeProbeEntry {
 export function parseNodeProbeEntries(data: unknown): NodeProbeEntry[] | null {
   if (!Array.isArray(data)) return null;
   for (const e of data) {
-    if (!isRecord(e) || !isStr(e.sessionId) || !isBool(e.alive)) return null;
+    if (!isRecord(e) || !isStr(e.subshellId) || !isBool(e.alive)) return null;
     if (!(e.exitCode === null || isInt(e.exitCode))) return null;
     if ("title" in e && !isStr(e.title)) return null;
     if ("command" in e && !isStr(e.command)) return null;

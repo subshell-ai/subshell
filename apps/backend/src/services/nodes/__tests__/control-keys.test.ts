@@ -1,14 +1,14 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { rmSync, statSync, writeFileSync } from "node:fs";
-import { IS_TEST, SESSION_DATA_DIR } from "@/constants.js";
+import { IS_TEST, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { controlPublicJwkJson, loadControlKeys, resetControlKeysForTests } from "../control-keys.js";
 
 /** Where the store persists; mirrors the module-internal KEY_PATH. */
-const KEY_PATH = `${SESSION_DATA_DIR}/node-signing.json`;
+const KEY_PATH = `${SUBSHELL_SERVER_DATA_DIR}/node-signing.json`;
 
 describe("control keys store (spec 2026-08-31 §4)", () => {
   beforeAll(() => {
-    if (!IS_TEST) throw new Error("test-only: SESSION_DATA_DIR must be the per-process temp dir");
+    if (!IS_TEST) throw new Error("test-only: SUBSHELL_SERVER_DATA_DIR must be the per-process temp dir");
   });
 
   it("generates once, persists at 0600, and reuses the same keypair", async () => {

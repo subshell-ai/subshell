@@ -2,7 +2,7 @@
 export type NodeSharePermission = "view" | "edit";
 
 /**
- * Database table schema for per-node access grants — mirror of session_shares.
+ * Database table schema for per-node access grants — mirror of subshell_shares.
  */
 export interface NodeShareTable {
   /** Unique id (uuid) */

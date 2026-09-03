@@ -3,7 +3,7 @@ import { IS_TEST } from "@/constants.js";
 import { logger } from "@/utils/logger.js";
 
 /**
- * Tmux seam for nudging idle sessions about new channel posts.
+ * Tmux seam for nudging idle subshells about new channel posts.
  *
  * A nudge is a fixed, server-generated line typed into the pane WITHOUT
  * Enter — it can interrupt nothing and submits nothing; a human or an agent
@@ -23,12 +23,12 @@ export function setNudgeTransportForTests(tmux: TmuxRunner | null): void {
   transport = tmux ?? new TmuxRunner();
 }
 
-/** Best-effort: types the line into the session's pane, never throws. */
-export function nudgeSession(socket: string, sessionName: string, text: string): void {
+/** Best-effort: types the line into the subshell's pane, never throws. */
+export function nudgeSubshell(socket: string, subshellName: string, text: string): void {
   try {
-    transport.sendInput(socket, sessionName, text);
+    transport.sendInput(socket, subshellName, text);
   } catch (err) {
     // A vanished pane between liveness-check and type is a normal race.
-    logger.withError(err).debug(`nudge failed for ${sessionName}`);
+    logger.withError(err).debug(`nudge failed for ${subshellName}`);
   }
 }

@@ -12,7 +12,7 @@ import { logger } from "@/utils/logger.js";
  *
  * Cookie-only like the files routes: enabling push on a device is a
  * human-in-the-browser act; machine credentials get 403. Whether any
- * notification is ever SENT is decided per session by `sessions.notify`,
+ * notification is ever SENT is decided per subshell by `subshells.notify`,
  * checked at send time — this route is plumbing, not policy.
  */
 
@@ -38,11 +38,11 @@ const ConfigResponseSchema = t.Object({
 const OkResponseSchema = t.Object({ ok: t.Boolean({ description: "Always true" }) });
 
 const NotificationSettingsSchema = t.Object({
-  notifyEnabled: t.Boolean({ description: "Per-user master switch: false = never receive session pushes" }),
+  notifyEnabled: t.Boolean({ description: "Per-user master switch: false = never receive subshell pushes" }),
 });
 
 /** 403 message kept byte-identical when the gate moved into auth-guard (existing tests assert it). */
-const NOTIFICATIONS_403 = "Notifications are restricted to browser sessions";
+const NOTIFICATIONS_403 = "Notifications are restricted to browser subshells";
 
 /**
  * Probes the VAPID public key (the same source `/config` degrades on) and
@@ -84,7 +84,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
       detail: {
         operationId: "notificationsConfig",
         tags: ["notifications"],
-        description: "VAPID public key (browser sessions only)",
+        description: "VAPID public key (browser subshells only)",
       },
     },
   )
@@ -149,7 +149,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
       detail: {
         operationId: "getNotificationSettings",
         tags: ["notifications"],
-        description: "The caller's notification master switch (browser sessions only)",
+        description: "The caller's notification master switch (browser subshells only)",
       },
     },
   )
@@ -171,7 +171,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/api/notifications" })
       detail: {
         operationId: "setNotificationSettings",
         tags: ["notifications"],
-        description: "Set the caller's notification master switch (browser sessions only)",
+        description: "Set the caller's notification master switch (browser subshells only)",
       },
     },
   );

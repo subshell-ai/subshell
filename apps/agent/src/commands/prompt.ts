@@ -12,7 +12,7 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * timeouts have no side effects.
  *
  * The two seam differences from the local original: the socket comes from the
- * per-session meta store (via `resolveSocket`, id-gated), and the deadline
+ * per-subshell meta store (via `resolveSocket`, id-gated), and the deadline
  * math runs on the injectable `ctx.nowMs()` clock so tests own time.
  */
 
@@ -21,24 +21,24 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * with Enter. Port of `LocalLauncher.deliverPrompt` (spec §3.4/§6.5).
  * @param ctx - the per-daemon execution context (tmux, meta, injectable clock)
  * @param cmd - the verified `prompt_deliver` command
- * @returns `{ok:true, data:{promptDelivered}}` — always; a malformed session id
- * answers `{ok:false, error:"invalid session id"}` (the store-throwing-id rule,
+ * @returns `{ok:true, data:{promptDelivered}}` — always; a malformed subshell id
+ * answers `{ok:false, error:"invalid subshell id"}` (the store-throwing-id rule,
  * enforced here so the promise itself never rejects).
  */
 export async function execPromptDeliver(ctx: CommandContext, cmd: Cmd<"prompt_deliver">): Promise<CommandResult> {
   let socket: string;
   try {
-    socket = await resolveSocket(ctx, cmd.sessionId); // id gate FIRST (store throws on bad ids)
+    socket = await resolveSocket(ctx, cmd.subshellId); // id gate FIRST (store throws on bad ids)
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
-  const settled = await waitForSettled(ctx, socket, cmd.sessionId, cmd.settleTimeoutMs, cmd.pollMs);
+  const settled = await waitForSettled(ctx, socket, cmd.subshellId, cmd.settleTimeoutMs, cmd.pollMs);
   let promptDelivered = false;
   if (settled) {
     try {
-      ctx.tmux.sendInput(socket, cmd.sessionId, cmd.text);
-      ctx.tmux.pressEnter(socket, cmd.sessionId);
+      ctx.tmux.sendInput(socket, cmd.subshellId, cmd.text);
+      ctx.tmux.pressEnter(socket, cmd.subshellId);
       promptDelivered = true;
     } catch {
       // an input failure is a false answer, never a throw — the caller decides what to do
@@ -62,14 +62,14 @@ export async function execPromptDeliver(ctx: CommandContext, cmd: Cmd<"prompt_de
 async function waitForSettled(
   ctx: CommandContext,
   socket: string,
-  sessionId: string,
+  subshellId: string,
   settleTimeoutMs: number,
   pollMs: number,
 ): Promise<boolean> {
   const deadline = ctx.nowMs() + settleTimeoutMs;
   while (ctx.nowMs() < deadline) {
     try {
-      if (stripAnsi(ctx.tmux.capturePane(socket, sessionId)).trim()) return true;
+      if (stripAnsi(ctx.tmux.capturePane(socket, subshellId)).trim()) return true;
     } catch {
       // pane not queryable yet; keep polling
     }

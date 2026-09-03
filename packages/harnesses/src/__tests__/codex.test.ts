@@ -22,7 +22,7 @@ describe("CodexPlugin", () => {
 
   it("buildCommand: bare launch with no profile extra", () => {
     expect(
-      plugin.buildCommand({ binary: "/usr/bin/codex", cwd: "/tmp/ws", sessionName: "", profile: profile() }),
+      plugin.buildCommand({ binary: "/usr/bin/codex", cwd: "/tmp/ws", subshellName: "", profile: profile() }),
     ).toEqual(["/usr/bin/codex"]);
   });
 
@@ -30,7 +30,7 @@ describe("CodexPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
-      sessionName: "ignored",
+      subshellName: "ignored",
       profile: profile({
         settings: { model: "gpt-5-codex", sandbox: "workspace-write", askForApproval: "never" },
         flags: ["--search"],
@@ -55,7 +55,7 @@ describe("CodexPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ settings: { sandbox: "read-only", askForApproval: "on-request" } }),
     });
     expect(cmd).toEqual(["/usr/bin/codex", "-s", "read-only", "-a", "on-request"]);
@@ -65,7 +65,7 @@ describe("CodexPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ flags: ['-c mcp_servers.foo.args=["a b"]'] }),
     });
     expect(cmd).toEqual(["/usr/bin/codex", '-c mcp_servers.foo.args=["a b"]']);
@@ -75,7 +75,7 @@ describe("CodexPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ settings: { model: 42, sandbox: "", askForApproval: false } }),
     });
     expect(cmd).toEqual(["/usr/bin/codex"]);
@@ -85,7 +85,7 @@ describe("CodexPlugin", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
-      sessionName: "",
+      subshellName: "",
       profile: profile({ settings: { model: "gpt-5" }, flags: ["--search"] }),
       mcp: {
         fileContent: "",
@@ -105,12 +105,12 @@ describe("CodexPlugin", () => {
     ]);
   });
 
-  it("buildCommand: no resume/session-id flags — restarts always start fresh", () => {
+  it("buildCommand: no resume/subshell-id flags — restarts always start fresh", () => {
     expect((plugin as { resume?: unknown }).resume).toBeUndefined();
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
-      sessionName: "s",
+      subshellName: "s",
       profile: profile(),
       harnessSession: { id: "00000000-0000-0000-0000-000000000000", mode: "resume" },
     });

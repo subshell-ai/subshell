@@ -1,5 +1,5 @@
 import type { ChannelsService } from "@/services/channels.service.js";
-import type { SessionsService } from "@/services/sessions.service.js";
+import type { SubshellsService } from "@/services/subshells.service.js";
 import type { WorkspacesService } from "@/services/workspaces.service.js";
 
 /**
@@ -7,7 +7,7 @@ import type { WorkspacesService } from "@/services/workspaces.service.js";
  * requestless singleton). Each entry owns one API resource's business logic.
  */
 export interface Services {
-  sessions: SessionsService;
+  subshells: SubshellsService;
   workspaces: WorkspacesService;
   channels: ChannelsService;
 }

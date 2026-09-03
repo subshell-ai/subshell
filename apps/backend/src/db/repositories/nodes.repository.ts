@@ -187,16 +187,16 @@ export class NodesRepository extends BaseRepository {
   }
 
   /**
-   * Sessions still unfinished on this node — `status = 'running'`. The
-   * session status vocabulary is exactly `running | terminated` (there is no
+   * Subshells still unfinished on this node — `status = 'running'`. The
+   * subshell status vocabulary is exactly `running | terminated` (there is no
    * "starting"; a spawned-but-unconfirmed harness is `running` with `alive`
    * 0→1 settling, and a parked auto-restart row is `running, alive: 0`), so
    * `running` IS the live set and parked rows count — from the node's side
    * they are work that has not ended. Used by the delete guard (spec §5.4).
    */
-  async countRunningSessions(nodeId: string): Promise<number> {
+  async countRunningSubshells(nodeId: string): Promise<number> {
     const r = await this.db
-      .selectFrom("sessions")
+      .selectFrom("subshells")
       .select((eb) => eb.fn.countAll<number>().as("n"))
       .where("nodeId", "=", nodeId)
       .where("status", "=", "running")

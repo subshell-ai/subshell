@@ -16,7 +16,7 @@ import {
 
 /**
  * The node-access resolver (spec 2026-08-31 §2) — one authorization question,
- * deliberately NOT the session rule: on nodes ANY share level grants launch,
+ * deliberately NOT the subshell rule: on nodes ANY share level grants launch,
  * `edit`/`owner` grants config, and only the owner manages (delete/shares;
  * routes add the seeded-`local` admin exception themselves).
  */
@@ -73,9 +73,9 @@ describe("resolveNodeAccess (pure)", () => {
   });
 });
 
-describe("capability predicates (spec §2 — NOT the session rule)", () => {
+describe("capability predicates (spec §2 — NOT the subshell rule)", () => {
   it("ANY level except none grants launch — view included", () => {
-    expect(nodeCanLaunch("view")).toBe(true); // the §2 delta vs sessions: pinned
+    expect(nodeCanLaunch("view")).toBe(true); // the §2 delta vs subshells: pinned
     expect(nodeCanLaunch("edit")).toBe(true);
     expect(nodeCanLaunch("owner")).toBe(true);
     expect(nodeCanLaunch("none")).toBe(false);

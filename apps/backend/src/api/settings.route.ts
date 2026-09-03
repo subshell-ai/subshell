@@ -27,14 +27,14 @@ const PublicSettingsSchema = t.Object({
   }),
   viewerIsAdmin: t.Boolean({
     description:
-      "True when the caller is a signed-in admin via COOKIE session (drives the Server nav entry); bearer actors always read false",
+      "True when the caller is a signed-in admin via COOKIE subshell (drives the Server nav entry); bearer actors always read false",
   }),
 });
 
 /**
  * Settings endpoints (admin-cookie only for reads/writes; the public "allow
  * registrations" read is exposed so the login page can hide the sign-up
- * link). Bearer keys — session or system — are rejected with 403 even when
+ * link). Bearer keys — subshell or system — are rejected with 403 even when
  * their owner is an admin: machine credentials cannot manage the instance.
  */
 export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
@@ -67,8 +67,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     "/",
     async ({ user, actor }) => {
       // The shared cookie-admin rule (user-utils): a bearer actor's synthetic
-      // `user` is the session OWNER, so isAdmin alone would let an
-      // admin-owned session token read instance settings. Machine
+      // `user` is the subshell OWNER, so isAdmin alone would let an
+      // admin-owned subshell token read instance settings. Machine
       // credentials cannot manage the instance.
       if (!(await isCookieAdmin(user, actor))) {
         throw new SettingsError("forbidden", "Admins only (cookie session)");
@@ -89,7 +89,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
   .patch(
     "/",
     async ({ body, user, actor }) => {
-      // Same cookie+admin gate as GET / above: bearer keys (session or system)
+      // Same cookie+admin gate as GET / above: bearer keys (subshell or system)
       // never reach settings writes even when their owner is an admin.
       if (!(await isCookieAdmin(user, actor))) {
         throw new SettingsError("forbidden", "Admins only (cookie session)");

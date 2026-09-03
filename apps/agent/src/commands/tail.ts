@@ -1,14 +1,14 @@
 import { type FSWatcher, watch } from "node:fs";
 import type { JsonValue, NodeEvent, NodeLogReadResult } from "@internal/subshell-protocol";
 import { log } from "../log.js";
-import { isSessionId } from "../session-meta.js";
+import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult, TailHandle } from "./context.js";
 
 /**
  * The `log_read` + `tail_start`/`tail_stop` executors (spec 2026-08-31 §3.1/§3.4)
  * — the agent-side twin of `LocalLauncher.readLog`/`tailStart`. The pump is a
  * port of `LocalLauncher.tailStart` (itself the WS attach pump from
- * `ws/session-ws.ts`): `fs.watch` (inotify on Linux) fires the moment
+ * `ws/subshell-ws.ts`): `fs.watch` (inotify on Linux) fires the moment
  * pipe-pane appends, a slow interval covers lost watch events, and both paths
  * share the size-based read with `pumping`/`again` flags so a byte is never
  * sliced twice. The wire differences (spec §3.1): each read slice is chunked
@@ -42,7 +42,7 @@ const TAIL_BACKPRESSURE_POLL_MS = 50;
 const TAIL_SEND_FAILURE_LIMIT = 2;
 
 /**
- * `log_read` (spec §3.4): one byte window of the session's pane log with the
+ * `log_read` (spec §3.4): one byte window of the subshell's pane log with the
  * offset a sequential reader should ask for next. A missing/unreadable log is
  * a VALID EMPTY read (`size: 0`), never an error — same rule as
  * `readLogTailFrom`, so a relay never special-cases the race between "pane
@@ -55,8 +55,8 @@ const TAIL_SEND_FAILURE_LIMIT = 2;
  * @returns `{ok:true, data:{bytes_b64, next, size}}`, or `{ok:false}` on a malformed id
  */
 export async function execLogRead(ctx: CommandContext, cmd: Cmd<"log_read">): Promise<CommandResult> {
-  if (!isSessionId(cmd.sessionId)) return { ok: false, error: "invalid session id" };
-  const file = Bun.file(ctx.meta.logPath(cmd.sessionId));
+  if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
+  const file = Bun.file(ctx.meta.logPath(cmd.subshellId));
   // The result shapes are JSON-safe by construction (`node-results.ts` owns
   // them); an interface cannot structurally satisfy JsonValue's index
   // signature, so the seam cast is the intended route (same as execProbe).
@@ -94,8 +94,8 @@ export async function execLogRead(ctx: CommandContext, cmd: Cmd<"log_read">): Pr
  * @returns `{ok:true}` once the pump is registered, or `{ok:false}` on a malformed id
  */
 export async function execTailStart(ctx: CommandContext, cmd: Cmd<"tail_start">): Promise<CommandResult> {
-  if (!isSessionId(cmd.sessionId)) return { ok: false, error: "invalid session id" };
-  const logFile = ctx.meta.logPath(cmd.sessionId);
+  if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
+  const logFile = ctx.meta.logPath(cmd.subshellId);
 
   // Replace-with-stop on dup subId (defensive; see JSDoc).
   const prev = ctx.tails.get(cmd.subId);
@@ -117,7 +117,7 @@ export async function execTailStart(ctx: CommandContext, cmd: Cmd<"tail_start">)
   let sendFailures = 0;
 
   const handle: TailHandle = {
-    sessionId: cmd.sessionId,
+    subshellId: cmd.subshellId,
     stop: (): void => {
       if (stopped) return;
       stopped = true;
@@ -181,7 +181,7 @@ export async function execTailStart(ctx: CommandContext, cmd: Cmd<"tail_start">)
           try {
             const ev: Extract<NodeEvent, { type: "output" }> = {
               type: "output",
-              sessionId: cmd.sessionId,
+              subshellId: cmd.subshellId,
               subId: cmd.subId,
               fromByte,
               toByte,

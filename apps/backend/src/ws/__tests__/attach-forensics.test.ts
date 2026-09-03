@@ -8,7 +8,7 @@ import { forensicsEnabled, recordAttachPaint, setForensicsEnabledForTests } from
  * the pane's grid as the viewer found it vs. the exact replay bytes shipped.
  *
  * These write under the real `/tmp/subshell-attach-debug` root (that path IS the
- * documented contract an operator greps), namespaced by a synthetic session id
+ * documented contract an operator greps), namespaced by a synthetic subshell id
  * this suite removes afterwards.
  */
 
@@ -25,14 +25,14 @@ describe("attach forensics", () => {
     // Screen contents can hold secrets, and every attach writing to /tmp
     // would churn the disk — the dump is opt-in per instance.
     expect(forensicsEnabled()).toBe(false);
-    recordAttachPaint({ sessionId: SID, preResize: "BEFORE", replay: "AFTER", repainted: true, nudged: false });
+    recordAttachPaint({ subshellId: SID, preResize: "BEFORE", replay: "AFTER", repainted: true, nudged: false });
     expect(existsSync(`${ROOT}/${SID}`)).toBe(false);
   });
 
   it("when armed, dumps the pre-resize grid and the exact replay bytes side by side", () => {
     setForensicsEnabledForTests(true);
     recordAttachPaint({
-      sessionId: SID,
+      subshellId: SID,
       preResize: "GARBLED-AT-ENTRY",
       replay: "CLEAN-AFTER-REPAINT",
       repainted: true,
@@ -40,7 +40,7 @@ describe("attach forensics", () => {
     });
 
     // One timestamped directory per attach, so successive attaches on one
-    // session are comparable rather than overwriting each other.
+    // subshell are comparable rather than overwriting each other.
     const attaches = [...new Bun.Glob("*/*.txt").scanSync(`${ROOT}/${SID}`)];
     expect(attaches.sort()).toHaveLength(2);
     const dir = `${ROOT}/${SID}/${attaches[0].split("/")[0]}`;
@@ -52,7 +52,7 @@ describe("attach forensics", () => {
     // A stale client sends no geometry ⇒ no resize ⇒ nothing to capture
     // "before" it. The replay half is still the evidence that matters.
     setForensicsEnabledForTests(true);
-    recordAttachPaint({ sessionId: SID, preResize: null, replay: "REPLAY", repainted: false, nudged: false });
+    recordAttachPaint({ subshellId: SID, preResize: null, replay: "REPLAY", repainted: false, nudged: false });
 
     const files = [...new Bun.Glob("*/*.txt").scanSync(`${ROOT}/${SID}`)];
     const dir = `${ROOT}/${SID}/${files[0].split("/")[0]}`;
@@ -67,7 +67,7 @@ describe("attach forensics", () => {
     expect(() =>
       recordAttachPaint({
         // A path segment that cannot be created as a directory component.
-        sessionId: `${SID}/\0bad`,
+        subshellId: `${SID}/\0bad`,
         preResize: null,
         replay: "R",
         repainted: false,

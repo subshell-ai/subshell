@@ -7,7 +7,7 @@ import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import {
@@ -19,7 +19,7 @@ import {
 } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode, localPlatform } from "@/services/nodes/seed-local.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /** One rendered node as the list/detail routes return it. */
@@ -71,7 +71,7 @@ function plantPending(conn: NodeConnection): () => unknown {
 /**
  * `/api/nodes` registry CRUD (spec 2026-08-31 §9): list/detail with the
  * share-row-is-the-filter access model, rename (per-owner collision 409,
- * `local` immutable), delete (owner-only, running-session guard, force rules,
+ * `local` immutable), delete (owner-only, running-subshell guard, force rules,
  * api-key teardown + live-socket disconnect), rotate-key (mint → flip →
  * disable, live-socket disconnect). All cookie-only in phase 1.
  */
@@ -94,11 +94,11 @@ describe("/api/nodes registry CRUD", () => {
   let bobCookie = "";
   let carolCookie = "";
   let adminCookie = "";
-  let sessionKey = "";
+  let subshellKey = "";
 
   const createdNodeIds: string[] = [];
   const createdApiKeyIds: string[] = [];
-  const createdSessionIds: string[] = [];
+  const createdSubshellIds: string[] = [];
 
   /** Enrolled-style agent node WITH a real node-kind api key bound (rotate/delete fixtures). */
   async function mkNode(ownerId: string, name: string): Promise<{ id: string; key: string; keyRowId: string }> {
@@ -157,8 +157,8 @@ describe("/api/nodes registry CRUD", () => {
     adminCookie = await signIn(emails.root, pw);
     await ensureLocalNode(db);
 
-    // A real session bearer key owned by alice — proves cookie-only enforcement.
-    await new SessionsRepository(db).create({
+    // A real subshell bearer key owned by alice — proves cookie-only enforcement.
+    await new SubshellsRepository(db).create({
       id: "s_ncrud",
       userId: aliceId,
       profileId: "p",
@@ -167,13 +167,13 @@ describe("/api/nodes registry CRUD", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    createdSessionIds.push("s_ncrud");
-    sessionKey = await issueSessionToken("s_ncrud", aliceId);
+    createdSubshellIds.push("s_ncrud");
+    subshellKey = await issueSubshellToken("s_ncrud", aliceId);
   });
 
   afterAll(async () => {
     resetNodeRegistryForTests();
-    await db.deleteFrom("sessions").where("id", "in", createdSessionIds).execute();
+    await db.deleteFrom("subshells").where("id", "in", createdSubshellIds).execute();
     for (const id of createdNodeIds) await nodes.deleteById(id);
     for (const kid of createdApiKeyIds) authDatabase().run("DELETE FROM apikey WHERE id = ?", [kid]);
     for (const email of Object.values(emails)) await deleteUserByEmailOrId(email);
@@ -321,12 +321,12 @@ describe("/api/nodes registry CRUD", () => {
     expect(seen.canManage).toBe(false);
   });
 
-  it("a session bearer key is refused on every registry route (cookie-only phase 1)", async () => {
-    expect((await req("GET", "", { bearer: sessionKey })).status).toBe(403);
-    expect((await req("GET", "/local", { bearer: sessionKey })).status).toBe(403);
-    expect((await req("PATCH", "/local", { bearer: sessionKey, body: { name: "x" } })).status).toBe(403);
-    expect((await req("DELETE", "/local", { bearer: sessionKey })).status).toBe(403);
-    expect((await req("POST", "/local/rotate-key", { bearer: sessionKey })).status).toBe(403);
+  it("a subshell bearer key is refused on every registry route (cookie-only phase 1)", async () => {
+    expect((await req("GET", "", { bearer: subshellKey })).status).toBe(403);
+    expect((await req("GET", "/local", { bearer: subshellKey })).status).toBe(403);
+    expect((await req("PATCH", "/local", { bearer: subshellKey, body: { name: "x" } })).status).toBe(403);
+    expect((await req("DELETE", "/local", { bearer: subshellKey })).status).toBe(403);
+    expect((await req("POST", "/local/rotate-key", { bearer: subshellKey })).status).toBe(403);
   });
 
   it("unauthenticated → 401", async () => {
@@ -369,9 +369,9 @@ describe("/api/nodes registry CRUD", () => {
     expect((await req("DELETE", "/local", { cookie: adminCookie })).status).toBe(400);
   });
 
-  it("delete: running sessions → 409; ?force=true while offline → 200, sessions untouched", async () => {
+  it("delete: running subshells → 409; ?force=true while offline → 200, subshells untouched", async () => {
     const n = await mkNode(aliceId, `del-run-${crypto.randomUUID().slice(0, 8)}`);
-    await new SessionsRepository(db).create({
+    await new SubshellsRepository(db).create({
       id: `s_${n.id}`,
       userId: aliceId,
       profileId: "p",
@@ -381,19 +381,19 @@ describe("/api/nodes registry CRUD", () => {
       tmuxSocket: null,
       nodeId: n.id,
     });
-    createdSessionIds.push(`s_${n.id}`);
+    createdSubshellIds.push(`s_${n.id}`);
 
     const blocked = await req("DELETE", `/${n.id}`, { cookie: aliceCookie });
     expect(blocked.status).toBe(409);
     const err = (await blocked.json()) as { code: string; message: string };
-    expect(err.code).toBe("NODE_RUNNING_SESSIONS");
+    expect(err.code).toBe("NODE_RUNNING_SUBSHELLS");
     expect(err.message).toContain("1");
 
     const forced = await req("DELETE", `/${n.id}?force=true`, { cookie: aliceCookie });
     expect(forced.status).toBe(200);
     expect(await nodes.findById(n.id)).toBeUndefined();
-    // The session row rides the normal reconcile path — force delete leaves it alone.
-    expect(await new SessionsRepository(db).findById(`s_${n.id}`)).toBeDefined();
+    // The subshell row rides the normal reconcile path — force delete leaves it alone.
+    expect(await new SubshellsRepository(db).findById(`s_${n.id}`)).toBeDefined();
   });
 
   it("delete: ?force=true while ONLINE → 409 with the phase-2 message", async () => {

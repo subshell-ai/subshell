@@ -9,10 +9,12 @@ import * as profileDefaultFlagMigration from "@/db/migrations/0010-profile-defau
 import * as sessionNameLockedMigration from "@/db/migrations/0011-session-name-locked.js";
 import * as sessionHarnessIdMigration from "@/db/migrations/0013-session-harness-id.js";
 import * as sessionNotificationsMigration from "@/db/migrations/0014-session-notifications.js";
+import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
+import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -25,10 +27,10 @@ const db = new Kysely<Database>({
 const workspaces = new WorkspacesRepository(db);
 const panes = new WorkspacePanesRepository(db);
 const profiles = new ProfilesRepository(db);
-const sessions = new SessionsRepository(db);
+const subshells = new SubshellsRepository(db);
 
-/** Creates a profile + session owned by `userId`, returning the session id. */
-async function makeSession(userId: string): Promise<string> {
+/** Creates a profile + subshell owned by `userId`, returning the subshell id. */
+async function makeSubshell(userId: string): Promise<string> {
   const profile = await profiles.create({
     id: crypto.randomUUID(),
     userId,
@@ -41,7 +43,7 @@ async function makeSession(userId: string): Promise<string> {
     configIsolation: 0,
   });
   const id = crypto.randomUUID();
-  await sessions.create({
+  await subshells.create({
     id,
     userId,
     profileId: profile.id,
@@ -59,10 +61,12 @@ beforeAll(async () => {
   await remoteOpsMigration.up(db);
   await workspacesMigration.up(db);
   await profileDefaultFlagMigration.up(db); // ProfilesRepository.create writes is_default
-  await sessionNameLockedMigration.up(db); // SessionsRepository defaults name_locked
-  await sessionHarnessIdMigration.up(db); // sessions.harness_session_id
-  await sessionNotificationsMigration.up(db); // sessions.notify / waiting_since + subscriptions
-  await nodesMigration.up(db); // sessions.node_id (SessionsRepository.create writes it)
+  await sessionNameLockedMigration.up(db); // SubshellsRepository defaults name_locked
+  await sessionHarnessIdMigration.up(db); // subshells.harness_session_id
+  await sessionNotificationsMigration.up(db); // subshells.notify / waiting_since + subscriptions
+  await nodesMigration.up(db); // subshells.node_id (SubshellsRepository.create writes it)
+  await sharingMigration.up(db); // 0019 renames session_shares
+  await subshellRenameMigration.up(db); // renamed schema the code sees
 });
 
 beforeEach(async () => {
@@ -99,11 +103,11 @@ describe("workspaces repository", () => {
 describe("workspace panes repository", () => {
   it("creates and lists panes for a workspace", async () => {
     const ws = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "W" });
-    const sessionId = await makeSession("u1");
+    const subshellId = await makeSubshell("u1");
     const created = await panes.create({
       id: crypto.randomUUID(),
       workspaceId: ws.id,
-      sessionId,
+      subshellId,
     });
 
     const list = await panes.listByWorkspace(ws.id);
@@ -117,7 +121,7 @@ describe("workspace panes repository", () => {
     await panes.create({
       id: paneId,
       workspaceId: ws.id,
-      sessionId: await makeSession("u1"),
+      subshellId: await makeSubshell("u1"),
     });
     expect(await panes.listByWorkspace(ws.id)).toHaveLength(1);
 

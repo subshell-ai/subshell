@@ -1,7 +1,7 @@
 import { HttpError } from "@/api/auth-guard.js";
 import { ChannelNameTakenError } from "@/db/repositories/channels.repository.js";
 import { BaseService } from "@/services/base.service.js";
-import { nudgeSession } from "@/services/channels/nudge.js";
+import { nudgeSubshell } from "@/services/channels/nudge.js";
 import { notifyPosts } from "@/services/channels/post-bus.js";
 import { waitForNewPosts } from "@/services/channels/read-wait.js";
 import { clamp } from "@/utils/number.js";
@@ -75,7 +75,7 @@ export interface ChannelPostsQuery {
 }
 
 /**
- * Business logic behind `/api/channels` — cross-session channels: global,
+ * Business logic behind `/api/channels` — cross-subshell channels: global,
  * append-only, E2EE. The server stores and relays opaque General-JWE
  * envelopes; reads are recipient-filtered so a caller only ever receives
  * posts they can decrypt. Membership is public-key registration (sealed
@@ -192,7 +192,7 @@ export class ChannelsService extends BaseService {
     envelope: string;
     /** Recipient principal labels; every one must already be a member. */
     recipientIds: string[];
-    /** Type a heads-up line into running recipient session panes (schema default false). */
+    /** Type a heads-up line into running recipient subshell panes (schema default false). */
     nudge: boolean | undefined;
   }): Promise<{ id: string; seq: number }> {
     validateEnvelope(envelope, recipientIds);
@@ -214,13 +214,13 @@ export class ChannelsService extends BaseService {
     });
     notifyPosts(channel.id);
     if (nudge) {
-      // Fixed, Enter-less line to RUNNING session RECIPIENTS only (spec §9).
-      const sessions = this.repos.sessions;
+      // Fixed, Enter-less line to RUNNING subshell RECIPIENTS only (spec §9).
+      const subshells = this.repos.subshells;
       for (const recipientId of new Set(recipientIds)) {
         if (!recipientId.startsWith("sess:") || recipientId === principal) continue;
-        const row = await sessions.findById(recipientId.slice("sess:".length));
+        const row = await subshells.findById(recipientId.slice("sess:".length));
         if (row?.alive === 1 && row.tmuxSocket) {
-          nudgeSession(row.tmuxSocket, row.id, `[subshell] new post in #${channel.name}`);
+          nudgeSubshell(row.tmuxSocket, row.id, `[subshell] new post in #${channel.name}`);
         }
       }
     }

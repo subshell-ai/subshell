@@ -5,10 +5,10 @@ import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /** One key row as the list route renders it (no secret, no hash). */
@@ -34,7 +34,7 @@ describe("/api/nodes/setup-keys", () => {
   let aliceId: string;
   let aliceCookie: string;
   let bobCookie: string;
-  let sessionKey: string;
+  let subshellKey: string;
   const createdApiKeyIds: string[] = [];
   const repo = new NodeSetupKeysRepository(db);
 
@@ -49,8 +49,8 @@ describe("/api/nodes/setup-keys", () => {
     aliceCookie = await signIn(aliceEmail, pw);
     bobCookie = await signIn(bobEmail, pw);
 
-    // A real session bearer key owned by alice — proves cookie-only enforcement.
-    await new SessionsRepository(db).create({
+    // A real subshell bearer key owned by alice — proves cookie-only enforcement.
+    await new SubshellsRepository(db).create({
       id: "s_nsk",
       userId: aliceId,
       profileId: "p",
@@ -59,14 +59,14 @@ describe("/api/nodes/setup-keys", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    sessionKey = await issueSessionToken("s_nsk", aliceId);
-    const row = await new SessionsRepository(db).findById("s_nsk");
+    subshellKey = await issueSubshellToken("s_nsk", aliceId);
+    const row = await new SubshellsRepository(db).findById("s_nsk");
     if (row?.apiKeyId) createdApiKeyIds.push(row.apiKeyId);
   });
 
   afterAll(async () => {
     for (const kid of createdApiKeyIds) authDatabase().run("DELETE FROM apikey WHERE id = ?", [kid]);
-    await db.deleteFrom("sessions").where("id", "=", "s_nsk").execute();
+    await db.deleteFrom("subshells").where("id", "=", "s_nsk").execute();
     for (const email of [aliceEmail, bobEmail]) await deleteUserByEmailOrId(email);
   });
 
@@ -157,11 +157,11 @@ describe("/api/nodes/setup-keys", () => {
     expect((await listKeys(aliceCookie)).some((k) => k.id === row.id)).toBe(false);
   });
 
-  it("a session bearer key is refused (cookie-only) → 403 on POST, GET and DELETE", async () => {
-    expect((await req("POST", "/setup-keys", { bearer: sessionKey, body: { label: "nope" } })).status).toBe(403);
-    expect((await req("GET", "/setup-keys", { bearer: sessionKey })).status).toBe(403);
+  it("a subshell bearer key is refused (cookie-only) → 403 on POST, GET and DELETE", async () => {
+    expect((await req("POST", "/setup-keys", { bearer: subshellKey, body: { label: "nope" } })).status).toBe(403);
+    expect((await req("GET", "/setup-keys", { bearer: subshellKey })).status).toBe(403);
     // 403 before the 404 lookup — requireCookieActor gates the route first.
-    expect((await req("DELETE", "/setup-keys/whatever", { bearer: sessionKey })).status).toBe(403);
+    expect((await req("DELETE", "/setup-keys/whatever", { bearer: subshellKey })).status).toBe(403);
   });
 
   it("unauthenticated → 401", async () => {

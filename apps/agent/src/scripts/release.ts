@@ -175,7 +175,7 @@ export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, de
  * The publish destination — the env ladder shared with the backend's
  * `NODE_ARTIFACTS_DIR` via `resolveNodeArtifactsDir`
  * (`@internal/subshell-protocol` paths.ts): `SUBSHELL_NODE_ARTIFACTS_DIR`, else
- * `<SESSION_DATA_DIR>/node-artifacts`, else the DATABASE_PATH-derived data
+ * `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts`, else the DATABASE_PATH-derived data
  * dir. Resolved against THIS cwd (the ladder is the contract; the cwd
  * difference between the two apps is why only the ladder is shared).
  */
@@ -183,7 +183,7 @@ export function resolveArtifactsDir(): string {
   return resolve(
     resolveNodeArtifactsDir({
       SUBSHELL_NODE_ARTIFACTS_DIR: process.env.SUBSHELL_NODE_ARTIFACTS_DIR,
-      SESSION_DATA_DIR: process.env.SESSION_DATA_DIR,
+      SUBSHELL_SERVER_DATA_DIR: process.env.SUBSHELL_SERVER_DATA_DIR,
       DATABASE_PATH: process.env.DATABASE_PATH,
     }),
   );
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
   // while the backend resolves the same ladder against ITS cwd — equal only
   // for absolute inputs. With nothing set in the environment, say so loudly
   // instead of silently publishing where the server may not look.
-  if (!process.env.SUBSHELL_NODE_ARTIFACTS_DIR && !process.env.SESSION_DATA_DIR && !process.env.DATABASE_PATH) {
+  if (!process.env.SUBSHELL_NODE_ARTIFACTS_DIR && !process.env.SUBSHELL_SERVER_DATA_DIR && !process.env.DATABASE_PATH) {
     process.stderr.write(
       `note: destination derived from the DEFAULT ladder against this script's cwd — if the backend runs ` +
         `with a different cwd or its own .env, confirm it serves:\n      ${destDir}\n`,

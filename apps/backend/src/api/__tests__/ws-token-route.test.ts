@@ -6,19 +6,19 @@ import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
  * POST /api/auth/ws-token is cookie-only.
  *
  * issueWsToken binds the attach token to the AUTHENTICATED USER id, and on a
- * bearer request authGuard sets that to the session's OWNER — so any session
+ * bearer request authGuard sets that to the subshell's OWNER — so any subshell
  * token could previously mint an attach token and drive the terminal of ANY
- * sibling session of the same owner through /ws (full keystroke injection).
+ * sibling subshell of the same owner through /ws (full keystroke injection).
  * Interactive attach is a human path: no agent tool calls this route.
  */
 
@@ -29,9 +29,9 @@ describe("ws-token route (cookie only)", () => {
   const email = `wstok-${crypto.randomUUID()}@subshell.local`;
   const password = "wstok-pass-1234";
   let cookie: string;
-  let sessionKey: string;
+  let subshellKey: string;
   let systemKey: string;
-  let sessionId: string;
+  let subshellId: string;
   const createdKeyIds: string[] = [];
 
   function bearerRequest(path: string, key: string, init?: RequestInit): Request {
@@ -49,9 +49,9 @@ describe("ws-token route (cookie only)", () => {
     });
     cookie = await signIn(email, password);
 
-    sessionId = crypto.randomUUID();
-    await new SessionsRepository(db).create({
-      id: sessionId,
+    subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
       userId,
       profileId: "p",
       harnessId: "claude-code",
@@ -59,8 +59,8 @@ describe("ws-token route (cookie only)", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    sessionKey = await issueSessionToken(sessionId, userId);
-    const row = await new SessionsRepository(db).findById(sessionId);
+    subshellKey = await issueSubshellToken(subshellId, userId);
+    const row = await new SubshellsRepository(db).findById(subshellId);
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
 
     const created = (await auth.api.createApiKey({
@@ -71,7 +71,7 @@ describe("ws-token route (cookie only)", () => {
   });
 
   afterAll(async () => {
-    await db.deleteFrom("sessions").where("id", "=", sessionId).execute();
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
     await deleteUserByEmailOrId(email);
@@ -90,8 +90,8 @@ describe("ws-token route (cookie only)", () => {
     expect(body.token.length).toBeGreaterThan(0);
   });
 
-  it("session token -> 403 (cannot mint owner-bound attach tokens)", async () => {
-    const res = await app.fetch(bearerRequest("/api/auth/ws-token", sessionKey, { method: "POST" }));
+  it("subshell token -> 403 (cannot mint owner-bound attach tokens)", async () => {
+    const res = await app.fetch(bearerRequest("/api/auth/ws-token", subshellKey, { method: "POST" }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { code: string; statusCode: number };
     expect(body.code).toBe("ACCESS_DENIED");

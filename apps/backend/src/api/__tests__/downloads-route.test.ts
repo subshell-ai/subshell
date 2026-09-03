@@ -142,7 +142,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // Credential precedence: extractSessionToken sees a token, so resolveCookieSession
     // decides — a stale/forged cookie 401s even though no setup_key was offered.
     for (const path of [`/node/${TARGET}`, `/node/${TARGET}.sha256`]) {
-      const res = await dl(path, { cookie: "not-a-real-session-token-abcdefghij" });
+      const res = await dl(path, { cookie: "not-a-real-subshell-token-abcdefghij" });
       expect(res.status).toBe(401);
       expect(((await res.json()) as { code: string }).code).toBe("INVALID_CREDENTIALS");
     }

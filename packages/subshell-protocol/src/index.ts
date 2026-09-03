@@ -8,7 +8,7 @@ export {
 export type { JsonValue } from "./json.js";
 export {
   type HarnessSessionWire,
-  isNodeSessionId,
+  isNodeSubshellId,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
@@ -52,7 +52,7 @@ export {
 } from "./node-signing.js";
 export {
   DEFAULT_DATABASE_PATH,
-  defaultSessionDataDir,
+  defaultSubshellServerDataDir,
   NODE_TARGETS,
   type NodeArtifactsEnv,
   type NodeTarget,

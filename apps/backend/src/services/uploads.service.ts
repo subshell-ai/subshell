@@ -86,9 +86,9 @@ export class RemoteUploadError extends UploadError {
 /**
  * The uploads directory for a working directory.
  *
- * Uploads are keyed by working directory, not by session: `restart` mints a new
- * session id for the same directory, and a transcript may be reopened much
- * later, so a session-scoped directory would break every path in it.
+ * Uploads are keyed by working directory, not by subshell: `restart` mints a new
+ * subshell id for the same directory, and a transcript may be reopened much
+ * later, so a subshell-scoped directory would break every path in it.
  *
  * @param workingRealPath - Resolved absolute working directory
  * @returns Absolute path of the uploads directory
@@ -329,9 +329,9 @@ export function remoteUniqueName(name: string): string {
  *   chunk 0 recovers any TRANSIENT failure — deliberately no abort command,
  *   and the short-`received` throw below needs no cleanup (the agent's
  *   `.part` tmp is replaced on the next attempt). Not a promise for the
- *   common refusal: a session whose pane exited NATURALLY is `meta.forget`-ed
+ *   common refusal: a subshell whose pane exited NATURALLY is `meta.forget`-ed
  *   by the agent's exit watcher, its cwd leaves the write_file root set, and
- *   re-running can never succeed — relaunch the session (spec errata,
+ *   re-running can never succeed — relaunch the subshell (spec errata,
  *   phase-2 review #7).
  * - refusals (`ok:false`, e.g. policy) surface as `NodeRpcError("failed")`
  *   whose message is UNPINNED protocol-side — it rides the
@@ -343,7 +343,7 @@ export function remoteUniqueName(name: string): string {
  *
  * @param nodeId - Target node (caller has already gated on a live connection;
  *   a mid-stream drop maps to `offline: true`)
- * @param workingRealPath - The session's working directory AS THERE (absolute)
+ * @param workingRealPath - The subshell's working directory AS THERE (absolute)
  * @param file - The uploaded file
  * @returns Path (on the node), final name, size and content type
  * @throws UploadError when the composed target is not an absolute path —

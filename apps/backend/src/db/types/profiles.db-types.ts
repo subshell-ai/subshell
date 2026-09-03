@@ -16,7 +16,7 @@ export interface ProfileTable {
   name: string;
   /** Optional longer description */
   description: string | null;
-  /** JSON object of extra environment variables to set on the session */
+  /** JSON object of extra environment variables to set on the subshell */
   envJson: string | null;
   /** JSON array of extra CLI flags to pass to the harness */
   flagsJson: string | null;
@@ -24,7 +24,7 @@ export interface ProfileTable {
   settingsJson: string | null;
   /** 1 = only this profile's config sources (no default ~/.claude files) */
   configIsolation: number;
-  /** 1 = new sessions from this profile auto-restart on exit */
+  /** 1 = new subshells from this profile auto-restart on exit */
   restartOnExit: number;
   /** 1 = auto-seeded default profile — editable, but DELETE refuses it */
   isDefault: number;

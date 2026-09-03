@@ -14,7 +14,7 @@ import { dispatchCommand } from "../commands/index.js";
 import { execPromptDeliver } from "../commands/prompt.js";
 import { stopAllTails, TAIL_BACKPRESSURE_BYTES, TAIL_BACKSTOP_MS, TAIL_CHUNK_BYTES } from "../commands/tail.js";
 import type { AgentConfig } from "../config.js";
-import { SessionMetaStore } from "../session-meta.js";
+import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
  * Task 5: `prompt_deliver` + `log_read` + `tail_start`/`tail_stop` (spec
@@ -142,7 +142,7 @@ function makeCtx(
   const ctx: CommandContext = {
     config,
     tmux,
-    meta: new SessionMetaStore(dataDir),
+    meta: new SubshellMetaStore(dataDir),
     nowMs: opts.nowMs ?? ((): number => FIXED_NOW),
     ws: ws.ws,
     watchers: new Map(),
@@ -176,17 +176,17 @@ function outputs(events: NodeEvent[]): Extract<NodeEvent, { type: "output" }>[] 
   return events.filter((e): e is Extract<NodeEvent, { type: "output" }> => e.type === "output");
 }
 
-/** Create the sessions dir + the pane log the pump will watch. */
-function seedLog(ctx: CommandContext, sessionId: string, content: string | Buffer): string {
-  const dir = join(ctx.config.dataDir, "sessions");
+/** Create the subshells dir + the pane log the pump will watch. */
+function seedLog(ctx: CommandContext, subshellId: string, content: string | Buffer): string {
+  const dir = join(ctx.config.dataDir, "subshells");
   mkdirSync(dir, { recursive: true });
-  const file = ctx.meta.logPath(sessionId);
+  const file = ctx.meta.logPath(subshellId);
   writeFileSync(file, content);
   return file;
 }
 
 function tailStartCmd(over: Partial<Extract<NodeCommandBody, { type: "tail_start" }>> = {}) {
-  return { type: "tail_start", sessionId: S1, subId: "sub-1", fromByte: 0, ...over } as const;
+  return { type: "tail_start", subshellId: S1, subId: "sub-1", fromByte: 0, ...over } as const;
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,7 +196,7 @@ function tailStartCmd(over: Partial<Extract<NodeCommandBody, { type: "tail_start
 describe("execPromptDeliver (spec §6.5)", () => {
   async function recordSocket(ctx: CommandContext): Promise<void> {
     await ctx.meta.record({
-      sessionId: S1,
+      subshellId: S1,
       cwd: ctx.config.dataDir,
       socket: "p-sock",
       harnessId: "claude-code",
@@ -212,7 +212,7 @@ describe("execPromptDeliver (spec §6.5)", () => {
     await recordSocket(c);
     const result = await dispatchCommand(c, {
       type: "prompt_deliver",
-      sessionId: S1,
+      subshellId: S1,
       text: "hi",
       settleTimeoutMs: 200,
       pollMs: 20,
@@ -237,7 +237,7 @@ describe("execPromptDeliver (spec §6.5)", () => {
     });
     const result = await dispatchCommand(ctx, {
       type: "prompt_deliver",
-      sessionId: S1,
+      subshellId: S1,
       text: "hi",
       settleTimeoutMs: 60,
       pollMs: 20,
@@ -259,7 +259,7 @@ describe("execPromptDeliver (spec §6.5)", () => {
     const { ctx } = makeCtx(freshDataDir("prompt-capture-throws"), ft.tmux);
     const result = await execPromptDeliver(ctx, {
       type: "prompt_deliver",
-      sessionId: S1,
+      subshellId: S1,
       text: "go",
       settleTimeoutMs: 2_000,
       pollMs: 20,
@@ -280,7 +280,7 @@ describe("execPromptDeliver (spec §6.5)", () => {
     const { ctx } = makeCtx(freshDataDir("prompt-input-throws"), ft.tmux);
     const result = await dispatchCommand(ctx, {
       type: "prompt_deliver",
-      sessionId: S1,
+      subshellId: S1,
       text: "hi",
       settleTimeoutMs: 200,
       pollMs: 20,
@@ -289,17 +289,17 @@ describe("execPromptDeliver (spec §6.5)", () => {
     expect(ft.count("pressEnter")).toBe(0);
   });
 
-  it("malformed session id ⇒ ok:false 'invalid session id', NO tmux touch", async () => {
+  it("malformed subshell id ⇒ ok:false 'invalid subshell id', NO tmux touch", async () => {
     const ft = fakeTmux({ capturePane: () => "ready" });
     const { ctx } = makeCtx(freshDataDir("prompt-bad-id"), ft.tmux);
     const result = await dispatchCommand(ctx, {
       type: "prompt_deliver",
-      sessionId: "../evil",
+      subshellId: "../evil",
       text: "hi",
       settleTimeoutMs: 50,
       pollMs: 10,
     });
-    expect(result).toEqual({ ok: false, error: "invalid session id" });
+    expect(result).toEqual({ ok: false, error: "invalid subshell id" });
     expect(ft.calls).toEqual([]);
   });
 });
@@ -310,7 +310,7 @@ describe("execPromptDeliver (spec §6.5)", () => {
 
 describe("execLogRead (spec §3.4)", () => {
   function readCmd(fromByte: number, maxBytes: number) {
-    return { type: "log_read", sessionId: S1, fromByte, maxBytes } as const;
+    return { type: "log_read", subshellId: S1, fromByte, maxBytes } as const;
   }
 
   it("missing file ⇒ {bytes_b64:'', next, size:0} — a valid EMPTY read, not an error", async () => {
@@ -356,10 +356,10 @@ describe("execLogRead (spec §3.4)", () => {
     });
   });
 
-  it("malformed session id ⇒ ok:false 'invalid session id'", async () => {
+  it("malformed subshell id ⇒ ok:false 'invalid subshell id'", async () => {
     const { ctx } = makeCtx(freshDataDir("logread-bad-id"), (() => {}) as never);
-    const result = await dispatchCommand(ctx, { type: "log_read", sessionId: "a/b", fromByte: 0, maxBytes: 8 });
-    expect(result).toEqual({ ok: false, error: "invalid session id" });
+    const result = await dispatchCommand(ctx, { type: "log_read", subshellId: "a/b", fromByte: 0, maxBytes: 8 });
+    expect(result).toEqual({ ok: false, error: "invalid subshell id" });
   });
 });
 
@@ -383,7 +383,7 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     await waitFor(() => outputs(ws.events).length >= 1, "catch-up output");
     expect(outputs(ws.events)[0]).toEqual({
       type: "output",
-      sessionId: S1,
+      subshellId: S1,
       subId: "sub-1",
       fromByte: 0,
       toByte: 3,
@@ -428,7 +428,7 @@ describe("tail executors (spec §3.1/§3.4)", () => {
       expect(raw.byteLength).toBeLessThanOrEqual(TAIL_CHUNK_BYTES); // the cap is on the RAW slice
       expect(ev.fromByte).toBe(cursor);
       expect(ev.toByte).toBe(cursor + raw.byteLength);
-      expect(ev.sessionId).toBe(S1);
+      expect(ev.subshellId).toBe(S1);
       cursor = ev.toByte;
       total += raw.byteLength;
     }
@@ -509,7 +509,7 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     const { ctx, ws } = makeCtx(freshDataDir("tail-stop-all"), (() => {}) as never);
     const file = seedLog(ctx, S1, "abc");
     expect(await dispatchCommand(ctx, tailStartCmd({ subId: "a" }))).toEqual({ ok: true });
-    expect(await dispatchCommand(ctx, { type: "tail_start", sessionId: S1, subId: "b", fromByte: 0 })).toEqual({
+    expect(await dispatchCommand(ctx, { type: "tail_start", subshellId: S1, subId: "b", fromByte: 0 })).toEqual({
       ok: true,
     });
     expect(ctx.tails.size).toBe(2);
@@ -524,15 +524,15 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     expect(outputs(ws.events).length).toBe(2);
   });
 
-  it("tail_start with a malformed session id ⇒ ok:false, no handle, no fs touch", async () => {
+  it("tail_start with a malformed subshell id ⇒ ok:false, no handle, no fs touch", async () => {
     const { ctx, ws } = makeCtx(freshDataDir("tail-bad-id"), (() => {}) as never);
     const result = await dispatchCommand(ctx, {
       type: "tail_start",
-      sessionId: "..%2fevil",
+      subshellId: "..%2fevil",
       subId: "sub-x",
       fromByte: 0,
     });
-    expect(result).toEqual({ ok: false, error: "invalid session id" });
+    expect(result).toEqual({ ok: false, error: "invalid subshell id" });
     expect(ctx.tails.size).toBe(0);
     expect(ws.events).toEqual([]);
   });

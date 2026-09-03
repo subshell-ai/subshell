@@ -10,11 +10,11 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
-/** One rendered share (the session-shares shape mirrored for nodes). */
+/** One rendered share (the subshell-shares shape mirrored for nodes). */
 type ShareRow = { id: string; granteeUserId: string | null; granteeName: string; permission: string };
 
 /**
- * `GET/PUT /api/nodes/:id/shares` — the node mirror of session sharing (spec
+ * `GET/PUT /api/nodes/:id/shares` — the node mirror of subshell sharing (spec
  * 2026-08-31 §2/§9). Owner-only cookie; `local` is the seeded exception whose
  * shares admins manage. A view/edit grantee never touches the grant set.
  */

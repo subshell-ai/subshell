@@ -10,11 +10,11 @@ import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
-import { SessionsRepository } from "@/db/repositories/sessions.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { issueSessionToken } from "@/services/session-tokens.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -24,8 +24,8 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  *
  * The regression these pin: a bearer key could create/update/delete the
  * owner's profiles, and profile.env OUTRANKS the SUBSHELL_* credential layer when
- * a session starts — rewriting the owner's default profile was a harvest path
- * for every future session's bearer token. Additionally, env var KEYS are
+ * a subshell starts — rewriting the owner's default profile was a harvest path
+ * for every future subshell's bearer token. Additionally, env var KEYS are
  * validated server-side on create and update (they reach the tmux start
  * command, so `X; touch /tmp/pwned #` is a shell-injection vector).
  */
@@ -39,9 +39,9 @@ describe("profile write routes (cookie only) + env name validation", () => {
   const email = `profw-${crypto.randomUUID()}@subshell.local`;
   const password = "profw-pass-1234";
   let cookie: string;
-  let sessionKey: string;
+  let subshellKey: string;
   let systemKey: string;
-  let sessionId: string;
+  let subshellId: string;
   const createdKeyIds: string[] = [];
   const createdProfileIds: string[] = [];
   const repo = new ProfilesRepository(db);
@@ -91,9 +91,9 @@ describe("profile write routes (cookie only) + env name validation", () => {
     });
     cookie = await signIn(email, password);
 
-    sessionId = crypto.randomUUID();
-    await new SessionsRepository(db).create({
-      id: sessionId,
+    subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
       userId,
       profileId: "p",
       harnessId: "claude-code",
@@ -101,8 +101,8 @@ describe("profile write routes (cookie only) + env name validation", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    sessionKey = await issueSessionToken(sessionId, userId);
-    const row = await new SessionsRepository(db).findById(sessionId);
+    subshellKey = await issueSubshellToken(subshellId, userId);
+    const row = await new SubshellsRepository(db).findById(subshellId);
     if (row?.apiKeyId) createdKeyIds.push(row.apiKeyId);
 
     const created = (await auth.api.createApiKey({
@@ -116,15 +116,15 @@ describe("profile write routes (cookie only) + env name validation", () => {
 
   afterAll(async () => {
     for (const id of createdProfileIds) await repo.delete(id);
-    await db.deleteFrom("sessions").where("id", "=", sessionId).execute();
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
     await deleteUserByEmailOrId(email);
     delete process.env.CLAUDE_PATH;
   });
 
-  it("session token still reads the profile list (GET 200, envJson redacted)", async () => {
-    const res = await app.fetch(bearerRequest("/api/profiles", sessionKey));
+  it("subshell token still reads the profile list (GET 200, envJson redacted)", async () => {
+    const res = await app.fetch(bearerRequest("/api/profiles", subshellKey));
     expect(res.status).toBe(200);
     expect(Array.isArray(await res.json())).toBe(true);
   });
@@ -169,8 +169,8 @@ describe("profile write routes (cookie only) + env name validation", () => {
       return row;
     }
 
-    it("session bearer sees envJson=null but keeps flags/settings", async () => {
-      const res = await app.fetch(bearerRequest("/api/profiles", sessionKey));
+    it("subshell bearer sees envJson=null but keeps flags/settings", async () => {
+      const res = await app.fetch(bearerRequest("/api/profiles", subshellKey));
       expect(res.status).toBe(200);
       const row = findRow((await res.json()) as { id: string }[], secretProfileId);
       expect(row.envJson).toBeNull();
@@ -192,15 +192,15 @@ describe("profile write routes (cookie only) + env name validation", () => {
     });
   });
 
-  it("session token cannot create, update, or delete (403, target untouched)", async () => {
+  it("subshell token cannot create, update, or delete (403, target untouched)", async () => {
     const post = await app.fetch(
-      bearerRequest("/api/profiles", sessionKey, { method: "POST", body: JSON.stringify(validBody) }),
+      bearerRequest("/api/profiles", subshellKey, { method: "POST", body: JSON.stringify(validBody) }),
     );
     expect(post.status).toBe(403);
 
-    // The exact attack: repoint the credential layer for future sessions.
+    // The exact attack: repoint the credential layer for future subshells.
     const put = await app.fetch(
-      bearerRequest(`/api/profiles/${ownedId}`, sessionKey, {
+      bearerRequest(`/api/profiles/${ownedId}`, subshellKey, {
         method: "PUT",
         body: JSON.stringify({ env: { SUBSHELL_API_KEY: "attacker" } }),
       }),
@@ -208,7 +208,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
     expect(put.status).toBe(403);
     expect((await repo.findById(ownedId))?.envJson).toBeNull();
 
-    const del = await app.fetch(bearerRequest(`/api/profiles/${ownedId}`, sessionKey, { method: "DELETE" }));
+    const del = await app.fetch(bearerRequest(`/api/profiles/${ownedId}`, subshellKey, { method: "DELETE" }));
     expect(del.status).toBe(403);
     expect(await repo.findById(ownedId)).toBeDefined();
   });
@@ -504,7 +504,7 @@ describe("profile node pinning (spec 2026-08-31 §6.2, T15a)", () => {
 });
 
 /**
- * `?node=any` (spec 2026-09-02 node-profile-pairing §4a): the new-session
+ * `?node=any` (spec 2026-09-02 node-profile-pairing §4a): the new-subshell
  * form pairs profiles against EVERY node client-side, so it must see profiles
  * whose harness is off here. The default listing keeps its local gate —
  * mobile and the profiles page rely on the hiding.

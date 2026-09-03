@@ -8,17 +8,17 @@ const AuditEventSchema = t.Object({
   actorUserId: t.Union([t.String(), t.Null()], {
     description: "User who performed the action (null for system events)",
   }),
-  action: t.String({ description: 'Action name, e.g. "session.delete"' }),
-  targetType: t.Union([t.String(), t.Null()], { description: "Kind of the target entity, e.g. session/user" }),
+  action: t.String({ description: 'Action name, e.g. "subshell.delete"' }),
+  targetType: t.Union([t.String(), t.Null()], { description: "Kind of the target entity, e.g. subshell/user" }),
   targetId: t.Union([t.String(), t.Null()], { description: "Id of the target entity" }),
   metadata: t.Unknown({ description: "Decoded JSON metadata attached to the event" }),
   createdAt: t.String({ description: "ISO 8601 timestamp of the event" }),
 });
 
 /**
- * Admin audit trail endpoint. The table is written by the session lifecycle
- * paths (session.create/restart/terminate/delete) and admin user creation;
- * auth sign-in/out recording is deferred (see session-manager notes).
+ * Admin audit trail endpoint. The table is written by the subshell lifecycle
+ * paths (subshell.create/restart/terminate/delete) and admin user creation;
+ * auth sign-in/out recording is deferred (see subshell-manager notes).
  */
 export const auditRoutes = new Elysia({ prefix: "/api/audit" }).use(requireAdmin).get(
   "/",
