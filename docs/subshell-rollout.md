@@ -65,11 +65,15 @@ must move in one pass.
    ```
 
 7. **Fix session working dirs that point at the old repo path** (run AFTER step 11's
-   directory rename if you prefer; shown now for the live DB):
+   directory rename if you prefer; shown now for the live DB). The table is named
+   `sessions` until migration 0019 runs at the renamed backend's first boot, `subshells`
+   after — probe `sqlite_master` and target whichever exists:
 
    ```bash
+   tbl=$(sqlite3 ~/.config/subshell/subshell.db \
+     "SELECT name FROM sqlite_master WHERE name IN ('sessions','subshells') LIMIT 1;")
    sqlite3 ~/.config/subshell/subshell.db \
-     "UPDATE sessions SET working_dir = replace(working_dir, '/home/theo/projects/mote', '/home/theo/projects/subshell') WHERE working_dir LIKE '/home/theo/projects/mote%';"
+     "UPDATE $tbl SET working_dir = replace(working_dir, '/home/theo/projects/mote', '/home/theo/projects/subshell') WHERE working_dir LIKE '/home/theo/projects/mote%';"
    ```
 
 8. **Drop ALL stored API keys — this step is mandatory, not cosmetic.**
@@ -136,8 +140,10 @@ must move in one pass.
 12. **Smoke test**: sign in (your existing session cookie survives — better-auth
     cookies are baseURL-derived, not brand-derived); create a session; attach the
     terminal pane; in a Claude pane confirm the MCP server registers as
-    `subshell` with tools `list_channels`, `create_session`, … (no prefix);
-    fire a push notification and confirm the title reads `subshell`.
+    `subshell` with tools `list_channels`, `create_subshell`, … (no prefix; the
+    session-named tools became `list_subshells` / `get_subshell` / `create_subshell`
+    / … in the 2026-09-02 rename below); fire a push notification and confirm the
+    title reads `subshell`.
 
 **Post-smoke cleanup** (only after step 12 passes):
 
@@ -180,6 +186,17 @@ load-bearing (skip them and pane history silently starts empty).
 
 2. **Backend host — env + pane-data dir.** Edit the unit's `EnvironmentFile`:
    rename `SESSION_DATA_DIR` to `SUBSHELL_SERVER_DATA_DIR` (same value), then:
+
+   > **WARNING — forgetting this rename does NOT fail loudly.** The backend reads
+   > only `SUBSHELL_SERVER_DATA_DIR`; the leftover `SESSION_DATA_DIR` line is
+   > silently ignored and the value falls back to the dir derived from
+   > `DATABASE_PATH`. If the fallback is not where the real data dir lives, the
+   > control plane **lazily re-mints its secrets on first use**: a fresh
+   > `node-signing.json` keypair (every enrolled node then rejects every command —
+   > re-enroll all) and a fresh `vapid.json` pair (every web-push subscription
+   > dies). Verify BEFORE the step-3 restart: the EnvironmentFile must name
+   > `SUBSHELL_SERVER_DATA_DIR` with the same value, and that dir must already
+   > contain `node-signing.json` and `vapid.json`.
 
    ```bash
    mv ~/.config/subshell/sessions ~/.config/subshell/subshells

@@ -68,9 +68,18 @@ grep -rl "MOTE_\|mote\.db\|\.config/mote\|mote\.service" "$CFG_NEW" "$REPO_OLD/.
   && say "env files rewritten" || say "nothing to rewrite (clean)"
 
 step "7. Fix stored session working_dirs (old repo path)"
-n=$(sqlite3 "$CFG_NEW/subshell.db" \
-  "UPDATE sessions SET working_dir = replace(working_dir, '$REPO_OLD', '$REPO_NEW') WHERE working_dir LIKE '$REPO_OLD%'; SELECT changes();")
-say "working_dirs updated: $n row(s) rewritten"
+# The table is `sessions` until migration 0019 runs at the renamed backend's
+# first boot, `subshells` after — probe sqlite_master so this step is
+# idempotent across that boot (hardcoding either name breaks on one side).
+tbl=$(sqlite3 "$CFG_NEW/subshell.db" \
+  "SELECT name FROM sqlite_master WHERE name IN ('sessions','subshells') LIMIT 1;")
+if [ -n "$tbl" ]; then
+  n=$(sqlite3 "$CFG_NEW/subshell.db" \
+    "UPDATE $tbl SET working_dir = replace(working_dir, '$REPO_OLD', '$REPO_NEW') WHERE working_dir LIKE '$REPO_OLD%'; SELECT changes();")
+  say "working_dirs updated: $n row(s) rewritten (table $tbl)"
+else
+  say "neither 'sessions' nor 'subshells' table — nothing to rewrite"
+fi
 
 step "8. Drop ALL stored API keys + the old system user (IRREVERSIBLE)"
 sqlite3 "$CFG_NEW/subshell.db" '.schema apiKey' | head -3 || true
