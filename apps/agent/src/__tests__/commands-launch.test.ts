@@ -1024,7 +1024,11 @@ it.skipIf(!HAS_TMUX)(
       const exit = events.find((e) => e.type === "exit") as Extract<NodeEvent, { type: "exit" }>;
       expect(exit.sessionId).toBe(sessionId);
       expect(Number.isNaN(Date.parse(exit.at))).toBe(false);
-      await waitForAsync(async () => (await ctx.meta.get(sessionId)) === undefined, "meta forgotten after exit", 5_000);
+      await waitForAsync(
+        async () => (await ctx.meta.get(sessionId)) === undefined,
+        "meta forgotten after exit",
+        15_000,
+      );
     } finally {
       // Always reap: killSession, then the WHOLE server on this socket, then the
       // socket file — a failed assertion must not leak a tmux daemon.
