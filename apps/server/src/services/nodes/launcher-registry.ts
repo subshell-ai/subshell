@@ -1,5 +1,5 @@
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { defaultLocalLauncher } from "./local-launcher.js";
+import { getDefaultLocalLauncher } from "./local-launcher.js";
 import type { NodeLauncher } from "./node-launcher.js";
 import { RemoteLauncher } from "./remote-launcher.js";
 
@@ -23,7 +23,7 @@ const remoteLaunchers = new Map<string, RemoteLauncher>();
  * @param nodeId - `nodes.id` (the literal `local` for the control-plane host)
  */
 export function launcherFor(nodeId: string): NodeLauncher {
-  if (nodeId === LOCAL_NODE_ID) return defaultLocalLauncher;
+  if (nodeId === LOCAL_NODE_ID) return getDefaultLocalLauncher();
   let launcher = remoteLaunchers.get(nodeId);
   if (!launcher) {
     launcher = new RemoteLauncher(nodeId);

@@ -3,7 +3,10 @@ import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@interna
 import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { launcherFor, resetLauncherRegistryForTests } from "@/services/nodes/launcher-registry.js";
-import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+
+const defaultLocalLauncher = getDefaultLocalLauncher();
+
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
