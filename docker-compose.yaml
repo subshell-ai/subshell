@@ -16,7 +16,7 @@ services:
     volumes:
       # App data (SQLite, session logs, channel keypairs) — a plain bind so
       # the host uid owns it from day one.
-      - ${SUBSHELL_DATA_HOST_DIR:-$HOME/.config/subshell}:/data
+      - ${SUBSHELL_DATA_HOST_DIR:-$HOME/.config/subshell-server}:/data
       # Session working dirs, mounted at their REAL host path so bookmarks,
       # recent paths and session paths stored in the DB resolve unchanged.
       - ${PROJECTS_DIR:-$HOME/projects}:${PROJECTS_DIR:-$HOME/projects}:rw

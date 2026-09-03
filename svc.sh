@@ -10,7 +10,7 @@
 #
 # The service runs as the invoking user at boot (requires loginctl linger,
 # checked by `install`), serves :3080, and keeps using the Docker deployment's
-# data dir (~/.config/subshell) so accounts, sessions and logs carry over.
+# data dir (~/.config/subshell-server) so accounts, sessions and logs carry over.
 set -euo pipefail
 
 SERVICE=subshell-server
@@ -74,7 +74,7 @@ EnvironmentFile=$REPO_DIR/.env
 Environment=NODE_ENV=production
 Environment=HOST=0.0.0.0
 Environment=SERVER_PORT=$PORT
-Environment=DATABASE_PATH=$HOME/.config/subshell/subshell.db
+Environment=DATABASE_PATH=$HOME/.config/subshell-server/subshell.db
 Environment=PATH=$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=$(command -v bun) run ./apps/server/dist/index.js
 Restart=unless-stopped
