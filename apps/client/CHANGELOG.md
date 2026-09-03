@@ -1,5 +1,14 @@
 # @internal/client
 
+## 0.2.2
+
+### Patch Changes
+
+- [`edc49f4`](https://github.com/subshell-ai/subshell/commit/edc49f4dbf05bdf283d4f8918f0658eb0f2d9703) Thanks [@theogravity](https://github.com/theogravity)! - macOS release binaries are now Developer-ID signed and Apple-notarized by CI,
+  so a browser-downloaded `subshell-server-darwin-*` / `subshell-darwin-*`
+  passes Gatekeeper with the ordinary one-time "downloaded from the internet"
+  confirmation instead of the "is damaged and can't be opened" refusal.
+
 ## 0.2.1
 
 ### Patch Changes
