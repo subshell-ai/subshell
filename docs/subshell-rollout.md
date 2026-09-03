@@ -185,8 +185,9 @@ load-bearing (skip them and pane history silently starts empty).
    mv ~/.config/subshell/sessions ~/.config/subshell/subshells
    ```
 
-   (Path = `<SUBSHELL_SERVER_DATA_DIR>/sessions`; if the dir doesn't exist the
-   server never stored pane files there — skip the `mv`.)
+   (The old path being moved is `<SUBSHELL_SERVER_DATA_DIR>/sessions`; it lands at
+   `<SUBSHELL_SERVER_DATA_DIR>/subshells`. If the old dir doesn't exist the server
+   never stored pane files there — skip the `mv`.)
 
 3. **Restart the backend** — migration 0019 runs on boot, rows survive:
 

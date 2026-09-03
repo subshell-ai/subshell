@@ -51,10 +51,10 @@ describe("GET /api/subshells/summary", () => {
     if (kind === "terminated") await repo.update(id, { status: "terminated", alive: 0 });
   }
 
-  function get(path: string, subshell = cookie) {
+  function get(path: string, session = cookie) {
     return subshellRoutes.fetch(
       new Request(`http://localhost:3080/api/subshells${path}`, {
-        headers: subshell ? { cookie: `better-auth.session_token=${subshell}` } : {},
+        headers: session ? { cookie: `better-auth.session_token=${session}` } : {},
       }),
     );
   }

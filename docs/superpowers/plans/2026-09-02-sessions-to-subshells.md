@@ -613,3 +613,4 @@ SESSION_DATA_DIR→SUBSHELL_SERVER_DATA_DIR.
 
 - Spec §1.2/§1.3 API-key scope rewrite: **not needed** — API keys carry free-form optional permission arrays; no `sessions:*` token exists on the wire or in stored JSON. No rewrite in migration 0019.
 - Spec §1.2 WS param: the wire name is `session` (frontend `use-session-ws.ts:100`), renamed to `subshell` — already reflected above.
+- Superseded by the spec's "Amendment (2026-09-02, final review)": the first bullet above is wrong — migration 0019 DOES rewrite apikey metadata `{kind,sessionId}` → `{kind,subshellId}` and the permission key `sessions` → `subshells`, roundtrip-tested in `0019-subshell-rename.test.ts`.

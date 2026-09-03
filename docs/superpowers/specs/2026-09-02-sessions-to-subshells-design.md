@@ -211,3 +211,19 @@ individually-green commits in roughly this order:
 
 (Steps 3–5 are one wire-cut in reality — merged commits may be squashed together if
 intermediate states cannot typecheck green.)
+
+## Amendment (2026-09-02, final review)
+
+The "plan-phase correction" is wrong: the §1.2 table row and the §1.3 bullet that
+claim **no API-key permission rewrite is needed** were disproven at final review.
+Session-scoped keys do carry a rewriteable shape — `{kind:"session",sessionId}`
+metadata (the discriminator auth-guard reads) and a `sessions` permission key in the
+stored optional permission array (`requirePerm`'s vocabulary). Migration 0019
+therefore **does** rewrite both: metadata `{kind,sessionId}` → `{kind,subshellId}`
+and permission key `sessions` → `subshells`, with a matching downgrade path —
+see `apps/backend/src/db/migrations/0019-subshell-rename.ts` and its test
+`apps/backend/src/db/migrations/__tests__/0019-subshell-rename.test.ts`, which
+roundtrip-tests the rewrite (`down()` reverses it, `up()` re-applies it) alongside
+the untouched system/node-kind rows. The rewrite is required and implemented; the
+earlier text above is left in place as the historical record of the (incorrect)
+planning conclusion.
