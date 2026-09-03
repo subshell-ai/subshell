@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   LayoutDashboard,
   type LucideIcon,
+  Plus,
   Server,
   Settings,
   SlidersHorizontal,
@@ -10,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import { Fragment, useState } from "react";
+import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialog";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -109,6 +111,9 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   // (no server call — the list is already client-side). Same predicate as
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
+  // Quick-add dialogs (spec 2026-09-03 sidebar-quickadd §3): the rail's + buttons
+  // open in place; the NewWorkspace half arrives with its own task.
+  const [launchOpen, setLaunchOpen] = useState(false);
   const q = subshellQuery.trim();
   const listedSubshells = q
     ? filterSubshells(subshells ?? [], subshellQuery)
@@ -191,7 +196,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
         {visibleNavItems(publicSettings?.viewerIsAdmin).map((item) => {
           const active = location.pathname === item.to;
           return (
-            <div key={item.to}>
+            <div key={item.to} className="relative">
               <Link
                 to={item.to as never}
                 title={collapsed ? `${item.label}${item.short ? ` (${item.short})` : ""}` : undefined}
@@ -206,6 +211,20 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                 <item.icon className="h-4 w-4 shrink-0" />
                 {!collapsed && item.label}
               </Link>
+              {!collapsed && item.to === "/" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="New subshell"
+                  title="New subshell"
+                  /* top-2 rides the nav-link row (py-2 + h-4 icon ≈ 32px), not
+                     the wrapper — the wrapper also holds the recents below. */
+                  className="absolute top-2 right-1 h-6 w-6 text-muted-foreground"
+                  onClick={() => setLaunchOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              )}
               {!collapsed && item.to === "/" && (
                 <div className="px-2 pt-1 pb-2">
                   <Input
@@ -251,6 +270,8 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
           );
         })}
       </nav>
+
+      <LaunchSubshellDialog open={launchOpen} onOpenChange={setLaunchOpen} />
 
       <div className="border-border border-t p-2">
         <UserMenu
