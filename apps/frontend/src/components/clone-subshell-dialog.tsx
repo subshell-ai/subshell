@@ -16,7 +16,14 @@ import { useProfiles } from "@/hooks/use-profiles";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { nodeOptionLabel } from "@/lib/node-label";
+import { profileOptionLabel } from "@/lib/subshell-compat";
 import type { SubshellView } from "@/types/subshell";
+
+/** The source's node with the legacy fallback: an absent nodeId on an older
+ * cached view means "local" (the server default). */
+function cloneNodeId(source: SubshellView): string {
+  return source.nodeId ?? "local";
+}
 
 /**
  * The launch input a clone copies from its source: same profile, same
@@ -30,7 +37,7 @@ export function cloneInputFromSource(source: SubshellView, name: string): Create
     profileId: source.profileId,
     workingDir: source.workingDir,
     name: name.trim(),
-    nodeId: source.nodeId ?? "local",
+    nodeId: cloneNodeId(source),
   };
 }
 
@@ -59,10 +66,10 @@ export function CloneSubshellDialog({
   const { data: profiles } = useProfiles({ node: "any" });
   const { data: nodeData } = useNodes();
   const profile = (profiles ?? []).find((p) => p.id === source.profileId);
-  const node = (nodeData?.nodes ?? []).find((n) => n.id === (source.nodeId ?? "local"));
+  const node = (nodeData?.nodes ?? []).find((n) => n.id === cloneNodeId(source));
   // Same display grammar as the launch pickers, so the rows read identical.
-  const profileLabel = profile ? `${profile.name} (${profile.harnessId})` : source.harnessId;
-  const nodeLabel = node ? nodeOptionLabel(node, "Local") : (source.nodeId ?? "local");
+  const profileLabel = profile ? profileOptionLabel(profile) : source.harnessId;
+  const nodeLabel = node ? nodeOptionLabel(node, "Local") : cloneNodeId(source);
 
   async function launch() {
     try {

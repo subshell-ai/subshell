@@ -49,7 +49,7 @@ function stopLoop(ctx: CommandContext): void {
  * idempotent — but stopping first is the cheap rule.) Draining the last entry
  * also stops the shared tick.
  * @param ctx - the daemon's command context (owns the watched set + shared tick)
- * @param subshellId - the subshell subshell to stop supervising
+ * @param subshellId - the subshell to stop supervising
  */
 export function stopWatcher(ctx: CommandContext, subshellId: string): void {
   ctx.watchers.delete(subshellId);
@@ -71,7 +71,7 @@ export function stopWatcher(ctx: CommandContext, subshellId: string): void {
  * {@link EXIT_WATCH_INTERVAL_MS}; tests pass a short one into a fresh ctx).
  * The socket arrives from the launch wire — no meta re-read.
  * @param ctx - the daemon's command context
- * @param subshellId - the subshell subshell (already format-validated by the caller)
+ * @param subshellId - the subshell (already format-validated by the caller)
  * @param socket - the tmux socket the pane was created on (`cmd.socket`)
  * @param intervalMs - tick period for the shared loop; production default 2 s
  * @returns the registration object — the tick compares it BY REFERENCE for

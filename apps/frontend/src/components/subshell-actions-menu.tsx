@@ -62,7 +62,7 @@ export function SubshellActionsMenu({
   // Access drives which actions exist (spec 2026-08-31 §4.1): `view` can read
   // and watch only (so the menu itself is absent), `edit` interacts and manages
   // (notes, title, restart/terminate), and only the `owner` may ring the bell,
-  // manage sharing, or delete. A viewer has nothing to do here.
+  // clone, manage sharing, or delete. A viewer has nothing to do here.
   const canEdit = subshell.access !== "view";
   const isOwner = subshell.access === "owner";
   // A subshell's profile is fixed at creation, so editing it + starting again
@@ -121,11 +121,19 @@ export function SubshellActionsMenu({
                 label: subshell.status === "running" ? "Restart" : "Start again",
                 onSelect: () => void restart(),
               },
+        ]
+      : []),
+    // Owner-only, adjacent to the launch actions. Spec §2.1 said `canEdit`,
+    // but a clone is guaranteed to 404 for a non-owner: the POST re-resolves
+    // the SOURCE's profile under the CALLER's account and profiles are
+    // strictly per-user (subshells.service rejects any non-owner's profileId),
+    // so an `edit` grantee can never succeed. A clone is a FRESH launch under
+    // the caller's account — unlike "Start again", which revives this row.
+    ...(isOwner
+      ? [
           {
             icon: Copy,
             label: "Clone…",
-            // A clone is a FRESH launch under the caller's account — unlike
-            // "Start again", which revives this row. Spec 2026-09-02 §2.
             onSelect: () => setCloneOpen(true),
           },
         ]

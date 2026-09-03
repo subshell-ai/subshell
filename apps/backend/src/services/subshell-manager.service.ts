@@ -200,7 +200,7 @@ export class SubshellManagerService {
     if (storedId && (await launcher.canResume(harness, storedId, cwd))) {
       return { id: storedId, mode: "resume" };
     }
-    return { id: harness.resume.allocateSubshellId(), mode: "start" };
+    return { id: harness.resume.allocateHarnessSessionId(), mode: "start" };
   }
 
   /**

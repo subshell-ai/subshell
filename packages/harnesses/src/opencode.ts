@@ -63,8 +63,9 @@ const PLUGIN_KNOWN_PATHS = [".opencode/bin/opencode"];
  *
  * Launch shape:
  *   opencode [-m <model>] [--agent <a>] [--auto] [profile flags] [extra flags]
- * A bare launch opens the TUI. opencode has no create-time subshell-name flag,
- * so the subshell subshell name is deliberately not forwarded. Settings arrive as
+ * A bare launch opens the TUI. opencode has no create-time flag for naming its
+ * own session, so the subshell's display name is deliberately not forwarded.
+ * Settings arrive as
  * per-invocation flags (verified against opencode 1.18.18).
  *
  * subshell MCP is wired automatically: OpenCode merges any object under the

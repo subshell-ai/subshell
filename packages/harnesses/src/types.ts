@@ -68,20 +68,22 @@ export interface BuildCommandInput {
 
 /**
  * Restart-resume capability, implemented only by harnesses that can continue
- * a previous conversation. The backend pins {@link allocateSubshellId} at
- * launch, stores it on the subshell row, and consults
- * {@link canResume} before every restart to decide between continuing that
- * conversation and starting a fresh one.
+ * a previous conversation. The ids here are HARNESS conversation ids (e.g. a
+ * claude transcript uuid), never subshell ids — the backend pins
+ * {@link allocateHarnessSessionId} at launch, stores it on the subshell row
+ * as `harness_session_id`, and consults {@link canResume} before every
+ * restart to decide between continuing that conversation and starting a
+ * fresh one.
  */
 export interface HarnessResume {
-  /** Allocates the conversation id to pin at launch (a uuid for claude). */
-  allocateSubshellId(): string;
+  /** Allocates the HARNESS conversation id to pin at launch (a uuid for claude). */
+  allocateHarnessSessionId(): string;
   /**
-   * Whether the conversation `subshellId` (last run in `cwd`) still exists
-   * and can be resumed. False → the backend launches a fresh conversation
-   * instead of handing the harness an id it would reject.
+   * Whether the harness conversation `harnessSessionId` (last run in `cwd`)
+   * still exists and can be resumed. False → the backend launches a fresh
+   * conversation instead of handing the harness an id it would reject.
    */
-  canResume(subshellId: string, cwd: string): boolean;
+  canResume(harnessSessionId: string, cwd: string): boolean;
 }
 
 /** How to spawn the `subshell mcp` stdio server — the shape the backend's `resolveMcpLaunch()` produces. */

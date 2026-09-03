@@ -207,7 +207,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
 
     it("is true only when the pinned transcript exists under the cwd's slug dir", () => {
       withConfigDir((dir) => {
-        const id = plugin.resume?.allocateSubshellId() ?? "";
+        const id = plugin.resume?.allocateHarnessSessionId() ?? "";
         expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         const slug = join(dir, "projects", "-tmp-my-project");
         mkdirSync(slug, { recursive: true });

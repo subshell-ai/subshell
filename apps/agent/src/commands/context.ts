@@ -19,7 +19,7 @@ import type { SubshellMetaStore } from "../subshell-meta.js";
 export interface TailHandle {
   /** Stops the pump and releases its watcher/timer. Must be idempotent. */
   stop(): void;
-  /** The subshell subshell whose pane log this pump streams (death-sweep key). */
+  /** The subshell whose pane log this pump streams (death-sweep key). */
   readonly subshellId: string;
 }
 

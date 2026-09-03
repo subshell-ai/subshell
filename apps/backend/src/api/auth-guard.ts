@@ -1,5 +1,5 @@
 import type { Session, User } from "better-auth";
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { auth } from "@/auth.js";
 import { db } from "@/db/index.js";
@@ -244,6 +244,3 @@ export const requireAdmin = new Elysia({ name: "require-admin" })
     return { role } as const;
   })
   .as("scoped");
-
-/** Optional subshell-name schema reused by subshell creation. */
-export const SubshellNameSchema = t.Optional(t.String({ minLength: 1, maxLength: 120 }));

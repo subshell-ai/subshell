@@ -53,8 +53,14 @@ const REMOVE_PATHS_TIMEOUT_MS = 10_000;
 /** `deliverPrompt` waits for the agent's whole settle loop: its budget plus RPC slack. */
 const PROMPT_DELIVER_SLACK_MS = 30_000;
 
-/** "Already gone" answers the agent gives for a dead pane (kill swallow class). */
-const ALREADY_GONE_RE = /no subshell|can't find subshell/i;
+/**
+ * "Already gone" answers the agent gives for a dead pane (kill swallow class).
+ * The alternatives match TMUX's own stderr VERBATIM — a `kill-session`/
+ * `has-session` against a dead target prints "no session: <name>" or
+ * "can't find session: <name>". This is third-party output: NEVER rename it
+ * along with the product entity.
+ */
+const ALREADY_GONE_RE = /no session|can't find session/i;
 
 /** Agent-side launch failure that means "our inventory cache is stale" (spec §6.2). */
 const BINARY_MISSING_RE = /binary missing/i;
@@ -225,9 +231,9 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * Best-effort `kill`. The agent's own executor already swallows tmux's
-   * "already gone"; a `failed` whose message matches
-   * `/no subshell|can't find subshell/i` is the same class arriving through
-   * older/other paths — mapped to a no-op. Anything else rethrows.
+   * "already gone"; a `failed` whose message matches the tmux-verbatim
+   * {@link ALREADY_GONE_RE} is the same class arriving through older/other
+   * paths — mapped to a no-op. Anything else rethrows.
    */
   async killSubshell(_socket: string, id: string): Promise<void> {
     try {

@@ -186,13 +186,13 @@ export class ClaudeCodePlugin implements HarnessPlugin {
    * so subshell always knows the exact id to resume by, and resume mode adds
    * `--resume <id>` (Claude appends to the same transcript, so one id
    * survives repeated restarts). Pinning is what avoids both `--continue`'s
-   * "most recent in this directory" ambiguity — several subshell subshells can
-   * share a cwd — and parsing the exit banner back out of the pane log.
+   * "most recent in this directory" ambiguity — several subshells can share
+   * a cwd — and parsing the exit banner back out of the pane log.
    */
   readonly resume: HarnessResume = {
-    allocateSubshellId: () => crypto.randomUUID(),
-    canResume: (subshellId, cwd) =>
-      existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${subshellId}.jsonl`)),
+    allocateHarnessSessionId: () => crypto.randomUUID(),
+    canResume: (harnessSessionId, cwd) =>
+      existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${harnessSessionId}.jsonl`)),
   };
 
   buildCommand(input: BuildCommandInput): string[] {

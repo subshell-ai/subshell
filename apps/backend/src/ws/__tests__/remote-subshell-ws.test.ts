@@ -359,7 +359,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 });
-    sim.answer("capture", fail("can't find subshell: pane gone"));
+    sim.answer("capture", fail("can't find session: pane gone")); // tmux stderr, verbatim
     const { ws, sent, closed } = fakeBrowser();
 
     await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");

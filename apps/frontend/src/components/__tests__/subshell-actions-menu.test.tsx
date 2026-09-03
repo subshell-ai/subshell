@@ -156,10 +156,15 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
     }
   });
 
-  it("Clone… appears for edit grantees and opens the clone dialog", async () => {
+  it("Clone… is owner-only (an edit grantee's clone would 404 on the profile) and opens the clone dialog", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "edit" }));
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: "Clone…" })).toBeNull();
+      cleanup();
+
+      await renderMenu(makeSubshell({ access: "owner" }));
       await openMenu("subshell");
       fireEvent.click(screen.getByRole("menuitem", { name: "Clone…" }));
       expect(await screen.findByLabelText("Clone name")).toBeDefined();

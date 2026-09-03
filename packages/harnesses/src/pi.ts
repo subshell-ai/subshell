@@ -63,7 +63,8 @@ const PLUGIN_KNOWN_PATHS = [".bun/bin/pi"];
  *   pi [--model <m>] [--provider <p>] [--thinking <l>] --name <subshell> \
  *      [profile flags] [extra flags]
  * A bare launch opens the TUI. Unlike the other harnesses, pi supports a
- * create-time subshell name (`--name`), so the subshell subshell name is forwarded.
+ * create-time name for its OWN session (`--name`), so the subshell's display
+ * name is forwarded to it.
  *
  * NOTE: subshell MCP is NOT auto-injected. pi deliberately has no built-in MCP —
  * it comes from the community `pi-mcp-adapter` extension, which must be

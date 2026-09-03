@@ -48,13 +48,22 @@ function profileReasonText(node: Node, reason: IncompatReason): string {
 }
 
 /**
+ * The one profile-label grammar for every picker/reader: `name (harnessId)`
+ * (e2e-pinned format). Shared by {@link buildProfileOptions} and the clone
+ * dialog so the rows cannot drift.
+ */
+export function profileOptionLabel(p: LaunchProfile): string {
+  return `${p.name} (${p.harnessId})`;
+}
+
+/**
  * Profile options paired against the chosen node (null = no pick yet:
  * nothing greys). Labels keep the e2e-pinned `name (harnessId)` format.
  */
 export function buildProfileOptions(profiles: readonly LaunchProfile[], node: Node | null): ComboboxOption[] {
   return profiles.map((p) => {
     const fit = node === null ? null : harnessFitsNode(node, p.harnessId);
-    const opt: ComboboxOption = { value: p.id, label: `${p.name} (${p.harnessId})`, disabled: fit !== null };
+    const opt: ComboboxOption = { value: p.id, label: profileOptionLabel(p), disabled: fit !== null };
     if (fit !== null && node !== null) opt.reason = profileReasonText(node, fit);
     return opt;
   });

@@ -307,16 +307,18 @@ describe("terminate / killSubshell", () => {
     expect(h.calls).toEqual([{ cmd: { type: "terminate", subshellId: "s1" }, timeoutMs: 10_000 }]);
 
     const h2 = makeHarness();
+    // TMUX's own stderr wording ("can't find session: …") — verbatim, never
+    // renamed with the product entity; the kill class matches on it.
     h2.answer("terminate", () => {
-      throw new NodeRpcError("failed", 'node "node-1" reported: can\'t find subshell: s1', "node-1");
+      throw new NodeRpcError("failed", 'node "node-1" reported: can\'t find session: s1', "node-1");
     });
     expect(((await rejection(h2.launcher.terminate("subshell-abc", "s1"))) as Error).message).toContain(
-      "can't find subshell",
+      "can't find session",
     );
   });
 
   it("killSubshell swallows the already-gone class only", async () => {
-    for (const agentMsg of ["can't find subshell: s1", "no subshell: s1"]) {
+    for (const agentMsg of ["can't find session: s1", "no session: s1"]) {
       const h = makeHarness();
       h.answer("kill", () => {
         throw new NodeRpcError("failed", `node "node-1" reported: ${agentMsg}`, "node-1");

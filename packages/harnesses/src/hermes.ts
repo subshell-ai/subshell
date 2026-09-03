@@ -62,7 +62,8 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/hermes"];
  *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [profile flags] [extra flags]
  * A bare launch starts interactive chat; which interface (classic REPL vs
  * --tui) is left to the user's own display.interface config. Hermes has no
- * create-time subshell-name flag, so the subshell subshell name is not forwarded.
+ * create-time flag for naming its own session, so the subshell's display name
+ * is not forwarded.
  *
  * CAVEAT — the `hermes` on PATH is a bash launcher script that execs the venv
  * binary. Subshell launches are safe: `buildHarnessCommand` runs everything

@@ -2,7 +2,7 @@ import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@interna
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {
-  /** subshell subshell id (also the tmux subshell name) */
+  /** subshell id (also the tmux session name) */
   id: string;
   /** tmux socket (tmuxSocketFor(id)) */
   socket: string;

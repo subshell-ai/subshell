@@ -200,7 +200,7 @@ export const McpSetupStepSchema = t.Object({
  */
 export const McpSetupSchema = t.Union([
   t.Object({
-    mode: t.Literal("auto", { description: "Wired into every subshell subshell automatically" }),
+    mode: t.Literal("auto", { description: "Wired into every subshell automatically" }),
     summary: t.String({ description: "Human summary for the auto case" }),
   }),
   t.Object({
