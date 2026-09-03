@@ -1,7 +1,7 @@
 # Release artifacts: subshell-server & subshell binaries + component rename
 
 Date: 2026-09-03
-Status: approved design, pending implementation plan
+Status: implemented (plans 1–3 landed 2026-09-03; first releases server-v1.0.0 + client-v0.1.0 cut via workflow_dispatch)
 
 ## 1. Purpose
 
@@ -146,7 +146,7 @@ subshell-server service install | uninstall | status
 `@changesets/cli` + `@changesets/changelog-github`; `.changeset/config.json`
 with `changelog: ["@changesets/changelog-github", { repo:
 "subshell-ai/subshell" }]`, `baseBranch: "main"`, and `"ignore"` listing EVERY
-workspace package except `@internal/backend` and `@internal/client` — version
+workspace package except `@internal/server` and `@internal/client` — version
 PRs touch only the two releasable apps; their versions drift independently
 (hence `server-v*` vs `client-v*`). Both apps' `package.json` `private: true`
 stands: changesets still versions private packages (it merely skips npm
@@ -161,41 +161,54 @@ merge to main → release (below).
 
 Modeled on `loglayer/loglayer/.github/workflows/release.yml` (fetched
 2026-09-03), adapted for private packages (changesets creates no tags for
-them, so we tag ourselves):
+them, so we tag ourselves). **As shipped (plan 3, 2026-09-03):**
 
-1. **`release` job** — `push: main`: bun setup → install → `turbo build` →
-   `changesets/action@v1` (version PR "chore: release package(s)"; merge it
-   to cut a release). `concurrency: ${{ workflow }}-${{ ref }}`, permissions
-   `contents: write`, `pull-requests: write`.
-2. **`prepare` job** — same push, gated on head commit title == `chore:
-   release package(s)`: read `apps/server`/`apps/client` versions; emit
-   matrix entries `{app, triple}` for every component whose tag
-   (`server-vX.Y.Z` / `client-vX.Y.Z`) does not exist yet. Empty matrix →
-   skip downstream. This job also CREATES the missing tags (one per
-   component) before any build starts, so there is no tag race anywhere
-   downstream; a failed build therefore leaves a tag without a release —
-   correct and retryable, since `prepare` keys off tags, not off build
-   success.
-3. **`build` job matrix** — one shard per `{app, triple}`, each on hardware
-   that EXECUTES the target: linux-x64 → `ubuntu-latest`, linux-arm64 →
-   `ubuntu-24.04-arm`, darwin-arm64 → `macos-14`, darwin-x64 (client only) →
-   built on `macos-14` with `--target=bun-darwin-x64`, smoke-run under
-   Rosetta. Each: `bun install` → `turbo build` → app's release script scoped
-   to its triple → run the artifact: client `./subshell-<t> version` (asserts
-   tag version), server boots with temp `DATABASE_PATH` and `curl /docs` +
-   `curl /` (proves embedded SPA serves) → upload binary + `.sha256`.
-4. **`publish` job** — `needs: build`: create `gh release create <tag>
-   --draft` → upload all shards' artifacts → flip to published. Any build
-   failure ⇒ no release. Draft-last keeps the atomicity story CI-wide.
-5. **`workflow_dispatch`** with `app` + `version` inputs — manual cut and the
-   path to release the CURRENT main commit before any changeset exists.
+1. **`changesets` job** — `push: main` (and every dispatch): bun 1.4.0 +
+   node 22 (the `changeset` bin is a node-shebang script; the Linux runners
+   ship node 18) → `changesets/action@v2` maintains the version PR
+   ("chore: release package(s)"). NO publish script, and v2's
+   `create-github-releases`/`push-git-tags` are switched off — releases and
+   tags belong to the jobs below.
+2. **`plan` job** — emits an EMPTY matrix on push events: merging the version
+   PR does NOT auto-cut. **The first-cut path is an explicit
+   `workflow_dispatch`** (`app` = server|client|both; blank `version` reads
+   `apps/<app>/package.json`) — simpler and honest for a private-changesets
+   repo, and it is the only cut path. Tag = `server-vX.Y.Z` /
+   `client-vX.Y.Z`, created and pushed by THIS job before any build starts
+   (no tag race downstream). An existing tag WITH a release skips the app; a
+   tag WITHOUT one is the documented retry state — re-dispatching completes
+   the half-cut (softprops creates the release on the existing tag).
+3. **`build` job matrix** — one shard per `{app, triple}`, all on the owner's
+   **self-hosted fleet** (no hosted runners): linux-x64 and linux-arm64 →
+   `[self-hosted, Linux, X64]`, darwin-* → `[self-hosted, macOS, ARM64]`
+   (mac-builder). **linux-arm64 is CROSS-BUILT on x64 — no native arm64
+   Linux runner exists — and its smoke is digest sidecar + `file(1)` magic
+   only, never an exec** (bytecode cross is proven on bun 1.4.0, §1 spike).
+   darwin-x64 (client) smoke-runs under Rosetta on mac-builder (proven
+   available; degrades to the magic check where it is not). Native triples
+   exec-smoke: `version` output must carry the released version; the server
+   additionally BOOTS on a temp DB with `apps/frontend/dist` moved aside, so
+   `/` + `/docs` can only be served by the EMBEDDED SPA (the disk dir wins
+   when present — hiding it is the proof). Each shard: `bun install` →
+   `turbo build` → the app's release script scoped to its one triple →
+   upload binary + `.sha256`. Node 22 via setup-node is load-bearing: the
+   tsdown/rolldown bins are node-shebang scripts needing `util.styleText`
+   (node ≥ 20.12; the Linux runners' node 18 broke the first dispatch).
+4. **`publish` job** — per tagged app: `softprops/action-gh-release` creates
+   the DRAFT with every artifact, then a second invocation (same tag, `draft`
+   omitted) flips it live. Chosen over `gh release` because the Linux
+   self-hosted runners have **no gh CLI** (measured). Any build failure ⇒ no
+   release. Draft-last keeps the atomicity story CI-wide.
+5. Cutting the CURRENT main is just a dispatch: `gh workflow run release.yml
+   -f app=both`.
 
-Scoping the release script to one triple: both scripts accept
-`SUBSHELL_RELEASE_TRIPLES=<subset>` (env, space-separated) so CI shards reuse
-the exact local build code instead of reimplementing flags.
+Scoping the release script to one triple: the scripts accept
+`SUBSHELL_RELEASE_TRIPLES` / `SUBSHELL_SERVER_RELEASE_TRIPLES` (env,
+space-separated) so CI shards reuse the exact local build code instead of
+reimplementing flags.
 
-Cost note: macOS minutes bill ~10×; the matrix is ≤3 jobs and releases are
-occasional.
+Cost note: the fleet is self-hosted (no hosted-minute billing); mac-builder
+doubles as the only darwin builder, and a full cut is 7 shards.
 
 ## 8. Error handling & atomicity
 

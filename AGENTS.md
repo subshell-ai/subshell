@@ -171,6 +171,32 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `apps/server/AGENTS.md` ("Standalone binary & CLI") for the CLI
   (`init`/`configure`/`status`/`service install|uninstall`) and config.env.
 
+### GitHub Releases (CI — `.github/workflows/release.yml`)
+
+The same two pipelines run sharded in CI and ship as **GitHub Releases**
+under component-scoped tags: `server-vX.Y.Z` (3 binaries + `.sha256`) and
+`client-vX.Y.Z` (4 + 4). Tagging/releasing is OWNED BY THE WORKFLOW — never
+cut tags by hand.
+
+- **Version bumps (changesets):** `bunx changeset` after user-visible
+  changes to `apps/server`/`apps/client` → a version PR ("chore: release
+  package(s)") maintained on every push to main; merging it bumps the app's
+  `package.json` + CHANGELOG. Merging does NOT cut a release.
+- **The cut is an explicit dispatch:**
+  `gh workflow run release.yml -f app=both` (or `app=server|client`,
+  optional `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`).
+  The plan job pushes the missing tag(s) FIRST, then one build shard per
+  app×triple on the self-hosted fleet (linux on `[self-hosted, Linux,
+  X64]` — linux-arm64 cross-built there, `file` magic check only, never
+  exec'd; darwin on mac-builder `[self-hosted, macOS, ARM64]` — darwin-x64
+  smoke under Rosetta). Native shards exec `version`; server shards also
+  BOOT on a temp DB with `apps/frontend/dist` hidden (the embedded-SPA
+  proof). Publish = softprops draft-with-assets → second invocation flips
+  live; any build failure ⇒ no release.
+- **Retry:** a mid-flight failure leaves a tag without a release —
+  re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
+  requires deleting the release and its tag first.
+
 ## Build Dependencies
 
 The Turbo pipeline ensures correct build order:
