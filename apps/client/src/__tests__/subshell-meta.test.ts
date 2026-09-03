@@ -166,4 +166,39 @@ describe("SubshellMetaStore", () => {
     await store.record(meta("a1"));
     expect((await store.list()).map((m) => m.subshellId)).toEqual(["a1"]);
   });
+
+  it("get×forget race: a fallback read in flight across forget never poisons the mirror", async () => {
+    // FORCED interleaving of the flake that killed the real-tmux smoke test
+    // (and the fake-tmux watcher test): the watcher forgets the meta, a
+    // 10 ms poll's fallback read — already dispatched with the file still
+    // present — resolves AFTER the eviction. An unconditional refill caches
+    // the deleted record forever (the file is gone, nothing re-reads), so
+    // the poll's `get() === undefined` never arrives and the wait times out.
+    // Two instances over one dir keep `store` on the file-read fallback path.
+    const { store, dataDir } = freshStore("forget-race");
+    const sibling = new SubshellMetaStore(dataDir);
+    for (let i = 0; i < 200; i++) {
+      const id = crypto.randomUUID();
+      await sibling.record(meta(id)); // file exists; store has never seen this id
+      const inFlight = store.get(id); // mem miss → the readFile is already queued
+      await store.forget(id); // evict + unlink land
+      await inFlight; // the stale refill (if any) has happened by now
+      expect(await store.get(id)).toBeUndefined(); // a poisoned mirror fails the loop here
+    }
+  });
+
+  it("get×record race: a fallback read in flight across record cannot overwrite the new record", async () => {
+    // Same guard, other direction: a read that resolved with PRE-overwrite
+    // bytes must not cache them after record's final write landed.
+    const { store, dataDir } = freshStore("record-race");
+    const sibling = new SubshellMetaStore(dataDir);
+    for (let i = 0; i < 200; i++) {
+      const id = crypto.randomUUID();
+      await sibling.record(meta(id));
+      const inFlight = store.get(id); // reads toward the sibling's bytes
+      await store.record({ ...meta(id), name: "v2" }); // store takes over the id mid-read
+      await inFlight;
+      expect((await store.get(id))?.name).toBe("v2");
+    }
+  });
 });

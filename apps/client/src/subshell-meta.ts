@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { unlinkSync } from "node:fs";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isNodeSubshellId } from "@internal/subshell-protocol";
 import { enforceMode } from "./fs-mode.js";
@@ -98,8 +99,10 @@ function parseMeta(raw: string, file: string): SubshellMeta | null {
  * lookups — never changes while it lives, so the mirror is populated on
  * `record` and by `get`'s file-read fallback, evicted on `forget`, and
  * replaced on re-record). Within one agent process the files only change
- * under these methods, so the mirror cannot go stale. The daemon is the only
- * writer.
+ * under these methods — and the per-id generation counter below is what makes
+ * "cannot go stale" TRUE across the awaits: a fallback read that resolves
+ * after a `record`/`forget` touched the id is never cached. The daemon is the
+ * only writer.
  */
 export class SubshellMetaStore {
   /** Root the store reads/writes under; the subshells dir is created lazily on first record. */
@@ -107,6 +110,20 @@ export class SubshellMetaStore {
 
   /** In-memory mirror of readable records (keyed by subshellId); see the class doc. */
   private readonly mem = new Map<string, SubshellMeta>();
+
+  /**
+   * Per-id mutation counter, bumped SYNCHRONOUSLY by `record` (around the
+   * write) and `forget` (before the eviction). `get`'s file-read fallback
+   * captures it before the read and refuses to refill the mirror when it has
+   * moved — the guard that keeps a read racing a `forget` from caching a
+   * deleted record forever (the flake that timed out the watcher tests'
+   * post-exit meta waits).
+   */
+  private readonly gen = new Map<string, number>();
+
+  private bumpGen(id: string): void {
+    this.gen.set(id, (this.gen.get(id) ?? 0) + 1);
+  }
 
   /**
    * @param dataDir - the node's data dir (from the agent config); no fs I/O happens here.
@@ -139,10 +156,15 @@ export class SubshellMetaStore {
   async record(meta: SubshellMeta): Promise<void> {
     const file = this.metaPath(meta.subshellId);
     const dir = this.subshellsDir();
+    this.bumpGen(meta.subshellId); // invalidate fallback reads across the write...
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await enforceMode(dir, 0o700);
     await writeFile(file, `${JSON.stringify({ ...meta })}\n`, { mode: 0o600 });
     await enforceMode(file, 0o600);
+    // ...and reads that began before the authoritative mirror set. The bump
+    // and the set are ONE synchronous step: no in-flight read can cache
+    // pre-overwrite bytes after the new record is installed.
+    this.bumpGen(meta.subshellId);
     this.mem.set(meta.subshellId, { ...meta }); // only after the write landed; re-record replaces
   }
 
@@ -158,9 +180,15 @@ export class SubshellMetaStore {
     const hit = this.mem.get(id);
     if (hit !== undefined) return hit;
     const file = this.metaPath(id);
+    const gen = this.gen.get(id) ?? 0; // captured BEFORE the read is dispatched
     try {
       const meta = parseMeta(await readFile(file, "utf8"), file);
-      if (meta) this.mem.set(id, meta);
+      // Refill ONLY if no record/forget touched this id while the read was
+      // in flight: a read that started before a forget's eviction resolves
+      // with the deleted record's bytes, and caching those after the eviction
+      // would serve a dead record forever (the file is gone — nothing ever
+      // re-reads to heal the mirror).
+      if (meta && (this.gen.get(id) ?? 0) === gen) this.mem.set(id, meta);
       return meta ?? undefined;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -212,9 +240,16 @@ export class SubshellMetaStore {
    */
   async forget(id: string): Promise<void> {
     const file = this.metaPath(id); // validates first: a malformed id throws with no side effect
-    this.mem.delete(id); // evict on intent: even if the unlink below fails, the next lookup re-reads the file
+    // Eviction and unlink are ONE synchronous step: an async unlink left a
+    // window (under fs contention, seconds wide) where a fallback read could
+    // start after the eviction, see the still-present file, and cache the
+    // record the forget is deleting. Reads already in flight are caught by
+    // the gen bump. (This is the race that flaked the watcher tests'
+    // post-exit "meta forgotten" waits.)
+    this.bumpGen(id);
+    this.mem.delete(id); // evict on intent: even if the unlink fails, the next lookup re-reads the file
     try {
-      await unlink(file);
+      unlinkSync(file);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         log(`subshell meta delete failed: ${file}: ${err instanceof Error ? err.message : String(err)}`);

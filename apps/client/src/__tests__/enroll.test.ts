@@ -316,9 +316,11 @@ test("run without a config → code 1 pointing at enroll (the daemon loop itself
 test("version prints agent version + node protocol version", async () => {
   const res = await run(["version"]);
   expect(res.code).toBe(0);
-  expect(res.out).toInclude("0.1.0");
-  // Format pinned; the number rides the protocol constant (v2 since the
-  // 2026-09-02 frame rename — `node-frames.test.ts` pins the constant itself).
+  // BOTH numbers derive — never hard-code them: the agent version rides
+  // package.json (changesets bumped 0.1.0 → 0.2.0 and this assertion red on
+  // the FIRST release PR) and the protocol rides the constant
+  // (`node-frames.test.ts` pins the constant itself).
+  expect(res.out).toInclude(AGENT_VERSION);
   expect(res.out).toInclude(`protocol v${NODE_PROTOCOL_VERSION}`);
 });
 
