@@ -215,7 +215,11 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                       : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
                   )}
                 >
-                  <item.icon className="h-4 w-4 shrink-0" />
+                  {/* -translate-y-px is optical, not a bug fix: the boxes are
+                      flex-centered, but labels like "Subshells" carry no
+                      descenders, so the eye centers them ~1px above the box
+                      center and the icon reads low (live review 2026-09-03). */}
+                  <item.icon className="h-4 w-4 shrink-0 -translate-y-px" />
                   {!collapsed && item.label}
                 </Link>
                 {!collapsed && item.to === "/workspaces" && (
