@@ -198,47 +198,51 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
         {visibleNavItems(publicSettings?.viewerIsAdmin).map((item) => {
           const active = location.pathname === item.to;
           return (
-            <div key={item.to} className="relative">
-              <Link
-                to={item.to as never}
-                title={collapsed ? `${item.label}${item.short ? ` (${item.short})` : ""}` : undefined}
-                className={cn(
-                  "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
-                  collapsed ? "justify-center px-2" : "gap-3",
-                  active
-                    ? "bg-[linear-gradient(90deg,oklch(0.30_0.10_322),oklch(0.38_0.11_340))] font-medium text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+            <div key={item.to}>
+              {/* The anchor for the quick-add +: the LINK ROW only — the
+                  section wrapper also holds the recents below, so centering
+                  there lands the + off the label (live-review screenshot,
+                  2026-09-03). */}
+              <div className="relative">
+                <Link
+                  to={item.to as never}
+                  title={collapsed ? `${item.label}${item.short ? ` (${item.short})` : ""}` : undefined}
+                  className={cn(
+                    "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "gap-3",
+                    active
+                      ? "bg-[linear-gradient(90deg,oklch(0.30_0.10_322),oklch(0.38_0.11_340))] font-medium text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && item.label}
+                </Link>
+                {!collapsed && item.to === "/workspaces" && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="New workspace"
+                    title="New workspace"
+                    className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
+                    onClick={() => setNewWorkspaceOpen(true)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
                 )}
-              >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && item.label}
-              </Link>
-              {!collapsed && item.to === "/workspaces" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="New workspace"
-                  title="New workspace"
-                  className="absolute top-2 right-1 h-6 w-6 text-muted-foreground"
-                  onClick={() => setNewWorkspaceOpen(true)}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
-              )}
-              {!collapsed && item.to === "/" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="New subshell"
-                  title="New subshell"
-                  /* top-2 rides the nav-link row (py-2 + h-4 icon ≈ 32px), not
-                     the wrapper — the wrapper also holds the recents below. */
-                  className="absolute top-2 right-1 h-6 w-6 text-muted-foreground"
-                  onClick={() => setLaunchOpen(true)}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
-              )}
+                {!collapsed && item.to === "/" && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="New subshell"
+                    title="New subshell"
+                    className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
+                    onClick={() => setLaunchOpen(true)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
               {!collapsed && item.to === "/" && (
                 <div className="px-2 pt-1 pb-2">
                   <Input
