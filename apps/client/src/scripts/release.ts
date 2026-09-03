@@ -1,16 +1,19 @@
 /**
  * `bun run compile:release` — the operator-facing release pipeline for the
- * `subshell` binaries (design 2026-09-02 §1). Cross-compiles the four served
- * targets plus a bytecode-optimised host build into `dist/release/`, digests
- * each with sha256, then publishes atomically (tmp + rename) into the same
- * directory `GET /api/downloads/node/*` serves (backend `NODE_ARTIFACTS_DIR`).
+ * `subshell` binaries (design 2026-09-02 §1). Builds every served target into
+ * `dist/release/`, digests each with sha256, then publishes atomically (tmp +
+ * rename) into the same directory `GET /api/downloads/node/*` serves (backend
+ * `NODE_ARTIFACTS_DIR`). Every target builds with `--bytecode` (risk #9
+ * retired — spike on bun 1.4.0, spec 2026-09-03 §1); `main()` asserts that
+ * floor, and `SUBSHELL_RELEASE_TRIPLES` narrows the schedule for CI sharding
+ * (spec §7).
  *
  * Deliberately SEPARATE from `compile` (host-only dev build): cross builds
- * download target runtimes over the network on first use and run WITHOUT
- * `--bytecode` (spec risk #9), which must never become a hidden cost of the
- * normal build/test path. This file lives outside `main.ts`'s import graph, so
- * the compiled binary never sees it; import it in tests only for the pure
- * exports (the CLI entry is guarded by `import.meta.main`).
+ * download target runtimes over the network on first use, which must never
+ * become a hidden cost of the normal build/test path. This file lives outside
+ * `main.ts`'s import graph, so the compiled binary never sees it; import it in
+ * tests only for the pure exports (the CLI entry is guarded by
+ * `import.meta.main`).
  */
 
 import { existsSync } from "node:fs";
@@ -21,80 +24,87 @@ import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@in
 import { type BuiltArtifact, digestFile, publishArtifacts } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-/** `apps/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
+/** `apps/client` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
 const AGENT_DIR = resolve(SCRIPT_DIR, "..", "..");
 /** The monorepo root — where the `packages` dist outputs and hoisted workspace links live. */
 const REPO_ROOT = resolve(AGENT_DIR, "..", "..");
-
-/**
- * The closed set of cross-compiled platform triples — the SAME served set
- * the backend's downloads route gates on (single source of truth in
- * `@internal/subshell-protocol`). Named `CROSS_TARGETS` here because in the
- * build schedule every entry is a cross build UNLESS the host wins it.
- */
-export const CROSS_TARGETS = NODE_TARGETS;
-
-/**
- * Maps a platform/arch pair to its served triple.
- * @param platform - Node platform string (defaults to this process's)
- * @param arch - Node arch string (defaults to this process's)
- * @returns the triple, or null when the pair is not one of the four served targets
- */
-export function hostTriple(platform: string = process.platform, arch: string = process.arch): string | null {
-  const triple = `${platform}-${arch}`;
-  return (CROSS_TARGETS as readonly string[]).includes(triple) ? triple : null;
-}
 
 /** One entry of the build schedule. */
 export interface BuildTarget {
   /** Platform triple this artifact is published under. */
   triple: string;
-  /** True for the host build — the only one that ships with `--bytecode`. */
-  isHost: boolean;
 }
 
 /**
- * The build schedule: the four cross targets plus the host build. One artifact
- * per triple — when the host arch duplicates a cross triple the HOST entry wins
- * it (4 entries on a linux-x64 box). A foreign host yields 4 too (cross builds
- * only — `hostTriple()` returns null and `main()` warns); a 5th entry exists
- * only through an explicit override, which never happens in production.
- * @param host - host triple override (tests; null = unsupported host)
+ * The build schedule: one artifact per served triple (or per `scope` entry —
+ * CI shards set `SUBSHELL_RELEASE_TRIPLES`, spec §7). Bytecode ships on EVERY
+ * target: cross+bytecode was disproved a risk on bun 1.4.0 (spec 2026-09-03
+ * spike), and the floor is asserted in main().
+ * @param scope - triples to build; null/undefined = the full NODE_TARGETS set
  */
-export function buildTargets(host: string | null = hostTriple()): BuildTarget[] {
-  const targets: BuildTarget[] = CROSS_TARGETS.filter((t) => t !== host).map((triple) => ({
-    triple,
-    isHost: false,
-  }));
-  if (host) targets.push({ triple: host, isHost: true });
-  return targets;
+export function buildTargets(scope: readonly string[] | null = null): BuildTarget[] {
+  const set = scope ?? [...NODE_TARGETS];
+  return set.map((triple) => ({ triple }));
 }
 
 /**
- * `bun build` argv for one target (spawned with cwd `apps/agent`).
- * Cross: `--compile --minify --target=bun-<triple>`. Host: same plus
- * `--bytecode`, and NO `--target` — a foreign target with bytecode is spec
- * risk #9, so the flags are mutually exclusive by construction here.
+ * `bun build` argv for one target (spawned with cwd `apps/client`).
+ * Uniform: `--compile --bytecode --minify --target=bun-<triple>` — the
+ * host-wins-its-triple special case is retired (spec 2026-09-03 §5).
  * @param triple - platform triple to build
- * @param isHost - whether this is the host (bytecode, native-target) build
  * @param outDir - directory for the `subshell-<triple>` output file
  */
-export function buildArgs(triple: string, isHost: boolean, outDir: string): string[] {
+export function buildArgs(triple: string, outDir: string): string[] {
   return [
     "build",
     "--compile",
-    ...(isHost ? ["--bytecode"] : []),
+    "--bytecode",
     "--minify",
     "./src/main.ts",
-    ...(isHost ? [] : [`--target=bun-${triple}`]),
+    `--target=bun-${triple}`,
     "--outfile",
     join(outDir, nodeArtifactFileName(triple)),
   ];
 }
 
+/**
+ * Parse the `SUBSHELL_RELEASE_TRIPLES` scope override: whitespace-separated
+ * triples, each unknown → hard refusal (a typo'd scope silently publishing a
+ * partial set is exactly the half-release this pipeline exists to prevent).
+ * @returns null when unset/blank (the full set)
+ */
+export function parseScope(raw: string | undefined): string[] | null {
+  const parts = (raw ?? "").split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  for (const p of parts) {
+    if (!(NODE_TARGETS as readonly string[]).includes(p)) {
+      throw new Error(`unknown target "${p}" in SUBSHELL_RELEASE_TRIPLES (known: ${NODE_TARGETS.join(" ")})`);
+    }
+  }
+  return parts;
+}
+
+/** Compare `a` vs `b` numerically over the dotted-numeric prefix (suffixes ignored). */
+export function semverLt(a: string, b: string): boolean {
+  const nums = (v: string) => (v.match(/^\d+(\.\d+)*/)?.[0] ?? "0").split(".").map(Number);
+  const [av, bv] = [nums(a), nums(b)];
+  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+    const d = (av[i] ?? 0) - (bv[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
+}
+
+/** Refuses (throws) a bun older than the version the bytecode-cross spike proved. */
+export function assertBunFloor(minimum: string, version: string = process.versions.bun): void {
+  if (semverLt(version, minimum)) {
+    throw new Error(`release builds need bun ${minimum} or newer (bytecode cross-compiles); found ${version}`);
+  }
+}
+
 /** Injectable build runner for tests (a real spawn in `main`). */
 export interface ReleaseDeps {
-  /** Runs one `bun build` argv (relative to `apps/agent`); resolves with its exit code. */
+  /** Runs one `bun build` argv (relative to `apps/client`); resolves with its exit code. */
   runBuild(args: string[]): Promise<number>;
   /** Directory the compiled binaries are written to. */
   outDir: string;
@@ -104,15 +114,16 @@ export interface ReleaseDeps {
 export type BuildAllResult = { ok: true; artifacts: Map<string, BuiltArtifact> } | { ok: false; failed: string };
 
 /**
- * Builds every target and digests it. NEVER publishes — callers run
- * {@link publishArtifacts} only on `ok:true`, so a failed target publishes
- * nothing (all-or-nothing, design §1).
+ * Builds every target (full set, or `scope`) and digests it. NEVER publishes
+ * — callers run {@link publishArtifacts} only on `ok:true`, so a failed target
+ * publishes nothing (all-or-nothing, design §1).
  * @param deps - injected runner + output directory
+ * @param scope - triples to build; null/undefined = the full served set
  */
-export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
+export async function buildAll(deps: ReleaseDeps, scope?: string[] | null): Promise<BuildAllResult> {
   const artifacts = new Map<string, BuiltArtifact>();
-  for (const target of buildTargets()) {
-    const code = await deps.runBuild(buildArgs(target.triple, target.isHost, deps.outDir));
+  for (const target of buildTargets(scope ?? null)) {
+    const code = await deps.runBuild(buildArgs(target.triple, deps.outDir));
     if (code !== 0) return { ok: false, failed: target.triple };
     const path = join(deps.outDir, nodeArtifactFileName(target.triple));
     try {
@@ -144,7 +155,7 @@ export function resolveArtifactsDir(): string {
   );
 }
 
-/** Runs one `bun` subcommand argv in `apps/agent` with output streamed to this console. */
+/** Runs one `bun` subcommand argv in `apps/client` with output streamed to this console. */
 async function runBun(args: string[]): Promise<number> {
   const child = Bun.spawn([process.execPath, ...args], {
     cwd: AGENT_DIR,
@@ -154,7 +165,7 @@ async function runBun(args: string[]): Promise<number> {
   return child.exited;
 }
 
-/** Refuses (exit 1) unless the workspace dist outputs the compiled agent links against exist. */
+/** Refuses (exit 1) unless the workspace dist outputs the compiled client links against exist. */
 function assertWorkspaceBuilt(): boolean {
   const linked =
     existsSync(join(AGENT_DIR, "node_modules", "@internal", "harnesses")) ||
@@ -172,14 +183,11 @@ function assertWorkspaceBuilt(): boolean {
   return false;
 }
 
-/** CLI entry: preflight → build all → publish all → summary table. Any failure exits 1. */
+/** CLI entry: floor + scope → preflight → build all → publish all → summary table. Any failure exits 1. */
 async function main(): Promise<void> {
+  assertBunFloor("1.4.0");
+  const scope = parseScope(process.env.SUBSHELL_RELEASE_TRIPLES);
   if (!assertWorkspaceBuilt()) process.exit(1);
-  if (!hostTriple()) {
-    process.stdout.write(
-      `note: host ${process.platform}-${process.arch} is not a served triple — publishing the cross builds only\n`,
-    );
-  }
   const destDir = resolveArtifactsDir();
   // #8 (final review): the default ladder resolves against THIS script's cwd,
   // while the backend resolves the same ladder against ITS cwd — equal only
@@ -194,7 +202,7 @@ async function main(): Promise<void> {
   const outDir = join(AGENT_DIR, "dist", "release");
   await mkdir(outDir, { recursive: true });
 
-  const result = await buildAll({ runBuild: runBun, outDir });
+  const result = await buildAll({ runBuild: runBun, outDir }, scope);
   if (!result.ok) {
     process.stderr.write(`\ncompile:release: FAILED building "${result.failed}" (nothing published)\n`);
     process.exit(1);

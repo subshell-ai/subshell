@@ -2,83 +2,57 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { NODE_TARGETS } from "@internal/subshell-protocol";
 import { digestFile } from "@internal/subshell-protocol/release-artifacts";
 import {
+  assertBunFloor,
   type BuildAllResult,
   buildAll,
   buildArgs,
   buildTargets,
-  CROSS_TARGETS,
-  hostTriple,
+  parseScope,
   resolveArtifactsDir,
 } from "../release.js";
 
-describe("hostTriple", () => {
-  test("maps the four supported platform/arch combos to their triples", () => {
-    expect(hostTriple("linux", "x64")).toBe("linux-x64");
-    expect(hostTriple("linux", "arm64")).toBe("linux-arm64");
-    expect(hostTriple("darwin", "x64")).toBe("darwin-x64");
-    expect(hostTriple("darwin", "arm64")).toBe("darwin-arm64");
-  });
-
-  test("unknown platform or arch → null (no host artifact for it)", () => {
-    expect(hostTriple("win32", "x64")).toBeNull();
-    expect(hostTriple("freebsd", "arm64")).toBeNull();
-    expect(hostTriple("linux", "riscv64")).toBeNull();
-  });
-
-  test("no-arg form reads the real process (any supported host yields a triple)", () => {
-    expect(hostTriple()).toBe(hostTriple(process.platform, process.arch));
-    // No arch literal pinned: pre-push runs `test` on arm64 hosts too.
+describe("buildArgs (always-bytecode, spec 2026-09-03 §5)", () => {
+  test("every triple compiles with --bytecode AND an explicit --target", () => {
+    for (const triple of NODE_TARGETS) {
+      const args = buildArgs(triple, "/out");
+      expect(args).toContain("--bytecode");
+      expect(args).toContain(`--target=bun-${triple}`);
+      expect(args).toContain(join("/out", `subshell-${triple}`));
+    }
   });
 });
 
 describe("buildTargets", () => {
-  test("a duplicating host (linux-x64) yields 4 entries, one per triple, host wins its triple", () => {
-    const targets = buildTargets("linux-x64");
-    expect(targets).toHaveLength(4);
-    expect(new Set(targets.map((t) => t.triple)).size).toBe(4);
-    const host = targets.filter((t) => t.isHost);
-    expect(host).toHaveLength(1);
-    expect(host[0]?.triple).toBe("linux-x64");
-    // The HOST entry is the only one that gets --bytecode; cross builds never do (spec risk #9).
-    for (const t of targets) expect(t.isHost).toBe(t.triple === "linux-x64");
-    // Every cross triple is still present exactly once.
-    for (const triple of CROSS_TARGETS) expect(targets.filter((t) => t.triple === triple)).toHaveLength(1);
+  test("flat schedule: one entry per served triple, no host special case", () => {
+    expect(buildTargets().map((t) => t.triple)).toEqual([...NODE_TARGETS]);
   });
 
-  test("a foreign host triple is force-added alongside the 4 cross targets (5 unique)", () => {
-    const targets = buildTargets("win32-x64");
-    expect(targets).toHaveLength(5);
-    expect(new Set(targets.map((t) => t.triple)).size).toBe(5);
-    const host = targets.filter((t) => t.isHost);
-    expect(host).toHaveLength(1);
-    expect(host[0]?.triple).toBe("win32-x64");
-  });
-
-  test("null host → the 4 cross targets only, none flagged host", () => {
-    const targets = buildTargets(null);
-    expect(targets).toHaveLength(4);
-    expect(targets.every((t) => !t.isHost)).toBe(true);
+  test("scope narrows the schedule without reordering", () => {
+    expect(buildTargets(["darwin-arm64", "linux-x64"]).map((t) => t.triple)).toEqual(["darwin-arm64", "linux-x64"]);
   });
 });
 
-describe("buildArgs", () => {
-  test("cross build: --compile --minify, NO --bytecode, explicit --target=bun-<triple>", () => {
-    const args = buildArgs("darwin-arm64", false, "/tmp/out");
-    expect(args.slice(0, 2)).toEqual(["build", "--compile"]);
-    expect(args).not.toContain("--bytecode");
-    expect(args).toContain("--minify");
-    expect(args).toContain("--target=bun-darwin-arm64");
-    expect(args).toContain("./src/main.ts");
-    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "subshell-darwin-arm64")]);
+describe("parseScope", () => {
+  test("undefined → null (full set)", () => expect(parseScope(undefined)).toBeNull());
+
+  test("whitespace-separated subset passes through", () =>
+    expect(parseScope(" linux-arm64\tdarwin-x64 ")).toEqual(["linux-arm64", "darwin-x64"]));
+
+  test("unknown triple throws", () => expect(() => parseScope("win32-x64")).toThrow(/unknown target/i));
+});
+
+describe("assertBunFloor (risk #9 disproved at 1.4.0)", () => {
+  test("accepts the floor and newer", () => {
+    expect(() => assertBunFloor("1.4.0", "1.4.0")).not.toThrow();
+    expect(() => assertBunFloor("1.4.0", "1.12.3")).not.toThrow();
   });
 
-  test("host build: adds --bytecode and omits --target entirely", () => {
-    const args = buildArgs("linux-x64", true, "/tmp/out");
-    expect(args.slice(0, 3)).toEqual(["build", "--compile", "--bytecode"]);
-    expect(args.some((a) => a.startsWith("--target"))).toBe(false);
-    expect(args.slice(-2)).toEqual(["--outfile", join("/tmp/out", "subshell-linux-x64")]);
+  test("refuses below the floor", () => {
+    expect(() => assertBunFloor("1.4.0", "1.3.10")).toThrow(/bun 1\.4\.0/);
+    expect(() => assertBunFloor("1.4.0", "1.4.0-canary1")).not.toThrow();
   });
 });
 
@@ -121,13 +95,28 @@ describe("buildAll", () => {
     const { runBuild } = stubRunBuild();
     const result: BuildAllResult = await buildAll({ runBuild, outDir });
     if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
-    // One artifact per triple: every supported host duplicates one cross
-    // target (the host build wins its triple), so 4 on all four arches.
-    expect(result.artifacts.size).toBe(4);
+    // Flat schedule: exactly one artifact per served triple — no host entry,
+    // no dupes, regardless of the arch the suite runs on.
+    expect(result.artifacts.size).toBe(NODE_TARGETS.length);
     for (const [triple, artifact] of result.artifacts) {
       expect(artifact.path).toBe(join(outDir, `subshell-${triple}`));
       expect(artifact.digest).toBe(await digestFile(artifact.path)); // production hasher, not a mirror
       expect(artifact.digest).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  test("scope narrows the schedule and every spawned build carries the uniform argv", async () => {
+    const outDir = join(workDir, "out-scope");
+    const scope = ["darwin-arm64", "linux-x64"];
+    const { calls, runBuild } = stubRunBuild();
+    const result = await buildAll({ runBuild, outDir }, scope);
+    if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
+    expect([...result.artifacts.keys()]).toEqual(scope);
+    expect(calls).toHaveLength(scope.length);
+    // Uniform argv (spec 2026-09-03 §5): every spawned build is bytecode + explicit target.
+    for (const [i, args] of calls.entries()) {
+      expect(args).toContain("--bytecode");
+      expect(args).toContain(`--target=bun-${scope[i]}`);
     }
   });
 
@@ -136,8 +125,8 @@ describe("buildAll", () => {
     const result = await buildAll({ runBuild: async () => 0, outDir });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure result");
-    // Whatever the host triple is, it is one of the four served triples.
-    expect((CROSS_TARGETS as readonly string[]).includes(result.failed)).toBe(true);
+    // Whatever the first scheduled triple is, it is one of the served set.
+    expect((NODE_TARGETS as readonly string[]).includes(result.failed)).toBe(true);
   });
 });
 
