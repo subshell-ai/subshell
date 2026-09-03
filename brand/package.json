@@ -1,0 +1,13 @@
+{
+  "name": "@internal/brand",
+  "description": "Subshell brand asset pipeline — run manually, rarely: `bun run brand:generate`",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "make": "bun generate.ts",
+    "check": "bun test"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2"
+  }
+}

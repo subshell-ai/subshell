@@ -1,5 +1,9 @@
 # Brand assets
 
+Standalone package (`@internal/brand`) deliberately outside the turbo task flow —
+its scripts are named `make`/`check` so `turbo run test|generate` never picks them
+up. Root aliases: `bun run brand:generate`, `bun run brand:test`.
+
 `bun run brand:generate` rasterizes `src/*.svg` masters into the committed PNGs
 (`apps/frontend/public/icons/`, `docs/assets/`). Requires the licensed font at
 `~/fonts/acherus/Acherus-Grotesque-Thin.otf` (or `SUBSHELL_BRAND_FONTS_DIR`).
