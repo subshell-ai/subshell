@@ -1,0 +1,34 @@
+name: Matrix scratch (temporary — release.yml wiring isolation)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  p:
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      matrix: ${{ steps.x.outputs.matrix }}
+    steps:
+      - id: x
+        run: |
+          echo 'matrix=[{"app":"server","triple":"linux-x64","runner":["self-hosted","Linux","X64"],"smoke":"exec"}]' >> "$GITHUB_OUTPUT"
+      - run: echo "output set"
+
+  b:
+    needs: p
+    if: needs.p.outputs.matrix != '[]'
+    runs-on: ${{ matrix.entry.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.p.outputs.matrix) }}
+    steps:
+      - run: |
+          echo "app=${{ matrix.entry.app }}"
+          echo "runner-array ok"
+          env
+        env:
+          MATRIX_TRIPLE: ${{ matrix.entry.triple }}
