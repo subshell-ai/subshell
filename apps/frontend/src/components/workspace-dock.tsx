@@ -7,7 +7,7 @@ import {
   type IDockviewPanelProps,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { apiFetch, errMessage } from "@/lib/api";
 import { confirmDeleteSubshell, confirmTerminateSubshell } from "@/lib/subshell-confirmations";
+import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
 import {
   normalizeLegacyLayout,
   panelIdsInLayout,
@@ -31,6 +32,11 @@ import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/
 
 /** Debounce window for persisting layout changes — collapses a drag/resize/split burst into one request. */
 const LAYOUT_SAVE_DEBOUNCE_MS = 800;
+
+/** True for OUR drags only — a file-upload drag or dockview's own tab drag never arms the overlay. */
+function isSubshellDrag(e: ReactDragEvent): boolean {
+  return e.dataTransfer.types.includes(SUBSHELL_DND_TYPE);
+}
 
 /** Panel content renderers, keyed by the `component` id passed to `addPanel`. */
 const components = {
@@ -77,6 +83,12 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
   const serverSeenPaneIdsRef = useRef<Set<string>>(new Set());
   const [searchAddons, setSearchAddons] = useState<ReadonlyMap<string, SearchAddon>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  // Sidebar-drag affordance (spec 2026-09-03 sidebar-quickadd §5c): true while
+  // our payload hovers the dock. The depth counter is what keeps the overlay
+  // from flickering: dragenter/dragleave fire as the pointer crosses every
+  // child of the wrapper, and only the outermost pair is a real leave.
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepthRef = useRef(0);
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
     setSearchAddons((prev) => {
@@ -317,6 +329,29 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     [addPanel, addPane, onRefetch],
   );
 
+  const handleDockDrop = useCallback(
+    (e: ReactDragEvent) => {
+      if (!isSubshellDrag(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDropActive(false);
+      const id = readSubshellDrag(e.dataTransfer);
+      if (!id) return;
+      // Never a second pane for one subshell (regression #13): the server
+      // does not dedupe, so this client checks its own authoritative pane
+      // list — if it is already here, just show it.
+      const existingPane = detail.panes.find((p) => p.subshellId === id);
+      if (existingPane) {
+        apiRef.current?.getPanel(existingPane.id)?.api.setActive();
+        return;
+      }
+      // Same shared path as the "Add subshell" dialog: "right" splits from
+      // the active panel, exactly what "add it over there" means.
+      void handleAdd(id, "right");
+    },
+    [detail.panes, handleAdd],
+  );
+
   const contextValue = useMemo<WorkspaceDockContextValue>(
     () => ({
       detail,
@@ -340,7 +375,29 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
         workspace={detail.workspace}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />
-      <div className="relative flex-1 overflow-hidden bg-terminal-canvas">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP
+          target, not a click handler — drag events carry no tap/keyboard
+          semantics to lose, and the keyboard-reachable equivalent of this
+          gesture is the "Add subshell" dialog beside it. */}
+      <div
+        className="relative flex-1 overflow-hidden bg-terminal-canvas"
+        onDragEnter={(e) => {
+          if (!isSubshellDrag(e)) return;
+          e.preventDefault();
+          dragDepthRef.current += 1;
+          setDropActive(true);
+        }}
+        onDragOver={(e) => {
+          if (!isSubshellDrag(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0) setDropActive(false);
+        }}
+        onDrop={handleDockDrop}
+      >
         {error && (
           <ErrorBanner
             variant="floating"
@@ -357,6 +414,13 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
               </Button>
             }
           />
+        )}
+        {dropActive && (
+          // Same visual language as the terminal's file-drop outline
+          // (TerminalDropOverlay) — one dashed-ring idiom for "drop here".
+          <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-primary/60 border-dashed bg-background/60 backdrop-blur-sm">
+            <p className="rounded-md bg-background/95 px-3 py-1.5 text-sm shadow">Drop to add this subshell</p>
+          </div>
         )}
         <WorkspaceDockProvider value={contextValue}>
           <DockviewReact
