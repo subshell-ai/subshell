@@ -100,3 +100,25 @@ drawer (`forceExpanded`): gets the same wiring; touch devices never fire
 - Context menus on nav items (Subshells/Workspaces headers), nodes, profiles rows.
 - Touch/long-press menus.
 - A toast system for sidebar mutation failures.
+
+## Amendment (2026-09-03, live review)
+
+Two changes after using the first cut:
+
+1. **The sidebar menu is a curated subset, not the full page menu.** An
+   `ActionItem` gains `sidebar?: boolean` — each item declares, at its single
+   definition site, whether the compact sidebar surface shows it. Children
+   (context) mode filters by it; the ⋯ menus are untouched. The sidebar keeps
+   the **lifecycle + delete** actions: subshell → Terminate / Restart / Start
+   again (the existing state-dependent pair) and Delete subshell (owner);
+   workspace → Open in new tab and Delete workspace ("Open" drops — the row
+   *is* the link). Dialog-flavoured items (Edit title, Add note, Pin, Terminal
+   history, Clone, Share, Edit profile) stay where the dialogs have room to
+   breathe: the cards and the detail page.
+2. **Anchored to the row, not the cursor.** The menu opens to the RIGHT of the
+   row, top-aligned with it (`side="right"`, `align="start"`, small offset) —
+   the same place for every right-click within a row, Finder-style, with the
+   row itself left visible. Mechanically: the context-mode trigger host is a
+   real `block` box (was `display:contents`, which has no box to anchor to)
+   whose ref is passed to Base UI's Positioner `anchor` prop, overriding the
+   context menu's default virtual-cursor anchor.
