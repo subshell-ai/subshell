@@ -223,20 +223,54 @@ jobs:
           APP: ${{ matrix.app }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
+          # darwin provisioning (spec 2026-09-03, secrets-based): the identity
+          # and the notary API key come from repo secrets, NOT host keychain
+          # state — any mac runner is cut-ready with zero provisioning, and a
+          # cut never depends on the login keychain's mood.
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           set -euo pipefail
           mkdir -p "$DEST"
           # Darwin artifacts ship signed + notarized (no more Gatekeeper
           # "damaged" dialog on browser downloads): the hook runs between the
           # build and the digest, so the .sha256 sidecars cover the signed
-          # bytes. Keychain material (Developer ID identity + subshell-notary
-          # profile) lives on the mac-builder host — see
-          # scripts/macos-sign-notarize.sh. A missing identity fails the
-          # shard LOUDLY instead of silently publishing unsigned bytes.
+          # bytes. See scripts/macos-sign-notarize.sh. A missing secret or
+          # identity fails the shard LOUDLY instead of publishing unsigned
+          # bytes.
           case "$TRIPLE" in
             darwin-*)
-              security find-identity -v -p codesigning | grep -q "Developer ID Application" \
-                || { echo "mac-builder has no Developer ID Application identity in the keychain"; exit 1; }
+              for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD NOTARY_API_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+                [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
+              done
+              # Ephemeral keychain, alive for exactly this step (trap cleans
+              # up + restores the search list). The login keychain is
+              # deliberately left OFF the search list for the job: any copy
+              # of the identity it happens to hold must never satisfy (or
+              # shadow) the lookup — that is precisely the host-state
+              # dependency this provisioning replaces.
+              CI_TMP="$(mktemp -d)"
+              KC="$CI_TMP/ci-build.keychain-db"
+              KCPW="$(/usr/bin/openssl rand -hex 16)"
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              security create-keychain -p "$KCPW" "$KC"
+              security list-keychains -d user -s "$KC"
+              security unlock-keychain -p "$KCPW" "$KC"
+              printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
+              security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+              rm -f "$CI_TMP/cert.p12"
+              security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
+              security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+                || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
+              # Notary: App Store Connect API key from secrets (no stored
+              # keychain profile anywhere).
+              printf '%s' "$NOTARY_API_KEY_P8_BASE64" | base64 -d > "$CI_TMP/notary.p8"
+              export SUBSHELL_NOTARY_KEY_PATH="$CI_TMP/notary.p8"
+              export SUBSHELL_NOTARY_KEY_ID="$NOTARY_KEY_ID"
+              export SUBSHELL_NOTARY_ISSUER_ID="$NOTARY_ISSUER_ID"
               export SUBSHELL_RELEASE_SIGN_CMD="$GITHUB_WORKSPACE/scripts/macos-sign-notarize.sh"
               ;;
           esac

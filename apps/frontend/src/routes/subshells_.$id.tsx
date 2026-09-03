@@ -15,7 +15,7 @@ import { TranscriptSearch } from "@/components/transcript-search";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
@@ -74,8 +74,9 @@ function SubshellPage() {
   const coarse = useIsCoarsePointer();
   // On phones the title moves to the header's second row as a display-only
   // line — editing lives in the actions menu ("Edit title"). Desktop keeps
-  // click-to-edit inline. Same signal DetailBackHeader uses for the reflow.
-  const wide = useIsWide();
+  // click-to-edit inline, at any window width. Same signal DetailBackHeader
+  // uses for the reflow.
+  const stacked = useIsStackedHeader();
 
   /** Takes ownership of a freshly created terminal and its addons. */
   function handleTerminalReady(handles: SubshellTerminalHandles) {
@@ -136,7 +137,9 @@ function SubshellPage() {
         to="/"
         backLabel="Back to subshells"
         title={
-          wide ? (
+          stacked ? (
+            <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>{subshell?.name || id}</span>
+          ) : (
             /* Click to rename; the id stands in, muted, until the record loads. */
             <EditableText
               value={subshell?.name ?? ""}
@@ -146,8 +149,6 @@ function SubshellPage() {
               className="font-medium"
               inputClassName="w-56"
             />
-          ) : (
-            <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>{subshell?.name || id}</span>
           )
         }
         subtitle={subshell?.workingDir}

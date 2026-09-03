@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { MobileNav } from "@/components/mobile-top-bar";
 import { Button } from "@/components/ui/button";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 
 /**
  * The header bar of a full-height detail page: the nav-drawer trigger, a
@@ -15,11 +15,14 @@ import { useIsWide } from "@/hooks/use-is-wide";
  * control is a `Button render={<Link/>}` (the house idiom): an anchor
  * wrapped around a button would announce a link containing a button.
  *
- * Below the tiling breakpoint (the same `useIsWide()` signal MobileNav keys
- * off) a single flex row cannot hold chrome + title + subtitle + badges +
- * menu — on a phone the title truncated to nothing. The bar reflows to two
- * rows: row 1 is chrome and actions, then the title (small, bold) with the
- * subtitle (xs, muted) stacked under it — each gets the full width to read.
+ * On a phone (below the tiling width on a touch pointer — see
+ * `useIsStackedHeader()`) a single flex row cannot hold chrome + title +
+ * subtitle + badges + menu — the title truncated to nothing. The bar then
+ * reflows to two rows: row 1 is chrome and actions, then the title (small,
+ * bold) with the subtitle (xs, muted) stacked under it — each gets the full
+ * width to read. A DESKTOP window (fine pointer) always keeps the single
+ * row — the pointer is the desktop signal — with the title over the subtitle
+ * as a two-line block the chrome and actions flank.
  */
 export function DetailBackHeader({
   to,
@@ -39,7 +42,7 @@ export function DetailBackHeader({
   /** Right-aligned page controls (badges, menus, find bars) */
   actions?: ReactNode;
 }) {
-  const wide = useIsWide();
+  const stacked = useIsStackedHeader();
   const chrome = (
     <>
       {/* On phones the nav hamburger rides in this bar rather than a second
@@ -51,11 +54,15 @@ export function DetailBackHeader({
       </Button>
     </>
   );
-  if (wide) {
+  if (!stacked) {
     return (
       <header className="flex shrink-0 items-center gap-3 border-b px-4 py-2">
         {chrome}
-        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+        {/* Two lines inside ONE row: the title over the muted subtitle, the
+            chrome and actions vertically centred beside the block. Sharing a
+            line squeezed the title to a few characters in a narrow window;
+            the column gives each the row's full height to read. */}
+        <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-w-0 shrink truncate">{title}</div>
           {subtitle ? <div className="min-w-0 truncate text-muted-foreground text-xs">{subtitle}</div> : null}
         </div>
