@@ -14,7 +14,7 @@ import {
   TextCursorInput,
   Trash2,
 } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
@@ -38,12 +38,16 @@ export function SubshellActionsMenu({
   subshell,
   disabled,
   onDeleted,
+  children,
 }: {
   subshell: SubshellView;
   /** Disables the trigger, e.g. while a bulk action is running over this row. */
   disabled?: boolean;
   /** Called after the subshell is deleted, e.g. to leave a now-dead detail page. */
   onDeleted?: () => void;
+  /** When present: the menu opens on right-click of this subtree instead of
+   * behind a ⋯ button — the sidebar's recent rows (spec 2026-09-03). */
+  children?: ReactNode;
 }): JSX.Element | null {
   const [titleOpen, setTitleOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -156,12 +160,15 @@ export function SubshellActionsMenu({
   ];
 
   // A viewer gets no actions menu at all — they watch the subshell (read-only
-  // terminal) and that is the whole of it.
-  if (!canEdit) return null;
+  // terminal) and that is the whole of it. In children mode "no menu" must
+  // still show the row itself, so the children pass through unwrapped.
+  if (!canEdit) return children ? children : null;
 
   return (
     <>
-      <ActionsMenu label={subshell.name} items={items} disabled={disabled || busy} />
+      <ActionsMenu label={subshell.name} items={items} disabled={disabled || busy}>
+        {children}
+      </ActionsMenu>
 
       <TitleDialog
         key={`${subshell.id}-title`}

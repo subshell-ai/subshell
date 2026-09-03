@@ -8,6 +8,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import type { SubshellView } from "@/types/subshell";
 
@@ -46,14 +47,16 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
  * renders as an index route of a minimal memory router — the same context
  * the app itself installs.
  */
-async function renderMenu(subshell: SubshellView) {
+async function renderMenu(subshell: SubshellView, children?: ReactNode) {
   // retry: 0 so the profiles query settles on the first canned response.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <SubshellActionsMenu subshell={subshell} />,
+    // With children the menu switches to right-click mode around the row
+    // (sidebar use, spec 2026-09-03); without, today's ⋯ button.
+    component: () => <SubshellActionsMenu subshell={subshell}>{children}</SubshellActionsMenu>,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -190,6 +193,39 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
           body: JSON.stringify({ name: "Renamed" }),
         }),
       );
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-09-03)", () => {
+  afterEach(cleanup);
+
+  const row = <a href="/subshells/id-1">the row</a>;
+
+  it("wraps the row with NO ⋯ button; right-click offers the same actions", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell(), row);
+      expect(screen.getByText("the row")).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
+      fireEvent.contextMenu(screen.getByText("the row"));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
+      expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Delete subshell" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a view grantee gets the bare row back — nothing to open", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ access: "view" }), row);
+      expect(screen.getByText("the row")).toBeDefined();
+      fireEvent.contextMenu(screen.getByText("the row"));
+      expect(screen.queryAllByRole("menuitem").length).toBe(0);
     } finally {
       restore();
     }
