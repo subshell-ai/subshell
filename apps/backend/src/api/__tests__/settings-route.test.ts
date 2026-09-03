@@ -230,4 +230,26 @@ describe("settings routes (admin cookie only)", () => {
     };
     expect(body.appBaseUrl).toBe(APP_BASE_URL);
   });
+
+  /**
+   * `viewerIsAdmin` (spec 2026-09-02 settings-split §5): the ONE client-side
+   * admin signal for the Server nav entry. Cookie humans get the truth;
+   * bearer actors (whose synthetic user is the session OWNER — possibly an
+   * admin) must read false: a machine token must not paint admin chrome.
+   */
+  it("GET /public reports viewerIsAdmin per actor+role", async () => {
+    const admin = (await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json()) as {
+      viewerIsAdmin: boolean;
+    };
+    expect(admin.viewerIsAdmin).toBe(true);
+
+    const user = (await (await app.fetch(authedRequest("/api/settings/public", nonAdminCookie))).json()) as {
+      viewerIsAdmin: boolean;
+    };
+    expect(user.viewerIsAdmin).toBe(false);
+
+    const bearer = await app.fetch(bearerRequest("/api/settings/public", adminSessionKey));
+    expect(bearer.status).toBe(200);
+    expect(((await bearer.json()) as { viewerIsAdmin: boolean }).viewerIsAdmin).toBe(false);
+  });
 });

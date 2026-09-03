@@ -25,6 +25,10 @@ const PublicSettingsSchema = t.Object({
     description:
       "Instance base URL the server bakes into rendered install commands (APP_BASE_URL); may point at loopback — a remote node must dial a reachable address",
   }),
+  viewerIsAdmin: t.Boolean({
+    description:
+      "True when the caller is a signed-in admin via COOKIE session (drives the Server nav entry); bearer actors always read false",
+  }),
 });
 
 /**
@@ -37,13 +41,17 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
   .use(authGuard)
   .get(
     "/public",
-    async () => {
+    async ({ user, actor }) => {
       const repo = new SettingsRepository(db);
       const allow = await repo.get("allow_registrations", true);
       return {
         allowRegistrations: allow,
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
+        // Cookie-only on purpose: the guard's bearer `user` is the session
+        // OWNER, so isAdmin alone would let an admin-owned token flip admin
+        // chrome (same reasoning as GET / below).
+        viewerIsAdmin: actor === "cookie" && (await isAdmin(user)),
       } as const;
     },
     {
@@ -52,7 +60,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getPublicSettings",
         tags: ["settings"],
         description:
-          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state + instance base URL); anonymous callers get 401",
+          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state + instance base URL + viewerIsAdmin admin-nav signal, cookie-only); anonymous callers get 401",
       },
     },
   )
