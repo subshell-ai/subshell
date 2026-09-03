@@ -1353,7 +1353,8 @@ describe("NewWorkspaceDialog", () => {
         expect(calls.some((c) => c.method === "POST" && c.url === "/api/workspaces")).toBe(true),
       );
       expect(calls.some((c) => c.url.endsWith("/panes"))).toBe(false);
-      await waitFor(() => expect(closes).toContain(true));
+      // Success closes the dialog — the callback says `false`, then.
+      await waitFor(() => expect(closes).toContain(false));
     } finally {
       restore();
     }
