@@ -191,13 +191,16 @@ cut tags by hand.
   `SUBSHELL_RELEASE_SIGN_CMD=scripts/macos-sign-notarize.sh` for darwin triples;
   the release scripts run it per artifact **between build and digest**, so the
   `.sha256` sidecars describe the signed bytes and a refused signature fails
-  the shard (⇒ nothing publishes). It needs two things in the **mac-builder
-  runner user's** keychain (not GitHub secrets): a Developer ID Application
-  identity (+ Apple's Developer ID G2 intermediate installed, or codesign
-  cannot build the chain) and a `subshell-notary` notarytool profile
-  (`xcrun notarytool store-credentials …` from an App Store Connect API key).
-  The shard fails loudly if the identity is missing. Entitlements: Bun's JIT
-  keys from `scripts/macos-entitlements.plist`.
+  the shard (⇒ nothing publishes). Provisioning is SECRETS-BASED — the job
+  builds a throwaway keychain from `MACOS_CERT_P12_BASE64` (password
+  `MACOS_CERT_PASSWORD`) and notarizes with an App Store Connect API key
+  (`NOTARY_API_KEY_P8_BASE64` + `NOTARY_KEY_ID` + `NOTARY_ISSUER_ID`), then
+  cleans both up; NO host keychain state is read or written, so a new mac
+  runner needs only the runner install + label. (Replaced 2026-09-03: the
+  original host-keychain design failed three cuts three different ways and
+  had no backup. The `.p12` in your password manager IS the backup.) Missing
+  secrets or a chain-less identity fail the shard loudly. Entitlements: Bun's
+  JIT keys from `scripts/macos-entitlements.plist`.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=both` (or `app=server|client`,
   optional `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`).
