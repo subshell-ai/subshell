@@ -13,20 +13,16 @@ import { logger } from "@/utils/logger.js";
  * plugin-owned tables like `apikey` — passing only `{ database }` silently
  * skips them.
  *
- * The auth database is the same bun:sqlite file as the app (better-auth's
- * bundled dialect handles it). Roles do NOT live on the better-auth user;
- * they live in the app's `user_meta` table via the databaseHooks below.
+ * Deliberately carries NO `database` key: opening SQLite at module evaluation
+ * was the graph's import-time IO (spec 2026-09-03 §2), so every consumer
+ * supplies its own handle — `runAuthMigrations`/the migration tests pass
+ * theirs in their spread, and `buildAuth` wires {@link authDatabase} on
+ * first use. Roles do NOT live on the better-auth user; they live in the
+ * app's `user_meta` table via the databaseHooks below.
  */
 export const AUTH_OPTIONS = {
   baseURL: APP_BASE_URL,
   secret: AUTH_SECRET,
-  // NOTE (plan 2 CLI hygiene audit): this calls `authDatabase()` at import
-  // time (better-auth opens the handle inside its constructor, so a lazy
-  // getter defers nothing). That is fine because the CLI path
-  // (`cli-bootstrap.ts`) exits SYNCHRONOUSLY inside `dispatchCli` and never
-  // evaluates this module; do not import `@/auth.js` from anything the CLI
-  // graph touches.
-  database: authDatabase(),
   emailAndPassword: {
     enabled: true,
   },
@@ -110,11 +106,17 @@ export const AUTH_OPTIONS = {
   },
 };
 
-/** Builds the better-auth instance. Its constructor OPENS SQLite — so this
- *  never runs at module evaluation (import-purity invariant, spec 2026-09-03):
- *  the entry graph must stay IO-free for the `mcp` subcommand's lifetime. */
+/**
+ * Builds the better-auth instance. Its constructor OPENS SQLite, and so does
+ * {@link authDatabase} — both therefore live HERE, never in the
+ * module-evaluation path of `AUTH_OPTIONS` (import-purity invariant, spec
+ * 2026-09-03 §2: the entry graph must stay IO-free for the `mcp`
+ * subcommand's lifetime; pinned by auth-import-purity.test.ts). The auth
+ * database is the same bun:sqlite file as the app (better-auth's bundled
+ * dialect handles it).
+ */
 function buildAuth() {
-  return betterAuth(AUTH_OPTIONS);
+  return betterAuth({ ...AUTH_OPTIONS, database: authDatabase() });
 }
 
 type Auth = ReturnType<typeof buildAuth>;
