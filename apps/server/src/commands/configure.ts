@@ -82,14 +82,28 @@ export interface ConfigureOpts {
 }
 
 /**
+ * The slice of {@link CommandDeps} the tmux preflight consumes. A named type
+ * so `service install` (its own deps shape) reuses the SAME helper — the plan
+ * mandates the preflight in both places, one message and one escape hatch.
+ */
+export interface TmuxPreflightDeps {
+  /** Env source for the escape hatch (production: `process.env`). */
+  env: Record<string, string | undefined>;
+  /** Executable lookup (production: `Bun.which`). */
+  which: (name: string) => string | null;
+  /** stderr sink (the refusal lines land here). */
+  error: (line: string) => void;
+}
+
+/**
  * tmux preflight — the server's `local` node launches every pane through
- * tmux, so refuse `init`/`configure` before any write when it is missing.
- * Mirrors the client's enroll-time style: platform hint + escape hatch name
- * (spec 2026-09-03 plan-2 Global Constraints).
+ * tmux, so refuse `init`/`configure`/`service install` before any write when
+ * it is missing. Mirrors the client's enroll-time style: platform hint +
+ * escape hatch name (spec 2026-09-03 plan-2 Global Constraints).
  *
  * @returns true when the flow may proceed (tmux present, or the skip var set to "1")
  */
-export function tmuxPreflight(deps: CommandDeps): boolean {
+export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
   if (deps.env[SKIP_TMUX_CHECK_ENV] === "1") return true;
   if (deps.which("tmux") !== null) return true;
   deps.error("tmux not found — the server launches its local subshells through tmux and cannot run without it.");

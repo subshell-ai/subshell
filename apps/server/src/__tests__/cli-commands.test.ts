@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
@@ -154,6 +154,143 @@ describe("dispatchCli — init", () => {
     expect(text).toContain("init");
     expect(text).toContain("configure");
     expect(text).toContain("--base-url");
+  });
+});
+
+describe("dispatchCli — service install|uninstall", () => {
+  /**
+   * Dispatch-level service harness: the manager commands are stubbed via the
+   * `runCmd` seam, but the unit/plist WRITE is the real sync fs pointed at a
+   * temp `home` — so the artifact lands where we can read it and `~/.config`
+   * is never touched (client test-suite intent, temp-dir discipline).
+   */
+  function serviceHarness(
+    over: Partial<CliDeps> & { respond?: (cmd: string[]) => { code: number; out: string; err: string } } = {},
+  ) {
+    const { respond, ...cliOver } = over;
+    const h = harness({ pathEnv: "/usr/bin:/bin", ...cliOver });
+    const calls: string[][] = [];
+    h.deps.runCmd = (cmd) => {
+      calls.push(cmd);
+      return respond?.(cmd) ?? { code: 0, out: "", err: "" };
+    };
+    // A login session's env (harness defaults env = {}) unless overridden.
+    if (cliOver.env === undefined) h.deps.env = { XDG_RUNTIME_DIR: "/run/user/1000" };
+    return { ...h, calls };
+  }
+
+  const unitPathOf = (home: string) => join(home, ".config", "systemd", "user", "subshell-server.service");
+
+  test("`service install` writes the real unit into the injected home and runs the full sequence", async () => {
+    const { deps, dir, calls, exits, out } = serviceHarness({
+      platform: "linux",
+      home: mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`)),
+      servicePath: "/usr/local/bin/subshell-server",
+      argv1: "/repo/apps/server/src/index.ts",
+    });
+    writeFileSync(join(dir, "config.env"), "SERVER_PORT=3080\n", { mode: 0o600 });
+
+    expect(await dispatchCli(["service", "install"], deps)).toBe(true);
+    expect(exits).toEqual([0]);
+    const unit = readFileSync(unitPathOf(deps.home as string), "utf8");
+    expect(unit).toContain(`EnvironmentFile=${join(dir, "config.env")}`);
+    expect(unit).toContain("Environment=PATH=/usr/bin:/bin");
+    expect(unit).toContain("WorkingDirectory=");
+    expect(unit).toContain("ExecStart=/usr/local/bin/subshell-server");
+    expect(calls).toEqual([
+      ["systemctl", "--user", "is-system-running"],
+      ["systemctl", "--user", "daemon-reload"],
+      ["systemctl", "--user", "enable", "--now", "subshell-server.service"],
+    ]);
+    expect(out.join("\n")).toContain("loginctl enable-linger");
+  });
+
+  test("`service install` without config.env: exit 1 pointing at init, no unit, no commands", async () => {
+    const { deps, dir, calls, exits, err } = serviceHarness({
+      platform: "linux",
+      home: mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`)),
+    });
+    expect(await dispatchCli(["service", "install"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toContain("run subshell-server init first");
+    // The harness dir is the CONFIG dir — it stayed empty (the unit would
+    // hang off `home`, which is a different temp dir here).
+    expect(() => readFileSync(join(dir, "config.env"))).toThrow();
+    expect(calls).toEqual([]);
+  });
+
+  test("tmux missing blocks install before anything happens; the SKIP var clears it", async () => {
+    const home = mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`));
+    const blocked = serviceHarness({ platform: "linux", home, which: () => null });
+    writeFileSync(join(blocked.dir, "config.env"), "SERVER_PORT=3080\n", { mode: 0o600 });
+    expect(await dispatchCli(["service", "install"], blocked.deps)).toBe(true);
+    expect(blocked.exits).toEqual([1]);
+    expect(blocked.err.join("\n")).toMatch(/tmux/i);
+    expect(blocked.calls).toEqual([]);
+    expect(() => readFileSync(unitPathOf(home))).toThrow();
+
+    const skipped = serviceHarness({
+      platform: "linux",
+      home,
+      which: () => null,
+      env: { XDG_RUNTIME_DIR: "/run/user/1000", SUBSHELL_SERVER_SKIP_TMUX_CHECK: "1" },
+    });
+    writeFileSync(join(skipped.dir, "config.env"), "SERVER_PORT=3080\n", { mode: 0o600 });
+    expect(await dispatchCli(["service", "install"], skipped.deps)).toBe(true);
+    expect(skipped.exits).toEqual([0]);
+  });
+
+  test("`service uninstall` with nothing installed: exit 0, 'nothing installed', no commands", async () => {
+    const { deps, calls, exits, out } = serviceHarness({
+      platform: "linux",
+      home: mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`)),
+    });
+    expect(await dispatchCli(["service", "uninstall"], deps)).toBe(true);
+    expect(exits).toEqual([0]);
+    expect(out.join("\n")).toContain("nothing installed");
+    expect(calls).toEqual([]);
+  });
+
+  test("verb handling: bare `service`, an unknown verb, and stray args are usage errors with no side effects", async () => {
+    for (const argv of [["service"], ["service", "frobnicate"], ["service", "install", "extra"]]) {
+      const { deps, calls, exits, err } = serviceHarness({
+        platform: "linux",
+        home: mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`)),
+      });
+      expect(await dispatchCli(argv, deps)).toBe(true);
+      expect(exits).toEqual([1]);
+      expect(err.join("\n")).toContain("usage:");
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("usage lists the service command", async () => {
+    const { deps, err } = harness();
+    await dispatchCli(["frobnicate"], deps);
+    expect(err.join("\n")).toContain("service install");
+  });
+});
+
+describe("dispatchCli — status service line", () => {
+  test("reports the unit definition's existence on disk (linux shape)", async () => {
+    const home = mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`));
+    const { deps, out } = harness({ platform: "linux", home });
+    await dispatchCli(["status"], deps);
+    expect(out.join("\n")).toContain(
+      `not installed (${join(home, ".config", "systemd", "user", "subshell-server.service")})`,
+    );
+
+    mkdirSync(join(home, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(join(home, ".config", "systemd", "user", "subshell-server.service"), "[Unit]\n");
+    const second = harness({ platform: "linux", home });
+    await dispatchCli(["status"], second.deps);
+    expect(second.out.join("\n")).toContain("definition installed");
+  });
+
+  test("unsupported platform reports n/a, not a path", async () => {
+    const { deps, out } = harness({ platform: "win32" as NodeJS.Platform, home: "/nowhere" });
+    await dispatchCli(["status"], deps);
+    expect(out.join("\n")).toContain("n/a (no per-user service manager");
   });
 });
 

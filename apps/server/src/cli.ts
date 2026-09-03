@@ -1,8 +1,10 @@
-import { readFileSync, readSync, writeSync } from "node:fs";
+import { existsSync, readFileSync, readSync, writeSync } from "node:fs";
+import { homedir } from "node:os";
 import { DEFAULT_DATABASE_PATH } from "@internal/subshell-protocol";
 import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { runInit } from "@/commands/init.js";
 import { resolveConfig, serverConfigDir } from "@/config-env.js";
+import { DEFAULT_DEPS, installService, serviceArtifactPath, uninstallService } from "@/service.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -68,6 +70,20 @@ export interface CliDeps {
   which?: (name: string) => string | null;
   /** Interactive-TTY signal for the command flows (default: `process.stdin.isTTY`). */
   isTTY?: boolean;
+  /** Runtime platform for `service`/`status` (default: `process.platform`). */
+  platform?: NodeJS.Platform;
+  /** Home the unit/plist hang off (default: `homedir()`); tests inject a temp dir. */
+  home?: string;
+  /** Numeric uid for the launchd `gui/<uid>` domain (default: `process.getuid?.() ?? 0`). */
+  uid?: number;
+  /** Executable `service install` bakes into the unit/plist (default: `process.execPath`). */
+  servicePath?: string;
+  /** Script path for the dev-form exec line (default: `process.argv[1] ?? ""`). */
+  argv1?: string;
+  /** PATH baked into the unit/plist (default: `process.env.PATH`). */
+  pathEnv?: string;
+  /** Synchronous service-manager command runner (default: the `Bun.spawnSync` wrapper). */
+  runCmd?: (cmd: string[]) => { code: number; out: string; err: string };
 }
 
 const USAGE = `subshell-server — the Subshell control plane
@@ -78,6 +94,8 @@ usage:
   subshell-server status         print the resolved config view and exit
   subshell-server init           first run: config home + auth secret + config.env
   subshell-server configure      (re)write config.env; interactive unless --yes
+  subshell-server service install    background the server (systemd user unit / launchd agent)
+  subshell-server service uninstall  stop it and remove the service definition
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
 
@@ -147,6 +165,50 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       // runInit/runConfigure are fully synchronous (invariant 1) and return
       // the exit code; the command itself never calls exit — this line does.
       exit(command === "init" ? runInit(opts, cmdDeps) : runConfigure(opts, cmdDeps));
+      return true;
+    }
+    case "service": {
+      // `service install|uninstall` (client cli.ts UX: an unknown verb is a
+      // usage error). The verb is the ONLY positional; anything else is the
+      // same "unexpected argument" refusal the config flags use.
+      const verb = argv[1];
+      if (verb !== "install" && verb !== "uninstall") {
+        error(
+          verb === undefined
+            ? "subshell-server: service requires 'install' or 'uninstall'"
+            : `subshell-server: unknown service command '${verb}'`,
+        );
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      if (argv.length > 2) {
+        error(`subshell-server: unexpected argument '${argv[2] as string}'`);
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      // Sync end to end (invariant 1): DEFAULT_DEPS runs manager commands via
+      // Bun.spawnSync and writes the unit/plist with sync fs — no await ever
+      // opens the boot graph. service.ts owns every decision; this case only
+      // assembles deps from the seams and routes the result to stdio.
+      const sdeps = DEFAULT_DEPS({
+        platform: deps.platform ?? process.platform,
+        home: deps.home ?? homedir(),
+        uid: deps.uid ?? process.getuid?.() ?? 0,
+        servicePath: deps.servicePath ?? process.execPath,
+        argv1: deps.argv1 ?? process.argv[1] ?? "",
+        configDir: deps.configDir ?? serverConfigDir(),
+        env: deps.env ?? process.env,
+        which: deps.which ?? ((name) => Bun.which(name) ?? null),
+        pathEnv: deps.pathEnv ?? process.env.PATH,
+      });
+      if (deps.runCmd) sdeps.runCmd = deps.runCmd;
+      const result = verb === "install" ? installService(sdeps) : uninstallService(sdeps);
+      // out/err arrive pre-newline-terminated; log/error append their own.
+      if (result.out !== "") log(result.out.replace(/\n+$/, ""));
+      if (result.err !== "") error(result.err.replace(/\n+$/, ""));
+      exit(result.code);
       return true;
     }
     default:
@@ -317,6 +379,17 @@ function runStatus(log: (line: string) => void, deps: CliDeps): void {
   const valid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
   const up = valid ? ((deps.probePort ?? syncPortListening)(dialHost, portNum) ?? false) : false;
   log(`port ${port} on ${dialHost}: ${up ? "likely running" : "not listening"}`);
+
+  // Service definition on disk: the existsSync truth of where
+  // `service install` writes (a DEFINITION line, not a liveness line — the
+  // port probe above covers "is it running"; a unit can be installed and
+  // stopped). Cheap + sync, per invariant 1.
+  const svc = serviceArtifactPath(deps.platform ?? process.platform, deps.home ?? homedir());
+  if (svc === null) {
+    log("service              = n/a (no per-user service manager on this platform)");
+  } else {
+    log(`service              = ${existsSync(svc) ? `definition installed (${svc})` : `not installed (${svc})`}`);
+  }
 }
 
 /**
