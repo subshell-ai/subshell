@@ -289,3 +289,49 @@ describe("publish through the shared primitive (server artifact names, basename 
     );
   });
 });
+
+describe("buildAll — signing hook (sign between build and digest)", () => {
+  let workDir = "";
+  beforeAll(async () => {
+    workDir = await mkdtemp(join(tmpdir(), "subshell-server-release-sign-test-"));
+  });
+
+  /** runBuild stub writing PLACEHOLDER bytes; the sign stub overwrites them. */
+  function stub() {
+    const signed: string[] = [];
+    const runBuild = async (args: string[]): Promise<number> => {
+      const outfile = args[args.indexOf("--outfile") + 1] as string;
+      await mkdir(dirname(outfile), { recursive: true });
+      await writeFile(outfile, `unsigned-${outfile}`);
+      return 0;
+    };
+    const sign = async (path: string): Promise<boolean> => {
+      signed.push(path);
+      await writeFile(path, `signed-${path}`);
+      return true;
+    };
+    return { signed, runBuild, sign };
+  }
+
+  test("sign runs once per artifact, and the digest describes the SIGNED bytes", async () => {
+    const outDir = join(workDir, "out-sign-order");
+    const { signed, runBuild, sign } = stub();
+    const result = await buildAll({ runBuild, outDir, sign });
+    if (!result.ok) throw new Error(`expected ok, got ${result.failed}`);
+    expect(signed.length).toBe(SERVER_TARGETS.length);
+    for (const [, artifact] of result.artifacts) {
+      const expected = join(workDir, `expected-${artifact.path.slice(-24)}`);
+      await writeFile(expected, `signed-${artifact.path}`);
+      expect(artifact.digest).toBe(await digestFile(expected));
+    }
+  });
+
+  test("a refused signature fails the target like a failed build (nothing digests)", async () => {
+    const outDir = join(workDir, "out-sign-refuse");
+    const { runBuild } = stub();
+    const result = await buildAll({ runBuild, outDir, sign: async () => false });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.failed).toBe(SERVER_TARGETS[0]);
+  });
+});

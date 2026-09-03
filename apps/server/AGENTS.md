@@ -225,6 +225,9 @@ noise, never a commit), builds the three `SERVER_TARGETS` triples
 (`linux-x64`, `linux-arm64`, `darwin-arm64` — deliberately no darwin-x64;
 `@internal/subshell-protocol` `paths.ts`), each with `--bytecode` (bun ≥
 1.4.0 asserted; `SUBSHELL_SERVER_RELEASE_TRIPLES` scopes a subset for CI),
+darwin targets are signed + notarized first when `SUBSHELL_RELEASE_SIGN_CMD`
+is set (CI sets it to `scripts/macos-sign-notarize.sh` on mac-builder — see
+root `AGENTS.md`; unset locally, so plain release runs skip the hook),
 and publishes atomically (tmp + rename + `.sha256` sidecar) to
 `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — an
 operator drop dir to scp/deploy, not a data-dir ladder like the client's

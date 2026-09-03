@@ -27,6 +27,7 @@ import {
   digestFile,
   parseScope as parseScopeTargets,
   publishArtifacts,
+  runSignHook,
 } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +91,12 @@ export interface ReleaseDeps {
   runBuild(args: string[]): Promise<number>;
   /** Directory the compiled binaries are written to. */
   outDir: string;
+  /**
+   * Post-build signing hook (default: {@link runSignHook}, which honors
+   * `SUBSHELL_RELEASE_SIGN_CMD`). Runs BEFORE the digest, so sidecars always
+   * describe the signed bytes; a false result fails the target.
+   */
+  sign?: (path: string) => Promise<boolean>;
 }
 
 /** Result of {@link buildAll} — either the full artifact set or the first triple that failed. */
@@ -108,6 +115,11 @@ export async function buildAll(deps: ReleaseDeps, scope?: string[] | null): Prom
     const code = await deps.runBuild(buildArgs(target.triple, deps.outDir));
     if (code !== 0) return { ok: false, failed: target.triple };
     const path = join(deps.outDir, nodeArtifactFileName(target.triple));
+    // Sign (when configured) BEFORE digesting — the sidecar must match the
+    // bytes that get published, and a refused signature fails this target.
+    if (!(await (deps.sign ?? ((p: string) => runSignHook(p)))(path))) {
+      return { ok: false, failed: target.triple };
+    }
     try {
       artifacts.set(target.triple, { path, digest: await digestFile(path) });
     } catch {

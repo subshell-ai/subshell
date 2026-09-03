@@ -182,6 +182,17 @@ cut tags by hand.
   changes to `apps/server`/`apps/client` → a version PR ("chore: release
   package(s)") maintained on every push to main; merging it bumps the app's
   `package.json` + CHANGELOG. Merging does NOT cut a release.
+- **macOS signing + notarization (darwin shards):** the Release-build step sets
+  `SUBSHELL_RELEASE_SIGN_CMD=scripts/macos-sign-notarize.sh` for darwin triples;
+  the release scripts run it per artifact **between build and digest**, so the
+  `.sha256` sidecars describe the signed bytes and a refused signature fails
+  the shard (⇒ nothing publishes). It needs two things in the **mac-builder
+  runner user's** keychain (not GitHub secrets): a Developer ID Application
+  identity (+ Apple's Developer ID G2 intermediate installed, or codesign
+  cannot build the chain) and a `subshell-notary` notarytool profile
+  (`xcrun notarytool store-credentials …` from an App Store Connect API key).
+  The shard fails loudly if the identity is missing. Entitlements: Bun's JIT
+  keys from `scripts/macos-entitlements.plist`.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=both` (or `app=server|client`,
   optional `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`).

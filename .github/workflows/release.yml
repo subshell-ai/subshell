@@ -224,6 +224,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$DEST"
+          # Darwin artifacts ship signed + notarized (no more Gatekeeper
+          # "damaged" dialog on browser downloads): the hook runs between the
+          # build and the digest, so the .sha256 sidecars cover the signed
+          # bytes. Keychain material (Developer ID identity + subshell-notary
+          # profile) lives on the mac-builder host — see
+          # scripts/macos-sign-notarize.sh. A missing identity fails the
+          # shard LOUDLY instead of silently publishing unsigned bytes.
+          case "$TRIPLE" in
+            darwin-*)
+              security find-identity -v -p codesigning | grep -q "Developer ID Application" \
+                || { echo "mac-builder has no Developer ID Application identity in the keychain"; exit 1; }
+              export SUBSHELL_RELEASE_SIGN_CMD="$GITHUB_WORKSPACE/scripts/macos-sign-notarize.sh"
+              ;;
+          esac
           if [ "$APP" = "server" ]; then
             SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server
           else

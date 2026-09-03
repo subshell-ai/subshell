@@ -26,6 +26,37 @@ export async function digestFile(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+/**
+ * Env var both release pipelines consult for the optional post-build signing
+ * hook (see {@link runSignHook}). CI sets it ONLY on darwin shards, to
+ * `scripts/macos-sign-notarize.sh`; an unset/blank value is the normal
+ * no-op (local builds, linux shards).
+ */
+export const RELEASE_SIGN_CMD_ENV = "SUBSHELL_RELEASE_SIGN_CMD";
+
+/**
+ * Optional post-build signing/notarization hook, run on each freshly built
+ * artifact BEFORE it is digested — so the published `.sha256` sidecar always
+ * describes the FINAL (signed) bytes, and a signing failure is just another
+ * target failure (nothing publishes).
+ *
+ * The hook is a shell command from {@link RELEASE_SIGN_CMD_ENV}; it receives
+ * the artifact path as `$1` and its stdout/stderr flow through (the
+ * notarytool submission log belongs in the CI output).
+ * @param path - the built artifact to sign, in place
+ * @param env - environment source (default `process.env`)
+ * @returns true when the artifact may proceed to digest/publish
+ */
+export async function runSignHook(
+  path: string,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  const cmd = env[RELEASE_SIGN_CMD_ENV];
+  if (cmd === undefined || cmd.trim() === "") return true;
+  const proc = Bun.spawn(["sh", "-c", cmd, "sign-hook", path], { stdout: "inherit", stderr: "inherit" });
+  return (await proc.exited) === 0;
+}
+
 /** A compiled, digested artifact awaiting publication. */
 export interface BuiltArtifact {
   /** Absolute path of the built file inside `outDir`. */

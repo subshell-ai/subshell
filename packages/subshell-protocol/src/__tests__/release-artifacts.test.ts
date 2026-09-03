@@ -10,6 +10,7 @@ import {
   digestFile,
   parseScope,
   publishArtifacts,
+  runSignHook,
   semverLt,
 } from "../release-artifacts.js";
 
@@ -122,5 +123,32 @@ describe("semverLt / assertBunFloor (bytecode floor, spec 2026-09-03 §5)", () =
     expect(() => assertBunFloor("1.4.0", "1.12.3")).not.toThrow();
     expect(() => assertBunFloor("1.4.0", "1.4.0-canary1")).not.toThrow(); // suffix ≠ older
     expect(() => assertBunFloor("1.4.0", "1.3.10")).toThrow(/bun 1\.4\.0/);
+  });
+});
+
+describe("runSignHook (SUBSHELL_RELEASE_SIGN_CMD, darwin release signing)", () => {
+  let workDir = "";
+
+  beforeAll(async () => {
+    workDir = await mkdtemp(join(tmpdir(), "subshell-signhook-test-"));
+  });
+
+  test("unset/blank env is a silent no-op — linux shards and local builds never shell out", async () => {
+    expect(await runSignHook("/any/path", {})).toBe(true);
+    expect(await runSignHook("/any/path", { SUBSHELL_RELEASE_SIGN_CMD: "   " })).toBe(true);
+  });
+
+  test("the hook sees the artifact path as $1 and its exit code decides", async () => {
+    const marker = join(workDir, "hook-saw");
+    const bin = join(workDir, "subshell-darwin-arm64");
+    await writeFile(bin, "bytes");
+    // $0 is the hook's argv label; the artifact arrives as $1.
+    const ok = await runSignHook(bin, {
+      SUBSHELL_RELEASE_SIGN_CMD: `printf %s "$1" > "${marker}"`,
+    });
+    expect(ok).toBe(true);
+    expect(await Bun.file(marker).text()).toBe(bin);
+
+    expect(await runSignHook(bin, { SUBSHELL_RELEASE_SIGN_CMD: "exit 7" })).toBe(false);
   });
 });

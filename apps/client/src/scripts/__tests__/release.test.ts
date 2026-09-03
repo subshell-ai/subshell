@@ -159,3 +159,39 @@ describe("resolveArtifactsDir", () => {
     expect(resolveArtifactsDir()).toBe(join(process.cwd(), "data", "node-artifacts"));
   });
 });
+
+describe("buildAll — signing hook (sign between build and digest)", () => {
+  let workDir = "";
+  beforeAll(async () => {
+    workDir = await mkdtemp(join(tmpdir(), "subshell-client-release-sign-test-"));
+  });
+
+  test("the digest describes the SIGNED bytes, and a refusal fails the target", async () => {
+    const outDir = join(workDir, "out-sign");
+    const runBuild = async (args: string[]): Promise<number> => {
+      const outfile = args[args.indexOf("--outfile") + 1] as string;
+      await mkdir(dirname(outfile), { recursive: true });
+      await writeFile(outfile, "unsigned-bytes");
+      return 0;
+    };
+    const signed: string[] = [];
+    const sign = async (path: string): Promise<boolean> => {
+      signed.push(path);
+      await writeFile(path, "signed-bytes");
+      return true;
+    };
+    const result = await buildAll({ runBuild, outDir, sign });
+    if (!result.ok) throw new Error(`expected ok, got ${result.failed}`);
+    expect(signed.length).toBe(NODE_TARGETS.length);
+    const control = join(workDir, "control-signed");
+    await writeFile(control, "signed-bytes");
+    for (const [, artifact] of result.artifacts) {
+      expect(artifact.digest).toBe(await digestFile(control));
+    }
+
+    const refused = await buildAll({ runBuild, outDir: join(workDir, "out-refuse"), sign: async () => false });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) throw new Error("expected refusal");
+    expect(refused.failed).toBe(NODE_TARGETS[0]);
+  });
+});
