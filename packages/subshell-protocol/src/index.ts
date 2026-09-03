@@ -59,4 +59,9 @@ export {
   nodeArtifactFileName,
   resolveNodeArtifactsDir,
 } from "./paths.js";
+export {
+  type BuiltArtifact,
+  digestFile,
+  publishArtifacts,
+} from "./release-artifacts.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";

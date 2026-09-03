@@ -13,24 +13,18 @@
  * exports (the CLI entry is guarded by `import.meta.main`).
  */
 
-import { createHash } from "node:crypto";
-import { createReadStream, existsSync } from "node:fs";
-import { copyFile, mkdir, rename } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/subshell-protocol";
-
-/**
- * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
- * never enter memory. Reusable so tests digest with the PRODUCTION helper
- * instead of mirroring the hasher expression.
- */
-export async function digestFile(path: string): Promise<string> {
-  const hash = createHash("sha256");
-  await pipeline(createReadStream(path), hash);
-  return hash.digest("hex");
-}
+import {
+  type BuiltArtifact,
+  digestFile,
+  NODE_TARGETS,
+  nodeArtifactFileName,
+  publishArtifacts,
+  resolveNodeArtifactsDir,
+} from "@internal/subshell-protocol";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
@@ -112,14 +106,6 @@ export interface ReleaseDeps {
   outDir: string;
 }
 
-/** A compiled, digested artifact awaiting publication. */
-export interface BuiltArtifact {
-  /** Absolute path of the built file inside `outDir`. */
-  path: string;
-  /** Lowercase 64-hex sha256 of the file's bytes. */
-  digest: string;
-}
-
 /** Result of {@link buildAll} — either the full artifact set or the first triple that failed. */
 export type BuildAllResult = { ok: true; artifacts: Map<string, BuiltArtifact> } | { ok: false; failed: string };
 
@@ -144,31 +130,6 @@ export async function buildAll(deps: ReleaseDeps): Promise<BuildAllResult> {
     }
   }
   return { ok: true, artifacts };
-}
-
-/**
- * Publishes artifacts to `destDir`: `copyFile → <name>.tmp-<pid> → rename` so
- * the downloads route's mtime-keyed sha cache can never observe a half-written
- * binary, plus a freshly generated `.sha256` sidecar (64-hex + `\n`) per
- * target — a stale sidecar is always overwritten, never reused.
- *
- * ATOMICITY IS PER-FILE: the binary swap is atomic, the sidecar write is not,
- * so a download landing in the window between them can pair a new binary with
- * the previous digest. That fails SAFE (install.sh's digest check refuses the
- * exec; a retry gets the pair) on a rare operator-published path — noted so
- * the atomicity claim is never stronger than the mechanism.
- * @param artifacts - triple → built artifact map from {@link buildAll}
- * @param destDir - directory to publish into (created when missing)
- */
-export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, destDir: string): Promise<void> {
-  await mkdir(destDir, { recursive: true });
-  for (const [triple, { path, digest }] of artifacts) {
-    const dest = join(destDir, nodeArtifactFileName(triple));
-    const tmp = `${dest}.tmp-${process.pid}`;
-    await copyFile(path, tmp);
-    await rename(tmp, dest);
-    await Bun.write(`${dest}.sha256`, `${digest}\n`);
-  }
 }
 
 /**
