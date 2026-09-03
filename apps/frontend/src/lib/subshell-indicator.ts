@@ -46,3 +46,28 @@ export const INDICATOR_VARIANT: Record<SubshellIndicator, "success" | "warning" 
   idle: "warning",
   terminated: "muted",
 };
+
+/**
+ * Status ordering for lists that sort by liveness (the sidebar's recents):
+ * who might need me first, what's moving next, the merely-quiet, then the
+ * unknowable (node down — possibly still working there), then the dead, with
+ * ended last. `node-offline` sits BELOW `idle` on purpose: a live-and-quiet
+ * subshell is a known state you can act on; an unreachable one is not.
+ */
+const STATUS_RANK: Record<SubshellIndicator, number> = {
+  waiting: 0,
+  active: 1,
+  idle: 2,
+  "node-offline": 3,
+  exited: 4,
+  terminated: 5,
+};
+
+/**
+ * The list ordered by status band (see {@link STATUS_RANK}), preserving the
+ * input order inside each band — callers keep their own recency sort as the
+ * tie-break (`Array.prototype.sort` is stable). Returns a copy.
+ */
+export function sortByStatus<T extends IndicatorProbe & { id: string }>(list: readonly T[]): T[] {
+  return [...list].sort((a, b) => STATUS_RANK[subshellIndicator(a)] - STATUS_RANK[subshellIndicator(b)]);
+}

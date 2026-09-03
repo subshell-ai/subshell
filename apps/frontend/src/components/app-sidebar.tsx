@@ -25,6 +25,7 @@ import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
+import { sortByStatus } from "@/lib/subshell-indicator";
 import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
@@ -117,9 +118,12 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   const [launchOpen, setLaunchOpen] = useState(false);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const q = subshellQuery.trim();
-  const listedSubshells = q
-    ? filterSubshells(subshells ?? [], subshellQuery)
-    : (subshells ?? []).slice(0, RECENT_LIMIT);
+  // Sorted by liveness BEFORE the recents slice (waiting → working → idle →
+  // node-offline → exited → ended), so a pile of old ended sessions can never
+  // crowd a live one out of the rail; newest-first is the tie-break inside
+  // each band. The filter mode shares the same run.
+  const byStatus = sortByStatus(subshells ?? []);
+  const listedSubshells = q ? filterSubshells(byStatus, subshellQuery) : byStatus.slice(0, RECENT_LIMIT);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === "1";
