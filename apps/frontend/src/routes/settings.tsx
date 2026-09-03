@@ -1,78 +1,35 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
-import { NotificationsCard } from "@/components/notifications-card";
-import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
-import { PasskeysCard } from "@/components/passkeys-card";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
-import { TerminalFontCard } from "@/components/terminal-font-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 import { apiFetch, errMessage } from "@/lib/api";
-import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
+/**
+ * The Server page — instance-wide configuration, admins only (spec
+ * 2026-09-02 settings-split). Per-user surface (password, notifications,
+ * font, passkeys) lives on `/account`; self-service cards must never appear
+ * here because the whole body is gated on the admin flag.
+ */
 function SettingsPage() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
 
-  // Change-password form state.
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [pwError, setPwError] = useState<string | null>(null);
-  const [pwSaved, setPwSaved] = useState(false);
-  const [pwBusy, setPwBusy] = useState(false);
-
-  async function changePassword(e: React.FormEvent) {
-    e.preventDefault();
-    if (newPassword.length < 8) {
-      setPwError("New password must be at least 8 characters");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPwError("New passwords do not match");
-      return;
-    }
-    setPwBusy(true);
-    setPwError(null);
-    setPwSaved(false);
-    try {
-      // better-auth's own change-password route (session cookie auth), via
-      // the shared client. The destructured local is renamed because the
-      // component's own error state already owns the `pwError` name.
-      const { error: changeErr } = await authClient.changePassword({
-        currentPassword,
-        newPassword,
-        revokeOtherSessions: true,
-      });
-      if (changeErr) {
-        const details = (changeErr as unknown as { body?: { details?: unknown[] } }).body?.details;
-        const detail = Array.isArray(details) && details.length > 0 ? String(details[0]) : null;
-        setPwError(detail ?? "Password change failed — is the current password correct?");
-        return;
-      }
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setPwSaved(true);
-    } catch {
-      setPwError("Network error");
-    } finally {
-      setPwBusy(false);
-    }
-  }
+  const { data: publicSettings } = usePublicSettings();
+  const viewerIsAdmin = publicSettings?.viewerIsAdmin;
 
   const {
     data: settings,
@@ -106,108 +63,64 @@ function SettingsPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Settings" subtitle="Admin-only configuration" />
+      <PageHeader title="Server" subtitle="Instance-wide configuration (admins)" />
+      {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so
+          rendering them for a non-admin would only produce error banners. The
+          server-side gates remain the actual enforcement either way. */}
+      {viewerIsAdmin === undefined ? null : viewerIsAdmin ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Registration</CardTitle>
+              <CardDescription>Allow new users to register on this instance.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-4">
+                {/* Unknown ≠ Open: the switch only claims a state the server
+                    actually reported, and only moves once it has. */}
+                <Switch
+                  checked={settings?.allowRegistrations ?? false}
+                  onCheckedChange={() => void toggleRegistrations()}
+                  disabled={busy || !settings}
+                  aria-label="Allow new registrations"
+                />
+                <Label>{settings ? (settings.allowRegistrations ? "Open" : "Closed") : "Unknown"}</Label>
+                {saved && <span className="text-success text-xs">saved</span>}
+              </div>
+              {regError && <p className="text-destructive text-sm">{regError}</p>}
+              {settingsError && (
+                <ErrorBanner
+                  message="Couldn't load instance settings."
+                  className="rounded-md border"
+                  action={
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-inherit text-xs underline"
+                      onClick={() => void refetchSettings()}
+                    >
+                      Retry
+                    </Button>
+                  }
+                />
+              )}
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Registration</CardTitle>
-          <CardDescription>Allow new users to register on this instance.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center gap-4">
-            {/* Unknown ≠ Open: the switch only claims a state the server
-                actually reported, and only moves once it has. */}
-            <Switch
-              checked={settings?.allowRegistrations ?? false}
-              onCheckedChange={() => void toggleRegistrations()}
-              disabled={busy || !settings}
-              aria-label="Allow new registrations"
-            />
-            <Label>{settings ? (settings.allowRegistrations ? "Open" : "Closed") : "Unknown"}</Label>
-            {saved && <span className="text-success text-xs">saved</span>}
-          </div>
-          {regError && <p className="text-destructive text-sm">{regError}</p>}
-          {settingsError && (
-            <ErrorBanner
-              message="Couldn't load instance settings."
-              className="rounded-md border"
-              action={
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-inherit text-xs underline"
-                  onClick={() => void refetchSettings()}
-                >
-                  Retry
-                </Button>
-              }
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Account-wide switch first: it gates every device, so it reads as the
-          parent of the per-device opt-in below it. */}
-      <NotificationsMasterCard />
-      <TerminalFontCard />
-      <NotificationsCard />
-
-      <SystemApiKeysCard />
-      {/* Gated on the server's canManage for `local` (owner/admin) — the card
-          renders nothing for everyone else, spec 2026-08-31 §10. */}
-      <LocalLaunchCard />
-      {/* Self-service for ANY signed-in user (own passkeys only via the
-          session), hence above the admin-scoped cards' concerns. */}
-      <PasskeysCard />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Change password</CardTitle>
-          <CardDescription>Update the password for your account.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={changePassword} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="current-password">Current password</Label>
-              <Input
-                id="current-password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-password">New password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm new password</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
-            {pwError && <p className="text-destructive text-sm">{pwError}</p>}
-            {pwSaved && <p className="text-success text-xs">Password updated</p>}
-            <Button type="submit" disabled={pwBusy}>
-              {pwBusy ? "Updating…" : "Update password"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          <SystemApiKeysCard />
+          {/* Gated on the server's canManage for `local` (owner/admin) — the card
+              renders nothing for everyone else, spec 2026-08-31 §10. */}
+          <LocalLaunchCard />
+        </>
+      ) : (
+        <p className="text-muted-foreground text-sm">
+          Server settings are for instance admins — your settings live under{" "}
+          <Link to="/account" className="underline">
+            Account settings
+          </Link>
+          .
+        </p>
+      )}
     </main>
   );
 }
