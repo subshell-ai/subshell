@@ -152,3 +152,62 @@ commit, moving the data dir/DB names back (steps 4–6 reversed), and reinstalli
 `git show HEAD~:svc.sh` if you already deleted the file — which is why cleanup
 above waits for smoke). Step 8's key deletion does NOT roll back: every system
 key must be re-created regardless.
+
+---
+
+## 2026-09-02: sessions → subshells (breaking)
+
+One-time breaking rename of the product entity (no aliases, no compat shims):
+REST `/api/sessions` → `/api/subshells`, WS `?session=` → `?subshell=`, DB
+tables/columns renamed by migration `0019-subshell-rename` (runs on boot),
+harness env `SUBSHELL_SESSION_ID` → `SUBSHELL_ID` and
+`SUBSHELL_SESSION_NAME` → `SUBSHELL_NAME`, backend env `SESSION_DATA_DIR` →
+`SUBSHELL_SERVER_DATA_DIR`. Pane meta + logs also move:
+`<dataDir>/sessions/` → `<dataDir>/subshells/` on **both** the backend host and
+every node — the code reads only the NEW path, so the `mv` steps below are
+load-bearing (skip them and pane history silently starts empty).
+
+1. **Backup the DB, then rebuild everything the rename ships** (repo root):
+
+   ```bash
+   cp ~/.config/subshell/subshell.db ~/.config/subshell/subshell.db.bak-0019
+   bunx turbo build && bun run release:agent
+   ```
+
+   (`release:agent` republishes the node binaries — they bake the new
+   `SUBSHELL_ID`/`SUBSHELL_NAME` env names. From a plain shell pass
+   `SUBSHELL_NODE_ARTIFACTS_DIR` explicitly, per root `AGENTS.md`.)
+
+2. **Backend host — env + pane-data dir.** Edit the unit's `EnvironmentFile`:
+   rename `SESSION_DATA_DIR` to `SUBSHELL_SERVER_DATA_DIR` (same value), then:
+
+   ```bash
+   mv ~/.config/subshell/sessions ~/.config/subshell/subshells
+   ```
+
+   (Path = `<SUBSHELL_SERVER_DATA_DIR>/sessions`; if the dir doesn't exist the
+   server never stored pane files there — skip the `mv`.)
+
+3. **Restart the backend** — migration 0019 runs on boot, rows survive:
+
+   ```bash
+   systemctl --user restart subshell-server.service
+   ```
+
+4. **Every enrolled node**: re-run the enroll/update one-liner from the Nodes
+   page (fresh setup key) so the agent binary picks up the new env names, and
+   move its pane dir the same way — default data dir shown, substitute the
+   `--data-dir` given at enroll:
+
+   ```bash
+   systemctl --user stop subshell.service   # or: launchctl remove dev.subshell.agent
+   mv ~/.config/subshell-agent/data/sessions ~/.config/subshell-agent/data/subshells
+   # …re-run the enroll one-liner, then start the service again (subshell run / service install)
+   ```
+
+5. **Mobile app**: rebuild + reinstall (it calls the renamed REST paths).
+
+6. **Restart every running harness subshell** — the old `SUBSHELL_SESSION_*`
+   vars are baked into live panes and `subshell mcp` now hard-fails without
+   `SUBSHELL_ID`, so each one's MCP tools are dead until it is restarted (the
+   terminal itself keeps working).

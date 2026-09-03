@@ -1,12 +1,12 @@
 # Subshell — Project Overview
 
 **Subshell** is a web application for creating, viewing, and managing interactive **agent harness
-sessions** — real CLI coding agents (Claude Code, opencode, codex, hermes, pi) that you
+subshells** — real CLI coding agents (Claude Code, opencode, codex, hermes, pi) that you
 launch from the browser, attach/detach via a terminal UI, and terminate. It's **local-first**:
-sessions spawn as tmux-backed PTYs on the machine running the app; Docker is secondary.
+subshells spawn as tmux-backed PTYs on the machine running the app; Docker is secondary.
 
 > This page is the quick orientation. The full system design — credential model,
-> encrypted-channel protocol, the `subshell mcp` contract, session/token choreography and the
+> encrypted-channel protocol, the `subshell mcp` contract, subshell/token choreography and the
 > invariants that bind them — lives in the **[architecture reference](architecture.md)**,
 > which is authoritative when anything here disagrees with it.
 
@@ -16,15 +16,15 @@ sessions spawn as tmux-backed PTYs on the machine running the app; Docker is sec
 browser ──•── /                   Elysia serves built frontend (SPA)
           │                       + API + WS + auth on ONE port (default 127.0.0.1:3080)
           ├─ /api/...             REST/JSON (better-auth at /api/auth/*)
-          ├─ /ws                  session attach WebSocket (?session=&token=)
+          ├─ /ws                  subshell attach WebSocket (?subshell=&token=)
           └─ /docs                OpenAPI (Scalar UI)
                │
-               └─ spawns ──► tmux server (per-session socket: subshell-<sha1[:12]>)
+               └─ spawns ──► tmux server (per-subshell socket: subshell-<sha1[:12]>)
                               └──► claude / harness (in PTY, env -i curated env)
                                     └──► `subshell mcp` (stdio MCP server, registered in
                                          the harness's own dialect — see arch §4)
-                                         └── talks back over /api as the session's
-                                             bearer token (channels + session CRUD)
+                                         └── talks back over /api as the subshell's
+                                             bearer token (channels + subshell CRUD)
 ```
 
 ### Key decisions
@@ -33,21 +33,21 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 |---|---|
 | Runtime | **Bun** exclusively (monorepo via turbo workspaces) |
 | Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/backend/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
-| Sessions | **tmux 3.6+ backed, detachable** (survive browser close); pipe-pane → per-session log file |
-| Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-session tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
-| Cross-session comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage sessions/channels through 14 `subshell_*` MCP tools |
+| Subshells | **tmux 3.6+ backed, detachable** (survive browser close); pipe-pane → per-subshell log file |
+| Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
+| Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 14 `subshell_*` MCP tools |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/frontend/.migration/`) |
-| Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per session), hermes & pi (one-time manual registration, steps shown in the profile editor) |
+| Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
-| Workspaces | Per-user tiling layout of session panes via `dockview-react`; `layout_json` holds the split tree. Below 1024px it renders as tabs and never writes the layout, so a phone visit cannot flatten a desktop arrangement |
+| Workspaces | Per-user tiling layout of subshell panes via `dockview-react`; `layout_json` holds the split tree. Below 1024px it renders as tabs and never writes the layout, so a phone visit cannot flatten a desktop arrangement |
 | Mobile | <1024px = drawer shell + tab workspaces (`useIsWide`, `WORKSPACE_TILING_MIN_WIDTH`); ≥1024px = today's desktop shell; accessory terminal key bar sends raw WS `input` frames (same path as desktop keystrokes); PWA manifest, no service worker — spec [`superpowers/specs/2026-08-30-mobile-support-design.md`](superpowers/specs/2026-08-30-mobile-support-design.md) |
 
 ## Workspace layout
 
 ```
-apps/backend      Elysia app: api routes, ws, auth, session manager, tmux runner,
+apps/backend      Elysia app: api routes, ws, auth, subshell manager, tmux runner,
                   static serving (built SPA), migrations; src/mcp/main.ts is the
                   stdio `subshell mcp` entry (own compile target, never opens the app DB)
 apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
@@ -68,22 +68,22 @@ packages/tsconfig          shared TS config (scaffold)
    profiles for an enabled harness, never on a list read, never overwriting).
    A Default is unremovable (`is_default` flag; DELETE refuses it) but fully
    editable — to get rid of one, disable its harness: that hides every profile
-   it owns and blocks new sessions, and re-enabling brings them all back.
-2. **Create session**: choose host folder (in-app browser), profile, optional name
+   it owns and blocks new subshells, and re-enabling brings them all back.
+2. **Create subshell**: choose host folder (in-app browser), profile, optional name
    (defaults to date/time) → backend validates, spawns tmux + harness with `env -i` curated env
-3. **Terminal page** (`/sessions/:id`): fetches a single-use WS token via an authenticated
-   REST call (HttpOnly cookie works for HTTP), connects `/ws?session=&token=`, streams
+3. **Terminal page** (`/subshells/:id`): fetches a single-use WS token via an authenticated
+   REST call (HttpOnly cookie works for HTTP), connects `/ws?subshell=&token=`, streams
    `replay` + `output` frames into xterm, forwards keystrokes; `capture-pane` replay on attach
 4. **Terminate**: kills the tmux session tree; DB row status → `terminated`
 5. **Reconcile loop** (60s interval): marks rows `terminated` when tmux session is gone;
    also sweeps expired WS tokens
-6. **Workspace** (`/workspaces/:id`): sessions tile via `dockview-react` above 1024px, tabs
+6. **Workspace** (`/workspaces/:id`): subshells tile via `dockview-react` above 1024px, tabs
    below it; every panel renders with `renderer: "always"` so moving, splitting or hiding
    a pane relocates its terminal in place rather than unmounting and remounting it
-7. **Cross-session comms**: session start mints a bearer token + MCP config → the harness
+7. **Cross-subshell comms**: subshell start mints a bearer token + MCP config → the harness
    spawns `subshell mcp` (stdio) with that token in its inherited env → agents create/join
    **channels**, post E2EE messages (sealed to every member's keypair), long-poll reads
-   with a per-session cursor, and can spawn/manage other sessions. On terminate/delete the
+   with a per-subshell cursor, and can spawn/manage other subshells. On terminate/delete the
    token is revoked; auto-restart rotates it. See
    [`superpowers/specs/2026-08-28-cross-session-comms-design.md`](superpowers/specs/2026-08-28-cross-session-comms-design.md)
    and the plan in `superpowers/plans/`.
@@ -104,7 +104,7 @@ packages/tsconfig          shared TS config (scaffold)
 - **Channel E2EE**: message bodies sealed per-recipient (server stores ciphertext only).
   The boundary protects the server/remote peer from message *content* — **not** metadata
   (channel names, membership, timing, sizes, principals stay plaintext) and **not** a local
-  OS user, who can read a session's keypair off the same disk. Session bearer tokens are
+  OS user, who can read a subshell's keypair off the same disk. Subshell bearer tokens are
   scoped and revoked on death; system keys are long-lived full-access bearer credentials
   held by admins.
 
@@ -122,8 +122,8 @@ packages/tsconfig          shared TS config (scaffold)
 ## Status (2026-08-30)
 
 Backend fully functional; frontend pages and the WS terminal attach work E2E; single-port
-prod serving (built SPA + API + WS + docs on one port) works. **Cross-session comms** —
-E2EE channels and the `subshell mcp` server (channels + full session CRUD) — shipped: verified
+prod serving (built SPA + API + WS + docs on one port) works. **Cross-subshell comms** —
+E2EE channels and the `subshell mcp` server (channels + full subshell CRUD) — shipped: verified
 by a two-process end-to-end test (real backend + two `subshell mcp` children; ciphertext-only
 storage asserted at the byte level) and a live-browser pass over the admin key lifecycle.
 **Mobile support** shipped alongside it, proven by the Playwright suite grown to 22 green

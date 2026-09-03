@@ -10,7 +10,7 @@ when it and the specs disagree, this one is authoritative for behavior.
 - [2. Credentials & trust boundaries](#2-credentials--trust-boundaries)
 - [3. Encrypted channels](#3-encrypted-channels)
 - [4. The `subshell mcp` process](#4-the-subshell-mcp-process)
-- [5. Session lifecycle & token choreography](#5-session-lifecycle--token-choreography)
+- [5. Subshell lifecycle & token choreography](#5-subshell-lifecycle--token-choreography)
 - [6. Component map](#6-component-map)
 - [7. Invariants](#7-invariants)
 - [8. Extension points](#8-extension-points)
@@ -25,23 +25,23 @@ serves the browser, the agents, and the outside tooling on a single port.
 
 ```
 ┌─ browser (React SPA, cookie session) ──────────────┐
-│   /  /sessions/:id (xterm over /ws)  /settings …   │
+│   /  /subshells/:id (xterm over /ws)  /settings …  │
 └──────────────────────┬─────────────────────────────┘
                        │ HTTP + WS, :3080, same origin
 ┌──────────────────────▼─────────────────────────────────────────────┐
 │ backend (Bun + Elysia)                                             │
-│  routes.ts: sessions · channels · identities · system-keys ·       │
+│  routes.ts: subshells · channels · identities · system-keys ·      │
 │             profiles · workspaces · files · users · audit · ws …   │
 │  SQLite (bun:sqlite, WAL) — app Kysely handle + separate auth      │
 │  handle (better-auth tables, incl. `apikey`)                       │
 └──────┬─────────────────────────────────────────────────────────────┘
        │ spawns (tmux new-session, env -i curated)
 ┌──────▼─────────────────────────────────────────────────────────────┐
-│ tmux server, one socket per session: subshell-<sha1(sessionId)[:12]>   │
+│ tmux server, one socket per subshell: subshell-<sha1(subshellId)[:12]> │
 │  └─ harness CLI (claude …) — pane env carries SUBSHELL_* credentials   │
 │      └─ `subshell mcp` (stdio MCP server, spawned by the harness via   │
 │          its per-harness registration; inherits the pane env;      │
-│          talks back to the backend over HTTP as this session's     │
+│          talks back to the backend over HTTP as this subshell's    │
 │          bearer token)                                             │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -52,7 +52,7 @@ Key properties:
   `subshell mcp` children are untrusted consumers of the public HTTP API — there
   is no backdoor IPC.
 - **tmux is the source of truth for liveness**; the DB row is a record of
-  intent, reconciled every 60 s (`SessionManagerService.reconcileAll`).
+  intent, reconciled every 60 s (`SubshellManagerService.reconcileAll`).
 - **`subshell mcp` never opens the app database.** It is its own compile target
   (`dist/subshell-mcp`, entry `src/mcp/main.ts`) importing only `@internal/mcp-core` —
   a compromised agent process cannot reach SQLite or auth secrets directly.
@@ -68,37 +68,37 @@ Three actor kinds reach `/api/*` through one guard
 `{ user, principal, actor, apiKeyId, apiKeyPermissions }` into every route
 context.
 
-| | cookie (human) | system key | session token |
+| | cookie (human) | system key | subshell token |
 |---|---|---|---|
 | Header | `better-auth.session_token` cookie | `Authorization: Bearer subshell_…` | same |
-| `actor` | `cookie` | `system-key` | `session-key` |
-| `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<sessionId>` |
-| Minted by | sign-up / wizard | admin via **Settings → System API keys** → `POST /api/system-keys` | server-side `issueSessionToken` at session start |
-| Scope | the user's own data; **admin surfaces require this actor** | full access, no permission map | `permissions` grant map (`channels`, `sessions` × `read`/`write`) |
-| Lifetime | better-auth session | forever until disabled/deleted | 7 days, self-extends via `POST /api/sessions/:id/extend-token` (self-only) |
+| `actor` | `cookie` | `system-key` | `subshell-key` |
+| `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` |
+| Minted by | sign-up / wizard | admin via **Settings → System API keys** → `POST /api/system-keys` | server-side `issueSubshellToken` at subshell start |
+| Scope | the user's own data; **admin surfaces require this actor** | full access, no permission map | `permissions` grant map (`channels`, `subshells` × `read`/`write`) |
+| Lifetime | better-auth session | forever until disabled/deleted | 7 days, self-extends via `POST /api/subshells/:id/extend-token` (self-only) |
 | Revocation | sign-out / password change | instant (disable/delete) | **instant on terminate/delete**; rotated on auto-restart |
 
 Hard rules enforced by the guard (each is tested):
 
 1. **Bearer keys never manage the instance.** `requireAdmin` rejects any
    non-cookie actor with 403 (`/api/users`, `/api/system-keys`, …).
-2. **Session-principal forgery is impossible.** The api-key plugin's public
-   create endpoint lets any signed-in user attach arbitrary metadata, so the
-   guard does *not* trust `metadata.kind === "session"` alone — the session
-   row's `api_key_id` column (written only by the server's
-   `issueSessionToken`) must equal the presenting key's id. As a second
+2. **Subshell-principal forgery is impossible.** The api-key plugin's
+   public create endpoint lets any signed-in user attach arbitrary metadata,
+   so the guard does *not* trust `metadata.kind === "subshell"` alone — the
+   subshell row's `api_key_id` column (written only by the server's
+   `issueSubshellToken`) must equal the presenting key's id. As a second
    layer, `/api/auth/api-key/*` self-service endpoints are blocked at the
    mount (`plugins/auth.plugin.ts`).
 3. **System actor requires system ownership.** A key whose `referenceId` is
    not the `system` service user is not a `system-key`, whatever its
    metadata claims.
-4. **Session tokens die with their row.** A valid key whose session row is
-   gone 401s — the row, not the key, is lifecycle truth.
+4. **Subshell tokens die with their row.** A valid key whose subshell row
+   is gone 401s — the row, not the key, is lifecycle truth.
 
 All raw SQL against better-auth's `apikey` table and the metadata vocabulary
-(`kind: "session" | "system"`) live in exactly one module:
+(`kind: "subshell" | "system" | "node"`) live in exactly one module:
 `src/auth/apikey-store.ts` (the plugin's own update/list endpoints are
-session-guarded and unusable server-side; system-key scoping uses
+bearer-blocked and unusable server-side; system-key scoping uses
 `json_extract`, deliberately not a string `LIKE`, so a serialization change
 upstream can never silently make a full-access key un-disable-able).
 
@@ -111,7 +111,7 @@ for the full threat model.
 
 ## 3. Encrypted channels
 
-Global (not per-user) append-only logs that sessions use to talk to each
+Global (not per-user) append-only logs that subshells use to talk to each
 other. The server stores and relays **opaque General JWE envelopes it cannot
 read**; all crypto happens client-side in `subshell mcp`.
 
@@ -127,7 +127,7 @@ channel_post_recipients(post_id, principal_id)      ← denormalized so the serv
    can filter "posts you can decrypt" WITHOUT decrypting them
 channel_cursors(channel_id, principal_id, last_seq) per-reader position; advances
    with max(stored, new) — never rewinds, so racing readers can't lose history
-sessions.api_key_id                                 the token-link column (§2 rule 2)
+subshells.api_key_id                                the token-link column (§2 rule 2)
 ```
 
 ### The envelope
@@ -157,8 +157,8 @@ One shared content key per post, per-recipient key wraps (`jose`):
    collapse your wait into an empty return.
 3. `mark=1` advances the caller's cursor to the highest seq returned.
 
-The durable log is the queue: no message-broker exists. Offline sessions miss
-nothing — they resume from their cursor when they next read.
+The durable log is the queue: no message-broker exists. Offline subshells
+miss nothing — they resume from their cursor when they next read.
 
 ### Nudge (opt-in, best-effort)
 
@@ -185,14 +185,14 @@ the key, or the operator accepts unpinned sealing via
 
 ## 4. The `subshell mcp` process
 
-A stdio MCP server (SDK v2) the harness spawns per session.
+A stdio MCP server (SDK v2) the harness spawns per subshell.
 
 ### Registration per harness
 
 How the child gets spawned is the harness plugin's dialect decision
 (`packages/harnesses`), not a backend special case:
 
-- **claude-code** — the backend writes a per-session `mcpServers` file; the
+- **claude-code** — the backend writes a per-subshell `mcpServers` file; the
   plugin's `mcpRegistration` returns its content plus the activating
   `--mcp-config <path>` argv, which `buildCommand` splices after the binary.
 - **opencode** — the registration returns an opencode-dialect config layer
@@ -200,7 +200,7 @@ How the child gets spawned is the harness plugin's dialect decision
   merges that layer over the user's own config (verified deep-merge). The
   backend bakes the wiring env LAST in the pane precedence (curated host env <
   `SUBSHELL_*` < profile env < wiring env), so a profile setting `OPENCODE_CONFIG`
-  cannot silently drop the session's comms.
+  cannot silently drop the subshell's comms.
 - **codex** — the registration returns per-invocation argv instead: `-c
   mcp_servers.subshell.command="…" -c mcp_servers.subshell.args=[…]` (dotted config
   paths, values parsed as TOML), which codex merges over the user's
@@ -208,39 +208,39 @@ How the child gets spawned is the harness plugin's dialect decision
   argv IS the wiring, and `CODEX_HOME` (which holds the user's auth.json) is
   never redirected; the file the backend still writes is a manual-setup
   reference codex never reads.
-- **hermes, pi** — no per-session config format exists (hermes reads only the
+- **hermes, pi** — no per-subshell config format exists (hermes reads only the
   fixed `~/.hermes/config.yaml`; pi needs the community `pi-mcp-adapter`).
   They register once, manually: the profile editor renders the plugin's
   `mcpSetup()` steps verbatim (resolved launch paths included). The single
-  global entry stays per-session-correct because the spawned child inherits
+  global entry stays per-subshell-correct because the spawned child inherits
   each pane's own `SUBSHELL_*` credentials.
 
-`services/mcp-launch.ts:registerSessionMcp` drives all of this on both the
+`services/mcp-launch.ts:registerSubshellMcp` drives all of this on both the
 create and auto-restart paths; manual harnesses write no file at all.
 
 ### Boot sequence (`packages/mcp-core/src/server.ts:runSubshellMcp`)
 
 1. Read + validate env (below) — hard-fail with a clear message if missing.
-2. Load-or-create the session's identity keypair under
+2. Load-or-create the subshell's identity keypair under
    `SUBSHELL_DATA_DIR/identities/sess-<id>.json` (0600; the file stamps its
    principal and refuses cross-principal reuse — silently regenerating a key
-   would orphan the session's message history; an out-of-band run with no
+   would orphan the subshell's message history; an out-of-band run with no
    `SUBSHELL_DATA_DIR` lands in `<tmp>/subshell-mcp`, never the cwd).
 3. Register/rotate the public key with the backend (`POST /api/identities`,
    best-effort).
-4. Arm a 12 h unref'd timer that self-extends the session token.
+4. Arm a 12 h unref'd timer that self-extends the subshell token.
 5. Serve 14 tools over stdio. **Stdout is the MCP channel** — diagnostics go
    to stderr only.
 
-### Env contract (producer: `services/mcp-launch.ts:sessionMcpEnv`; consumer: `packages/mcp-core/src/env.ts`)
+### Env contract (producer: `services/mcp-launch.ts:subshellMcpEnv`; consumer: `packages/mcp-core/src/env.ts`)
 
 | Var | Meaning |
 |---|---|
-| `SUBSHELL_API_KEY` | the session's bearer token (secret, pane-env only) |
+| `SUBSHELL_API_KEY` | the subshell's bearer token (secret, pane-env only) |
 | `SUBSHELL_BASE_URL` | backend URL (default `http://127.0.0.1:3080`) |
-| `SUBSHELL_SESSION_ID` | session this process speaks as |
-| `SUBSHELL_SESSION_NAME` | display name for the identity registration |
-| `SUBSHELL_DATA_DIR` | where the keypair persists (session data dir) |
+| `SUBSHELL_ID` | subshell this process speaks as |
+| `SUBSHELL_NAME` | display name for the identity registration |
+| `SUBSHELL_DATA_DIR` | where the keypair persists (subshell data dir) |
 
 Deployment override: `SUBSHELL_MCP_COMMAND` / `SUBSHELL_MCP_ARGS` (JSON array) pin how
 the server is launched; default resolution is compiled sibling binary →
@@ -250,9 +250,9 @@ the server is launched; default resolution is compiled sibling binary →
 
 Channels: `list_channels · create_channel · join_channel ·
 channel_members · post_channel · read_channel`.
-Sessions: `list_sessions · get_session · list_profiles ·
-create_session · restart_session · terminate_session ·
-delete_session · update_session_notes`.
+Subshells: `list_subshells · get_subshell · list_profiles ·
+create_subshell · restart_subshell · terminate_subshell ·
+delete_subshell · update_subshell_notes`.
 
 Handler-level notes:
 
@@ -266,18 +266,18 @@ Handler-level notes:
 - Errors surface as short actionable text (`describeToolError`), never stack
   traces.
 
-## 5. Session lifecycle & token choreography
+## 5. Subshell lifecycle & token choreography
 
-`SessionManagerService` (constructor-injected `sessions`, `profiles`,
+`SubshellManagerService` (constructor-injected `subshells`, `profiles`,
 `tokens`, `tmux`) orchestrates everything; routes stay thin.
 
-**Create** (`POST /api/sessions`, also driven by the agent via
-`create_session`):
+**Create** (`POST /api/subshells`, also driven by the agent via
+`create_subshell`):
 
 ```
-validate profile+dir → insert DB row → issueSessionToken (writes api_key_id)
-→ sessionMcpEnv(apiKey, id, name)  ← single producer, merged into `env -i`
-→ writeSessionMcpConfig (0600; NO secrets — env carries them)
+validate profile+dir → insert DB row → issueSubshellToken (writes api_key_id)
+→ subshellMcpEnv(apiKey, id, name)  ← single producer, merged into `env -i`
+→ registerSubshellMcp (writes the 0600 config file; NO secrets — env carries them)
 → tmux new-session → #deliverPrompt (optional prompt typed once the pane
   shows output, then Enter)
 ```
@@ -293,7 +293,7 @@ window succeeded (see caveats).
 | crash, no auto-restart opted-in | revoked by the 60 s reconcile sweep |
 | crash, backoff limit exhausted (5 tries) | revoked too — "never coming back" |
 | auto-restart | **rotation**: revoke old, issue new, bake into the re-spawned pane (env is baked at spawn, so an old key can't outlive its process) |
-| session idles ≥ 7 d | extend timer keeps it alive while the MCP child runs; a dead child's token expires on its own |
+| subshell idles ≥ 7 d | extend timer keeps it alive while the MCP child runs; a dead child's token expires on its own |
 
 The plaintext token exists in exactly two places: briefly in backend memory
 at mint, and in the harness pane's environment (visible in `/proc/<pid>/environ`
@@ -311,21 +311,22 @@ apps/backend/src/
 │   ├── channels.route.ts      channels REST (slugs ^[a-z0-9][a-z0-9-]{0,63}$)
 │   ├── identities.route.ts    public-key registration per principal
 │   ├── system-keys.route.ts   admin CRUD for system keys (cookie-admin only)
-│   └── sessions.route.ts      session REST + extend-token (self-only for session actors)
+│   └── subshells/             subshell REST (per-route dir) + extend-token (self-only for subshell actors)
 ├── auth/
 │   ├── apikey-store.ts        ALL raw apikey SQL + kind vocabulary
 │   ├── system-user.ts         the `system` service user (owns system keys)
 │   └── database.ts            cached better-auth handle (separate from Kysely's)
 ├── services/
-│   ├── session-tokens.ts      issue / revoke / extend session tokens
-│   ├── session-manager.service.ts   lifecycle orchestration (§5)
-│   ├── mcp-launch.ts          MCP config file + sessionMcpEnv (single producer)
+│   ├── subshell-tokens.ts     issue / revoke / extend subshell tokens
+│   ├── subshell-manager.service.ts  lifecycle orchestration (§5)
+│   ├── mcp-launch.ts          MCP config file + subshellMcpEnv (single producer)
 │   └── channels/
 │       ├── post-bus.ts        in-process append notifier (single-process scale is fine)
 │       ├── read-wait.ts       long-park primitive (event-driven + timeout)
 │       └── nudge.ts           best-effort tmux send-keys, injectable transport for tests
 ├── mcp/main.ts                standalone entry ONLY (own compile target) — imports just @internal/mcp-core
 └── db/migrations/0009-channels.ts   the six tables + sessions.api_key_id
+    (0019 renamed the session tables/columns — subshells.api_key_id today)
 
 packages/mcp-core/src/         the `subshell mcp` child implementation (shared with the
                                agent's `subshell mcp`); imports NOTHING outside
@@ -346,7 +347,7 @@ apps/frontend/src/
 ## 7. Invariants
 
 Anything violating these is a bug; most are pinned by tests (including the
-two-process e2e in `src/__tests__/e2e-cross-session.test.ts`):
+two-process e2e in `src/__tests__/e2e-cross-subshell.test.ts`):
 
 1. The server stores ciphertext only — a plaintext scan of the DB files after
    real traffic must find nothing.
@@ -354,8 +355,8 @@ two-process e2e in `src/__tests__/e2e-cross-session.test.ts`):
    and envelopes they cannot open are counted, not fatal.
 3. Cursors move forward only.
 4. Every request authenticates; bearer keys cannot reach admin surfaces;
-   session principals require the `api_key_id` link.
-5. Session tokens are revoked synchronously with termination/deletion;
+   subshell principals require the `api_key_id` link.
+5. Subshell tokens are revoked synchronously with termination/deletion;
    auto-restart rotates (never reuses) the key.
 6. `subshell mcp` runs hermetically: no DB handle, no auth secret, secrets only
    via inherited env.
@@ -391,7 +392,7 @@ A node is another machine that runs harnesses on the control plane's behalf
 **Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
 `node_harnesses` (migration 0017). REST: setup keys mint single-use `nsk_…`
 enrollment credentials; `POST /api/nodes/enroll` consumes one and returns the
-node's long-lived bearer key exactly once; shares follow the session model
+node's long-lived bearer key exactly once; shares follow the subshell model
 (any share grants launch, `edit` adds node config); per-node harness enablement
 and Re-check live beside it. A node key can do **nothing on REST** — the auth
 guard rejects `kind: "node"` keys outright (spec §5.5); its whole blast radius
@@ -399,7 +400,7 @@ is impersonating that node on `/ws/node`.
 
 **The wire.** Commands flow control-plane → agent as JWS-signed envelopes
 (`packages/subshell-protocol/src/node-signing.ts`; the signing keypair is
-generated once at `<SESSION_DATA_DIR>/node-signing.json`, mode 0600,
+generated once at `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json`, mode 0600,
 `services/nodes/control-keys.ts`). Signing proves authenticity/freshness/target
 (`iss`/`aud`/`exp`/`jti` + a per-connection `seq` hint) — not confidentiality
 (that is WSS/operator TLS). Events flow back **unsigned**: the node key on the
@@ -414,18 +415,18 @@ node's live socket (`node-rpc.ts` + `node-registry.ts`, newest-socket-wins).
 Two load-bearing invariants: per-node dispatch stays **serialized in call
 order** (`conn.sendChain` — a slow `launch` can never interleave with a
 `write_file`), and the browser `/ws` contract is **byte-identical** for remote
-sessions — `ws/remote-session-ws.ts` relays replay/resize/input over the node
+subshells — `ws/remote-subshell-ws.ts` relays replay/resize/input over the node
 socket so xterm.js cannot tell a remote pane from a local one.
 
 **Offline semantics** (spec §5.6): absence of a socket ≠ absence of the process.
 Launching onto an offline node 409s (`NODE_OFFLINE`); the reconcile sweep
-**skips** agent rows whose node is offline; session views carry `nodeOffline`
+**skips** agent rows whose node is offline; subshell views carry `nodeOffline`
 so the UI says "node unreachable", never "crashed". The agent's connect-time
-`sessions_report` re-projects panes that survived an agent restart so the
+`subshells_report` re-projects panes that survived an agent restart so the
 control plane heals its rows.
 
 **Distribution.** Prebuilt `subshell` binaries live in `NODE_ARTIFACTS_DIR`
-(`SUBSHELL_NODE_ARTIFACTS_DIR`, default `<SESSION_DATA_DIR>/node-artifacts`) and
+(`SUBSHELL_NODE_ARTIFACTS_DIR`, default `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts`) and
 are published by `bun run release:agent` from the repo root
 (`apps/agent/src/scripts/release.ts` — cross targets + bytecode host build,
 sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the dance is in

@@ -4,7 +4,7 @@ This document describes how this project works and how to perform common operati
 
 ## Project Overview
 
-This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, a node agent daemon (`subshell`), and shared packages: a type-safe Eden Treaty client SDK, the session protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
+This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, a node agent daemon (`subshell`), and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
 
 ### Directory Structure
 
@@ -19,7 +19,7 @@ subshell/
 │   ├── tsconfig/                   # Shared TypeScript configuration
 │   ├── backend-errors/             # Error emission and handling for the backend
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
-│   ├── subshell-protocol/          # Session contract shared by backend and frontend: WS frames, upload limits
+│   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits
 │   ├── harnesses/                  # Harness plugin interface and built-in agent harness plugins
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── turbo.json                      # Turbo task configuration

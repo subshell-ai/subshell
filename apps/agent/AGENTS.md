@@ -39,7 +39,7 @@ subshell run                       # foreground daemon (what the service unit ru
 subshell service install|uninstall # systemd user unit / launchd agent
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
-subshell mcp                       # stdio MCP server for a session pane (internal;
+subshell mcp                       # stdio MCP server for a subshell pane (internal;
                                      # configured purely by the SUBSHELL_* pane env)
 subshell version
 ```
@@ -62,7 +62,7 @@ exact unit/plist text and command sequences without touching systemd.
 ## Exit watch
 
 The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once
-via `listSessionsChecked`: an authoritative `ok:true` answer lacking the pane
+via `listSubshellsChecked`: an authoritative `ok:true` answer lacking the pane
 reports the death IMMEDIATELY with the pane's real exit code when one is
 readable (tests pin 6), while the escalated path —
 `NODE_EXIT_UNREACHABLE_TICKS` (2 — ≈4 s) CONSECUTIVE
@@ -80,9 +80,9 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
 - **Data dir** (`--data-dir` at enroll; default under the home): `identity.json`
   (node keypair — fail-closed: a present-but-corrupt file is quarantined, never
   silently rotated), `subshells/<id>.meta.json` + `<id>.log` per supervised
-  session (each meta's cwd is a `write_file` path-policy root alongside the data
+  subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`
-  per-session MCP configs, and the MCP children's `identities/sess-<id>.json` +
+  per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +
   `peers.json` (they run with `SUBSHELL_DATA_DIR` = the agent data dir).
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
   `SUBSHELL_AGENT_SKIP_TMUX_CHECK=1` is the test escape hatch.

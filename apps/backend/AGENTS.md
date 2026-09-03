@@ -38,7 +38,7 @@ imports break `bun build --compile`. File name and map key must match.
 ## Architecture
 
 Routes are flat resource modules in `src/api/` (`files.route.ts`,
-`sessions.route.ts`, …), aggregated in `src/api/routes.ts` (the off-the-tree
+`profiles.route.ts`, …), aggregated in `src/api/routes.ts` (the off-the-tree
 precedents are `auth-rate-limit.route.ts`, for route precedence, and the
 root-mounted `install-script.ts`, because `/install.sh` is a dotted top-level
 path the static SPA plugin would 404 — both mount directly in `server.ts`).
@@ -50,7 +50,7 @@ migrations, then listens).
 
 ```
 src/
-├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries) + per-resource dirs (sessions/, workspaces/, channels/, nodes/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
+├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries) + per-resource dirs (subshells/, workspaces/, channels/, nodes/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
@@ -58,9 +58,9 @@ src/
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
-├── services/       # Business logic: session-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node agent can reuse it
+├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node agent can reuse it
 ├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; agent-node rows relay through remote-session-ws.ts with the browser contract byte-identical to the local path)
+├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; agent-node rows relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
@@ -73,11 +73,11 @@ and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
 every enrolled node.
 
-Cross-session comms (`subshell mcp`) is registered per harness by the plugin
-itself: `services/mcp-launch.ts:registerSessionMcp` asks the plugin for its
+Cross-subshell comms (`subshell mcp`) is registered per harness by the plugin
+itself: `services/mcp-launch.ts:registerSubshellMcp` asks the plugin for its
 dialect (claude: `--mcp-config` file; opencode: merged config layer +
 `OPENCODE_CONFIG`; codex: per-invocation `-c mcp_servers.subshell.*` overrides —
-no per-session file), while harnesses without a per-session format (hermes, pi)
+no per-subshell file), while harnesses without a per-subshell format (hermes, pi)
 write nothing and expose one-time registration steps via `GET
 /api/profiles/harnesses/:id/schema` (rendered by the profile editor). See
 `docs/architecture.md` §4.
@@ -87,7 +87,7 @@ resource's row types are in `src/db/types/`. A few small writes bypass them
 today (`authAttempts` in `auth-rate-limit.route.ts`, `userMeta` in `auth.ts`).
 Services own cross-repo logic — route handlers stay thin. Routes MAY use
 `contextPlugin` (`src/plugins/context.plugin.ts`), which gives handlers `ctx`
-(a per-request `ApiContext`: `db`, `log`, `repos`, `services`). The sessions,
+(a per-request `ApiContext`: `db`, `log`, `repos`, `services`). The subshells,
 workspaces, and channels routes are converted to `ctx.services.*` and live in
 per-resource directories under `src/api/`; other routes still instantiate
 repositories directly with the shared `db`. Code outside requests (the ws
@@ -109,7 +109,7 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   anything still wrong is downstream of the capture.
 
 `SUBSHELL_ATTACH_DEBUG=1` additionally dumps
-`/tmp/subshell-attach-debug/<session>/<timestamp>/{pre-resize,replay}.txt` — the
+`/tmp/subshell-attach-debug/<subshell>/<timestamp>/{pre-resize,replay}.txt` — the
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 

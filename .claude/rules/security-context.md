@@ -23,9 +23,10 @@ credential kinds:
     (`GET /api/settings/public → emergencyLoginActive`). Clear the var after recovery.
 - **Bearer API keys** (`Authorization: Bearer subshell_...`, via `@better-auth/api-key`) —
   machine credentials:
-  - *Per-session tokens*: minted when a session starts (7-day TTL, self-extending for
-    long-running agents), scoped by permissions, and **revoked immediately** when the
-    session is terminated/deleted (restart rotates the key — auto or manual — on the same row). This is what the
+  - *Per-subshell tokens*: minted when a subshell starts (7-day TTL, self-extending
+    for long-running agents), scoped by permissions, and **revoked immediately**
+    when the subshell is terminated/deleted (restart rotates the key — auto or
+    manual — on the same row). This is what the
     `subshell mcp` server and any harness tooling authenticate with.
   - *System keys*: long-lived, no permission ceiling, owned by the `system` service user,
     created by admins under **Settings → System API keys** (plaintext shown exactly once;
@@ -38,12 +39,12 @@ machine credentials can never manage the instance.
 WS attach requires a short-lived (30 s) single-use token minted through an authenticated
 REST call — replay-resistant.
 
-## Session sharing (spec 2026-08-31)
+## Subshell sharing (spec 2026-08-31)
 
-A session is **private to its owner by default** — it is absent (404, never 403) from
-every other user's list, detail, log, terminal, and workspace-pane path, so ids cannot be
-probed. The owner may grant two levels, to **Everyone** (all signed-in users) or to
-specific users, via `PUT /api/sessions/:id/shares`:
+A subshell is **private to its owner by default** — it is absent (404, never 403) from
+every other user's list, detail, log, terminal, and workspace-pane path, so ids cannot
+be probed. The owner may grant two levels, to **Everyone** (all signed-in users) or to
+specific users, via `PUT /api/subshells/:id/shares`:
 
 - **view** — read only: list, detail, pane log, and a read-only live terminal.
 - **edit** — view + interact and manage: terminal input, rename, notes, restart,
@@ -51,37 +52,38 @@ specific users, via `PUT /api/sessions/:id/shares`:
 
 Owner-only actions (never conferred by a grant, and not held by an admin either): **delete**,
 **managing the shares themselves**, and the **notification bell**. Sharing is a browser
-(human) act — a bearer/session key is refused on the shares routes and, on every other
-per-session route, runs with the admin boost and shared grants switched **off**, so a
-machine token can act only on its own owner's sessions, never a foreign or shared one.
+(human) act — a bearer/subshell key is refused on the shares routes and, on every other
+per-subshell route, runs with the admin boost and shared grants switched **off**, so
+a machine token can act only on its own owner's subshells, never a foreign or
+shared one.
 
 Admins hold instance-wide **edit** (effective operator access) — they can read and
-interact with any session but cannot delete it or re-share it; those stay with the real
+interact with any subshell but cannot delete it or re-share it; those stay with the real
 owner.
 
-Notifications are **owner-targeted**: a push goes only to the session owner's devices,
+Notifications are **owner-targeted**: a push goes only to the subshell owner's devices,
 gated by a per-user master switch (`user_meta.notify_enabled`, on by default) and the
-per-session bell (`sessions.notify`, on by default for new sessions). Sharing widens who
-can *see/act* on a session; it never widens who gets *pushed* about it.
+per-subshell bell (`subshells.notify`, on by default for new subshells). Sharing
+widens who can *see/act* on a subshell; it never widens who gets *pushed* about it.
 
 This is a deliberate widening of exposure beyond the owner, sound only on the
-trusted-network posture below — a share makes a session's full pane output (potentially
+trusted-network posture below — a share makes a subshell's full pane output (potentially
 secrets on screen) and, at `edit`, its keystroke stream visible to the audience. Revoke by
 clearing the grant (the sharing dialog or an empty `PUT`).
 
-## Encrypted channels (cross-session comms)
+## Encrypted channels (cross-subshell comms)
 
-Channel posts are sealed per-recipient with ECDH-ES + A256GCM (`jose`) to each session's
+Channel posts are sealed per-recipient with ECDH-ES + A256GCM (`jose`) to each subshell's
 identity keypair; the backend stores and forwards only opaque ciphertext it cannot read.
 The E2EE boundary protects message bodies from **the server's storage, backups, and any
-remote peer that compromises them** — and from other sessions that are not channel
+remote peer that compromises them** — and from other subshells that are not channel
 recipients. It does NOT protect:
 
 - **Metadata** — channel names, membership, post timing/order, message sizes, and
   principals are plaintext on the server.
-- **A local OS user on the host** — session keypairs live on the same disk the backend
+- **A local OS user on the host** — subshell keypairs live on the same disk the backend
   runs on; whoever owns that user account can read them (and the harness panes).
-- Session tokens themselves: a running harness holds its own bearer key by
+- Subshell tokens themselves: a running harness holds its own bearer key by
   design — and the token is part of the tmux start command, so it is visible to
   any local process that can read `ps` output or tmux's pane metadata.
 
@@ -89,11 +91,11 @@ recipients. It does NOT protect:
 
 Registering a node (spec 2026-08-31) delegates **arbitrary command execution
 under the agent's OS user** to the control plane, and delegates pane I/O for
-sessions launched there to everyone those *sessions* are shared with. Node
-shares and session shares are two independent axes:
+subshells launched there to everyone those *subshells* are shared with. Node
+shares and subshell shares are two independent axes:
 
-- **Any node share — even `view` — lets the grantee launch their own sessions
-  on it**; those sessions stay invisible to the node's owner unless separately
+- **Any node share — even `view` — lets the grantee launch their own subshells
+  on it**; those subshells stay invisible to the node's owner unless separately
   shared. `edit` (or owner) additionally configures the node (harness
   toggles, re-checks); only the owner manages it (shares, rename) — admin for
   `local`. The owner controls everything launched there; whoever owns the
@@ -106,11 +108,11 @@ shares and session shares are two independent axes:
   backend host — same local-user exposure as everywhere else here).
 - A **node API key can do nothing on REST** (explicit guard rejection, §5.5);
   its blast radius is exactly "impersonate this node on `/ws/node`".
-- **New exposure:** session bearer keys ride in the launch command and are
+- **New exposure:** subshell bearer keys ride in the launch command and are
   **`ps`-visible on node hosts** — the known backend-host exposure now extends
   to every enrolled machine. Node local users — and, in effect, anyone with
-  `edit` on a session running there — hold that session's bearer key. Sharing a
-  node does not hand out session keys, but anything launched there trusts the
+  `edit` on a subshell running there — hold that subshell's bearer key. Sharing a
+  node does not hand out subshell keys, but anything launched there trusts the
   machine.
 - **Setup keys**: single-use, 24 h expiry, shown once, hashed at rest,
   revocable, audited. The install command embeds one in a URL, so it lands in
@@ -157,7 +159,7 @@ Approved emergency-logins (the credential rewrite) are audit events + warn log l
 
 Intentional design decisions for this deployment model:
 
-- **No string length limits on log/session fields**: they vary legitimately; limiting them
+- **No string length limits on log/subshell fields**: they vary legitimately; limiting them
   would break real use cases.
 - **No pagination on small per-user lists** (distinct services, channels): expected to be
   small on a local instance.
