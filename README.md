@@ -27,7 +27,7 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 
 ## Requirements
 
-- [Bun](https://bun.sh/) >= 1.3
+- [Bun](https://bun.sh/) >= 1.4
 - [tmux](https://github.com/tmux/tmux/wiki) >= 3.2 (backing per-subshell PTYs)
 - A harness binary (e.g. `claude` on your PATH) — `packages/harnesses` resolves it
 
@@ -78,9 +78,9 @@ the TS entry with Bun in dev).
 ## Production (single port)
 
 ```bash
-turbo build          # builds frontend/dist + backend/dist
+turbo build          # builds frontend/dist + server/dist
 DATABASE_PATH=./data/subshell.db HOST=0.0.0.0 NODE_ENV=production \
-  bun run --cwd apps/backend prod
+  bun run --cwd apps/server prod
 ```
 
 The backend serves the built SPA at `/` plus the API, WebSocket and `/docs`.
@@ -90,12 +90,12 @@ The backend serves the built SPA at `/` plus the API, WebSocket and `/docs`.
 ```bash
 cp .env.example .env         # set BETTER_AUTH_SECRET (>= 32 chars) + APP_BASE_URL
 cp docker/gitconfig.example docker/gitconfig   # your git identity + signing key
-mkdir -p ~/.config/subshell
+mkdir -p ~/.config/subshell-server
 docker compose build
 docker compose up -d         # http://localhost:3080
 ```
 
-- **Data lives in `~/.config/subshell`** (bind-mounted to `/data`: SQLite, subshell
+- **Data lives in `~/.config/subshell-server`** (bind-mounted to `/data`: SQLite, subshell
   logs, channel keypairs). `~/projects` is mounted at its real path, so
   recent/subshell paths in the DB resolve unchanged. Override either
   with `SUBSHELL_DATA_HOST_DIR=` / `PROJECTS_DIR=` in `.env`.
@@ -107,8 +107,8 @@ docker compose up -d         # http://localhost:3080
   `claude` (read-only) plus `~/.claude` / `~/.claude.json` (read-write, where
   claude keeps session records). Adjust those mounts for a different harness.
 - Migrating from a host-run dev instance: stop the dev backend (it holds
-  `:3080`), then `sqlite3 data/subshell.db ".backup ~/.config/subshell/subshell.db"` and
-  `cp -a data/subshells ~/.config/subshell/` from `apps/backend/`. Keep
+  `:3080`), then `sqlite3 data/subshell.db ".backup ~/.config/subshell-server/subshell.db"` and
+  `cp -a data/subshells ~/.config/subshell-server/` from `apps/server/`. Keep
   `BETTER_AUTH_SECRET` identical and existing browser sessions survive.
 - Container restarts end tmux state — running subshells die with the container
   and surface as dead rows; restart them from the UI.
@@ -135,7 +135,7 @@ turbo build            # fresh dist artifacts (prerequisite of install)
 ./svc.sh start         # stop / restart / status / uninstall also exist
 ```
 
-The service reads the same `.env` and the same data dir (`~/.config/subshell`) as
+The service reads the same `.env` and the same data dir (`~/.config/subshell-server`) as
 the Docker deployment — switching over is just `docker compose down`, then
 install + start (guard the container against resurrection with a
 `restart: "no"` override if you keep the compose files around). `:3080` must
@@ -144,7 +144,7 @@ keeps them literally).
 
 ## Configuration
 
-Environment variables (see `apps/backend/src/constants.ts`):
+Environment variables (see `apps/server/src/constants.ts`):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -204,4 +204,4 @@ your VPN):
 - Design rationale lives in `docs/superpowers/specs/`; the cross-subshell build plan in
   `docs/superpowers/plans/`.
 - OpenAPI docs at `/docs` (Scalar UI).
-- `apps/backend/.env.example` documents the dev env shape.
+- `apps/server/.env.example` documents the dev env shape.

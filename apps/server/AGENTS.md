@@ -1,6 +1,6 @@
-# Backend AGENTS.md
+# Server AGENTS.md
 
-Backend-specific documentation for the ElysiaJS API server.
+Server-specific documentation for the ElysiaJS API server (`apps/server`, `@internal/server`).
 
 ## URLs
 
@@ -67,7 +67,7 @@ src/
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries from
 `NODE_ARTIFACTS_DIR` (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
-`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:agent`,
+`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:client`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous;
 and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands

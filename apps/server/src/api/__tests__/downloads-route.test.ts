@@ -300,7 +300,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // Installer-created dirs are private (also on a shared /opt).
     expect(body).toContain('(umask 077; mkdir -p "$DATA_DIR")');
     expect(body).toContain('DEST="$DATA_DIR/subshell"');
-    expect(body).toContain('ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real agent flag (apps/agent/src/cli.ts)
+    expect(body).toContain('ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real client flag (apps/client/src/cli.ts)
     // Default branch: CWD binary, NO --data-dir arg, guarded against `set -u`.
     expect(body).toContain('DEST="./subshell"');
     expect(body).toContain("ENROLL_DATA_DIR_ARGS=()");

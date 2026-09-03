@@ -64,7 +64,7 @@ Key properties:
 ## 2. Credentials & trust boundaries
 
 Three actor kinds reach `/api/*` through one guard
-(`apps/backend/src/api/auth-guard.ts`), which injects
+(`apps/server/src/api/auth-guard.ts`), which injects
 `{ user, principal, actor, apiKeyId, apiKeyPermissions }` into every route
 context.
 
@@ -304,7 +304,7 @@ response or on-disk MCP config.
 ## 6. Component map
 
 ```
-apps/backend/src/
+apps/server/src/
 ├── api/
 │   ├── auth-guard.ts          authGuard + requireAdmin + requirePerm + HttpError;
 │   │                          the ONLY place credentials become principals
@@ -385,9 +385,9 @@ two-process e2e in `src/__tests__/e2e-cross-subshell.test.ts`):
 
 A node is another machine that runs harnesses on the control plane's behalf
 ([spec](superpowers/specs/2026-08-31-nodes-design.md)). The daemon on it is
-`subshell` (`apps/agent`, see
-[`apps/agent/AGENTS.md`](../apps/agent/AGENTS.md)); the control-plane side is
-`apps/backend/src/services/nodes/` + `api/nodes/`.
+`subshell` (`apps/client`, see
+[`apps/client/AGENTS.md`](../apps/client/AGENTS.md)); the control-plane side is
+`apps/server/src/services/nodes/` + `api/nodes/`.
 
 **Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
 `node_harnesses` (migration 0017). REST: setup keys mint single-use `nsk_…`
@@ -427,10 +427,10 @@ control plane heals its rows.
 
 **Distribution.** Prebuilt `subshell` binaries live in `NODE_ARTIFACTS_DIR`
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts`) and
-are published by `bun run release:agent` from the repo root
-(`apps/agent/src/scripts/release.ts` — cross targets + bytecode host build,
-sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the dance is in
-root `AGENTS.md`). `GET /api/downloads/node/*` gates on a session cookie OR a
+are published by `bun run release:client` from the repo root
+(`apps/client/src/scripts/release.ts` — every triple cross-built with
+`--bytecode`, sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the
+dance is in root `AGENTS.md`). `GET /api/downloads/node/*` gates on a session cookie OR a
 valid unconsumed setup key (`peekValid` — consumption-free) and refuses
 anonymous; the root-mounted `GET /install.sh` (`api/install-script.ts`) renders
 the per-instance installer for a valid key and a usage script otherwise.
@@ -442,8 +442,8 @@ script embeds — and warns when that URL is loopback (a remote node would dial
 the wrong machine).
 
 **Background service.** `subshell service install|uninstall`
-(`apps/agent/src/service.ts`) writes a systemd **user** unit or a launchd
-agent (`dev.subshell.agent`), self-referencing the running executable (compiled
+(`apps/client/src/service.ts`) writes a systemd **user** unit or a launchd
+agent (`dev.subshell.client`), self-referencing the running executable (compiled
 binary or `bun <entry>` in dev); on Linux the post-install hint is
 `loginctl enable-linger` to survive logout. Harness inventory is pushed by the
 agent at connect and every 5 min (`daemon.ts` `INVENTORY_PERIOD_MS`, plus the

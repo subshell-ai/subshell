@@ -7,7 +7,7 @@ project documentation there, not here — this file exists only because Claude C
 reads `CLAUDE.md` rather than `AGENTS.md`, and other coding agents read
 `AGENTS.md` directly.
 
-**Per-app documentation loads on demand.** `apps/backend/CLAUDE.md` and
+**Per-app documentation loads on demand.** `apps/server/CLAUDE.md` and
 `apps/frontend/CLAUDE.md` import their own `AGENTS.md`, but nested files only
 enter context once you read a file in that directory. If you are planning work in
 an app before opening any of its files, read that app's `AGENTS.md` first.

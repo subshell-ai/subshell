@@ -113,8 +113,9 @@ must move in one pass.
     Nodes page (fresh setup key). The old `mote-agent` binaries still dial in,
     but their rows can be deleted in the Nodes page once the new enrollments
     check out. On a macOS node, `subshell service install` creates a NEW
-    `dev.subshell.agent` launchd job — it does NOT touch the old `dev.mote.agent`
-    KeepAlive job, which would respawn the old agent alongside the new one;
+    launchd job (`dev.subshell.client` since the 2026-09-03 addendum) — it does
+    NOT touch the old `dev.mote.agent` KeepAlive job, which would respawn the
+    old agent alongside the new one;
     remove it explicitly (step 2 covers the control-plane host; on the node:
     `launchctl remove dev.mote.agent`).
 
@@ -178,10 +179,10 @@ load-bearing (skip them and pane history silently starts empty).
 
    ```bash
    cp ~/.config/subshell/subshell.db ~/.config/subshell/subshell.db.bak-0019
-   bunx turbo build && bun run release:agent
+   bunx turbo build && bun run release:client
    ```
 
-   (`release:agent` republishes the node binaries — they bake the new
+   (`release:client` republishes the node binaries — they bake the new
    `SUBSHELL_ID`/`SUBSHELL_NAME` env names. From a plain shell pass
    `SUBSHELL_NODE_ARTIFACTS_DIR` explicitly, per root `AGENTS.md`.)
 
@@ -230,3 +231,49 @@ load-bearing (skip them and pane history silently starts empty).
    vars are baked into live panes and `subshell mcp` now hard-fails without
    `SUBSHELL_ID`, so each one's MCP tools are dead until it is restarted (the
    terminal itself keeps working).
+
+---
+
+## Addendum 2026-09-03: client rename + config-home swap (spec 2026-09-03)
+
+Clean cut, same rules as the main doc. ORDER IS LOAD-BEARING: the server
+vacates ~/.config/subshell BEFORE the client moves in.
+
+1. Server (control-plane host):
+
+   ```bash
+   systemctl --user stop subshell-server.service
+   mv ~/.config/subshell ~/.config/subshell-server
+   # .env / EnvironmentFile: update the DATABASE_PATH line to
+   #   ~/.config/subshell-server/subshell.db
+   # (svc.sh's regenerated unit now bakes the new path)
+   systemctl --user daemon-reload && systemctl --user start subshell-server.service
+   ```
+
+   Docker users: same `mv`, plus check the UNTRACKED
+   docker-compose.override.yaml for the old path (it still keys it).
+
+2. Client on every enrolled host (including a host-agent here):
+
+   ```bash
+   subshell service uninstall 2>/dev/null || true      # old unit/plist, old name
+   launchctl remove dev.subshell.agent 2>/dev/null || true   # macOS: stale KeepAlive guard
+   mv ~/.config/subshell-agent ~/.config/subshell
+   # config.json itself stores no env names (enrollment state only) — sweep
+   # any HAND-KEPT env files that reference the old vars:
+   grep -rl "SUBSHELL_AGENT_" ~/.config/subshell ~/.config/subshell-server 2>/dev/null \
+     | xargs -r sed -i 's/SUBSHELL_AGENT_HOME/SUBSHELL_CONFIG_HOME/g; s/SUBSHELL_AGENT_SKIP_TMUX_CHECK/SUBSHELL_CLIENT_SKIP_TMUX_CHECK/g'
+   ./subshell service install    # new binary from the release / apps/client build;
+                                 # regenerates the unit/plist with the new names baked
+   ```
+
+3. Smoke: `subshell status --probe` on each node; Nodes page shows online;
+   one test launch lands. Old `dev.subshell.agent`/`subshell.service` unit
+   files: the new `service install` rewrites `subshell.service` (same name);
+   launchd's old plist must be gone or it respawns the stale binary.
+
+**Same-day path note:** the control-plane app now lives in `apps/server`
+(`@internal/server`) and the client app in `apps/client` (`@internal/client`) —
+deployment names are unchanged (`subshell-server.service`,
+`SUBSHELL_SERVER_DATA_DIR`); the root release script is `bun run
+release:client`.

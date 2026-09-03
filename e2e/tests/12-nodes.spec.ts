@@ -123,7 +123,7 @@ test("nodes: Local renders online; Add-node mints a setup key + install command"
 /**
  * Phase 3 (spec 2026-08-31 §6.6/§9/§11): the first automated REAL-protocol
  * remote launch. A real `subshell` (spawned from source via
- * `e2e/stub/agent.ts` — no compiled binary, plan deviation #1) redeems a
+ * `e2e/stub/client.ts` — no compiled binary, plan deviation #1) redeems a
  * setup key minted through the Add-node dialog, holds the signed node socket,
  * and hosts a subshell launched from the browser: online → inventory → chips
  * → tmux pane ON THE NODE → relayed log → WS attach → terminate → gone.
@@ -221,7 +221,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // Re-check POST here any more. Wait for the snapshot to land on the row,
     // then drive the harness card's PATCH through the REAL gate — with a fresh
     // snapshot in hand, enable is inventory-checked, and pi must read installed
-    // because the agent was spawned with PI_PATH (stub/agent.ts).
+    // because the agent was spawned with PI_PATH (stub/client.ts).
     await pollUntil("the connect-time inventory push never reached the node row", agent, async () => {
       const res = await request.get("/api/nodes");
       if (!res.ok()) return false;

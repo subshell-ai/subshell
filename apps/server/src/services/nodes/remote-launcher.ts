@@ -334,7 +334,7 @@ export class RemoteLauncher implements NodeLauncher {
   /**
    * The agent's per-subshell record ON THE NODE:
    * `<agentDataDir>/subshells/<id>.meta.json` — the twin of
-   * `apps/agent/src/subshell-meta.ts` (`SubshellMetaStore.metaPath` =
+   * `apps/client/src/subshell-meta.ts` (`SubshellMetaStore.metaPath` =
    * `join(dataDir, "subshells", `${id}${".meta.json"}`); pinned equal by test).
    * A deliberate kill leaves this file behind on purpose: the manager feeds it
    * into the delete-time `remove_paths` (with the log and the MCP config), so

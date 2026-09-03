@@ -42,7 +42,8 @@ export interface BuiltArtifact {
  * the previous digest. That fails SAFE (install.sh's digest check refuses the
  * exec; a retry gets the pair) on a rare operator-published path — noted so
  * the atomicity claim is never stronger than the mechanism.
- * @param artifacts - triple → built artifact map from {@link buildAll}
+ * @param artifacts - triple → built artifact map assembled by the caller's
+ *   build phase — both apps' release pipelines call this only on a complete build
  * @param destDir - directory to publish into (created when missing)
  */
 export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, destDir: string): Promise<void> {

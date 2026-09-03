@@ -430,7 +430,7 @@ describe("log paths and reads", () => {
   });
 
   it("metaArtifactPath pins the agent's `<dataDir>/subshells/<id>.meta.json` layout", () => {
-    // Pinned against apps/agent/src/subshell-meta.ts: SubshellMetaStore.metaPath =
+    // Pinned against apps/client/src/subshell-meta.ts: SubshellMetaStore.metaPath =
     // join(dataDir, "subshells", `${id}${".meta.json"}`). The manager feeds this
     // into the delete-time `remove_paths` so a deliberate delete unlinks the
     // agent's per-subshell record alongside the log and the MCP config.

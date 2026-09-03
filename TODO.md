@@ -57,18 +57,18 @@ Nothing blocking. Optional backlog:
 
 ### Deferred code-review items (design-level, documented in code)
 
-- **SSE token design** (`apps/backend/src/api/live.route.ts` + `useLiveSessions.ts`): ws-token TTL (30s) forces a reconnect ~every 30s; the `connected` badge may briefly flap offline. Self-healing (failed/cancelled token → next connect 401 → retry with fresh token); move to real auth (cookie via `withCredentials`) if ever exposed beyond localhost.
+- **SSE token design** (`apps/server/src/api/live.route.ts` + `useLiveSessions.ts`): ws-token TTL (30s) forces a reconnect ~every 30s; the `connected` badge may briefly flap offline. Self-healing (failed/cancelled token → next connect 401 → retry with fresh token); move to real auth (cookie via `withCredentials`) if ever exposed beyond localhost.
 - **60s idle heuristic** (`computeActivity`, session-manager.service.ts): a working-but-quiet agent (>60s silent) shows as idle (warning chip). Consider a progress-aware signal (harness heartbeat / adaptive window) in a future round.
 - **Notes API**: maxLength 2000 + server-side trim/normalize now in place; empty/whitespace notes normalized to null.
 - **Restart-mid-render edge**: refreshing the terminal page during a restart leaves old scrollback until reconnect; the "Session is not running." fallback covers the common case. Not worth fixing. (#8)
 
 ## Commands / shortcuts
 
-- Backend dev: `cd apps/backend && bun run dev` (port 3080). Runs from apps/backend dir only.
+- Backend dev: `cd apps/server && bun run dev` (port 3080). Runs from apps/server dir only.
 - Frontend dev: `cd apps/frontend && bun run dev` (port 5174; proxies /api + /ws → 3080). Port 5173 is taken by the user's docker container.
-- Prod serve: `bun run --cwd apps/frontend build` + `bun run --cwd apps/backend build` then `cd apps/backend && NODE_ENV=production BETTER_AUTH_SECRET=… DATABASE_PATH=./data/subshell.db APP_BASE_URL=http://localhost:3080 bun run ./dist/index.js`
-- DB reset (dev): `rm -f apps/backend/data/subshell.db* && rm -rf apps/backend/data/sessions`
-- Dev password reset: `cd apps/backend && bun run scripts/set-admin-password.ts admin@subshell.local admin123`
+- Prod serve: `bun run --cwd apps/frontend build` + `bun run --cwd apps/server build` then `cd apps/server && NODE_ENV=production BETTER_AUTH_SECRET=… DATABASE_PATH=./data/subshell.db APP_BASE_URL=http://localhost:3080 bun run ./dist/index.js`
+- DB reset (dev): `rm -f apps/server/data/subshell.db* && rm -rf apps/server/data/sessions`
+- Dev password reset: `cd apps/server && bun run scripts/set-admin-password.ts admin@subshell.local admin123`
 - **Persistence gotcha**: background servers die between tool calls — use `nohup … > /tmp/subshell-*.log 2>&1 &` and check with `lsof -i :3080`. Always kill by PID.
 - The dev backend does NOT hot-reload unless started with `--watch` (`bun run dev`); plain `bun run ./src/index.ts` serves stale code after edits — restart after backend changes.
 
@@ -79,7 +79,7 @@ Nothing blocking. Optional backlog:
 - Roles NOT on the auth user table (no `role` column); they live in app `user_meta` via `databaseHooks.user.create.after`.
 - Passwords are scrypt `salt:hash` via `@noble/hashes` — use `import { hashPassword } from "better-auth/crypto"` (NOT node:scrypt) to reset.
 - WS auth: HttpOnly cookie can't be read by JS + Vite WS proxy drops Cookie headers → ws-token endpoint (single-use, 30s TTL). Same pattern used by the SSE feed.
-- `bun run ./src/index.ts` from repo root fails (workspace resolution) — always `cd apps/backend` first.
+- `bun run ./src/index.ts` from repo root fails (workspace resolution) — always `cd apps/server` first.
 - ANSI-stripping regexes: biome flags raw control chars — use named consts with `// biome-ignore lint/suspicious/noControlCharactersInRegex`.
 - **Browser automation (chrome-devtools MCP)**: stale chrome holding `~/.cache/chrome-devtools-mcp/chrome-profile/SingletonLock` blocks the MCP ("browser already running"). Fix: kill all chrome processes using that profile + `rm -f SingletonLock SingletonSocket SingletonCookie`. Screenshot capture works but in-headless vision (image description) may be unavailable — prefer DOM/eval checks over screenshot-review.
 - **Session search "Find"**: match counter is the authoritative check ("1/1"); xterm text rows aren't exposed in the a11y tree/canvas (canvas renderer) so don't look for text nodes.

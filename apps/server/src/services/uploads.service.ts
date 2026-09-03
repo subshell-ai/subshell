@@ -316,7 +316,7 @@ export function remoteUniqueName(name: string): string {
  * The composition is string-only — no local `mkdirSync`, no `resolveUploadPath`
  * containment check, no {@link ensureGitExcluded}: the target lives on the
  * node's filesystem, where the agent's own twice-gated path policy
- * (`apps/agent/src/commands/write-file.ts`) is the authority and git
+ * (`apps/client/src/commands/write-file.ts`) is the authority and git
  * bookkeeping stays operator-controlled.
  *
  * Agent-side semantics this loop relies on (pinned by the agent's own tests):

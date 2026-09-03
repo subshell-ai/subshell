@@ -4,17 +4,17 @@ This document describes how this project works and how to perform common operati
 
 ## Project Overview
 
-This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API backend, a React frontend, a node agent daemon (`subshell`), and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
+This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API server, a React frontend, a node client daemon (`subshell`), and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
 
 ### Directory Structure
 
 ```
 subshell/
 ├── apps/
-│   ├── backend/                    # ElysiaJS API server; also serves the built SPA in prod
+│   ├── server/                     # ElysiaJS API server; also serves the built SPA in prod
 │   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
 │   ├── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
-│   └── agent/                      # subshell — node daemon; enrolls and runs signed commands (see apps/agent/AGENTS.md)
+│   └── client/                     # subshell — node daemon; enrolls and runs signed commands (see apps/client/AGENTS.md)
 ├── packages/
 │   ├── tsconfig/                   # Shared TypeScript configuration
 │   ├── backend-errors/             # Error emission and handling for the backend
@@ -79,8 +79,8 @@ bun run db:migrate:create  # Scaffold a new migration file
 bun run db:migrate:undo    # Roll the last migration back
 ```
 
-A new migration must be **both** created in `apps/backend/src/db/migrations/` and registered
-in the provider map in `apps/backend/src/db/migrate.ts` — the CLI scans the folder, but the
+A new migration must be **both** created in `apps/server/src/db/migrations/` and registered
+in the provider map in `apps/server/src/db/migrate.ts` — the CLI scans the folder, but the
 app's boot-time migrator reads the static map (a dynamic import would break
 `bun build --compile`). The file name and the map key must match.
 
@@ -136,41 +136,40 @@ node enroll flow) are built separately from the app build. The release dance,
 from the repo root:
 
 ```bash
-bunx turbo build                          # 1. package dists the agent binary bundles
-bun run release:agent                     # 2. compile:release — cross-build + atomic publish
-systemctl --user restart subshell-server.service     # 3. the backend serves the new files
+bunx turbo build                          # 1. package dists the client binary bundles
+bun run release:client                    # 2. compile:release — cross-build + atomic publish
+systemctl --user restart subshell-server.service     # 3. the server serves the new files
 ```
 
-- `release:agent` runs `apps/agent`'s `compile:release` (`src/scripts/release.ts`):
-  the four served triples (`linux|darwin × x64|arm64`) plus a host build with
-  `--bytecode` — the host build wins its own triple, so a hosted-arch machine
-  publishes 4 artifacts (the host build replaces that triple's cross build); a
-  machine whose arch isn't one of the four publishes the 4 cross builds only
-  (with a warning — its own binary isn't servable anyway) — each digested and
-  published as `subshell-<triple>` + a fresh `.sha256` sidecar via temp-file
-  + `rename()` (the atomic swap the downloads route's mtime-keyed cache
-  requires). See `apps/agent/AGENTS.md` for the app itself.
+- `release:client` runs `apps/client`'s `compile:release` (`src/scripts/release.ts`):
+  the four served triples (`linux|darwin × x64|arm64`), each cross-built WITH
+  `--bytecode` (uniform since spec 2026-09-03 §5) — `SUBSHELL_RELEASE_TRIPLES`
+  scopes a subset (CI uses this); each digested and published as
+  `subshell-<triple>` + a fresh `.sha256` sidecar via temp-file + `rename()`
+  (the atomic swap the downloads route's mtime-keyed cache requires). See
+  `apps/client/AGENTS.md` for the app itself.
 - Publish destination: `SUBSHELL_NODE_ARTIFACTS_DIR`, else
-  `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — the same default the backend resolves.
+  `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — the same default the server resolves.
   From a plain shell none of those vars are set (the service gets them from its
   unit/`EnvironmentFile`), so the ladder silently publishes to
-  `apps/agent/data/node-artifacts` where the backend never looks — pass
+  `apps/client/data/node-artifacts` where the server never looks — pass
   `SUBSHELL_NODE_ARTIFACTS_DIR` explicitly when deploying from a terminal.
-- Cross builds download their target's bun runtime on first use and deliberately
-  ship WITHOUT `--bytecode` (bytecode + cross is a known compile risk). A failed
-  target exits non-zero and publishes NOTHING — never a half set.
-- `turbo build` wipes the compiled `apps/agent/dist/subshell` dev binary;
-  re-create it with `cd apps/agent && bun run compile`.
+- Cross builds download their target's bun runtime on first use; every target
+  ships `--bytecode` (risk #9 retired at bun 1.4.0 — spec 2026-09-03 §5; the
+  pipeline refuses older bun). A failed target exits non-zero and publishes
+  NOTHING — never a half set.
+- `turbo build` wipes the compiled `apps/client/dist/subshell` dev binary;
+  re-create it with `cd apps/client && bun run compile`.
 
 ## Build Dependencies
 
 The Turbo pipeline ensures correct build order:
 
 1. `@internal/backend-errors`, `@internal/subshell-protocol`, and `@internal/mcp-core` build first (no internal deps)
-2. `@internal/backend` depends on backend-errors, subshell-protocol, harnesses, and mcp-core
-3. `@internal/backend-client` depends on backend (imports the `App` type for Eden Treaty)
+2. `@internal/server` (`apps/server`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core
+3. `@internal/backend-client` depends on server (imports the `App` type for Eden Treaty)
 4. `apps/frontend` depends on backend-client and subshell-protocol
-5. `@internal/agent` (`apps/agent`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:agent` (and the reverse hazard: the build wipes `apps/agent/dist/subshell`)
+5. `@internal/client` (`apps/client`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:client` (and the reverse hazard: the build wipes `apps/client/dist/subshell`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 

@@ -1,5 +1,24 @@
 # subshell
 
+## Unreleased
+
+- **Breaking:** Client app renamed `apps/agent` → `apps/client` (package
+  `@internal/agent` → `@internal/client`): config home `~/.config/subshell` with
+  `SUBSHELL_CONFIG_HOME` override (was `~/.config/subshell-agent` /
+  `SUBSHELL_AGENT_HOME`), `SUBSHELL_CLIENT_SKIP_TMUX_CHECK` (was
+  `SUBSHELL_AGENT_SKIP_TMUX_CHECK`), launchd label `dev.subshell.client` (was
+  `dev.subshell.agent`); the systemd unit stays `subshell.service`
+- **Breaking:** Control-plane app renamed `apps/backend` → `apps/server` (package
+  `@internal/backend` → `@internal/server`); its data dir moves
+  `~/.config/subshell` → `~/.config/subshell-server` (`SUBSHELL_SERVER_DATA_DIR`
+  unchanged), vacating the old path for the client home. Service unit stays
+  `subshell-server.service`
+- Release pipeline: root `release:agent` → `release:client`; all four served
+  triples now build with `--bytecode` (bun ≥ 1.4.0 enforced, risk #9 retired —
+  spec 2026-09-03 §5) and `SUBSHELL_RELEASE_TRIPLES` scopes a subset for CI
+- No compatibility shims — migrate in order per `docs/subshell-rollout.md`
+  (Addendum 2026-09-03)
+
 ## Sep-02-2026
 
 - **Breaking:** Renamed the project from "mote" to "subshell" (clean cut, no aliases —

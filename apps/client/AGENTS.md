@@ -1,6 +1,6 @@
-# Agent AGENTS.md
+# Client AGENTS.md
 
-App-specific documentation for `subshell` (`@internal/agent`) — the node
+App-specific documentation for `subshell` (`@internal/client`) — the node
 daemon: it enrolls with the control plane, holds the `/ws/node` socket, and
 executes signed commands (launch/tmux/fs) as the invoking user on its machine.
 Design: `docs/superpowers/specs/2026-08-31-nodes-design.md` §7 + the Phase-3
@@ -11,25 +11,27 @@ distribution design beside it. Architecture-role prose: `docs/architecture.md` �
 ```bash
 bun run build            # tsdown lib build → dist/index.js|.d.ts (what turbo runs)
 bun run compile          # single-file DEV binary ./dist/subshell (host only, --bytecode)
-bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:agent`)
+bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:client`)
 bun run test             # bun test
 bun run verify-types     # tsc --noEmit
 ```
 
 - `compile:release` (`src/scripts/release.ts`) is deliberately SEPARATE from
-  `compile`: cross builds download each target's bun runtime on first use and
-  ship WITHOUT `--bytecode` (spec risk #9), so they must never become a hidden
-  cost of the normal build/test path. Publish is atomic (tmp + `rename()` per
+  `compile`: cross builds download each target's bun runtime on first use, so
+  they must never become a hidden cost of the normal build/test path. Every
+  target ships `--bytecode` (risk #9 retired at bun 1.4.0 — spec 2026-09-03
+  §5); the pipeline refuses older bun. `SUBSHELL_RELEASE_TRIPLES` scopes a
+  subset (CI uses this). Publish is atomic (tmp + `rename()` per
   artifact + fresh `.sha256` sidecar — the downloads route's mtime-keyed cache
   contract) and all-or-nothing (a failed target publishes NOTHING). Destination:
   `SUBSHELL_NODE_ARTIFACTS_DIR`, else `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` (a
-  documented duplicate of the backend's default in `apps/backend/src/constants.ts`).
+  documented duplicate of the server's default in `apps/server/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
-  the tsdown output) — re-create with `cd apps/agent && bun run compile`.
+  the tsdown output) — re-create with `cd apps/client && bun run compile`.
 - Workspace deps (`harnesses`, `subshell-protocol`, `mcp-core`, `backend-errors`):
   the compiled binary BUNDLES their dists, so `turbo build` must run first —
-  `compile:release` preflights and refuses otherwise. The agent imports
-  packages, never `apps/backend` code, and never opens the app database.
+  `compile:release` preflights and refuses otherwise. The client imports
+  packages, never `apps/server` code, and never opens the app database.
 
 ## CLI (`src/cli.ts` — hand-rolled parser, no flag library)
 
@@ -49,7 +51,7 @@ deliberately does NOT (a deleted config is the de-facto unenroll — an enabled
 unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`
 (`Restart=always`) + `systemctl --user enable --now`; success prints the
 linger hint (`loginctl enable-linger $USER` keeps the daemon across logout).
-macOS: `~/Library/LaunchAgents/dev.subshell.agent.plist` (KeepAlive, log at
+macOS: `~/Library/LaunchAgents/dev.subshell.client.plist` (KeepAlive, log at
 `~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. Other
 platforms: explicit refusal pointing at `subshell run` inside tmux/screen.
 The unit/plist bake the installing shell's `PATH` (`Environment=PATH=` /
@@ -73,7 +75,7 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
 
 ## On disk
 
-- **Agent home** — `~/.config/subshell-agent`, override `SUBSHELL_AGENT_HOME` (tests
+- **Config home** — `~/.config/subshell`, override `SUBSHELL_CONFIG_HOME` (tests
   use it): `config.json` (0600 — the nodeKey's ONLY home, never echoed by
   `status`, not even `--json`) and `daemon.lock` (local-liveness for `status`,
   refreshed on every 15 s heartbeat tick; observability only, never authority).
@@ -83,14 +85,14 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`
   per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +
-  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the agent data dir).
+  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the client data dir).
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
-  `SUBSHELL_AGENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
+  `SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
 
 ## Testing
 
-`bunfig.toml` preloads `src/test-preload.ts`: `SUBSHELL_AGENT_HOME` points at a
-throwaway temp dir (suites NEVER touch `~/.config/subshell-agent`),
+`bunfig.toml` preloads `src/test-preload.ts`: `SUBSHELL_CONFIG_HOME` points at a
+throwaway temp dir (suites NEVER touch `~/.config/subshell`),
 `SUBSHELL_TEST_MODE=1`, and the tmux preflight is skipped (the tmux-absent refusal
 is covered explicitly by clearing the var). `src/scripts/release.ts` guards its
 CLI main behind `import.meta.main` so tests import the pure publish/build logic

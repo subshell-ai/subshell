@@ -35,7 +35,7 @@ function stub(over: Partial<ServiceDeps> & { respond?: Responder } = {}): Stub {
     home: HOME,
     uid: 1000,
     execPath: "/usr/local/bin/subshell",
-    argv1: "/repo/apps/agent/src/main.ts",
+    argv1: "/repo/apps/client/src/main.ts",
     hasConfig: async () => true,
     runCmd: async (cmd) => {
       calls.push(cmd);
@@ -65,17 +65,17 @@ describe("execLine", () => {
   });
 
   test("interpreter launch passes the resolved script path before run", () => {
-    expect(execLine({ execPath: "/usr/local/bin/bun", argv1: "apps/agent/src/main.ts" })).toEqual([
+    expect(execLine({ execPath: "/usr/local/bin/bun", argv1: "apps/client/src/main.ts" })).toEqual([
       "/usr/local/bin/bun",
-      resolve("apps/agent/src/main.ts"),
+      resolve("apps/client/src/main.ts"),
       "run",
     ]);
   });
 
   test("an absolute argv1 resolves to itself", () => {
-    expect(execLine({ execPath: "/usr/local/bin/bun", argv1: "/repo/apps/agent/src/main.ts" })).toEqual([
+    expect(execLine({ execPath: "/usr/local/bin/bun", argv1: "/repo/apps/client/src/main.ts" })).toEqual([
       "/usr/local/bin/bun",
-      "/repo/apps/agent/src/main.ts",
+      "/repo/apps/client/src/main.ts",
       "run",
     ]);
   });
@@ -102,10 +102,10 @@ describe("installService — linux (systemd user unit)", () => {
   });
 
   test("dev-form execLine: interpreter + resolved script path in ExecStart", async () => {
-    const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/repo/apps/agent/src/main.ts" });
+    const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/repo/apps/client/src/main.ts" });
     const res = await installService(s.deps);
     expect(res.code).toBe(0);
-    expect(s.files.get(UNIT)).toInclude("ExecStart=/usr/local/bin/bun /repo/apps/agent/src/main.ts run");
+    expect(s.files.get(UNIT)).toInclude("ExecStart=/usr/local/bin/bun /repo/apps/client/src/main.ts run");
   });
 
   test("dbus guard: a failing daemon-reload exits 1 with systemctl's stderr, unit stays on disk", async () => {
@@ -272,12 +272,15 @@ describe("uninstallService — guards", () => {
 
 describe("unit/plist environment hardening (final-review minors)", () => {
   test("systemd ExecStart QUOTES tokens containing spaces (no word-split 203/EXEC)", async () => {
-    const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/home/john smith/repos/subshell/apps/agent/src/main.ts" });
+    const s = stub({
+      execPath: "/usr/local/bin/bun",
+      argv1: "/home/john smith/repos/subshell/apps/client/src/main.ts",
+    });
     const res = await installService(s.deps);
     expect(res.code).toBe(0);
     const unit = s.files.get(UNIT) ?? "";
     expect(unit).toInclude(
-      `ExecStart=/usr/local/bin/bun "${resolve("/home/john smith/repos/subshell/apps/agent/src/main.ts")}" run`,
+      `ExecStart=/usr/local/bin/bun "${resolve("/home/john smith/repos/subshell/apps/client/src/main.ts")}" run`,
     );
     expect(unit).not.toInclude("ExecStart=/usr/local/bin/bun /home/john smith"); // unquoted split-form is the bug
   });

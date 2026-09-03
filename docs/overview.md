@@ -32,7 +32,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Area | Choice |
 |---|---|
 | Runtime | **Bun** exclusively (monorepo via turbo workspaces) |
-| Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/backend/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
+| Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/server/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
 | Subshells | **tmux 3.6+ backed, detachable** (survive browser close); pipe-pane → per-subshell log file |
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 14 `subshell_*` MCP tools |
@@ -47,7 +47,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 ## Workspace layout
 
 ```
-apps/backend      Elysia app: api routes, ws, auth, subshell manager, tmux runner,
+apps/server       Elysia app: api routes, ws, auth, subshell manager, tmux runner,
                   static serving (built SPA), migrations; src/mcp/main.ts is the
                   stdio `subshell mcp` entry (own compile target, never opens the app DB)
 apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
@@ -112,8 +112,8 @@ packages/tsconfig          shared TS config (scaffold)
 
 - Backend uses **`bun test`** (vitest was removed — its node worker cannot
   import `bun:sqlite`)
-- Run: `bun run test` (root, all packages) / `cd apps/backend && bun test`
-- Type check: `bun run verify-types` (root) / `cd apps/backend && bunx tsc --noEmit` (from the
+- Run: `bun run test` (root, all packages) / `cd apps/server && bun test`
+- Type check: `bun run verify-types` (root) / `cd apps/server && bunx tsc --noEmit` (from the
   package dir, not repo root)
 - Lint: biome — `bun run lint` fixes (`--write --unsafe`), `bun run lint:check` verifies read-only
 - Hooks: lefthook runs `lint:staged` on **pre-commit** and `verify-types` + `lint:check` +
