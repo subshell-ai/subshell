@@ -1,6 +1,7 @@
 import {
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
+  NODE_PROTOCOL_MIN_VERSION,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
   parseNodeEvent,
@@ -281,7 +282,14 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           ...(event.executablePath ? { executablePath: event.executablePath } : {}),
         };
       }
-      if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
+      // Compat WINDOW, not equality: [NODE_PROTOCOL_MIN_VERSION,
+      // NODE_PROTOCOL_VERSION]. v3 (fs_ls) is additive, so a v2 agent stays
+      // fully connected and loses only folder browsing (feature-gated
+      // server-side). Below the floor = a pre-rename agent whose frame keys
+      // broke; above the ceiling = speaks frames we cannot verify. Both get
+      // UPDATE_REQUIRED (4406) — identity already persisted above so the
+      // Nodes page can name the problem.
+      if (event.protocolVersion < NODE_PROTOCOL_MIN_VERSION || event.protocolVersion > NODE_PROTOCOL_VERSION) {
         ws.close(NODE_CLOSE_UPDATE_REQUIRED, "agent update required");
         return;
       }

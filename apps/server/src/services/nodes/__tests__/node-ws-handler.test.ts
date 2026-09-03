@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import {
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
+  NODE_PROTOCOL_MIN_VERSION,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
 } from "@internal/subshell-protocol";
@@ -236,6 +237,23 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(h.ready).toHaveLength(1); // persisted so the UI can say "agent too old"
     expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
     expect(h.inventoryRequests).toEqual([]);
+  });
+
+  it("ready with the floor protocol (v2) → accepted in the window, inventory still requested", async () => {
+    // v3 (fs_ls) is additive: an in-window-but-older agent keeps its socket
+    // and full service; only folder browsing is feature-gated elsewhere.
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_MIN_VERSION }));
+    expect(ws.closed).toHaveLength(0);
+    expect(h.inventoryRequests).toEqual(["n1"]);
+  });
+
+  it("ready one below the floor (v1) → pre-rename agent refused with 4406", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_MIN_VERSION - 1 }));
+    expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
   });
 
   it("heartbeat → touch only", async () => {

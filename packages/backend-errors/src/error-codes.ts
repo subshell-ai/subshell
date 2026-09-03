@@ -20,6 +20,14 @@ export enum BackendErrorCodes {
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
+  /**
+   * The node's agent speaks a node protocol older than the feature being
+   * asked for (currently: folder browsing needs `fs_ls`, protocol v3). The
+   * agent still CONNECTS (the protocol floor is lower) — only this feature
+   * is refused, with a message that names the remedy: update the subshell
+   * app on that node.
+   */
+  NODE_OUTDATED = "NODE_OUTDATED",
   NODE_REQUIRED = "NODE_REQUIRED",
   NODE_RUNNING_SUBSHELLS = "NODE_RUNNING_SUBSHELLS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
@@ -71,6 +79,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_ONLINE]: {
     message: "Node is online",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_OUTDATED]: {
+    message: "The subshell app on this node is too old for this feature",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_REQUIRED]: {

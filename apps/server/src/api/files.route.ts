@@ -11,6 +11,7 @@ import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { loadNodeAccess } from "@/lib/node-access.js";
+import { exploreNodeDirectory } from "@/services/files-remote-browse.service.js";
 import { expandTilde } from "@/utils/path.js";
 
 interface DirEntry {
@@ -60,23 +61,38 @@ const RecentResponseSchema = t.Object({
 /**
  * Filesystem exploration for the folder picker (new subshell form).
  *
- * **This is an authenticated-browser folder picker, not a sandbox.** It
- * browses the host filesystem by design — that is the entire point of the
- * feature — so the real security boundary is the subshell-user's filesystem
- * permissions: anything the backend's OS user can read is browsable. What
- * this route does control:
+ * **This is an authenticated-browser folder picker, not a sandbox.** With no
+ * `node` param it browses the control-plane host; with one it dispatches a
+ * signed `fs_ls` to that node's agent and browses THERE — on either machine
+ * that is the entire point of the feature, so the real security boundary is
+ * the OS user's filesystem permissions: anything the backend's user (local)
+ * or the agent's user (node) can read is browsable. What this route does
+ * control:
  *
  * - **Browser-only**: machine credentials (subshell keys, system keys) get
  *   403. A running harness holding its own bearer token must not be able to
  *   enumerate the operator's disk; only a signed-in human in the browser
  *   uses the picker (verified: the MCP server never calls this route).
- * - **Optional confinement**: `SUBSHELL_FS_ROOT`, when set, restricts browsing
- *   to that directory tree (paths outside it get 403). When unset — the
- *   default — there is no path confinement. There is no secret allowlist.
- * - One level per request, dotfiles hidden, absolute paths only.
+ * - **Node visibility**: a `node` id the caller cannot see answers 404,
+ *   never 403 — the same no-oracle rule `/recent` applies (spec 2026-08-31 §2).
+ * - **Optional confinement (LOCAL ONLY)**: `SUBSHELL_FS_ROOT`, when set,
+ *   restricts browsing to that directory tree (paths outside it get 403).
+ *   It NEVER confines a remote node — that root belongs to this host and
+ *   means nothing on another machine; a node's own confinement is the agent
+ *   user's filesystem permissions. When unset — the default — there is no
+ *   path confinement anywhere. There is no secret allowlist.
+ * - One level per request, dotfiles hidden, absolute paths only (on a node,
+ *   an omitted/`~` path means the AGENT's home — the server cannot expand
+ *   `~` against a filesystem it cannot see).
+ * - **Feature gate**: browsing a node needs `fs_ls`, i.e. the agent's
+ *   reported protocol >= 3 (`FS_LS_MIN_PROTOCOL_VERSION`); an older agent
+ *   answers 409 `NODE_OUTDATED` (it stays connected for everything else).
  * - `PATCH /favorite` stars/unstars a path (the picker's Favorites section —
- *   the successor to the removed bookmarks feature); `/explore` ships both
- *   sections so the panel needs one request per folder.
+ *   the successor to the removed bookmarks feature); local `/explore` ships
+ *   both sections so the panel needs one request per folder. Remote
+ *   `/explore` ships them EMPTY — recents/favorites are control-plane
+ *   concepts and node paths there would be dead clicks (per-node recents
+ *   ride `/recent?node=` for the form's pre-fill).
  */
 export const filesRoutes = new Elysia({ prefix: "/api/files" })
   .use(authGuard)
@@ -88,6 +104,16 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // browsing is a human-in-the-browser affordance, not a harness API.
       if (actor !== "cookie") {
         throw new FilesError("forbidden", "Folder browsing is restricted to browser sessions", 403);
+      }
+
+      // Omitted/'local' → the byte-identical control-plane browse below. Any
+      // other id is a REMOTE browse: same response shape, but the directory
+      // walk happens on the node via one signed `fs_ls` round-trip (and the
+      // visibility check, feature gate, and error mapping ride with it —
+      // see `files-remote-browse.service.ts`).
+      const nodeId = query.node?.trim() || LOCAL_NODE_ID;
+      if (nodeId !== LOCAL_NODE_ID) {
+        return await exploreNodeDirectory(user.id, nodeId, query.path);
       }
 
       const raw = query.path?.trim() || homedir();
@@ -140,9 +166,10 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       const parent = resolved === "/" ? null : join(resolved, "..");
       // Both sections in one response so the picker needs one request per
       // folder. A path is listed once — favorites win over recents.
-      // The recents section stays LOCAL-scoped on purpose: this picker walks
-      // the control-plane filesystem, so a remote node's paths here would be
-      // dead clicks. Per-node recents live on /recent?node=<id> instead.
+      // These sections are the LOCAL browse's own: a remote explore ships
+      // them empty (see exploreNode), so nothing here can be a dead click
+      // into a filesystem this response is not walking. Per-node recents
+      // live on /recent?node=<id> instead.
       const favorites = await favoritePaths(user.id);
       const starred = new Set(favorites.map((f) => f.path));
       const recent = (await recentPaths(user.id))
@@ -154,12 +181,18 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
     {
       query: t.Object({
         path: t.Optional(t.String({ description: "Directory to list (defaults to home)" })),
+        node: t.Optional(
+          t.String({
+            description:
+              "Node id to browse; omitted or 'local' = the control-plane host. A remote browse needs fs_ls (node protocol >= 3): older agents answer 409 NODE_OUTDATED",
+          }),
+        ),
       }),
       response: ExploreResponseSchema,
       detail: {
         operationId: "exploreFiles",
         tags: ["files"],
-        description: "Lists a directory (folder picker; browser sessions only)",
+        description: "Lists a directory on this host or a node (folder picker; browser sessions only)",
       },
     },
   )
