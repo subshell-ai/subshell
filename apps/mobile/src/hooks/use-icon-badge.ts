@@ -10,7 +10,7 @@ import { useSubshell } from "@/providers/subshell-provider";
  * payload stamps the icon at SEND time — true for that instant only. While
  * foregrounded the polled summary is the source of truth, so every settled
  * change rewrites the icon to match: events resolved, bells silenced,
- * sessions deleted, instances forgotten.
+ * subshells deleted, instances forgotten.
  *
  * Two deliberate gates (review, Important #1/#2):
  * - signed-in but first poll not settled → DON'T write. The badge APNs

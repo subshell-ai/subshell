@@ -1,9 +1,9 @@
 /**
  * Hand-written mirror of the backend's node view (`api/nodes/node-view.ts →
- * NodeViewSchema`, spec 2026-08-31 §9) — same convention as `types/session.ts`
+ * NodeViewSchema`, spec 2026-08-31 §9) — same convention as `types/subshell.ts`
  * (the Treaty client is never imported; see its header note for why).
  *
- * DELIBERATE SUBSET: only what the new-session picker and the session-card
+ * DELIBERATE SUBSET: only what the new-subshell picker and the subshell-card
  * copy need. The wire carries more (os/arch/hostname/lastSeenAt/capabilities/
  * harnesses/inventoryStale/canManage); fields are added here when a screen
  * actually reads them, not before. The list route returns `{ nodes: Node[] }`;

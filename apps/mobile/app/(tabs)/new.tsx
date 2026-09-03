@@ -24,12 +24,12 @@ import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/profile";
 
 /**
- * New-session tab (spec §Screens): profile picker, native folder sheet over
+ * New-subshell tab (spec §Screens): profile picker, native folder sheet over
  * /api/files/explore (one level per request, recents+favourites ride along),
  * optional name and first prompt. The cookie actor unlocks the folder route —
  * exactly why the app authenticates as one (spec §Auth).
  */
-export default function NewSession() {
+export default function NewSubshell() {
   const insets = useSafeAreaInsets();
   const { client } = useSubshell();
   const qc = useQueryClient();
@@ -107,7 +107,7 @@ export default function NewSession() {
     if (!client || !profileId || !workingDir || !nodeId || busy) return;
     setBusy(true);
     try {
-      const res = await client.createSession({
+      const res = await client.createSubshell({
         profileId,
         workingDir,
         name: name.trim() || undefined,
@@ -118,8 +118,8 @@ export default function NewSession() {
         // close of the P2-T16 "chip-less submit" debt).
         nodeId: nodeId === "local" ? undefined : nodeId,
       });
-      await qc.invalidateQueries({ queryKey: ["sessions"] });
-      router.replace(`/session/${res.id}`);
+      await qc.invalidateQueries({ queryKey: ["subshells"] });
+      router.replace(`/subshell/${res.id}`);
     } catch (err) {
       Alert.alert("Could not start", errMessage(err, "Request failed"));
     } finally {
@@ -153,7 +153,7 @@ export default function NewSession() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: insets.top + 24, gap: 16 }}>
-        <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>New session</Text>
+        <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>New subshell</Text>
 
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Profile</Text>
@@ -289,7 +289,7 @@ export default function NewSession() {
 
         <PrimaryButton
           onPress={() => void start()}
-          label="Start session"
+          label="Start subshell"
           bold
           disabled={!profileId || !workingDir || !nodeId}
           busy={busy}

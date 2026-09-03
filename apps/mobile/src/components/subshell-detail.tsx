@@ -6,14 +6,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { confirmAction } from "@/components/confirm-action";
 import { LiveHost } from "@/components/live-host";
 import { PromptModal } from "@/components/prompt-modal";
-import { SESSIONS_KEY } from "@/hooks/query-keys";
-import { useSession } from "@/hooks/use-session";
-import { useSessionLog } from "@/hooks/use-session-log";
+import { SUBSHELLS_KEY } from "@/hooks/query-keys";
+import { useSubshellData } from "@/hooks/use-subshell-data";
+import { useSubshellLog } from "@/hooks/use-subshell-log";
 import type { SubshellClient } from "@/lib/api";
 import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
-import { sessionActionFlags } from "@/lib/session-access";
-import { isNodeOffline, isWaiting } from "@/lib/session-order";
+import { subshellActionFlags } from "@/lib/subshell-access";
+import { isNodeOffline, isWaiting } from "@/lib/subshell-order";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 import { useSubshell } from "@/providers/subshell-provider";
@@ -25,20 +25,20 @@ import { useSubshell } from "@/providers/subshell-provider";
  * erroring. Restart is IN-PLACE — same id, deep links survive (53654a8).
  * Extracted from the route so the wide shell (task 14) embeds the same body.
  */
-export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack?: () => void }) {
+export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onBack?: () => void }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { client } = useSubshell();
   const qc = useQueryClient();
   const wsBlocked = useApp((s) => s.instances.find((r) => r.id === s.activeId)?.wsBlocked ?? false);
-  const { data: session, refetch, error } = useSession(sessionId);
+  const { data: subshell, refetch, error } = useSubshellData(subshellId);
   const [tab, setTab] = useState<"live" | "log">("log");
   const [modal, setModal] = useState<"name" | "notes" | null>(null);
-  const log = useSessionLog(sessionId, tab === "log");
+  const log = useSubshellLog(subshellId, tab === "log");
 
   function gone(err: unknown): boolean {
     if (isAlreadyGone(err)) {
-      void qc.invalidateQueries({ queryKey: SESSIONS_KEY });
+      void qc.invalidateQueries({ queryKey: SUBSHELLS_KEY });
       if (onBack) onBack();
       else router.back();
       return true;
@@ -61,16 +61,16 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     if (!(await requireBiometric(`Confirm: ${label}`))) return;
     try {
       await fn(client);
-      await Promise.all([refetch(), qc.invalidateQueries({ queryKey: SESSIONS_KEY })]);
+      await Promise.all([refetch(), qc.invalidateQueries({ queryKey: SUBSHELLS_KEY })]);
     } catch (err) {
       if (!gone(err)) Alert.alert(label, errMessage(err, "Request failed"));
     }
   }
 
-  if (error && !session) {
+  if (error && !subshell) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
-        <Text style={{ color: colors.destructive }}>{errMessage(error, "Cannot load this session")}</Text>
+        <Text style={{ color: colors.destructive }}>{errMessage(error, "Cannot load this subshell")}</Text>
       </View>
     );
   }
@@ -79,20 +79,20 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
   // §5.6): with no live agent, alive/waitingSince are last-known facts.
   // (`isNodeOffline` carries the `=== true` posture — older payloads
   // without the field never read as unreachable.)
-  const pill = !session
+  const pill = !subshell
     ? { text: "…", color: colors.mutedFg }
-    : isNodeOffline(session)
+    : isNodeOffline(subshell)
       ? { text: "node unreachable", color: colors.warning }
-      : isWaiting(session)
+      : isWaiting(subshell)
         ? { text: "waiting for you", color: colors.warning }
-        : session.alive
+        : subshell.alive
           ? { text: "running", color: colors.success }
-          : session.status === "terminated"
+          : subshell.status === "terminated"
             ? { text: "completed", color: colors.mutedFg }
             : { text: "exited", color: colors.mutedFg };
 
   // Viewer-relative access drives the action bar and live input (spec §4.1).
-  const flags = sessionActionFlags(session?.access);
+  const flags = subshellActionFlags(subshell?.access);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -104,7 +104,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
             </Pressable>
           )}
           <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 19, fontWeight: "700", flex: 1 }}>
-            {session?.name ?? "Session"}
+            {subshell?.name ?? "Subshell"}
           </Text>
           <Text style={{ color: pill.color, fontSize: 12, fontWeight: "700" }}>{pill.text}</Text>
         </View>
@@ -139,7 +139,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
             </Text>
           </View>
         ) : (
-          <LiveHost client={client} sessionId={sessionId} active readOnly={!flags.canInput} />
+          <LiveHost client={client} subshellId={subshellId} active readOnly={!flags.canInput} />
         )
       ) : log.isLoading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -181,12 +181,12 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
           <Action label="Rename" onPress={() => setModal("name")} />
           <Action label="Notes" onPress={() => setModal("notes")} />
           {/* The bell and deletion are owner-only (spec §4.1); edit grantees
-            manage the session but do not decide its owner's push posture. */}
+            manage the subshell but do not decide its owner's push posture. */}
           {flags.isOwner && (
             <Action
-              label={session?.notify ? "Bell on" : "Bell off"}
-              color={session?.notify ? colors.warning : colors.primary}
-              onPress={() => void run("Bell", (cli) => cli.setNotify(sessionId, !(session?.notify ?? false)))}
+              label={subshell?.notify ? "Bell on" : "Bell off"}
+              color={subshell?.notify ? colors.warning : colors.primary}
+              onPress={() => void run("Bell", (cli) => cli.setNotify(subshellId, !(subshell?.notify ?? false)))}
             />
           )}
           <Action
@@ -194,9 +194,9 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
             onPress={() =>
               confirmAction(
                 "Restart in place?",
-                "Revives the same session (same id), resuming the conversation when possible.",
+                "Revives the same subshell (same id), resuming the conversation when possible.",
                 "Restart",
-                () => void run("Restart", (cli) => cli.restart(sessionId)),
+                () => void run("Restart", (cli) => cli.restart(subshellId)),
               )
             }
           />
@@ -207,7 +207,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
                 "Terminate?",
                 "Kills the pane. Restart can revive it.",
                 "Terminate",
-                () => void run("Terminate", (cli) => cli.terminate(sessionId)),
+                () => void run("Terminate", (cli) => cli.terminate(subshellId)),
                 { destructive: true },
               )
             }
@@ -219,11 +219,11 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               onPress={() =>
                 confirmAction(
                   "Delete?",
-                  "Removes the session for good.",
+                  "Removes the subshell for good.",
                   "Delete",
                   () =>
                     void run("Delete", async (cli) => {
-                      await cli.deleteSession(sessionId);
+                      await cli.deleteSubshell(subshellId);
                       if (onBack) onBack();
                       else router.back();
                     }),
@@ -237,17 +237,17 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
       {modal ? (
         <PromptModal
-          title={modal === "name" ? "Session name" : "Notes"}
-          initial={modal === "name" ? (session?.name ?? "") : (session?.notes ?? "")}
+          title={modal === "name" ? "Subshell name" : "Notes"}
+          initial={modal === "name" ? (subshell?.name ?? "") : (subshell?.notes ?? "")}
           multiline={modal === "notes"}
           onDone={(value) => {
             setModal(null);
-            if (value === null || !client || !session) return;
+            if (value === null || !client || !subshell) return;
             if (modal === "name") {
               const name = value.trim();
-              if (name && name !== session.name) void run("Rename", () => client.rename(sessionId, name));
+              if (name && name !== subshell.name) void run("Rename", () => client.rename(subshellId, name));
             } else {
-              void run("Notes", () => client.setNotes(sessionId, value.trim() === "" ? null : value));
+              void run("Notes", () => client.setNotes(subshellId, value.trim() === "" ? null : value));
             }
           }}
         />

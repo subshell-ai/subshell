@@ -2,8 +2,8 @@ import type { Node } from "@/types/node";
 
 /**
  * Whether a node is pickable right now — the mobile mirror of the web
- * `new-session-form.tsx` `isSelectable`; change one, change both. ANY visible
- * node grants launch (`nodeCanLaunch` — deliberately not the session rule,
+ * `new-subshell-form.tsx` `isSelectable`; change one, change both. ANY visible
+ * node grants launch (`nodeCanLaunch` — deliberately not the subshell rule,
  * spec §2), but an OFFLINE agent is shown disabled: launching there 409s
  * `NODE_OFFLINE`, and offering a target we know is down would only invite a
  * confusing failure. (The pick list can always be stale — the 409 path covers
@@ -16,7 +16,7 @@ export function isSelectable(n: Node): boolean {
 
 /**
  * The node the picker should hold once the list has loaded — the mobile
- * mirror of the web `new-session-form.tsx` `pickNodeDefault`; change one,
+ * mirror of the web `new-subshell-form.tsx` `pickNodeDefault`; change one,
  * change both. Keep the current pick while it stays selectable; else the
  * pick vanished (or went unselectable) and exactly one option remains
  * (auto-pick — not a decision worth forcing); else `""` — an explicit choice

@@ -47,7 +47,7 @@ export function SubshellProvider({ children }: { children: ReactNode }) {
     if (hydrated) void saveRegistry(instances, activeId).catch(() => undefined);
   }, [instances, activeId, hydrated]);
 
-  // Queries are keyed by NAME ("sessions", "summary", "session/<id>"), so an
+  // Queries are keyed by NAME ("subshells", "summary", "subshell/<id>"), so an
   // instance switch would otherwise show (and poll) the previous instance's
   // data under the same keys. Drop the whole cache on switch — cheap, and the
   // resumed poll re-populates it.

@@ -3,13 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SubshellClient } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";
 
-/** Fixed reconnect delay — same as the web hook (`use-session-ws.ts:14`). */
+/** Fixed reconnect delay — same as the web hook (`use-subshell-ws.ts:14`). */
 export const RECONNECT_DELAY_MS = 1500;
 
 /**
  * 4xxx = server rejection (attach failed / unauthorized / not running):
  * retrying cannot succeed. Everything below is a transient drop. Mirrors
- * `apps/frontend/src/lib/use-session-ws.ts` close handling.
+ * `apps/frontend/src/lib/use-subshell-ws.ts` close handling.
  */
 export function shouldReconnectAfterClose(code: number): boolean {
   return code < 4000;
@@ -23,7 +23,7 @@ export type SocketStatus =
   | { state: "rejected"; code: number };
 
 /** Frame sink: what the socket hands to the renderer (Task 8's WebView). */
-export interface SessionSocketHandlers {
+export interface SubshellSocketHandlers {
   /** One pane-write chunk (replay tail or live output). */
   onBytes: (data: string) => void;
   /** First replay of a fresh attach: wipe the emulator (spec §Transport). */
@@ -31,19 +31,19 @@ export interface SessionSocketHandlers {
 }
 
 /**
- * One socket, one session (spec §Transport): the single-use token is minted
+ * One socket, one subshell (spec §Transport): the single-use token is minted
  * per connect AND per reconnect (30 s TTL). Frames are JSON text — the web
  * contract unchanged (invariant 3). RN owns the socket; the WebView never
  * sees it. Status is returned, not duplicated through a handler — one source
  * per value (review, simplification #2).
  */
-export function useSessionSocket(opts: {
+export function useSubshellSocket(opts: {
   client: SubshellClient;
-  sessionId: string;
+  subshellId: string;
   active: boolean;
-  handlers: SessionSocketHandlers;
+  handlers: SubshellSocketHandlers;
 }) {
-  const { client, sessionId, active } = opts;
+  const { client, subshellId, active } = opts;
   const handlersRef = useRef(opts.handlers);
   handlersRef.current = opts.handlers;
   const wsRef = useRef<WebSocket | null>(null);
@@ -75,7 +75,7 @@ export function useSessionSocket(opts: {
   );
 
   useEffect(() => {
-    if (!active || !sessionId) return;
+    if (!active || !subshellId) return;
     let cancelled = false;
 
     const scheduleRetry = () => {
@@ -90,7 +90,7 @@ export function useSessionSocket(opts: {
       try {
         const { token } = await client.wsToken(); // mint per attempt, never reused
         if (cancelled) return;
-        const url = `${wsOrigin(client.baseUrl)}/ws?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`;
+        const url = `${wsOrigin(client.baseUrl)}/ws?subshell=${encodeURIComponent(subshellId)}&token=${encodeURIComponent(token)}`;
         const ws = new WebSocket(url);
         wsRef.current = ws;
         let replayStarted = false;
@@ -152,7 +152,7 @@ export function useSessionSocket(opts: {
         /* already dead */
       }
     };
-  }, [client, sessionId, active]);
+  }, [client, subshellId, active]);
 
   return { sendInput, sendResize, status };
 }

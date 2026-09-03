@@ -6,12 +6,12 @@ import { PUSH_TOKEN_KEY } from "@/native/push-token";
 
 /**
  * Native push wiring (spec §Push). The relay payload is opaque by backend
- * contract (invariant 6) — nothing here can name a session either: the tap
+ * contract (invariant 6) — nothing here can name a subshell either: the tap
  * handler routes on the sid uuid and the app fetches detail with its own
  * authenticated session.
  */
 
-const CHANNEL_ID = "subshell-sessions";
+const CHANNEL_ID = "subshell-subshells";
 
 /** Foreground presentation: banners only, no sound storm over the 3 s poll. */
 export function configureNotifications(): void {
@@ -31,7 +31,7 @@ export function configureNotifications(): void {
   });
   if (Platform.OS === "android") {
     void Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: "Sessions",
+      name: "Subshells",
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
     });
@@ -39,7 +39,7 @@ export function configureNotifications(): void {
   // Lock-screen actions (spec §Decisions): Open · Silence bell. Nothing
   // destructive is reachable from a locked screen; both require the device
   // unlock, matching the app's own "gate USE of the token" posture.
-  void Notifications.setNotificationCategoryAsync("session", [
+  void Notifications.setNotificationCategoryAsync("subshell", [
     {
       identifier: "open",
       buttonTitle: "Open",

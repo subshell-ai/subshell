@@ -17,7 +17,7 @@ export function KeyBar({
   onBytes,
   onPaste,
 }: {
-  /** Grayed until the session WS is attached */
+  /** Grayed until the subshell WS is attached */
   disabled: boolean;
   /** Write raw bytes to the pane */
   onBytes: (bytes: string) => void;

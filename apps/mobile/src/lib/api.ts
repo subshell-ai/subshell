@@ -2,7 +2,7 @@ import { ApiError, parseErrorBody } from "@/lib/api-error";
 import { cookieHeader, tokenFromSetCookie } from "@/lib/cookie";
 import type { Node } from "@/types/node";
 import type { ExploreResult, ProfileView } from "@/types/profile";
-import type { SessionLogTail, SessionSummary, SessionView, SignInResponse, WsTokenResponse } from "@/types/session";
+import type { SignInResponse, SubshellLogTail, SubshellSummary, SubshellView, WsTokenResponse } from "@/types/subshell";
 
 /**
  * Persistent token storage, injected so the client stays unit-testable and no
@@ -150,53 +150,53 @@ export class SubshellClient {
     return this.request<WsTokenResponse>("/api/auth/ws-token", { method: "POST" });
   }
 
-  /** @returns Every session the signed-in user owns. */
-  sessions(): Promise<SessionView[]> {
-    return this.request<SessionView[]>("/api/sessions");
+  /** @returns Every subshell the signed-in user owns. */
+  subshells(): Promise<SubshellView[]> {
+    return this.request<SubshellView[]>("/api/subshells");
   }
 
-  /** @param id - Session id @returns One session view */
-  session(id: string): Promise<SessionView> {
-    return this.request<SessionView>(`/api/sessions/${encodeURIComponent(id)}`);
+  /** @param id - Subshell id @returns One subshell view */
+  subshell(id: string): Promise<SubshellView> {
+    return this.request<SubshellView>(`/api/subshells/${encodeURIComponent(id)}`);
   }
 
   /**
    * The pane log tail — already ANSI-stripped server-side, which is what makes
    * the native LOG tab cost zero parsing.
-   * @param id - Session id
+   * @param id - Subshell id
    */
-  sessionLog(id: string): Promise<SessionLogTail> {
-    return this.request<SessionLogTail>(`/api/sessions/${encodeURIComponent(id)}/log`);
+  subshellLog(id: string): Promise<SubshellLogTail> {
+    return this.request<SubshellLogTail>(`/api/subshells/${encodeURIComponent(id)}/log`);
   }
 
   /**
-   * Waiting/running counts for the tab badge (`GET /api/sessions/summary`).
+   * Waiting/running counts for the tab badge (`GET /api/subshells/summary`).
    * Older instances 404 — callers must fall back to deriving `waiting` from
-   * the polled session list (see `lib/session-order.waitingCount`).
+   * the polled subshell list (see `lib/subshell-order.waitingCount`).
    */
-  summary(): Promise<SessionSummary> {
-    return this.request<SessionSummary>("/api/sessions/summary");
+  summary(): Promise<SubshellSummary> {
+    return this.request<SubshellSummary>("/api/subshells/summary");
   }
 
   /**
-   * Toggles the per-session bell — the only push policy switch, and the action
+   * Toggles the per-subshell bell — the only push policy switch, and the action
    * exposed as a non-destructive lock-screen notification button.
-   * @param id - Session id
-   * @param notify - True to ring for this session's events
+   * @param id - Subshell id
+   * @param notify - True to ring for this subshell's events
    */
   setNotify(id: string, notify: boolean): Promise<unknown> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}/notify`, {
+    return this.request(`/api/subshells/${encodeURIComponent(id)}/notify`, {
       method: "PATCH",
       body: JSON.stringify({ notify }),
     });
   }
 
   /**
-   * Renames a session (operator-owned name; flips `nameLocked` server-side).
-   * @param id - Session id @param name - New display name (1–120 chars)
+   * Renames a subshell (operator-owned name; flips `nameLocked` server-side).
+   * @param id - Subshell id @param name - New display name (1–120 chars)
    */
   rename(id: string, name: string): Promise<unknown> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}/name`, {
+    return this.request(`/api/subshells/${encodeURIComponent(id)}/name`, {
       method: "PATCH",
       body: JSON.stringify({ name }),
     });
@@ -204,36 +204,36 @@ export class SubshellClient {
 
   /**
    * Sets the operator note.
-   * @param id - Session id @param notes - Note text (null clears it)
+   * @param id - Subshell id @param notes - Note text (null clears it)
    */
   setNotes(id: string, notes: string | null): Promise<unknown> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}/notes`, {
+    return this.request(`/api/subshells/${encodeURIComponent(id)}/notes`, {
       method: "PATCH",
       body: JSON.stringify({ notes }),
     });
   }
 
   /**
-   * Revives the session IN PLACE — same id, rotated token (contract 53654a8).
+   * Revives the subshell IN PLACE — same id, rotated token (contract 53654a8).
    * Deep links and notifications survive a restart because the id does.
-   * @param id - Session id
+   * @param id - Subshell id
    */
   restart(id: string): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}/restart`, { method: "POST" });
+    return this.request(`/api/subshells/${encodeURIComponent(id)}/restart`, { method: "POST" });
   }
 
-  /** Kills the pane (resumable — restart can revive it). @param id - Session id */
+  /** Kills the pane (resumable — restart can revive it). @param id - Subshell id */
   terminate(id: string): Promise<unknown> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}/terminate`, { method: "POST" });
+    return this.request(`/api/subshells/${encodeURIComponent(id)}/terminate`, { method: "POST" });
   }
 
-  /** Removes the row. Terminal. @param id - Session id */
-  deleteSession(id: string): Promise<unknown> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  /** Removes the row. Terminal. @param id - Subshell id */
+  deleteSubshell(id: string): Promise<unknown> {
+    return this.request(`/api/subshells/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   /**
-   * The signed-in user's usable profiles (new-session picker; disabled
+   * The signed-in user's usable profiles (new-subshell picker; disabled
    * harnesses are already filtered out server-side).
    */
   profiles(): Promise<ProfileView[]> {
@@ -252,7 +252,7 @@ export class SubshellClient {
 
   /**
    * Nodes visible to the caller (owned or shared; the seeded `local` included
-   * via its Everyone grant) — the new-session launch picker. The `{ nodes }`
+   * via its Everyone grant) — the new-subshell launch picker. The `{ nodes }`
    * envelope is unwrapped here so callers speak `Node[]`. Cookie-only route.
    * @returns Every visible node, `local` first in practice (server order)
    */
@@ -262,20 +262,20 @@ export class SubshellClient {
   }
 
   /**
-   * Creates and launches a session (spec §Screens New session).
+   * Creates and launches a subshell (spec §Screens New subshell).
    * @param input - profileId + workingDir, optional name, first prompt, and
    *   launch node (omit for `local` — the server default; a pick of an
    *   invisible node 404s, an offline agent 409s NODE_OFFLINE)
-   * @returns The new session id (the pane may still be settling)
+   * @returns The new subshell id (the pane may still be settling)
    */
-  createSession(input: {
+  createSubshell(input: {
     profileId: string;
     workingDir: string;
     name?: string;
     prompt?: string;
     nodeId?: string;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
-    return this.request("/api/sessions", { method: "POST", body: JSON.stringify(input) });
+    return this.request("/api/subshells", { method: "POST", body: JSON.stringify(input) });
   }
 
   /**

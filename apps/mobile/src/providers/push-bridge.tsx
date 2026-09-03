@@ -2,10 +2,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect } from "react";
-import { SESSIONS_KEY } from "@/hooks/query-keys";
+import { SUBSHELLS_KEY } from "@/hooks/query-keys";
 import { useIconBadge } from "@/hooks/use-icon-badge";
 import { useApp } from "@/lib/app-state";
-import type { SessionNotifData } from "@/lib/notif-data";
+import type { SubshellNotifData } from "@/lib/notif-data";
 import { configureNotifications, enrollPush } from "@/native/push";
 import { clientForOrigin } from "@/native/subshell-client-factory";
 import { useSubshell } from "@/providers/subshell-provider";
@@ -19,8 +19,8 @@ import { useSubshell } from "@/providers/subshell-provider";
  * - app-icon badge = the polled waiting count while foregrounded
  *   (`useIconBadge`; pushes only stamp it at send time),
  * - response routing: the payload's `origin` selects the INSTANCE (spec
- *   §Push: a push for a session on B must open B, not the instance you last
- *   used) — tap switches active instance and routes to `/session/<sid>` (the
+ *   §Push: a push for a subshell on B must open B, not the instance you last
+ *   used) — tap switches active instance and routes to `/subshell/<sid>` (the
  *   route itself is the biometric gate, §Security notes), "Silence bell" →
  *   one PATCH against the ORIGIN's client + list refresh, without
  *   foregrounding. An origin this phone no longer knows (forgotten instance)
@@ -48,7 +48,7 @@ export function PushBridge() {
 
   useEffect(() => {
     const respond = async (response: Notifications.NotificationResponse) => {
-      const data = response.notification.request.content.data as SessionNotifData;
+      const data = response.notification.request.content.data as SubshellNotifData;
       if (!data?.sid) return;
       const { activeId, instances, setActive } = useApp.getState();
       const origin = data.origin && data.origin !== activeId ? data.origin : null;
@@ -60,14 +60,14 @@ export function PushBridge() {
         if (!actor) return;
         try {
           await actor.setNotify(data.sid, false);
-          await qc.invalidateQueries({ queryKey: SESSIONS_KEY });
+          await qc.invalidateQueries({ queryKey: SUBSHELLS_KEY });
         } catch {
           /* signed-out mid-flight: the bell state re-converges on next open */
         }
         return;
       }
       if (origin) setActive(origin); // provider clears the query cache on switch
-      router.push(`/session/${encodeURIComponent(data.sid)}`);
+      router.push(`/subshell/${encodeURIComponent(data.sid)}`);
     };
     const sub = Notifications.addNotificationResponseReceivedListener((r) => void respond(r));
     // Cold start from a notification tap must route too, not just live taps.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { RECONNECT_DELAY_MS, shouldReconnectAfterClose } from "@/lib/session-socket";
+import { RECONNECT_DELAY_MS, shouldReconnectAfterClose } from "@/lib/subshell-socket";
 
-describe("close-code policy (mirrors use-session-ws.ts:63-64,128)", () => {
+describe("close-code policy (mirrors use-subshell-ws.ts:63-64,128)", () => {
   it("retries everything below 4000 and nothing server-rejected", () => {
     expect(shouldReconnectAfterClose(1006)).toBe(true);
     expect(shouldReconnectAfterClose(3999)).toBe(true);

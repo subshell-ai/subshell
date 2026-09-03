@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { polledInterval } from "@/hooks/polled-interval";
 import { SUMMARY_KEY } from "@/hooks/query-keys";
 import { useForeground } from "@/hooks/use-foreground";
-import { useSessions } from "@/hooks/use-sessions";
-import { waitingCount } from "@/lib/session-order";
+import { useSubshells } from "@/hooks/use-subshells";
+import { waitingCount } from "@/lib/subshell-order";
 import { useSubshell } from "@/providers/subshell-provider";
 
 /**
@@ -17,7 +17,7 @@ import { useSubshell } from "@/providers/subshell-provider";
  */
 export function useWaitingState(): { waiting: number; loading: boolean } {
   const { client } = useSubshell();
-  const sessions = useSessions();
+  const subshells = useSubshells();
   const foreground = useForeground();
   const summary = useQuery({
     enabled: Boolean(client),
@@ -25,15 +25,15 @@ export function useWaitingState(): { waiting: number; loading: boolean } {
     queryFn: () => client?.summary(),
     staleTime: 2000,
     retry: false, // 404 on older instances is the fallback signal, not an error to fight
-    refetchInterval: () => polledInterval(foreground, () => sessions.data),
+    refetchInterval: () => polledInterval(foreground, () => subshells.data),
     refetchIntervalInBackground: false,
   });
   // "loading" = signed in and NEITHER source has settled its first attempt;
   // consumers that must not act on a not-yet-known count (the icon badge)
   // gate on this instead of reading 0 out of the empty-array fallback
   // (review, Important #1: cold start would flash the badge to 0).
-  const loading = Boolean(client) && sessions.isPending && summary.isPending;
-  return { waiting: summary.data?.waiting ?? waitingCount(sessions.data ?? []), loading };
+  const loading = Boolean(client) && subshells.isPending && summary.isPending;
+  return { waiting: summary.data?.waiting ?? waitingCount(subshells.data ?? []), loading };
 }
 
 export function useWaitingCount(): number {

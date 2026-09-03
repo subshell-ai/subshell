@@ -1,6 +1,6 @@
 /** One harness profile as `GET /api/profiles` returns it (mirror of ProfileSchema; only the fields this app renders). */
 export interface ProfileView {
-  /** Profile id (uuid) — the create-session body keys on it */
+  /** Profile id (uuid) — the create-subshell body keys on it */
   id: string;
   /** Owning user id */
   userId: string;
@@ -12,7 +12,7 @@ export interface ProfileView {
   description: string | null;
   /** 1 = auto-seeded default profile (cannot be deleted) */
   isDefault: number;
-  /** 1 = new sessions auto-restart on exit */
+  /** 1 = new subshells auto-restart on exit */
   restartOnExit: number;
   /** Pinned launch node id; null/absent = any node (mirror only — no UI yet). */
   nodeId?: string | null;

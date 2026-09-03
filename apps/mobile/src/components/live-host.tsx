@@ -5,7 +5,7 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { KeyBar } from "@/components/key-bar";
 import type { SubshellClient } from "@/lib/api";
 import { wrapPaste } from "@/lib/key-bar";
-import { type SocketStatus, useSessionSocket } from "@/lib/session-socket";
+import { type SocketStatus, useSubshellSocket } from "@/lib/subshell-socket";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 
@@ -26,12 +26,12 @@ const QUEUE_CAP = 200;
  */
 export function LiveHost({
   client,
-  sessionId,
+  subshellId,
   active,
   readOnly = false,
 }: {
   client: SubshellClient;
-  sessionId: string;
+  subshellId: string;
   active: boolean;
   /** A `view` grantee: output streams but keystrokes/paste are dropped and the key bar is hidden (spec §4.1). */
   readOnly?: boolean;
@@ -69,9 +69,9 @@ export function LiveHost({
     webview.current?.injectJavaScript(`${expr}; true;`);
   }, []);
 
-  const { sendInput, sendResize, status } = useSessionSocket({
+  const { sendInput, sendResize, status } = useSubshellSocket({
     client,
-    sessionId,
+    subshellId,
     active: active && unlocked,
     handlers: {
       onReset: () => inject("window.N.reset()"),
@@ -165,7 +165,7 @@ function RejectedBanner({ status }: { status: SocketStatus }) {
     status.code === 4001
       ? "Not authorized — sign in again."
       : status.code === 4004
-        ? "This session is not running."
+        ? "This subshell is not running."
         : "The terminal rejected the attach.";
   return (
     <View style={{ padding: 12, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>

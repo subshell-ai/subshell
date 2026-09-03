@@ -49,7 +49,7 @@ export function isRepeatable(label: string): boolean {
 /**
  * One `input` frame's payload for a paste: wrapped in bracketed-paste markers
  * when the pane has DECSET 2004 on, so "/"-leading paths are not read as
- * slash commands — the same rule as the web `session-frames.injectText`.
+ * slash commands — the same rule as the web `subshell-frames.injectText`.
  * @param text - Clipboard text
  * @param bracketed - Whether the remote has bracketed paste enabled
  */

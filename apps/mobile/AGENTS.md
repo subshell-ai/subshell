@@ -6,7 +6,7 @@ Expo SDK 57. Design:
 
 It is not a second web app. Its reason to exist is the four things a web page
 cannot do: background push, app-icon badge, lock-screen actions, and a
-Keychain-held credential behind Face ID. Session *viewing* on a phone is
+Keychain-held credential behind Face ID. Subshell *viewing* on a phone is
 already served by the responsive web shell — do not re-ship it here.
 
 ## Commands
@@ -141,7 +141,7 @@ anywhere in this repo.
 
 The launch-node picker (`(tabs)/new.tsx` + `src/hooks/use-nodes.ts`, with the
 pinned-profile re-anchor decision in `src/lib/node-anchor.ts`) is the mobile
-mirror of the web `new-session-form.tsx` of the same shape — change one, change
+mirror of the web `new-subshell-form.tsx` of the same shape — change one, change
 both. On the wire `local` is OMITTED from the create body (the server default),
 keeping single-machine payloads byte-identical to pre-nodes ones.
 

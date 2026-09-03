@@ -1,16 +1,16 @@
 import { stripAnsi } from "@internal/backend-errors";
 import { memo } from "react";
 import { Pressable, Text, View } from "react-native";
-import { isNodeOffline, isWaiting } from "@/lib/session-order";
+import { isNodeOffline, isWaiting } from "@/lib/subshell-order";
 import { colors, radius } from "@/lib/tokens";
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 
-/** One list row (spec §Screens Sessions card): name, harness, dot, preview, chip, death stats. */
-export const SessionCard = memo(function SessionCard({
-  session,
+/** One list row (spec §Screens Subshells card): name, harness, dot, preview, chip, death stats. */
+export const SubshellCard = memo(function SubshellCard({
+  subshell,
   onOpen,
 }: {
-  session: SessionView;
+  subshell: SubshellView;
   /** Stable identity, id-taking — keeps the memo honest when the list re-renders. */
   onOpen: (id: string) => void;
 }) {
@@ -20,12 +20,12 @@ export const SessionCard = memo(function SessionCard({
   // waiting/activity. The subtitle's "node unreachable" (below) is the only
   // state an offline card asserts. (The `=== true` posture lives in
   // `isNodeOffline`.)
-  const offline = isNodeOffline(session);
-  const waiting = !offline && isWaiting(session);
-  const preview = stripAnsi(session.preview.at(-1) ?? "").trim();
+  const offline = isNodeOffline(subshell);
+  const waiting = !offline && isWaiting(subshell);
+  const preview = stripAnsi(subshell.preview.at(-1) ?? "").trim();
   return (
     <Pressable
-      onPress={() => onOpen(session.id)}
+      onPress={() => onOpen(subshell.id)}
       style={{
         backgroundColor: colors.card,
         borderRadius: radius,
@@ -44,15 +44,15 @@ export const SessionCard = memo(function SessionCard({
             backgroundColor: offline
               ? // Unreachable asserts nothing: not working, not idle, not dead.
                 colors.border
-              : !session.alive
+              : !subshell.alive
                 ? colors.mutedFg
-                : session.activity === "active"
+                : subshell.activity === "active"
                   ? colors.success
                   : colors.warning,
           }}
         />
         <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 16, fontWeight: "600", flex: 1 }}>
-          {session.name}
+          {subshell.name}
         </Text>
         {waiting ? (
           <Text
@@ -69,14 +69,14 @@ export const SessionCard = memo(function SessionCard({
           </Text>
         ) : null}
       </View>
-      {/* `node unreachable` outranks `exited` (web session-card, spec §5.6):
+      {/* `node unreachable` outranks `exited` (web subshell-card, spec §5.6):
           with no live agent the exit facts are last-known, not current. */}
       <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
-        {session.harnessId}
+        {subshell.harnessId}
         {offline
           ? " · node unreachable"
-          : !session.alive
-            ? ` · exited ${session.exitCode ?? "?"}${session.backoffCount > 0 ? ` · restarts ${session.backoffCount}` : ""}`
+          : !subshell.alive
+            ? ` · exited ${subshell.exitCode ?? "?"}${subshell.backoffCount > 0 ? ` · restarts ${subshell.backoffCount}` : ""}`
             : ""}
       </Text>
       {preview ? (

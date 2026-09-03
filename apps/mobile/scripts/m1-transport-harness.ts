@@ -11,21 +11,21 @@
  * Usage:
  *   SUBSHELL_BASE_URL=http://127.0.0.1:3080 SUBSHELL_EMAIL=… SUBSHELL_PASSWORD=… bun run harness:m1
  *
- * Set SUBSHELL_SEND_INPUT=1 to additionally type a newline into a session you name
- * with SUBSHELL_SESSION_HINT (matched against the session name). Off by default:
+ * Set SUBSHELL_SEND_INPUT=1 to additionally type a newline into a subshell you name
+ * with SUBSHELL_SUBSHELL_HINT (matched against the subshell name). Off by default:
  * keystrokes go to a real agent's pane, and the token's owner can inject into
- * any session they own.
+ * any subshell they own.
  */
 
 import { SubshellClient, type TokenStore } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";
-import type { SessionView, WsTokenResponse } from "@/types/session";
+import type { SubshellView, WsTokenResponse } from "@/types/subshell";
 
 const BASE = process.env.SUBSHELL_BASE_URL ?? "http://127.0.0.1:3080";
 const EMAIL = process.env.SUBSHELL_EMAIL ?? "";
 const PASSWORD = process.env.SUBSHELL_PASSWORD ?? "";
 const SEND_INPUT = process.env.SUBSHELL_SEND_INPUT === "1";
-const HINT = process.env.SUBSHELL_SESSION_HINT ?? "";
+const HINT = process.env.SUBSHELL_SUBSHELL_HINT ?? "";
 
 let failures = 0;
 const ok = (label: string, detail = ""): void => {
@@ -88,12 +88,12 @@ async function main(): Promise<void> {
   }
 
   step("3/6 guarded route reads through the Cookie header");
-  let sessions: SessionView[] = [];
+  let subshells: SubshellView[] = [];
   try {
-    sessions = await client.sessions();
-    ok("GET /api/sessions", `${sessions.length} session(s)`);
+    subshells = await client.subshells();
+    ok("GET /api/subshells", `${subshells.length} subshell(s)`);
   } catch (err) {
-    bad("GET /api/sessions", err instanceof Error ? err.message : String(err));
+    bad("GET /api/subshells", err instanceof Error ? err.message : String(err));
   }
 
   step("4/6 ws-token mint — the gate that forces cookie auth");
@@ -121,15 +121,15 @@ async function main(): Promise<void> {
 
   step("6/6 attach /ws and read frames");
   const target =
-    sessions.find((s) => (HINT ? s.name.toLowerCase().includes(HINT.toLowerCase()) : false)) ??
-    sessions.find((s) => s.status === "running" && s.alive) ??
-    sessions[0];
+    subshells.find((s) => (HINT ? s.name.toLowerCase().includes(HINT.toLowerCase()) : false)) ??
+    subshells.find((s) => s.status === "running" && s.alive) ??
+    subshells[0];
   if (!target) {
-    bad("attach", "the user owns no sessions — create one in the web app first");
+    bad("attach", "the user owns no subshells — create one in the web app first");
   } else if (!wsToken) {
     bad("attach", "no ws-token to attach with");
   } else {
-    const url = `${wsOrigin(BASE)}/ws?session=${encodeURIComponent(target.id)}&token=${encodeURIComponent(wsToken)}`;
+    const url = `${wsOrigin(BASE)}/ws?subshell=${encodeURIComponent(target.id)}&token=${encodeURIComponent(wsToken)}`;
     console.log(`  target: "${target.name}" (${target.status}${target.alive ? "" : ", not alive"})`);
     await new Promise<void>((resolve) => {
       const ws = new WebSocket(url);

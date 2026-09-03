@@ -30,7 +30,7 @@ export function makeProbeDeps(): ProbeDeps {
           resolve(r);
         };
         // Bogus ids → the server answers 4001/4004 IF upgrades tunnel at all.
-        const ws = new WebSocket(`${wsOrigin(origin)}/ws?session=probe&token=probe`);
+        const ws = new WebSocket(`${wsOrigin(origin)}/ws?subshell=probe&token=probe`);
         const timer = setTimeout(() => {
           try {
             ws.close();

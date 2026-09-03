@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { isCompleted, isExited, isRunning, isWaiting, sectionize, waitingCount } from "@/lib/session-order";
-import type { SessionView } from "@/types/session";
+import { isCompleted, isExited, isRunning, isWaiting, sectionize, waitingCount } from "@/lib/subshell-order";
+import type { SubshellView } from "@/types/subshell";
 
-/** Minimal SessionView factory — tests override only what the predicate reads. */
-function make(over: Partial<SessionView> = {}): SessionView {
+/** Minimal SubshellView factory — tests override only what the predicate reads. */
+function make(over: Partial<SubshellView> = {}): SubshellView {
   return {
     id: crypto.randomUUID(),
     profileId: "p",
@@ -79,11 +79,11 @@ describe("waitingCount", () => {
   });
 });
 
-// Web parity (spec §5.6, mirroring the frontend session-card accessory rule):
+// Web parity (spec §5.6, mirroring the frontend subshell-card accessory rule):
 // an unreachable node's stamps are last-known facts, so the Waiting bucket and
 // the badge count must not advertise them — the "node unreachable" copy on the
 // row owns the state instead. (The chip/border/dot gate itself is live in
-// components/session-card.tsx; these two are the list-level markers.)
+// components/subshell-card.tsx; these two are the list-level markers.)
 describe("nodeOffline suppresses waiting markers", () => {
   const STAMP = "2026-08-31T00:00:00.000Z";
 

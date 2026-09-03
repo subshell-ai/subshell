@@ -15,7 +15,7 @@ const icon = (name: ComponentProps<typeof Ionicons>["name"]) =>
     return <Ionicons name={name} size={size} color={color} />;
   };
 
-/** Compact shell (spec §Adaptive): Sessions (waiting badge) · New · Settings. */
+/** Compact shell (spec §Adaptive): Subshells (waiting badge) · New · Settings. */
 export default function TabsLayout() {
   const waiting = useWaitingCount();
   return (
@@ -32,7 +32,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Sessions",
+          title: "Subshells",
           tabBarBadge: waiting > 0 ? waiting : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.warning },
         }}

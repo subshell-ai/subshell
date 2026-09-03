@@ -3,23 +3,23 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo } from "react";
 import { ActivityIndicator, RefreshControl, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { SessionCard } from "@/components/session-card";
-import { SessionDetail } from "@/components/session-detail";
+import { SubshellCard } from "@/components/subshell-card";
+import { SubshellDetail } from "@/components/subshell-detail";
 import { useIsWide } from "@/hooks/use-is-wide";
-import { useSessions } from "@/hooks/use-sessions";
-import { type SessionSections, sectionize } from "@/lib/session-order";
+import { useSubshells } from "@/hooks/use-subshells";
+import { type SubshellSections, sectionize } from "@/lib/subshell-order";
 import { colors } from "@/lib/tokens";
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 
-type Row = { kind: "header"; title: string } | { kind: "session"; session: SessionView };
+type Row = { kind: "header"; title: string } | { kind: "subshell"; subshell: SubshellView };
 
 /** Flattened section rows → one FlashList, stable identities, no section-API assumptions. */
-function toRows(sections: SessionSections): Row[] {
+function toRows(sections: SubshellSections): Row[] {
   const out: Row[] = [];
-  const push = (title: string, list: SessionView[]) => {
+  const push = (title: string, list: SubshellView[]) => {
     if (list.length === 0) return;
     out.push({ kind: "header", title });
-    for (const s of list) out.push({ kind: "session", session: s });
+    for (const s of list) out.push({ kind: "subshell", subshell: s });
   };
   push("Waiting for you", sections.waiting);
   push("Running", sections.running);
@@ -29,24 +29,24 @@ function toRows(sections: SessionSections): Row[] {
 }
 
 /**
- * Sessions list (spec §Screens): sections mirror the web page, badge lives in
+ * Subshells list (spec §Screens): sections mirror the web page, badge lives in
  * the tab bar. Compact pushes the full-screen detail; Regular (≥1024 px)
  * shows list ∣ detail side by side with the selection mirrored into ?sid=,
  * so deep links and state restoration land correctly (spec §Adaptive).
  */
-export default function SessionsList() {
+export default function SubshellsList() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const wide = useIsWide();
   const { sid } = useLocalSearchParams<{ sid?: string }>();
-  const { data, error, isLoading, isRefetching, refetch } = useSessions();
+  const { data, error, isLoading, isRefetching, refetch } = useSubshells();
 
   // Memoized on the fetch result: without it every isRefetching flip rebuilt
   // the Row array with fresh object identities and the card memo never hit
   // (review, efficiency #1).
   const rows = useMemo(() => toRows(sectionize(data ?? [])), [data]);
   const open = useCallback(
-    (id: string) => (wide ? router.setParams({ sid: id }) : router.push(`/session/${id}`)),
+    (id: string) => (wide ? router.setParams({ sid: id }) : router.push(`/subshell/${id}`)),
     [wide, router],
   );
   const closeDetail = () => router.setParams({ sid: undefined });
@@ -59,10 +59,10 @@ export default function SessionsList() {
         </View>
         <View style={{ flex: 1 }}>
           {sid ? (
-            <SessionDetail sessionId={sid} onBack={closeDetail} />
+            <SubshellDetail subshellId={sid} onBack={closeDetail} />
           ) : (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: colors.mutedFg }}>Select a session</Text>
+              <Text style={{ color: colors.mutedFg }}>Select a subshell</Text>
             </View>
           )}
         </View>
@@ -75,7 +75,7 @@ export default function SessionsList() {
     return (
       <View style={{ flex: 1, paddingTop: insets.top + 8 }}>
         <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-          <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>Sessions</Text>
+          <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>Subshells</Text>
         </View>
         {error && !data ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -96,7 +96,7 @@ export default function SessionsList() {
             refreshControl={
               <RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.mutedFg} />
             }
-            keyExtractor={(r, _i) => (r.kind === "session" ? r.session.id : `h-${r.title}`)}
+            keyExtractor={(r, _i) => (r.kind === "subshell" ? r.subshell.id : `h-${r.title}`)}
             renderItem={({ item }) =>
               item.kind === "header" ? (
                 <Text
@@ -114,7 +114,7 @@ export default function SessionsList() {
                 </Text>
               ) : (
                 <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-                  <SessionCard session={item.session} onOpen={open} />
+                  <SubshellCard subshell={item.subshell} onOpen={open} />
                 </View>
               )
             }

@@ -107,7 +107,7 @@ describe("SubshellClient.request", () => {
     const { fn, calls } = recordingFetch(() => fakeResponse("[]"));
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
-    await client.sessions();
+    await client.subshells();
 
     const cookie = (calls[0].init.headers as Headers).get("cookie");
     expect(cookie).toContain(`${SESSION_COOKIE}=tok`);
@@ -121,7 +121,7 @@ describe("SubshellClient.request", () => {
     );
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
-    await client.sessions();
+    await client.subshells();
     await Promise.resolve();
 
     expect(peek()).toBe("rotated");
@@ -140,7 +140,7 @@ describe("SubshellClient.request", () => {
     );
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
-    await expect(client.sessions()).rejects.toBeInstanceOf(ApiError);
+    await expect(client.subshells()).rejects.toBeInstanceOf(ApiError);
     await Promise.resolve();
 
     expect(peek()).toBeNull();
@@ -167,7 +167,7 @@ describe("SubshellClient.request", () => {
     const { fn } = recordingFetch(() => fakeResponse("<html>502 Bad Gateway</html>", { status: 502 }));
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
-    const err = (await client.sessions().catch((e) => e)) as ApiError;
+    const err = (await client.subshells().catch((e) => e)) as ApiError;
     expect(err.message).toContain("502 Bad Gateway");
     expect(err.code).toBeUndefined();
   });
@@ -185,7 +185,7 @@ describe("SubshellClient.request", () => {
       },
     });
 
-    await expect(client.sessions()).rejects.toBeInstanceOf(ApiError);
+    await expect(client.subshells()).rejects.toBeInstanceOf(ApiError);
     expect(peek()).toBeNull();
     expect(fired).toBe(1);
   });
@@ -224,13 +224,13 @@ describe("SubshellClient device enrollment", () => {
   });
 });
 
-describe("SubshellClient session verbs", () => {
+describe("SubshellClient subshell verbs", () => {
   const cases: [string, (c: SubshellClient) => Promise<unknown>, string, string][] = [
-    ["rename", (c) => c.rename("s 1", "New Name"), "PATCH", `${BASE}/api/sessions/s%201/name`],
-    ["setNotes", (c) => c.setNotes("s1", null), "PATCH", `${BASE}/api/sessions/s1/notes`],
-    ["restart", (c) => c.restart("s1"), "POST", `${BASE}/api/sessions/s1/restart`],
-    ["terminate", (c) => c.terminate("s1"), "POST", `${BASE}/api/sessions/s1/terminate`],
-    ["deleteSession", (c) => c.deleteSession("s1"), "DELETE", `${BASE}/api/sessions/s1`],
+    ["rename", (c) => c.rename("s 1", "New Name"), "PATCH", `${BASE}/api/subshells/s%201/name`],
+    ["setNotes", (c) => c.setNotes("s1", null), "PATCH", `${BASE}/api/subshells/s1/notes`],
+    ["restart", (c) => c.restart("s1"), "POST", `${BASE}/api/subshells/s1/restart`],
+    ["terminate", (c) => c.terminate("s1"), "POST", `${BASE}/api/subshells/s1/terminate`],
+    ["deleteSubshell", (c) => c.deleteSubshell("s1"), "DELETE", `${BASE}/api/subshells/s1`],
   ];
   for (const [name, call, method, url] of cases) {
     it(`${name} hits ${method} ${url.replace(BASE, "")}`, async () => {
@@ -244,7 +244,7 @@ describe("SubshellClient session verbs", () => {
   }
 });
 
-describe("SubshellClient new-session surface", () => {
+describe("SubshellClient new-subshell surface", () => {
   it("profiles() GETs /api/profiles", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify([])));
@@ -265,30 +265,30 @@ describe("SubshellClient new-session surface", () => {
     expect(res.path).toBe("/a b");
   });
 
-  it("createSession POSTs the exact body and returns the new id", async () => {
+  it("createSubshell POSTs the exact body and returns the new id", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: true })),
     );
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
-    const res = await client.createSession({ profileId: "p1", workingDir: "/w", prompt: "hi" });
-    expect(calls[0]?.url).toBe(`${BASE}/api/sessions`);
+    const res = await client.createSubshell({ profileId: "p1", workingDir: "/w", prompt: "hi" });
+    expect(calls[0]?.url).toBe(`${BASE}/api/subshells`);
     expect(calls[0]?.init.method).toBe("POST");
     expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", prompt: "hi" }));
     expect(res.id).toBe("new-1");
   });
 
-  it("createSession forwards nodeId when set; omitted stays omitted", async () => {
+  it("createSubshell forwards nodeId when set; omitted stays omitted", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: false })),
     );
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
-    await client.createSession({ profileId: "p1", workingDir: "/w", nodeId: "n1" });
+    await client.createSubshell({ profileId: "p1", workingDir: "/w", nodeId: "n1" });
     expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", nodeId: "n1" }));
 
-    await client.createSession({ profileId: "p1", workingDir: "/w" });
+    await client.createSubshell({ profileId: "p1", workingDir: "/w" });
     expect(calls[1]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w" }));
   });
 });

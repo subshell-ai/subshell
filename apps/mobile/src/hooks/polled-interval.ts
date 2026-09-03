@@ -1,5 +1,5 @@
 import { hasActivity, pollIntervalMs } from "@/lib/poll-policy";
-import type { SessionView } from "@/types/session";
+import type { SubshellView } from "@/types/subshell";
 
 /**
  * The one TanStack adapter for the poll policy (spec §Transport): every polled
@@ -7,6 +7,6 @@ import type { SessionView } from "@/types/session";
  * the same thing everywhere. `rows` is the activity source for the tick —
  * each hook passes its own data (or, for the badge, the list's).
  */
-export function polledInterval(foreground: boolean, rows: () => SessionView[] | undefined): number | false {
+export function polledInterval(foreground: boolean, rows: () => SubshellView[] | undefined): number | false {
   return pollIntervalMs({ foreground, hasActivity: hasActivity(rows() ?? []) }) ?? false;
 }
