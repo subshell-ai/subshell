@@ -14,7 +14,7 @@ import {
   TextCursorInput,
   Trash2,
 } from "lucide-react";
-import { type JSX, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
@@ -48,7 +48,9 @@ export function SubshellActionsMenu({
   /** When present: the menu opens on right-click of this subtree instead of
    * behind a ⋯ button — the sidebar's recent rows (spec 2026-09-03). */
   children?: ReactNode;
-}): JSX.Element | null {
+}): ReactNode {
+  // ReactNode, not JSX.Element | null: the viewer's no-menu path returns the
+  // caller's children verbatim (whatever element — or elements — they are).
   const [titleOpen, setTitleOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);

@@ -1,14 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ExternalLink, LayoutDashboard, Plus, SquareArrowOutUpRight, Trash2 } from "lucide-react";
+import { LayoutDashboard, Plus } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { EntityCard } from "@/components/entity-card";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { apiFetch, errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 
 export const Route = createFileRoute("/workspaces")({
   component: WorkspacesPage,
@@ -52,17 +52,6 @@ function WorkspacesPage() {
       setError(errMessage(err, "Failed to create workspace"));
     } finally {
       setCreating(false);
-    }
-  }
-
-  async function deleteWorkspace(id: string) {
-    const ok = await confirmAction({ title: "Delete this workspace?", confirmLabel: "Delete", danger: true });
-    if (!ok) return;
-    try {
-      await apiFetch(`/api/workspaces/${id}`, { method: "DELETE" });
-      await invalidate();
-    } catch (err) {
-      setError(errMessage(err, "Failed to delete workspace"));
     }
   }
 
@@ -120,24 +109,9 @@ function WorkspacesPage() {
               to="/workspaces/$id"
               params={{ id: w.id }}
               title={w.name}
-              items={[
-                {
-                  label: "Open",
-                  icon: ExternalLink,
-                  onSelect: () => void navigate({ to: "/workspaces/$id", params: { id: w.id } }),
-                },
-                {
-                  label: "Open in new tab",
-                  icon: SquareArrowOutUpRight,
-                  onSelect: () => window.open(`/workspaces/${w.id}`, "_blank", "noopener,noreferrer"),
-                },
-                {
-                  label: "Delete workspace",
-                  icon: Trash2,
-                  destructive: true,
-                  onSelect: () => void deleteWorkspace(w.id),
-                },
-              ]}
+              // One definition for both trigger surfaces — the card's ⋯ here,
+              // the sidebar row's right-click in app-sidebar.tsx (spec 2026-09-03).
+              menu={<WorkspaceActionsMenu workspace={w} onError={setError} />}
             >
               <p>{w.subshellCount === 1 ? "1 subshell" : `${w.subshellCount} subshells`}</p>
             </EntityCard>
