@@ -1,5 +1,5 @@
 import { type LucideIcon, MoreHorizontal } from "lucide-react";
-import type { JSX, ReactNode } from "react";
+import { type JSX, type ReactNode, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { ContextMenuRoot, ContextMenuTriggerContents } from "@/components/ui/context-menu";
 import {
@@ -29,6 +29,14 @@ export interface ActionItem {
    * misrepresent what the surface can do.
    */
   disabled?: boolean;
+  /**
+   * Show this item in the compact right-click menu too (sidebar rows).
+   * Context mode renders ONLY the flagged items — a deliberate curation, so
+   * dialog-flavoured page actions don't crowd a 220px nav list (spec
+   * 2026-09-03 amendment). Declared at the item's single definition site,
+   * so the surfaces stay one list with one filter.
+   */
+  sidebar?: boolean;
 }
 
 /**
@@ -85,12 +93,26 @@ export function ActionsMenu({
    * from a ⋯ button — no visible affordance is added (spec 2026-09-03). */
   children?: ReactNode;
 }): JSX.Element {
+  // The context-mode trigger host doubles as the positioner's anchor; unused
+  // by the ⋯ button mode (a hook must run unconditionally either way).
+  const anchorRef = useRef<HTMLSpanElement>(null);
   if (children) {
+    // The compact surface: curated items only, anchored to the ROW (a real
+    // block box — `display:contents` has no box to anchor against), opening
+    // beside it at the same place for every click within the row.
+    const sidebarItems = items.filter((item) => item.sidebar);
+    if (sidebarItems.length === 0) return <>{children}</>;
     return (
       <ContextMenuRoot disabled={disabled}>
-        <ContextMenuTriggerContents>{children}</ContextMenuTriggerContents>
-        <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-          <MenuItems items={items} />
+        <ContextMenuTriggerContents ref={anchorRef}>{children}</ContextMenuTriggerContents>
+        <DropdownMenuContent
+          anchor={anchorRef}
+          side="right"
+          align="start"
+          sideOffset={6}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MenuItems items={sidebarItems} />
         </DropdownMenuContent>
       </ContextMenuRoot>
     );

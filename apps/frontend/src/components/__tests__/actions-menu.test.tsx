@@ -5,8 +5,8 @@ import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 
 const ITEMS: ActionItem[] = [
   { label: "Edit", icon: Pencil, onSelect: () => {} },
-  { label: "Terminate", icon: Square, onSelect: () => {} },
-  { label: "Delete", icon: Trash2, destructive: true, onSelect: () => {} },
+  { label: "Terminate", icon: Square, onSelect: () => {}, sidebar: true },
+  { label: "Delete", icon: Trash2, destructive: true, onSelect: () => {}, sidebar: true },
 ];
 
 /**
@@ -83,7 +83,7 @@ describe("ActionsMenu — context mode (children)", () => {
   it("right-click opens the menu and choosing an item runs its onSelect", async () => {
     let fired = 0;
     render(
-      <ActionsMenu label="web" items={[{ label: "Terminate", icon: Square, onSelect: () => fired++ }]}>
+      <ActionsMenu label="web" items={[{ label: "Terminate", icon: Square, sidebar: true, onSelect: () => fired++ }]}>
         <a href="/x">row link</a>
       </ActionsMenu>,
     );
@@ -91,5 +91,29 @@ describe("ActionsMenu — context mode (children)", () => {
     await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("menuitem", { name: "Terminate" }));
     expect(fired).toBe(1);
+  });
+
+  it("shows ONLY sidebar-flagged items — the compact surface is curated, not the full page menu", async () => {
+    render(
+      <ActionsMenu label="web" items={ITEMS}>
+        <a href="/x">row link</a>
+      </ActionsMenu>,
+    );
+    fireEvent.contextMenu(screen.getByText("row link"));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
+    expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+  });
+
+  it("passes the children through unwrapped when no item is flagged for the sidebar", () => {
+    render(
+      <ActionsMenu label="web" items={[{ label: "Edit", icon: Pencil, onSelect: () => {} }]}>
+        <a href="/x">row link</a>
+      </ActionsMenu>,
+    );
+    fireEvent.contextMenu(screen.getByText("row link"));
+    expect(screen.queryAllByRole("menuitem").length).toBe(0);
+    expect(screen.getByText("row link")).toBeDefined();
   });
 });

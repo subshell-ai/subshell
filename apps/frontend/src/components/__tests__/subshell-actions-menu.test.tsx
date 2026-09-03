@@ -212,8 +212,14 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
       fireEvent.contextMenu(screen.getByText("the row"));
       await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
+      // Lifecycle + delete only (spec amendment): the dialog-flavoured page
+      // items must NOT leak into the compact sidebar surface.
       expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Delete subshell" })).toBeDefined();
+      expect(screen.queryByRole("menuitem", { name: "Edit title" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Add note" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Terminal history…" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
     } finally {
       restore();
     }

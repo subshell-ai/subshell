@@ -17,7 +17,7 @@ export const DropdownMenu = Menu.Root;
 export const DropdownMenuTrigger = Menu.Trigger;
 
 export interface DropdownMenuContentProps
-  extends Pick<Menu.Positioner.Props, "side" | "sideOffset" | "align" | "alignOffset">,
+  extends Pick<Menu.Positioner.Props, "side" | "sideOffset" | "align" | "alignOffset" | "anchor">,
     Menu.Popup.Props {}
 
 export function DropdownMenuContent({
@@ -26,18 +26,21 @@ export function DropdownMenuContent({
   align,
   alignOffset,
   side,
+  anchor,
   ...props
 }: DropdownMenuContentProps): JSX.Element {
   return (
     <Menu.Portal>
       {/* Declared, destructured, forwarded to the Positioner — Base UI
           requires positioning props on this node; letting them fall through
-          onto the Popup silently breaks anchoring. */}
+          onto the Popup silently breaks anchoring. `anchor` likewise: pass a
+          ref to override the trigger (or the context menu's virtual cursor). */}
       <Menu.Positioner
         sideOffset={sideOffset}
         align={align}
         alignOffset={alignOffset}
         side={side}
+        anchor={anchor}
         className="isolate z-50"
       >
         <Menu.Popup

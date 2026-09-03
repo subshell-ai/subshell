@@ -49,6 +49,8 @@ export function WorkspaceActionsMenu({
   }
 
   const items: ActionItem[] = [
+    // "Open" is deliberately unflagged for the sidebar: the row IS the link
+    // (spec 2026-09-03 amendment).
     {
       label: "Open",
       icon: ExternalLink,
@@ -57,9 +59,10 @@ export function WorkspaceActionsMenu({
     {
       label: "Open in new tab",
       icon: SquareArrowOutUpRight,
+      sidebar: true,
       onSelect: () => window.open(`/workspaces/${workspace.id}`, "_blank", "noopener,noreferrer"),
     },
-    { label: "Delete workspace", icon: Trash2, destructive: true, onSelect: () => void remove() },
+    { label: "Delete workspace", icon: Trash2, destructive: true, sidebar: true, onSelect: () => void remove() },
   ];
 
   return (

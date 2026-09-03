@@ -117,14 +117,17 @@ export function SubshellActionsMenu({
       : []),
     ...(canEdit
       ? [
+          // Lifecycle is the sidebar's reason to exist: stop / revive a
+          // subshell without opening its page (spec 2026-09-03 amendment).
           subshell.alive
-            ? { icon: SquareStop, label: "Terminate", onSelect: () => void terminate() }
+            ? { icon: SquareStop, label: "Terminate", sidebar: true, onSelect: () => void terminate() }
             : {
                 icon: RotateCcw,
                 // A tracked-but-dead subshell resumes in place; a terminated one
                 // can only be started afresh from the same profile and directory,
                 // which is a different enough thing to say so.
                 label: subshell.status === "running" ? "Restart" : "Start again",
+                sidebar: true,
                 onSelect: () => void restart(),
               },
         ]
@@ -156,7 +159,7 @@ export function SubshellActionsMenu({
     ...(isOwner
       ? [
           { icon: Share2, label: "Share…", onSelect: () => setShareOpen(true) },
-          { icon: Trash2, label: "Delete subshell", destructive: true, onSelect: () => void remove() },
+          { icon: Trash2, label: "Delete subshell", destructive: true, sidebar: true, onSelect: () => void remove() },
         ]
       : []),
   ];
