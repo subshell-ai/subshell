@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
+import { runSubshellMcp } from "@internal/mcp-core";
 import { DEFAULT_DATABASE_PATH } from "@internal/subshell-protocol";
 import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { runInit } from "@/commands/init.js";
@@ -15,30 +16,39 @@ import { SERVER_VERSION } from "@/version.js";
  * for anything that is not a known subcommand (no args, or a leading flag),
  * and the caller falls through to booting the server.
  *
- * Two load-bearing invariants, both forced by how Bun runs the entry graph
- * (measured on bun 1.4.0, NOT spec behaviour — Node would serialise):
+ * Three load-bearing invariants; 1 and 2 are forced by how Bun runs the
+ * entry graph (measured on bun 1.4.0, NOT spec behaviour — Node would
+ * serialise), and 3 is the duty that makes 1's one exception survivable:
  *
  * 1. A handled command MUST run and exit synchronously inside `dispatchCli`
- *    (via `deps.exit`, default `process.exit`). The entry prelude
- *    (`cli-bootstrap.ts`) therefore never `await`s before exit: any
- *    suspension — even `await null` — lets Bun evaluate the REST of the
- *    entry graph and even the entry body while the await is pending, which
- *    would boot the server on `subshell-server version`. This is why the
- *    interactive `init`/`configure` are written FULLY SYNCHRONOUSLY (sync
- *    fs + the `readSync(0, …)` prompt below): a readline-based command would
- *    suspend, `@/auth.js` would build better-auth in the gap — which OPENS
- *    the SQLite file, littering the CWD with `data/subshell.db` — and the
- *    engaged-flag gate would save only the port bind, not the DB. Verified
- *    subprocess-side in `__tests__/cli-entry.test.ts`.
+ *    (via `deps.exit`, default `process.exit`) — the single exception being
+ *    `mcp`, long-running BY CONTRACT (spec 2026-09-03): it awaits the stdio
+ *    MCP server, which is legal only because the entry graph is IO-free at
+ *    import (invariant 3 — the rest of the graph evaluating in its
+ *    suspension window is inert) and because invariant 2 keeps the boot body
+ *    out of that window. The entry prelude (`cli-bootstrap.ts`) never
+ *    `await`s before dispatch: any suspension — even `await null` — lets Bun
+ *    evaluate the REST of the entry graph and even the entry body while the
+ *    await is pending, which would boot the server on `subshell-server
+ *    version`. This is why the interactive `init`/`configure` are written
+ *    FULLY SYNCHRONOUSLY (sync fs + the `readSync(0, …)` prompt below): a
+ *    readline-based command would suspend, and pre-Task-2 an async command
+ *    evaluated `@/auth.js` in the gap — whose eager better-auth construction
+ *    OPENED the SQLite file, littering the CWD with `data/subshell.db`
+ *    (historical: construction is lazy via `getAuth()` now; the engaged-flag
+ *    gate never covered the DB anyway). Verified subprocess-side in
+ *    `__tests__/cli-entry.test.ts`.
  * 2. `dispatchCli` sets the engaged flag synchronously, before its first
  *    possible await, so the entry body (which evaluates inside any such
- *    window) sees it — the last-resort net, not something a command may
- *    rely on (see 1).
- *
- * Import hygiene: this module must stay free of import-time side effects —
- * no `@/constants.js` (dotenvx runs at ITS import time), no `@/db` (Kysely
- * opens lazily now, but `@/auth.js` still builds better-auth at import).
- * Only leaf modules are imported at the top level.
+ *    window) sees it — the last-resort net every command may rely on, the
+ *    `mcp` case most of all (see 1).
+ * 3. A command that awaits may exist ONLY because the graph it suspends
+ *    into does no IO at import — async commands must never do IO at import
+ *    themselves, and neither may anything they pull in. Import hygiene, in
+ *    concrete terms: no `@/constants.js` (dotenvx runs at ITS import time),
+ *    no eager singletons; `@internal/mcp-core` qualifies — its module
+ *    evaluation reads no env and opens nothing, `runSubshellMcp` does both
+ *    only when CALLED. Only leaf modules are imported at the top level.
  */
 
 /** Injectable stdio/exit/IO seams so tests can pin output without subprocesses. */
@@ -75,6 +85,12 @@ export interface CliDeps {
    * Injectable so tests pin the rung without a fake filesystem.
    */
   mcpIo?: McpResolveIo;
+  /**
+   * stdio MCP server runner for the `mcp` subcommand (default:
+   * `runSubshellMcp` from `@internal/mcp-core`). Injectable so tests pin the
+   * dispatch wiring without opening a real stdio loop.
+   */
+  mcpRun?: () => Promise<void>;
   /** Interactive-TTY signal for the command flows (default: `process.stdin.isTTY`). */
   isTTY?: boolean;
   /** Runtime platform for `service`/`status` (default: `process.platform`). */
@@ -150,6 +166,31 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       return true;
     case "status":
       runStatus(log, deps);
+      exit(0);
+      return true;
+    // The pane-spawned MCP stdio server (spec 2026-09-03): the ONLY
+    // long-running command — legal because the graph evaluates IO-free (lazy
+    // getAuth) and `isCliEngaged()` (set above, synchronously) keeps the boot
+    // body from running in the suspension window. cli-bootstrap's
+    // `.then(handled ⇒ exit 0)` is the natural end once stdin closes.
+    case "mcp":
+      try {
+        await (deps.mcpRun ?? runSubshellMcp)();
+      } catch (err: unknown) {
+        // Mirror `src/mcp/main.ts`: a rejected runner goes to stderr + exit 1
+        // HERE — index.ts's global unhandledRejection handler (FATAL log +
+        // exit 1) must never see it. `return true` keeps an injected
+        // (non-terminal) exit from falling through to the success exit below.
+        // MESSAGE-first, not main.ts's stack: measured on bun 1.4.0, the
+        // COMPILED bundle's `err.stack` header line omits the message
+        // ("Error\n  at …") while `err.message` is intact, and the contract
+        // refusal text is the actionable half for whoever spawned the pane.
+        const detail =
+          err instanceof Error ? (err.message !== "" ? err.message : (err.stack ?? String(err))) : String(err);
+        error(`subshell mcp: fatal: ${detail}`);
+        exit(1);
+        return true;
+      }
       exit(0);
       return true;
     case "init":
@@ -340,7 +381,7 @@ export function promptLineSync(question: string, def: string): string | null {
  *
  * NOTE: this is the three-layer view only. The repo `.env`-via-dotenvx layer
  * is applied at `constants.ts` import time by the BOOT path, which `status`
- * deliberately never evaluates (see the import-hygiene note above) — and
+ * deliberately never evaluates (see invariant 3 above) — and
  * under `bun run`/compiled binaries Bun itself preloads `.env` before ANY
  * user code, so a `.env` key is already "process env" by dispatch time.
  */

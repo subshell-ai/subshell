@@ -83,6 +83,36 @@ describe("dispatchCli — version", () => {
   });
 });
 
+describe("dispatchCli — mcp", () => {
+  test("mcp runs the injected stdio server and reports handled", async () => {
+    let calls = 0;
+    const { deps, exits } = collectingDeps({
+      mcpRun: async () => {
+        calls++;
+      },
+    });
+    // dispatchCli must await it: the fake resolves immediately, so this pins
+    // the dispatch → run → exit wiring without a real stdio loop.
+    expect(await dispatchCli(["mcp"], deps)).toBe(true);
+    expect(calls).toBe(1);
+    expect(exits).toEqual([0]);
+  });
+
+  test("mcp refusal lands on stderr and exits 1 — never falls through to success", async () => {
+    const { deps, err, exits } = collectingDeps({
+      mcpRun: async () => {
+        throw new Error("subshell mcp: SUBSHELL_API_KEY is not set");
+      },
+    });
+    expect(await dispatchCli(["mcp"], deps)).toBe(true);
+    // MESSAGE-first formatting (compiled bundles drop the stack header — see
+    // cli.ts), and exactly one exit: the catch must not fall through to the
+    // success `exit(0)` behind it.
+    expect(err.join("\n")).toContain("SUBSHELL_API_KEY");
+    expect(exits).toEqual([1]);
+  });
+});
+
 describe("dispatchCli — unknown subcommand", () => {
   test("usage to stderr + exit(1), reported as handled (boot must NOT proceed)", async () => {
     const { deps, out, err, exits } = collectingDeps();
