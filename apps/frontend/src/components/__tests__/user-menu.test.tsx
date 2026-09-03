@@ -14,6 +14,8 @@ describe("initialsOf", () => {
     expect(initialsOf("Thea", "t@example.com")).toBe("T");
     expect(initialsOf("  ", "theo@x.io")).toBe("T");
     expect(initialsOf("", "")).toBe("?");
+    // The first CHARACTER, never a lone UTF-16 surrogate half.
+    expect(initialsOf("🚀 Thea", "x@y.z")).toBe("🚀");
   });
 });
 

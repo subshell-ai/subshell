@@ -72,5 +72,15 @@ test("members see the roster but no management UI", async ({ browser }) => {
     data: { email: `sneaky-${Date.now()}@subshell.test`, password: "sneaky-pass-123", role: "user" },
   });
   expect(post.status()).toBe(403);
+
+  // /settings for members (spec 2026-09-02 settings-split §2/§7): the page
+  // is honest guidance, not an error parade — and the Server nav entry
+  // never renders for a member (the admin positive control for these
+  // selectors lives in 08-mobile-shell's drawer flow).
+  await page.goto("/settings");
+  await expect(page.getByText("Server settings are for instance admins")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Account settings" })).toBeVisible();
+  await expect(page.getByText("Registration", { exact: true })).toHaveCount(0);
+  await expect(page.locator("aside").getByRole("link", { name: "Server" })).toHaveCount(0);
   await ctx.close();
 });

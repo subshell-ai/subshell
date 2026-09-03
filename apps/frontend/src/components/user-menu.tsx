@@ -17,9 +17,10 @@ import { cn } from "@/lib/utils";
  * identity row.
  */
 
-/** One-letter avatar: name initial, else email initial, "?" while neither. */
+/** One-letter avatar: name initial, else email initial, "?" while neither.
+ * Array.from, not [0] — the first CHARACTER, never a lone surrogate half. */
 export function initialsOf(name: string, email: string): string {
-  const c = name.trim()[0] ?? email.trim()[0];
+  const c = Array.from(name.trim())[0] ?? Array.from(email.trim())[0];
   return c ? c.toUpperCase() : "?";
 }
 
