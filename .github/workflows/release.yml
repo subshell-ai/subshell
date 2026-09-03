@@ -1,0 +1,348 @@
+# Release automation (spec 2026-09-03 §6–§7, plan 3).
+#
+# Flow:
+#   changesets  — on every push to main, maintain the version PR
+#                 ("chore: release package(s)"). Private packages: changesets
+#                 creates NO tags/releases for them — the version PR only bumps
+#                 apps/server + apps/client package.jsons + CHANGELOGs.
+#   plan        — push events emit an EMPTY matrix (the merge of a version PR
+#                 does NOT auto-cut; the first-cut path is an explicit
+#                 workflow_dispatch — simpler and honest). A dispatch computes
+#                 {app, version, tag} entries (version blank = read from
+#                 apps/<app>/package.json, tag = <app>-v<version>), SKIPS apps
+#                 whose tag already exists, and PUSHES the missing tags before
+#                 any build starts (spec §7.2: no tag race downstream).
+#   build       — matrix over app×triple, pinned to hardware per triple:
+#                 linux-* → self-hosted Linux X64 (linux-arm64 is CROSS-BUILT,
+#                 no native arm64 Linux runner exists; bytecode cross is
+#                 proven on bun 1.4.0), darwin-* → mac-builder (macOS ARM64).
+#                 Each shard runs the app's OWN release script scoped to its
+#                 one triple (SUBSHELL_(SERVER_)RELEASE_TRIPLES + the release
+#                 dir env pointed at dist-rel/), then SMOKE-tests: native
+#                 triples execute `version` (the server additionally boots on
+#                 a temp DB with the on-disk frontend dist hidden — / and
+#                 /docs must answer from the EMBEDDED bytes), linux-arm64 gets
+#                 a `file` magic check only, darwin-x64 runs under Rosetta
+#                 (degrading to the magic check). Uploads binary + .sha256.
+#   publish     — per tagged app: draft release with every artifact, then a
+#                 second softprops invocation flips the draft live. Any build
+#                 failure ⇒ no release. softprops/action-gh-release because
+#                 the Linux self-hosted runners have NO gh CLI (measured).
+#
+# Retry semantics: a mid-flight failure leaves the tag (and maybe a draft
+# release). Re-dispatching SKIPS the tagged app — finish by hand (upload the
+# artifacts + flip the draft) or `git push origin :refs/tags/<tag>` and
+# re-dispatch. The workflow owns all tags; never cut them by hand.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Which deployable to cut"
+        type: choice
+        options: [server, client, both]
+        default: both
+      version:
+        description: "Version override — blank = read apps/<app>/package.json (applies to every app in `app`)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changesets:
+    name: Version PR (changesets)
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      # The runner ships node 18 and no gh; the changesets action shells out to
+      # `npx changeset`, so pin a modern node for it (bun stays as-is below).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
+        with:
+          # NO publish-script: every workspace is private, npm publishing is
+          # out of scope (spec §11), and tag/release creation belongs to the
+          # publish job below — v2 would otherwise push tags itself.
+          version-script: bun run version-packages
+          commit-message: "chore: release package(s)"
+          pr-title: "chore: release package(s)"
+          create-github-releases: false
+          push-git-tags: false
+
+  plan:
+    name: Plan the cut
+    needs: changesets
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+      apps: ${{ steps.compute.outputs.apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: compute
+        env:
+          EVENT: ${{ github.event_name }}
+          APP_INPUT: ${{ inputs.app }}
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "workflow_dispatch" ]; then
+            echo 'matrix=[]' >> "$GITHUB_OUTPUT"
+            echo 'apps=[]' >> "$GITHUB_OUTPUT"
+            echo "::notice::$EVENT event — version PR only; cut releases via workflow_dispatch (see header comment)"
+            exit 0
+          fi
+          case "$APP_INPUT" in
+            server) apps="server" ;;
+            client) apps="client" ;;
+            both)   apps="server client" ;;
+            *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
+          esac
+          LINUX='["self-hosted","Linux","X64"]'
+          MAC='["self-hosted","macOS","ARM64"]'
+          entries=""
+          appsjson=""
+          for app in $apps; do
+            version="$VERSION_INPUT"
+            [ -n "$version" ] || version=$(jq -r .version "apps/$app/package.json")
+            tag="$app-v$version"
+            if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+              echo "::notice::$tag already exists — skipping (delete the tag to re-cut)"
+              continue
+            fi
+            # Tag BEFORE any build starts (spec §7.2): a failed build then
+            # leaves tag-without-release, which is the documented retry state.
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "$tag"
+            [ -z "$appsjson" ] || appsjson="$appsjson,"
+            appsjson="$appsjson{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\"}"
+            case "$app" in
+              server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
+              client) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
+            esac
+            for triple in $triples; do
+              case "$triple" in
+                linux-*) runner="$LINUX" ;;
+                darwin-*) runner="$MAC" ;;
+              esac
+              case "$triple" in
+                linux-x64|darwin-arm64) smoke="exec" ;;   # native on its runner
+                darwin-x64) smoke="rosetta" ;;            # arch -x86_64, degrade to magic
+                *) smoke="magic" ;;                       # linux-arm64: cross-built, never exec'd here
+              esac
+              [ -z "$entries" ] || entries="$entries,"
+              entries="$entries{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\"}"
+            done
+          done
+          echo "matrix=[${entries}]" >> "$GITHUB_OUTPUT"
+          echo "apps=[$appsjson]" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release plan"
+            echo '```json'
+            echo "[${entries}]"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.entry.app }} ${{ matrix.entry.triple }}
+    needs: plan
+    timeout-minutes: 45
+    runs-on: ${{ matrix.entry.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Deterministic floor: mac-builder carries bun 1.3.14 (measured) — BELOW
+      # the 1.4.0 bytecode floor both release scripts assert — so setup-bun is
+      # load-bearing here, not decorative.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - run: bun install --frozen-lockfile
+
+      # Both release scripts preflight the workspace dist outputs (the client
+      # bundles packages/*, the server embeds apps/frontend/dist).
+      - run: bun run build
+
+      - name: Release build (scoped to ${{ matrix.entry.triple }})
+        env:
+          APP: ${{ matrix.entry.app }}
+          TRIPLE: ${{ matrix.entry.triple }}
+          DEST: ${{ github.workspace }}/dist-rel
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEST"
+          if [ "$APP" = "server" ]; then
+            SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server
+          else
+            SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:client
+          fi
+
+      - name: Smoke
+        env:
+          APP: ${{ matrix.entry.app }}
+          TRIPLE: ${{ matrix.entry.triple }}
+          VERSION: ${{ matrix.entry.version }}
+          SMOKE: ${{ matrix.entry.smoke }}
+        run: |
+          set -euo pipefail
+          if [ "$APP" = "server" ]; then
+            BIN="dist-rel/subshell-server-$TRIPLE"
+          else
+            BIN="dist-rel/subshell-$TRIPLE"
+          fi
+          test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
+          test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
+          # `file` magic sanity applies to every mode; the arch hint doubles as
+          # the fallback assertion when the binary cannot be executed here.
+          case "$TRIPLE" in
+            linux-x64)     HINT='ELF 64-bit.*x86-64' ;;
+            linux-arm64)   HINT='ELF 64-bit.*ARM aarch64' ;;
+            darwin-x64)    HINT='Mach-O 64-bit.*x86_64' ;;
+            darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
+          esac
+          file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
+
+          exec_smoke() {
+            # $1: command prefix ("" native, "arch -x86_64" under Rosetta)
+            local out
+            out=$($1 "$BIN" version 2>&1) || return 1
+            echo "$out"
+            # Pinned against the CLIs' real output: the server prints exactly
+            # "subshell-server <v>"; the client adds "(node protocol vN)".
+            if [ "$APP" = "server" ]; then
+              [ "$out" = "subshell-server $VERSION" ] || { echo "server version output mismatch"; return 1; }
+            else
+              case "$out" in
+                "subshell $VERSION"*) ;;
+                *) echo "client version output mismatch"; return 1 ;;
+              esac
+            fi
+            if [ "$APP" = "server" ]; then
+              boot_smoke
+            fi
+          }
+
+          boot_smoke() {
+            # Prove the EMBEDDED SPA serves: the compiled binary prefers an
+            # on-disk apps/frontend/dist at its BAKED build-time path (AGENTS
+            # caveat), so hide that dir for the boot.
+            local dbdir cfgdir port pid hdrs i
+            dbdir=$(mktemp -d)
+            cfgdir=$(mktemp -d)
+            port=$((20000 + RANDOM % 20000))
+            mv apps/frontend/dist "$dbdir/frontend-dist-hidden"
+            restore() { mv "$dbdir/frontend-dist-hidden" apps/frontend/dist 2>/dev/null || true; }
+            DATABASE_PATH="$dbdir/subshell.db" \
+            SUBSHELL_SERVER_CONFIG_DIR="$cfgdir" \
+            BETTER_AUTH_SECRET="$(head -c 32 /dev/urandom | base64)" \
+            SERVER_PORT="$port" HOST=127.0.0.1 APP_BASE_URL="http://127.0.0.1:$port" \
+              "$PWD/$BIN" >server-boot.log 2>&1 &
+            pid=$!
+            trap 'kill '"$pid"' 2>/dev/null || true; restore' EXIT
+            for i in $(seq 1 120); do
+              curl -fsS -o /dev/null "http://127.0.0.1:$port/docs" && break
+              kill -0 "$pid" 2>/dev/null || { echo "server died during boot:"; tail -40 server-boot.log; exit 1; }
+              sleep 0.5
+              [ "$i" = 120 ] && { echo "server never answered on :$port"; tail -40 server-boot.log; exit 1; }
+            done
+            curl -fsS "http://127.0.0.1:$port/" | grep -q 'id="root"' || { echo "/ did not serve the SPA index"; exit 1; }
+            # Embedded mode's tell is a strong ETag (spec §4 / static.plugin).
+            hdrs=$(curl -fsS -o /dev/null -D - "http://127.0.0.1:$port/")
+            echo "$hdrs" | grep -qi '^etag:' || { echo "/ carried no ETag — embedded mode not active?"; exit 1; }
+            echo "boot smoke OK: / and /docs served from the embedded SPA"
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            trap - EXIT
+            restore
+          }
+
+          case "$SMOKE" in
+            exec)
+              exec_smoke ""
+              ;;
+            rosetta)
+              # Degrade only when Rosetta itself is missing — a binary that
+              # FAILS under Rosetta is a broken artifact, not a downgrade case.
+              if arch -x86_64 /usr/bin/true 2>/dev/null; then
+                exec_smoke "arch -x86_64"
+              else
+                echo "::notice::Rosetta unavailable — magic-check-only smoke (file(1) hint already passed)"
+              fi
+              ;;
+            magic)
+              echo "cross-built $TRIPLE — no exec smoke (digest sidecar + file(1) hint are the proof)"
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.entry.app }}-${{ matrix.entry.triple }}
+          path: dist-rel/*
+          if-no-files-found: error
+
+  publish:
+    name: Release ${{ matrix.entry.app }}
+    needs: [plan, build]
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.apps) }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: ${{ matrix.entry.app }}-*
+          path: dist
+
+      # Draft first: a failed upload never ships a live release.
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ matrix.entry.tag }}
+          name: ${{ matrix.entry.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          files: dist/${{ matrix.entry.app }}-*/*
+          fail_on_unmatched_files: true
+
+      # Same tag + draft omitted = update the existing draft and publish it
+      # (softprops v2.6 semantics, confirmed against the action's input docs).
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ matrix.entry.tag }}
+          name: ${{ matrix.entry.tag }}
