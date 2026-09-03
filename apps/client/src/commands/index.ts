@@ -12,6 +12,7 @@ import {
   execTerminate,
 } from "./basics.js";
 import type { CommandContext, CommandResult } from "./context.js";
+import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
 import { execPromptDeliver } from "./prompt.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
@@ -23,8 +24,9 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–6
  * are `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
  * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`,
- * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, and `write_file`
- * (Task 6). Any unknown type still answers `unsupported` — the integration
+ * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`
+ * (Task 6), and `fs_ls` (node protocol v3, remote folder picker). Any
+ * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
  * TOTAL by construction: the whole switch is wrapped once, so no executor
@@ -58,6 +60,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execPromptDeliver(ctx, cmd);
       case "stat_dir":
         return await execStatDir(ctx, cmd);
+      case "fs_ls":
+        return await execFsLs(ctx, cmd);
       case "probe":
         return await execProbe(ctx, cmd);
       case "probe_resume":
