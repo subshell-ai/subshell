@@ -24,7 +24,7 @@
 **Files:**
 - Create: `apps/frontend/src/components/ui/context-menu.tsx`
 - Modify: `apps/frontend/src/components/actions-menu.tsx`
-- Test: `apps/frontend/src/components/__tests__/actions-menu.test.tsx`
+- Test: `apps/frontend/src/components/__tests__/actions-menu.test.tsx` (EXISTS — append a context-mode describe block to the existing file; its `openMenu` keyboard trick proves Base UI popups paint in happy-dom)
 
 **Interfaces:**
 - Consumes: `@base-ui/react/context-menu` (`ContextMenu.Root`, `ContextMenu.Trigger`); existing `DropdownMenu/DropdownMenuContent/DropdownMenuItem/DropdownMenuTrigger` from `@/components/ui/dropdown-menu`.
@@ -204,7 +204,7 @@ git commit -m "feat(frontend): ActionsMenu context mode on Base UI ContextMenu (
 
 **Files:**
 - Modify: `apps/frontend/src/components/subshell-actions-menu.tsx`
-- Test: `apps/frontend/src/components/__tests__/subshell-actions-menu-context.test.tsx`
+- Test: `apps/frontend/src/components/__tests__/subshell-actions-menu.test.tsx` (EXISTS — extend its `renderMenu` fixture harness with a `children` variant; do NOT create a parallel file)
 
 **Interfaces:**
 - Consumes: `ActionsMenu` context mode (Task 1).
