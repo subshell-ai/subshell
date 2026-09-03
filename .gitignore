@@ -142,6 +142,10 @@ data/
 apps/server/data/
 apps/server/.bun/
 
+# release drop dirs: `release:server` output + CI build staging (binaries, never committable)
+dist-server/
+dist-rel/
+
 # Claude Code worktrees + subagent-driven-development scratch
 .claude/worktrees/
 .superpowers/

@@ -187,7 +187,9 @@ jobs:
     # job fail the run (measured — the job never materialises) because its
     # runs-on reads from the matrix. A false `if` skips it cleanly.
     if: needs.plan.outputs.matrix != '[]'
-    timeout-minutes: 45
+    # Server darwin shards now do TWO sign+notarize round trips (server + mcp
+    # companion), each blocking on notarytool --wait — the old 45 got tight.
+    timeout-minutes: 60
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -259,6 +261,13 @@ jobs:
           fi
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
           test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
+          # Server triple's MCP companion: existence + sidecar + magic ONLY —
+          # it is a stdio server with no version subcommand, never exec'd here.
+          if [ "$APP" = "server" ]; then
+            MCP_BIN="dist-rel/subshell-mcp-$TRIPLE"
+            test -f "$MCP_BIN"        || { echo "missing artifact $MCP_BIN"; exit 1; }
+            test -f "$MCP_BIN.sha256" || { echo "missing digest sidecar $MCP_BIN.sha256"; exit 1; }
+          fi
           # `file` magic sanity applies to every mode; the arch hint doubles as
           # the fallback assertion when the binary cannot be executed here.
           case "$TRIPLE" in
@@ -268,6 +277,9 @@ jobs:
             darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
           esac
           file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
+          if [ "$APP" = "server" ]; then
+            file "$MCP_BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$MCP_BIN")"; exit 1; }
+          fi
 
           exec_smoke() {
             # $1: command prefix ("" native, "arch -x86_64" under Rosetta)
@@ -323,9 +335,25 @@ jobs:
             restore
           }
 
+          mcp_smoke() {
+            # The companion is a stdio server with no version subcommand: it
+            # must FAIL fast without the pane env (the mcp-core contract is a
+            # clear SUBSHELL_API_KEY error), and that failure is the proof its
+            # compiled JS graph actually boots — existence+magic alone would
+            # ship a companion that dies on first spawn.
+            local out
+            out=$("$MCP_BIN" </dev/null 2>&1) && { echo "mcp companion unexpectedly exited 0"; return 1; }
+            echo "$out"
+            echo "$out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp companion failed for the wrong reason"; return 1; }
+            echo "mcp companion boot smoke OK (clean env-contract refusal)"
+          }
+
           case "$SMOKE" in
             exec)
               exec_smoke ""
+              # (an `A && B` statement would return 1 for client shards and
+              # trip set -e — use if/fi)
+              if [ "$APP" = "server" ]; then mcp_smoke; fi
               ;;
             rosetta)
               # Degrade only when Rosetta itself is missing — a binary that

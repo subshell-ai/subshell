@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SERVER_TARGETS, serverArtifactFileName } from "@internal/subshell-protocol";
+import { SERVER_TARGETS, serverArtifactFileName, serverMcpArtifactFileName } from "@internal/subshell-protocol";
 import {
   type BuiltArtifact,
   digestFile,
@@ -15,6 +15,7 @@ import {
   buildAll,
   buildArgs,
   buildTargets,
+  mcpBuildArgs,
   resolveArtifactsDir,
   runEmbed,
   runRelease,
@@ -38,6 +39,18 @@ describe("buildArgs (always-bytecode, server entry, spec 2026-09-03 §5)", () =>
       expect(args).toContain("./src/index.ts");
       expect(args).toContain(`--target=bun-${triple}`);
       expect(args).toContain(join("/out", serverArtifactFileName(triple)));
+    }
+  });
+
+  test("the MCP companion compiles the mcp entry with the same uniform flags (no embed)", () => {
+    for (const triple of SERVER_TARGETS) {
+      const args = mcpBuildArgs(triple, "/out");
+      expect(args).toContain("--bytecode");
+      expect(args).toContain("--minify");
+      expect(args).toContain("./src/mcp/main.ts");
+      expect(args).not.toContain("./src/index.ts");
+      expect(args).toContain(`--target=bun-${triple}`);
+      expect(args).toContain(join("/out", serverMcpArtifactFileName(triple)));
     }
   });
 });
@@ -77,13 +90,13 @@ describe("buildAll", () => {
     workDir = await mkdtemp(join(tmpdir(), "subshell-server-release-test-"));
   });
 
-  /** runBuild stub: writes plausible bytes to the --outfile target, fails the named triple. */
-  function stubRunBuild(failTriple?: string) {
+  /** runBuild stub: writes plausible bytes to the --outfile target; `failIf` names the loser. */
+  function stubRunBuild(failIf?: (outfile: string) => boolean) {
     const calls: string[][] = [];
     const runBuild = async (args: string[]): Promise<number> => {
       calls.push(args);
       const outfile = args[args.indexOf("--outfile") + 1] as string;
-      if (failTriple && outfile.endsWith(serverArtifactFileName(failTriple))) return 1;
+      if (failIf?.(outfile)) return 1;
       // The real main() mkdirs outDir before building; the stub mirrors that here.
       await mkdir(dirname(outfile), { recursive: true });
       await writeFile(outfile, `binary-bytes-for-${outfile}`);
@@ -91,10 +104,11 @@ describe("buildAll", () => {
     };
     return { calls, runBuild };
   }
+  const serverFails = (triple: string) => (out: string) => out.endsWith(serverArtifactFileName(triple));
 
   test("one failing target → {ok:false, failed:<triple>}; publish is a separate step runRelease skips", async () => {
     const outDir = join(workDir, "out-fail");
-    const { runBuild } = stubRunBuild("linux-arm64");
+    const { runBuild } = stubRunBuild(serverFails("linux-arm64"));
     const result = await buildAll({ runBuild, outDir });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure result");
@@ -104,16 +118,28 @@ describe("buildAll", () => {
     // assertion, exactly as in the client suite.)
   });
 
-  test("all succeed → one artifact per triple with a sha256 digest matching the file bytes", async () => {
+  test("a failing MCP half fails the whole triple (no half-installed artifact set publishes)", async () => {
+    const outDir = join(workDir, "out-mcp-fail");
+    const { runBuild } = stubRunBuild((out) => out.endsWith(serverMcpArtifactFileName("linux-x64")));
+    const result = await buildAll({ runBuild, outDir });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.failed).toBe("linux-x64");
+  });
+
+  test("all succeed → server + mcp per triple, keyed by artifact name, digests matching the file bytes", async () => {
     const outDir = join(workDir, "out-ok");
     const { runBuild } = stubRunBuild();
     const result: BuildAllResult = await buildAll({ runBuild, outDir });
     if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
-    expect(result.artifacts.size).toBe(SERVER_TARGETS.length);
-    for (const [triple, artifact] of result.artifacts) {
-      expect(artifact.path).toBe(join(outDir, serverArtifactFileName(triple)));
-      expect(artifact.digest).toBe(await digestFile(artifact.path)); // production hasher, not a mirror
-      expect(artifact.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.artifacts.size).toBe(SERVER_TARGETS.length * 2);
+    for (const triple of SERVER_TARGETS) {
+      for (const name of [serverArtifactFileName(triple), serverMcpArtifactFileName(triple)]) {
+        const artifact = result.artifacts.get(name);
+        expect(artifact?.path).toBe(join(outDir, name));
+        expect(artifact?.digest).toBe(await digestFile(join(outDir, name))); // production hasher, not a mirror
+        expect(artifact?.digest).toMatch(/^[0-9a-f]{64}$/);
+      }
     }
   });
 
@@ -123,11 +149,13 @@ describe("buildAll", () => {
     const { calls, runBuild } = stubRunBuild();
     const result = await buildAll({ runBuild, outDir }, scope);
     if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
-    expect([...result.artifacts.keys()]).toEqual(scope);
-    expect(calls).toHaveLength(scope.length);
+    expect([...result.artifacts.keys()]).toEqual(
+      scope.flatMap((t) => [serverArtifactFileName(t), serverMcpArtifactFileName(t)]),
+    );
+    expect(calls).toHaveLength(scope.length * 2);
     for (const [i, args] of calls.entries()) {
       expect(args).toContain("--bytecode");
-      expect(args).toContain(`--target=bun-${scope[i]}`);
+      expect(args).toContain(`--target=bun-${scope[Math.floor(i / 2)]}`);
     }
   });
 
@@ -199,6 +227,8 @@ describe("runRelease (embed → build → publish, ALWAYS restore)", () => {
           calls.push(args);
           const outfile = args[args.indexOf("--outfile") + 1] as string;
           if (opts.failTriple && outfile.endsWith(serverArtifactFileName(opts.failTriple))) return 1;
+          // failTriple matching ONLY the server half keeps this the
+          // early-build-failure scenario; the MCP-half case is pinned in buildAll.
           await mkdir(dirname(outfile), { recursive: true });
           await writeFile(outfile, `binary-bytes-for-${outfile}`);
           return 0;
@@ -221,9 +251,9 @@ describe("runRelease (embed → build → publish, ALWAYS restore)", () => {
     const { deps, calls, published, counts } = pipelineDeps(join(workDir, "pipe-ok"));
     const result = await runRelease(deps, null);
     if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
-    expect(calls).toHaveLength(SERVER_TARGETS.length);
+    expect(calls).toHaveLength(SERVER_TARGETS.length * 2);
     expect(published).toHaveLength(1);
-    expect(published[0]?.size).toBe(SERVER_TARGETS.length);
+    expect(published[0]?.size).toBe(SERVER_TARGETS.length * 2);
     expect(counts.embeds).toBe(1);
     expect(counts.restores).toBe(1);
   });
@@ -272,20 +302,27 @@ describe("resolveArtifactsDir (SUBSHELL_SERVER_RELEASE_DIR ?? <repo-root>/dist-s
 });
 
 describe("publish through the shared primitive (server artifact names, basename contract)", () => {
-  test("the published set is EXACTLY subshell-server-<triple> + .sha256 per target", async () => {
+  test("the published set is EXACTLY server + mcp binaries + .sha256 sidecars per target", async () => {
     const workDir = await mkdtemp(join(tmpdir(), "subshell-server-publish-test-"));
     const artifacts = new Map<string, BuiltArtifact>();
     for (const triple of SERVER_TARGETS) {
-      const path = join(workDir, "out", serverArtifactFileName(triple));
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, `bytes-${triple}`);
-      artifacts.set(triple, { path, digest: await digestFile(path) });
+      for (const name of [serverArtifactFileName(triple), serverMcpArtifactFileName(triple)]) {
+        const path = join(workDir, "out", name);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, `bytes-${name}`);
+        artifacts.set(name, { path, digest: await digestFile(path) });
+      }
     }
     const destDir = join(workDir, "dest");
     await publishArtifacts(artifacts, destDir);
     const names = (await readdir(destDir)).sort();
     expect(names).toEqual(
-      SERVER_TARGETS.flatMap((t) => [`subshell-server-${t}`, `subshell-server-${t}.sha256`]).sort(),
+      SERVER_TARGETS.flatMap((t) => [
+        `subshell-server-${t}`,
+        `subshell-server-${t}.sha256`,
+        `subshell-mcp-${t}`,
+        `subshell-mcp-${t}.sha256`,
+      ]).sort(),
     );
   });
 });
@@ -318,9 +355,12 @@ describe("buildAll — signing hook (sign between build and digest)", () => {
     const { signed, runBuild, sign } = stub();
     const result = await buildAll({ runBuild, outDir, sign });
     if (!result.ok) throw new Error(`expected ok, got ${result.failed}`);
-    expect(signed.length).toBe(SERVER_TARGETS.length);
+    expect(signed.length).toBe(SERVER_TARGETS.length * 2);
+    let i = 0;
     for (const [, artifact] of result.artifacts) {
-      const expected = join(workDir, `expected-${artifact.path.slice(-24)}`);
+      // keyed by index, not a path slice: the artifact file names have
+      // different lengths (server vs mcp), and a suffix cut can swallow a '/'.
+      const expected = join(workDir, `expected-sign-${i++}`);
       await writeFile(expected, `signed-${artifact.path}`);
       expect(artifact.digest).toBe(await digestFile(expected));
     }

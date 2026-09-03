@@ -174,10 +174,15 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
 The same two pipelines run sharded in CI and ship as **GitHub Releases**
-under component-scoped tags: `server-vX.Y.Z` (3 binaries + `.sha256`) and
+under component-scoped tags: `server-vX.Y.Z` (6 binaries — server + MCP
+companion per triple — + `.sha256`) and
 `client-vX.Y.Z` (4 + 4). Tagging/releasing is OWNED BY THE WORKFLOW — never
 cut tags by hand.
 
+- **Release assets:** `server-vX.Y.Z` carries SIX binaries — the
+  `subshell-server-<triple>` (SPA embedded) and a `subshell-mcp-<triple>`
+  companion per triple; install BOTH of a triple side by side (triple suffix
+  dropped) so a server-only host self-resolves its MCP entrypoint.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
   changes to `apps/server`/`apps/client` → a version PR ("chore: release
   package(s)") maintained on every push to main; merging it bumps the app's

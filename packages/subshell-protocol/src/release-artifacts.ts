@@ -83,8 +83,10 @@ export interface BuiltArtifact {
  * its outputs via `nodeArtifactFileName`/`serverArtifactFileName` at build
  * time) — publish mirrors the build, so the two binaries can share this
  * primitive without sharing a name pattern.
- * @param artifacts - triple → built artifact map assembled by the caller's
- *   build phase — both apps' release pipelines call this only on a complete build
+ * @param artifacts - caller-keyed artifact map assembled by the build phase
+ *   (client keys by triple; the server keys by artifact file name, two per
+ *   triple — publish reads only `basename(path)`, never the key) — both apps'
+ *   release pipelines call this only on a complete build
  * @param destDir - directory to publish into (created when missing)
  */
 export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, destDir: string): Promise<void> {

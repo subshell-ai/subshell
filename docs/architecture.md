@@ -243,8 +243,10 @@ create and auto-restart paths; manual harnesses write no file at all.
 | `SUBSHELL_DATA_DIR` | where the keypair persists (subshell data dir) |
 
 Deployment override: `SUBSHELL_MCP_COMMAND` / `SUBSHELL_MCP_ARGS` (JSON array) pin how
-the server is launched; default resolution is compiled sibling binary →
-`bun …/mcp/main.js|ts`.
+the server is launched; default resolution (apps/server `services/mcp-resolve.ts`) is
+compiled sibling `subshell-mcp` beside a `subshell-server*` executable (the release
+ships `subshell-mcp-<triple>` for this) → `bun …/mcp/main.js|ts` → the `subshell`
+node agent on PATH (`subshell mcp`). `subshell-server status` prints which rung answered.
 
 ### Tools
 

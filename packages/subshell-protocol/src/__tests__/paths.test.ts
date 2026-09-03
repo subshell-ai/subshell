@@ -6,6 +6,7 @@ import {
   resolveNodeArtifactsDir,
   SERVER_TARGETS,
   serverArtifactFileName,
+  serverMcpArtifactFileName,
 } from "../paths.js";
 
 /**
@@ -79,6 +80,17 @@ describe("NODE_TARGETS / SERVER_TARGETS", () => {
       expect(nodeArtifactFileName(triple)).toBe(`subshell-${triple}`);
       expect(serverArtifactFileName(triple)).toBe(`subshell-server-${triple}`);
       expect(serverArtifactFileName(triple)).not.toBe(nodeArtifactFileName(triple));
+    }
+  });
+
+  test("the server release also names its MCP sibling — the name resolveMcpLaunch looks for", () => {
+    // `subshell-mcp-<triple>`: the release ships this beside the server binary
+    // so a standalone install resolves the compiled-sibling rung. The name
+    // MUST keep matching mcp-resolve.ts's MCP_BINARY once the triple suffix is
+    // dropped at install (`subshell-mcp`) — the tests there pin the other half.
+    for (const triple of SERVER_TARGETS) {
+      expect(serverMcpArtifactFileName(triple)).toBe(`subshell-mcp-${triple}`);
+      expect(serverMcpArtifactFileName(triple)).not.toBe(serverArtifactFileName(triple));
     }
   });
 });

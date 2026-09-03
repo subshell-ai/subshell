@@ -298,8 +298,11 @@ embedded copy, so existing deployments are byte-identical until switched.
   flows share the DATA dir but not the config source (svc.sh: repo `.env`
   via `EnvironmentFile=`; CLI: `config.env`).
 - **Mac host: the CLI is the binary-flow path.** Drop the
-  `subshell-server-darwin-arm64` binary on it — no bun, no checkout, no
-  frontend dist needed (the SPA is embedded) — then
+  `subshell-server-darwin-arm64` AND `subshell-mcp-darwin-arm64` binaries on
+  it, renamed `subshell-server` / `subshell-mcp` and installed SIDE BY SIDE
+  (the server resolves its MCP entrypoint from that sibling; without it,
+  creating a subshell 500s — `subshell-server status` shows the gap) — no
+  bun, no checkout, no frontend dist needed (the SPA is embedded) — then
   `./subshell-server init && ./subshell-server service install` registers
   launchd agent `dev.subshell.server` (`~/Library/LaunchAgents/`, log
   `~/Library/Logs/subshell-server.log`).

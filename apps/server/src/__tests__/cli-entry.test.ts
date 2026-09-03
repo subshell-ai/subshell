@@ -141,6 +141,33 @@ describe("entry-subprocess CLI: configure must not boot", () => {
   );
 
   test(
+    "status with a malformed SUBSHELL_MCP_ARGS: exit 0, the error line, and NO db litter",
+    async () => {
+      // status gained an mcp-entrypoint probe reading SUBSHELL_MCP_ARGS; if a
+      // malformed value threw from the "non-throwing" probe, the sync-exit
+      // contract would break exactly the way the module header documents:
+      // the unhandled rejection delays exit, the entry graph evaluates in
+      // the gap, and better-auth's import opens ./data/subshell.db HERE.
+      const cwd = mkdtempSync(join(tmpdir(), `subshell-entry-status-${process.pid}-`));
+      const cfg = mkdtempSync(join(tmpdir(), `subshell-entry-status-cfg-${process.pid}-`));
+      const port = await freePort();
+      const run = await runCli(["status"], {
+        cwd,
+        env: {
+          SUBSHELL_SERVER_CONFIG_DIR: cfg,
+          SERVER_PORT: String(port), // a buggy boot would bind THIS, not 3080
+          SUBSHELL_MCP_COMMAND: "/opt/custom/mcp",
+          SUBSHELL_MCP_ARGS: "mcp", // operator typo: not the JSON array the contract wants
+        },
+      });
+      expect(run.code).toBe(0);
+      expect(run.stdout).toContain("SUBSHELL_MCP_ARGS");
+      expect(walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f))).toEqual([]);
+    },
+    TIMEOUT,
+  );
+
+  test(
     "tmux missing (empty PATH) → refusal, exit 1, config dir stays empty",
     async () => {
       const cwd = mkdtempSync(join(tmpdir(), `subshell-entry-notmux-${process.pid}-`));

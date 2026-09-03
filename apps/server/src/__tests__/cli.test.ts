@@ -132,6 +132,55 @@ describe("dispatchCli — status", () => {
     expect(text).toContain("likely running"); // the stub probe said yes
   });
 
+  test("status reports the resolved mcp entrypoint (fake io pins the rung)", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({
+      mcpIo: {
+        execPath: "/srv/bin/subshell-server",
+        exists: (p) => p === "/srv/bin/subshell-mcp",
+        which: () => null,
+      },
+    });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SUBSHELL_MCP_COMMAND: undefined }, async () => {
+      expect(await dispatchCli(["status"], deps)).toBe(true);
+    });
+    const text = out.join("\n");
+    expect(text).toContain("mcp entrypoint");
+    expect(text).toContain("/srv/bin/subshell-mcp");
+    expect(text).toContain("compiled-sibling");
+  });
+
+  test("status screams when no mcp entrypoint resolves — create would 500", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({
+      mcpIo: { execPath: "/srv/bin/subshell-server", exists: () => false, which: () => null },
+    });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SUBSHELL_MCP_COMMAND: undefined }, async () => {
+      expect(await dispatchCli(["status"], deps)).toBe(true);
+    });
+    const text = out.join("\n");
+    expect(text).toContain("mcp entrypoint");
+    expect(text).toContain("UNRESOLVED");
+    expect(text).toContain("SUBSHELL_MCP_COMMAND");
+  });
+
+  test("a malformed SUBSHELL_MCP_ARGS still exits 0 — the probe never throws through status", async () => {
+    const dir = newConfigDir();
+    const { deps, out, exits } = collectingDeps();
+    await withEnv(
+      {
+        SUBSHELL_SERVER_CONFIG_DIR: dir,
+        SUBSHELL_MCP_COMMAND: "/opt/custom/mcp",
+        SUBSHELL_MCP_ARGS: "mcp", // operator typo: not the JSON array the contract wants
+      },
+      async () => {
+        expect(await dispatchCli(["status"], deps)).toBe(true);
+      },
+    );
+    expect(exits).toEqual([0]);
+    expect(out.join("\n")).toContain("SUBSHELL_MCP_ARGS");
+  });
+
   test("process env shadows the file; unset secret → MISSING; nothing mutates", async () => {
     const dir = newConfigDir(); // no config.env inside
     // HOST may legitimately be set in the runner's environment (svc.sh host

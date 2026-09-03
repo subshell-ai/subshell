@@ -5,6 +5,7 @@ import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/c
 import { runInit } from "@/commands/init.js";
 import { resolveConfig, serverConfigDir } from "@/config-env.js";
 import { DEFAULT_DEPS, installService, serviceArtifactPath, uninstallService } from "@/service.js";
+import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -68,6 +69,12 @@ export interface CliDeps {
   env?: Record<string, string | undefined>;
   /** Executable lookup for the tmux preflight (default: `Bun.which`). */
   which?: (name: string) => string | null;
+  /**
+   * fs/PATH/executable seams for the `status` mcp-entrypoint probe
+   * (default: the real ones — see `probeMcpLaunch` in mcp-resolve.ts).
+   * Injectable so tests pin the rung without a fake filesystem.
+   */
+  mcpIo?: McpResolveIo;
   /** Interactive-TTY signal for the command flows (default: `process.stdin.isTTY`). */
   isTTY?: boolean;
   /** Runtime platform for `service`/`status` (default: `process.platform`). */
@@ -369,6 +376,19 @@ function runStatus(log: (line: string) => void, deps: CliDeps): void {
 
   const tmux = Bun.which("tmux");
   log(`tmux                 = ${tmux ?? "NOT FOUND — install tmux (apt install tmux / brew install tmux)"}`);
+
+  // Can THIS process spawn `subshell mcp`? Every subshell create registers it
+  // into the harness config, so an unresolvable entrypoint means create 500s
+  // — the standalone release binary with no sibling, no dist, and no
+  // `subshell` agent on PATH is the shape that hides this until a user clicks
+  // create. The probe reads the merged env (the prelude applied config.env
+  // before dispatch), so SUBSHELL_MCP_COMMAND from the file counts.
+  const mcpProbe = probeMcpLaunch(process.env, deps.mcpIo ?? {});
+  log(
+    mcpProbe.spec
+      ? `mcp entrypoint       = ${[mcpProbe.spec.command, ...mcpProbe.spec.args].join(" ")}  (via ${mcpProbe.source})`
+      : `mcp entrypoint       = UNRESOLVED — subshell create will fail; ${mcpProbe.error}`,
+  );
 
   // Liveness: is something already listening on the resolved port? A bind
   // there would EADDRINUSE the boot, so "likely running" is the actionable

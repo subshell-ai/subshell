@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { HarnessPlugin, McpLaunchSpec, McpRegistration } from "@internal/harnesses";
 import { APP_BASE_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { resolveMcpLaunch } from "@/services/mcp-resolve.js";
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 
 /**
@@ -17,66 +17,11 @@ import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
  */
 
 /**
- * What the compiled MCP binary is called (`bun run compile` emits it beside
- * the backend) — the sibling lookup and the display fallback below share it.
- */
-export const MCP_BINARY = "subshell-mcp";
-
-/**
- * Fallback launch spec used only for DISPLAY when the real one cannot be
- * resolved — named after the compile artifact (apps/server/package.json
- * `compile` --outfile); keep the two spellings in sync.
- */
-export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: MCP_BINARY, args: [] };
-
-/**
- * Display-only variant for editor surfaces: never throws. If the launch can't
- * be resolved (exotic deployment), the compiled artifact's bare name is shown
- * instead — subshell launch keeps using the throwing resolver, whose error
- * message is where the SUBSHELL_MCP_COMMAND hint surfaces.
- */
-export function resolveMcpLaunchForDisplay(env: NodeJS.ProcessEnv = process.env): McpLaunchSpec {
-  try {
-    return resolveMcpLaunch(env);
-  } catch {
-    return MCP_LAUNCH_PLACEHOLDER;
-  }
-}
-
-/**
- * Resolve the launch for the CURRENT deployment, in priority order:
- * 1. `SUBSHELL_MCP_COMMAND` (+ optional JSON-array `SUBSHELL_MCP_ARGS`) — explicit override.
- * 2. Compiled single-binary: a `subshell-mcp` sibling of the executable.
- * 3. Bun-interpreted: the sibling mcp entry (`dist/mcp/main.js` in prod,
- *    `src/mcp/main.ts` in dev) run with the same interpreter.
- */
-export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env): McpLaunchSpec {
-  if (env.SUBSHELL_MCP_COMMAND) {
-    return {
-      command: env.SUBSHELL_MCP_COMMAND,
-      args: env.SUBSHELL_MCP_ARGS ? (JSON.parse(env.SUBSHELL_MCP_ARGS) as string[]) : [],
-    };
-  }
-  const sibling = join(dirname(process.execPath), MCP_BINARY);
-  if (basename(process.execPath) === "backend" && existsSync(sibling)) {
-    return { command: sibling, args: [] };
-  }
-  for (const rel of ["../mcp/main.js", "../mcp/main.ts"]) {
-    try {
-      const p = fileURLToPath(new URL(rel, import.meta.url));
-      if (existsSync(p)) return { command: process.execPath, args: [p] };
-    } catch {
-      // a non-file import.meta.url (exotic bundler) → try the next candidate
-    }
-  }
-  throw new Error(`cannot locate the ${MCP_BINARY} entrypoint; set SUBSHELL_MCP_COMMAND`);
-}
-
-/**
  * The SUBSHELL_* env the `subshell mcp` child reads (contract: `env.ts` in
  * `@internal/mcp-core`).
  * Single producer so the create path and the auto-restart path can never
- * drift apart on the variables the child depends on.
+ * drift apart on the variables the child depends on. (HOW the command itself
+ * is found lives in `mcp-resolve.ts` — the pure, side-effect-free half.)
  */
 export function subshellMcpEnv(apiKey: string, subshellId: string, subshellName: string): Record<string, string> {
   return {
