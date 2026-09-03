@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION, parseNodeCommandBody, parseNodeEvent } from "../node-frames.js";
+import {
+  FS_LS_MIN_PROTOCOL_VERSION,
+  NODE_PROTOCOL_MIN_VERSION,
+  NODE_PROTOCOL_VERSION,
+  parseNodeCommandBody,
+  parseNodeEvent,
+} from "../node-frames.js";
 
 const launchCmd = {
   type: "launch",
@@ -52,6 +58,12 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "tail_start", subshellId: "s", subId: "t", fromByte: -1 })).toBeNull();
     expect(parseNodeCommandBody({ type: "stat_dir", path: "/x" })).not.toBeNull();
     expect(parseNodeCommandBody({ type: "stat_dir" })).toBeNull();
+    // fs_ls (v3, additive): the path gate is stat_dir's — a string, emptiness
+    // legal (agent-home); absoluteness is enforced agent-side, not on the wire.
+    expect(parseNodeCommandBody({ type: "fs_ls", path: "/x" })).toEqual({ type: "fs_ls", path: "/x" });
+    expect(parseNodeCommandBody({ type: "fs_ls", path: "" })).toEqual({ type: "fs_ls", path: "" });
+    expect(parseNodeCommandBody({ type: "fs_ls" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "fs_ls", path: 7 })).toBeNull();
     expect(parseNodeCommandBody({ type: "probe", subshellIds: ["a"] })).not.toBeNull();
     expect(parseNodeCommandBody({ type: "probe", subshellIds: ["a", 1] as unknown[] })).toBeNull();
     expect(parseNodeCommandBody({ type: "remove_paths", paths: [] })).not.toBeNull();
@@ -105,10 +117,15 @@ describe("parseNodeCommandBody", () => {
     ).toBeNull();
   });
 
-  it("pins the protocol version constant", () => {
+  it("pins the protocol version constants", () => {
     // v2: the 2026-09-02 sessions→subshells rename changed frozen frame keys;
-    // pre-rename agents are refused at `ready` (close 4406).
-    expect(NODE_PROTOCOL_VERSION).toBe(2);
+    // pre-rename agents are refused at `ready` (close 4406) — the floor is
+    // where that rename put it and moves only when a FROZEN frame breaks.
+    // v3 (2026-09-03): additive `fs_ls` — old agents stay connected and lose
+    // only folder browsing, gated on FS_LS_MIN_PROTOCOL_VERSION.
+    expect(NODE_PROTOCOL_VERSION).toBe(3);
+    expect(NODE_PROTOCOL_MIN_VERSION).toBe(2);
+    expect(FS_LS_MIN_PROTOCOL_VERSION).toBe(3);
   });
 });
 

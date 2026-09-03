@@ -12,13 +12,35 @@ import type { JsonValue } from "./json.js";
  */
 
 /**
- * Bumped on any breaking frame-shape change; both ends refuse mismatches.
+ * Bumped on any frame-shape change; the control plane accepts the window
+ * {@link NODE_PROTOCOL_MIN_VERSION} .. this value and closes everything else
+ * with UPDATE_REQUIRED (4406).
  * v2 (2026-09-02): the sessions→subshells rename changed frozen frame keys
  * (`sessionId`→`subshellId`, `sessions_report`→`subshells_report`, …), so a
  * pre-rename agent must be refused — the backend answers `ready` with close
  * UPDATE_REQUIRED (4406) and the Nodes page shows the "agent too old" chip.
+ * v3 (2026-09-03): additive `fs_ls` command (remote folder picker). No frozen
+ * frame changed, so v2 agents are NOT refused — they keep full service and
+ * only folder browsing is gated (server-side feature check against
+ * {@link FS_LS_MIN_PROTOCOL_VERSION}).
  */
-export const NODE_PROTOCOL_VERSION = 2;
+export const NODE_PROTOCOL_VERSION = 3;
+
+/**
+ * Oldest agent protocol the control plane still speaks. Bump ONLY when a
+ * change breaks frames already frozen at an older version (the v2 rename is
+ * what put the floor at 2); additive commands raise
+ * {@link FS_LS_MIN_PROTOCOL_VERSION}-style constants instead, so an in-window
+ * agent degrades per-feature rather than losing its socket.
+ */
+export const NODE_PROTOCOL_MIN_VERSION = 2;
+
+/**
+ * First protocol version whose agent answers `fs_ls`. The control plane
+ * feature-gates folder browsing on the node's reported version (below this ⇒
+ * a clear "node too old" 409, never a doomed command).
+ */
+export const FS_LS_MIN_PROTOCOL_VERSION = 3;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -158,6 +180,18 @@ export type NodeCommandBody =
   | { type: "probe"; subshellIds: string[] }
   | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
   | { type: "stat_dir"; path: string }
+  | {
+      /**
+       * One-level directory listing for the folder picker (protocol v3,
+       * additive). Empty `path` = the AGENT's home directory (the control
+       * plane cannot expand `~` against a filesystem it cannot see);
+       * anything else is absolute by contract and enforced agent-side. The
+       * answer is the `NodeFsLsResult` shape (`node-results.ts`) — directories
+       * only, dotfiles hidden, capped.
+       */
+      type: "fs_ls";
+      path: string;
+    }
   | { type: "log_read"; subshellId: string; fromByte: number; maxBytes: number }
   | { type: "tail_start"; subshellId: string; subId: string; fromByte: number }
   | { type: "tail_stop"; subId: string }
@@ -320,6 +354,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         : null;
     case "stat_dir":
       return isStr(value.path) ? { type: "stat_dir", path: value.path } : null;
+    case "fs_ls":
+      // Same shape of gate as stat_dir: a string path; emptiness is legal
+      // (agent-side "my home"), absoluteness is the agent's to enforce.
+      return isStr(value.path) ? { type: "fs_ls", path: value.path } : null;
     case "log_read":
       return isStr(value.subshellId) &&
         isInt(value.fromByte) &&

@@ -7,7 +7,10 @@
  * (phase-2): arrived while NODE_PROTOCOL_VERSION was still 1 (no frozen frame
  * changed then); the 2026-09-02 sessions→subshells rename THEN broke the
  * frames — frozen keys moved to `subshellId`/`subshell*` here too, and the
- * version is now 2 so pre-rename agents are refused at `ready`.
+ * version went to 2 so pre-rename agents are refused at `ready`. `fs_ls`
+ * (v3) arrived as an ADDITIVE command: no frozen frame changed, so the floor
+ * stayed at 2 and the server feature-gates old agents instead (see
+ * `FS_LS_MIN_PROTOCOL_VERSION` in `node-frames.ts`).
  *
  * `launch` / `terminate` / `kill` / `input` / `resize` / `tail_start` /
  * `tail_stop` / `remove_paths` / `inventory` / `ping` carry no data — their
@@ -85,6 +88,49 @@ export interface NodeStatDirResult {
 export function parseNodeStatDirResult(data: unknown): NodeStatDirResult | null {
   if (!isRecord(data) || !isStr(data.path) || !isBool(data.isDirectory)) return null;
   return data as unknown as NodeStatDirResult;
+}
+
+/* ------------------------------------------------------------------ */
+/* fs_ls                                                               */
+/* ------------------------------------------------------------------ */
+
+/** Cap on entries one `fs_ls` answer carries (the agent sets `truncated` at it). */
+export const FS_LS_MAX_ENTRIES = 1000;
+
+/**
+ * `fs_ls` answer (protocol v3, remote folder picker): one directory level on
+ * the node, mirroring the control plane's `GET /api/files/explore` payload so
+ * the server can pass it through nearly unchanged. Success-only: missing /
+ * unreadable / non-absolute targets answer `result{ok:false}` with an
+ * `ENOENT:`/`EACCES:`/`EINVAL:` prefixed message the server maps to a
+ * structured HTTP error. Directories only (the local route also reports files
+ * but the picker renders nothing else), dotfiles hidden.
+ */
+export interface NodeFsLsResult {
+  /** Absolute realpath of the listed directory on the node */
+  path: string;
+  /** Parent directory, null at the filesystem root (local-route parity) */
+  parent: string | null;
+  /** Direct-child directories, `name` + absolute `path`, capped at {@link FS_LS_MAX_ENTRIES} */
+  entries: { name: string; path: string; kind: "dir" }[];
+  /** True when the listing hit {@link FS_LS_MAX_ENTRIES} and stopped early */
+  truncated: boolean;
+}
+
+/**
+ * Validates and narrows an `fs_ls` command's `result{data}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed result, or null when malformed
+ */
+export function parseNodeFsLsResult(data: unknown): NodeFsLsResult | null {
+  if (!isRecord(data) || !isStr(data.path)) return null;
+  if (!(data.parent === null || isStr(data.parent))) return null;
+  if (!isBool(data.truncated)) return null;
+  if (!Array.isArray(data.entries)) return null;
+  for (const e of data.entries) {
+    if (!isRecord(e) || !isStr(e.name) || !isStr(e.path) || e.kind !== "dir") return null;
+  }
+  return data as unknown as NodeFsLsResult;
 }
 
 /* ------------------------------------------------------------------ */

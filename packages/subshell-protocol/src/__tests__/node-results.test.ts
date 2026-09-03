@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+  FS_LS_MAX_ENTRIES,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   parseNodeCaptureResult,
   parseNodeCommandBody,
   parseNodeEvent,
+  parseNodeFsLsResult,
   parseNodeLogReadResult,
   parseNodeProbeEntries,
   parseNodeProbeResume,
@@ -51,6 +53,34 @@ describe("node result contracts (spec §3.3, phase-2 wire note)", () => {
     expect(parseNodeProbeResume({ canResume: null })).toBeNull();
     expect(parseNodeWriteFileResult({ path: "/x", received: 12 })).not.toBeNull();
     expect(parseNodeWriteFileResult({ path: "", received: 0 })).toBeNull();
+  });
+
+  it("fs_ls: dir-only entries with a nullable parent and a boolean truncated flag", () => {
+    expect(FS_LS_MAX_ENTRIES).toBe(1000);
+    expect(
+      parseNodeFsLsResult({
+        path: "/home/u",
+        parent: "/",
+        entries: [{ name: "projects", path: "/home/u/projects", kind: "dir" }],
+        truncated: false,
+      }),
+    ).not.toBeNull();
+    expect(parseNodeFsLsResult({ path: "/", parent: null, entries: [], truncated: true })).not.toBeNull();
+    expect(parseNodeFsLsResult({ path: "/x", parent: undefined, entries: [], truncated: false })).toBeNull();
+    expect(parseNodeFsLsResult({ path: "/x", parent: "/", entries: [], truncated: "no" })).toBeNull();
+    expect(parseNodeFsLsResult({ path: "/x", parent: "/", truncated: false })).toBeNull(); // entries missing
+    // A `file` entry is off-contract — the listing is directories only.
+    expect(
+      parseNodeFsLsResult({
+        path: "/x",
+        parent: "/",
+        entries: [{ name: "f", path: "/x/f", kind: "file" }],
+        truncated: false,
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeFsLsResult({ path: "/x", parent: "/", entries: [{ name: "d", path: "/x/d" }], truncated: false }),
+    ).toBeNull(); // kind missing
   });
 });
 
