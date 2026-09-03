@@ -85,10 +85,15 @@ test("loadConfig rejects a JSON file that is not a usable config object", async 
 
 describe("clientHome", () => {
   test("defaults to ~/.config/subshell with no env override", () => {
+    const saved = process.env.SUBSHELL_CONFIG_HOME;
     delete process.env.SUBSHELL_CONFIG_HOME;
-    // homedir() is host truth; assert the tail, not the whole path.
-    expect(clientHome().endsWith(join(".config", "subshell"))).toBe(true);
-    process.env.SUBSHELL_CONFIG_HOME = newHome();
+    try {
+      // homedir() is host truth; assert the tail, not the whole path.
+      expect(clientHome().endsWith(join(".config", "subshell"))).toBe(true);
+    } finally {
+      if (saved === undefined) delete process.env.SUBSHELL_CONFIG_HOME;
+      else process.env.SUBSHELL_CONFIG_HOME = saved;
+    }
   });
 
   test("SUBSHELL_CONFIG_HOME overrides the default", () => {
