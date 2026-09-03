@@ -15,14 +15,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as NodesRouteImport } from './routes/nodes'
 import { Route as ProfilesRouteImport } from './routes/profiles'
-import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as ProfilesIdRouteImport } from './routes/profiles_.$id'
-import { Route as SessionsIdRouteImport } from './routes/sessions_.$id'
 import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
 
@@ -56,11 +54,6 @@ const ProfilesRoute = ProfilesRouteImport.update({
   path: '/profiles',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SessionsRoute = SessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -91,11 +84,6 @@ const ProfilesIdRoute = ProfilesIdRouteImport.update({
   path: '/profiles/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SessionsIdRoute = SessionsIdRouteImport.update({
-  id: '/sessions_/$id',
-  path: '/sessions/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SubshellsIdRoute = SubshellsIdRouteImport.update({
   id: '/subshells_/$id',
   path: '/subshells/$id',
@@ -114,14 +102,12 @@ export interface FileRoutesByFullPath {
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/profiles': typeof ProfilesRoute
-  '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
-  '/sessions/$id': typeof SessionsIdRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
 }
@@ -132,14 +118,12 @@ export interface FileRoutesByTo {
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/profiles': typeof ProfilesRoute
-  '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
-  '/sessions/$id': typeof SessionsIdRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
 }
@@ -151,14 +135,12 @@ export interface FileRoutesById {
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/profiles': typeof ProfilesRoute
-  '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes_/$id': typeof NodesIdRoute
   '/profiles_/$id': typeof ProfilesIdRoute
-  '/sessions_/$id': typeof SessionsIdRoute
   '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
 }
@@ -171,14 +153,12 @@ export interface FileRouteTypes {
     | '/new'
     | '/nodes'
     | '/profiles'
-    | '/sessions'
     | '/settings'
     | '/setup'
     | '/users'
     | '/workspaces'
     | '/nodes/$id'
     | '/profiles/$id'
-    | '/sessions/$id'
     | '/subshells/$id'
     | '/workspaces/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -189,14 +169,12 @@ export interface FileRouteTypes {
     | '/new'
     | '/nodes'
     | '/profiles'
-    | '/sessions'
     | '/settings'
     | '/setup'
     | '/users'
     | '/workspaces'
     | '/nodes/$id'
     | '/profiles/$id'
-    | '/sessions/$id'
     | '/subshells/$id'
     | '/workspaces/$id'
   id:
@@ -207,14 +185,12 @@ export interface FileRouteTypes {
     | '/new'
     | '/nodes'
     | '/profiles'
-    | '/sessions'
     | '/settings'
     | '/setup'
     | '/users'
     | '/workspaces'
     | '/nodes_/$id'
     | '/profiles_/$id'
-    | '/sessions_/$id'
     | '/subshells_/$id'
     | '/workspaces_/$id'
   fileRoutesById: FileRoutesById
@@ -226,14 +202,12 @@ export interface RootRouteChildren {
   NewRoute: typeof NewRoute
   NodesRoute: typeof NodesRoute
   ProfilesRoute: typeof ProfilesRoute
-  SessionsRoute: typeof SessionsRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   UsersRoute: typeof UsersRoute
   WorkspacesRoute: typeof WorkspacesRoute
   NodesIdRoute: typeof NodesIdRoute
   ProfilesIdRoute: typeof ProfilesIdRoute
-  SessionsIdRoute: typeof SessionsIdRoute
   SubshellsIdRoute: typeof SubshellsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
 }
@@ -282,13 +256,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfilesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions': {
-      id: '/sessions'
-      path: '/sessions'
-      fullPath: '/sessions'
-      preLoaderRoute: typeof SessionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -331,13 +298,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfilesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions_/$id': {
-      id: '/sessions_/$id'
-      path: '/sessions/$id'
-      fullPath: '/sessions/$id'
-      preLoaderRoute: typeof SessionsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/subshells_/$id': {
       id: '/subshells_/$id'
       path: '/subshells/$id'
@@ -362,14 +322,12 @@ const rootRouteChildren: RootRouteChildren = {
   NewRoute: NewRoute,
   NodesRoute: NodesRoute,
   ProfilesRoute: ProfilesRoute,
-  SessionsRoute: SessionsRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   UsersRoute: UsersRoute,
   WorkspacesRoute: WorkspacesRoute,
   NodesIdRoute: NodesIdRoute,
   ProfilesIdRoute: ProfilesIdRoute,
-  SessionsIdRoute: SessionsIdRoute,
   SubshellsIdRoute: SubshellsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
 }

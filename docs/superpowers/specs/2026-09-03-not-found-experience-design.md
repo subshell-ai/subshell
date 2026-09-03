@@ -104,3 +104,12 @@ bun run test
   dead-but-existing records and transient refusals.
 - Redirecting other pre-rename URLs: the only route the 2026-09-02 rename changed
   was `sessions_.$id` (`/` was always the list).
+
+## Amendment (2026-09-03, post-implementation)
+
+The operator is the only user and asked to drop the compat layer: **§2 was
+removed** after it shipped. Old `/sessions/*` URLs now fall through to the §1
+generic not-found card (which is exactly why §1 exists). Layers 1 and 3 are
+unchanged. This restores the 2026-09-02 rename spec's "no backward
+compatibility" stance — with the §1 card as the humane terminus for any stale
+link.
