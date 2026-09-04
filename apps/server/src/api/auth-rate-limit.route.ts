@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { emergencyLoginArmed, emergencyPassword } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { audit } from "@/services/audit.js";
@@ -174,7 +174,7 @@ export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
       credentials: request.credentials,
       signal: request.signal,
     });
-    const res = await auth.handler(forwarded);
+    const res = await getAuth().handler(forwarded);
 
     if (res.status === 401) {
       await recordFailedLogin(email);

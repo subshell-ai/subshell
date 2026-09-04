@@ -1,18 +1,30 @@
 import { describe, expect, it } from "bun:test";
-import { MCP_LAUNCH_PLACEHOLDER, probeMcpLaunch, resolveMcpLaunch } from "@/services/mcp-resolve.js";
+import { join } from "node:path";
+import {
+  MCP_LAUNCH_PLACEHOLDER,
+  type McpProbeOutcome,
+  probeMcpLaunch,
+  resolveMcpLaunch,
+} from "@/services/mcp-resolve.js";
 
 /**
  * The pure launch RESOLVER for `subshell mcp` (extracted from mcp-launch.ts so
- * the side-effect-free CLI `status` can import it). The ladders below pin every
- * rung by faking the fs/PATH/executable seams — the shape of real deployments
- * is: env override (exotic), compiled sibling (dev `compile`), dist entry
- * (plain `tsc` builds), client-on-PATH (standalone release binary + the
- * enrolled `subshell` agent, the shape that 500'd on mac-builder before
- * SUBSHELL_MCP_COMMAND existed as the only escape).
+ * the side-effect-free CLI `status` can import it). Since spec 2026-09-03 the
+ * ladder is: env override → SELF (`subshell-server mcp` — the server binary IS
+ * the MCP server) → `subshell`-on-PATH (hosts predating the self rung). The
+ * compiled-sibling and dist-entry rungs are retired with the companion
+ * artifact; the fakes below pin every remaining seam (`execPath`, `argv1`,
+ * `which` — `exists` is gone, no rung touches the fs anymore).
  */
 
-/** Io seams where NOTHING exists and PATH is empty — every autodetect rung misses. */
-const NOTHING = { exists: () => false, which: () => null, execPath: "/usr/local/bin/bun" };
+/** Io seams where PATH is empty and there is no usable script/entry — every autodetect rung misses. */
+const NOTHING = { which: () => null, execPath: "/usr/local/bin/bun", argv1: "" };
+
+/** Narrow a probe to its rung name, failing the test with the error text when unresolved. */
+function resolvedSource(probe: McpProbeOutcome): string {
+  if (probe.spec) return probe.source;
+  throw new Error(`probe did not resolve: ${probe.error}`);
+}
 
 describe("probeMcpLaunch", () => {
   it("honors SUBSHELL_MCP_COMMAND + SUBSHELL_MCP_ARGS above all autodetection", () => {
@@ -38,84 +50,79 @@ describe("probeMcpLaunch", () => {
     expect(notArray.error).toContain("SUBSHELL_MCP_ARGS");
   });
 
-  it("compiled sibling: a subshell-mcp beside the subshell-server executable", () => {
-    const probe = probeMcpLaunch(
-      {},
-      {
-        execPath: "/srv/bin/subshell-server",
-        exists: (p) => p === "/srv/bin/subshell-mcp",
-        which: () => null,
-      },
-    );
-    expect(probe).toEqual({ spec: { command: "/srv/bin/subshell-mcp", args: [] }, source: "compiled-sibling" });
+  it("self (compiled): the server binary re-invokes itself with mcp", () => {
+    const probe = probeMcpLaunch({}, { execPath: "/srv/bin/subshell-server", which: () => null });
+    expect(probe).toEqual({ spec: { command: "/srv/bin/subshell-server", args: ["mcp"] }, source: "self" });
   });
 
-  it("the triple-suffixed release name still finds the sibling", () => {
-    const probe = probeMcpLaunch(
-      {},
-      {
-        execPath: "/srv/bin/subshell-server-darwin-arm64",
-        exists: (p) => p === "/srv/bin/subshell-mcp",
-        which: () => null,
-      },
-    );
-    expect(probe).toEqual(expect.objectContaining({ source: "compiled-sibling" }));
+  it("self (compiled, triple-suffixed): the release artifact name still self-resolves", () => {
+    const probe = probeMcpLaunch({}, { execPath: "/srv/bin/subshell-server-darwin-arm64", which: () => null });
+    expect(resolvedSource(probe)).toBe("self");
   });
 
-  it("the pre-rename `backend` executable name is NOT special-cased anymore", () => {
-    // A sibling beside an unrelated `backend` binary must NOT resolve — the
-    // old rung matched this name; the rename to subshell-server made it dead.
+  it("self (bun-interpreted): absolute entry + mcp argv — safe from any pane cwd", () => {
+    const probe = probeMcpLaunch({}, { execPath: "/usr/local/bin/bun", argv1: "dist/index.js", which: () => null });
+    expect(resolvedSource(probe)).toBe("self");
+    expect(probe.spec?.args[0]).toBe(join(process.cwd(), "dist/index.js"));
+    expect(probe.spec?.args[1]).toBe("mcp");
+  });
+
+  it("bun-interpreted without a usable argv1 skips self (never bake a bogus entry)", () => {
+    const probe = probeMcpLaunch({}, { execPath: "/usr/local/bin/bun", argv1: "", which: () => null });
+    expect(probe.spec).toBeNull();
+  });
+
+  it("compiled-shape rename: a $bunfs virtual argv1 is NOT an entry — fall through, never (via self)", () => {
+    // B1: a COMPILED Bun binary sets argv[1] to a virtual `/$bunfs/root/...`
+    // path. When the artifact is renamed so its basename misses the
+    // `subshell-server` gate, the argv1 rung must not bake the unspawnable
+    // `<renamed-bin> /$bunfs/... mcp` and report `(via self)` — it must fall
+    // through to client-on-PATH and, with no agent, to the UNRESOLVED error.
     const probe = probeMcpLaunch(
       {},
-      {
-        execPath: "/srv/bin/backend",
-        exists: (p) => p === "/srv/bin/subshell-mcp",
-        which: () => null,
-      },
+      { execPath: "/srv/bin/srv", argv1: "/$bunfs/root/subshell-server-darwin-arm64", which: () => null },
+    );
+    expect(probe.spec).toBeNull();
+    expect(probe.error).toContain("SUBSHELL_MCP_COMMAND");
+  });
+
+  it("extensionless argv1 (a wrapper script) also skips self", () => {
+    // The rung exists for `bun <entry>.ts|js` shapes only: whatever a
+    // non-entry argv[1] names (wrapper, shebang script), baking it would
+    // spawn a process that is not the MCP server.
+    const probe = probeMcpLaunch(
+      {},
+      { execPath: "/usr/local/bin/bun", argv1: "/usr/local/bin/wrapper", which: () => null },
     );
     expect(probe.spec).toBeNull();
   });
 
-  it("dist entry: the sibling mcp main beside this module (plain tsc dist / dev src)", () => {
-    const probe = probeMcpLaunch(
-      {},
-      {
-        ...NOTHING,
-        exists: (p) => p.endsWith("/mcp/main.js") || p.endsWith("/mcp/main.ts"),
-      },
-    );
-    expect(probe).toEqual(expect.objectContaining({ source: "dist-entry" }));
-    expect(probe.spec?.command).toBe("/usr/local/bin/bun");
-    expect(probe.spec?.args[0]).toMatch(/\/mcp\/main\.(js|ts)$/);
-  });
-
-  it("client-on-PATH: the standalone binary falls back to the `subshell` agent's mcp", () => {
-    // The mac-builder shape: compiled server (no dist, no sibling) on a host
-    // where the enrolled client binary carries the same mcp-core server.
-    const probe = probeMcpLaunch(
-      {},
-      {
-        execPath: "/Users/theo/.local/bin/subshell-server",
-        exists: () => false,
-        which: (name) => (name === "subshell" ? "/Users/theo/.local/bin/subshell" : null),
-      },
-    );
-    expect(probe).toEqual({
-      spec: { command: "/Users/theo/.local/bin/subshell", args: ["mcp"] },
-      source: "client-on-path",
-    });
-  });
-
-  it("dist entry WINS over the client on PATH (never hijack a plain-dist deploy)", () => {
+  it("client-on-PATH remains the last rung", () => {
     const probe = probeMcpLaunch(
       {},
       {
         execPath: "/usr/local/bin/bun",
-        exists: (p) => p.endsWith("/mcp/main.js"),
-        which: (name) => (name === "subshell" ? "/usr/local/bin/subshell" : null),
+        argv1: "",
+        which: (n) => (n === "subshell" ? "/usr/local/bin/subshell" : null),
       },
     );
-    expect(probe).toEqual(expect.objectContaining({ source: "dist-entry" }));
+    expect(probe).toEqual({ spec: { command: "/usr/local/bin/subshell", args: ["mcp"] }, source: "client-on-path" });
+  });
+
+  it("a bare `subshell` on PATH never beats the self rung", () => {
+    const probe = probeMcpLaunch({}, { execPath: "/srv/subshell-server", which: () => "/usr/bin/subshell", argv1: "" });
+    expect(resolvedSource(probe)).toBe("self");
+  });
+
+  it("a `subshell` on PATH never shadows the bun-interpreted self rung either", () => {
+    // Dev shape under a host with the node agent installed: plain bun + a
+    // usable argv[1] must self-resolve BEFORE the PATH rung is consulted.
+    const probe = probeMcpLaunch(
+      {},
+      { execPath: "/usr/bin/bun", argv1: "src/index.ts", which: () => "/usr/bin/subshell" },
+    );
+    expect(resolvedSource(probe)).toBe("self");
+    expect(probe.spec?.command).toBe("/usr/bin/bun");
   });
 
   it("nothing resolves: probe reports the error, resolveMcpLaunch throws it", () => {
@@ -125,20 +132,25 @@ describe("probeMcpLaunch", () => {
     expect(() => resolveMcpLaunch({}, NOTHING)).toThrow(/SUBSHELL_MCP_COMMAND/);
   });
 
-  it("in-repo autodetection succeeds with real seams (dist-entry rung, live fs)", () => {
-    const probe = probeMcpLaunch({});
-    expect(probe.spec).not.toBeNull();
-    expect(probe).toEqual(expect.objectContaining({ source: "dist-entry" }));
+  it("in-repo autodetection resolves via the self rung (bun-interpreted shape)", () => {
+    // `bun test` rewrites process.argv[1] to a TEST FILE, not a server entry —
+    // pin the in-repo launch shape (`bun src/index.ts`) instead of leaning on
+    // ambient argv1. No other seam is faked: no rung touches the fs or PATH
+    // before self answers, so this is the real dev/boot-path resolution.
+    const probe = probeMcpLaunch({}, { argv1: "src/index.ts" });
+    expect(probe).toEqual(expect.objectContaining({ source: "self" }));
+    expect(probe.spec?.command).toBe(process.execPath);
+    expect(probe.spec?.args).toEqual([join(process.cwd(), "src/index.ts"), "mcp"]);
   });
 });
 
 describe("resolveMcpLaunchForDisplay / placeholder", () => {
-  it("never throws; the unresolved-fallback constant names a real artifact", () => {
+  it("never throws; the unresolved-fallback constant names the real self command", () => {
     // Pins the fallback CONSTANT (the catch branch's value, unforceable from
-    // tests): it must name something this repo actually ships (`subshell-mcp`,
-    // via bun run compile). An invented `subshell mcp` subcommand once shipped
+    // tests): it must name a command a current deployment actually runs
+    // (`subshell-server mcp`, spec 2026-09-03). An invented name once shipped
     // here and would have poisoned every operator's manual registration.
     expect(resolveMcpLaunch({})).toBeDefined();
-    expect(MCP_LAUNCH_PLACEHOLDER).toEqual({ command: "subshell-mcp", args: [] });
+    expect(MCP_LAUNCH_PLACEHOLDER).toEqual({ command: "subshell-server", args: ["mcp"] });
   });
 });

@@ -1,6 +1,6 @@
 import type { CreatedApiKey, SubshellKeyMetadata } from "@/auth/apikey-store.js";
 import { setApiKeyEnabled, setApiKeyExpiry } from "@/auth/apikey-store.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { logger } from "@/utils/logger.js";
@@ -20,7 +20,7 @@ const SUBSHELL_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days (plugin min is 1 
  */
 export async function issueSubshellToken(subshellId: string, userId: string): Promise<string> {
   const metadata: SubshellKeyMetadata = { kind: "subshell", subshellId };
-  const created = (await auth.api.createApiKey({
+  const created = (await getAuth().api.createApiKey({
     body: {
       name: `sess:${subshellId}`,
       userId,

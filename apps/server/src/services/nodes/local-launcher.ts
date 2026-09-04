@@ -302,5 +302,27 @@ export class LocalLauncher implements NodeLauncher {
   }
 }
 
-/** Module-level default (mirrors the constructor default; used by readSubshellLogTail). */
-export const defaultLocalLauncher = new LocalLauncher();
+let defaultLauncher: LocalLauncher | null = null;
+
+/**
+ * The shared default launcher (mirrors the constructor default; used by
+ * readSubshellLogTail and `launcherFor(LOCAL_NODE_ID)`), created on first
+ * call. LAZY on purpose: the constructor mkdirs the log dir, and
+ * `subshell-server mcp` evaluates the whole entry graph while it suspends —
+ * an eager module-level `new` littered `data/subshells/` into the cwd of
+ * every pane that spawned the shim (cli.ts invariant 3: no IO at import).
+ * First real use is a launch/attach/read path on the boot side, where the
+ * mkdir belongs.
+ */
+export function getDefaultLocalLauncher(): LocalLauncher {
+  defaultLauncher ??= new LocalLauncher();
+  return defaultLauncher;
+}
+
+/**
+ * Resets the lazy singleton. Only use in tests.
+ * @internal
+ */
+export function resetDefaultLocalLauncher(): void {
+  defaultLauncher = null;
+}

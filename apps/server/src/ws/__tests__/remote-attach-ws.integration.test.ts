@@ -6,7 +6,10 @@ import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
-import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+
+const defaultLocalLauncher = getDefaultLocalLauncher();
+
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";

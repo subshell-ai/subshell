@@ -5,7 +5,7 @@ import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { usersRoutes } from "@/api/users.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -113,7 +113,7 @@ describe("users-admin + audit routes", () => {
 
   it("system key bearer may read the roster but is never an admin viewer", async () => {
     const systemUserId = await ensureSystemUser();
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "roster-test", userId: systemUserId, metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);

@@ -2,7 +2,10 @@ import { afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { appendFileSync } from "node:fs";
 import { runMigrations } from "@/db/migrate.js";
 import { getRequestlessContext } from "@/lib/context.js";
-import { defaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+
+const defaultLocalLauncher = getDefaultLocalLauncher();
+
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import {
   attachUrlFromQuery,

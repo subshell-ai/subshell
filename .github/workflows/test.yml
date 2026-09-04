@@ -50,6 +50,36 @@ jobs:
       - name: Run Package(s) Tests
         run: bun run test
 
+      # Compiled-binary smoke guards against bundler import-graph defects
+      # (e.g. oven-sh/bun#31586 — zod subpath duplication) that source-level
+      # `bun test` cannot see.
+      - name: Compiled binary smoke
+        run: |
+          set -euo pipefail
+          cd apps/server
+          bun run compile
+          bin="$PWD/dist/subshell-server"
+          expected="subshell-server $(jq -r .version package.json)"
+          actual="$("$bin" version)"
+          [ "$actual" = "$expected" ] || { echo "version mismatch: got '$actual', want '$expected'"; exit 1; }
+          # `mcp` without the pane env must refuse NON-ZERO with the
+          # SUBSHELL_API_KEY contract error, and the refusal must not litter
+          # the CWD with data/ (no boot-graph IO on the CLI path). env -i keeps
+          # the refusal deterministic — a leaked SUBSHELL_* env must never let
+          # it connect instead.
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          cd "$tmp"
+          set +e
+          out="$(env -i PATH="$PATH" HOME="$tmp" "$bin" mcp </dev/null 2>&1)"
+          code=$?
+          set -e
+          [ "$code" -ne 0 ] || { echo "mcp subcommand unexpectedly exited 0"; exit 1; }
+          echo "$out"
+          printf '%s' "$out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp refused for the wrong reason (above)"; exit 1; }
+          if [ -e "$tmp/data" ]; then echo "mcp refusal created a data/ dir in the CWD"; exit 1; fi
+          echo "compiled-binary smoke OK: version + clean mcp env-contract refusal"
+
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest

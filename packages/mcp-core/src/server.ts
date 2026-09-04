@@ -1,6 +1,18 @@
+// bun bundler workaround (oven-sh/bun#31586, unfixed as of bun 1.4.0): when a
+// bundle reaches zod through BOTH the root `zod` entry and the SDK's `zod/v4`
+// subpath (here: mcp-core's `z` + the SDK's own import), `bun build` emits
+// zod's classic `schemas.js` behind a lazy `__esm` initializer while the SDK's
+// top-level `z.lazy(…)` call runs eagerly — every subcommand of the COMPILED
+// binary then dies at import with "undefined is not a constructor (new
+// ZodLazy)". Importing zod and genuinely USING it above the SDK imports forces
+// the schema graph to evaluate first (a bare `import "zod"` is tree-shaken —
+// zod declares sideEffects:false). Dev runtime is order-agnostic; this only
+// matters for `bun build --compile`, which is why it looks inert.
+// biome-ignore assist/source/organizeImports: the order IS the workaround — zod must precede @modelcontextprotocol/*
+import { z } from "zod";
+void z.custom(() => true);
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { z } from "zod";
 import { SubshellApi } from "./api-client.js";
 import type { IdentityKeyPair } from "./crypto.js";
 import { readMcpEnv } from "./env.js";

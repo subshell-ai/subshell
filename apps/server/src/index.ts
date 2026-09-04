@@ -2,13 +2,15 @@
 // must be the FIRST import in the graph: it applies the config.env layer
 // before `@/constants.js` runs dotenvx (which only fills unset keys — this
 // ordering is what implements `config.env > .env`), and it dispatches CLI
-// subcommands before any of the modules below evaluate — several have
-// import-time side effects (`@/auth.js` builds better-auth, which OPENS
-// SQLite; `@/db/index.js` is lazy by contract). ESM evaluates imports before
-// body statements, so a body statement could not claim this position, and
-// the dispatch must not SUSPEND either (measured on bun 1.4.0: a prelude
-// top-level await lets the remaining imports and the entry body evaluate
-// while it is pending) — handled commands exit synchronously.
+// subcommands before any of the modules below evaluate. ESM evaluates imports
+// before body statements, so a body statement could not claim this position.
+// The invariant keeping CLI runs pure is that the whole graph is IO-FREE AT
+// IMPORT (lazy `getAuth()` — no module opens SQLite or binds a port merely by
+// being evaluated; pinned by cli-entry.test.ts), NOT that the dispatch must
+// not SUSPEND: sync-exit remains house style for the short commands, while
+// `mcp` is legitimately long-running. What keeps a suspended (or sync)
+// command from booting the server underneath itself is the isCliEngaged()
+// gate below, not the exit style.
 // biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
 import "./cli-bootstrap.js";
 import { resolve } from "node:path";
@@ -39,9 +41,10 @@ export type { App } from "@/server.js";
 
 // Plan 2 CLI gate: `isCliEngaged()` flips synchronously inside the prelude's
 // `dispatchCli` call the moment a subcommand is recognised, so an async CLI
-// command (Task C's prompts) that yields mid-run can never have the server
-// boot underneath it. Today's handled commands exit synchronously before
-// this body runs at all — the gate is what keeps that true once they can't.
+// command that yields mid-run can never have the server boot underneath it.
+// The short commands exit synchronously before this body runs at all; `mcp`
+// (spec 2026-09-03) DOES reach this body while its stdio loop runs — the gate
+// is exactly what keeps that from booting the server around it.
 const bootRequested = !isCliEngaged();
 
 // Fail before ANYTHING (imports' side effects have run, but no DB write, no

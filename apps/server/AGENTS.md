@@ -15,7 +15,7 @@ Server-specific documentation for the ElysiaJS API server (`apps/server`, `@inte
 ```bash
 bun run dev                # Watch-mode dev server (bun run --watch src/index.ts)
 bun run build              # tsc + tsc-alias -> dist/ (plain JS, what `turbo build` runs)
-bun run compile            # bun build --compile host dev binaries (dist/subshell-server + dist/subshell-mcp)
+bun run compile            # bun build --compile host dev binary (dist/subshell-server; serves its own `mcp` subcommand)
 bun run compile:release    # release pipeline — embedded SPA + SERVER triples (see "Standalone binary & CLI")
 bun run prod               # Run ./dist/index.js
 bun run test               # bun test src (see Testing below)
@@ -55,7 +55,6 @@ src/
 ├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
-├── mcp/            # `subshell-mcp` binary entrypoint only (main.ts) — the server implementation moved to `@internal/mcp-core` (shared with the node client's `subshell mcp`, per the TmuxRunner precedent)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # One-off dev tooling (e2e seed)
@@ -166,15 +165,25 @@ so the svc.sh/systemd deployment behaves byte-identically (spec 2026-09-03).
 | `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --db-path --yes` |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
+| `mcp` | serve the pane-spawned stdio MCP server (the self rung of MCP resolution below); the one long-running command — spawned by harnesses, not typed by humans |
 
-An unknown word exits 1 with usage. **Sync-exit design** (load-bearing,
-`cli.ts` invariants): a handled command must run to completion and
-`process.exit` SYNCHRONOUSLY inside `dispatchCli` — on bun 1.4.0 (measured,
-not spec) ANY await in the entry prelude lets the rest of the entry graph
-and the boot body evaluate, so `version` would boot the server and `init`
-would litter the CWD with `data/subshell.db` (`@/auth.js` builds better-auth
-at import). Hence: sync fs, `readSync(0, …)` prompts (not readline),
-`Bun.spawnSync` for the service manager.
+An unknown word exits 1 with usage. **Sync-exit design** (house style for
+the quick commands, no longer the safety mechanism): a handled command
+should run to completion and `process.exit` SYNCHRONOUSLY inside
+`dispatchCli` — sync fs, `readSync(0, …)` prompts (not readline),
+`Bun.spawnSync` for the service manager. `mcp` is deliberately the
+exception: it is long-running by design and suspends in its stdio loop.
+What makes ANY suspension safe is not the exit style but two tested
+invariants: the entry graph is IO-free AT IMPORT (lazy `getAuth()` — no
+module opens SQLite or binds a port merely by being evaluated, pinned by
+the import-purity tests), and the `isCliEngaged()` boot gate in
+`index.ts` — flipped synchronously at subcommand recognition — is what
+keeps a suspended (or sync) command from booting the server underneath
+it. (Historical: on bun 1.4.0, measured not spec, ANY await in the entry
+prelude lets the rest of the entry graph and the boot body evaluate; the
+littering that once made sync-exit load-bearing — `@/auth.js` building
+better-auth, and opening its SQLite file, eagerly at import — is gone
+with the lazy construction, so the boot gate now carries that load.)
 
 ### config.env (`src/config-env.ts`)
 
@@ -204,20 +213,18 @@ EADDRINUSE crash loop). macOS: launchd agent `dev.subshell.server` →
 
 Every subshell create spawns `subshell mcp`; HOW it's found is the pure ladder
 in `src/services/mcp-resolve.ts` (split out of `mcp-launch.ts` so the
-side-effect-free CLI can import it): `SUBSHELL_MCP_COMMAND`/`_ARGS` override →
-`subshell-mcp` sibling of a `subshell-server*` executable (the `compile`
-layout AND the release install: `compile:release` publishes a
-`subshell-mcp-<triple>` beside every server binary — install the PAIR side by
-side) → the dist entry (`dist/mcp/main.js` / dev `src/mcp/main.ts`) → the
-`subshell` node agent on PATH (`subshell mcp` — safety net for installs that
-predate the companion artifact) → throw with the `SUBSHELL_MCP_COMMAND` hint.
-A release install matching NONE of these 500s on create — `subshell-server
-status` prints the resolved command and its rung
+side-effect-free CLI can import it — it touches no fs):
+`SUBSHELL_MCP_COMMAND`/`_ARGS` override → SELF (the server binary IS the MCP
+server: `<execPath> mcp` when compiled, `<execPath> <absolute entry> mcp`
+under `bun run`/dist) → the `subshell` node agent on PATH (`subshell mcp` —
+safety net for installs whose server predates the self rung) → throw with the
+`SUBSHELL_MCP_COMMAND` hint. A deployment matching NONE of these 500s on
+create — `subshell-server status` prints the resolved command and its rung
 (`mcp entrypoint = … (via …)`, or `UNRESOLVED`) so the gap shows up before a
-user hits it. (A `subshell-server mcp` subcommand is NOT an option: the
-sync-exit entry contract means a long-running command lets `@/auth.js` open
-SQLite at import — that's why `src/mcp/main.ts` is its own tiny entry, and why
-the companion binary is what the release ships.)
+user hits it. (`subshell-server mcp` became possible once the entry graph was
+IO-free at import — lazy `getAuth()`, purity-tested — so a long-running
+subcommand can no longer drag the boot graph into side effects; the 1.3.x
+companion-binary era that made a separate tiny entry necessary is retired.)
 
 ### Embedded SPA + release dance
 
@@ -242,10 +249,9 @@ The pipeline embeds the SPA (the generator overwrites the stub; the stub is
 restored with `git checkout` in a `finally` — embedded bytes are release
 noise, never a commit), builds the three `SERVER_TARGETS` triples
 (`linux-x64`, `linux-arm64`, `darwin-arm64` — deliberately no darwin-x64;
-`@internal/subshell-protocol` `paths.ts`) — each triple a PAIR: the
-SPA-embedded `subshell-server-<triple>` plus the standalone `subshell-mcp-<triple>`
-companion (entry `src/mcp/main.ts`, no embed) so an operator installing the
-pair gets `resolveMcpLaunch`'s compiled-sibling rung on a server-only host —
+`@internal/subshell-protocol` `paths.ts`) — one binary per triple: the
+SPA-embedded `subshell-server-<triple>`, which serves its own `mcp`
+subcommand so a server-only host self-resolves its MCP entrypoint —
 each with `--bytecode` (bun ≥
 1.4.0 asserted; `SUBSHELL_SERVER_RELEASE_TRIPLES` scopes a subset for CI),
 darwin targets are signed + notarized first when `SUBSHELL_RELEASE_SIGN_CMD`

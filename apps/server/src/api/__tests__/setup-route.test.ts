@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { setHasUsersProbeForTests, setupRoutes } from "@/api/setup.route.js";
 import { authDatabase } from "@/auth/database.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -140,17 +140,17 @@ describe("/api/setup/harnesses conditional auth", () => {
       // key. authGuard additionally requires subshell-kind keys to match their
       // row's apiKeyId and non-subshell keys to be system-user-owned — so both
       // classes below are 401 material there and must be 401 here too.
-      const forgedSubshell = (await auth.api.createApiKey({
+      const forgedSubshell = (await getAuth().api.createApiKey({
         body: { name: "setup-forged-subshell", userId, metadata: { kind: "subshell", subshellId } },
       })) as unknown as { id: string; key: string };
       createdKeyIds.push(forgedSubshell.id);
-      const fakeSystem = (await auth.api.createApiKey({
+      const fakeSystem = (await getAuth().api.createApiKey({
         body: { name: "setup-fake-system", userId, metadata: { kind: "system" } },
       })) as unknown as { id: string; key: string };
       createdKeyIds.push(fakeSystem.id);
       // Control: both keys DO verify at the plugin level.
       expect(
-        (await auth.api.verifyApiKey({ body: { key: forgedSubshell.key } })) as unknown as { valid: boolean },
+        (await getAuth().api.verifyApiKey({ body: { key: forgedSubshell.key } })) as unknown as { valid: boolean },
       ).toMatchObject({ valid: true });
       expect((await app.fetch(bearerRequest("/api/setup/harnesses", forgedSubshell.key))).status).toBe(401);
       expect((await app.fetch(bearerRequest("/api/setup/harnesses", fakeSystem.key))).status).toBe(401);

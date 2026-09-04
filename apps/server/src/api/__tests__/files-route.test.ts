@@ -6,7 +6,7 @@ import { hashPassword } from "better-auth/crypto";
 import { filesRoutes } from "@/api/files.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
@@ -74,7 +74,7 @@ describe("files route (folder explorer)", () => {
   }
 
   async function mintSystemKey(): Promise<string> {
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: "files-test-system", userId: await ensureSystemUser(), metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(created.id);

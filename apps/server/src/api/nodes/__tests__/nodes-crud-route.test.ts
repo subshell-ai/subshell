@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -105,7 +105,7 @@ describe("/api/nodes registry CRUD", () => {
     const id = crypto.randomUUID();
     await nodes.create({ id, ownerUserId: ownerId, name, kind: "agent", status: "offline" });
     createdNodeIds.push(id);
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: {
         name: `node:${id}`,
         userId: ownerId,
@@ -119,7 +119,7 @@ describe("/api/nodes registry CRUD", () => {
   }
 
   async function keyIsValid(key: string): Promise<boolean> {
-    const res = (await auth.api.verifyApiKey({ body: { key } })) as unknown as { valid: boolean };
+    const res = (await getAuth().api.verifyApiKey({ body: { key } })) as unknown as { valid: boolean };
     return res.valid;
   }
 

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
-import { AUTH_OPTIONS, auth, promoteFirstUserAtomically, setAuthPolicyDb } from "@/auth.js";
+import { AUTH_OPTIONS, getAuth, promoteFirstUserAtomically, setAuthPolicyDb } from "@/auth.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
@@ -42,7 +42,7 @@ function newEmail(): string {
 }
 
 async function signUpEmail(email: string): Promise<{ user: { id: string } }> {
-  const res = (await auth.api.signUpEmail({
+  const res = (await getAuth().api.signUpEmail({
     body: { name: email, email, password: "registration-pass-1" },
   })) as unknown as { user: { id: string } };
   if (res?.user?.id) createdUserIds.push(res.user.id);

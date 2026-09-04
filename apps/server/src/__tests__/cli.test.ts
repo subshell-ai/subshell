@@ -83,6 +83,45 @@ describe("dispatchCli — version", () => {
   });
 });
 
+describe("dispatchCli — mcp", () => {
+  test("mcp runs the injected stdio server, then PARKS — nothing exits on attach (T18)", async () => {
+    let calls = 0;
+    const { deps, exits } = collectingDeps({
+      mcpRun: async () => {
+        calls++;
+      },
+    });
+    // The fake runner resolves immediately (that is what connect() does);
+    // dispatch must NOT: exiting — or even resolving `true`, which
+    // cli-bootstrap's `.then(handled ⇒ exit 0)` would act on — kills a live
+    // stdio transport milliseconds after `ready` (apps/client's T18 lesson;
+    // e2e-cross-subshell.test.ts owns the real two-process proof). The
+    // parked promise means the transport owns the process lifetime.
+    let settled = false;
+    void dispatchCli(["mcp"], deps).then(() => {
+      settled = true;
+    });
+    await Bun.sleep(50);
+    expect(calls).toBe(1); // the runner ran
+    expect(exits).toEqual([]); // nothing exited
+    expect(settled).toBe(false); // dispatch stays parked, forever, by design
+  });
+
+  test("mcp refusal lands on stderr and exits 1 — never falls through to success", async () => {
+    const { deps, err, exits } = collectingDeps({
+      mcpRun: async () => {
+        throw new Error("subshell mcp: SUBSHELL_API_KEY is not set");
+      },
+    });
+    expect(await dispatchCli(["mcp"], deps)).toBe(true);
+    // MESSAGE-first formatting (compiled bundles drop the stack header — see
+    // cli.ts), and exactly one exit: the catch must not fall through to the
+    // success `exit(0)` behind it.
+    expect(err.join("\n")).toContain("SUBSHELL_API_KEY");
+    expect(exits).toEqual([1]);
+  });
+});
+
 describe("dispatchCli — unknown subcommand", () => {
   test("usage to stderr + exit(1), reported as handled (boot must NOT proceed)", async () => {
     const { deps, out, err, exits } = collectingDeps();
@@ -132,28 +171,29 @@ describe("dispatchCli — status", () => {
     expect(text).toContain("likely running"); // the stub probe said yes
   });
 
-  test("status reports the resolved mcp entrypoint (fake io pins the rung)", async () => {
+  test("status reports the resolved mcp entrypoint — the server binary self-resolves", async () => {
     const dir = newConfigDir();
     const { deps, out } = collectingDeps({
-      mcpIo: {
-        execPath: "/srv/bin/subshell-server",
-        exists: (p) => p === "/srv/bin/subshell-mcp",
-        which: () => null,
-      },
+      // A `subshell-server*` execPath always takes the SELF rung — no fs/PATH
+      // seam can veto it (there is no fs left to veto).
+      mcpIo: { execPath: "/srv/bin/subshell-server", which: () => null },
     });
     await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SUBSHELL_MCP_COMMAND: undefined }, async () => {
       expect(await dispatchCli(["status"], deps)).toBe(true);
     });
     const text = out.join("\n");
     expect(text).toContain("mcp entrypoint");
-    expect(text).toContain("/srv/bin/subshell-mcp");
-    expect(text).toContain("compiled-sibling");
+    expect(text).toContain("/srv/bin/subshell-server mcp");
+    expect(text).toContain("(via self)");
   });
 
   test("status screams when no mcp entrypoint resolves — create would 500", async () => {
     const dir = newConfigDir();
     const { deps, out } = collectingDeps({
-      mcpIo: { execPath: "/srv/bin/subshell-server", exists: () => false, which: () => null },
+      // The miss must be forced through the NON-compiled shape: a
+      // `subshell-server*` execPath self-resolves unconditionally, so pin an
+      // unrelated executable with no usable argv1 and an empty PATH.
+      mcpIo: { execPath: "/usr/bin/other", argv1: "", which: () => null },
     });
     await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SUBSHELL_MCP_COMMAND: undefined }, async () => {
       expect(await dispatchCli(["status"], deps)).toBe(true);

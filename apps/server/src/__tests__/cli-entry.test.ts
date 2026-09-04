@@ -168,6 +168,38 @@ describe("entry-subprocess CLI: configure must not boot", () => {
   );
 
   test(
+    "mcp without pane env: clean contract refusal, no db litter, no port bind",
+    async () => {
+      // The import-purity regression net (spec 2026-09-03 §1): `mcp` is a
+      // long-running command — it suspends by nature. Safety now rests on the
+      // graph being IO-free at import (lazy getAuth), NOT on sync-exit. This
+      // must hold ACROSS the real entry: no ./data/subshell.db, and the
+      // pinned SERVER_PORT never gains a listener.
+      const cwd = mkdtempSync(join(tmpdir(), `subshell-entry-mcp-${process.pid}-`));
+      const port = await freePort();
+      const run = await runCli(["mcp"], {
+        cwd,
+        env: {
+          SERVER_PORT: String(port),
+          SUBSHELL_SERVER_CONFIG_DIR: join(cwd, "cfg"),
+          PATH: "/usr/bin:/bin",
+        },
+      });
+      expect(run.code).not.toBe(0);
+      expect(`${run.stdout}${run.stderr}`).toContain("SUBSHELL_API_KEY");
+      // The header promise, ACTUALLY asserted: the pinned port stayed dark
+      // (sync LISTEN-table read — a connect probe would be async, the very
+      // hazard this suite pins), and the CWD shows no boot litter — neither a
+      // `data/` directory (a boot mkdirs it even before the first file lands)
+      // nor any sqlite artifact.
+      expect(syncPortListening("127.0.0.1", port)).toBe(false);
+      expect(readdirSync(cwd)).not.toContain("data");
+      expect(walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f))).toEqual([]);
+    },
+    TIMEOUT,
+  );
+
+  test(
     "tmux missing (empty PATH) → refusal, exit 1, config dir stays empty",
     async () => {
       const cwd = mkdtempSync(join(tmpdir(), `subshell-entry-notmux-${process.pid}-`));

@@ -63,10 +63,13 @@ describe("harness schema route", () => {
     const steps = body.mcp.steps ?? [];
     expect(steps.length).toBeGreaterThan(0);
     // The add command must embed the launch RESOLVED BY THE BACKEND (under
-    // bun test that is the dev entrypoint) — not the degraded "subshell mcp"
-    // display placeholder, which the prefix check alone cannot tell apart.
+    // bun test that is the SELF rung: this very bun + an absolute entry + the
+    // `mcp` subcommand) — not the degraded `subshell-server mcp` display
+    // placeholder, which the prefix check alone cannot tell apart.
     expect(steps[0].command).toContain("hermes mcp add subshell --command ");
-    expect(steps[0].command).toContain("mcp/main.");
+    expect(steps[0].command).toContain(process.execPath);
+    expect(steps[0].command.endsWith("'mcp'")).toBe(true);
+    expect(steps[0].command).not.toContain("subshell-server");
     for (const s of steps) expect(s.label.length).toBeGreaterThan(0);
   });
 

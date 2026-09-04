@@ -187,9 +187,9 @@ jobs:
     # job fail the run (measured — the job never materialises) because its
     # runs-on reads from the matrix. A false `if` skips it cleanly.
     if: needs.plan.outputs.matrix != '[]'
-    # Server darwin shards now do TWO sign+notarize round trips (server + mcp
-    # companion), each blocking on notarytool --wait — the old 45 got tight.
-    timeout-minutes: 60
+    # One sign+notarize round trip per darwin artifact again — the mcp
+    # companion is retired (the server binary serves its own `mcp` subcommand).
+    timeout-minutes: 45
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -295,13 +295,6 @@ jobs:
           fi
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
           test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
-          # Server triple's MCP companion: existence + sidecar + magic ONLY —
-          # it is a stdio server with no version subcommand, never exec'd here.
-          if [ "$APP" = "server" ]; then
-            MCP_BIN="dist-rel/subshell-mcp-$TRIPLE"
-            test -f "$MCP_BIN"        || { echo "missing artifact $MCP_BIN"; exit 1; }
-            test -f "$MCP_BIN.sha256" || { echo "missing digest sidecar $MCP_BIN.sha256"; exit 1; }
-          fi
           # `file` magic sanity applies to every mode; the arch hint doubles as
           # the fallback assertion when the binary cannot be executed here.
           case "$TRIPLE" in
@@ -311,9 +304,6 @@ jobs:
             darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
           esac
           file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
-          if [ "$APP" = "server" ]; then
-            file "$MCP_BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$MCP_BIN")"; exit 1; }
-          fi
 
           exec_smoke() {
             # $1: command prefix ("" native, "arch -x86_64" under Rosetta)
@@ -332,6 +322,19 @@ jobs:
             fi
             if [ "$APP" = "server" ]; then
               boot_smoke
+              # Branch-headline feature, per-triple (darwin included): the
+              # server binary SERVES `mcp` itself — a bare invocation (no pane
+              # env) must refuse NON-ZERO with the SUBSHELL_API_KEY env-contract
+              # error. Mirrors the test.yml compiled-binary assertion. The `&&`
+              # guard makes the expected non-zero the continue-path: under
+              # `set -e` a failing command that is NOT after the final `&&`
+              # never kills the step, and the function returns non-zero only
+              # when mcp unexpectedly SUCCEEDS or refuses for the wrong reason.
+              local mcp_out
+              mcp_out=$($1 "$BIN" mcp </dev/null 2>&1) && { echo "mcp subcommand unexpectedly exited 0"; return 1; }
+              echo "$mcp_out"
+              printf '%s' "$mcp_out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp refused for the wrong reason (output above)"; return 1; }
+              echo "mcp refusal smoke OK: $BIN serves its own mcp subcommand"
             fi
           }
 
@@ -369,25 +372,9 @@ jobs:
             restore
           }
 
-          mcp_smoke() {
-            # The companion is a stdio server with no version subcommand: it
-            # must FAIL fast without the pane env (the mcp-core contract is a
-            # clear SUBSHELL_API_KEY error), and that failure is the proof its
-            # compiled JS graph actually boots — existence+magic alone would
-            # ship a companion that dies on first spawn.
-            local out
-            out=$("$MCP_BIN" </dev/null 2>&1) && { echo "mcp companion unexpectedly exited 0"; return 1; }
-            echo "$out"
-            echo "$out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp companion failed for the wrong reason"; return 1; }
-            echo "mcp companion boot smoke OK (clean env-contract refusal)"
-          }
-
           case "$SMOKE" in
             exec)
               exec_smoke ""
-              # (an `A && B` statement would return 1 for client shards and
-              # trip set -e — use if/fi)
-              if [ "$APP" = "server" ]; then mcp_smoke; fi
               ;;
             rosetta)
               # Degrade only when Rosetta itself is missing — a binary that

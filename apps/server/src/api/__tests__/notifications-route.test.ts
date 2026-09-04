@@ -8,7 +8,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/
 import { notificationsRoutes } from "@/api/notifications.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -46,7 +46,7 @@ describe("notifications route", () => {
 
   /** Mints a real system key (owned by the `system` service user). */
   async function mintSystemKey(): Promise<string> {
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: {
         name: "notif-test-system",
         userId: await ensureSystemUser(),

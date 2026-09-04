@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { authDatabase } from "@/auth/database.js";
-import { auth } from "@/auth.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -123,7 +123,7 @@ describe("POST /api/subshells/:id/extend-token", () => {
       workingDir: "/tmp",
       tmuxSocket: null,
     });
-    const created = (await auth.api.createApiKey({
+    const created = (await getAuth().api.createApiKey({
       body: { name: `sess:${id}`, userId, metadata: { kind: "subshell", subshellId: id }, permissions },
     })) as unknown as { id: string; key: string };
     createdKeys.push(created.id);

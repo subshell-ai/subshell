@@ -194,7 +194,12 @@ describe("createSubshell MCP integration", () => {
       mcpServers: { subshell: { command: string; args: string[] } };
     };
     expect(cfg.mcpServers.subshell.command).toBeTruthy();
-    expect(cfg.mcpServers.subshell.args[0]).toMatch(/main\.(ts|js)$/);
+    // Self rung (spec 2026-09-03): the launch is `<interpreter> <abs entry> mcp`
+    // and under `bun test` the entry is whatever argv[1] the runner set (a test
+    // file), so pin the ARGV TAIL — the contract is the `mcp` subcommand, not
+    // an entry filename the resolver no longer hunts for.
+    expect(cfg.mcpServers.subshell.args.at(-1)).toBe("mcp");
+    expect(cfg.mcpServers.subshell.args.length).toBe(2);
     // No secrets in the on-disk config (the child inherits SUBSHELL_* from the pane).
     expect(readFileSync(subshellMcpConfigPath(created.id), "utf8")).not.toContain("subshell_stub");
     // claude-code adds the flag pointing at exactly this file.
