@@ -366,9 +366,8 @@ echo "server exited unexpectedly" >&2; exit 1
     runner.newSubshell(socket, "s1", "/tmp", "printf 'abc'; exec sleep 30");
     await Bun.sleep(300);
     const cur = runner.paneCursor(socket, "s1");
-    expect(cur).not.toBeNull();
     expect(Number.isInteger(cur?.x) && Number.isInteger(cur?.y)).toBe(true);
-    expect(cur!.x).toBeGreaterThan(0); // printf wrote three cells — the cursor moved
+    expect(cur?.x ?? 0).toBeGreaterThan(0); // printf wrote three cells — the cursor moved
     runner.killSubshell(socket, "s1");
     expect(runner.paneCursor(socket, "s1")).toBeNull();
   });
