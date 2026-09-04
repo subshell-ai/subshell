@@ -1,4 +1,3 @@
-import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
@@ -12,10 +11,11 @@ import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
-import { captureToReplayText, captureToTerminalText } from "@/ws/capture-text.js";
+import { captureToReplayText } from "@/ws/capture-text.js";
 import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
+import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
+import { createPaneStreamRegistry, type Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
-import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -181,6 +181,30 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     hasLog = false;
   }
 
+  // Attach to the subshell's shared pump BEFORE the pane is read. The
+  // subscription starts QUEUED, so nothing is delivered until the replay has
+  // been sent — but from this instant no byte can be missed, which is the
+  // JOIN-POINT RULE above expressed as a subscription instead of an offset a
+  // later reader hopes is still current.
+  const stream: Subscription = paneStreams.subscribe(
+    row.id,
+    () =>
+      hasLog
+        ? // An empty log tails from 0 like any other size; a log that appears
+          // LATER is out of reach here (both the stat and the watcher need a
+          // file) — the poll fallback covers that pre-existing gap as before.
+          createLogTailSource({ logFile: data.logFile, fromByte: logStart, onOutput: () => persistOutputFor(row.id) })
+        : createPanePollSource({
+            launcher,
+            socket: data.socket,
+            subshellId: row.id,
+            onOutput: () => persistOutputFor(row.id),
+          }),
+    (text) => ws.send(JSON.stringify({ type: "output", data: text })),
+  );
+  if (!hasLog) logger.info(`ws attach: no log file for ${row.id}, polling pane`);
+  data.cleanup = (): void => stream.close();
+
   // The pane as the viewer FOUND it — forensics only, and only when the dump
   // is armed (it costs an extra capture). Taken before the resize, it is the
   // evidence that tells "the pane was already holding garbage" apart from
@@ -264,16 +288,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
   }
 
-  if (hasLog) {
-    // An empty log tails from 0 like any other size; a log that appears LATER
-    // is out of reach here (both this stat and the watcher need a file) — the
-    // pane-poll fallback below covers that pre-existing gap exactly as before.
-    data.lastSize = logStart;
-    startLogTail(ws, data);
-  } else {
-    logger.info(`ws attach: no log file for ${row.id}, polling pane`);
-    startPanePoll(ws, data);
-  }
+  // The replay is out; release everything the pane produced while it was
+  // being captured, then stream live.
+  stream.open();
   // Re-wrap (not raw-assign): the close that arrived during the attach awaits
   // must still reach the disposer armed moments ago — `detached` is true by
   // then, so the same wrapper both propagates and immediately tears down.
@@ -585,105 +602,33 @@ export function persistOutput(_ws: WsSocket, data: WsData): void {
     .catch((err: unknown) => logger.withError(err).warn("failed to persist lastOutputAt"));
 }
 
-/** Safety net for missed watch events (file replaced under the watch, quota). */
-const TAIL_BACKSTOP_MS = 1000;
+/**
+ * One output pump per subshell, shared by every viewer watching it (see
+ * `ws/pane-stream.ts`). Today a subshell still has at most one viewer — the
+ * eviction below enforces that until geometry arbitration exists — so this
+ * behaves exactly as the per-socket pumps it replaces; what changes is that
+ * the pump's state (decoder, sync stripper, log offset) now belongs to the
+ * SUBSHELL rather than to a socket, which is the precondition for sharing it.
+ */
+const paneStreams = createPaneStreamRegistry();
+
+/** Last lastOutputAt write per subshell — the heartbeat throttle, stream-lived. */
+const lastOutputWrites = new Map<string, number>();
 
 /**
- * Streams new log file appends to the WS client.
+ * Records that a subshell produced output, at most once per 2s.
  *
- * Event-driven: `fs.watch` (inotify on Linux) fires the moment pipe-pane
- * appends, so a keystroke's echo arrives immediately rather than waiting for
- * the next tick of a poll — polling at 250ms quantized every echo to 0–250ms.
- * A slow interval remains only as a backstop for lost watch events; both
- * paths share this size-based read, so delivery is identical either way.
+ * Keyed by SUBSHELL, not by socket: the pump is shared now, so a per-viewer
+ * throttle would multiply the write rate by the number of devices watching.
+ * @param subshellId - The subshell that produced output
  */
-function startLogTail(ws: WsSocket, data: WsData): void {
-  // spec §6.5: phase 2 routes local + remote tails through NodeLauncher.tailStart
-  // Watch events and the backstop can land together; `pumping`/`again`
-  // serialize the reads so a byte is never sliced twice.
-  let pumping = false;
-  let again = false;
-  // Connection-lived decode/strip state: `stream: true` keeps a multi-byte
-  // char split across reads intact (a fresh decoder would burn it to U+FFFD),
-  // and the stripper holds a marker split across the same boundary until its
-  // other half arrives (see ws/sync-stripper.ts).
-  const decoder = new TextDecoder();
-  const stripper = new SyncStreamStripper();
-
-  async function pump(): Promise<void> {
-    if (pumping) {
-      again = true;
-      return;
-    }
-    pumping = true;
-    do {
-      again = false;
-      try {
-        const size = (await Bun.file(data.logFile).stat()).size;
-        if (size > data.lastSize) {
-          const buf = await Bun.file(data.logFile).slice(data.lastSize, size).arrayBuffer();
-          data.lastSize = size;
-          const text = stripper.push(decoder.decode(buf, { stream: true }));
-          // Empty when the whole read was a held marker prefix or a false
-          // sync marker: nothing paintable, so nothing to send or persist.
-          if (!text) continue;
-          ws.send(JSON.stringify({ type: "output", data: text }));
-          persistOutput(ws, data);
-        }
-      } catch {
-        // file gone
-      }
-    } while (again);
-    pumping = false;
-  }
-
-  let watcher: FSWatcher | null = null;
-  try {
-    watcher = watch(data.logFile, () => void pump());
-    // If the inode dies the watcher is dead weight; the backstop still delivers.
-    watcher.on("error", () => {
-      watcher?.close();
-      watcher = null;
-    });
-  } catch {
-    watcher = null;
-  }
-  const timer = setInterval(() => void pump(), TAIL_BACKSTOP_MS);
-  void pump(); // ship anything written between the replay and the attach
-  data.cleanup = () => {
-    stripper.flush(); // held partial-sequence bytes belong to the next attach
-    watcher?.close();
-    clearInterval(timer);
-  };
-}
-
-/** Fallback: poll capture-pane for output (no log file configured). */
-function startPanePoll(ws: WsSocket, data: WsData): void {
-  let last = "";
-  // The capture is async behind the launcher seam; the tick stays fire-and-forget
-  // (`void`). Local capture resolves synchronously inside the wrapper, so ticks
-  // never overlap in practice.
-  async function poll(): Promise<void> {
-    try {
-      // Normalize the WHOLE capture before diffing (not the delta): the rows
-      // need CRLF re-termination like any capture text (see capture-text.ts),
-      // and stripping markers on the full string also catches one straddling
-      // the boundary between what was already sent and what is new.
-      const out = captureToTerminalText(await data.launcher.capture(data.socket, data.subshellId));
-      if (out !== last) {
-        const delta = out.startsWith(last) ? out.slice(last.length) : out;
-        last = out;
-        if (delta) {
-          ws.send(JSON.stringify({ type: "output", data: delta }));
-          persistOutput(ws, data);
-        }
-      }
-    } catch {
-      // subshell dead
-    }
-  }
-  const timer = setInterval(() => void poll(), 300);
-  data.cleanup = () => clearInterval(timer);
+function persistOutputFor(subshellId: string): void {
+  const now = Date.now();
+  if (now - (lastOutputWrites.get(subshellId) ?? 0) < 2000) return;
+  lastOutputWrites.set(subshellId, now);
+  getRequestlessContext()
+    .repos.subshells.update(subshellId, { lastOutputAt: new Date().toISOString() })
+    .catch((err: unknown) => logger.withError(err).warn("failed to persist lastOutputAt"));
 }
 
 /**
