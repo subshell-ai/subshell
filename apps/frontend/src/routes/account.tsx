@@ -21,13 +21,15 @@ function AccountPage() {
       <PageHeader title="Account" subtitle="Your profile, devices and credentials" />
       <ProfileCard />
       {/* Account-wide switch first: it gates every device, so it reads as the
-          parent of the per-device opt-in below it. */}
+          parent of the per-device opt-in below it. Keep the two adjacent —
+          they are one decision (2026-09-04: terminal cards had drifted
+          between them and the pair stopped reading as a group). */}
       <NotificationsMasterCard />
+      <NotificationsCard />
       <TerminalFontCard />
       {/* Per-USER (server-stored) next to its per-device sibling: the font
           size lives on this device, the history cap rides every attach. */}
       <TerminalHistoryCard />
-      <NotificationsCard />
       {/* Self-service for ANY signed-in user (own passkeys only via the session). */}
       <PasskeysCard />
       <ChangePasswordCard />
