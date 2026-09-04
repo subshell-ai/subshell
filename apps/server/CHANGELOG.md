@@ -1,5 +1,17 @@
 # @internal/server
 
+## 1.4.2
+
+### Patch Changes
+
+- [`bce9af0`](https://github.com/subshell-ai/subshell/commit/bce9af0a8bd925084f08d345c6d1dd7a60ea8cce) Thanks [@theogravity](https://github.com/theogravity)! - fix(notify): VAPID subject defaults to the instance URL — Apple's web push refuses a localhost mailto contact (403 BadJwtToken) while FCM tolerates it, so iOS PWA pushes could never arrive on instances using the generated subject. A stored localhost subject is normalized in place on load; the key pair (and every live subscription bound to it) is untouched.
+
+- [`24de30b`](https://github.com/subshell-ai/subshell/commit/24de30b1530c378fb322da20e524892058ce0f2a) Thanks [@theogravity](https://github.com/theogravity)! - Rolled the terminal attach path back to its last known-working state. Two fix attempts from the 2026-09-04 garble saga are reverted: the geometry reconciliation (`6351853` — the `geometry` frame, serialized/coalesced resizes, and the client's ack → re-ask → conform loop) and the quiet join (`9190c2f` — zero-overlap replay plus a CUP restoring the pane's cursor mid-screen). Each replaced a simple one-shot step with a mechanism that could keep negotiating with the pane, and the net result was worse than the state they were chasing.
+  
+  Kept, because both fix defects that pre-date the rollback point and neither adds a feedback loop: the replay frame still has its trailing terminator stripped, so the client's viewport stays 1:1 with the pane's rows, and a reattached pane is still repainted with a bare SIGWINCH rather than a geometry nudge that reflows scrollback. Resizes are fire-and-forget again.
+
+- [`b4bb1bb`](https://github.com/subshell-ai/subshell/commit/b4bb1bba15a89ad557fbfb1416f38f0c1a159efe) Thanks [@theogravity](https://github.com/theogravity)! - PATCH /api/settings now audits every real `allow_registrations` flip (actor + from/to) — the toggle that opened sign-up on a live instance left no trace during the 2026-09-03 deploy-bot incident. The terminal dead-panel's Close button (frontend) is now owner-only, matching the actions menu.
+
 ## 1.4.1
 
 ### Patch Changes
