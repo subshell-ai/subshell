@@ -64,6 +64,14 @@ export class FakeNodeLauncher implements NodeLauncher {
     return "";
   }
   async resize(): Promise<void> {}
+  /**
+   * False: the fake "cannot deliver a bare SIGWINCH", so the attach path's
+   * repaint repair exercises the ±1 resize fallback exactly as before the
+   * winch-first step existed (no redraw wait, no fake pane to signal).
+   */
+  async signalPaneWinch(): Promise<boolean> {
+    return false;
+  }
   async sendInput(): Promise<void> {}
   async deliverPrompt(): Promise<boolean> {
     return false;

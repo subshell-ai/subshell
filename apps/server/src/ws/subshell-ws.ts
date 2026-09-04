@@ -435,10 +435,16 @@ const NUDGE_SETTLE_MS = 80;
  *   bound, so the capture catches tmux's instant re-wrap of the OLD frame: a
  *   stable-LOOKING grid of mid-word garbage.
  *
- * Both are cured by making the app repaint NOW: bump the width one column,
- * hold it {@link NUDGE_SETTLE_MS}, then step back to the client's real width
- * — two genuine geometry changes, so a SIGWINCH the app must answer with a
- * full repaint, ending at exactly the size the client renders into.
+ * Both are cured by making the app repaint NOW. The preferred route is a
+ * bare `SIGWINCH` to the pane's process ({@link NodeLauncher.signalPaneWinch}):
+ * the app gets the resize signal it waits for while the geometry never moves,
+ * so tmux never REFLOWS the pane's history. Only when the machine cannot
+ * deliver the signal — or the app stayed silent after it — does the fallback
+ * run: bump the width one column, hold it {@link NUDGE_SETTLE_MS}, then step
+ * back to the client's real width. Two genuine geometry changes force the
+ * same full repaint, but each re-wraps scrollback — which is why the phone
+ * that reattaches every minute accumulated duplicate blocks in its history
+ * (2026-09-04 report: "still garbled when I scroll up").
  *
  * At call time the pane is reliably at {@link cols}×{@link rows} (the caller
  * only reaches here after a successful resize), so the nudge is relative to
@@ -447,7 +453,8 @@ const NUDGE_SETTLE_MS = 80;
  * gap-free join, and the nudge only improves the first paint — so this never
  * throws.
  *
- * @param launcher - the pane handle (the nudge issues two `resize` RPCs)
+ * @param launcher - the pane handle (the winch is one call; the fallback
+ *   nudge issues two `resize` RPCs)
  * @param socket - tmux socket (local) — ignored by the remote launcher
  * @param id - subshell id
  * @param cols - the client's target width (the pane's current width)
@@ -466,6 +473,13 @@ export async function nudgePaneForRepaint(
   sizeOf: () => Promise<number>,
 ): Promise<boolean> {
   try {
+    // The no-reflow route first: same repaint, zero history damage.
+    if (await launcher.signalPaneWinch(socket, id)) {
+      if (await waitForPaneRepaint(sizeOf, { noGrowthGraceMs: NUDGE_NO_GROWTH_GRACE_MS })) return true;
+      // The signal reached the pane and nothing repainted — the app does not
+      // answer a same-size SIGWINCH. Fall through to the geometry nudge,
+      // which forces the repaint with sizes it cannot ignore.
+    }
     await launcher.resize(socket, id, cols + 1, rows);
     await Bun.sleep(NUDGE_SETTLE_MS);
     await launcher.resize(socket, id, cols, rows);

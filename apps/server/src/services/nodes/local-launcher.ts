@@ -133,6 +133,28 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.resizeWindow(socket, id, cols, rows);
   }
 
+  /**
+   * `SIGWINCH` to the pane's process group WITHOUT resizing anything — the
+   * no-reflow repaint the attach path prefers over the ±1-column nudge (see
+   * `NodeLauncher.signalPaneWinch`). tmux runs each pane in its own process
+   * group with the pane pid as leader, so `-pid` reaches the harness AND its
+   * children exactly like a real resize's terminal-driven signal would; the
+   * bare pid is the fallback for a pane that is not its own group leader.
+   */
+  async signalPaneWinch(socket: string, id: string): Promise<boolean> {
+    const pid = this.#tmux.panePid(socket, id);
+    if (!pid) return false;
+    for (const target of [-pid, pid]) {
+      try {
+        process.kill(target, "SIGWINCH");
+        return true;
+      } catch {
+        // ESRCH/EPERM — try the next target
+      }
+    }
+    return false;
+  }
+
   async sendInput(socket: string, id: string, input: string): Promise<void> {
     this.#tmux.sendInput(socket, id, input);
   }

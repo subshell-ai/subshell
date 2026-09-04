@@ -169,6 +169,29 @@ export class TmuxRunner {
   }
 
   /**
+   * The pid of the process tmux runs IN the pane, null when the pane is gone
+   * or tmux errors.
+   *
+   * tmux's own `send-keys -X resize-pane`-family has no "force a redraw" verb,
+   * and the repaint the attach path needs is a `SIGWINCH` to the pane's
+   * process — so this is the handle for the one signal the server sends
+   * directly (see `NodeLauncher.signalPaneWinch`). `#{pane_pid}` is a bare
+   * integer, so unlike {@link paneTitle} a single read needs no separator.
+   */
+  panePid(socket: string, subshellName: string): number | null {
+    try {
+      const out = this.run(
+        ["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_pid}"],
+        {},
+      ).stdout.trim();
+      const pid = Number(out);
+      return Number.isInteger(pid) && pid > 0 ? pid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Creates a new detached subshell running `cmd` in `cwd`.
    *
    * Retries through the SERVER-SHUTDOWN RACE. Killing a socket's last subshell

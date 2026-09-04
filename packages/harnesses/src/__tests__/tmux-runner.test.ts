@@ -334,6 +334,32 @@ echo "server exited unexpectedly" >&2; exit 1
     expect(out).toContain("[31m");
     runner.killSubshell(socket, "s1");
   });
+
+  it("panePid: names the pane's own process; a missing pane/socket answers null", async () => {
+    const socket = freshSocket("pid");
+    const pidFile = join(tmpdir(), `subshell-panepid-${process.pid}-${socketSeq}.txt`);
+    try {
+      // The pane's shell prints its OWN pid: tmux makes that shell the pane's
+      // leader, so `#{pane_pid}` must report the same number — the exact
+      // handle `signalPaneWinch` kills (`-pid` reaches the pane's group).
+      runner.newSubshell(socket, "s1", "/tmp", `echo $$ > ${pidFile}; exec sleep 30`);
+      const deadline = Date.now() + 5000;
+      while (!(await Bun.file(pidFile).exists()) && Date.now() < deadline) await Bun.sleep(25);
+      const shellPid = Number((await Bun.file(pidFile).text()).trim());
+      expect(Number.isInteger(shellPid) && shellPid > 0).toBe(true);
+      expect(runner.panePid(socket, "s1")).toBe(shellPid);
+      // Gone names and gone sockets answer null — never a throw, never a 0.
+      expect(runner.panePid(socket, "no-such-session")).toBeNull();
+      expect(runner.panePid(freshSocket("pid-absent"), "s1")).toBeNull();
+      runner.killSubshell(socket, "s1");
+    } finally {
+      try {
+        unlinkSync(pidFile);
+      } catch {
+        // the shell never wrote it — nothing to clean
+      }
+    }
+  });
 });
 
 afterAll(() => {

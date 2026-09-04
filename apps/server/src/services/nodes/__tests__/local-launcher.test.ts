@@ -74,6 +74,40 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     expect((await launcher.readLogTail(lid)).lines).toEqual([]); // missing log = empty
   });
 
+  it("signalPaneWinch repaints the pane WITHOUT touching its geometry; dead pane ⇒ false", async () => {
+    // The whole point of the winch route (vs the ±1 resize nudge): the app
+    // gets a SIGWINCH it must answer with a repaint while tmux never reflows
+    // the pane's history. A shell that traps WINCH and prints proves the
+    // signal reached the pane's own process group; the width probe proves the
+    // geometry never moved.
+    const wid = `${id}-winch`;
+    const wsock = tmuxSocketFor(wid);
+    tmux.newSubshell(wsock, wid, tmpdir(), "trap 'echo WINCH-GOT' WINCH; while :; do sleep 0.2; done");
+    await sleep(400); // the trap is installed once the shell reaches the loop
+    try {
+      const sizeBefore = tmux
+        .run(["-L", wsock, "display-message", "-t", wid, "-p", "#{window_width}x#{window_height}"], {})
+        .stdout.trim();
+      expect(await launcher.signalPaneWinch(wsock, wid)).toBe(true);
+      const deadline = Date.now() + 4000;
+      let painted = "";
+      while (Date.now() < deadline && !painted.includes("WINCH-GOT")) {
+        painted = await launcher.capture(wsock, wid);
+        await sleep(100);
+      }
+      expect(painted).toContain("WINCH-GOT"); // the signal arrived where it was aimed
+      const sizeAfter = tmux
+        .run(["-L", wsock, "display-message", "-t", wid, "-p", "#{window_width}x#{window_height}"], {})
+        .stdout.trim();
+      expect(sizeAfter).toBe(sizeBefore); // and NOTHING reflowed
+    } finally {
+      tmux.killSubshell(wsock, wid);
+      tmux.cleanSocket(wsock);
+    }
+    // No pane, no signal — the caller must fall back to the resize nudge.
+    expect(await launcher.signalPaneWinch(wsock, wid)).toBe(false);
+  });
+
   it("terminate kills the subshell", async () => {
     await launcher.terminate(socket, id);
     expect(await launcher.hasSubshell(socket, id)).toBe(false);

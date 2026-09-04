@@ -292,6 +292,20 @@ export class RemoteLauncher implements NodeLauncher {
     await this.#send({ type: "resize", subshellId: id, cols, rows });
   }
 
+  /**
+   * Not yet deliverable on a node: there is no `winch` command in the agent
+   * protocol (spec §6.4), so this honestly answers "no" — the attach path
+   * falls through to the ±1-column resize nudge, the pre-2026-09-04 behavior,
+   * for remote panes. Adding the command means a client release (protocol +
+   * agent); the local path needed the fix first because that is where the
+   * minute-scale phone reattaches hammer the pane's history.
+   */
+  // No `winch` command in the agent protocol yet (and no local pid on the
+  // node's caller side): false routes the attach back to its ±1 nudge fallback.
+  async signalPaneWinch(): Promise<boolean> {
+    return false;
+  }
+
   /** `input` verbatim, byte for byte (the agent's `send-keys -l --`). */
   async sendInput(_socket: string, id: string, input: string): Promise<void> {
     await this.#send({ type: "input", subshellId: id, data: input });

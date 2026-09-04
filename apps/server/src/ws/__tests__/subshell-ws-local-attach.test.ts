@@ -44,6 +44,7 @@ const launcherOriginals = {
   hasSubshell: defaultLocalLauncher.hasSubshell,
   capture: defaultLocalLauncher.capture,
   resize: defaultLocalLauncher.resize,
+  signalPaneWinch: defaultLocalLauncher.signalPaneWinch,
 };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
 let captureCalls = 0;
@@ -65,12 +66,20 @@ function stubLauncher(): void {
     resizeCalls.push({ cols, rows });
     order.push("resize");
   };
+  // Default: the machine cannot deliver a bare SIGWINCH (as for a remote
+  // node today), so the nudge path under test is the ±1 resize. Its
+  // no-reflow-first behavior gets its own cases below.
+  defaultLocalLauncher.signalPaneWinch = async () => {
+    order.push("winch");
+    return false;
+  };
 }
 
 afterEach(() => {
   defaultLocalLauncher.hasSubshell = launcherOriginals.hasSubshell;
   defaultLocalLauncher.capture = launcherOriginals.capture;
   defaultLocalLauncher.resize = launcherOriginals.resize;
+  defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
   captureCalls = 0;
   captureLinesArg = undefined;
   resizeCalls = [];
@@ -342,12 +351,73 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     await attach(row.userId, row.id, "&cols=80&rows=24");
 
     // Fit, nudge out, nudge back — and the pane ends at the client's real size.
+    // (The winch ran first and was refused — the stub says "this machine
+    // cannot signal the pane" — so the ±1 fallback is what these calls are.)
     expect(resizeCalls).toEqual([
       { cols: 80, rows: 24 },
       { cols: 81, rows: 24 },
       { cols: 80, rows: 24 },
     ]);
     expect(order.at(-1)).toBe("capture"); // the capture reads the post-nudge frame
+    expect(order.indexOf("winch")).toBeLessThan(order.indexOf("capture", order.lastIndexOf("resize"))); // winch precedes the fallback
+  });
+
+  it("a pane that answers the bare SIGWINCH is NOT nudged — no ±1 reflow of its history", async () => {
+    // The ±1 resize forces the repaint the reopen needs, but each step makes
+    // tmux REFLOW the pane's history — and a phone that reattaches every
+    // minute was stamping duplicate blocks into scrollback that nothing can
+    // ever rewrite (2026-09-04: "still garbled when I scroll up"). The
+    // geometry-free route — SIGWINCH to the pane's process — must be tried
+    // FIRST, and succeed the attach when the app answers it.
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = subshellLogPath(row.id);
+    await Bun.write(logFile, "x\n");
+    let repainted = false;
+    defaultLocalLauncher.signalPaneWinch = async () => {
+      order.push("winch");
+      // The signal lands; the app's repaint follows ~a frame later, as bytes
+      // the size probe can catch growing (the wait samples the log at call
+      // time, so writing synchronously here would be invisible to it).
+      setTimeout(() => {
+        appendFileSync(logFile, "winch-repaint\n");
+        repainted = true;
+      }, 60);
+      return true;
+    };
+    defaultLocalLauncher.capture = async () => {
+      order.push("capture");
+      return repainted ? "FRESH" : "STALE";
+    };
+
+    const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
+
+    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "FRESH" }));
+    // The fit only — the width never moved, so the history never reflowed.
+    expect(resizeCalls).toEqual([{ cols: 80, rows: 24 }]);
+    expect(order).toEqual(["resize", "winch", "capture"]);
+  });
+
+  it("a SIGWINCH the app ignores still falls through to the ±1 nudge", async () => {
+    // "Signal delivered" is not "pane repainted": an app that only redraws
+    // when the size actually CHANGES stays silent on a same-size winch, and
+    // the attach must not ship its half-painted frame — the fallback nudge
+    // keeps the pre-winch behavior as the floor.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "x\n");
+    defaultLocalLauncher.signalPaneWinch = async () => {
+      order.push("winch");
+      return true; // delivered, and nothing ever answers it (stub resize writes no bytes)
+    };
+
+    await attach(row.userId, row.id, "&cols=80&rows=24");
+
+    expect(resizeCalls).toEqual([
+      { cols: 80, rows: 24 },
+      { cols: 81, rows: 24 },
+      { cols: 80, rows: 24 },
+    ]);
   });
 
   it("a pane that DOES repaint is not nudged — no gratuitous geometry thrash", async () => {

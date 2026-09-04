@@ -79,6 +79,20 @@ export interface NodeLauncher {
   capture(socket: string, id: string, scrollbackLines?: number): Promise<string>;
   /** Propagates client geometry to the pane. */
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
+  /**
+   * Sends `SIGWINCH` to the pane's process WITHOUT changing its size, so a
+   * diff-rendering TUI repaints the grid it already has. Returns false when
+   * the machine cannot deliver the signal.
+   *
+   * This exists because a reopen at the size the pane already has makes
+   * {@link resize} a no-op — no `SIGWINCH`, no repaint, and whatever
+   * half-painted frame the pane held is captured verbatim for every viewer.
+   * The previous answer was to nudge the width one column and back, which
+   * forces the repaint but also makes tmux REFLOW the pane's history twice;
+   * on phones that reattach every minute, each reflow stamps another copy of
+   * a tall inline UI into scrollback, where nothing can ever rewrite it.
+   */
+  signalPaneWinch(socket: string, id: string): Promise<boolean>;
   /** Types raw input into the pane (escape sequences included). */
   sendInput(socket: string, id: string, input: string): Promise<void>;
   /**
