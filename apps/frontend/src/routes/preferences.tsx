@@ -29,19 +29,24 @@ function PreferencesPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-8 p-6">
       <PageHeader title="Preferences" subtitle="How subshell behaves — account-wide or just on this device" />
-      <Section id="prefs-account" label="Synced with your account">
-        {/* Account-wide switch first: it gates every device, so it reads as the
-            parent of the per-device opt-in in the section below. Keep the two
-            MASTER-then-DEVICE order across sections — the pair is split by
-            scope on purpose, do not "reunite" them here. */}
+      {/* THE SCOPE-SPLIT EXCEPTION (Theo, 2026-09-04): notifications stay
+          bundled even though the two cards are different scopes — they are
+          one decision (ring anywhere? ring HERE?), and splitting them across
+          sections is what confused the push debug. Master first: it gates
+          every device and reads as the parent of the per-device opt-in. */}
+      <Section id="prefs-notifications" label="Notifications">
         <div className="space-y-6">
           <NotificationsMasterCard />
+          <NotificationsCard />
+        </div>
+      </Section>
+      <Section id="prefs-account" label="Synced with your account">
+        <div className="space-y-6">
           <TerminalHistoryCard />
         </div>
       </Section>
       <Section id="prefs-device" label="This device">
         <div className="space-y-6">
-          <NotificationsCard />
           <TerminalFontCard />
         </div>
       </Section>

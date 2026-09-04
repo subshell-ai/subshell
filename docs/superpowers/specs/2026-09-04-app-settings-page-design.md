@@ -12,12 +12,17 @@ notification debugging: the layout itself confused the user mid-debug).
 ## Decision
 
 A third surface, **Preferences** (`/preferences`), holding the preference-tier
-cards in two labeled groups:
+cards in labeled groups:
 
+- **"Notifications"** — the scope-split EXCEPTION (Theo, 2026-09-04):
+  `NotificationsMasterCard` + `NotificationsCard` bundled, master first. They
+  are one decision (ring anywhere? ring HERE?) and live on different tiers,
+  but splitting them across sections is what confused the push debug — the
+  pair wins over the taxonomy.
 - **"Synced with your account"** (server-stored, follow the user everywhere):
-  `NotificationsMasterCard`, `TerminalHistoryCard`
+  `TerminalHistoryCard`
 - **"This device"** (browser state — gone if site data is cleared):
-  `NotificationsCard` (per-device push enable), `TerminalFontCard` (localStorage font size)
+  `TerminalFontCard` (localStorage font size)
 
 `/account` keeps identity only: `ProfileCard`, `PasskeysCard`, `ChangePasswordCard`.
 `/settings` ("Server", instance-wide, admin) is unchanged except the non-admin hint,
