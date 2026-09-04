@@ -1,5 +1,11 @@
 # @internal/server
 
+## 1.4.3
+
+### Patch Changes
+
+- [`288acab`](https://github.com/subshell-ai/subshell/commit/288acab3a766e273165f3156e583abd8e683e14a) Thanks [@theogravity](https://github.com/theogravity)! - Server bundle carries the iPad terminal fixes: two-finger touch pan and Magic Keyboard trackpad (wheel) now scroll the terminal instead of the PWA shell; grid gestures are locked against native scroll; Preferences shows the bundle build id.
+
 ## 1.4.2
 
 ### Patch Changes
