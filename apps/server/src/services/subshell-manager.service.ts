@@ -298,7 +298,13 @@ export class SubshellManagerService {
 
     const id = crypto.randomUUID();
     const socket = tmuxSocketFor(id);
-    const subshellName = name?.trim() || defaultSubshellName();
+    // Display name vs LAUNCH name (titling spec 2026-09-03): only a name a
+    // HUMAN chose travels to the pane command — an unnamed create passes ""
+    // so the plugins omit `--name`, the harness titles its own pane, and the
+    // reconcile sweep adopts those titles into the row (whose displayed name
+    // stays the date/time placeholder until the first one lands).
+    const userNamed = name?.trim() ?? "";
+    const subshellName = userNamed || defaultSubshellName();
     // Restart-resume plan: continue the predecessor's conversation when it
     // survived, else pin a fresh id this subshell will be resumed by later.
     const harnessSession = await this.#planHarnessSession(launcher, harness, resumeFromId ?? null, realPath);
@@ -358,7 +364,7 @@ export class SubshellManagerService {
         binary,
         cwd: realPath,
         profile,
-        subshellName,
+        subshellName: userNamed,
         subshellEnv,
         mcp,
         mcpConfigPath,
@@ -917,7 +923,11 @@ export class SubshellManagerService {
       binary,
       cwd: realPath,
       profile,
-      subshellName: row.name,
+      // Locked names are human-owned and travel back as `--name`; anything
+      // else (placeholder or sweep-adopted) passes "" so the fresh pane is
+      // titled by the harness again, not pinned to yesterday's task title
+      // (titling spec 2026-09-03). The env keeps the row's display name.
+      subshellName: row.nameLocked === 1 ? row.name : "",
       subshellEnv,
       mcp,
       mcpConfigPath,
