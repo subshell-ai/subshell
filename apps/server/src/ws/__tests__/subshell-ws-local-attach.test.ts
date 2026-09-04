@@ -17,6 +17,28 @@ import {
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**
+ * The attach's `replay` frame. Looked up by TYPE rather than by position:
+ * attaches now send a `geometry` frame first (the pane's real size, so the
+ * client paints the capture on a matching grid — see ServerFrame.cols).
+ */
+function replayOf(sent: string[]): { type: string; data: string } | undefined {
+  const raw = sent.find((s) => s.includes('"type":"replay"'));
+  return raw ? (JSON.parse(raw) as { type: string; data: string }) : undefined;
+}
+
+/** The attach's `geometry` frame — the pane size the client must paint on. */
+function geometryOf(sent: string[]): { type: string; cols: number; rows: number } | undefined {
+  const raw = sent.find((s) => s.includes('"type":"geometry"'));
+  return raw ? (JSON.parse(raw) as { type: string; cols: number; rows: number }) : undefined;
+}
+
+/** The attach's `geometry` frame, if the pane size was known. */
+function _geometryOf(sent: string[]): { type: string; cols: number; rows: number } | undefined {
+  const raw = sent.find((s) => s.includes('"type":"geometry"'));
+  return raw ? (JSON.parse(raw) as { type: string; cols: number; rows: number }) : undefined;
+}
+
+/**
  * Local-attach cleanup leak (pre-Task-11, surfaced while reviewing §6.5).
  *
  * `handleSubshellWs` copied the attach state onto `ws.data` with
@@ -46,6 +68,7 @@ const launcherOriginals = {
   resize: defaultLocalLauncher.resize,
   signalPaneWinch: defaultLocalLauncher.signalPaneWinch,
   paneCursor: defaultLocalLauncher.paneCursor,
+  paneSize: defaultLocalLauncher.paneSize,
 };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
 let captureCalls = 0;
@@ -78,6 +101,10 @@ function stubLauncher(): void {
   // skips the quiet join and replays with the overlap, exactly as the suites
   // here were written. The quiet-join cases stub a cursor.
   defaultLocalLauncher.paneCursor = async () => null;
+  // Unmeasurable by default (no tmux under `bun test`), so the attach reports
+  // the size it applied; the geometry case below overrides it to prove the
+  // PANE's size is what gets reported.
+  defaultLocalLauncher.paneSize = async () => null;
 }
 
 afterEach(() => {
@@ -86,6 +113,7 @@ afterEach(() => {
   defaultLocalLauncher.resize = launcherOriginals.resize;
   defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
   defaultLocalLauncher.paneCursor = launcherOriginals.paneCursor;
+  defaultLocalLauncher.paneSize = launcherOriginals.paneSize;
   captureCalls = 0;
   captureLinesArg = undefined;
   resizeCalls = [];
@@ -155,7 +183,7 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     const { ws, sent, closed } = await attach(row.userId, row.id);
     try {
       expect(closed).toEqual([]); // the attach ran to completion (not a refusal)
-      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      expect(replayOf(sent)?.data).toBe("SCREEN");
       // RED today: Object.assign ran before startLogTail set `data.cleanup` on
       // the local object, so ws.data never received the disposer and a
       // disconnect releases the watcher/timer by accident of nothing running.
@@ -241,7 +269,8 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // capture grid" mechanism is gone (it painted mid-stream TUI redraw
     // sequences over the snapshot — the jumble that took ~10s to converge and
     // left the oldest scrollback lines garbled forever).
-    expect(sent).toEqual([JSON.stringify({ type: "replay", data: "SCREEN" })]);
+    expect(replayOf(sent)?.data).toBe("SCREEN");
+    expect(sent.filter((s) => s.includes('"type":"output"'))).toEqual([]);
 
     // New output AFTER the attach still streams — EOF is a start, not a stop.
     appendFileSync(logFile, "live\r\n");
@@ -263,7 +292,7 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     defaultLocalLauncher.capture = async () => grid;
 
     const { sent } = await attach(row.userId, row.id);
-    const frame = JSON.parse(sent[0]) as { type: string; data: string };
+    const frame = replayOf(sent) ?? { type: "", data: "" };
     expect(frame.type).toBe("replay");
     expect(frame.data).toBe("┌────────┐\r\n│ row  1 │\r\n│ row  2 │\r\n└────────┘");
     expect(/[^\r]\n/.test(frame.data)).toBe(false); // no bare LF anywhere
@@ -339,7 +368,7 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     };
 
     const { sent } = await attach(row.userId, row.id, "&cols=100&rows=30");
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "FRESH" }));
+    expect(replayOf(sent)?.data).toBe("FRESH");
   });
 
   it("a pane that never repaints is NUDGED (±1 col) to force a SIGWINCH before the capture", async () => {
@@ -398,7 +427,7 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
 
     const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
 
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "FRESH" }));
+    expect(replayOf(sent)?.data).toBe("FRESH");
     // The fit only — the width never moved, so the history never reflowed.
     expect(resizeCalls).toEqual([{ cols: 80, rows: 24 }]);
     expect(order).toEqual(["resize", "winch", "capture"]);
@@ -472,7 +501,7 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
     // That terminator must NOT survive: it would scroll the client one row
     // past the pane's grid and make the CUP below name the wrong row.
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN\x1b[10;5H" }));
+    expect(replayOf(sent)?.data).toBe("SCREEN\x1b[10;5H");
     expect(sent.some((f) => f.includes("between-join-and-snapshot"))).toBe(false);
 
     appendFileSync(logFile, "live\r\n"); // output AFTER the join streams normally
@@ -495,12 +524,33 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     };
 
     const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
-    const frame = JSON.parse(sent[0]) as { type: string; data: string };
+    const frame = replayOf(sent) ?? { type: "", data: "" };
     expect(frame.data).toBe("SCREEN"); // no CUP suffix — overlap semantics
     // Bytes written mid-attach ride the stream (the join predates the capture):
     await Bun.sleep(120);
-    expect(sent.some((f) => f !== sent[0] && f.includes("busy"))).toBe(true);
+    expect(sent.some((f) => f.includes('"type":"output"') && f.includes("busy"))).toBe(true);
   }, 15_000);
+
+  it("announces the PANE's geometry BEFORE the replay, so the capture paints on a matching grid", async () => {
+    // The 2026-09-04 root cause, from the other end: the client must be on the
+    // pane's grid before it paints the pane's rows. Its own fitted size can
+    // already differ (a late layout tick, a soft keyboard), and painting a
+    // 30-row capture into a 28-row grid desynchronizes every relative-
+    // positioned frame that follows.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "x\n");
+    // The pane took 28 rows, not the 30 that were asked for.
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: 28 });
+
+    const { sent } = await attach(row.userId, row.id, "&cols=100&rows=30");
+
+    expect(geometryOf(sent)).toEqual({ type: "geometry", cols: 100, rows: 28 });
+    const gi = sent.findIndex((s) => s.includes('"type":"geometry"'));
+    const ri = sent.findIndex((s) => s.includes('"type":"replay"'));
+    expect(gi).toBeGreaterThanOrEqual(0);
+    expect(gi).toBeLessThan(ri); // geometry first, or the replay lands on the old grid
+  });
 
   it("without cols/rows the capture runs exactly once (no quiesce for stale clients)", async () => {
     stubLauncher();
@@ -536,7 +586,7 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     const { sent, closed } = await attach(row.userId, row.id, "&cols=abc&rows=0");
     expect(resizeCalls).toEqual([]);
     expect(closed).toEqual([]);
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(replayOf(sent)?.data).toBe("SCREEN");
   });
 
   it("a client that closes DURING the attach's awaits leaves nothing armed", async () => {

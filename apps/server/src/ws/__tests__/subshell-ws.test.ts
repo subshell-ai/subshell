@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import { handleSubshellMessage, parseClientBuild, type WsSocket } from "@/ws/subshell-ws.js";
+import {
+  handleSubshellMessage,
+  parseClientBuild,
+  resizePaneForClient,
+  type WsData,
+  type WsSocket,
+} from "@/ws/subshell-ws.js";
 
 // stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
 // pinned there by __tests__/sync-stripper.test.ts.
@@ -129,5 +135,91 @@ describe("parseClientBuild", () => {
 
   it("keeps the dev sentinel intact", () => {
     expect(parseClientBuild(at("&build=dev"))).toBe("dev");
+  });
+});
+
+/**
+ * Geometry reconciliation (2026-09-04 root cause). Resizes used to be
+ * `void`-fired: unordered, unmeasured, unacknowledged. A request that was lost
+ * or overtaken left the pane at a different size than the browser's grid, and
+ * because Claude Code positions every frame with RELATIVE moves and rewrites
+ * only changed spans, every later frame landed on the wrong rows — the screen
+ * froze mid-selection until a reattach. Measured live: a 13-row client against
+ * a 16-row pane, with `capture-pane` pristine the whole time.
+ */
+describe("resizePaneForClient", () => {
+  function harness(opts: { paneSize?: (c: number, r: number) => { cols: number; rows: number } | null } = {}) {
+    const applied: Array<{ cols: number; rows: number }> = [];
+    let last = { cols: 0, rows: 0 };
+    const sent: string[] = [];
+    const launcher = {
+      async resize(_s: string, _i: string, cols: number, rows: number) {
+        await Bun.sleep(5); // a real tmux round trip: long enough to overlap
+        applied.push({ cols, rows });
+        last = { cols, rows };
+      },
+      async paneSize() {
+        return opts.paneSize ? opts.paneSize(last.cols, last.rows) : last;
+      },
+    } as unknown as NodeLauncher;
+    const data = { launcher, socket: "sock", subshellId: "sid" } as WsData;
+    const ws = { data, send: (s: string) => sent.push(s), close: () => {} } as unknown as WsSocket;
+    return { ws, data, applied, sent };
+  }
+
+  it("acknowledges each applied resize with the pane's REAL size", async () => {
+    const h = harness();
+    await resizePaneForClient(h.ws, h.data, 80, 24);
+    expect(h.applied).toEqual([{ cols: 80, rows: 24 }]);
+    expect(h.sent).toEqual([JSON.stringify({ type: "geometry", cols: 80, rows: 24 })]);
+  });
+
+  it("coalesces a burst and the LAST request wins (the bug: it was 16 when 13 was asked)", async () => {
+    const h = harness();
+    // Three layout ticks in one turn, exactly the phone's pattern.
+    const a = resizePaneForClient(h.ws, h.data, 51, 13);
+    const b = resizePaneForClient(h.ws, h.data, 51, 16);
+    const c = resizePaneForClient(h.ws, h.data, 51, 13);
+    await Promise.all([a, b, c]);
+    // One round trip for the first, one for the coalesced latest — never a
+    // third, and never ending on the superseded 16.
+    expect(h.applied.length).toBeLessThanOrEqual(2);
+    expect(h.applied.at(-1)).toEqual({ cols: 51, rows: 13 });
+    const lastAck = JSON.parse(h.sent.at(-1) ?? "{}");
+    expect({ cols: lastAck.cols, rows: lastAck.rows }).toEqual({ cols: 51, rows: 13 });
+  });
+
+  it("reports what the pane ACTUALLY took, not what was requested", async () => {
+    // A pane that refuses to shrink past 16 rows: the client must hear 16 so
+    // it can re-ask or conform, instead of assuming its 13 landed.
+    const h = harness({ paneSize: (cols, rows) => ({ cols, rows: Math.max(rows, 16) }) });
+    await resizePaneForClient(h.ws, h.data, 51, 13);
+    expect(JSON.parse(h.sent[0] ?? "{}")).toEqual({ type: "geometry", cols: 51, rows: 16 });
+  });
+
+  it("falls back to the requested size when the machine cannot measure (remote agent)", async () => {
+    const h = harness({ paneSize: () => null });
+    await resizePaneForClient(h.ws, h.data, 90, 30);
+    expect(JSON.parse(h.sent[0] ?? "{}")).toEqual({ type: "geometry", cols: 90, rows: 30 });
+  });
+
+  it("sends NO acknowledgement when the resize fails — silence is the client's retry signal", async () => {
+    const data = {
+      launcher: {
+        async resize() {
+          throw new Error("pane gone");
+        },
+        async paneSize() {
+          return null;
+        },
+      },
+      socket: "s",
+      subshellId: "i",
+    } as unknown as WsData;
+    const sent: string[] = [];
+    const ws = { data, send: (s: string) => sent.push(s), close: () => {} } as unknown as WsSocket;
+    await resizePaneForClient(ws, data, 80, 24);
+    expect(sent).toEqual([]);
+    expect(data.resizeRunning).toBe(false); // and the queue is not wedged
   });
 });

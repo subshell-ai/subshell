@@ -40,10 +40,30 @@ export type ClientFrame =
  * A frame sent by the subshell WebSocket to the browser.
  */
 export interface ServerFrame {
-  /** `replay` rebuilds history on attach; `output` is live pane output. */
-  type: "replay" | "output";
+  /**
+   * `replay` rebuilds history on attach; `output` is live pane output;
+   * `geometry` reports the size the PANE actually has (see {@link ServerFrame.cols}).
+   */
+  type: "replay" | "output" | "geometry";
   /** Terminal bytes, including ANSI escape sequences. Absent on empty frames. */
   data?: string;
+  /**
+   * On `geometry` only: the pane's real width/height after a resize.
+   *
+   * The pane is the authority for PAINTING, because a diff-rendering TUI
+   * positions every frame relative to the geometry it believes the terminal
+   * has. If the browser's grid and the pane disagree by even one row, every
+   * later frame lands on the wrong rows and the screen appears frozen or
+   * superimposed — permanently, until a reattach (2026-09-04: measured with
+   * a 13-row client against a 16-row pane).
+   *
+   * A `resize` request is therefore not fire-and-forget: the server answers
+   * with what the pane ended up at, which lets the client notice a lost or
+   * superseded request and re-ask instead of painting into a mismatched grid.
+   */
+  cols?: number;
+  /** On `geometry` only: the pane's real height. See {@link ServerFrame.cols}. */
+  rows?: number;
 }
 
 /**

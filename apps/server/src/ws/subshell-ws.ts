@@ -260,6 +260,14 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     if (text != null) replay = captureToReplayText(text);
   }
   if (replay != null) {
+    // Geometry BEFORE the replay: the capture's rows were laid out for the
+    // pane's size, so the client must be on that grid before painting them.
+    // (Its own fitted size may already differ — a late layout tick, a soft
+    // keyboard — and painting a 38-row capture into a 13-row grid is exactly
+    // the desync this contract exists to prevent.)
+    const paneNow = await launcher.paneSize(row.tmuxSocket, row.id).catch(() => null);
+    const applied = paneNow ?? initialSize;
+    if (applied) ws.send(JSON.stringify({ type: "geometry", cols: applied.cols, rows: applied.rows }));
     ws.send(JSON.stringify({ type: "replay", data: replay }));
     recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged, quiet: quiet !== null });
   }
@@ -314,6 +322,15 @@ export interface WsData {
    * it names the client bundle behind a "still garbled" report.
    */
   attachUa?: string;
+  /**
+   * Pending geometry for {@link resizePaneForClient}: the LATEST size the
+   * client asked for while a resize was in flight, or null when nothing is
+   * queued. Coalescing here is what makes a burst of layout ticks cost one
+   * tmux round trip with last-request-wins semantics.
+   */
+  resizeWanted?: { cols: number; rows: number } | null;
+  /** True while a resize round trip is running, so requests queue instead of racing. */
+  resizeRunning?: boolean;
   cleanup?: () => void;
 }
 
@@ -566,6 +583,45 @@ export async function captureStable(
   }
 }
 
+/**
+ * Applies a client's requested geometry to the pane and tells the client what
+ * the pane ACTUALLY ended up with — the reconciliation half of the
+ * geometry contract (see `ServerFrame.cols`).
+ *
+ * Serialized and COALESCED per socket: while one resize is in flight, further
+ * requests only overwrite the pending target, so a burst of layout ticks
+ * costs one tmux round trip and the LAST request always wins. The previous
+ * `void launcher.resize(...)` had neither property.
+ *
+ * The `geometry` frame is sent even when the pane matched the request already:
+ * it is the client's acknowledgement, and its absence is what tells the client
+ * to re-ask. A failed resize sends nothing (the client retries), and a machine
+ * that cannot measure its pane falls back to reporting the size that was
+ * successfully applied.
+ *
+ * Exported for the remote relay, which shares the contract.
+ */
+export async function resizePaneForClient(ws: WsSocket, data: WsData, cols: number, rows: number): Promise<void> {
+  data.resizeWanted = { cols, rows };
+  if (data.resizeRunning) return; // the in-flight loop will pick the latest up
+  data.resizeRunning = true;
+  try {
+    while (data.resizeWanted) {
+      const want = data.resizeWanted;
+      data.resizeWanted = null;
+      await data.launcher.resize(data.socket, data.subshellId, want.cols, want.rows);
+      const applied = (await data.launcher.paneSize(data.socket, data.subshellId)) ?? want;
+      ws.send(JSON.stringify({ type: "geometry", cols: applied.cols, rows: applied.rows }));
+    }
+  } catch (err) {
+    // Deliberately silent to the client: no `geometry` frame means "not
+    // acknowledged", which is exactly the signal its retry is waiting for.
+    logger.withError(err).warn("ws resize failed");
+  } finally {
+    data.resizeRunning = false;
+  }
+}
+
 /** Pause between {@link captureQuietJoin} attempts — a capture window is ~10 ms, an animation tick's silence ~100 ms. */
 const CAPTURE_RETRY_MS = 40;
 /** Extra attach latency the quiet-join attempt may add before the overlap join takes over. */
@@ -768,7 +824,14 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // browser socket must not await, and the promise must not go unhandled.
   const logFailure = (err: unknown) => logger.withError(err).warn("ws input failed");
   if (frame.type === "resize") {
-    void data.launcher.resize(data.socket, data.subshellId, frame.cols, frame.rows).catch(logFailure);
+    // NOT fire-and-forget (2026-09-04). Resizes used to be `void`-fired with
+    // no ordering, no readback and no acknowledgement, so a request that was
+    // lost or overtaken left the pane at a DIFFERENT size than the browser's
+    // grid — and a diff-rendering TUI positions every frame relative to the
+    // geometry it believes it has, so every later frame landed on the wrong
+    // rows until a reattach. Measured live: a 13-row client against a 16-row
+    // pane, `capture-pane` pristine, the browser frozen and superimposed.
+    void resizePaneForClient(ws, data, frame.cols, frame.rows);
     return;
   }
   // Raw terminal input, forwarded verbatim — but only for callers allowed to

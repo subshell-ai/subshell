@@ -137,6 +137,10 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.resizeWindow(socket, id, cols, rows);
   }
 
+  async paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null> {
+    return this.#tmux.paneSize(socket, id);
+  }
+
   /**
    * `SIGWINCH` to the pane's process group WITHOUT resizing anything — the
    * no-reflow repaint the attach path prefers over the ±1-column nudge (see

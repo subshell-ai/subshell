@@ -80,6 +80,10 @@ export class FakeNodeLauncher implements NodeLauncher {
   async paneCursor(): Promise<{ x: number; y: number } | null> {
     return null;
   }
+  /** Null: the fake has no pane to measure, so callers report the size they asked for. */
+  async paneSize(): Promise<{ cols: number; rows: number } | null> {
+    return null;
+  }
   async sendInput(): Promise<void> {}
   async deliverPrompt(): Promise<boolean> {
     return false;

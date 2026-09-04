@@ -315,6 +315,16 @@ export class RemoteLauncher implements NodeLauncher {
     return null;
   }
 
+  /**
+   * No `pane_size` command in the agent protocol yet. Null means "cannot read
+   * back", and the caller then reports the size it successfully ASKED for —
+   * still a real acknowledgement (the agent's resize either applied or threw),
+   * just not an independent measurement.
+   */
+  async paneSize(): Promise<{ cols: number; rows: number } | null> {
+    return null;
+  }
+
   /** `input` verbatim, byte for byte (the agent's `send-keys -l --`). */
   async sendInput(_socket: string, id: string, input: string): Promise<void> {
     await this.#send({ type: "input", subshellId: id, data: input });

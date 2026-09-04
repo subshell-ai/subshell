@@ -17,6 +17,22 @@ import { attachRemoteSubshellWs, type RemoteAttachRow } from "@/ws/remote-subshe
 import { cleanupSubshellWs, handleSubshellMessage, resetLiveViewersForTests, type WsSocket } from "@/ws/subshell-ws.js";
 
 /**
+ * The attach's `replay` frame. Looked up by TYPE rather than by position:
+ * attaches now send a `geometry` frame first (the pane's real size, so the
+ * client paints the capture on a matching grid — see ServerFrame.cols).
+ */
+function replayOf(sent: string[]): { type: string; data: string } | undefined {
+  const raw = sent.find((s) => s.includes('"type":"replay"'));
+  return raw ? (JSON.parse(raw) as { type: string; data: string }) : undefined;
+}
+
+/** The attach's `geometry` frame, if the pane size was known. */
+function _geometryOf(sent: string[]): { type: string; cols: number; rows: number } | undefined {
+  const raw = sent.find((s) => s.includes('"type":"geometry"'));
+  return raw ? (JSON.parse(raw) as { type: string; cols: number; rows: number }) : undefined;
+}
+
+/**
  * Task 11 — the live-terminal relay for agent-node rows (spec 2026-08-31
  * §6.5). The browser contract must be BYTE-IDENTICAL to the local attach:
  * `{"type":"replay","data":...}` then `{"type":"output","data":...}` frames,
@@ -245,7 +261,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
 
     // Frame 1: replay — the capture's DEC 2026 markers are gone and the frame
     // is the browser's exact JSON shape (key order included).
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(replayOf(sent)?.data).toBe("SCREEN");
 
     // Live chunks arrive as output frames, markers stripped, byte-identical.
     const sub = subIdOf(sim);
@@ -267,7 +283,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed at offset 0");
 
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(replayOf(sent)?.data).toBe("SCREEN");
     expect(sim.cmdsOf("tail_start")[0]).toEqual({
       type: "tail_start",
       subshellId: SID,
@@ -385,7 +401,8 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
 
     await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
-    expect(sent).toEqual([JSON.stringify({ type: "replay", data: "SCREEN" })]);
+    expect(replayOf(sent)?.data).toBe("SCREEN");
+    expect(sent.filter((s) => s.includes('"type":"output"'))).toEqual([]);
 
     dispatchOutput(outputFrame(subIdOf(sim), 7, "flood"));
     await until(() => closed.some((c) => c.code === 1011), "1011 close");
