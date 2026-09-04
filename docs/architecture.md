@@ -53,9 +53,11 @@ Key properties:
   is no backdoor IPC.
 - **tmux is the source of truth for liveness**; the DB row is a record of
   intent, reconciled every 60 s (`SubshellManagerService.reconcileAll`).
-- **`subshell mcp` never opens the app database.** It is its own compile target
-  (`dist/subshell-mcp`, entry `src/mcp/main.ts`) importing only `@internal/mcp-core` —
-  a compromised agent process cannot reach SQLite or auth secrets directly.
+- **`subshell mcp` never opens the app database.** It is served by
+  `@internal/mcp-core` alone (the server binary's `mcp` subcommand or the agent's) —
+  that tree imports no db/auth chain and the entry graph does no IO at import
+  (purity-tested), so a compromised agent process holds no SQLite handle or
+  auth secret.
 - **The terminal transport does not fork for mobile.** The accessory key
   bar sends the same JSON `input` WS frames defined in
   `packages/subshell-protocol` that desktop keystrokes already use
@@ -244,9 +246,9 @@ create and auto-restart paths; manual harnesses write no file at all.
 
 Deployment override: `SUBSHELL_MCP_COMMAND` / `SUBSHELL_MCP_ARGS` (JSON array) pin how
 the server is launched; default resolution (apps/server `services/mcp-resolve.ts`) is
-compiled sibling `subshell-mcp` beside a `subshell-server*` executable (the release
-ships `subshell-mcp-<triple>` for this) → `bun …/mcp/main.js|ts` → the `subshell`
-node agent on PATH (`subshell mcp`). `subshell-server status` prints which rung answered.
+env override → SELF (`subshell-server mcp` when compiled, `<bun> <absolute entry> mcp`
+under `bun run`) → the `subshell` node agent on PATH (`subshell mcp`).
+`subshell-server status` prints which rung answered.
 
 ### Tools
 
@@ -322,16 +324,17 @@ apps/server/src/
 │   ├── subshell-tokens.ts     issue / revoke / extend subshell tokens
 │   ├── subshell-manager.service.ts  lifecycle orchestration (§5)
 │   ├── mcp-launch.ts          MCP config file + subshellMcpEnv (single producer)
+│   ├── mcp-resolve.ts         pure launch ladder (env override → self → client-on-PATH)
 │   └── channels/
 │       ├── post-bus.ts        in-process append notifier (single-process scale is fine)
 │       ├── read-wait.ts       long-park primitive (event-driven + timeout)
 │       └── nudge.ts           best-effort tmux send-keys, injectable transport for tests
-├── mcp/main.ts                standalone entry ONLY (own compile target) — imports just @internal/mcp-core
 └── db/migrations/0009-channels.ts   the six tables + sessions.api_key_id
     (0019 renamed the session tables/columns — subshells.api_key_id today)
 
-packages/mcp-core/src/         the `subshell mcp` child implementation (shared with the
-                               agent's `subshell mcp`); imports NOTHING outside
+packages/mcp-core/src/         the `subshell mcp` child implementation (serves both the
+                               server binary's and the agent's `mcp` subcommand);
+                               imports NOTHING outside
                                node builtins + jose + zod + @modelcontextprotocol/*
 ├── env.ts                 env contract consumer (mirror of mcp-launch's producer)
 ├── server.ts              boot + tool registration + AbortSignal plumbing (runSubshellMcp)

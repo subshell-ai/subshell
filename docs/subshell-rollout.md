@@ -297,11 +297,10 @@ embedded copy, so existing deployments are byte-identical until switched.
   exports into `~/.config/subshell-server/config.env` (0600) — the two
   flows share the DATA dir but not the config source (svc.sh: repo `.env`
   via `EnvironmentFile=`; CLI: `config.env`).
-- **Mac host: the CLI is the binary-flow path.** Drop the
-  `subshell-server-darwin-arm64` AND `subshell-mcp-darwin-arm64` binaries on
-  it, renamed `subshell-server` / `subshell-mcp` and installed SIDE BY SIDE
-  (the server resolves its MCP entrypoint from that sibling; without it,
-  creating a subshell 500s — `subshell-server status` shows the gap) — no
+- **Mac host: the CLI is the binary-flow path.** Drop the ONE
+  `subshell-server-darwin-arm64` binary on it, renamed `subshell-server`
+  (it serves its own `mcp` subcommand — no companion to install;
+  `subshell-server status` prints the resolved MCP entrypoint) — no
   bun, no checkout, no frontend dist needed (the SPA is embedded) — then
   `./subshell-server init && ./subshell-server service install` registers
   launchd agent `dev.subshell.server` (`~/Library/LaunchAgents/`, log
