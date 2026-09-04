@@ -129,6 +129,54 @@ describe("settings routes (admin cookie only)", () => {
     expect(((await restore.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
   });
 
+  // The registration toggle was flipped on the LIVE instance by a scripted
+  // session to mint a throwaway admin (the 2026-09-03 deploy-bot incident),
+  // and the flip left no trace in audit_events. Every CHANGED write is now
+  // audited; a no-change PATCH stays silent so the trail reads as flips.
+  it("PATCH of allow_registrations audits every real flip with actor and from/to", async () => {
+    const patchTo = async (allowRegistrations: boolean) => {
+      const res = await app.fetch(
+        authedRequest("/api/settings", adminCookie, {
+          method: "PATCH",
+          body: JSON.stringify({ allowRegistrations }),
+        }),
+      );
+      expect(res.status).toBe(200);
+    };
+
+    // The shared DB carries events from earlier tests in this suite; start
+    // from a clean slate so the count below is exactly this test's flips.
+    await db
+      .deleteFrom("auditEvents")
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .execute();
+
+    await patchTo(false);
+    await patchTo(false); // no flip — must not add an event
+    await patchTo(true); // flip back
+
+    const events = await db
+      .selectFrom("auditEvents")
+      .select(["action", "targetType", "targetId", "metadataJson"])
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .execute();
+    expect(events.length).toBe(2);
+    expect(events.map((e) => [e.targetType, e.targetId])).toEqual([
+      ["settings", "allow_registrations"],
+      ["settings", "allow_registrations"],
+    ]);
+    expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toEqual({ from: true, to: false });
+    expect(JSON.parse(events[1]?.metadataJson ?? "{}")).toEqual({ from: false, to: true });
+
+    await db
+      .deleteFrom("auditEvents")
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .execute();
+  });
+
   it("non-admin cookie PATCH -> 403 with a 403 body (not the old statusless 500)", async () => {
     const res = await app.fetch(
       authedRequest("/api/settings", nonAdminCookie, {

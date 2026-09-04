@@ -12,6 +12,7 @@ import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
+import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { sendInput } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import { isPasteChord } from "@/lib/terminal-keys";
@@ -525,12 +526,22 @@ export function SubshellTerminal({
       {dead && (
         <LogTail lines={diagnostics?.lines ?? []} truncated={diagnostics?.truncated} exitCode={subshell?.exitCode}>
           {extraActions}
-          <Button variant="outline" size="sm" onClick={onRestart} disabled={restarting}>
-            <RotateCcw className="h-3 w-3" /> {restarting ? "Restarting…" : "Restart"}
-          </Button>
-          <Button variant="destructive" size="sm" onClick={onDelete} disabled={deleting}>
-            <X className="h-3 w-3" /> {deleting ? "Closing…" : "Close"}
-          </Button>
+          {/* Same access contract the actions menu enforces (spec §4.1):
+              `edit` revives, only the `owner` may Close (delete). Without this
+              gate the panel offered both buttons on foreign rows — an `edit`
+              viewer's Close 404s, exactly the dead end the menu already hides
+              (a missing record keeps both, matching the menu's owner default
+              while a mid-view delete is being observed). */}
+          {deadPanelActions(subshell?.access).restart && (
+            <Button variant="outline" size="sm" onClick={onRestart} disabled={restarting}>
+              <RotateCcw className="h-3 w-3" /> {restarting ? "Restarting…" : "Restart"}
+            </Button>
+          )}
+          {deadPanelActions(subshell?.access).close && (
+            <Button variant="destructive" size="sm" onClick={onDelete} disabled={deleting}>
+              <X className="h-3 w-3" /> {deleting ? "Closing…" : "Close"}
+            </Button>
+          )}
         </LogTail>
       )}
       {closed && (

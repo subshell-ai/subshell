@@ -5,6 +5,7 @@ import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { audit } from "@/services/audit.js";
 
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
@@ -113,7 +114,22 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       }
       const repo = new SettingsRepository(db);
       if (body.allowRegistrations !== undefined) {
+        const before = await repo.get("allow_registrations", true);
         await repo.set("allow_registrations", body.allowRegistrations);
+        // Audited on REAL flips only (best-effort like every audit call):
+        // opening sign-up on a live instance is the step a scripted session
+        // used to mint a throwaway admin (2026-09-03 deploy-bot incident),
+        // and it left no trace. Admin-minted accounts go through POST
+        // /api/users, which already audits `user.create`.
+        if (before !== body.allowRegistrations) {
+          await audit({
+            actorUserId: user.id,
+            action: "settings.update",
+            targetType: "settings",
+            targetId: "allow_registrations",
+            metadataJson: JSON.stringify({ from: before, to: body.allowRegistrations }),
+          });
+        }
       }
       const allow = await repo.get("allow_registrations", true);
       return { allowRegistrations: allow } as const;

@@ -80,6 +80,14 @@ The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook — it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.
 
+**Never test against the live instance (`:3080`).** Scripted smoke tests use
+`e2e/stack.ts` (own backend on :3199, temp DB). On the live instance: never
+flip `allow_registrations` to mint a throwaway account — an admin session did
+exactly that on 2026-09-03 and left a foreign subshell in the owner's sidebar
+that no admin can delete (delete is owner-only by spec, admins included).
+Need an account? `POST /api/users` (admin cookie, audited `user.create`) —
+registration is for humans, not scripts.
+
 ### Database
 
 Migrations are driven by `kysely-ctl`, which must run under Bun's runtime (`bunx --bun`)
