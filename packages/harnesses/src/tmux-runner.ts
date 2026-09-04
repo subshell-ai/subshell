@@ -192,30 +192,6 @@ export class TmuxRunner {
   }
 
   /**
-   * The pane's CURRENT size in columns and rows, null when the pane is gone
-   * or tmux errors.
-   *
-   * Read back after a resize so the attach path can tell the browser what the
-   * pane ACTUALLY has rather than what was asked for — a request that was
-   * lost or superseded otherwise leaves the client painting into a grid of a
-   * different size, which desynchronizes every relative-positioned frame
-   * (see `NodeLauncher.paneSize`). Both fields are bare integers, so one
-   * `display-message` with a `:` separator needs no quoting trust.
-   */
-  paneSize(socket: string, subshellName: string): { cols: number; rows: number } | null {
-    try {
-      const out = this.run(
-        ["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_width}:#{pane_height}"],
-        {},
-      ).stdout.trim();
-      const [cols, rows] = out.split(":").map(Number);
-      return Number.isInteger(cols) && Number.isInteger(rows) && cols > 0 && rows > 0 ? { cols, rows } : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
    * The pane's CURRENT cursor position (column, row — 0-based, viewport
    * coordinates), null when the pane is gone or tmux errors.
    *

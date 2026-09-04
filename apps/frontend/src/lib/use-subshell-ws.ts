@@ -13,18 +13,6 @@ export interface TermWsHandlers {
 
 /** Fixed delay (ms) between automatic reconnect attempts. */
 const RECONNECT_DELAY_MS = 1500;
-/**
- * How long a `resize` request waits for its `geometry` acknowledgement before
- * being re-sent. Comfortably longer than a tmux round trip, short enough that
- * a lost request self-heals before the user notices a stale grid.
- */
-const GEOMETRY_ACK_TIMEOUT_MS = 700;
-/**
- * How many times to re-ask before conforming the grid to the pane instead.
- * Bounded so a pane that genuinely cannot take our size (or a server that
- * never answers) settles rather than resizing forever.
- */
-const MAX_GEOMETRY_REASKS = 3;
 
 /**
  * Attaches a WebSocket to an xterm terminal: streams server frames
@@ -86,19 +74,6 @@ export function useSubshellWs(
     let cancelled = false;
     let socket: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    // Geometry reconciliation state, at EFFECT scope because `term.onResize`
-    // (subscribed once for the hook's lifetime) and the per-connection frame
-    // handler both take part. See the block in `connect` for the why.
-    let ackTimer: ReturnType<typeof setTimeout> | null = null;
-    let reasks = 0;
-    /** True while conforming the grid to the pane, so the echo does not re-request. */
-    let applyingPaneGeometry = false;
-    /** The live connection's "tell the server our size" function. */
-    let requestSize: (() => void) | null = null;
-    const clearAckTimer = () => {
-      if (ackTimer) clearTimeout(ackTimer);
-      ackTimer = null;
-    };
 
     /**
      * Arms the next reconnect attempt. Replaces any pending timer so two
@@ -135,29 +110,9 @@ export function useSubshellWs(
         socket = ws;
         wsRef.current = ws;
 
-        // GEOMETRY RECONCILIATION (2026-09-04). A resize used to be a
-        // fire-and-forget hope: if the request was lost or overtaken, the pane
-        // kept a different size than this grid, and because a diff-rendering
-        // TUI positions every frame relative to the geometry it believes the
-        // terminal has, every later frame landed on the wrong rows — the
-        // screen froze mid-selection or filled with superimposed frames, and
-        // only a reattach cleared it. The server now answers each request with
-        // the pane's REAL size, so an unacknowledged or mismatched resize is
-        // visible here and can simply be re-asked.
         const syncSize = () => {
           sendResize(ws, term.cols, term.rows);
-          // No answer means the request never landed — ask again rather than
-          // paint into a grid the pane does not share.
-          clearAckTimer();
-          ackTimer = setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN && reasks < MAX_GEOMETRY_REASKS) {
-              reasks += 1;
-              syncSize();
-            }
-          }, GEOMETRY_ACK_TIMEOUT_MS);
         };
-        reasks = 0;
-        requestSize = syncSize;
 
         // Each attach rebuilds full history; the previous connection's screen
         // content must not stay behind (capture-pane output has no clear
@@ -195,25 +150,6 @@ export function useSubshellWs(
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
-            } else if (frame.type === "geometry" && frame.cols && frame.rows) {
-              // The pane's real size — the acknowledgement the retry waits on.
-              clearAckTimer();
-              if (frame.cols === term.cols && frame.rows === term.rows) {
-                reasks = 0; // agreed: painting is coherent
-              } else if (reasks < MAX_GEOMETRY_REASKS) {
-                reasks += 1; // the pane took a different size — ask for ours again
-                syncSize();
-              } else {
-                // The pane will not take our size. Conform to IT: a terminal a
-                // few rows off its container still reads fine, whereas
-                // painting into a mismatched grid corrupts every later frame.
-                applyingPaneGeometry = true;
-                try {
-                  term.resize(frame.cols, frame.rows);
-                } finally {
-                  applyingPaneGeometry = false;
-                }
-              }
             }
           } catch {
             // ignore malformed frame
@@ -260,15 +196,7 @@ export function useSubshellWs(
     // size update is lost; the terminal emits onResize after the page's
     // ResizeObserver calls fit().
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      // A resize we applied to MATCH the pane must not be echoed back as a
-      // request — that would ping-pong the pane between two sizes.
-      if (applyingPaneGeometry) return;
-      reasks = 0;
-      // Route through the live connection's request path so the resize is
-      // acknowledged (and re-asked if it goes missing); the direct send is
-      // the fallback before the first connection exists.
-      if (requestSize) requestSize();
-      else sendResize(wsRef.current, cols, rows);
+      sendResize(wsRef.current, cols, rows);
     });
 
     void connect();
@@ -276,8 +204,6 @@ export function useSubshellWs(
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
-      clearAckTimer();
-      requestSize = null;
       inputDisposableRef.current?.dispose();
       inputDisposableRef.current = null;
       resizeDisposable.dispose();

@@ -92,19 +92,6 @@ export interface NodeLauncher {
   /** Propagates client geometry to the pane. */
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   /**
-   * The pane's REAL size, null when the machine cannot report it.
-   *
-   * Read back after {@link resize} so the browser can be told what the pane
-   * ended up at instead of assuming its request landed. The pane is the
-   * authority for painting: a diff-rendering TUI positions every frame
-   * relative to the geometry it believes it has, so a client grid that
-   * differs by even one row makes every later frame land on the wrong rows —
-   * permanently, until a reattach. Measured 2026-09-04: a 13-row browser
-   * against a 16-row pane rendered a frozen, superimposed screen while
-   * `capture-pane` stayed pristine.
-   */
-  paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null>;
-  /**
    * Sends `SIGWINCH` to the pane's process WITHOUT changing its size, so a
    * diff-rendering TUI repaints the grid it already has. Returns false when
    * the machine cannot deliver the signal.

@@ -226,11 +226,6 @@ export async function attachRemoteSubshellWs(
       }
       painted = captureToReplayText(replay);
     }
-    // Geometry BEFORE the replay (the local twin's rule): the capture's rows
-    // were laid out for the pane's size, so the client must be on that grid
-    // before painting them. Agents cannot measure their pane yet, so this
-    // reports the size that was successfully applied.
-    if (size) ws.send(JSON.stringify({ type: "geometry", cols: size.cols, rows: size.rows }));
     ws.send(JSON.stringify({ type: "replay", data: painted }));
     recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged, quiet: quiet !== null });
     if (detached) return;

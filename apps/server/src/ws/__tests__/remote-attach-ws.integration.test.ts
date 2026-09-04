@@ -18,22 +18,6 @@ import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs, type WsSock
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**
- * The attach's `replay` frame. Looked up by TYPE rather than by position:
- * attaches now send a `geometry` frame first (the pane's real size, so the
- * client paints the capture on a matching grid — see ServerFrame.cols).
- */
-function replayOf(sent: string[]): { type: string; data: string } | undefined {
-  const raw = sent.find((s) => s.includes('"type":"replay"'));
-  return raw ? (JSON.parse(raw) as { type: string; data: string }) : undefined;
-}
-
-/** The attach's `geometry` frame, if the pane size was known. */
-function _geometryOf(sent: string[]): { type: string; cols: number; rows: number } | undefined {
-  const raw = sent.find((s) => s.includes('"type":"geometry"'));
-  return raw ? (JSON.parse(raw) as { type: string; cols: number; rows: number }) : undefined;
-}
-
-/**
  * Task 14 (sibling of `subshells-remote.integration.test.ts`) — the live-attach
  * relay through the REAL dispatch entry: `handleSubshellWs` consumes a real
  * single-use WS token, loads the row from the shared temp DB, routes it by
@@ -176,7 +160,7 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       ]);
 
       // Frame 1: the replay, exactly the local path's shape.
-      expect(replayOf(sent)?.data).toBe("SCREEN");
+      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
 
       // Owner access ⇒ keystrokes and geometry ride the signed RPC (the
       // geometry passthrough: launch carries no cols today, the attach's
@@ -187,26 +171,14 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 132, rows: 43 }));
       await until(() => sim.countOf("resize") === 1, "resize on the wire");
       expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", subshellId: id, cols: 132, rows: 43 }]);
-      // …and it is ACKNOWLEDGED back to the browser. An agent cannot measure
-      // its own pane yet, so the ack echoes the size that was applied — the
-      // client's proof the request landed, without which a lost resize left
-      // the grid and the pane silently disagreeing (2026-09-04).
-      await until(() => sent.some((s) => s.includes('"type":"geometry"')), "resize ack");
-      expect(JSON.parse(sent.find((s) => s.includes('"type":"geometry"')) ?? "{}")).toEqual({
-        type: "geometry",
-        cols: 132,
-        rows: 43,
-      });
 
       // Live output: an agent `output` frame through the REAL bus becomes the
       // browser's `output` frame.
       // fromByte sits at the armed EOF offset — the launcher's dup-clamp
       // would (correctly) discard anything below it.
       dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
-      await until(() => sent.some((s) => s.includes('"type":"output"')), "output frame");
-      expect(sent.find((s) => s.includes('"type":"output"'))).toBe(
-        JSON.stringify({ type: "output", data: "echo hi\r\n" }),
-      );
+      await until(() => sent.length === 2, "output frame");
+      expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     } finally {
       sim.detach();
     }
@@ -264,7 +236,7 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
 
     const { ws, sent } = await attach(userId, id);
     try {
-      expect(replayOf(sent)?.data).toBe("SCREEN");
+      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
       await new Promise((r) => setTimeout(r, 60)); // let the initial catch-up pump land
       cleanupSubshellWs(ws);
       expect(() => cleanupSubshellWs(ws)).not.toThrow(); // the parity claim: second is a no-op

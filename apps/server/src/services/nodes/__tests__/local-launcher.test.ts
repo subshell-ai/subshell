@@ -74,18 +74,6 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     expect((await launcher.readLogTail(lid)).lines).toEqual([]); // missing log = empty
   });
 
-  it("paneSize reads the size back, which is what makes a resize acknowledgeable", async () => {
-    // The 2026-09-04 root cause: a resize request that was lost or overtaken
-    // left the pane at a size the browser did not share, and nothing noticed.
-    // Reading back is what turns "I asked" into "the pane has".
-    await launcher.resize(socket, id, 61, 17);
-    expect(await launcher.paneSize(socket, id)).toEqual({ cols: 61, rows: 17 });
-    await launcher.resize(socket, id, 51, 13);
-    expect(await launcher.paneSize(socket, id)).toEqual({ cols: 51, rows: 13 });
-    // A dead socket cannot be measured — callers then report what they applied.
-    expect(await launcher.paneSize("subshell-no-such-socket", id)).toBeNull();
-  });
-
   it("paneCursor answers for a live pane and null once it is gone", async () => {
     const cur = await launcher.paneCursor(socket, id);
     expect(cur).not.toBeNull();
