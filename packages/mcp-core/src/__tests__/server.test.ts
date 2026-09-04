@@ -5,12 +5,9 @@ import { createSubshellMcpServer, SUBSHELL_MCP_INSTRUCTIONS } from "../server.js
 import type { ToolApi } from "../tools.js";
 
 /**
- * The server's self-introduction. `initialize.instructions` is the ONLY
- * surface every conforming harness sees at connect time — tool names alone
- * never told a pane that its sibling sessions are reachable, so agents
- * polled git and guessed at other sessions' state instead of just asking
- * (observed 2026-09-03). These tests pin that the handshake carries a
- * genuinely actionable briefing, not just any string.
+ * `initialize.instructions` is the only surface every conforming harness
+ * sees at connect time; these pin that it carries the cross-session briefing
+ * (the 2026-09-03 keep-panes session proved agents guess via git without it).
  */
 
 const api: ToolApi = {
