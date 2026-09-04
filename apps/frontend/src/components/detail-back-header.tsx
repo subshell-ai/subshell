@@ -30,6 +30,7 @@ export function DetailBackHeader({
   title,
   subtitle,
   actions,
+  hideBack = false,
 }: {
   /** In-app destination of the back control, e.g. `"/"` or `"/workspaces"` */
   to: string;
@@ -41,6 +42,12 @@ export function DetailBackHeader({
   subtitle?: ReactNode;
   /** Right-aligned page controls (badges, menus, find bars) */
   actions?: ReactNode;
+  /**
+   * Drop the back control from the chrome row. The subshell page sets it
+   * while the phone Find bar is open — the bar needs the arrow's width and
+   * navigating away is not what the user is doing mid-search (the ✕ exits).
+   */
+  hideBack?: boolean;
 }) {
   const stacked = useIsStackedHeader();
   const chrome = (
@@ -49,9 +56,11 @@ export function DetailBackHeader({
           chrome row above it — every row here is terminal rows.
           MobileNav renders nothing on desktop. */}
       <MobileNav />
-      <Button variant="ghost" size="icon" aria-label={backLabel} render={<Link to={to as never} />}>
-        <ArrowLeft className="h-4 w-4" />
-      </Button>
+      {!hideBack && (
+        <Button variant="ghost" size="icon" aria-label={backLabel} render={<Link to={to as never} />}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+      )}
     </>
   );
   if (!stacked) {

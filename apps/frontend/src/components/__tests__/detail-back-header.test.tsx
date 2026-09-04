@@ -10,13 +10,19 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 
 /** The header needs router context (Link + MobileNav's useLocation). */
-async function renderHeader(extra: { subtitle?: string } = {}) {
+async function renderHeader(extra: { subtitle?: string; hideBack?: boolean } = {}) {
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
     component: () => (
-      <DetailBackHeader to="/" backLabel="Back to subshells" title={<>Alpha</>} subtitle={extra.subtitle} />
+      <DetailBackHeader
+        to="/"
+        backLabel="Back to subshells"
+        title={<>Alpha</>}
+        subtitle={extra.subtitle}
+        hideBack={extra.hideBack}
+      />
     ),
   });
   const router = createRouter({
@@ -105,6 +111,28 @@ describe("DetailBackHeader", () => {
       const header = await renderHeader();
       expect(header?.className).toContain("flex-col");
       expect(screen.getByText("Alpha")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("hideBack drops the back control from the chrome row", async () => {
+    const restore = forceViewport({ wide: false, coarse: true });
+    try {
+      await renderHeader({ hideBack: true });
+      expect(screen.queryByRole("link", { name: "Back to subshells" })).toBeNull();
+      // The title still renders — the control left, not the whole header.
+      expect(screen.getByText("Alpha")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("by default the back control is there", async () => {
+    const restore = forceViewport({ wide: false, coarse: true });
+    try {
+      await renderHeader();
+      expect(screen.queryByRole("link", { name: "Back to subshells" })).not.toBeNull();
     } finally {
       restore();
     }

@@ -41,6 +41,8 @@ function SubshellPage() {
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
   const [closed, setClosed] = useState(false);
+  /** Whether the Find bar is up — see the header actions row for why it matters. */
+  const [findOpen, setFindOpen] = useState(false);
   /** Superseded by a newer viewer (close 4003) — the subshell runs, elsewhere. */
   const [replaced, setReplaced] = useState(false);
   const navigate = useNavigate();
@@ -77,6 +79,10 @@ function SubshellPage() {
   // click-to-edit inline, at any window width. Same signal DetailBackHeader
   // uses for the reflow.
   const stacked = useIsStackedHeader();
+  // On phones the Find bar shares the chrome row and does not fit beside the
+  // badge, the actions menu, or the back arrow — while it is open they all
+  // vacate (desktop keeps everything; the ✕ closes the bar and they return).
+  const findTakesRow = stacked && findOpen;
 
   /** Takes ownership of a freshly created terminal and its addons. */
   function handleTerminalReady(handles: SubshellTerminalHandles) {
@@ -136,6 +142,7 @@ function SubshellPage() {
       <DetailBackHeader
         to="/"
         backLabel="Back to subshells"
+        hideBack={findTakesRow}
         title={
           stacked ? (
             <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>{subshell?.name || id}</span>
@@ -156,38 +163,44 @@ function SubshellPage() {
           <>
             {/* Node-offline outranks `exited` (spec §5.6): with no live agent
                 the process state is unobservable, not dead — same precedence
-                the home cards use. */}
-            <Badge
-              variant={
-                subshell?.nodeOffline
-                  ? "warning"
-                  : exited
-                    ? "warning"
-                    : subshell?.status === "running"
-                      ? "success"
-                      : "muted"
-              }
-            >
-              {subshell?.nodeOffline ? "node unreachable" : exited ? "exited" : (subshell?.status ?? "…")}
-            </Badge>
-            {subshell && subshell.backoffCount > 0 && (
-              <span className="text-muted-foreground text-xs">restart #{subshell.backoffCount} pending</span>
-            )}
-            {/* Same menu the cards and rows use, fed by the same mutation hook
+                the home cards use. `findTakesRow` covers the phone Find-bar
+                vacate (see its definition). */}
+            {!findTakesRow && (
+              <>
+                <Badge
+                  variant={
+                    subshell?.nodeOffline
+                      ? "warning"
+                      : exited
+                        ? "warning"
+                        : subshell?.status === "running"
+                          ? "success"
+                          : "muted"
+                  }
+                >
+                  {subshell?.nodeOffline ? "node unreachable" : exited ? "exited" : (subshell?.status ?? "…")}
+                </Badge>
+                {subshell && subshell.backoffCount > 0 && (
+                  <span className="text-muted-foreground text-xs">restart #{subshell.backoffCount} pending</span>
+                )}
+                {/* Same menu the cards and rows use, fed by the same mutation hook
                 this page's exited panel uses — so both surfaces run the same
                 actions and refresh the same queries the page observes. Disabled
                 while the panel's own restart/delete is in flight (the menu holds
                 a separate hook instance and can't see it). */}
-            {subshell && (
-              <SubshellActionsMenu
-                subshell={subshell}
-                disabled={restarting || deleting}
-                onDeleted={() => void navigate({ to: "/" })}
-              />
+                {subshell && (
+                  <SubshellActionsMenu
+                    subshell={subshell}
+                    disabled={restarting || deleting}
+                    onDeleted={() => void navigate({ to: "/" })}
+                  />
+                )}
+              </>
             )}
             {connected && (
               <TranscriptSearch
                 search={search}
+                onOpenChange={setFindOpen}
                 onClose={() => {
                   // nothing to reset — the bar owns its own state
                 }}

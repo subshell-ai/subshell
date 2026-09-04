@@ -13,15 +13,30 @@ import { Input } from "@/components/ui/input";
 export function TranscriptSearch({
   search,
   onClose,
+  onOpenChange,
 }: {
   /** The terminal's search addon (null until the terminal has mounted) */
   search: SearchAddon | null;
   onClose: () => void;
+  /**
+   * Told whenever the bar opens/closes. The subshell page uses this on phones
+   * to vacate the header row (badge + actions menu) while Find is up — the
+   * bar is wide and the row is not, and a clipped ✕ means no way out.
+   */
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label="Find in terminal">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setOpen(true);
+          onOpenChange?.(true);
+        }}
+        aria-label="Find in terminal"
+      >
         <ChevronUp className="h-3 w-3" /> Find
       </Button>
     );
@@ -31,6 +46,7 @@ export function TranscriptSearch({
       search={search}
       onClose={() => {
         setOpen(false);
+        onOpenChange?.(false);
         onClose();
       }}
     />
@@ -116,7 +132,7 @@ function TranscriptSearchBar({
           if (e.key === "Escape") onClose();
         }}
         placeholder="Find…"
-        className="h-7 w-52 text-xs"
+        className="h-7 w-36 text-xs sm:w-52"
       />
       {q.trim() && (
         <span className="min-w-16 text-center text-muted-foreground text-xs" aria-live="polite">
