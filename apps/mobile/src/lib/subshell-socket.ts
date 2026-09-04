@@ -53,13 +53,32 @@ export function useSubshellSocket(opts: {
    * into it that the runner cannot parse.
    */
   deviceLabel?: string;
+  /**
+   * True while the app is not in the foreground.
+   *
+   * The pane is sized to the smallest VISIBLE viewer, so a phone left
+   * attached in a pocket would otherwise hold every laptop watching the same
+   * subshell at phone size, with nothing on either screen to explain it. The
+   * socket deliberately stays open while backgrounded (push and the badge
+   * are the point of this app), so being attached cannot mean "watching".
+   *
+   * Passed in rather than read from `AppState` here: this module is covered
+   * by the pure `bun test` suite, and importing `react-native` drags Flow
+   * syntax into it that the runner cannot parse.
+   */
+  hidden?: boolean;
 }) {
   const { client, subshellId, active } = opts;
+  const hidden = opts.hidden === true;
   const handlersRef = useRef(opts.handlers);
   handlersRef.current = opts.handlers;
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  // Read by `onopen`, which is created once per connect and must not capture
+  // a stale value across a backgrounding that happened mid-handshake.
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
   const [status, setStatus] = useState<SocketStatus>({ state: "connecting" });
 
   const frame = useCallback((f: ClientFrame) => {
@@ -84,6 +103,12 @@ export function useSubshellSocket(opts: {
     },
     [frame],
   );
+
+  // Re-announce when the app moves between foreground and background. The
+  // socket outlives that transition, so nothing else would tell the server.
+  useEffect(() => {
+    frame({ type: "visibility", hidden });
+  }, [frame, hidden]);
 
   useEffect(() => {
     if (!active || !subshellId) return;
@@ -120,6 +145,9 @@ export function useSubshellSocket(opts: {
         ws.onopen = () => {
           if (cancelled || wsRef.current !== ws) return;
           setStatus({ state: "open" });
+          // State, not an event: an app attached while already backgrounded
+          // must say so, or it silently shrinks every other device's pane.
+          ws.send(JSON.stringify({ type: "visibility", hidden: hiddenRef.current } satisfies ClientFrame));
           const s = sizeRef.current; // sync tmux to the fitted terminal (80×24 default)
           if (s) ws.send(JSON.stringify({ type: "resize", cols: s.cols, rows: s.rows } satisfies ClientFrame));
         };

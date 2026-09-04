@@ -95,6 +95,14 @@ handlers) reaches the same graph via `getRequestlessContext()`
 (`src/lib/context.ts`) — a singleton context whose log is the app logger
 (no request id).
 
+The pane's size with SEVERAL viewers attached is not decided here: the rule
+(smallest visible wins, hidden viewers excluded, a pin overriding both) is
+`shared-geometry.ts` in `@internal/subshell-protocol`, because the browser has
+to explain the same decision it applies. `ws/subshell-ws.ts` owns the state
+around it — the per-subshell viewer registry (keyed by `viewerId`, NEVER by
+socket identity: Elysia hands `close` a different wrapper than `open`) and the
+in-memory sizing policy, dropped with the last viewer.
+
 ### Terminal attach diagnostics
 
 A garbled live terminal is diagnosed from the journal first — two lines per

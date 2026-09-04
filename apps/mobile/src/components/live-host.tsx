@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { KeyBar } from "@/components/key-bar";
+import { useForeground } from "@/hooks/use-foreground";
 import type { SubshellClient } from "@/lib/api";
 import { wrapPaste } from "@/lib/key-bar";
 import { type SocketStatus, useSubshellSocket } from "@/lib/subshell-socket";
@@ -42,6 +43,7 @@ export function LiveHost({
   // The Face ID gate protects ATTACHMENT — the socket carries keystroke
   // power (spec §Security notes). Denied → retry card, never silent.
   const [unlocked, setUnlocked] = useState(false);
+  const foreground = useForeground();
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +77,10 @@ export function LiveHost({
     client,
     subshellId,
     active: active && unlocked,
+    // Attached but pocketed is not watching: the pane is sized to the
+    // smallest VISIBLE viewer, and this socket stays open in the background
+    // by design.
+    hidden: !foreground,
     handlers: {
       onReset: () => inject("window.N.reset()"),
       onBytes: (data) => inject(`window.N.write(${JSON.stringify(data)})`),

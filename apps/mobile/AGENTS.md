@@ -124,6 +124,15 @@ Proven live by the M1 transport harness (`bun run harness:m1`): body-token →
 a no-cookie fallback. This whole flow is exactly what the harness exists to
 falsify — run it against a scratch instance after any auth-transport change.
 
+**The Live socket stays open in the background, so it must say it is not
+watching.** The pane is sized to the smallest VISIBLE viewer across every
+device, and this app deliberately keeps its socket attached while
+backgrounded (push and the badge are the point). Without the `visibility`
+frame a phone in a pocket holds every laptop watching the same subshell at
+phone size, with nothing on any screen to explain it — `LiveHost` passes
+`hidden: !useForeground()` into `useSubshellSocket`, which announces it on
+open and on every foreground change.
+
 ## Layout
 
 ```
