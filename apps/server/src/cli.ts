@@ -16,39 +16,35 @@ import { SERVER_VERSION } from "@/version.js";
  * for anything that is not a known subcommand (no args, or a leading flag),
  * and the caller falls through to booting the server.
  *
- * Three load-bearing invariants; 1 and 2 are forced by how Bun runs the
- * entry graph (measured on bun 1.4.0, NOT spec behaviour — Node would
- * serialise), and 3 is the duty that makes 1's one exception survivable:
+ * The safety story in two load-bearing invariants (this header is their
+ * canonical home — other files point here instead of restating it), plus one
+ * convention:
  *
- * 1. A handled command MUST run and exit synchronously inside `dispatchCli`
- *    (via `deps.exit`, default `process.exit`) — the single exception being
- *    `mcp`, long-running BY CONTRACT (spec 2026-09-03): it awaits the stdio
- *    MCP server, which is legal only because the entry graph is IO-free at
- *    import (invariant 3 — the rest of the graph evaluating in its
- *    suspension window is inert) and because invariant 2 keeps the boot body
- *    out of that window. The entry prelude (`cli-bootstrap.ts`) never
- *    `await`s before dispatch: any suspension — even `await null` — lets Bun
- *    evaluate the REST of the entry graph and even the entry body while the
- *    await is pending, which would boot the server on `subshell-server
- *    version`. This is why the interactive `init`/`configure` are written
- *    FULLY SYNCHRONOUSLY (sync fs + the `readSync(0, …)` prompt below): a
- *    readline-based command would suspend, and pre-Task-2 an async command
- *    evaluated `@/auth.js` in the gap — whose eager better-auth construction
- *    OPENED the SQLite file, littering the CWD with `data/subshell.db`
- *    (historical: construction is lazy via `getAuth()` now; the engaged-flag
- *    gate never covered the DB anyway). Verified subprocess-side in
- *    `__tests__/cli-entry.test.ts`.
- * 2. `dispatchCli` sets the engaged flag synchronously, before its first
- *    possible await, so the entry body (which evaluates inside any such
- *    window) sees it — the last-resort net every command may rely on, the
- *    `mcp` case most of all (see 1).
- * 3. A command that awaits may exist ONLY because the graph it suspends
- *    into does no IO at import — async commands must never do IO at import
- *    themselves, and neither may anything they pull in. Import hygiene, in
- *    concrete terms: no `@/constants.js` (dotenvx runs at ITS import time),
- *    no eager singletons; `@internal/mcp-core` qualifies — its module
- *    evaluation reads no env and opens nothing, `runSubshellMcp` does both
- *    only when CALLED. Only leaf modules are imported at the top level.
+ * 1. `dispatchCli` sets the engaged flag SYNCHRONOUSLY, before its first
+ *    possible await, and `index.ts` gates its boot body on it. This is what
+ *    keeps ANY command — quick or long-running — from booting the server
+ *    underneath it. It carries the load that sync-exit used to (see the
+ *    convention below), and it is what makes `mcp` legal: `mcp` is
+ *    long-running BY CONTRACT (spec 2026-09-03), parking in its stdio loop
+ *    while the entry body sits gated.
+ * 2. The entry graph is INERT AT IMPORT, by contract and under test:
+ *    evaluating it opens no database, binds no port, and writes nothing —
+ *    pinned subprocess-side by `__tests__/cli-entry.test.ts` (real argv,
+ *    fresh CWD, port sentinel, sqlite-litter sweep) and
+ *    `__tests__/auth-import-purity.test.ts`. "Inert" means side-EFFECT-free;
+ *    the prelude's config.env read and the dotenvx `.env` layer are inputs,
+ *    not litter. Lazy singletons (`getAuth()`, the default local launcher)
+ *    are the mechanism; historical note: the eager better-auth build opened
+ *    SQLite at import and littered async commands' CWDs — the purity tests
+ *    are why it can never come back.
+ *
+ * Convention (not a safety mechanism): handled quick commands run to
+ * completion and `process.exit` SYNCHRONOUSLY inside `dispatchCli` (sync fs,
+ * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). It is
+ * kept because suspension is otherwise invisible on bun 1.4.0 — measured, NOT
+ * spec behaviour: any top-level await in the entry prelude lets Bun evaluate
+ * the rest of the graph and the entry body while the await is pending
+ * (inert per 2, gated per 1 — but still noise). `mcp` opts out deliberately.
  */
 
 /** Injectable stdio/exit/IO seams so tests can pin output without subprocesses. */

@@ -62,23 +62,21 @@ jobs:
           expected="subshell-server $(jq -r .version package.json)"
           actual="$("$bin" version)"
           [ "$actual" = "$expected" ] || { echo "version mismatch: got '$actual', want '$expected'"; exit 1; }
-          # `mcp` without the pane env must refuse NON-ZERO with the
-          # SUBSHELL_API_KEY contract error, and the refusal must not litter
-          # the CWD with data/ (no boot-graph IO on the CLI path). env -i keeps
-          # the refusal deterministic — a leaked SUBSHELL_* env must never let
-          # it connect instead.
+          # The `mcp` refusal contract (clean-env refusal + no CWD litter)
+          # lives in ONE script, shared with the release shards.
+          bash ../../scripts/smoke-mcp-refusal.sh "$bin"
+          # Real-bytes pin for the renamed-artifact guard (7d5d6f4): the unit
+          # tests fake the compiled argv[1]; this asserts against a REAL
+          # compiled copy under a foreign name that the self rung never
+          # resolves from baked/virtual build paths (`via self` would bake an
+          # entry that cannot exist on the target host).
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          cd "$tmp"
-          set +e
-          out="$(env -i PATH="$PATH" HOME="$tmp" "$bin" mcp </dev/null 2>&1)"
-          code=$?
-          set -e
-          [ "$code" -ne 0 ] || { echo "mcp subcommand unexpectedly exited 0"; exit 1; }
-          echo "$out"
-          printf '%s' "$out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp refused for the wrong reason (above)"; exit 1; }
-          if [ -e "$tmp/data" ]; then echo "mcp refusal created a data/ dir in the CWD"; exit 1; fi
-          echo "compiled-binary smoke OK: version + clean mcp env-contract refusal"
+          cp "$bin" "$tmp/renamed-server"
+          status_out="$("$tmp/renamed-server" status 2>&1 || true)"
+          echo "$status_out"
+          if printf '%s' "$status_out" | grep -q "via self"; then echo "renamed compiled binary self-resolved its mcp entrypoint"; exit 1; fi
+          echo "compiled-binary smoke OK: version + clean mcp refusal + renamed-artifact fall-through"
 
   e2e:
     name: End-to-end

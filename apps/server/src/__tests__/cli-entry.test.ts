@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncPortListening } from "../cli.js";
 import { parseEnvFile } from "../config-env.js";
+import { sqliteLitter, walkTree } from "../test-helpers/fs-litter.js";
 
 /**
  * The headline Task C guarantee, checked ACROSS a process boundary: a CLI
@@ -69,17 +70,6 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** Every file under `dir` (recursively), relative paths. */
-function walk(dir: string): string[] {
-  const out: string[] = [];
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...walk(p));
-    else out.push(p);
-  }
-  return out;
-}
-
 describe("entry-subprocess CLI: configure must not boot", () => {
   test(
     "configure --yes: exit 0, config.env written, port dark, zero sqlite files in cwd",
@@ -114,7 +104,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       expect(syncPortListening("127.0.0.1", port)).toBe(false);
       // 3. The CWD stayed pristine — the sentinel sqlite file an imported
       //    `@/auth.js` would have created is absent (and so is anything else).
-      expect(walk(cwd)).toEqual([]);
+      expect(walkTree(cwd)).toEqual([]);
     },
     TIMEOUT,
   );
@@ -133,7 +123,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       expect(second.code).toBe(0);
       expect(parseEnvFile(readFileSync(join(cfg, "config.env"), "utf8")).BETTER_AUTH_SECRET).toBe(secret);
       // Init itself is pure fs too: no sqlite file appeared in the CWD…
-      const dbFiles = walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f) && !f.startsWith(`${cfg}/`));
+      const dbFiles = sqliteLitter(cwd).filter((f) => !f.startsWith(`${cfg}/`));
       // …and the only database-named path anywhere is the config.env POINTER,
       // which is a file path in a string, never an opened file.
       expect(dbFiles).toEqual([]);
@@ -164,7 +154,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       });
       expect(run.code).toBe(0);
       expect(run.stdout).toContain("SUBSHELL_MCP_ARGS");
-      expect(walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f))).toEqual([]);
+      expect(sqliteLitter(cwd)).toEqual([]);
     },
     TIMEOUT,
   );
@@ -196,7 +186,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       // nor any sqlite artifact.
       expect(syncPortListening("127.0.0.1", port)).toBe(false);
       expect(readdirSync(cwd)).not.toContain("data");
-      expect(walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f))).toEqual([]);
+      expect(sqliteLitter(cwd)).toEqual([]);
     },
     TIMEOUT,
   );

@@ -14,23 +14,17 @@ import { loadConfigEnv } from "@/config-env.js";
  *    binaries, Bun preloads `.env` into `process.env` before ANY module
  *    runs — see the report note; the precedence is exact for the binary
  *    deployment, which ships no `.env`).
- * 2. A recognised subcommand must exit BEFORE the rest of the entry graph
- *    evaluates, so this module uses NO top-level await — but note what that
- *    mechanic is and is not. The entry graph IS inert at import time, by
- *    CONTRACT and under test: `@/db/index.js` opens SQLite lazily (dialect
- *    factory — first query) and `@/auth.js` builds better-auth lazily
- *    (`getAuth()`), so the graph a CLI run drags in touches no fs and no
- *    port (pinned by the import-purity tests). What keeps a suspended
- *    command from booting the server is the `isCliEngaged()` gate in
- *    index.ts, not this module's await discipline — `mcp` proves it, being
- *    long-running by design. The no-await rule still stands because
- *    suspension is otherwise invisible: measured on bun 1.4.0 (NOT spec
- *    behaviour — Node serialises module evaluation), any top-level await in
- *    the prelude — even `await null` — lets Bun evaluate all remaining
- *    imports and the entry body while the await is pending. With real deps
- *    `dispatchCli` still completes and `process.exit`s synchronously inside
- *    the call for every quick command (sync-exit is their house style).
- *    The `.then` is a belt for injected-deps/tests only.
+ * 2. This module uses NO top-level await. What SAFELY handles a subcommand
+ *    is the pair pinned in `cli.ts`'s header — the synchronous
+ *    `isCliEngaged()` boot gate plus the import-pure graph — not this
+ *    module's await discipline (`mcp` suspends by design and is safe). The
+ *    no-await rule stands anyway because suspension is otherwise invisible:
+ *    measured on bun 1.4.0 (NOT spec behaviour — Node serialises module
+ *    evaluation), any top-level await in the prelude — even `await null` —
+ *    lets Bun evaluate all remaining imports and the entry body while the
+ *    await is pending. Without that suspension, handled quick commands
+ *    `process.exit` synchronously inside `dispatchCli` (house style); the
+ *    `.then` below is a belt for stubbed-deps builds only.
  *
  * The boot path (no subcommand) is untouched: dispatch returns false
  * synchronously, this module finishes, and `index.ts` boots exactly as

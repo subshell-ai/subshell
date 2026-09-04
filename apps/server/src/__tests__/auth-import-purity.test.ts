@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sqliteLitter } from "../test-helpers/fs-litter.js";
 
 /**
  * The import-purity invariant (spec 2026-09-03 §2), pinned as a TEST rather
@@ -24,17 +25,6 @@ const SERVER_DIR = new URL("../../", import.meta.url).pathname;
 const AUTH_TS = join(SERVER_DIR, "src", "auth.ts");
 const BUN = process.execPath;
 const TIMEOUT = 30_000;
-
-/** Every file under `dir` (recursively), absolute paths. */
-function walk(dir: string): string[] {
-  const out: string[] = [];
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...walk(p));
-    else out.push(p);
-  }
-  return out;
-}
 
 describe("@/auth.js import purity", () => {
   test(
@@ -63,7 +53,7 @@ describe("@/auth.js import purity", () => {
       expect(stderr).toBe("");
       expect(code).toBe(0);
       expect(stdout).toContain("auth-module-evaluated");
-      expect(walk(cwd).filter((f) => /\.(db|db-wal|db-shm)$/.test(f))).toEqual([]);
+      expect(sqliteLitter(cwd)).toEqual([]);
     },
     TIMEOUT,
   );
