@@ -3,6 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { BUILD_ID } from "@/lib/build-id";
+import { deviceName } from "@/lib/device-name";
 import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 
 export interface TermWsHandlers {
@@ -148,10 +149,14 @@ export function useSubshellWs(
         // journal's attach line then states WHICH client code is talking, so
         // a cached PWA running pre-fix JavaScript is visible instead of being
         // mistaken for a server bug.
+        // `device` names this browser in everyone else's Devices list. Without
+        // it every row reads "Unnamed device", which is worse than no list at
+        // all: two identical rows cannot be told apart, so neither the pane's
+        // size nor the pin control means anything (seen live, 2026-09-04).
         const url =
           `${proto}://${window.location.host}/ws?subshell=${encodeURIComponent(subshellId)}` +
           `&token=${encodeURIComponent(token)}&cols=${usedCols}&rows=${usedRows}` +
-          `&build=${encodeURIComponent(BUILD_ID)}`;
+          `&build=${encodeURIComponent(BUILD_ID)}&device=${encodeURIComponent(deviceName())}`;
 
         const ws = new WebSocket(url);
         socket = ws;
@@ -248,12 +253,24 @@ export function useSubshellWs(
       sendInput(wsRef.current, data);
     });
 
-    // Keep the tmux window in sync with the client terminal across resizes
-    // (window changes, DevTools, fullscreen). Hooked before connect so no
-    // size update is lost; the terminal emits onResize after the page's
-    // ResizeObserver calls fit().
+    // Keep the tmux window in sync with the client across resizes (window
+    // changes, DevTools, fullscreen). Hooked before connect so no size update
+    // is lost; the terminal emits onResize after the page's ResizeObserver
+    // calls fit().
+    //
+    // CAPACITY, not the terminal's grid, whenever the caller pins. A pinning
+    // caller sizes its container to the grid the server announced, FitAddon
+    // then measures that box, and the terminal resizes to the server's own
+    // answer — so forwarding `cols`/`rows` here reports the server's number
+    // back as this viewer's capacity. With one viewer that is a harmless
+    // no-op, which is why it survived; with two it is fatal. Measured live
+    // (2026-09-04): a 77x29 laptop reported 50x18 seconds after a 50x18 phone
+    // attached, and because the laptop then genuinely claimed it could show
+    // no more, the pane never grew back when the phone left — a third viewer
+    // at 90x30 was still handed 50x18.
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      sendResize(wsRef.current, cols, rows);
+      const fit = capacityRef.current?.() ?? null;
+      sendResize(wsRef.current, fit?.cols ?? cols, fit?.rows ?? rows);
     });
 
     // A viewer that stops being rendered stops taking part in sizing, and
