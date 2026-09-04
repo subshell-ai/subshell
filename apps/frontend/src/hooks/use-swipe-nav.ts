@@ -16,6 +16,40 @@ export interface SwipeNavOptions {
 }
 
 /**
+ * The drag recognizer's configuration.
+ *
+ * `keys: false` is the load-bearing one. @use-gesture's drag has KEYBOARD
+ * support enabled by default: every ArrowLeft/ArrowRight keydown reaching the
+ * bound element adds ±`keyboardDisplacement` (10px) to the gesture's movement
+ * and accumulates, with `shiftKey` multiplying it by 10. The terminal lives
+ * inside this element, so moving the cursor along an input line drove a
+ * synthetic swipe — the viewport crept sideways under the follow-finger
+ * transform and, at seven presses (SWIPE_MIN_DX / 10), the keyup committed it
+ * and navigated to another subshell. Holding the key repeated it; a single
+ * Shift+Arrow cleared the threshold on its own. Measured: nine ArrowRight
+ * presses produced `movement.x = 87`.
+ *
+ * `pointer: { touch: true }` does NOT cover this — it constrains pointer
+ * TYPES, and the keyboard path is bound separately (`if (config.keys)`).
+ *
+ * @param ref - The element the gesture binds to
+ * @param enabled - Whether to bind at all
+ * @returns The `useDrag` config
+ */
+export const SWIPE_DRAG_CONFIG = (ref: RefObject<HTMLElement | null>, enabled: boolean) =>
+  ({
+    target: ref,
+    eventOptions: { capture: true },
+    // `keys` is nested INSIDE `pointer` (the resolver reads
+    // `pointer: { keys = true }`); a top-level `keys: false` is silently
+    // ignored, which is why the spy test asserts on movement rather than on
+    // the option being present.
+    pointer: { touch: true, keys: false },
+    filterTaps: true,
+    enabled,
+  }) as const;
+
+/**
  * Attaches a touch-only prev/next swipe to `ref` (spec 2026-09-04): left →
  * next, right → previous, decided by `swipeIntent` at gesture end. While the
  * finger is down and the drag is horizontal-dominant, the element follows it
@@ -75,12 +109,6 @@ export function useSwipeNav(
       if (intent === "prev") live.current.onPrev();
       else if (intent === "next") live.current.onNext();
     },
-    {
-      target: ref,
-      eventOptions: { capture: true },
-      pointer: { touch: true },
-      filterTaps: true,
-      enabled,
-    },
+    SWIPE_DRAG_CONFIG(ref, enabled),
   );
 }
