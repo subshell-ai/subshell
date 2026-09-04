@@ -360,6 +360,29 @@ echo "server exited unexpectedly" >&2; exit 1
       }
     }
   });
+
+  it("paneSize: reads the window's REAL grid back, and answers null for a gone pane/socket", async () => {
+    // The readback that makes a resize verifiable. A fire-and-forget resize
+    // measured 51x13 requested against a pane sitting at 51x16, and a grid
+    // that differs by one row makes a relative-positioning TUI paint every
+    // later frame onto the wrong rows.
+    const socket = freshSocket("panesize");
+    runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
+    // Detached tmux windows are born at 80x24.
+    expect(runner.paneSize(socket, "s1")).toEqual({ cols: 80, rows: 24 });
+
+    runner.resizeWindow(socket, "s1", 92, 28);
+    expect(runner.paneSize(socket, "s1")).toEqual({ cols: 92, rows: 28 });
+
+    // A second resize must be observable too — this is what proves the
+    // last-write-wins claim rather than assuming it.
+    runner.resizeWindow(socket, "s1", 51, 13);
+    expect(runner.paneSize(socket, "s1")).toEqual({ cols: 51, rows: 13 });
+
+    expect(runner.paneSize(socket, "no-such-session")).toBeNull();
+    expect(runner.paneSize(freshSocket("panesize-absent"), "s1")).toBeNull();
+    runner.killSubshell(socket, "s1");
+  });
 });
 
 afterAll(() => {

@@ -80,6 +80,16 @@ export interface NodeLauncher {
   /** Propagates client geometry to the pane. */
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   /**
+   * The pane's REAL grid, or null when it cannot be read.
+   *
+   * {@link resize} is a request, not a guarantee: a client that believes it
+   * holds a size the pane never took paints every later frame onto the wrong
+   * rows. Implementations that cannot read the size answer null honestly
+   * (like {@link signalPaneWinch} answering false) and the server then
+   * announces no geometry rather than a guess.
+   */
+  paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null>;
+  /**
    * Sends `SIGWINCH` to the pane's process WITHOUT changing its size, so a
    * diff-rendering TUI repaints the grid it already has. Returns false when
    * the machine cannot deliver the signal.

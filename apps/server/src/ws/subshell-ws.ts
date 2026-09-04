@@ -13,6 +13,7 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { captureToReplayText, captureToTerminalText } from "@/ws/capture-text.js";
+import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
 import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
@@ -242,6 +243,18 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // step with the pane's grid. No cursor is restored — the replay ends where
   // the last captured row ends, which is the bottom of the grid. See
   // {@link captureToReplayText}.
+  // The pane's real grid, announced BEFORE the replay: the capture below was
+  // taken at whatever size the pane actually holds, which is not necessarily
+  // the size this client asked for on the URL (the request can be clamped, or
+  // lost). Telling the client first means it paints the capture onto a grid it
+  // already agrees with, instead of discovering the mismatch a frame later.
+  // Null (a remote pane, an unreadable pane) simply announces nothing and
+  // leaves the client sizing itself, exactly as before the readback existed.
+  const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
+  if (attachGeometry) {
+    ws.send(JSON.stringify({ type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows }));
+  }
+
   const replay = text != null ? captureToReplayText(text) : null;
   if (replay != null) {
     ws.send(JSON.stringify({ type: "replay", data: replay }));
@@ -689,7 +702,11 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // browser socket must not await, and the promise must not go unhandled.
   const logFailure = (err: unknown) => logger.withError(err).warn("ws input failed");
   if (frame.type === "resize") {
-    void data.launcher.resize(data.socket, data.subshellId, frame.cols, frame.rows).catch(logFailure);
+    // Through the queue, never straight at the launcher: two bare
+    // `void resize(...)` calls can complete out of order and leave the pane
+    // at a superseded size, which is what made a relative-positioning TUI
+    // paint onto the wrong rows until a reattach.
+    requestPaneResize(data.launcher, data.socket, data.subshellId, frame.cols, frame.rows);
     return;
   }
   // Raw terminal input, forwarded verbatim — but only for callers allowed to
@@ -706,7 +723,14 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
   const subshellId = ws.data?.subshellId;
-  if (subshellId && liveViewers.get(subshellId) === ws) liveViewers.delete(subshellId);
+  if (subshellId && liveViewers.get(subshellId) === ws) {
+    liveViewers.delete(subshellId);
+    // No one is watching, so the remembered "already applied" size must go
+    // too: the next attach has to be able to re-assert the same geometry (the
+    // pane may have been resized by anything in between), and holding the
+    // entry would make that request look like a no-op.
+    geometryQueue.release(subshellId);
+  }
   ws.data?.cleanup?.();
 }
 
@@ -736,6 +760,87 @@ const liveViewers = new Map<string, WsSocket>();
  */
 export function resetLiveViewersForTests(): void {
   liveViewers.clear();
+}
+
+/**
+ * Drops every subshell's remembered pane size. Only for tests, which reuse
+ * subshell ids across cases and would otherwise see one case's applied size
+ * silently suppress the next case's identical request as a no-op.
+ * @internal
+ */
+export function resetGeometryQueueForTests(ids: string[]): void {
+  for (const id of ids) geometryQueue.release(id);
+}
+
+/**
+ * Sends a frame to every socket currently watching `subshellId`.
+ *
+ * One viewer today (see {@link liveViewers}), so this is a lookup with a
+ * loop's shape — deliberately, because the shared-session work replaces the
+ * registry's value with a Set and every caller here is already correct for
+ * that.
+ */
+function broadcastToViewers(subshellId: string, frame: object): void {
+  const viewer = liveViewers.get(subshellId);
+  if (!viewer) return;
+  try {
+    viewer.send(JSON.stringify(frame));
+  } catch {
+    // socket already gone; its close handler does the bookkeeping
+  }
+}
+
+/**
+ * The one place a pane is resized, so requests can neither overlap nor land
+ * out of order, and every settled size is announced as fact.
+ */
+const geometryQueue = createGeometryQueue({
+  onGeometry: (subshellId, size) => {
+    broadcastToViewers(subshellId, { type: "geometry", cols: size.cols, rows: size.rows });
+  },
+  onError: (err, subshellId) => {
+    logger.withError(err).warn(`ws resize failed for ${subshellId}`);
+  },
+});
+
+/**
+ * Asks the queue to put `subshellId`'s pane at `cols`x`rows`.
+ * @param launcher - Launcher owning the pane
+ * @param socket - tmux socket for the pane
+ * @param subshellId - Subshell whose pane to resize
+ * @param cols - Requested width in columns
+ * @param rows - Requested height in rows
+ */
+export function requestPaneResize(
+  launcher: NodeLauncher,
+  socket: string,
+  subshellId: string,
+  cols: number,
+  rows: number,
+): void {
+  geometryQueue.request(subshellId, cols, rows, {
+    apply: (c, r) => launcher.resize(socket, subshellId, c, r),
+    read: () => launcher.paneSize(socket, subshellId),
+  });
+}
+
+/**
+ * Reads the pane's grid for the attach announcement.
+ * @param launcher - Launcher owning the pane
+ * @param socket - tmux socket for the pane
+ * @param subshellId - Subshell to read
+ * @returns The pane's grid, or null when it cannot be read
+ */
+async function readPaneGeometry(
+  launcher: NodeLauncher,
+  socket: string,
+  subshellId: string,
+): Promise<PaneGeometry | null> {
+  try {
+    return await launcher.paneSize(socket, subshellId);
+  } catch {
+    return null;
+  }
 }
 
 export function evictPreviousViewer(ws: WsSocket, subshellId: string): void {

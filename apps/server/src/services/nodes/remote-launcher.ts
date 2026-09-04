@@ -293,6 +293,20 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
+   * Not yet readable on a node: the agent protocol has no command that
+   * reports a pane's grid (spec §6.4), so this answers null honestly rather
+   * than echoing the last requested size back as if it were confirmed — an
+   * echo would be indistinguishable from a real readback and would defeat
+   * the whole point of confirming. Remote panes therefore get no `geometry`
+   * frame and their clients keep sizing themselves, exactly as every client
+   * did before the readback existed. Closing this needs a protocol bump plus
+   * a client release, the same bill `signalPaneWinch` is waiting on.
+   */
+  async paneSize(_socket: string, _id: string): Promise<{ cols: number; rows: number } | null> {
+    return null;
+  }
+
+  /**
    * Not yet deliverable on a node: there is no `winch` command in the agent
    * protocol (spec §6.4), so this honestly answers "no" — the attach path
    * falls through to the ±1-column resize nudge, the pre-2026-09-04 behavior,

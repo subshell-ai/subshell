@@ -247,6 +247,39 @@ export class TmuxRunner {
   }
 
   /**
+   * Reads the window's REAL grid back.
+   *
+   * {@link resizeWindow} is a request, not a guarantee, and a client that
+   * believes it got a size the pane never took paints onto the wrong rows
+   * from then on (the harness TUIs position frames with relative moves, so a
+   * one-row disagreement corrupts every later frame until a reattach). This
+   * is the readback that lets the server announce what actually happened
+   * instead of echoing the request.
+   *
+   * Both fields are integers, so — unlike {@link paneTitle} — one read needs
+   * no separator ambiguity handling; a `:` split is enough.
+   *
+   * @param socket - tmux socket name
+   * @param subshellName - tmux session/window name
+   * @returns The pane's grid, or null when the pane or socket is gone
+   */
+  paneSize(socket: string, subshellName: string): { cols: number; rows: number } | null {
+    try {
+      const out = this.run(
+        ["-L", socket, "display-message", "-t", subshellName, "-p", "#{window_width}:#{window_height}"],
+        {},
+      ).stdout.trim();
+      const [rawCols, rawRows] = out.split(":");
+      const cols = Number(rawCols);
+      const rows = Number(rawRows);
+      if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols <= 0 || rows <= 0) return null;
+      return { cols, rows };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Writes raw terminal input to the subshell's pane, byte for byte.
    *
    * This is a dumb pipe: the client's terminal already emits the exact bytes

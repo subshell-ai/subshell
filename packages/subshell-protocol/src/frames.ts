@@ -39,12 +39,32 @@ export type ClientFrame =
 /**
  * A frame sent by the subshell WebSocket to the browser.
  */
-export interface ServerFrame {
-  /** `replay` rebuilds history on attach; `output` is live pane output. */
-  type: "replay" | "output";
-  /** Terminal bytes, including ANSI escape sequences. Absent on empty frames. */
-  data?: string;
-}
+export type ServerFrame =
+  | {
+      /** `replay` rebuilds history on attach; `output` is live pane output. */
+      type: "replay" | "output";
+      /** Terminal bytes, including ANSI escape sequences. Absent on empty frames. */
+      data?: string;
+    }
+  | {
+      /**
+       * The pane's REAL grid, read back from tmux after a resize settled, and
+       * announced on attach before the `replay` so the capture paints onto a
+       * grid the client already agrees with.
+       *
+       * This is a statement of fact, never a request. A client renders this
+       * grid — letterboxing or scaling it to fit — and must NOT answer by
+       * re-asking for a different size: that is the feedback loop that got
+       * commit 6351853 reverted, because the terminal re-fits on every layout
+       * tick and would trade resizes with a pane that will not take its size.
+       * The client's own size requests depend only on its viewport and font.
+       */
+      type: "geometry";
+      /** Pane width in columns. */
+      cols: number;
+      /** Pane height in rows. */
+      rows: number;
+    };
 
 /**
  * Validates and narrows an incoming client frame.

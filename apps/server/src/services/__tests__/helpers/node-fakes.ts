@@ -65,6 +65,14 @@ export class FakeNodeLauncher implements NodeLauncher {
   }
   async resize(): Promise<void> {}
   /**
+   * Null: the fake "cannot read a pane's grid", matching `RemoteLauncher` and
+   * keeping every existing attach assertion on the no-geometry path — the
+   * behavior clients had before the readback existed.
+   */
+  async paneSize(): Promise<{ cols: number; rows: number } | null> {
+    return null;
+  }
+  /**
    * False: the fake "cannot deliver a bare SIGWINCH", so the attach path's
    * repaint repair exercises the ±1 resize fallback exactly as before the
    * winch-first step existed (no redraw wait, no fake pane to signal).

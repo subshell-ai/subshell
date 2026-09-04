@@ -1,17 +1,26 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import { handleSubshellMessage, parseClientBuild, type WsSocket } from "@/ws/subshell-ws.js";
+import {
+  evictPreviousViewer,
+  handleSubshellMessage,
+  parseClientBuild,
+  resetGeometryQueueForTests,
+  resetLiveViewersForTests,
+  type WsSocket,
+} from "@/ws/subshell-ws.js";
 
 // stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
 // pinned there by __tests__/sync-stripper.test.ts.
 
 /** Records every launcher call the message handler makes. `canInput` defaults true (an edit/owner attach). */
-function fakeSocket(opts: { canInput?: boolean } = {}) {
+function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
   const inputs: string[] = [];
   const resizes: Array<{ cols: number; rows: number }> = [];
-  // Async-shaped like NodeLauncher, but the bodies run synchronously on call
-  // (async functions execute to the first await eagerly), so the handler's
-  // fire-and-forget `void` dispatch is observable without awaiting.
+  const sent: Array<Record<string, unknown>> = [];
+  const subshellId = opts.subshellId ?? "s1";
+  // Async-shaped like NodeLauncher. Input still dispatches synchronously; a
+  // resize now goes through the geometry queue, which awaits `resize` and then
+  // `paneSize`, so resize assertions have to let a microtask run (see `tick`).
   const launcher = {
     sendInput: async (_socket: string, _session: string, input: string) => {
       inputs.push(input);
@@ -19,22 +28,30 @@ function fakeSocket(opts: { canInput?: boolean } = {}) {
     resize: async (_socket: string, _session: string, cols: number, rows: number) => {
       resizes.push({ cols, rows });
     },
+    // Echoes the last applied size: a pane that takes every request, which is
+    // the case where the client's grid and the pane agree.
+    paneSize: async () => resizes.at(-1) ?? null,
   } as unknown as NodeLauncher;
   const ws = {
     data: {
       launcher,
       socket: "sock",
-      subshellId: "s1",
+      subshellId,
       logFile: "/dev/null",
       lastSize: 0,
       lastOutputWriteAt: 0,
       canInput: opts.canInput ?? true,
     },
-    send: () => undefined,
+    send: (raw: string) => {
+      sent.push(JSON.parse(raw) as Record<string, unknown>);
+    },
     close: () => undefined,
   } as unknown as WsSocket;
-  return { ws, inputs, resizes };
+  return { ws, inputs, resizes, sent, subshellId };
 }
+
+/** Lets the geometry queue's apply + readback settle. */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe("handleSubshellMessage", () => {
   it("forwards a keystroke without submitting it", () => {
@@ -72,19 +89,73 @@ describe("handleSubshellMessage", () => {
     expect(resizes).toEqual([{ cols: 120, rows: 40 }]);
   });
 
-  it("routes a resize frame to tmux instead of stdin", () => {
-    const { ws, inputs, resizes } = fakeSocket();
+  it("routes a resize frame to tmux instead of stdin", async () => {
+    const { ws, inputs, resizes, subshellId } = fakeSocket({ subshellId: "resize-basic" });
+    resetGeometryQueueForTests([subshellId]);
     handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 120, rows: 40 }));
+    await tick();
     expect(resizes).toEqual([{ cols: 120, rows: 40 }]);
     expect(inputs).toEqual([]);
   });
 
-  it("a read-only (view) attach: input frames are dropped, resize still applies", () => {
-    const { ws, inputs, resizes } = fakeSocket({ canInput: false });
+  it("a read-only (view) attach: input frames are dropped, resize still applies", async () => {
+    const { ws, inputs, resizes, subshellId } = fakeSocket({ canInput: false, subshellId: "resize-view" });
+    resetGeometryQueueForTests([subshellId]);
     handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "ls\r" }));
     expect(inputs).toEqual([]); // keystrokes never reach the pane
     handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 80, rows: 24 }));
+    await tick();
     expect(resizes).toEqual([{ cols: 80, rows: 24 }]); // watching/resizing is fine
+  });
+
+  it("collapses a resize burst into one tmux round trip carrying the last size", async () => {
+    // A sash drag or a phone rotation emits a resize per animation frame.
+    // Each extra round trip is a chance for two to complete out of order and
+    // strand the pane at a superseded size.
+    const { ws, resizes, subshellId } = fakeSocket({ subshellId: "resize-burst" });
+    resetGeometryQueueForTests([subshellId]);
+    for (const [cols, rows] of [
+      [100, 30],
+      [101, 30],
+      [102, 31],
+      [110, 35],
+    ]) {
+      handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols, rows }));
+    }
+    await tick();
+    await tick();
+    expect(resizes).toEqual([
+      { cols: 100, rows: 30 },
+      { cols: 110, rows: 35 },
+    ]);
+  });
+
+  it("announces the settled size to the viewer as a geometry frame", async () => {
+    const { ws, sent, subshellId } = fakeSocket({ subshellId: "resize-geom" });
+    resetGeometryQueueForTests([subshellId]);
+    resetLiveViewersForTests();
+    evictPreviousViewer(ws, subshellId); // registers this socket as the viewer
+    handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 92, rows: 28 }));
+    await tick();
+    expect(sent).toEqual([{ type: "geometry", cols: 92, rows: 28 }]);
+    resetLiveViewersForTests();
+  });
+
+  it("announces the pane's REAL size when tmux does not take the request", async () => {
+    // The measured defect: the browser asked 51x13 and the pane sat at 51x16.
+    // The client must be told 16, not have its own request echoed back.
+    const { ws, sent, subshellId } = fakeSocket({ subshellId: "resize-clamped" });
+    (ws.data as unknown as { launcher: { paneSize: () => Promise<unknown> } }).launcher.paneSize = async () => ({
+      cols: 51,
+      rows: 16,
+    });
+    resetGeometryQueueForTests([subshellId]);
+    resetLiveViewersForTests();
+    evictPreviousViewer(ws, subshellId);
+    handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 51, rows: 13 }));
+    await tick();
+    expect(sent).toEqual([{ type: "geometry", cols: 51, rows: 16 }]);
+    resetLiveViewersForTests();
   });
 
   it("ignores an empty input frame", () => {
