@@ -69,6 +69,15 @@ selection, `workspace-tabs.tsx` §comment) stands.
 - Navigating to a subshell deleted mid-swipe: lands on the existing
   `SubshellNotFoundCard` — no new path.
 
+## Setting (added after Theo's on-device confirmation)
+
+Per-device opt-out, **default on**: `lib/swipe-nav-pref.ts` (localStorage
+`subshell.swipeNav`, private-mode-safe like `terminal-font-size`) surfaced by
+`SwipeNavCard` under **Preferences → This device**. `/subshells/$id` reads it
+at mount and folds it into `useSwipeNav`'s `enabled` — no live event needed,
+since the switch lives on a page where no terminal is mounted and returning
+remounts the terminal page.
+
 ## Out of scope
 
 Workspace tabs/dock, the sheet drawer's swipe-to-close, apps/mobile (Expo), keyboard

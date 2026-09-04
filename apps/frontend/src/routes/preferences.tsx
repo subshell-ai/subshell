@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { NotificationsCard } from "@/components/notifications-card";
 import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
+import { SwipeNavCard } from "@/components/swipe-nav-card";
 import { TerminalFontCard } from "@/components/terminal-font-card";
 import { TerminalHistoryCard } from "@/components/terminal-history-card";
 
@@ -48,6 +49,7 @@ function PreferencesPage() {
       <Section id="prefs-device" label="This device">
         <div className="space-y-6">
           <TerminalFontCard />
+          <SwipeNavCard />
         </div>
       </Section>
     </main>

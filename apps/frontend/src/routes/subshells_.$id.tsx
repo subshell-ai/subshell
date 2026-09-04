@@ -25,6 +25,7 @@ import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { findNeighbors } from "@/lib/subshell-neighbors";
+import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/subshells_/$id")({
@@ -92,9 +93,13 @@ function SubshellPage() {
   // the gesture must never hold a stale neighbour id.
   const ordered = useOrderedSubshells();
   const { prev, next } = useMemo(() => findNeighbors(ordered, id), [ordered, id]);
+  // Per-device opt-out (Preferences → This device, default on). A mount-time
+  // read is enough: toggling it lives on /preferences, and coming back here
+  // remounts this page.
+  const [swipeOn] = useState(() => swipeNavEnabled());
   const swipeZoneRef = useRef<HTMLDivElement>(null);
   useSwipeNav(swipeZoneRef, {
-    enabled: Boolean(prev ?? next),
+    enabled: swipeOn && Boolean(prev ?? next),
     onPrev: () => {
       if (prev) void navigate({ to: "/subshells/$id", params: { id: prev } });
     },
