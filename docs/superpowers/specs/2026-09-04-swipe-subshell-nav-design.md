@@ -34,9 +34,8 @@ selection, `workspace-tabs.tsx` §comment) stands.
   terminal wrapper while dragging, spring-free reset on cancel; skipped entirely under
   `prefers-reduced-motion`. On commit the route changes — no exit animation (the next
   page is a fresh mount; animating a terminal out invites a flash).
-- **Exclusion zones**: gestures starting inside the `TerminalKeyBar` or anything marked
-  `data-no-swipe` are ignored (the key bar keeps terminal focus via its own
-  `pointerdown` preventDefaults; a drag from a key button must never navigate).
+- **Exclusion zones**: the gesture lives on the terminal wrapper only — the header and
+  the `TerminalKeyBar` are siblings outside it, so drags starting there never reach it.
 - Ends of the list: the nearest neighbour is undefined → the drag springs back, nothing
   happens. SSE can reshuffle the order mid-view; neighbours are recomputed at drag end,
   never cached.
