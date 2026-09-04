@@ -54,9 +54,10 @@ export interface CliDeps {
   /** stderr writer for usage/errors (default: `console.error`). */
   error?: (line: string) => void;
   /**
-   * Interactive prompt for `init`/`configure` (default: {@link promptLineSync}
-   * — sync `readSync(0, …)`, honoring cli.ts invariant 1). Returns the raw
-   * answer or null on EOF.
+   * Interactive prompt for `init`/`configure`/`service install` — the tmux
+   * offer uses it too (default: {@link promptLineSync} — sync `readSync(0, …)`,
+   * honoring the sync-by-contract rule above). Returns the raw answer or null
+   * on EOF.
    */
   prompt?: (question: string, def: string) => string | null;
   /** Process exit, injectable so tests observe codes (default: `process.exit`). */
@@ -104,6 +105,12 @@ export interface CliDeps {
   pathEnv?: string;
   /** Synchronous service-manager command runner (default: the `Bun.spawnSync` wrapper). */
   runCmd?: (cmd: string[]) => { code: number; out: string; err: string };
+  /**
+   * Sync package-manager runner for the tmux offer (default: `spawnInherit`
+   * — inherited stdio). Injectable so a `dispatchCli` suite can pin the
+   * offer→CONTINUES wiring without invoking a real installer.
+   */
+  spawnInstall?: (argv: readonly string[]) => number;
 }
 
 const USAGE = `subshell-server — the Subshell control plane
@@ -216,8 +223,9 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         which: deps.which ?? ((name) => Bun.which(name) ?? null),
         isTTY: deps.isTTY ?? process.stdin.isTTY === true,
         // tmux offer seams (spec 2026-09-03): platform drives installer
-        // detection; spawnInstall stays injectable for suites.
+        // detection AND the hint text; spawnInstall stays injectable.
         platform: deps.platform ?? process.platform,
+        spawnInstall: deps.spawnInstall,
       };
       // runInit/runConfigure are fully synchronous (invariant 1) and return
       // the exit code; the command itself never calls exit — this line does.
@@ -261,11 +269,13 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         pathEnv: deps.pathEnv ?? process.env.PATH,
         // tmux offer (spec 2026-09-03): service install takes no flags, so
         // the gate is TTY-only — non-interactive installs keep the refusal.
+        // Platform rides on the seed itself (ServiceDeps.platform) where the
+        // preflight reads it for both detection and the hint.
         tmuxOffer: {
           interactive: deps.isTTY ?? process.stdin.isTTY === true,
           log,
           prompt: deps.prompt ?? promptLineSync,
-          platform: deps.platform ?? process.platform,
+          spawn: deps.spawnInstall,
         },
       });
       if (deps.runCmd) sdeps.runCmd = deps.runCmd;

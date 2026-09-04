@@ -91,10 +91,24 @@ export interface TmuxOffer {
   log: (line: string) => void;
   /** The y/N question (production: `promptLineSync`); null/EOF = declined. */
   prompt: (question: string, def: string) => string | null;
-  /** Installer detection platform (default: `process.platform`). */
-  platform?: NodeJS.Platform;
   /** Installer runner (default: `spawnInherit` — inherited stdio). */
   spawn?: (argv: readonly string[]) => number;
+}
+
+/**
+ * The config flows' ONE offer bundle: `init` and `configure` gate
+ * identically (`!--yes` AND TTY), and both take it from here so the gate
+ * cannot drift between the two commands. Platform is NOT part of the offer
+ * — it rides on {@link TmuxPreflightDeps.platform} where the preflight also
+ * resolves the hint text from, one source for both.
+ */
+export function makeTmuxOffer(opts: ConfigureOpts, deps: CommandDeps): TmuxOffer {
+  return {
+    interactive: !opts.yes && deps.isTTY,
+    log: deps.log,
+    prompt: deps.prompt,
+    spawn: deps.spawnInstall,
+  };
 }
 
 /** Parsed `init`/`configure` flags — raw strings, validated by the flow. */
@@ -128,6 +142,12 @@ export interface TmuxPreflightDeps {
    * exactly its pre-offer self: refuse with the platform hint).
    */
   offer?: TmuxOffer;
+  /**
+   * Runtime platform for BOTH the installer detection and the hint text
+   * (production: `process.platform` — the CommandDeps rule is "read nothing
+   * from `process.*` directly", so it arrives here as a dep).
+   */
+  platform?: NodeJS.Platform;
 }
 
 /**
@@ -147,9 +167,10 @@ export interface TmuxPreflightDeps {
 export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
   if (deps.env[SKIP_TMUX_CHECK_ENV] === "1") return true;
   if (deps.which("tmux") !== null) return true;
+  const platform = deps.platform ?? process.platform;
   const offer = deps.offer;
   if (offer?.interactive) {
-    const installer = chooseTmuxInstaller({ platform: offer.platform ?? process.platform, which: deps.which });
+    const installer = chooseTmuxInstaller({ platform, which: deps.which });
     if (installer) {
       offer.log(
         "tmux not found — the server launches its local subshells through tmux. " +
@@ -158,7 +179,13 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
       offer.log(`this would run: ${installer.argv.join(" ")}`);
       const answer = offer.prompt(`Install tmux now with ${installer.label}?`, "n");
       if (answer !== null && ["y", "yes"].includes(answer.trim().toLowerCase())) {
-        const found = runTmuxInstall(installer, { spawn: offer.spawn ?? spawnInherit, which: deps.which });
+        // note=offer.log: an unstartable installer (bun throws ENOENT before
+        // any child output) must explain itself, not fall back silently.
+        const found = runTmuxInstall(installer, {
+          spawn: offer.spawn ?? spawnInherit,
+          which: deps.which,
+          note: offer.log,
+        });
         if (found) {
           offer.log(`tmux installed (${found}) — continuing.`);
           return true;
@@ -169,9 +196,9 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
   }
   deps.error("tmux not found — the server launches its local subshells through tmux and cannot run without it.");
   const hint =
-    process.platform === "darwin"
+    platform === "darwin"
       ? "Install it first (macOS: brew install tmux)"
-      : process.platform === "linux"
+      : platform === "linux"
         ? "Install it first (Debian/Ubuntu: apt install tmux; Fedora: dnf install tmux)"
         : "Install tmux first (Linux: apt install tmux / dnf install tmux; macOS: brew install tmux)";
   deps.error(`${hint} and rerun (escape hatch: ${SKIP_TMUX_CHECK_ENV}=1).`);
@@ -297,14 +324,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   // The interactivity gate is decided BEFORE the preflight: the tmux offer
   // may fire only here (spec 2026-09-03) — `--yes`/non-TTY keep the refusal.
   const interactive = !opts.yes && deps.isTTY;
-  if (
-    !tmuxPreflight({
-      ...deps,
-      offer: { interactive, log: deps.log, prompt: deps.prompt, platform: deps.platform, spawn: deps.spawnInstall },
-    })
-  ) {
-    return 1;
-  }
+  if (!tmuxPreflight({ ...deps, offer: makeTmuxOffer(opts, deps) })) return 1;
 
   // Read the existing file BEFORE asking: its values become the interactive
   // defaults, and a file we cannot read is refused before a single question

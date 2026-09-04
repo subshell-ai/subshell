@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
@@ -297,5 +297,50 @@ describe("dispatchCli — status", () => {
     const text = out.join("\n");
     expect(text).toContain("set (masked)");
     expect(text).not.toContain("process-level-secret");
+  });
+});
+
+describe("dispatchCli — tmux offer wiring (spec 2026-09-03)", () => {
+  test("interactive configure: offer → yes → stubbed install CONTINUES end to end (exit 0, config written)", async () => {
+    const dir = newConfigDir();
+    let installed = false;
+    const answers = ["y", "", "", "", ""];
+    const { deps, out, err, exits } = collectingDeps({
+      configDir: dir,
+      isTTY: true,
+      platform: "linux",
+      env: {},
+      which: (n) => (n === "apt-get" ? "/usr/bin/apt-get" : n === "tmux" && installed ? "/usr/bin/tmux" : null),
+      prompt: () => answers.shift() ?? "",
+      spawnInstall: () => {
+        installed = true;
+        return 0;
+      },
+    });
+    expect(await dispatchCli(["configure"], deps)).toBe(true);
+    expect(exits).toEqual([0]);
+    expect(out.join("\n")).toMatch(/tmux installed/i);
+    expect(err).toEqual([]);
+    expect(readFileSync(join(dir, "config.env"), "utf8")).toContain("SERVER_PORT=3080");
+  });
+
+  test("non-TTY configure never asks: the refusal contract is unchanged through the CLI", async () => {
+    let asked = 0;
+    const { deps, err, exits } = collectingDeps({
+      configDir: newConfigDir(),
+      isTTY: false,
+      platform: "linux",
+      env: {},
+      which: () => null,
+      prompt: () => {
+        asked++;
+        return "y";
+      },
+      spawnInstall: () => 0,
+    });
+    expect(await dispatchCli(["configure", "--yes"], deps)).toBe(true);
+    expect(asked).toBe(0);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toMatch(/tmux not found/i);
   });
 });

@@ -311,7 +311,6 @@ describe("installService — guards", () => {
         interactive: true,
         log: (line) => void offerLog.push(line),
         prompt: () => "y",
-        platform: "linux",
         spawn: () => {
           installed = true;
           return 0;
@@ -337,7 +336,6 @@ describe("installService — guards", () => {
           asked++;
           return "y";
         },
-        platform: "linux",
         spawn: () => 0,
       },
     });

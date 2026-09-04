@@ -80,7 +80,10 @@ export interface ServiceDeps {
   /**
    * tmux offer bundle (spec 2026-09-03): the CLI wires it with
    * `interactive = TTY` (service install takes no flags). Absent ⇒ the
-   * preflight is its pre-offer self — refuse with the hint.
+   * preflight is its pre-offer self — refuse with the hint. NOTE: unlike
+   * every other output of {@link installService}, the offer's question and
+   * progress lines go STRAIGHT to the injected `log` (stdout) — a live
+   * prompt cannot be buffered into the returned CliResult.
    */
   tmuxOffer?: TmuxOffer;
 }
@@ -285,6 +288,7 @@ export function installService(deps: ServiceDeps): CliResult {
       env: deps.env,
       which: deps.which,
       error: (line) => preflightErr.push(line),
+      platform: deps.platform,
       offer: deps.tmuxOffer,
     })
   ) {

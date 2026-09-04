@@ -57,16 +57,29 @@ export function spawnInherit(argv: readonly string[]): number {
  * The re-probe is the guard against the PATH caveat (brew installed into a
  * directory this process cannot yet see) — continuing on a blind exit code
  * would build a deploy that fails at the first pane.
+ *
+ * A throw is surfaced through `note`, NOT silence: measured on bun 1.4.0,
+ * `Bun.spawnSync` throws ENOENT for an unstartable argv BEFORE any child
+ * output, so without the note the user who typed `y` would see nothing
+ * explain the fall-back (the sudo-less-container case: apt-get on PATH, no
+ * sudo binary). Non-zero exits need no note — the installer printed its own
+ * failure to the inherited stderr.
  * @returns the tmux path, or null (install failed, threw, or still missing)
  */
 export function runTmuxInstall(
   installer: TmuxInstaller,
-  io: { spawn: (argv: readonly string[]) => number; which: (name: string) => string | null },
+  io: {
+    spawn: (argv: readonly string[]) => number;
+    which: (name: string) => string | null;
+    /** Where to surface a spawn that could not even start (production: the offer's log). */
+    note?: (line: string) => void;
+  },
 ): string | null {
   let code: number;
   try {
     code = io.spawn(installer.argv);
-  } catch {
+  } catch (err: unknown) {
+    io.note?.(`could not run '${installer.argv.join(" ")}': ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
   if (code !== 0) return null;

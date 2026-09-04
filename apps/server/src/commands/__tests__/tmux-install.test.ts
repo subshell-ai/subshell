@@ -80,4 +80,19 @@ describe("runTmuxInstall", () => {
       }),
     ).toBeNull();
   });
+
+  test("spawn throw is SURFACED through note with the argv + reason (bun throws ENOENT pre-output)", () => {
+    const notes: string[] = [];
+    expect(
+      runTmuxInstall(installer, {
+        spawn: () => {
+          throw new Error("ENOENT: no such file or directory, posix_spawn 'sudo'");
+        },
+        which: () => null,
+        note: (line) => void notes.push(line),
+      }),
+    ).toBeNull();
+    expect(notes.join("\n")).toContain("brew install tmux");
+    expect(notes.join("\n")).toMatch(/ENOENT/);
+  });
 });

@@ -70,9 +70,10 @@ export function runTmuxInstall(
 `chooseTmuxInstaller` rules:
 - `platform === "darwin"`: `which("brew")` → brew installer; else null.
 - `platform === "linux"`: `which("apt-get")` → apt-get; else `which("dnf")` →
-  dnf; else null. Both carry the `sudo` front. (Root shells still work —
-  `sudo` exists on every distro we target; when it does not, the spawn fails
-  loudly in the user's terminal, which is honest.)
+  dnf; else null. Both carry the `sudo` front. (Correction during review:
+  when `sudo` is absent, bun's `spawnSync` THROWS ENOENT before any child
+  output — it does not "fail loudly in the terminal" — so the runner must
+  surface the throw reason through the offer's log, per the error table.)
 - any other platform: null.
 
 `runTmuxInstall` uses the injected sync spawn (production:
@@ -138,7 +139,7 @@ tmuxPreflight
 | Installer exits non-zero | refuse with status-quo hint; installer output already visible |
 | Installer exits 0, `which("tmux")` still null | refuse with status-quo hint (PATH caveat) |
 | EOF / non-yes answer | status-quo refusal |
-| `spawn` throws (e.g. sudo missing mid-argv) | caught → status-quo refusal, error line surfaced |
+| `spawn` throws (e.g. sudo missing mid-argv) | caught → the reason printed via the offer's log (`could not run '<argv>': <message>`) → status-quo refusal |
 | `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1` | short-circuits before all of this (unchanged) |
 
 ## Testing

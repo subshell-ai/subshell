@@ -88,4 +88,40 @@ describe("runInit — tmux preflight", () => {
     expect(runInit({ yes: true }, deps)).toBe(0);
     expect(readCfg(dir).BETTER_AUTH_SECRET).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
+
+  test("interactive offer + install success → init CONTINUES (secret + config written, no rerun)", () => {
+    let installed = false;
+    const { deps, dir, out, prompts } = makeDeps({
+      isTTY: true,
+      platform: "linux",
+      which: (n) => (n === "apt-get" ? "/usr/bin/apt-get" : n === "tmux" && installed ? "/usr/bin/tmux" : null),
+      spawnInstall: () => {
+        installed = true;
+        return 0;
+      },
+      answers: ["y", "", "", "", ""],
+    });
+    expect(runInit({}, deps)).toBe(0);
+    expect(prompts[0]?.[0]).toMatch(/Install tmux now with apt-get\?/i);
+    expect(out.join("\n")).toMatch(/tmux installed/i);
+    // Continued all the way through: BOTH the preflight-then-write path ran.
+    expect(readCfg(dir).BETTER_AUTH_SECRET).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(readCfg(dir).SERVER_PORT).toBe("3080");
+  });
+
+  test("--yes never offers, even with an installer on PATH (shared gate with configure)", () => {
+    let spawned = 0;
+    const { deps, prompts } = makeDeps({
+      isTTY: true,
+      platform: "linux",
+      which: (n) => (n === "apt-get" ? "/usr/bin/apt-get" : null),
+      spawnInstall: () => {
+        spawned++;
+        return 0;
+      },
+    });
+    expect(runInit({ yes: true }, deps)).toBe(1);
+    expect(prompts).toEqual([]);
+    expect(spawned).toBe(0);
+  });
 });
