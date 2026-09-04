@@ -171,30 +171,34 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
     // The pane-spawned MCP stdio server (spec 2026-09-03): the ONLY
     // long-running command — legal because the graph evaluates IO-free (lazy
     // getAuth) and `isCliEngaged()` (set above, synchronously) keeps the boot
-    // body from running in the suspension window. The runner resolves when
-    // the CONNECTION ENDS (attach is not done — the client's T18 lesson;
-    // see mcp-core's runSubshellMcp), so the `exit(0)` below lands after the
-    // transport is gone, never on a live one.
+    // body from running in the suspension window.
     case "mcp":
       try {
         await (deps.mcpRun ?? runSubshellMcp)();
       } catch (err: unknown) {
         // A rejected runner goes to stderr + exit 1 HERE — index.ts's global
         // unhandledRejection handler (FATAL log + exit 1) must never see it.
-        // `return true` keeps an injected (non-terminal) exit from falling
-        // through to the success exit below. MESSAGE-first, not stack-first:
-        // measured on bun 1.4.0, the COMPILED bundle's `err.stack` header
-        // line omits the message ("Error\n  at …") while `err.message` is
-        // intact, and the contract refusal text is the actionable half for
-        // whoever spawned the pane.
+        // MESSAGE-first, not stack-first: measured on bun 1.4.0, the
+        // COMPILED bundle's `err.stack` header line omits the message
+        // ("Error\n  at …") while `err.message` is intact, and the contract
+        // refusal text is the actionable half for whoever spawned the pane.
         const detail =
           err instanceof Error ? (err.message !== "" ? err.message : (err.stack ?? String(err))) : String(err);
         error(`subshell mcp: fatal: ${detail}`);
         exit(1);
         return true;
       }
-      exit(0);
-      return true;
+      // ATTACH is not done. `runSubshellMcp` resolves once the stdio
+      // transport CONNECTS (mcp-core's contract — the same one apps/client's
+      // T18 fix documents); an `exit(0)` here — or even returning `true`,
+      // which cli-bootstrap's `.then(handled ⇒ exit 0)` would act on —
+      // kills the live transport milliseconds after `ready`. This is the
+      // server twin of apps/client's keepAlive: PARK the dispatch promise so
+      // nothing downstream can exit, and let the transport's stdin listener
+      // own the process lifetime. When the pane's client disconnects, the
+      // stream ends, the drained event loop ends the process (0) naturally,
+      // and this promise never settles.
+      return new Promise<boolean>(() => {});
     case "init":
     case "configure": {
       const opts = parseConfigFlags(argv.slice(1), error);

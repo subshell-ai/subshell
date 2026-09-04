@@ -11,7 +11,6 @@
 // biome-ignore assist/source/organizeImports: the order IS the workaround — zod must precede @modelcontextprotocol/*
 import { z } from "zod";
 void z.custom(() => true);
-import type { Transport } from "@modelcontextprotocol/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { SubshellApi } from "./api-client.js";
@@ -218,33 +217,13 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
 const EXTEND_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 /**
- * The production transport: the process's stdio, with the pane-death path
- * wired. The SDK's own transport watches `data`/`error` but never `end`, so
- * without this a vanished client (stdin EOF) would only end the process via
- * the drained event loop — fine for a bare entry, but every CLI caller that
- * awaits {@link runSubshellMcp} needs the close to be explicit so its
- * post-await exit runs. EOF → `close()` → the `onclose` chain {@link
- * runSubshellMcp} armed.
- */
-function createStdioTransport(): Transport {
-  const transport = new StdioServerTransport();
-  process.stdin.once("end", () => void transport.close());
-  return transport;
-}
-
-/**
  * Boots the `subshell mcp` stdio server: reads env, persists this subshell's
  * identity, registers its public key with the backend, arms a token-extension
- * timer, and serves the tools over stdio **until the client disconnects** —
- * the returned promise resolves when the CONNECTION ENDS, never on attach.
- * (Attaching is not finishing: the client's T18 parity bug and the server's
- * Task-5 e2e failure were the same shape — exit on resolve, kill a live
- * transport milliseconds after `ready`.)
+ * timer, and serves the tools over stdio until the client disconnects.
  *
  * Never writes to stdout (the MCP channel) — diagnostics go to stderr.
- * @param transport - stdio seam (default {@link createStdioTransport}; tests inject a fake)
  */
-export async function runSubshellMcp(transport: Transport = createStdioTransport()): Promise<void> {
+export async function runSubshellMcp(): Promise<void> {
   const env = readMcpEnv();
   const api = new SubshellApi({ baseUrl: env.baseUrl, apiKey: env.apiKey });
   const own = await loadOrCreateIdentity(env.dataDir, `sess:${env.subshellId}`);
@@ -276,16 +255,6 @@ export async function runSubshellMcp(transport: Transport = createStdioTransport
   });
   registerTools(server, { api, own });
 
-  // Arm onclose BEFORE connect (the Protocol chains a pre-set hook), then
-  // hold the returned promise until the connection actually ends —
-  // `connect()` resolves on ATTACH, and a caller that exits on resolve would
-  // kill the live transport. The pane-death (EOF) path closes the transport
-  // via {@link createStdioTransport}; an explicit `close()` lands on the
-  // same hook.
-  const ended = new Promise<void>((resolve) => {
-    transport.onclose = resolve;
-  });
-  await server.connect(transport);
+  await server.connect(new StdioServerTransport());
   process.stderr.write(`subshell mcp: ready (subshell ${env.subshellId})\n`);
-  await ended;
 }

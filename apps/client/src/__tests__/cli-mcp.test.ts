@@ -4,9 +4,9 @@ import { parseArgs, run } from "../cli.js";
 /**
  * The `subshell mcp` CLI surface (Task 13). ONLY the reject paths are run
  * through `run()`: a complete SUBSHELL_* env would attach the real stdio transport
- * to this test runner's own stdin (run() then PARKS on that connection until
- * it ends — `cli-mcp-entry.test.ts` owns the spawned-child happy path:
- * liveness + the initialize handshake). Isolation:
+ * to this test runner's own stdin (run() then resolves with `keepAlive` once
+ * attached — post-T18-fix, see `cli-mcp-entry.test.ts` for the spawned-child
+ * happy path: liveness + the initialize handshake). Isolation:
  * every SUBSHELL_* variable is stripped per test — the reject assertions must
  * describe OUR env handling, never whatever the developer's shell exports.
  */

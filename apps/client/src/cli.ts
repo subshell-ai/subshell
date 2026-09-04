@@ -152,10 +152,10 @@ export async function run(argv: string[]): Promise<CliResult> {
           return fail(2, err);
         }
         await runAgentMcp();
-        // The runner holds this promise until the CONNECTION ENDS (attach is
-        // not done — exiting on the attach-time resolve killed the transport
-        // pre-T18-fix). keepAlive remains the entry's contract even after the
-        // end: fall through to idle, never exit here (main.ts).
+        // REACHABLE, and not the end: `connect()` resolves as soon as the
+        // stdio transport attaches, so this await returns while the server is
+        // still live. keepAlive is the contract that stops the entry from
+        // exiting (main.ts) — exiting here killed the transport pre-T18-fix.
         return { code: 0, out: "", err: "", keepAlive: true };
       }
       case "run": {

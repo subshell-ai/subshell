@@ -84,18 +84,27 @@ describe("dispatchCli — version", () => {
 });
 
 describe("dispatchCli — mcp", () => {
-  test("mcp runs the injected stdio server and reports handled", async () => {
+  test("mcp runs the injected stdio server, then PARKS — nothing exits on attach (T18)", async () => {
     let calls = 0;
     const { deps, exits } = collectingDeps({
       mcpRun: async () => {
         calls++;
       },
     });
-    // dispatchCli must await it: the fake resolves immediately, so this pins
-    // the dispatch → run → exit wiring without a real stdio loop.
-    expect(await dispatchCli(["mcp"], deps)).toBe(true);
-    expect(calls).toBe(1);
-    expect(exits).toEqual([0]);
+    // The fake runner resolves immediately (that is what connect() does);
+    // dispatch must NOT: exiting — or even resolving `true`, which
+    // cli-bootstrap's `.then(handled ⇒ exit 0)` would act on — kills a live
+    // stdio transport milliseconds after `ready` (apps/client's T18 lesson;
+    // e2e-cross-subshell.test.ts owns the real two-process proof). The
+    // parked promise means the transport owns the process lifetime.
+    let settled = false;
+    void dispatchCli(["mcp"], deps).then(() => {
+      settled = true;
+    });
+    await Bun.sleep(50);
+    expect(calls).toBe(1); // the runner ran
+    expect(exits).toEqual([]); // nothing exited
+    expect(settled).toBe(false); // dispatch stays parked, forever, by design
   });
 
   test("mcp refusal lands on stderr and exits 1 — never falls through to success", async () => {
