@@ -49,3 +49,37 @@ function priorityRank(subshell: SubshellView): number {
 export function priorityRunning(subshells: SubshellView[]): SubshellView[] {
   return [...subshells].sort((a, b) => priorityRank(a) - priorityRank(b));
 }
+
+/** The fields {@link sortByCreation} reads. */
+type CreationProbe = { id: string; createdAt: string };
+
+/**
+ * Newest-created first, with the id as a total tie-break.
+ *
+ * This is the order the prev/next SWIPE walks, and it is deliberately NOT
+ * {@link import("./subshell-indicator.js").sortByStatus} — the one the sidebar
+ * uses. That order ranks by `subshellIndicator`, which returns `activity`,
+ * and activity is "produced output within the last 60s". It is exactly right
+ * for a list you READ: the subshell that just did something rises to the top.
+ * It is wrong for something you NAVIGATE, because the order changes on its
+ * own: swipe left twice expecting to walk a list and the list has reshuffled
+ * underneath you, because some other agent happened to print a line. On a
+ * phone, where the swipe IS the navigation, that reads as the app moving
+ * things behind your back. (It also made e2e spec 09 flaky, which is how it
+ * was found.)
+ *
+ * `createdAt`, not `startedAt`: a restart re-stamps `startedAt`, and reviving
+ * a subshell must not move it in the order.
+ *
+ * @param list - Subshells in any order
+ * @returns A new array, newest first
+ */
+export function sortByCreation<T extends CreationProbe>(list: readonly T[]): T[] {
+  return [...list].sort((a, b) => {
+    const byTime = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+    if (byTime !== 0 && Number.isFinite(byTime)) return byTime;
+    // Same millisecond (or an unparseable stamp): fall back to something
+    // total, so the order is still deterministic rather than input-dependent.
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}

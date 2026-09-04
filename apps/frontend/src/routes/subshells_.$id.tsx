@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
-import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
+import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
@@ -90,7 +90,9 @@ function SubshellPage() {
   // Swipe prev/next (spec 2026-09-04): walk the sidebar order with the thumb.
   // Neighbours are recomputed per render — SSE reshuffles the list live, so
   // the gesture must never hold a stale neighbour id.
-  const ordered = useOrderedSubshells();
+  // Creation order, not sidebar order: the sidebar re-ranks by activity,
+  // which would move the swipe target while the user is swiping.
+  const ordered = useSwipeOrderedSubshells();
   const { prev, next } = useMemo(() => findNeighbors(ordered, id), [ordered, id]);
   // Per-device opt-out (Preferences → This device, default on). A mount-time
   // read is enough: toggling it lives on /preferences, and coming back here
