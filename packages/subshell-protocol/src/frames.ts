@@ -34,6 +34,36 @@ export type ClientFrame =
       cols: number;
       /** Terminal height in rows; must be positive. */
       rows: number;
+    }
+  | {
+      /**
+       * Whether this viewer's page is being rendered at all.
+       *
+       * A hidden tab is excluded from the shared-grid decision: the browser
+       * stops laying it out entirely (no `requestAnimationFrame`, no
+       * `ResizeObserver`), so it cannot re-fit until it is shown — and a
+       * backgrounded phone holding every other device's terminal at phone
+       * size, with nothing on screen to explain it, is indistinguishable from
+       * a bug.
+       */
+      type: "visibility";
+      /** True while `document.hidden`. */
+      hidden: boolean;
+    }
+  | {
+      /**
+       * Chooses how this subshell's pane is sized while several devices watch
+       * it: `auto` takes the smallest VISIBLE viewer, `pinned` lets one named
+       * viewer decide alone.
+       *
+       * It changes what everyone sees, so it is an `edit` act — a `view`
+       * grantee's choice is dropped like its keystrokes.
+       */
+      type: "set-sizing";
+      /** `auto` or `pinned`. */
+      mode: "auto" | "pinned";
+      /** Which viewer decides under `pinned`; ignored otherwise. */
+      viewerId?: string | null;
     };
 
 /**
@@ -80,6 +110,8 @@ export type ServerFrame =
       you: string;
       /** Everyone attached, including the recipient. */
       viewers: ViewerPresence[];
+      /** How the pane's grid is currently being decided. */
+      sizing: { mode: "auto" | "pinned"; pinnedViewerId: string | null };
     };
 
 /** One device watching a subshell. */
@@ -99,6 +131,12 @@ export interface ViewerPresence {
   since: string;
   /** True when this viewer may type; a `view` grantee is watching only. */
   canInput: boolean;
+  /**
+   * True while this viewer's page is not being rendered. A hidden viewer is
+   * listed but takes no part in sizing, so the list can explain a pane that
+   * is NOT sized to the smallest device on it.
+   */
+  hidden: boolean;
 }
 
 /**
@@ -123,6 +161,15 @@ export function parseClientFrame(raw: string | object): ClientFrame | null {
   const frame = value as Record<string, unknown>;
   if (frame.type === "input") {
     return typeof frame.data === "string" ? { type: "input", data: frame.data } : null;
+  }
+  if (frame.type === "visibility") {
+    return typeof frame.hidden === "boolean" ? { type: "visibility", hidden: frame.hidden } : null;
+  }
+  if (frame.type === "set-sizing") {
+    if (frame.mode !== "auto" && frame.mode !== "pinned") return null;
+    const viewerId = frame.viewerId;
+    if (viewerId != null && typeof viewerId !== "string") return null;
+    return { type: "set-sizing", mode: frame.mode, viewerId: viewerId ?? null };
   }
   if (frame.type === "resize") {
     const { cols, rows } = frame;

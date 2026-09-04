@@ -16,7 +16,7 @@ import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
 import { createPaneStreamRegistry, type Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
-import { resolveSharedGrid } from "@/ws/shared-geometry.js";
+import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy } from "@/ws/shared-geometry.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -363,6 +363,11 @@ export interface WsData {
   capacity?: { cols: number; rows: number };
   /** Identifies this viewer in the `viewers` frame; lives as long as the socket. */
   viewerId: string;
+  /**
+   * True while this viewer's page is not being rendered. Set by the client's
+   * `visibility` frame; a hidden viewer takes no part in sizing.
+   */
+  hidden?: boolean;
   /** Human name for the device, from the connect URL (already normalized). */
   deviceLabel: string;
   /** ISO timestamp of the attach, for "watching since" in the devices list. */
@@ -669,6 +674,15 @@ export function persistOutput(_ws: WsSocket, data: WsData): void {
  */
 const paneStreams = createPaneStreamRegistry();
 
+/**
+ * How each subshell's grid is decided, while anyone is watching it.
+ *
+ * Deliberately in memory and dropped with the last viewer: a pin names a
+ * VIEWER, and viewer ids do not survive a disconnect, so persisting it would
+ * only preserve a pin that can never match again.
+ */
+const sizingPolicies = new Map<string, SizingPolicy>();
+
 /** Last lastOutputAt write per subshell — the heartbeat throttle, stream-lived. */
 const lastOutputWrites = new Map<string, number>();
 
@@ -710,6 +724,26 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // rejections the old sync try/catch used to log are logged in place — the
   // browser socket must not await, and the promise must not go unhandled.
   const logFailure = (err: unknown) => logger.withError(err).warn("ws input failed");
+  if (frame.type === "visibility") {
+    // A hidden viewer is excluded from the shared grid, so this changes the
+    // pane's size for everyone — backgrounding a phone hands the pane back to
+    // the laptops, and showing it takes it again.
+    if (data.hidden === frame.hidden) return;
+    data.hidden = frame.hidden;
+    applySharedGeometry(data.subshellId, data.launcher, data.socket);
+    broadcastViewers(data.subshellId);
+    return;
+  }
+  if (frame.type === "set-sizing") {
+    // Changing how the pane is sized changes what every viewer sees, so it is
+    // an `edit` act — the same gate keystrokes pass, and a `view` grantee's
+    // choice is dropped exactly like one.
+    if (!data.canInput) return;
+    setSizingPolicy(data.subshellId, { mode: frame.mode, pinnedViewerId: frame.viewerId ?? null });
+    applySharedGeometry(data.subshellId, data.launcher, data.socket);
+    broadcastViewers(data.subshellId);
+    return;
+  }
   if (frame.type === "resize") {
     // A client frame reports what THIS viewer can display; it is not an
     // instruction. The pane's size is decided from every attached viewer
@@ -748,6 +782,7 @@ export function cleanupSubshellWs(ws: WsSocket): void {
   if (subshellId && viewerId && viewers?.delete(viewerId)) {
     if (viewers.size === 0) {
       liveViewers.delete(subshellId);
+      sizingPolicies.delete(subshellId);
       // No one is watching, so the remembered "already applied" size must go
       // too: the next attach has to be able to re-assert the same geometry (the
       // pane may have been resized by anything in between), and holding the
@@ -858,11 +893,20 @@ function broadcastViewers(subshellId: string): void {
       capacity: v.data.capacity ?? null,
       since: v.data.since,
       canInput: v.data.canInput,
+      hidden: v.data.hidden === true,
     }));
+  const policy = sizingPolicies.get(subshellId) ?? DEFAULT_SIZING;
   for (const socket of sockets) {
     if (!socket.data) continue;
     try {
-      socket.send(JSON.stringify({ type: "viewers", you: socket.data.viewerId, viewers: presence }));
+      socket.send(
+        JSON.stringify({
+          type: "viewers",
+          you: socket.data.viewerId,
+          viewers: presence,
+          sizing: { mode: policy.mode, pinnedViewerId: policy.pinnedViewerId ?? null },
+        }),
+      );
     } catch {
       // socket already gone; its close handler does the bookkeeping
     }
@@ -883,8 +927,10 @@ function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket:
 export function sharedGridFor(subshellId: string): PaneGeometry | null {
   const viewers = liveViewers.get(subshellId);
   if (!viewers || viewers.size === 0) return null;
-  const capacities = [...viewers.values()].map((v) => v.data?.capacity).filter((c): c is PaneGeometry => Boolean(c));
-  return resolveSharedGrid(capacities);
+  const inputs = [...viewers.values()]
+    .filter((v) => v.data)
+    .map((v) => ({ id: v.data.viewerId, capacity: v.data.capacity ?? null, hidden: v.data.hidden === true }));
+  return resolveSharedGrid(inputs, sizingPolicies.get(subshellId) ?? DEFAULT_SIZING);
 }
 
 /**
@@ -927,6 +973,20 @@ export function requestPaneResize(
     apply: (c, r) => launcher.resize(socket, subshellId, c, r),
     read: () => launcher.paneSize(socket, subshellId),
   });
+}
+
+/**
+ * Sets how a subshell's pane is sized while several devices watch it.
+ *
+ * In memory, and dropped with the last viewer: a pin names a VIEWER, and
+ * viewer ids do not survive a disconnect, so persisting it would only preserve
+ * a pin that can never match again.
+ *
+ * @param subshellId - The subshell
+ * @param policy - `auto` (smallest visible viewer) or `pinned` (one decides)
+ */
+export function setSizingPolicy(subshellId: string, policy: SizingPolicy): void {
+  sizingPolicies.set(subshellId, policy);
 }
 
 /**

@@ -3,7 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { BUILD_ID } from "@/lib/build-id";
-import { sendInput, sendResize } from "@/lib/subshell-frames.js";
+import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 
 export interface TermWsHandlers {
   onOpen?: () => void;
@@ -152,6 +152,9 @@ export function useSubshellWs(
 
         ws.onopen = () => {
           handlersRef.current.onOpen?.();
+          // State, not an event: a tab attached while hidden must say so, or
+          // it silently constrains every other device's pane.
+          sendVisibility(ws, document.hidden);
           // Sync the detached tmux window to the browser terminal size
           // (tmux subshells start at 80×24; the pane must match the client).
           syncSize();
@@ -234,9 +237,15 @@ export function useSubshellWs(
       sendResize(wsRef.current, cols, rows);
     });
 
+    // A viewer that stops being rendered stops taking part in sizing, and
+    // rejoins the moment it is shown.
+    const onVisibility = () => sendVisibility(wsRef.current, document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+
     void connect();
 
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
       inputDisposableRef.current?.dispose();

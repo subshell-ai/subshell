@@ -10,6 +10,7 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import {
   attachUrlFromQuery,
   cleanupSubshellWs,
+  handleSubshellMessage,
   handleSubshellWs,
   resetLiveViewersForTests,
   type WsSocket,
@@ -309,6 +310,75 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
 
     cleanupSubshellWs(incumbent.ws);
     cleanupSubshellWs(joiner.ws);
+  });
+
+  it("hands the pane back when the small viewer is HIDDEN, and takes it again when shown", async () => {
+    // A backgrounded tab is not laid out at all, so it cannot re-fit — and
+    // pinning everyone else's terminal to phone size with nothing on screen to
+    // explain it is indistinguishable from a bug.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const phone = await attach(row.userId, row.id, "&cols=100&rows=20");
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 20 });
+
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "visibility", hidden: true }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 }); // laptop gets it back
+
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "visibility", hidden: false }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 20 }); // and loses it again
+
+    cleanupSubshellWs(laptop.ws);
+    cleanupSubshellWs(phone.ws);
+  });
+
+  it("a pinned viewer decides the grid, and a `view` grantee cannot pin", async () => {
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const phone = await attach(row.userId, row.id, "&cols=100&rows=20");
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 20 });
+
+    // Pin the laptop: it decides alone, even though it is the larger.
+    const laptopId = (laptop.ws.data as { viewerId: string }).viewerId;
+    handleSubshellMessage(laptop.ws, JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: laptopId }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+
+    // The policy is announced, so a client can render which device is driving.
+    const latest = phone.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { sizing: { mode: string; pinnedViewerId: string | null } })
+      .at(-1);
+    expect(latest?.sizing).toEqual({ mode: "pinned", pinnedViewerId: laptopId });
+
+    // A read-only viewer cannot change what everyone sees.
+    (phone.ws.data as { canInput: boolean }).canInput = false;
+    const phoneId = (phone.ws.data as { viewerId: string }).viewerId;
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: phoneId }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 }); // unchanged
+
+    cleanupSubshellWs(laptop.ws);
+    cleanupSubshellWs(phone.ws);
   });
 
   it("tells every viewer who else is watching, and which entry is itself", async () => {
