@@ -17,14 +17,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
+import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { useSubshellsList } from "@/hooks/use-subshells";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
-import { sortByStatus } from "@/lib/subshell-indicator";
 import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
@@ -121,7 +120,6 @@ export function AppSidebar({
   // subshell page's switcher strip used to offer. Same query keys as the home
   // page, so every mutation and the page's polling keep these current; shown
   // only while the rail is expanded.
-  const { data: subshells } = useSubshellsList();
   const { data: workspaces } = useWorkspaces();
   const recentWorkspaces = recentWorkspaceLinks(workspaces);
   // Filter mode replaces the 8 recents with matches over the FULL cached list
@@ -129,11 +127,10 @@ export function AppSidebar({
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
   const q = subshellQuery.trim();
-  // Sorted by liveness BEFORE the recents slice (waiting → working → idle →
-  // node-offline → exited → ended), so a pile of old ended sessions can never
-  // crowd a live one out of the rail; newest-first is the tie-break inside
-  // each band. The filter mode shares the same run.
-  const byStatus = sortByStatus(subshells ?? []);
+  // Sorted by liveness BEFORE the recents slice (band order documented in
+  // use-ordered-subshells), so a pile of old ended sessions can never crowd a
+  // live one out of the rail. The filter mode shares the same run.
+  const byStatus = useOrderedSubshells();
   const listedSubshells = q ? filterSubshells(byStatus, subshellQuery) : byStatus.slice(0, RECENT_LIMIT);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
