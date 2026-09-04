@@ -153,6 +153,16 @@ body {
   .xterm .xterm-viewport {
     touch-action: pan-y;
   }
+  /* The grid body declares NO browser gesture at all: a pan starting here —
+     one OR two fingers — must never become a native scroll, because the
+     nearest native scroller is the app shell (the iPad two-finger bug: the
+     whole PWA slid instead of the terminal). lib/terminal-touch-scroll owns
+     every gesture on the surface in JS (line-scroll, tap-to-focus). This is
+     the compositor-declared half of that contract — the JS preventDefault
+     alone lost the race to iOS committing the pan on the real device. */
+  .xterm .xterm-screen {
+    touch-action: none;
+  }
   .xterm .xterm-viewport {
     overscroll-behavior: contain;
   }

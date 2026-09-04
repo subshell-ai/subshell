@@ -19,6 +19,12 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean);
 
   return {
+    // Bundle stamp shown on Preferences → "This device". iOS PWA caches are
+    // sticky enough to have poisoned on-device debugging before; this line is
+    // how a device proves which build it is actually running.
+    define: {
+      __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace("T", " ")),
+    },
     plugins: [
       TanStackRouterVite({ target: "react", autoCodeSplitting: true }),
       react(),

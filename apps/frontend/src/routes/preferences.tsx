@@ -51,6 +51,10 @@ function PreferencesPage() {
           <TerminalFontCard />
           <SwipeNavCard />
         </div>
+        {/* Bundle stamp: on-device bug reports are only trustworthy when the
+            device can show it runs the build under test (iOS app caches are
+            sticky enough to have fooled a fix review once). */}
+        <p className="pt-2 font-mono text-muted-foreground text-xs">build {__BUILD_ID__}</p>
       </Section>
     </main>
   );

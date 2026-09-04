@@ -15,7 +15,7 @@ import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { sendInput } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import { isPasteChord } from "@/lib/terminal-keys";
-import { attachTouchScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
+import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSubshellWs } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
@@ -271,6 +271,10 @@ export function SubshellTerminal({
     // iPhone/iPad: xterm's own touchmove preventDefault kills the CSS pan
     // (see lib/terminal-touch-scroll.ts); this drives line-scroll instead.
     const detachTouchScroll = attachTouchScroll(term, containerRef.current);
+    // iPad Magic Keyboard: the trackpad emits wheel, not touch — and xterm
+    // only consumes wheel when the inner app asks for mouse reporting, so an
+    // unconsumed one scrolls the PWA shell. Bridge it to the buffer.
+    const detachWheelScroll = attachWheelScroll(term, containerRef.current);
     // Tap = type (keyboard), swipe/scrollbar-drag = read (no keyboard) —
     // see lib/terminal-touch-scroll.ts for why xterm needs un-focusing.
     const detachTouchKeyboard = gateTouchKeyboard(term, containerRef.current);
@@ -430,6 +434,7 @@ export function SubshellTerminal({
 
     return () => {
       detachTouchScroll();
+      detachWheelScroll();
       detachTouchKeyboard();
       if (vv) {
         vv.removeEventListener("resize", repairCursorVisibility);
