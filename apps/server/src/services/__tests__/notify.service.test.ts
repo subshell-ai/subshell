@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { APP_BASE_URL } from "@/constants.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as notificationsMigration from "@/db/migrations/0014-session-notifications.js";
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
@@ -248,6 +249,56 @@ describe("VAPID key storage", () => {
       expect((saved.publicKey as string).length).toBeGreaterThan(30);
       expect(typeof saved.privateKey).toBe("string");
       expect((saved.privateKey as string).length).toBeGreaterThan(0);
+      // A freshly generated pair must ship an RFC 8292 contact too — never a
+      // localhost address Apple will refuse.
+      expect(saved.subject).toBe(APP_BASE_URL);
+      await db.destroy();
+    } finally {
+      __setVapidDirForTests(null);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes a localhost VAPID subject to the instance URL and self-heals the file", async () => {
+    // Measured 2026-09-04: Apple's web push refuses a JWT whose `sub` is a
+    // localhost mailto (403 BadJwtToken) where FCM tolerates it — the boot
+    // default used to write exactly that, silently breaking iOS forever.
+    const dir = mkdtempSync(join(tmpdir(), "subshell-vapid-"));
+    writeFileSync(
+      join(dir, "vapid.json"),
+      JSON.stringify({ publicKey: "pk", privateKey: "sk", subject: "mailto:mote@localhost" }),
+    );
+    __setVapidDirForTests(dir);
+    try {
+      const db = await freshDb();
+      const repo = new NotificationsRepository(db);
+      await createNotifyService({ subshells: db, subs: repo }).vapidPublicKey();
+      const saved = JSON.parse(readFileSync(join(dir, "vapid.json"), "utf8")) as Record<string, unknown>;
+      expect(saved.subject).toBe(APP_BASE_URL);
+      // Key repair touches the subject only — the pair (and every live
+      // subscription bound to it) stays intact.
+      expect(saved.publicKey).toBe("pk");
+      expect(saved.privateKey).toBe("sk");
+      await db.destroy();
+    } finally {
+      __setVapidDirForTests(null);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a real VAPID subject untouched", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-vapid-"));
+    writeFileSync(
+      join(dir, "vapid.json"),
+      JSON.stringify({ publicKey: "pk", privateKey: "sk", subject: "mailto:ops@example.com" }),
+    );
+    __setVapidDirForTests(dir);
+    try {
+      const db = await freshDb();
+      const repo = new NotificationsRepository(db);
+      await createNotifyService({ subshells: db, subs: repo }).vapidPublicKey();
+      const saved = JSON.parse(readFileSync(join(dir, "vapid.json"), "utf8")) as Record<string, unknown>;
+      expect(saved.subject).toBe("mailto:ops@example.com");
       await db.destroy();
     } finally {
       __setVapidDirForTests(null);

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Kysely } from "kysely";
 import webpush from "web-push";
-import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { APP_BASE_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
@@ -268,13 +268,27 @@ export function __setVapidDirForTests(dir: string | null): void {
 }
 
 /**
+ * The VAPID `sub` claim is a CONTACT per RFC 8292 — and gateways enforce that
+ * with real teeth measured 2026-09-04: Apple's web push refuses a `mailto:`
+ * on `localhost` (403 BadJwtToken) while FCM accepts the very same JWT, so
+ * the old `mailto:subshell@localhost` default broke iOS pushes silently on
+ * every fresh instance. The instance URL is a valid `https:` contact that is
+ * never fake, so it is both the generated subject and the repair for a
+ * stored one that names localhost.
+ */
+const vapidSubjectOrDefault = (stored: unknown): string =>
+  typeof stored === "string" && stored.length > 0 && !stored.includes("localhost") ? stored : APP_BASE_URL;
+
+/**
  * Load the instance's VAPID pair, generating and persisting it on first use.
  *
  * A stored file is only trusted when BOTH key fields are present non-empty
  * strings: JSON.parse succeeding says nothing about shape, and a truncated
  * or foreign file would otherwise serve `undefined` keys straight into
  * /config (a response-schema violation) and every send. A corrupt key file
- * is already unusable, so it is regenerated and overwritten in place.
+ * is already unusable, so it is regenerated and overwritten in place. A
+ * localhost subject is normalized to {@link vapidSubjectOrDefault} in place —
+ * the pair every live subscription is bound to stays untouched.
  */
 function loadOrGenerateVapid(): VapidPair {
   if (cachedVapid) return cachedVapid;
@@ -293,15 +307,19 @@ function loadOrGenerateVapid(): VapidPair {
       pair = {
         publicKey: parsed.publicKey,
         privateKey: parsed.privateKey,
-        subject: typeof parsed.subject === "string" && parsed.subject ? parsed.subject : "mailto:subshell@localhost",
+        subject: vapidSubjectOrDefault(parsed.subject),
       };
+      if (pair.subject !== parsed.subject) {
+        writeFileSync(file, JSON.stringify(pair), { mode: 0o600 });
+        logger.info(`normalized VAPID subject → ${pair.subject} (Apple refuses a localhost contact)`);
+      }
     }
   } catch {
     // Unreadable or unparseable — falls through to regeneration below.
   }
   if (!pair) {
     const g = webpush.generateVAPIDKeys();
-    pair = { publicKey: g.publicKey, privateKey: g.privateKey, subject: "mailto:subshell@localhost" };
+    pair = { publicKey: g.publicKey, privateKey: g.privateKey, subject: APP_BASE_URL };
     writeFileSync(file, JSON.stringify(pair), { mode: 0o600 });
     logger.info(`generated VAPID keys → ${file}`);
   }
