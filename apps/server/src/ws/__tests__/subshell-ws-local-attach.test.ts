@@ -45,7 +45,6 @@ const launcherOriginals = {
   capture: defaultLocalLauncher.capture,
   resize: defaultLocalLauncher.resize,
   signalPaneWinch: defaultLocalLauncher.signalPaneWinch,
-  paneCursor: defaultLocalLauncher.paneCursor,
 };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
 let captureCalls = 0;
@@ -74,10 +73,6 @@ function stubLauncher(): void {
     order.push("winch");
     return false;
   };
-  // Default: no cursor answer (the remote node's shape today) ⇒ the attach
-  // skips the quiet join and replays with the overlap, exactly as the suites
-  // here were written. The quiet-join cases stub a cursor.
-  defaultLocalLauncher.paneCursor = async () => null;
 }
 
 afterEach(() => {
@@ -85,7 +80,6 @@ afterEach(() => {
   defaultLocalLauncher.capture = launcherOriginals.capture;
   defaultLocalLauncher.resize = launcherOriginals.resize;
   defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
-  defaultLocalLauncher.paneCursor = launcherOriginals.paneCursor;
   captureCalls = 0;
   captureLinesArg = undefined;
   resizeCalls = [];
@@ -445,62 +439,6 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
 
     expect(resizeCalls).toEqual([{ cols: 90, rows: 30 }]); // fit only — no nudge
   });
-
-  it("a quiet window joins AT the snapshot: the cursor rides the replay, painted bytes are never re-sent", async () => {
-    // The 2026-09-04 garble fix. When the pane pauses across one capture
-    // window, the snapshot provably contains everything the log holds at
-    // that offset — so the tail starts THERE (no overlap for the app's next
-    // repaint to erase lines from) and the pane's cursor is restored with a
-    // CUP the client simply writes. Output that lands BETWEEN the join sample
-    // and the snapshot is painted-in-grid content: it must never arrive as an
-    // output frame on top of the fresh capture.
-    stubLauncher();
-    const row = await seedLocalRow();
-    const logFile = subshellLogPath(row.id);
-    await Bun.write(logFile, "already-painted\r\n");
-    defaultLocalLauncher.paneCursor = async () => ({ x: 4, y: 9 });
-    let firstCapture = true;
-    defaultLocalLauncher.capture = async () => {
-      if (firstCapture) {
-        firstCapture = false;
-        appendFileSync(logFile, "between-join-and-snapshot\r\n"); // in the grid the capture reports
-      }
-      // Trailing terminator included, as tmux emits it for the LAST row too.
-      return "SCREEN\n";
-    };
-
-    const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
-    // That terminator must NOT survive: it would scroll the client one row
-    // past the pane's grid and make the CUP below name the wrong row.
-    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN\x1b[10;5H" }));
-    expect(sent.some((f) => f.includes("between-join-and-snapshot"))).toBe(false);
-
-    appendFileSync(logFile, "live\r\n"); // output AFTER the join streams normally
-    await Bun.sleep(120);
-    expect(sent.some((f) => f.includes("live"))).toBe(true);
-  });
-
-  it("a pane that never pauses falls back to the overlap join — replay without a cursor, bytes unskipped", async () => {
-    // A capture window that never comes quiet (constant animation) cannot
-    // prove the snapshot's offset, so the attach must degrade to the OLD
-    // join — visible transient beats a skipped byte forever.
-    stubLauncher();
-    const row = await seedLocalRow();
-    const logFile = subshellLogPath(row.id);
-    await Bun.write(logFile, "x\r\n");
-    defaultLocalLauncher.paneCursor = async () => ({ x: 0, y: 0 });
-    defaultLocalLauncher.capture = async () => {
-      appendFileSync(logFile, "busy\r\n"); // the log grows DURING every attempt
-      return "SCREEN";
-    };
-
-    const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
-    const frame = JSON.parse(sent[0]) as { type: string; data: string };
-    expect(frame.data).toBe("SCREEN"); // no CUP suffix — overlap semantics
-    // Bytes written mid-attach ride the stream (the join predates the capture):
-    await Bun.sleep(120);
-    expect(sent.some((f) => f !== sent[0] && f.includes("busy"))).toBe(true);
-  }, 15_000);
 
   it("without cols/rows the capture runs exactly once (no quiesce for stale clients)", async () => {
     stubLauncher();

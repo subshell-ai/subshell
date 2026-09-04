@@ -306,15 +306,6 @@ export class RemoteLauncher implements NodeLauncher {
     return false;
   }
 
-  /**
-   * No `cursor` command in the agent protocol yet: null routes the relay's
-   * quiet-capture replay back to its overlap join (the local twin reads the
-   * pane's live cursor; an agent release adds the command later).
-   */
-  async paneCursor(): Promise<{ x: number; y: number } | null> {
-    return null;
-  }
-
   /** `input` verbatim, byte for byte (the agent's `send-keys -l --`). */
   async sendInput(_socket: string, id: string, input: string): Promise<void> {
     await this.#send({ type: "input", subshellId: id, data: input });

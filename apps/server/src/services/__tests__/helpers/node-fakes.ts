@@ -72,14 +72,6 @@ export class FakeNodeLauncher implements NodeLauncher {
   async signalPaneWinch(): Promise<boolean> {
     return false;
   }
-  /**
-   * The fake has no cursor concept: null routes the attach's replay join to
-   * the overlap path (what every suite here was written against). Attach
-   * tests that exercise the quiet join stub this on the real launcher.
-   */
-  async paneCursor(): Promise<{ x: number; y: number } | null> {
-    return null;
-  }
   async sendInput(): Promise<void> {}
   async deliverPrompt(): Promise<boolean> {
     return false;

@@ -125,10 +125,6 @@ export class LocalLauncher implements NodeLauncher {
     return this.#tmux.paneTitle(socket, id);
   }
 
-  async paneCursor(socket: string, id: string): Promise<{ x: number; y: number } | null> {
-    return this.#tmux.paneCursor(socket, id);
-  }
-
   async capture(socket: string, id: string, scrollbackLines?: number): Promise<string> {
     return this.#tmux.capturePane(socket, id, scrollbackLines);
   }

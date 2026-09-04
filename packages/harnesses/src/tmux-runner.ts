@@ -192,29 +192,6 @@ export class TmuxRunner {
   }
 
   /**
-   * The pane's CURRENT cursor position (column, row — 0-based, viewport
-   * coordinates), null when the pane is gone or tmux errors.
-   *
-   * `#{cursor_x}`/`#{cursor_y}` are bare integers, so — like {@link panePid}
-   * — one `display-message` with a `:` separator needs no quoting trust. The
-   * attach path pairs it with a capture (size → capture → cursor → size) to
-   * hand the client the cursor the snapshot's byte stream ends at, so a
-   * diff-rendering TUI's next relative move lands where the app expects.
-   */
-  paneCursor(socket: string, subshellName: string): { x: number; y: number } | null {
-    try {
-      const out = this.run(
-        ["-L", socket, "display-message", "-t", subshellName, "-p", "#{cursor_x}:#{cursor_y}"],
-        {},
-      ).stdout.trim();
-      const [x, y] = out.split(":").map(Number);
-      return Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 ? { x, y } : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
    * Creates a new detached subshell running `cmd` in `cwd`.
    *
    * Retries through the SERVER-SHUTDOWN RACE. Killing a socket's last subshell

@@ -91,8 +91,6 @@ export interface AttachPaintFacts {
   repainted: boolean;
   /** Whether the pane had to be nudged (±1 col) to force that repaint. */
   nudged: boolean;
-  /** Whether the replay shipped via the QUIET join (zero-overlap snapshot + cursor) or the fallback overlap join. */
-  quiet: boolean;
 }
 
 /**
@@ -112,6 +110,6 @@ export function recordAttachPaint(facts: AttachPaintFacts): void {
   const dir = writeAttachForensics(facts.subshellId, facts.preResize, facts.replay);
   logger.info(
     `ws attach ${facts.subshellId}: painted repainted=${facts.repainted} nudged=${facts.nudged} ` +
-      `quiet=${facts.quiet} replay=${facts.replay.length}B dump=${dir ?? "off"}`,
+      `replay=${facts.replay.length}B dump=${dir ?? "off"}`,
   );
 }

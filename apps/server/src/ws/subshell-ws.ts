@@ -199,8 +199,8 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // instead of leaving the user to do it by hand with a window resize.
   let repainted = false;
   let nudged = false;
-  const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
   if (initialSize) {
+    const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
       await launcher.resize(row.tmuxSocket, row.id, initialSize.cols, initialSize.rows);
       // `logStart` is the pre-resize size — the baseline a repaint has to grow
@@ -236,32 +236,16 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // gap-free: a snapshot that races an animating frame is corrected by the
   // very next diff, which the client is guaranteed to receive.
   const cap = replayLineCap(await repos.userMeta.getTerminalReplayLines(row.userId));
-  // The QUIET JOIN: when the pane pauses for even one capture window, the
-  // snapshot is provably the complete state at a single log offset, and the
-  // pane's cursor belongs to that same state — so the tail can start AT the
-  // snapshot (zero overlap) and the cursor can be restored, because nothing
-  // is replayed that the snapshot already contains. This is what stopped the
-  // 2026-09-04 class of garble: replaying the pre-snapshot overlap made a
-  // diff-rendering TUI's next repaint erase/misplace lines relative to the
-  // fresh capture (dropped characters mid-line, a status block painted over
-  // transcript rows), permanent in the client once those rows scrolled out of
-  // the app's repaint region. Without a quiet window we fall back to the
-  // overlap join — a visible transient beats a guaranteed skip.
-  const quiet = hasLog && !detached ? await captureQuietJoin(launcher, row.tmuxSocket, row.id, cap, sizeOf) : null;
-  let replay: string | null = null;
-  if (quiet) {
-    logStart = quiet.joinAt;
-    replay = captureToReplayText(quiet.text, quiet.cursor);
-  } else {
-    const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
-    // No cursor to restore on this path, but the trailing terminator still
-    // has to go: it would scroll the client's viewport out of step with the
-    // pane's rows (see captureToReplayText).
-    if (text != null) replay = captureToReplayText(text);
-  }
+  const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
+  // The trailing terminator still goes (kept from b76a22f): it would land the
+  // client one row past the pane's last row, scrolling the viewport out of
+  // step with the pane's grid. No cursor is restored — the replay ends where
+  // the last captured row ends, which is the bottom of the grid. See
+  // {@link captureToReplayText}.
+  const replay = text != null ? captureToReplayText(text) : null;
   if (replay != null) {
     ws.send(JSON.stringify({ type: "replay", data: replay }));
-    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged, quiet: quiet !== null });
+    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
   }
 
   if (hasLog) {
@@ -562,69 +546,6 @@ export async function captureStable(
   try {
     return await launcher.capture(socket, id, cap);
   } catch {
-    return null;
-  }
-}
-
-/** Pause between {@link captureQuietJoin} attempts — a capture window is ~10 ms, an animation tick's silence ~100 ms. */
-const CAPTURE_RETRY_MS = 40;
-/** Extra attach latency the quiet-join attempt may add before the overlap join takes over. */
-const CAPTURE_QUIET_DEADLINE_MS = 600;
-
-/** One successful {@link captureQuietJoin} attempt: a triple reading of a single, provably still moment. */
-export interface QuietJoin {
-  /** The grid capture (viewport + capped history), raw as {@link captureStable} returns it. */
-  text: string;
-  /** The pane's cursor at the captured moment (0-based viewport coordinates). */
-  cursor: { x: number; y: number };
-  /** The log offset the snapshot provably contains everything through — the tail starts HERE. */
-  joinAt: number;
-}
-
-/**
- * Try for a QUIET JOIN: repeat `size → capture → cursor → size` until one
- * attempt sees the log NOT grow across the whole window. Such an attempt
- * proves the pane produced nothing during it, so the grid contains every byte
- * up to `size`, the cursor is where exactly those bytes left it, and a tail
- * starting at `joinAt` neither replays painted bytes (the overlap that made a
- * diff-renderer's next repaint erase/misplace lines on a fresh capture —
- * 2026-09-04 "garbled when I background and return while it's animating") nor
- * skips unpainted ones (the permanent desync the gap-free join exists to
- * prevent). Purely an optimization: null — busy past the deadline, pane gone,
- * or a machine that cannot read the cursor — leaves the caller on the
- * pre-resize overlap join, byte-identical to the old behavior.
- *
- * A null cursor on the FIRST attempt means the machine has no cursor concept
- * (a remote agent without the `cursor` command yet), not a busy pane — return
- * immediately so the relay never pays the deadline for an answer it cannot get.
- */
-export async function captureQuietJoin(
-  launcher: NodeLauncher,
-  socket: string,
-  id: string,
-  cap: number,
-  sizeOf: () => Promise<number>,
-  isAborted: () => boolean = () => false,
-): Promise<QuietJoin | null> {
-  const deadline = Date.now() + CAPTURE_QUIET_DEADLINE_MS;
-  try {
-    // Probe once: a machine that cannot answer at all (remote agent, dead
-    // pane) must not cost a capture per attempt, and the caller's fallback
-    // answers the gone-pane case with its own single capture + refusal.
-    if (!(await launcher.paneCursor(socket, id))) return null;
-    for (;;) {
-      const before = await sizeOf();
-      const text = await launcher.capture(socket, id, cap);
-      const cursor = await launcher.paneCursor(socket, id);
-      if (!cursor) return null;
-      const after = await sizeOf();
-      if (before === after) return { text, cursor, joinAt: after };
-      if (Date.now() >= deadline || isAborted()) return null;
-      await Bun.sleep(CAPTURE_RETRY_MS);
-    }
-  } catch {
-    // Pane vanished mid-triple (capture/cursor throws) — the caller's fallback
-    // capture answers the same question and reports it its own way.
     return null;
   }
 }

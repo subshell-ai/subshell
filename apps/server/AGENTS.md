@@ -109,22 +109,19 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   server bug — static requests are not logged, so this is the only signal.
   `build=MISSING` is a bundle older than the field; `build=dev` is a dev
   server.
-- `painted repainted=<bool> nudged=<bool> quiet=<bool> replay=<n>B
-  dump=<dir|off>` — what the pane did before the capture.
+- `painted repainted=<bool> nudged=<bool> replay=<n>B dump=<dir|off>` — what
+  the pane did before the capture.
   `repainted=false nudged=true` means the pane refused to repaint even for a
   forced SIGWINCH, so a bad replay is the pane's own state; `repainted=true`
   means a freshly painted frame was shipped and anything still wrong is
-  downstream of the capture. `quiet=true` means the replay used the
-  zero-overlap join (snapshot + cursor from one provably still moment);
-  `quiet=false` fell back to the overlap join, which is the fragile path
-  (below).
+  downstream of the capture.
 
 `SUBSHELL_ATTACH_DEBUG=1` additionally dumps
 `/tmp/subshell-attach-debug/<subshell>/<timestamp>/{pre-resize,replay}.txt` — the
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 
-Two invariants on that path are load-bearing and easy to regress:
+Three invariants on that path are load-bearing and easy to regress:
 
 - Capture text (`replay`, pane-poll deltas) goes through
   `ws/capture-text.ts` — `capture-pane -p` emits **bare LFs**, and a bare LF
@@ -132,26 +129,32 @@ Two invariants on that path are load-bearing and easy to regress:
   nothing ever repaints it. The live tail must NOT be normalized: those bare
   LFs are the app's own deliberate output.
 - The attach streams **gap-free**: a skipped byte desynchronizes a
-  diff-rendering TUI permanently. The preferred join is the QUIET one
-  (`captureQuietJoin`): repeat `size → capture → cursor → size` until one
-  attempt sees the log not grow, which proves the grid holds everything
-  through that offset, so the tail starts AT the snapshot with **zero
-  overlap** and the pane's cursor can be restored. Only when the pane never
-  pauses does it fall back to an overlapping join from a pre-resize offset.
-  Corrected 2026-09-04 — this file used to claim "a bounded overlap is
-  idempotent", which is **false** for a relative-positioned renderer: Ink
-  replays move the cursor up and rewrite, so re-applying pre-snapshot frames
-  over a fresh capture corrupts it. Prefer quiet; treat overlap as damage
-  control.
-- The replay frame carries **no trailing line terminator** and ends with an
-  absolute CUP (`ws/capture-text.ts:captureToReplayText`). `capture-pane -p`
-  terminates every row including the last, and that final terminator scrolls
-  the client one row past the pane's grid (measured on real xterm 6:
-  `baseY` 1 vs 0), which shifts the whole viewport and makes the pane's
-  viewport-relative cursor name the wrong row. Every later relative-positioned
-  frame then lands on the wrong rows — the long-running "reopen a subshell and
-  it is garbled" report. Verify with
-  `apps/frontend/scripts/probe-replay.ts`.
+  diff-rendering TUI permanently. The tail therefore joins at a PRE-RESIZE
+  log offset, so the replayed capture and the first streamed bytes **overlap**.
+  That overlap is not free: it is *not* idempotent for a relative-positioned
+  renderer (Ink replays move the cursor up and rewrite, so re-applying
+  pre-snapshot frames over a fresh capture can corrupt it), so this is
+  deliberate damage control — a visible transient beats a permanent desync,
+  and a skipped byte is permanent.
+  A zero-overlap "quiet join" (`size → capture → cursor → size` until the log
+  stops growing, then restore the pane's cursor with a CUP) was tried in
+  `9190c2f` and **rolled back on 2026-09-04** as part of returning this path
+  to its last known-working state. If it is attempted again, note what the
+  rollback preserved: the replay now ends at the BOTTOM of the grid, and
+  `scripts/probe-clamp.ts` compares xterm against a real tmux pane
+  token-by-token from a given cursor row — run it before trusting a mid-screen
+  cursor restore.
+- The replay frame carries **no trailing line terminator**
+  (`ws/capture-text.ts:captureToReplayText`). `capture-pane -p` terminates
+  every row including the last, and that final terminator scrolls the client
+  one row past the pane's grid (measured on real xterm 6: `baseY` 1 vs 0),
+  which shifts the whole viewport and makes the pane's viewport-relative
+  cursor name the wrong row. Every later relative-positioned frame then lands
+  on the wrong rows — the long-running "reopen a subshell and it is garbled"
+  report. Verify with `apps/frontend/scripts/probe-replay.ts`.
+  `captureToReplayText` still accepts an optional cursor and appends an
+  absolute CUP; **no caller passes one today** (that was the quiet join's
+  half). It is kept, and tested, for whatever replaces it.
 
 ### Error contract
 
