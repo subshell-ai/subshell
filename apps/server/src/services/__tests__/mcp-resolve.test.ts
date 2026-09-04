@@ -72,6 +72,31 @@ describe("probeMcpLaunch", () => {
     expect(probe.spec).toBeNull();
   });
 
+  it("compiled-shape rename: a $bunfs virtual argv1 is NOT an entry — fall through, never (via self)", () => {
+    // B1: a COMPILED Bun binary sets argv[1] to a virtual `/$bunfs/root/...`
+    // path. When the artifact is renamed so its basename misses the
+    // `subshell-server` gate, the argv1 rung must not bake the unspawnable
+    // `<renamed-bin> /$bunfs/... mcp` and report `(via self)` — it must fall
+    // through to client-on-PATH and, with no agent, to the UNRESOLVED error.
+    const probe = probeMcpLaunch(
+      {},
+      { execPath: "/srv/bin/srv", argv1: "/$bunfs/root/subshell-server-darwin-arm64", which: () => null },
+    );
+    expect(probe.spec).toBeNull();
+    expect(probe.error).toContain("SUBSHELL_MCP_COMMAND");
+  });
+
+  it("extensionless argv1 (a wrapper script) also skips self", () => {
+    // The rung exists for `bun <entry>.ts|js` shapes only: whatever a
+    // non-entry argv[1] names (wrapper, shebang script), baking it would
+    // spawn a process that is not the MCP server.
+    const probe = probeMcpLaunch(
+      {},
+      { execPath: "/usr/local/bin/bun", argv1: "/usr/local/bin/wrapper", which: () => null },
+    );
+    expect(probe.spec).toBeNull();
+  });
+
   it("client-on-PATH remains the last rung", () => {
     const probe = probeMcpLaunch(
       {},

@@ -167,14 +167,23 @@ so the svc.sh/systemd deployment behaves byte-identically (spec 2026-09-03).
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
 | `mcp` | serve the pane-spawned stdio MCP server (the self rung of MCP resolution below); the one long-running command — spawned by harnesses, not typed by humans |
 
-An unknown word exits 1 with usage. **Sync-exit design** (load-bearing,
-`cli.ts` invariants): a handled command must run to completion and
-`process.exit` SYNCHRONOUSLY inside `dispatchCli` — on bun 1.4.0 (measured,
-not spec) ANY await in the entry prelude lets the rest of the entry graph
-and the boot body evaluate, so `version` would boot the server and `init`
-would litter the CWD with `data/subshell.db` (`@/auth.js` builds better-auth
-at import). Hence: sync fs, `readSync(0, …)` prompts (not readline),
-`Bun.spawnSync` for the service manager.
+An unknown word exits 1 with usage. **Sync-exit design** (house style for
+the quick commands, no longer the safety mechanism): a handled command
+should run to completion and `process.exit` SYNCHRONOUSLY inside
+`dispatchCli` — sync fs, `readSync(0, …)` prompts (not readline),
+`Bun.spawnSync` for the service manager. `mcp` is deliberately the
+exception: it is long-running by design and suspends in its stdio loop.
+What makes ANY suspension safe is not the exit style but two tested
+invariants: the entry graph is IO-free AT IMPORT (lazy `getAuth()` — no
+module opens SQLite or binds a port merely by being evaluated, pinned by
+the import-purity tests), and the `isCliEngaged()` boot gate in
+`index.ts` — flipped synchronously at subcommand recognition — is what
+keeps a suspended (or sync) command from booting the server underneath
+it. (Historical: on bun 1.4.0, measured not spec, ANY await in the entry
+prelude lets the rest of the entry graph and the boot body evaluate; the
+littering that once made sync-exit load-bearing — `@/auth.js` building
+better-auth, and opening its SQLite file, eagerly at import — is gone
+with the lazy construction, so the boot gate now carries that load.)
 
 ### config.env (`src/config-env.ts`)
 

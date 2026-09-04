@@ -88,7 +88,7 @@ export interface HarnessResume {
 
 /** How to spawn the `subshell mcp` stdio server — the shape the backend's `resolveMcpLaunch()` produces. */
 export interface McpLaunchSpec {
-  /** Executable to run (compiled `subshell-mcp`, or the interpreter) */
+  /** Executable to run — the self command (`subshell-server mcp`), the interpreter, or the agent binary */
   command: string;
   /** Arguments for the executable (e.g. the mcp entry script path) */
   args: string[];

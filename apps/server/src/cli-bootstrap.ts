@@ -15,18 +15,22 @@ import { loadConfigEnv } from "@/config-env.js";
  *    runs — see the report note; the precedence is exact for the binary
  *    deployment, which ships no `.env`).
  * 2. A recognised subcommand must exit BEFORE the rest of the entry graph
- *    evaluates. That graph is NOT inert at import time: `@/db/index.js` now
- *    opens SQLite lazily (dialect factory — first query), but `@/auth.js`
- *    still builds better-auth at import, and the entry BODY would run the
- *    boot IIFE (migrations, listener). Measured on bun 1.4.0 (NOT spec
- *    behaviour — Node serialises module evaluation): any top-level await in
+ *    evaluates, so this module uses NO top-level await — but note what that
+ *    mechanic is and is not. The entry graph IS inert at import time, by
+ *    CONTRACT and under test: `@/db/index.js` opens SQLite lazily (dialect
+ *    factory — first query) and `@/auth.js` builds better-auth lazily
+ *    (`getAuth()`), so the graph a CLI run drags in touches no fs and no
+ *    port (pinned by the import-purity tests). What keeps a suspended
+ *    command from booting the server is the `isCliEngaged()` gate in
+ *    index.ts, not this module's await discipline — `mcp` proves it, being
+ *    long-running by design. The no-await rule still stands because
+ *    suspension is otherwise invisible: measured on bun 1.4.0 (NOT spec
+ *    behaviour — Node serialises module evaluation), any top-level await in
  *    the prelude — even `await null` — lets Bun evaluate all remaining
- *    imports and the entry body while the await is pending. Hence this
- *    module uses NO top-level await: `dispatchCli` with real deps completes
- *    and `process.exit`s synchronously inside the call for every handled
- *    command, so a CLI invocation never yields control. The `.then` is a
- *    belt for injected-deps/tests only, and the `isCliEngaged()` gate in
- *    index.ts covers future async commands (Task C's prompts).
+ *    imports and the entry body while the await is pending. With real deps
+ *    `dispatchCli` still completes and `process.exit`s synchronously inside
+ *    the call for every quick command (sync-exit is their house style).
+ *    The `.then` is a belt for injected-deps/tests only.
  *
  * The boot path (no subcommand) is untouched: dispatch returns false
  * synchronously, this module finishes, and `index.ts` boots exactly as

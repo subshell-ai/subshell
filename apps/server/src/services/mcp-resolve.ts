@@ -95,7 +95,15 @@ export function probeMcpLaunch(env: NodeJS.ProcessEnv = process.env, io: McpReso
   if (basename(execPath).startsWith(SERVER_PRODUCT)) {
     return { spec: { command: execPath, args: ["mcp"] }, source: "self" };
   }
-  if (argv1) {
+  // The argv1 rung exists for `bun <entry>.ts|js` shapes ONLY. A COMPILED
+  // binary carries a virtual `/$bunfs/root/...` argv[1] (and any non-entry
+  // launcher — a wrapper script — carries whatever argv[1] it likes): baking
+  // one of those yields an unspawnable/foreign command that still reports
+  // `(via self)`, so a renamed artifact must fall THROUGH to the PATH rung
+  // instead. Hence the entry-shape gate: an actual JS/TS file extension and
+  // not the bunfs virtual path.
+  const looksLikeEntry = /\.(?:m?js|c?js|mts|cts|ts)$/.test(argv1) && !argv1.startsWith("/$bunfs/");
+  if (argv1 && looksLikeEntry) {
     return { spec: { command: execPath, args: [resolve(argv1), "mcp"] }, source: "self" };
   }
   // 3. LAST RUNG: the `subshell` node agent carries the same mcp-core server.
