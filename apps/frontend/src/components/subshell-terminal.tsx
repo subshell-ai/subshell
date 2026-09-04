@@ -1,9 +1,9 @@
 import { stripAnsi } from "@internal/backend-errors";
 import { Link } from "@tanstack/react-router";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -251,16 +251,19 @@ export function SubshellTerminal({
     serializeRef.current = serialize;
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
-    let webgl: WebglAddon | null = null;
+    // Canvas renderer, deliberately NOT WebGL (2026-09-04): the WebGL
+    // texture atlas was leaving stale cells on BOTH platforms — a `❯` from a
+    // moved selection, spinner fragments, even whole mixed rows kept painting
+    // where tmux's own capture proved the grid had moved on (iPhone + Chrome
+    // desktop reports). The canvas path has no atlas to go stale; phones also
+    // escape Safari's lazy WebGL-layer compositing. CanvasAddon is the
+    // documented fallback this component always promised ("canvas/DOM") but
+    // never actually loaded — it is now the primary, with the DOM renderer
+    // still the safety net if the 2D context cannot be created.
     try {
-      webgl = new WebglAddon();
-      term.loadAddon(webgl);
-      webgl.onContextLoss(() => {
-        webgl?.dispose();
-        webgl = null;
-      });
+      term.loadAddon(new CanvasAddon());
     } catch {
-      // fall back to the canvas/DOM renderer
+      // fall back to the DOM renderer
     }
     term.open(containerRef.current);
     fit.fit();
