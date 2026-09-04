@@ -330,8 +330,11 @@ jobs:
               # `set -e` a failing command that is NOT after the final `&&`
               # never kills the step, and the function returns non-zero only
               # when mcp unexpectedly SUCCEEDS or refuses for the wrong reason.
+              # env -u strips pane env a self-hosted runner may carry (these
+              # hosts RUN this product — a leaked SUBSHELL_API_KEY would flip
+              # the expected refusal into a connect attempt).
               local mcp_out
-              mcp_out=$($1 "$BIN" mcp </dev/null 2>&1) && { echo "mcp subcommand unexpectedly exited 0"; return 1; }
+              mcp_out=$($1 env -u SUBSHELL_API_KEY -u SUBSHELL_ID -u SUBSHELL_BASE_URL -u SUBSHELL_DATA_DIR "$BIN" mcp </dev/null 2>&1) && { echo "mcp subcommand unexpectedly exited 0"; return 1; }
               echo "$mcp_out"
               printf '%s' "$mcp_out" | grep -q "SUBSHELL_API_KEY" || { echo "mcp refused for the wrong reason (output above)"; return 1; }
               echo "mcp refusal smoke OK: $BIN serves its own mcp subcommand"

@@ -336,6 +336,14 @@ Update flow from now on: `gh release download <tag> -p 'subshell-*-darwin-arm64'
 `shasum -a 256 -c`, move over `~/.local/bin`, `launchctl kickstart -k
 gui/$(id -u)/dev.subshell.server` (or `.client`).
 
+**1.4.0 upgrade (single-binary MCP):** one binary per triple again — the
+`subshell-mcp-<triple>` companion is retired. After moving the new
+`subshell-server` over, **delete any `SUBSHELL_MCP_COMMAND`/`SUBSHELL_MCP_ARGS`
+lines from `~/.config/subshell-server/config.env`** (1.3.x stopgap keys): the env
+override wins without an existence check, so a leftover line keeps baking the
+deleted companion's path into every new pane. Verify with
+`subshell-server status` — `mcp entrypoint = … (via self)`.
+
 ### 2026-09-03 (late): this host's data-dir migration — INCIDENT NOTE
 
 `svc.sh install` regenerated this host's unit (new `DATABASE_PATH=~/.config/subshell-server/…`)

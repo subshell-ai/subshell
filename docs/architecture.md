@@ -55,9 +55,11 @@ Key properties:
   intent, reconciled every 60 s (`SubshellManagerService.reconcileAll`).
 - **`subshell mcp` never opens the app database.** It is served by
   `@internal/mcp-core` alone (the server binary's `mcp` subcommand or the agent's) —
-  that tree imports no db/auth chain and the entry graph does no IO at import
-  (purity-tested), so a compromised agent process holds no SQLite handle or
-  auth secret.
+  the served code path touches no db/auth state — the entry graph does no IO
+  at import (purity-tested), so a compromised agent process holds no SQLite
+  handle or auth secret. (The compiled server binary BUNDLES the boot graph
+  for its other subcommands; bundling is not opening — the purity tests pin
+  that evaluating it opens nothing.)
 - **The terminal transport does not fork for mobile.** The accessory key
   bar sends the same JSON `input` WS frames defined in
   `packages/subshell-protocol` that desktop keystrokes already use

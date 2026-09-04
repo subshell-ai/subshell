@@ -120,6 +120,7 @@ usage:
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server service install    background the server (systemd user unit / launchd agent)
   subshell-server service uninstall  stop it and remove the service definition
+  subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
 

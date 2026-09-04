@@ -11,7 +11,10 @@
   binary is RETIRED — `compile:release` and the release workflow no longer build
   or publish it. Hosts that installed the 1.3.x pair should update
   `subshell-server` alone and delete the stale companion; the server IS the shim
-  now.
+  now. Also **remove any `SUBSHELL_MCP_COMMAND`/`SUBSHELL_MCP_ARGS` keys from
+  `config.env`** after upgrading: the env override short-circuits the ladder
+  without an existence check, so a leftover override keeps baking the deleted
+  companion's path into every new pane and no `status` output warns about it.
 - The launch resolver collapses to a self-referencing ladder:
   `SUBSHELL_MCP_COMMAND`/`_ARGS` override → SELF (the server itself:
   `<execPath> mcp` when compiled, `<bun> <absolute entry> mcp` under

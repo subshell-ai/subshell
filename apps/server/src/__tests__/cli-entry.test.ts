@@ -13,14 +13,16 @@ import { parseEnvFile } from "../config-env.js";
  * never boot the server — no port bind, no DB open, no config side effects
  * beyond the written file.
  *
- * The in-process gate (bootRequested / isCliEngaged) is NOT what makes this
- * true — it only skips the boot BODY, while Bun still evaluates every later
- * import of the entry, and `@/auth.js` opens SQLite inside better-auth's
- * constructor (Task B audit; reproduced in the Task C spike: an async command
- * left a sentinel ./data/subshell.db behind in the CWD). What makes it true
- * is that init/configure run FULLY SYNCHRONOUSLY and `process.exit` inside
- * the first-imported prelude body, so the boot graph is never evaluated at
- * all. Hence: subprocess (real argv, real env), fresh temp CWD (a stray
+ * What makes this true (post-single-binary-MCP, spec 2026-09-03): the entry
+ * graph is IO-free AT IMPORT by contract (lazy `getAuth()`, lazified default
+ * launcher — pinned by the import-purity tests), and the `isCliEngaged()` boot
+ * gate flipped synchronously at subcommand recognition keeps even a SUSPENDED
+ * command (`mcp`) from booting the server underneath it. (Historical: the
+ * eager better-auth build opened SQLite at import — the Task C spike's stray
+ * ./data/subshell.db — which is why sync-exit was once load-bearing for the
+ * quick commands. It no longer is; these assertions survive because purity
+ * plus the gate carry the load for every command, sync or long-running.)
+ * Hence: subprocess (real argv, real env), fresh temp CWD (a stray
  * ./data/subshell.db lands where we can see it), an unused free port pinned
  * in SERVER_PORT (a buggy boot would bind THAT, not 3080), and a temp
  * config dir. Nothing here touches the developer's ~/.config or ./data.

@@ -72,8 +72,8 @@ at by `OPENCODE_CONFIG` (your own opencode config stays intact). **hermes** and 
 have no per-subshell config — their profile editor shows the one-time registration
 command; after that, every subshell authenticates through its own baked credentials.
 Override how the server is launched with `SUBSHELL_MCP_COMMAND` and `SUBSHELL_MCP_ARGS`
-(JSON array) — by default the backend finds its sibling `subshell-mcp` binary (or runs
-the TS entry with Bun in dev).
+(JSON array) — by default the backend launches itself (`subshell-server mcp`, or the
+TS entry with Bun in dev), falling back to a `subshell` agent on PATH.
 
 ## Production (single port)
 
@@ -154,7 +154,7 @@ Environment variables (see `apps/server/src/constants.ts`):
 | `SUBSHELL_TEST_MODE` | unset | Set by the test preload. Forces a per-process temp-file database (unlinked on exit) and a temp log dir, so a test run can never write to real data |
 | `APP_BASE_URL` | `http://localhost:$SERVER_PORT` | Auth cookies / redirects; its origin is trusted automatically |
 | `TRUSTED_ORIGINS` | `http://localhost:5174,http://localhost:5173` | Comma-separated **additional** allowed origins (dev Vite server). The instance always trusts its own: both loopback spellings of `SERVER_PORT`, plus `HOST` when it is a concrete address |
-| `SUBSHELL_MCP_COMMAND` | (sibling `subshell-mcp` binary) | Override how the `subshell mcp` stdio server is launched for a subshell |
+| `SUBSHELL_MCP_COMMAND` | (self: `subshell-server mcp`, else `subshell` on PATH) | Override how the `subshell mcp` stdio server is launched for a subshell |
 | `SUBSHELL_MCP_ARGS` | `[]` | JSON array of args for `SUBSHELL_MCP_COMMAND` |
 
 Per-subshell MCP env (injected by the backend into each harness, not set by you):
