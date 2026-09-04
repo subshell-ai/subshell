@@ -48,6 +48,12 @@ export interface ViewerCapacity {
   capacity: Grid | null;
   /** True while the viewer's page is not being rendered at all. */
   hidden?: boolean;
+  /**
+   * False for a `view` grantee — someone who may watch the pane but not type
+   * into it. Absent means "may type" (the owner's own devices, and every
+   * caller that does not model sharing).
+   */
+  canInput?: boolean;
 }
 
 /** How a subshell's grid is being decided. */
@@ -178,19 +184,39 @@ export function decideSharedGrid(
     // size; the caller clears the stale pin when it notices.
   }
 
-  // Prefer the viewers actually being rendered. If every one is hidden, they
-  // all count again — something has to size the pane, and the last thing the
-  // user looked at is a better answer than an arbitrary default.
-  const visible = valid.filter((v) => !v.hidden);
-  const considered = visible.length > 0 ? visible : valid;
+  // Who gets a say, narrowest claim first. Each rung is a stronger statement
+  // than the one below it, and a rung is skipped whenever it holds nobody who
+  // has reported a usable size — so a rung can never shrink the pane by
+  // EXCLUDING the only device that knows how big it should be. That is not
+  // hypothetical: [laptop 120x40 hidden, phone mid-layout at 2x1] used to
+  // stop at the visible rung, find nothing usable there, and hand everyone a
+  // two-column strip while a perfectly good 120x40 report sat one rung down.
+  const rungs = [
+    // Devices being rendered by someone who can type into the pane. The pane
+    // belongs to its owner, and a `view` grantee — invited to watch, not to
+    // change what everyone sees — should not be able to hold it at phone size
+    // indefinitely with no action available to the owner but to pin around
+    // them. They lose nothing: a viewer smaller than the pane shrinks its own
+    // text to fit rather than clipping.
+    valid.filter((v) => !v.hidden && v.canInput !== false),
+    // ...else anyone being rendered at all: a subshell shared read-only with
+    // one person, its owner away, is still sized for the person watching it.
+    valid.filter((v) => !v.hidden),
+    // ...else everyone. Something has to size the pane, and the last thing
+    // anybody looked at beats an arbitrary default.
+    valid,
+  ];
 
-  const usable = considered.filter((v) => isUsable(v.capacity));
-  if (usable.length > 0) return { ...extremeOf(usable, "min"), reason: "smallest" };
+  for (const rung of rungs) {
+    const usable = rung.filter((v) => isUsable(v.capacity));
+    if (usable.length > 0) return { ...extremeOf(usable, "min"), reason: "smallest" };
+  }
 
-  // Every considered viewer is mid-layout. Sizing to the smallest of a set of
-  // degenerate reports would paint into a 2x1 strip, so take the LARGEST
-  // instead — it is the closest thing to a real viewport on offer, and the
-  // next report from any settled viewer supersedes it.
+  // Nobody, anywhere, has reported a usable size — every viewer is mid-layout.
+  // Sizing to the smallest of a set of degenerate reports would paint into a
+  // 2x1 strip, so take the LARGEST instead: it is the closest thing to a real
+  // viewport on offer, and the next settled report supersedes it.
+  const considered = rungs.find((r) => r.length > 0) ?? valid;
   return { ...extremeOf(considered, "max"), reason: "fallback" };
 }
 

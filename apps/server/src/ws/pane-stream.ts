@@ -74,6 +74,17 @@ export interface PaneStreamRegistry {
   subscribe(key: string, makeSource: () => PaneSource, deliver: (text: string) => void): Subscription;
   /** How many viewers are attached to `key`. */
   viewerCount(key: string): number;
+  /**
+   * Stops every pump and forgets every viewer.
+   *
+   * Only for tests, which reuse subshell ids across cases: a case that leaves
+   * a subscription open would otherwise hand the NEXT case a running pump, so
+   * its own attach silently reuses that stream and never builds a source at
+   * all — the failure looks like "the tail never started" and is really "the
+   * previous test's tail is still running".
+   * @internal
+   */
+  resetForTests(): void;
 }
 
 /** One subshell's live fan-out. */
@@ -155,6 +166,10 @@ export function createPaneStreamRegistry(): PaneStreamRegistry {
     },
     viewerCount(key) {
       return streams.get(key)?.viewers.size ?? 0;
+    },
+    resetForTests() {
+      for (const stream of streams.values()) stream.stop();
+      streams.clear();
     },
   };
 }

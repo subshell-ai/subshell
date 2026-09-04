@@ -231,10 +231,17 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     await until(() => sim.cmdTypes().includes("tail_start"), "tail_start on the wire");
 
     // Command ORDER through the real sendCommand: liveness, the tail's JOIN
-    // size probe (sampled BEFORE the capture so the stream is gap-free — the
-    // client replays a bounded overlap instead of ever missing a diff frame),
-    // capture, tail. One log_read only — historical log bytes never ship.
-    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture", "tail_start"]);
+    // size probe, the TAIL, then the capture. One log_read only — historical
+    // log bytes never ship.
+    //
+    // The tail is armed BEFORE the capture (it moved there when this path
+    // joined the shared pump, matching the local twin): a viewer subscribes
+    // first, its delivery stays QUEUED until the replay is sent, and the
+    // queue is then flushed. Gap-freedom itself does not rest on this order —
+    // `fromByte` is the pre-resize sample either way — but subscribing first
+    // is what lets several viewers share ONE pump, which `NodeLauncher`'s
+    // contract requires.
+    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture"]);
     expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
     // The capture carries the default replay line cap; the tail starts at the
     // probed size (7): only bytes past the snapshot ever ship.
@@ -245,20 +252,22 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
 
     // Frame 1: replay — the capture's DEC 2026 markers are gone and the frame
     // is the browser's exact JSON shape (key order included).
-    // Terminal frames only: the socket also carries `viewers` presence now.
-    const term = sent.filter((f) => !f.includes('"type":"viewers"'));
-    expect(term[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    //
+    // Terminal frames only, and re-read on EVERY assertion: the socket also
+    // carries `viewers` presence, which arrives on its own schedule (a viewer
+    // joining or leaving, anywhere), so indexing raw `sent` — or counting it
+    // — silently drifts as soon as presence lands between two output frames.
+    const term = (): string[] => sent.filter((f) => !f.includes('"type":"viewers"'));
+    expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
 
     // Live chunks arrive as output frames, markers stripped, byte-identical.
     const sub = subIdOf(sim);
     dispatchOutput(outputFrame(sub, 7, "echo hi\r\n"));
-    await until(() => sent.length === 2, "output frame");
-    expect(sent.filter((f) => !f.includes('"type":"viewers"'))[1]).toBe(
-      JSON.stringify({ type: "output", data: "echo hi\r\n" }),
-    );
+    await until(() => term().length === 2, "output frame");
+    expect(term()[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     dispatchOutput(outputFrame(sub, 16, `${BSU}x${ESU}`));
-    await until(() => sent.length === 3, "stripped output frame");
-    expect(sent[2]).toBe(JSON.stringify({ type: "output", data: "x" }));
+    await until(() => term().length === 3, "stripped output frame");
+    expect(term()[2]).toBe(JSON.stringify({ type: "output", data: "x" }));
   });
 
   it("a zero-byte log replays, then arms the tail at offset 0 (agent tolerates a missing file)", async () => {
@@ -340,7 +349,9 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // Resize lands ahead of the capture so the replay matches the client
     // geometry.
     // Collapsed: the size probes repeat on a timing cadence, order is the point.
-    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,resize,capture,tail_start");
+    // The tail precedes the resize now — see the ordering note above; what
+    // still matters here is that the RESIZE lands ahead of the CAPTURE.
+    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,resize,capture");
     // The scripted log never grows, so the pane reads as "never repainted"
     // and the relay nudges it (±1 col) to force a SIGWINCH — the local twin's
     // rule, and the cure for a no-op resize leaving a half-painted frame on
@@ -381,7 +392,13 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     expect(closed).toEqual([{ code: 4004, reason: "subshell not running" }]);
     expect(sent).toEqual([]);
-    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture"]); // join probe ran; tail never armed
+    // The pump is armed before the capture (join-point rule), so a refusal
+    // AFTER it must tear the subscription down rather than never having
+    // started one. What must never survive is a running tail for a viewer
+    // that was refused — assert the stop, not the absence of the start.
+    await until(() => sim.cmdTypes().includes("tail_stop"), "tail stopped after the refusal");
+    expect(sim.cmdTypes().filter((t) => t === "tail_start")).toHaveLength(1);
+    expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(1);
   });
 
   it("closes 1011 'client too slow' when the browser queue exceeds 4 MiB, and stops streaming", async () => {
@@ -398,7 +415,9 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
 
     dispatchOutput(outputFrame(subIdOf(sim), 7, "flood"));
     await until(() => closed.some((c) => c.code === 1011), "1011 close");
-    expect(sent.length).toBe(1); // the offending chunk never ships
+    // The offending chunk never ships. Terminal frames only — presence rides
+    // the same socket.
+    expect(sent.filter((f) => !f.includes('"type":"viewers"')).length).toBe(1);
     // The plugin's close handler runs the cleanup; the agent sees exactly one tail_stop.
     cleanupSubshellWs(ws);
     await until(() => sim.cmdTypes().filter((t) => t === "tail_stop").length === 1, "tail_stop once");
@@ -491,8 +510,92 @@ describe("attachRemoteSubshellWs — input/resize/cleanup ride the shared handle
     release?.("SCREEN");
     await attaching;
 
-    expect(sim.cmdTypes()).not.toContain("tail_start"); // nothing was armed…
-    expect(sim.cmdTypes()).not.toContain("tail_stop"); // …so there is nothing to stop
+    // The pump is armed before the capture now, so a browser that leaves
+    // while the capture is parked DOES arm one — and the attach must stop it
+    // on the way out. A tail still running for a socket nobody holds is the
+    // zombie this case exists to catch; never arming one was only ever the
+    // means, and it is no longer available without reopening the join gap.
+    await until(() => sim.cmdTypes().includes("tail_stop"), "the armed tail was stopped");
+    expect(sim.cmdTypes().filter((t) => t === "tail_start")).toHaveLength(1);
+    expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(1);
+  });
+});
+
+describe("attachRemoteSubshellWs — several viewers share one node pane", () => {
+  it("fits the pane to the SHARED grid, not to whoever attached last", async () => {
+    // The remote path was the half that never got the local twin's rule: it
+    // applied the joiner's own size unconditionally, so a phone attaching to
+    // a node subshell a laptop was already watching bounced the pane between
+    // the two — exactly the behaviour eviction used to prevent.
+    const sim = makeNodeSim();
+    // Scripted answers are shifted off a queue, and the repaint wait POLLS the
+    // log — so a second attach starves on `log_read` unless there are plenty.
+    // It then throws, closes 1011, and never resizes at all: the failure looks
+    // like "the shared fit was ignored" and is really "the attach died".
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 60);
+    const laptop = fakeBrowser();
+    const phone = fakeBrowser();
+
+    await attachRemoteSubshellWs(laptop.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", {
+      cols: 120,
+      rows: 40,
+    });
+    // The laptop alone: the pane holds ITS size.
+    expect(sim.cmdsOf("resize").at(-1)).toEqual({ type: "resize", subshellId: SID, cols: 120, rows: 40 });
+    const before = sim.cmdsOf("resize").length;
+
+    await attachRemoteSubshellWs(phone.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", { cols: 60, rows: 20 });
+
+    // The joiner's attach really did drive the pane...
+    expect(sim.cmdsOf("resize").length).toBeGreaterThan(before);
+    // ...and left it at the size BOTH can display, not at the joiner's own.
+    // The nudge's ±1 steps are on the way there and deliberately not asserted;
+    // where the pane ENDS is the claim.
+    expect(sim.cmdsOf("resize").at(-1)).toEqual({ type: "resize", subshellId: SID, cols: 60, rows: 20 });
+
+    cleanupSubshellWs(phone.ws);
+    cleanupSubshellWs(laptop.ws);
+  });
+
+  it("runs ONE tail for the pane however many browsers watch it", async () => {
+    // `NodeLauncher`'s contract: "Callers MUST NOT overlap per-subshell pumps
+    // … even serialized dispatch can flip the read-your-writes order these
+    // pumps rely on." Two viewers each running their own `tail_start` is two
+    // independent dup-clamp/backfill states over one byte stream, so each
+    // device can observe a different order and neither is authoritative.
+    const sim = makeNodeSim();
+    // See the note in the case above: one round per attach is not enough.
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 60);
+    const first = fakeBrowser();
+    const second = fakeBrowser();
+
+    await attachRemoteSubshellWs(first.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
+    await until(() => sim.cmdTypes().includes("tail_start"), "first tail");
+    await attachRemoteSubshellWs(second.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
+
+    expect(sim.cmdTypes().filter((t) => t === "tail_start")).toHaveLength(1);
+
+    // Both browsers get the SAME bytes from that one pump.
+    const output = (b: typeof first) => b.sent.filter((f) => f.includes('"type":"output"'));
+    dispatchOutput(outputFrame(subIdOf(sim), 7, "shared\r\n"));
+    await until(() => output(first).length === 1 && output(second).length === 1, "both fed");
+    expect(output(first)).toEqual(output(second));
+
+    // ...and the pump survives one of them leaving, then stops with the last.
+    cleanupSubshellWs(second.ws);
+    await Bun.sleep(30);
+    expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(0);
+    cleanupSubshellWs(first.ws);
+    await until(() => sim.cmdTypes().includes("tail_stop"), "tail stopped with the last viewer");
+    expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(1);
   });
 });
 

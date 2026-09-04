@@ -239,3 +239,52 @@ describe("decideSharedGrid — naming the device that holds each axis", () => {
     }
   });
 });
+
+describe("who gets a say: rungs, not one visible/all split", () => {
+  it("does not shrink the pane by excluding the only device that knows a real size", () => {
+    // [laptop hidden with a real grid, phone mid-layout at 2x1]: stopping at
+    // the visible rung finds nothing usable there and hands EVERYONE a
+    // two-column strip, while a perfectly good 120x40 report sits one rung
+    // down. The rung is skipped instead.
+    const laptop = v(120, 40, true);
+    const phone = v(2, 1);
+    expect(resolveSharedGrid([laptop, phone])).toEqual({ cols: 120, rows: 40 });
+  });
+
+  it("keeps a read-only viewer from holding the owner's pane at phone size", () => {
+    // A `view` grantee was invited to watch, not to change what everyone
+    // sees — and the owner has no action against it but to pin around them.
+    // They lose nothing: a viewer smaller than the pane shrinks its own text.
+    const owner = { id: "owner", capacity: { cols: 120, rows: 40 }, canInput: true };
+    const guest = { id: "guest", capacity: { cols: 50, rows: 16 }, canInput: false };
+    expect(resolveSharedGrid([owner, guest])).toEqual({ cols: 120, rows: 40 });
+    expect(decideSharedGrid([owner, guest])?.cols).toEqual(["owner"]);
+  });
+
+  it("still sizes for a read-only viewer when nobody else is watching", () => {
+    // A subshell shared read-only, its owner away, is sized for the one
+    // person actually looking at it.
+    const guest = { id: "guest", capacity: { cols: 50, rows: 16 }, canInput: false };
+    expect(resolveSharedGrid([guest])).toEqual({ cols: 50, rows: 16 });
+  });
+
+  it("lets an editor grantee constrain it — they are typing into it", () => {
+    const owner = { id: "owner", capacity: { cols: 120, rows: 40 }, canInput: true };
+    const pair = { id: "pair", capacity: { cols: 90, rows: 30 }, canInput: true };
+    expect(resolveSharedGrid([owner, pair])).toEqual({ cols: 90, rows: 30 });
+  });
+
+  it("treats a viewer that says nothing about input as able to type", () => {
+    // Every caller that does not model sharing (and every existing test)
+    // omits the flag; omitting it must not silently demote a device.
+    expect(resolveSharedGrid([{ id: "a", capacity: { cols: 80, rows: 24 } }])).toEqual({ cols: 80, rows: 24 });
+  });
+
+  it("skips a rung that is empty rather than falling straight to degenerate", () => {
+    // Only read-only viewers, one hidden: the visible read-only one decides,
+    // NOT the hidden one and not a 2x1 fallback.
+    const hidden = { id: "h", capacity: { cols: 200, rows: 60 }, canInput: false, hidden: true };
+    const shown = { id: "s", capacity: { cols: 90, rows: 30 }, canInput: false };
+    expect(resolveSharedGrid([hidden, shown])).toEqual({ cols: 90, rows: 30 });
+  });
+});

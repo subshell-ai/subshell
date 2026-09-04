@@ -142,6 +142,11 @@ export function useSubshellWs(
         // arrives laid out for this exact terminal width.
         measure?.();
         // Capacity, not the terminal's own grid — see the `capacity` param.
+        // At CONNECT there is no socket yet, so silence is not an option —
+        // the URL must carry something. A pinning caller that cannot measure
+        // falls back to the terminal's grid here and only here, because at
+        // this instant that grid is the previous connection's, not an echo of
+        // a live server answer, and the first observer tick corrects it.
         const fitted = capacityRef.current?.() ?? null;
         const usedCols = fitted?.cols ?? term.cols;
         const usedRows = fitted?.rows ?? term.rows;
@@ -156,15 +161,33 @@ export function useSubshellWs(
         const url =
           `${proto}://${window.location.host}/ws?subshell=${encodeURIComponent(subshellId)}` +
           `&token=${encodeURIComponent(token)}&cols=${usedCols}&rows=${usedRows}` +
-          `&build=${encodeURIComponent(BUILD_ID)}&device=${encodeURIComponent(deviceName())}`;
+          `&build=${encodeURIComponent(BUILD_ID)}&device=${encodeURIComponent(deviceName())}` +
+          // `hidden` rides the URL as well as the on-open frame: that frame
+          // races the server's own attach awaits and is DROPPED if it wins,
+          // and unlike a resize nothing re-sends it until the tab is shown.
+          // A tab attached while already hidden would then hold every other
+          // device's pane at its size for the socket's whole life.
+          `&hidden=${document.hidden ? "1" : "0"}`;
 
         const ws = new WebSocket(url);
         socket = ws;
         wsRef.current = ws;
 
+        // The one place this client states its size. A caller that PINS
+        // reports only what it measured: `capacity()` returning null means
+        // "I could not measure right now" (mid-layout, no cell metrics), and
+        // answering that with `term.cols` would report the server's own grid
+        // straight back — the echo that strands the pane at the smallest
+        // viewer's size forever. Silence is correct; the next observer tick
+        // reports the real number.
         const syncSize = () => {
-          const fit = capacityRef.current?.() ?? null;
-          sendResize(ws, fit?.cols ?? term.cols, fit?.rows ?? term.rows);
+          const provider = capacityRef.current;
+          if (!provider) {
+            sendResize(ws, term.cols, term.rows); // no pinning: the grid IS the viewport
+            return;
+          }
+          const fit = provider();
+          if (fit) sendResize(ws, fit.cols, fit.rows);
         };
 
         // Each attach rebuilds full history; the previous connection's screen
@@ -269,8 +292,16 @@ export function useSubshellWs(
     // no more, the pane never grew back when the phone left — a third viewer
     // at 90x30 was still handed 50x18.
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      const fit = capacityRef.current?.() ?? null;
-      sendResize(wsRef.current, fit?.cols ?? cols, fit?.rows ?? rows);
+      const provider = capacityRef.current;
+      if (!provider) {
+        sendResize(wsRef.current, cols, rows);
+        return;
+      }
+      // A null measurement is NOT a reason to fall back to `cols`/`rows`:
+      // those are the echo this whole handler exists to avoid, and a
+      // momentarily unmeasurable box (a sash mid-drag) would reintroduce it.
+      const fit = provider();
+      if (fit) sendResize(wsRef.current, fit.cols, fit.rows);
     });
 
     // A viewer that stops being rendered stops taking part in sizing, and

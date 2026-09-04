@@ -1,5 +1,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
+import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { captureToTerminalText } from "@/ws/capture-text.js";
 import type { PaneSource } from "@/ws/pane-stream.js";
 import { SyncStreamStripper } from "@/ws/sync-stripper.js";
@@ -157,6 +158,80 @@ export function createPanePollSource(options: PanePollSourceOptions): PaneSource
       return () => {
         stopped = true;
         clearInterval(timer);
+      };
+    },
+  };
+}
+
+/** What a source needs to tail a subshell running on a remote node. */
+export interface RemoteTailSourceOptions {
+  /** The node's launcher — the relay to the agent that owns the pane. */
+  launcher: RemoteLauncher;
+  /** Subshell id. */
+  subshellId: string;
+  /**
+   * Byte offset the stream starts from — the FIRST viewer's pre-resize
+   * sample. Later joiners never rewind the pump: their own replay already
+   * carries the history, and re-playing the tail over a fresh capture is what
+   * painted mid-stream redraw sequences into the snapshot.
+   */
+  fromByte: number;
+  /** Called once per emitted chunk, for the lastOutputAt heartbeat. */
+  onOutput?: () => void;
+}
+
+/**
+ * Streams a node-hosted subshell's pane output over the agent relay.
+ *
+ * The remote twin of {@link createLogTailSource}, and it exists for the same
+ * reason: `NodeLauncher`'s contract forbids overlapping per-subshell pumps,
+ * because even serialized dispatch can flip the read-your-writes order two
+ * tails rely on between their own successive calls. Two viewers each running
+ * `tailStart` on one pane is exactly that — two independent dup-clamp and
+ * backfill states over one byte stream, so each device can observe a
+ * different order and neither is authoritative.
+ *
+ * `tailStart` is async while {@link PaneSource.start} is not, so the disposer
+ * returned here closes over a promise: a stream torn down before the
+ * round-trip lands still stops, because the late resolution finds `stopped`
+ * and disposes immediately.
+ *
+ * Decoder and stripper are STREAM-lived for the same reason as the local
+ * twin — a multi-byte character or a DEC 2026 marker split across two reads
+ * must be held until its other half arrives.
+ *
+ * @param options - Launcher, subshell, start offset, and the output heartbeat
+ * @returns A source for {@link import("./pane-stream.js").PaneStreamRegistry}
+ */
+export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSource {
+  return {
+    start(emit) {
+      const decoder = new TextDecoder();
+      const stripper = new SyncStreamStripper();
+      let stopped = false;
+      let dispose: (() => void) | undefined;
+
+      void options.launcher
+        .tailStart(options.subshellId, crypto.randomUUID(), options.fromByte, (bytes) => {
+          if (stopped) return;
+          const text = stripper.push(decoder.decode(bytes, { stream: true }));
+          if (!text) return; // nothing paintable yet — the whole read is held
+          emit(text);
+          options.onOutput?.();
+        })
+        .then((disposer) => {
+          dispose = disposer;
+          if (stopped) disposer(); // torn down during the tail_start round-trip
+        })
+        .catch(() => {
+          // The relay refused. The attach's own error path closes the socket;
+          // a source that never produces is the honest outcome here.
+        });
+
+      return () => {
+        stopped = true;
+        stripper.flush(); // held partial-sequence bytes belong to the next stream
+        dispose?.();
       };
     },
   };

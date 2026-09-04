@@ -149,11 +149,16 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
     try {
       expect(closed).toEqual([]); // the dispatch ran to completion, not a refusal
 
-      // The §6.5 flow fired THROUGH the delegation: liveness, capture
-      // (carrying the replay line budget), size probe AFTER it, tail at that
-      // EOF — the same command list the relay's own suite pins. Historical
-      // log bytes are never re-played, so there is exactly ONE log_read.
-      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture", "tail_start"]);
+      // The §6.5 flow fired THROUGH the delegation: liveness, the join size
+      // probe, the tail, then the capture — the same command list the relay's
+      // own suite pins. Historical log bytes are never re-played, so there is
+      // exactly ONE log_read.
+      //
+      // The tail precedes the capture because this path joins the SHARED pump
+      // (subscribe → capture → open), which is what lets several browsers
+      // watch one node pane without two overlapping tails. `fromByte` is
+      // still the pre-capture EOF, so the join stays gap-free either way.
+      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture"]);
       expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
         { type: "tail_start", subshellId: id, subId: expect.any(String), fromByte: LOG.length },

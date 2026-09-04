@@ -80,6 +80,8 @@ export interface GeometryQueue {
   request(key: string, cols: number, rows: number, sizer: PaneSizer): void;
   /** Drops a subshell's state — call when its last viewer detaches. */
   release(key: string): void;
+  /** {@link release} for every key at once — the test reset. @internal */
+  releaseAll(): void;
   /**
    * Records a size the pane was moved to by something OTHER than this queue.
    *
@@ -170,6 +172,10 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
       const entry = entries.get(key);
       if (entry) entry.released = true;
       entries.delete(key);
+    },
+    releaseAll() {
+      for (const entry of entries.values()) entry.released = true;
+      entries.clear();
     },
   };
 }

@@ -271,6 +271,70 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     cleanupSubshellWs(tall.ws);
   });
 
+  it("nudges around the SHARED fit, never the joiner's own size", async () => {
+    // The nudge ENDS by resizing the pane to the size it is handed (it steps
+    // ±1 and back) and seeds the queue with it, so handing it the joiner's
+    // size silently undid the shared fit applied moments earlier. An
+    // incumbent at 122x49 was left rendering a pane a 122x52 joiner had
+    // claimed, clipping every later frame, with nothing scheduled to
+    // re-decide it. The nudge fires whenever no repaint burst is detected,
+    // which is the COMMON case for a reopen at a size the pane already has.
+    stubLauncher();
+    let paneRows = 49;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 122, rows: paneRows });
+    // No SIGWINCH route and no log growth: the geometry nudge is forced.
+    defaultLocalLauncher.signalPaneWinch = async () => false;
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const incumbent = await attach(row.userId, row.id, "&cols=122&rows=49");
+    const joiner = await attach(row.userId, row.id, "&cols=122&rows=52");
+
+    // Whatever the nudge stepped through, the pane must END at the shared
+    // grid — the size BOTH viewers can display — not the joiner's 52.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 122, rows: 49 });
+    expect(resizeCalls.some((c) => c.rows === 52)).toBe(false);
+
+    cleanupSubshellWs(joiner.ws);
+    cleanupSubshellWs(incumbent.ws);
+  });
+
+  it("honours `&hidden=1` from the connect URL, without waiting for a frame", async () => {
+    // The client's on-open `visibility` frame races this handler's own awaits
+    // and is DROPPED when it wins (`handleSubshellMessage` returns while
+    // `ws.data` is still empty). Capacity survives that race because it is
+    // re-sent on every resize; `visibility` is sent once and then only on
+    // change, so a tab attached while already hidden would have held every
+    // other device's pane at its size for the socket's whole life.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const pocketed = await attach(row.userId, row.id, "&cols=100&rows=20&hidden=1");
+
+    // The hidden joiner takes no part: the pane stays at the laptop's size.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+    const presence = laptop.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: Array<{ hidden: boolean; capacity: { rows: number } | null }> })
+      .at(-1);
+    expect(presence?.viewers.find((v) => v.capacity?.rows === 20)?.hidden).toBe(true);
+
+    cleanupSubshellWs(pocketed.ws);
+    cleanupSubshellWs(laptop.ws);
+  });
+
   it("tells the INCUMBENT when a smaller joiner shrinks the pane under it", async () => {
     // Found by driving two real browser tabs. The pane correctly took the
     // minimum, and the joiner rendered it — but the incumbent was never told,

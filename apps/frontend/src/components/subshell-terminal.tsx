@@ -261,7 +261,26 @@ export function SubshellTerminal({
     const insets = terminalInsets(term);
     const outer = outerRef.current;
     const box = outer ? { width: outer.clientWidth, height: outer.clientHeight } : null;
+    const preferred = terminalFontSize();
     let size = { width: cell.width, height: cell.height };
+
+    /** Applies a font size and re-reads the cell metrics that follow from it. */
+    const setFontSize = (next: number): void => {
+      if (term.options.fontSize === next) return;
+      term.options.fontSize = next;
+      const remeasured = term.dimensions?.css.cell;
+      if (remeasured && remeasured.width > 0 && remeasured.height > 0) {
+        size = { width: remeasured.width, height: remeasured.height };
+      }
+    };
+
+    // ALWAYS decide from the size the user chose, never from whatever this
+    // function last left behind. Testing overflow against an already-shrunken
+    // cell says "it fits now" — which is only true BECAUSE it was shrunk — so
+    // the previous shape restored the preferred size, overflowed again on the
+    // next call, shrank again, and flapped between the two forever, with the
+    // letterbox wrong on every other frame.
+    setFontSize(preferred);
 
     // Ordinarily the shared pane is the SMALLEST viewer's grid, so this one
     // has room to spare and simply letterboxes. A viewer whose capacity was
@@ -269,22 +288,31 @@ export function SubshellTerminal({
     // be handed a grid it cannot show — and clipping hides the prompt row.
     // Shrink the text to fit rather than cut it off.
     if (box && gridOverflowsBox(grid, box, size, insets)) {
-      const preferred = terminalFontSize();
-      const fitted = fontSizeToFit(grid, box, size, insets, preferred);
-      if (fitted !== term.options.fontSize) {
-        term.options.fontSize = fitted;
-        const remeasured = term.dimensions?.css.cell;
-        if (remeasured) size = { width: remeasured.width, height: remeasured.height };
-      }
-    } else if (term.options.fontSize !== terminalFontSize()) {
-      // Room again: back to the size the user actually chose.
-      term.options.fontSize = terminalFontSize();
-      const remeasured = term.dimensions?.css.cell;
-      if (remeasured) size = { width: remeasured.width, height: remeasured.height };
+      setFontSize(fontSizeToFit(grid, box, size, insets, preferred));
     }
 
     setLetterbox(boxForGrid(grid, size, insets));
   }, []);
+
+  /**
+   * {@link applyLetterbox}, plus one re-run on the next frame.
+   *
+   * Cell metrics are read back immediately after `options.fontSize` is
+   * assigned, and xterm does not promise to have re-measured the font by
+   * then — a stale read sizes the container from the OLD cell, so FitAddon
+   * proposes a grid that does not match the pane and this viewer reports an
+   * inflated capacity. Observed live as a capacity that crept 46 → 49 rows
+   * over several seconds after a font change, rather than landing.
+   *
+   * The re-run is idempotent (the font is already right, so it only
+   * recomputes the box from now-settled metrics) and costs one frame.
+   */
+  const applyLetterboxSettled = useCallback(() => {
+    applyLetterbox();
+    requestAnimationFrame(() => {
+      if (mountedRef.current) applyLetterbox();
+    });
+  }, [applyLetterbox]);
 
   /**
    * The grid this viewport COULD show at the current font size.
@@ -498,8 +526,9 @@ export function SubshellTerminal({
         fit.fit();
         // The pane's grid has not changed, but its cell size has — so both
         // the box that holds exactly that grid AND how much this viewport can
-        // show are different now.
-        applyLetterbox();
+        // show are different now. Settled, because the metrics this reads
+        // were only just invalidated by the assignment above.
+        applyLetterboxSettled();
         reportCapacity();
       }
     };
@@ -610,7 +639,7 @@ export function SubshellTerminal({
       serializeRef.current = null;
       fitRef.current = null;
     };
-  }, [active, applyLetterbox, reportCapacity]);
+  }, [active, applyLetterboxSettled, reportCapacity]);
 
   /** Records the new socket status and reports it to the caller. */
   const emitStatus = useCallback((next: SubshellTerminalStatus) => {
@@ -648,7 +677,10 @@ export function SubshellTerminal({
       // again here is what made the reverted geometry reconciliation loop.
       onGeometry: (cols, rows) => {
         paneGridRef.current = { cols, rows };
-        applyLetterbox();
+        // Settled: a new grid can push this viewport into (or out of) the
+        // shrink-to-fit path, and the cell metrics behind that decision are
+        // read back the instant the font is assigned.
+        applyLetterboxSettled();
       },
       onViewers: (state) => onViewersRef.current?.(state),
     },

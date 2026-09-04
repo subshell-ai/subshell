@@ -106,7 +106,20 @@ real (2026-09-04):
   claim it can show no more than the smallest one — after which the pane never
   grows back when that viewer leaves. The client's only size statement is
   `measureCapacity()`, measured from the OUTER (pane) box.
+  A null measurement is NOT a fallback to the terminal's grid either: it
+  means "could not measure right now" (a sash mid-drag), and answering it with
+  `term.cols` is the same echo by another route. A pinning caller stays SILENT
+  until it can measure; the next observer tick reports the real number.
 - **`&device=` on the attach URL is load-bearing.** Without it every row of
   everyone's Devices list reads "Unnamed device" and the list explains
   nothing. `lib/device-name.ts` derives it from the User-Agent and honours a
-  per-device localStorage override.
+  per-device localStorage override. `&hidden=` rides the URL for a different
+  reason: the on-open `visibility` frame races the server's attach and is
+  dropped when it wins, and nothing re-sends it until the tab is shown.
+- **Decide the letterbox font from the size the user CHOSE, never from the
+  one this function last left behind.** Testing overflow against an
+  already-shrunken cell says "it fits" — which is only true because it was
+  shrunk — so the font flapped between the two on alternate frames. And cell
+  metrics read back immediately after assigning `options.fontSize` may be
+  stale, so anything that changes the font re-runs on the next frame
+  (`applyLetterboxSettled`).

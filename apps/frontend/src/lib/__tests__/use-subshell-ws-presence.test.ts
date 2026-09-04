@@ -183,3 +183,23 @@ describe("useSubshellWs capacity reporting", () => {
     expect(ws.frames()).toEqual([{ type: "resize", cols: 50, rows: 18 }]);
   });
 });
+
+describe("useSubshellWs capacity silence", () => {
+  it("says NOTHING rather than echoing when a pinning caller cannot measure", async () => {
+    // `capacity()` returning null means "I could not measure right now" (a
+    // sash mid-drag, no cell metrics yet) — NOT "use the terminal's grid".
+    // That grid is the server's own answer, so falling back to it is the
+    // echo that strands the pane at the smallest viewer's size forever.
+    const ws = await attach({}, () => null);
+    ws.sent.length = 0;
+    ws.term._onResize?.({ cols: 50, rows: 18 });
+    expect(ws.frames()).toEqual([]);
+  });
+
+  it("declares hidden on the connect URL, not only in a frame", async () => {
+    // The on-open frame races the server's attach awaits and is dropped when
+    // it wins; unlike a resize, nothing re-sends it until the tab is shown.
+    await attach();
+    expect(new URL(urls[0]).searchParams.get("hidden")).toBe(document.hidden ? "1" : "0");
+  });
+});

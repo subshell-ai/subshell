@@ -55,7 +55,6 @@ function SubshellPage() {
   const [closed, setClosed] = useState(false);
   /** Whether the Find bar is up — see the header actions row for why it matters. */
   const [findOpen, setFindOpen] = useState(false);
-  /** Superseded by a newer viewer (close 4003) — the subshell runs, elsewhere. */
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { subshell, isLoading, isError, isNotFound, exited, dead } = useSubshellData(id);
