@@ -50,8 +50,9 @@ jobs:
       - name: Run Package(s) Tests
         run: bun run test
 
-      # bun build --compile has shipped import-graph defects only the compiled
-      # artifact reproduces (oven-sh/bun#31586) — `bun test` runs sources and cannot see them.
+      # Compiled-binary smoke guards against bundler import-graph defects
+      # (e.g. oven-sh/bun#31586 — zod subpath duplication) that source-level
+      # `bun test` cannot see.
       - name: Compiled binary smoke
         run: |
           set -euo pipefail
@@ -67,6 +68,7 @@ jobs:
           # the refusal deterministic — a leaked SUBSHELL_* env must never let
           # it connect instead.
           tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
           cd "$tmp"
           set +e
           out="$(env -i PATH="$PATH" HOME="$tmp" "$bin" mcp </dev/null 2>&1)"
