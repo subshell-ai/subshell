@@ -12,9 +12,9 @@ import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
-import { sendInput } from "@/lib/subshell-frames.js";
+import { sendInput, sendResize } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
-import { type Box, boxForGrid, type Grid, scrollbarReserve } from "@/lib/terminal-geometry";
+import { type Box, type BoxInsets, boxForGrid, type Grid, gridForBox, scrollbarReserve } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSubshellWs } from "@/lib/use-subshell-ws";
@@ -164,6 +164,24 @@ export function isSubshellDead(subshell?: SubshellView): boolean {
 }
 
 /**
+ * The pixels a box loses before any cell is drawn, read from the live
+ * terminal: the element's own padding plus the width FitAddon holds back for
+ * the scrollbar. Shared so the letterbox and the capacity report cannot drift
+ * apart — they are inverses of each other and must subtract the same edges.
+ * @param term - The live terminal
+ * @returns Padding and scrollbar reserve in CSS px
+ */
+function terminalInsets(term: Terminal): BoxInsets {
+  const style = term.element ? getComputedStyle(term.element) : null;
+  const px = (value: string | undefined): number => (value ? Number.parseInt(value, 10) || 0 : 0);
+  return {
+    padX: px(style?.paddingLeft) + px(style?.paddingRight),
+    padY: px(style?.paddingTop) + px(style?.paddingBottom),
+    reserve: scrollbarReserve({ scrollback: term.options.scrollback, scrollbar: term.options.scrollbar }),
+  };
+}
+
+/**
  * An xterm terminal attached to one subshell over the subshell WebSocket.
  *
  * Owns the terminal lifecycle (addons, fit loop, disposal), the socket attach
@@ -187,6 +205,9 @@ export function SubshellTerminal({
   diagnostics = null,
   extraActions,
 }: SubshellTerminalProps) {
+  // The pane box. The terminal's own container is pinned to the pane's grid
+  // and is therefore NOT a measure of how much room this viewport has.
+  const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const serializeRef = useRef<SerializeAddon | null>(null);
@@ -219,19 +240,31 @@ export function SubshellTerminal({
     const grid = paneGridRef.current;
     const cell = term?.dimensions?.css.cell;
     if (!term || !grid || !cell || !(cell.width > 0) || !(cell.height > 0)) return;
-    const style = term.element ? getComputedStyle(term.element) : null;
-    const px = (value: string | undefined): number => (value ? Number.parseInt(value, 10) || 0 : 0);
-    setLetterbox(
-      boxForGrid(
-        grid,
-        { width: cell.width, height: cell.height },
-        {
-          padX: px(style?.paddingLeft) + px(style?.paddingRight),
-          padY: px(style?.paddingTop) + px(style?.paddingBottom),
-          reserve: scrollbarReserve({ scrollback: term.options.scrollback, scrollbar: term.options.scrollbar }),
-        },
-      ),
+    setLetterbox(boxForGrid(grid, { width: cell.width, height: cell.height }, terminalInsets(term)));
+  }, []);
+
+  /**
+   * Reports the grid this viewport COULD show at the current font size.
+   *
+   * This is the client's only size request, and it is measured against the
+   * OUTER box — the pane — never the terminal's own container. The container
+   * is pinned to whatever grid the server last announced, so observing it
+   * would be observing our own output: a window resize would never be noticed
+   * and the pane would stay at a stale size forever (measured live: the
+   * window shrank to 522px tall while the terminal stayed pinned at 882px and
+   * 58 rows, clipped, with no resize ever sent).
+   */
+  const reportCapacity = useCallback(() => {
+    const term = termRef.current;
+    const outer = outerRef.current;
+    const cell = term?.dimensions?.css.cell;
+    if (!term || !outer || !cell) return;
+    const capacity = gridForBox(
+      { width: outer.clientWidth, height: outer.clientHeight },
+      { width: cell.width, height: cell.height },
+      terminalInsets(term),
     );
+    if (capacity) sendResizeRef.current(capacity.cols, capacity.rows);
   }, []);
 
   // Sync copies of the callbacks: the xterm key handler and the WS handlers
@@ -251,6 +284,9 @@ export function SubshellTerminal({
   // re-create the terminal on every reconnect); it is re-pointed at the
   // current socket ref on every render, and reads it at call time.
   const sendToSubshellRef = useRef<(data: string) => void>(() => {});
+  // Reports this client's CAPACITY to the server. Same late-binding trick as
+  // sendToSubshellRef: the mount effect must not depend on the socket.
+  const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
   // Assigned every render below the uploads hook; the onReady handle forwards
   // to it so the closure captured at terminal-setup time never goes stale.
   const openImagePickerRef = useRef<() => void>(() => {});
@@ -382,6 +418,12 @@ export function SubshellTerminal({
       fit.fit();
       repairCursorVisibility();
     });
+    // The pane box drives the SIZE REQUEST. Separate from the observer above,
+    // which watches the terminal's own container: once that container is
+    // pinned to the server's grid it stops tracking the viewport, so it can
+    // no longer answer "how much room is there now?".
+    const capacityRo = new ResizeObserver(() => reportCapacity());
+    if (outerRef.current) capacityRo.observe(outerRef.current);
     // Live re-apply when the Settings card changes the size: xterm takes
     // option changes without a grid rebuild; the refit re-derives columns.
     const onFontSetting = (e: Event) => {
@@ -483,6 +525,7 @@ export function SubshellTerminal({
       window.removeEventListener(TERM_FONT_EVENT, onFontSetting);
       container.removeEventListener("focusout", onFocusOut);
       ro.disconnect();
+      capacityRo.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a
       // real unmount there is nothing left to render it into.
       // The next terminal learns the pane's grid from its own attach's
@@ -500,9 +543,10 @@ export function SubshellTerminal({
       fitRef.current = null;
     };
   }, [
-    active, // The pane's grid has not changed, but its cell size has, so the box
+    active,
     // that holds exactly that grid is a different box.
     applyLetterbox,
+    reportCapacity,
   ]);
 
   /** Records the new socket status and reports it to the caller. */
@@ -564,6 +608,7 @@ export function SubshellTerminal({
   }, [active, emitStatus]);
 
   sendToSubshellRef.current = (data) => sendInput(wsRef.current, data);
+  sendResizeRef.current = (cols, rows) => sendResize(wsRef.current, cols, rows);
 
   const uploads = useTerminalUploads({ subshellId, wsRef, termRef, enabled: showUploads });
   openImagePickerRef.current = uploads.openImagePicker;
@@ -600,7 +645,7 @@ export function SubshellTerminal({
               in the pane; `letterbox` is null until the pane's real size is
               known (and forever for panes whose size cannot be read), and
               then this is exactly the old fill-the-box layout. */}
-          <div className="flex h-full w-full items-center justify-center overflow-hidden">
+          <div ref={outerRef} className="flex h-full w-full items-center justify-center overflow-hidden">
             <div
               ref={containerRef}
               style={
