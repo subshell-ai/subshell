@@ -80,9 +80,10 @@ export interface CliDeps {
   /** Executable lookup for the tmux preflight (default: `Bun.which`). */
   which?: (name: string) => string | null;
   /**
-   * fs/PATH/executable seams for the `status` mcp-entrypoint probe
-   * (default: the real ones — see `probeMcpLaunch` in mcp-resolve.ts).
-   * Injectable so tests pin the rung without a fake filesystem.
+   * PATH/executable seams for the `status` mcp-entrypoint probe
+   * (`which`/`execPath`/`argv1`; default: the real ones — see
+   * `probeMcpLaunch` in mcp-resolve.ts). Injectable so tests pin the rung
+   * without touching a real PATH or process identity.
    */
   mcpIo?: McpResolveIo;
   /**
@@ -147,6 +148,8 @@ export function isCliEngaged(): boolean {
  * @returns Promise of "handled" — true when the command owns the process.
  *   With default `deps` a handled command has already `process.exit`ed by
  *   the time this resolves (invariant 1); the boolean is the TEST seam.
+ *   The one exception is `mcp`'s success path: handled-but-never-settling —
+ *   the process lives on with the stdio transport (see the case comment).
  */
 export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<boolean> {
   const log = deps.log ?? ((line: string) => console.log(line));
@@ -426,10 +429,11 @@ function runStatus(log: (line: string) => void, deps: CliDeps): void {
 
   // Can THIS process spawn `subshell mcp`? Every subshell create registers it
   // into the harness config, so an unresolvable entrypoint means create 500s
-  // — the standalone release binary with no sibling, no dist, and no
-  // `subshell` agent on PATH is the shape that hides this until a user clicks
-  // create. The probe reads the merged env (the prelude applied config.env
-  // before dispatch), so SUBSHELL_MCP_COMMAND from the file counts.
+  // — rare now that binaries self-resolve: the remaining miss is a
+  // bun-interpreted run with no usable argv[1] and no `subshell` agent on
+  // PATH (or an exotic execPath), and it hides until a user clicks create.
+  // The probe reads the merged env (the prelude applied config.env before
+  // dispatch), so SUBSHELL_MCP_COMMAND from the file counts.
   const mcpProbe = probeMcpLaunch(process.env, deps.mcpIo ?? {});
   log(
     mcpProbe.spec

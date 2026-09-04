@@ -193,7 +193,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
         settingsFields: harness.settingsFields(),
         suggestedEnv: harness.suggestedEnv(),
         suggestedFlags: harness.suggestedFlags(),
-        // The manual steps embed this deployment's real subshell-mcp launch
+        // The manual steps embed this deployment's real `subshell mcp` launch
         // (display variant: an editor page must never fail on resolution).
         mcp: harness.mcpSetup(resolveMcpLaunchForDisplay()),
       };
