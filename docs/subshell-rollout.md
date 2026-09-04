@@ -109,6 +109,16 @@ must move in one pass.
    same sessions/nodes (WS supersede kicks → a permanent dial/reconnect loop
    until one is disabled). The old unit FILE stays until post-smoke cleanup.
 
+   The new unit MUST carry `KillMode=process` (svc.sh writes it since
+   2026-09-04; hosts rolled out before that need
+   `~/.config/systemd/user/subshell-server.service.d/keep-panes.conf`):
+   the backend's tmux servers live in this unit's cgroup, and the default
+   control-group kill SIGKILLs every live pane on stop/restart — the
+   `mote.service.d/keep-panes.conf` drop-in does NOT follow a renamed unit,
+   and that is exactly how all running sessions died on the 2026-09-03
+   restart after this rollout. Verify:
+   `systemctl --user show subshell-server.service -p KillMode` → `process`.
+
 10. **Re-enroll node hosts**: on each node, run the new enroll command from the
     Nodes page (fresh setup key). The old `mote-agent` binaries still dial in,
     but their rows can be deleted in the Nodes page once the new enrollments

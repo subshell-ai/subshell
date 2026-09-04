@@ -79,6 +79,11 @@ Environment=PATH=$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=$(command -v bun) run ./apps/server/dist/index.js
 Restart=unless-stopped
 RestartSec=3
+# Panes are stateful daemons: the backend spawns each local subshell's tmux
+# server inside this unit's cgroup, and systemd's default control-group kill
+# would SIGKILL every live pane on stop/restart (observed 2026-09-01 and
+# 2026-09-03). Only the main process is a restart/stop target.
+KillMode=process
 
 [Install]
 WantedBy=default.target

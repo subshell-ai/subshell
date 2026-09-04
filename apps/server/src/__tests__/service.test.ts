@@ -113,6 +113,7 @@ EnvironmentFile=${CONFIG}/config.env
 ExecStart=/usr/local/bin/subshell-server
 Restart=always
 RestartSec=5
+KillMode=process
 
 [Install]
 WantedBy=default.target
@@ -209,6 +210,9 @@ describe("installService — macOS (launchd agent)", () => {
     expect(plist).toInclude("<string>dev.subshell.server</string>");
     expect(plist).toInclude("<key>KeepAlive</key>");
     expect(plist).toInclude("<key>RunAtLoad</key>");
+    // launchd's twin of KillMode=process: a stopped agent must not take its
+    // tmux children (the live panes) with it.
+    expect(plist).toInclude("<key>AbandonProcessGroup</key>");
     expect(plist).toInclude("<string>/usr/local/bin/subshell-server</string>");
     // The log is the SERVER's own file — never the client's subshell.log.
     expect(plist.split(LOG).length - 1).toBe(2); // StandardOutPath AND StandardErrorPath

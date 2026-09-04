@@ -158,6 +158,13 @@ const systemdExecStart = (line: string[]): string => line.map(systemdQuote).join
  *   loops with EADDRINUSE; the default start-limit would park the unit in
  *   `failed` until a manual reset. The client unit has no such loop-prone
  *   boot failure, which is why it does not carry this line.
+ * - `KillMode=process` — the server spawns each LOCAL subshell's tmux server
+ *   as a child, so those servers inherit this unit's cgroup; systemd's
+ *   default control-group kill SIGKILLs every live pane on stop/restart
+ *   (observed twice: 2026-09-01, and again 2026-09-03 when a renamed unit
+ *   shipped without the manual drop-in). The panes are stateful daemons by
+ *   design — the boot reconciler re-adopts them — so only the main process
+ *   is a restart/stop target.
  */
 function systemdUnit(exec: string, configDir: string, pathEnv?: string): string {
   // systemd user units get a stock PATH (`/usr/bin:/bin:…`), NOT the
@@ -178,6 +185,7 @@ EnvironmentFile=${systemdQuote(join(configDir, "config.env"))}
 ExecStart=${exec}
 Restart=always
 RestartSec=5
+KillMode=process
 
 [Install]
 WantedBy=default.target
@@ -216,6 +224,8 @@ ${argLines}
 ${envBlock}\t<key>RunAtLoad</key>
 \t<true/>
 \t<key>KeepAlive</key>
+\t<true/>
+\t<key>AbandonProcessGroup</key>
 \t<true/>
 \t<key>StandardOutPath</key>
 \t<string>${xmlEscape(logPath)}</string>

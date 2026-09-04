@@ -80,7 +80,15 @@ function systemdQuote(arg: string): string {
 /** Join an exec line into a systemd-safe `ExecStart=` value. */
 const systemdExecStart = (line: string[]): string => line.map(systemdQuote).join(" ");
 
-/** systemd user-unit body — the exact lines the tests pin. */
+/**
+ * systemd user-unit body — the exact lines the tests pin. Carries
+ * `KillMode=process`: the daemon spawns each pane's tmux server as a child
+ * inside this unit's cgroup, so systemd's default control-group kill would
+ * SIGKILL every live subshell on any stop/restart (same failure observed
+ * 2026-09-01/03 on the server unit). The panes are stateful daemons by
+ * design — the connect-time `subshells_report` re-adopts them after a daemon
+ * restart — so only the main process is a kill target.
+ */
 function systemdUnit(exec: string, pathEnv?: string): string {
   // systemd user units get a stock PATH (`/usr/bin:/bin:…`), NOT the
   // installer's shell PATH — so a tmux from Homebrew/Nix that made the enroll
@@ -97,6 +105,7 @@ Wants=network-online.target
 ${environment}ExecStart=${exec}
 Restart=always
 RestartSec=5
+KillMode=process
 
 [Install]
 WantedBy=default.target
@@ -129,6 +138,8 @@ ${argLines}
 ${envBlock}\t<key>RunAtLoad</key>
 \t<true/>
 \t<key>KeepAlive</key>
+\t<true/>
+\t<key>AbandonProcessGroup</key>
 \t<true/>
 \t<key>StandardOutPath</key>
 \t<string>${xmlEscape(logPath)}</string>

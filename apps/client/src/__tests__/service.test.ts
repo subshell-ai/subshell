@@ -93,6 +93,9 @@ describe("installService — linux (systemd user unit)", () => {
     expect(unit).toInclude("ExecStart=/usr/local/bin/subshell run");
     expect(unit).toInclude("Restart=always");
     expect(unit).toInclude("RestartSec=5");
+    // Panes are stateful daemons — a stop/restart must kill only the daemon,
+    // never the tmux servers in its cgroup (spec: keep-panes, 2026-09-03).
+    expect(unit).toInclude("KillMode=process");
 
     expect(s.calls).toEqual([
       ["systemctl", "--user", "daemon-reload"],
@@ -134,6 +137,9 @@ describe("installService — macOS (launchd agent)", () => {
     expect(plist).toInclude("<string>dev.subshell.client</string>");
     expect(plist).toInclude("<key>KeepAlive</key>");
     expect(plist).toInclude("<key>RunAtLoad</key>");
+    // launchd's twin of KillMode=process: a stopped agent must not take its
+    // tmux children (the live panes) with it.
+    expect(plist).toInclude("<key>AbandonProcessGroup</key>");
     expect(plist).toInclude("<string>/usr/local/bin/subshell</string>");
     expect(plist).toInclude("<string>run</string>");
     expect(plist.split(LOG).length - 1).toBe(2); // StandardOutPath AND StandardErrorPath
