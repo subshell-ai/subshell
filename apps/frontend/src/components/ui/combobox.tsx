@@ -1,5 +1,5 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import type { JSX } from "react";
+import { type JSX, useRef } from "react";
 
 /** One row in a {@link SearchableSelect} list. */
 export interface ComboboxOption {
@@ -48,17 +48,44 @@ export function SearchableSelect({
   // plain id string. Object identity would break under rebuilt arrays, so
   // equality compares ids.
   const selected = options.find((o) => o.value === value) ?? null;
+
+  // The phone scroll-back (2026-09-04): focusing the type-to-filter input
+  // makes a touch browser scroll it "into view" — inside a dialog that means
+  // the dialog's own scroller slides (often to its bottom), and when the
+  // popup is dismissed the shift STAYS, leaving the dialog header off-screen
+  // (user report 2026-09-04, pinned by the 08-mobile-shell regression).
+  // Record the scroller's position at pointerdown — before the focus, the
+  // keyboard, and any shift — and put it back when the popup closes. The
+  // dropdown covers the dialog while open, so restoring unconditionally
+  // cannot trample a deliberate dialog scroll.
+  const scrollerRef = useRef<{ el: Element; top: number } | null>(null);
   return (
     <ComboboxPrimitive.Root
       items={options}
       value={selected}
       isItemEqualToValue={(a: ComboboxOption, b: ComboboxOption) => a.value === b.value}
       onValueChange={(opt: ComboboxOption | null) => onValueChange(opt?.value ?? "")}
+      onOpenChange={(open) => {
+        if (open) return;
+        const saved = scrollerRef.current;
+        scrollerRef.current = null;
+        if (saved?.el.isConnected && saved.el.scrollTop !== saved.top) saved.el.scrollTop = saved.top;
+      }}
       filter={(item: ComboboxOption, query: string) => item.label.toLowerCase().includes(query.toLowerCase())}
     >
       <ComboboxPrimitive.Input
         id={id}
         placeholder={placeholder}
+        onPointerDownCapture={() => {
+          // CAPTURE phase, before Base UI's own target-phase pointerdown
+          // (which opens + focuses, and the focus is what shifts the
+          // scroller): snapshot the nearest scroller while it still holds
+          // the position the user chose — typically the Dialog's inner
+          // overflow wrapper (see ui/dialog.tsx).
+          const anchor = document.getElementById(id);
+          const scroller = anchor?.closest('[data-slot="dialog-content"] > div') ?? document.scrollingElement;
+          if (scroller) scrollerRef.current = { el: scroller, top: scroller.scrollTop };
+        }}
         className="flex h-9 w-full items-center whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
       <ComboboxPrimitive.Portal>
