@@ -622,6 +622,55 @@ export async function resizePaneForClient(ws: WsSocket, data: WsData, cols: numb
   }
 }
 
+/**
+ * Quiet window after which the client is re-based on the pane (see the
+ * DRIFT RESYNC note in `startLogTail`).
+ *
+ * This is a VISIBLE latency: until the repaint lands, the client is showing
+ * whatever the drifted frame painted, which the 2026-09-04 reporter saw as
+ * "it flashes duplicate text, then looks normal". One of the app's frames is
+ * a handful of chunks a few milliseconds apart, so a short window still never
+ * lands mid-frame (and `pumping`/`resyncTimer` are re-checked before sending),
+ * while keeping the artifact below the ~100 ms at which a flash reads as a
+ * flicker rather than as corruption.
+ */
+const RESYNC_QUIET_MS = 70;
+
+/**
+ * An ABSOLUTE repaint of the pane's visible grid, as plain terminal bytes:
+ * home, then every row rewritten and cleared to end-of-line, then the pane's
+ * real cursor.
+ *
+ * This is the drift cure. Everything else on the attach path is incremental —
+ * the app's relative moves and differential rewrites assume the client's grid
+ * still matches its model, and a single clamped cursor move breaks that
+ * assumption permanently (2026-09-04). An absolute repaint depends on NO
+ * prior state, so whatever the client had drifted to is overwritten.
+ *
+ * Visible grid only (no history): scrollback is already written and must not
+ * be duplicated, and `rows` lines joined by `rows - 1` separators leave the
+ * cursor inside the grid without scrolling.
+ *
+ * @returns the repaint bytes, or null when the pane cannot be read (gone) or
+ *   the machine cannot report its cursor (a remote agent — those clients keep
+ *   the pre-resync behavior rather than getting a cursor-less repaint)
+ */
+export async function paneResyncBytes(launcher: NodeLauncher, socket: string, id: string): Promise<string | null> {
+  try {
+    const cursor = await launcher.paneCursor(socket, id);
+    if (!cursor) return null;
+    const grid = await launcher.capture(socket, id, 0);
+    if (grid == null) return null;
+    const rows = captureToTerminalText(grid)
+      .replace(/\r\n$/, "")
+      .split("\r\n")
+      .map((r) => `${r}\x1b[K`);
+    return `\x1b[H${rows.join("\r\n")}\x1b[${cursor.y + 1};${cursor.x + 1}H`;
+  } catch {
+    return null; // pane vanished mid-read; the next tick or attach re-bases
+  }
+}
+
 /** Pause between {@link captureQuietJoin} attempts — a capture window is ~10 ms, an animation tick's silence ~100 ms. */
 const CAPTURE_RETRY_MS = 40;
 /** Extra attach latency the quiet-join attempt may add before the overlap join takes over. */
@@ -744,12 +793,43 @@ function startLogTail(ws: WsSocket, data: WsData): void {
           if (!text) continue;
           ws.send(JSON.stringify({ type: "output", data: text }));
           persistOutput(ws, data);
+          armResync();
         }
       } catch {
         // file gone
       }
     } while (again);
     pumping = false;
+  }
+
+  // DRIFT RESYNC (2026-09-04). The client tracks the pane by applying the
+  // app's own bytes, and those bytes are almost entirely RELATIVE moves
+  // (`ESC[nA`/`ESC[nB`) with differential rewrites. Relative moves CLAMP at
+  // the screen edges, and a clamped `ESC[14A` followed by an unclamped
+  // `ESC[14B` does not cancel — so from some cursor rows the pair silently
+  // shifts everything, and the client and the pane stop agreeing about which
+  // row is which. Measured: identical bytes from cursor row 26 kept xterm and
+  // tmux byte-identical, while from row 12 they diverged and every later
+  // frame landed ~8 rows high (labels painted over the transcript).
+  //
+  // Rather than hope every sequence replays identically forever, re-base the
+  // client on the pane whenever the pane goes quiet: an ABSOLUTE repaint of
+  // the visible grid (home, per-row erase, then the pane's real cursor) is
+  // idempotent and wipes any accumulated drift. It rides the normal output
+  // stream, so the client needs no new frame type — and it costs one
+  // `capture-pane` per idle transition, not per byte.
+  let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+  function armResync(): void {
+    if (resyncTimer) clearTimeout(resyncTimer);
+    resyncTimer = setTimeout(() => {
+      resyncTimer = null;
+      void (async () => {
+        const bytes = await paneResyncBytes(data.launcher, data.socket, data.subshellId);
+        // Only while nothing new has arrived: a repaint injected mid-frame
+        // would itself be the corruption it exists to prevent.
+        if (bytes && !pumping && !resyncTimer) ws.send(JSON.stringify({ type: "output", data: bytes }));
+      })();
+    }, RESYNC_QUIET_MS);
   }
 
   let watcher: FSWatcher | null = null;
@@ -769,6 +849,8 @@ function startLogTail(ws: WsSocket, data: WsData): void {
     stripper.flush(); // held partial-sequence bytes belong to the next attach
     watcher?.close();
     clearInterval(timer);
+    if (resyncTimer) clearTimeout(resyncTimer);
+    resyncTimer = null;
   };
 }
 
