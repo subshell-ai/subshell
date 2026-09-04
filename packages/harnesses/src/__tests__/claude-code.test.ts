@@ -281,5 +281,10 @@ describe("ClaudeCodePlugin attention hooks", () => {
     expect(ssCmd).toContain("session_id");
     expect(ssCmd).not.toContain("transcript_path");
     expect(ssCmd).not.toContain("last_assistant_message");
+    // Both awaits are bounded: a self-kill timer caps the whole hook (a
+    // SessionStart hook blocks the pane start until it exits), and a short
+    // fetch timeout caps the POST.
+    expect(ssCmd).toContain("setTimeout(()=>process.exit(0),4000)");
+    expect(ssCmd).toContain("AbortSignal.timeout(2000)");
   });
 });

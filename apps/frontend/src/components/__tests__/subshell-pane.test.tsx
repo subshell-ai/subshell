@@ -130,6 +130,21 @@ describe("SubshellPane node-offline state (spec §5.6 precedence)", () => {
     expect(screen.queryByText(/subshell exited/i)).toBeNull();
   });
 
+  it("node-offline outranks terminated too — a kill on an unreachable node is unverified, and Restart would 409", () => {
+    renderPane(
+      <SubshellPane
+        pane={paneRow({ subshellNodeOffline: true, subshellStatus: "terminated", subshellAlive: false })}
+        active
+        showKeyBar
+        onRestart={() => {}}
+        onRemovePane={() => {}}
+      />,
+    );
+    expect(screen.getByText(/node offline/i)).toBeDefined();
+    expect(screen.queryByText(/subshell ended/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /restart/i })).toBeNull();
+  });
+
   it("the offline panel offers Remove pane but not Restart (restart 409s while the node is away)", () => {
     renderPane(
       <SubshellPane

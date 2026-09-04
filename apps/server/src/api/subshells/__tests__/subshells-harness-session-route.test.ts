@@ -28,10 +28,12 @@ describe("POST /api/subshells/:id/harness-session (self-only)", () => {
   const createdSubshells: string[] = [];
   const createdKeys: string[] = [];
 
+  let ownerCookie: string;
+
   beforeAll(async () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
-    await signIn(email, pw);
+    ownerCookie = await signIn(email, pw);
   });
 
   afterAll(async () => {
@@ -95,6 +97,18 @@ describe("POST /api/subshells/:id/harness-session (self-only)", () => {
     expect(res.status).toBe(400);
     const row = await new SubshellsRepository(db).findById(a.id);
     expect(row?.harnessSessionId).toBeNull();
+  });
+
+  it("a cookie actor (even the owner) is turned away — harness-only endpoint", async () => {
+    const a = await subshellWithToken();
+    const res = await app.fetch(
+      new Request(`http://localhost:3080/api/subshells/${a.id}/harness-session`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: `better-auth.session_token=${ownerCookie}` },
+        body: JSON.stringify({ sessionId: crypto.randomUUID() }),
+      }),
+    );
+    expect(res.status).toBe(403);
   });
 
   it("a terminated row silently drops the report (200, no write)", async () => {

@@ -28,6 +28,11 @@ credential kinds:
     when the subshell is terminated/deleted (restart rotates the key — auto or
     manual — on the same row). This is what the
     `subshell mcp` server and any harness tooling authenticate with.
+    Harness **self-report** surfaces (`POST /api/subshells/:id/attention`,
+    `POST /api/subshells/:id/harness-session`) accept only the subshell's
+    OWN key acting on its OWN row — a harness can report its state, never
+    another's; a forged session id merely selects an existing transcript
+    the pane's user could already read.
   - *System keys*: long-lived, no permission ceiling, owned by the `system` service user,
     created by admins under **Settings → System API keys** (plaintext shown exactly once;
     only a hash is stored). Treat them as full-access bearer credentials — disable/delete

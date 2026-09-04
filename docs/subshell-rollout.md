@@ -110,7 +110,7 @@ must move in one pass.
    until one is disabled). The old unit FILE stays until post-smoke cleanup.
 
    The new unit MUST carry `KillMode=process` (svc.sh writes it since
-   2026-09-04; hosts rolled out before that need
+   2026-09-03; hosts rolled out before that need
    `~/.config/systemd/user/subshell-server.service.d/keep-panes.conf`):
    the backend's tmux servers live in this unit's cgroup, and the default
    control-group kill SIGKILLs every live pane on stop/restart — the

@@ -126,13 +126,19 @@ const attentionPing = (kind: string): string =>
  * payload is pure metadata ({session_id, transcript_path, cwd, source,…})
  * and ONLY `session_id` is forwarded; the response is fire-and-forget like
  * the pings — every failure path is swallowed.
+ *
+ * Both awaits are bounded: a self-kill timer caps the WHOLE hook (4 s — an
+ * unclosed stdin must never stall the pane start, and a SessionStart hook
+ * blocks the harness until it exits) and a 2 s fetch timeout caps the POST
+ * (a lost report is harmless — the next transition re-reports).
  */
 const sessionReportPing = (): string =>
   `bun -e '` +
+  `setTimeout(()=>process.exit(0),4000);` +
   `try{const j=JSON.parse(await Bun.stdin.text());` +
   `if(j.session_id)await fetch(process.env.SUBSHELL_BASE_URL+"/api/subshells/"+process.env.SUBSHELL_ID+"/harness-session",` +
   `{method:"POST",headers:{authorization:"Bearer "+process.env.SUBSHELL_API_KEY,"content-type":"application/json"},` +
-  `body:JSON.stringify({sessionId:j.session_id}),signal:AbortSignal.timeout(5000)})}catch{}` +
+  `body:JSON.stringify({sessionId:j.session_id}),signal:AbortSignal.timeout(2000)})}catch{}` +
   `process.exit(0)'`;
 
 /** The `--settings` hooks object injected into every Claude Code launch. */

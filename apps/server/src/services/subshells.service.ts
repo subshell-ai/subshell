@@ -510,6 +510,13 @@ export class SubshellsService extends BaseService {
   async recordHarnessSession(id: string, sessionId: string): Promise<void> {
     const row = await this.repos.subshells.findById(id);
     if (row?.status !== "running" || row.harnessSessionId === sessionId) return;
+    // Known benign race (review 2026-09-04): a report in flight during a
+    // restart can land after the respawn planned on the older pin, or the
+    // respawn's own write can clobber a just-landed report — a last-write
+    // no CAS. Both ids are always REAL transcripts of this user's, and the
+    // live pane's next SessionStart report reconverges the row. A CAS on
+    // harnessSessionId would close the window for a write that is self-
+    // healing within one transition; deliberately not worth it here.
     await this.repos.subshells.update(id, { harnessSessionId: sessionId });
   }
 

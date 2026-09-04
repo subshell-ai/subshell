@@ -55,11 +55,12 @@ export function SubshellPane({
 }: SubshellPaneProps) {
   const exited = pane.subshellStatus === "running" && !pane.subshellAlive;
   const gone = exited || pane.subshellStatus === "terminated";
-  // Spec §5.6 precedence, the pane-surface twin of the home cards: while the
-  // node is away the process state is UNOBSERVABLE, not dead — neither an
-  // alive row (no attach possible) nor a stale exited stamp gets to decide
-  // what this pane claims about reality.
-  const nodeOffline = pane.subshellNodeOffline === true && pane.subshellStatus === "running";
+  // Spec §5.6 precedence, the pane-surface twin of subshell-indicator: while
+  // the node is away the process state is UNOBSERVABLE, not dead — the flag
+  // outranks EVERY row state, terminated included (a kill on an unreachable
+  // node is killUnverified — the pane may literally still be running there),
+  // exactly like the cards, the badges, and the detail header.
+  const nodeOffline = pane.subshellNodeOffline === true;
   // A crashed subshell explains itself even in a pane: fetch the pane log's
   // tail for the exited state only (terminated was deliberate — no inquest).
   const { data: logTail } = useSubshellLog(pane.subshellId, exited);
