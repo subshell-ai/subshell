@@ -10,7 +10,30 @@ const STUB_PI = path.join(ROOT, "e2e", "stub", "pi");
 
 interface Stack {
   dir: string;
+  /** Scratch `TMUX_TMPDIR` — separate from `dir`, see {@link shortTmuxBase}. */
+  tmuxBase: string;
   child?: ReturnType<typeof spawn>;
+}
+
+/**
+ * A unix domain socket path cannot exceed the kernel's `sun_path` field —
+ * 104 bytes on macOS, 108 on Linux — and tmux expands `-L <name>` to
+ * `$TMUX_TMPDIR/tmux-<uid>/<name>`, so the base directory has to leave room
+ * for roughly 31 more characters.
+ *
+ * `os.tmpdir()` cannot: on macOS it is a per-user `/var/folders/...` path that
+ * the kernel resolves with a `/private` prefix, and
+ * `/private/var/folders/18/<44 chars>/T/subshell-e2e-XXXXXX/tmux/tmux-501/subshell-<12 hex>`
+ * measures 112 bytes. Every subshell create then failed with tmux's
+ * "File name too long", surfaced to the browser as a bare `API 500` — six
+ * specs, all of which looked like terminal regressions and were not.
+ *
+ * So the tmux base gets its own short root while the DB, data dir and logs
+ * stay in the regular scratch dir where their length does not matter.
+ */
+export function shortTmuxBase(): string {
+  const base = mkdtempSync(path.join("/tmp", "ss-e2e-"));
+  return path.join(base, "t");
 }
 
 declare global {
@@ -44,7 +67,7 @@ export async function startStack(): Promise<void> {
   // tmux only honours TMUX_TMPDIR when the directory already exists (it does
   // not mkdir the base itself on this build), so create it before the backend
   // could ever spawn a server.
-  const tmuxBase = path.join(dir, "tmux");
+  const tmuxBase = shortTmuxBase();
   mkdirSync(tmuxBase, { recursive: true });
 
   const child = spawn("bun", ["run", "src/index.ts"], {
@@ -82,7 +105,7 @@ export async function startStack(): Promise<void> {
   });
   child.unref();
 
-  globalThis.e2eStack = { dir, child };
+  globalThis.e2eStack = { dir, tmuxBase, child };
   await waitForReady();
 
   // Warm the per-request harness detection: on a host where the real
@@ -108,13 +131,12 @@ function readdirSafe(dir: string): string[] {
 
 /**
  * Kills every tmux server whose socket lives under the run's scratch TMUX
- * dir (`${dir}/tmux/tmux-<uid>/<socket>`, see startStack). `kill-server`
+ * dir (`<tmuxBase>/tmux-<uid>/<socket>`, see startStack). `kill-server`
  * tears down the daemon plus its pane processes (stub-`pi` loops) and its
  * `pipe-pane` log shims. Sockets belonging to already-dead servers just make
  * tmux exit non-zero, which is ignored per-socket.
  */
-function killScratchTmuxServers(dir: string): void {
-  const base = path.join(dir, "tmux");
+function killScratchTmuxServers(base: string): void {
   for (const uidDir of readdirSafe(base)) {
     for (const socket of readdirSafe(path.join(base, uidDir))) {
       try {
@@ -157,7 +179,7 @@ export async function stopStack(): Promise<void> {
     // Tmux servers FIRST: they escaped the backend's process group when they
     // daemonised, so the group SIGTERM below cannot reach them and they must
     // die while their sockets are still enumerable under the scratch dir.
-    killScratchTmuxServers(stack.dir);
+    killScratchTmuxServers(stack.tmuxBase);
 
     const child = stack.child;
     if (child?.pid) {
@@ -180,6 +202,9 @@ export async function stopStack(): Promise<void> {
       }
     }
     rmSync(stack.dir, { recursive: true, force: true });
+    // The tmux base has its own short root (see shortTmuxBase), so it is
+    // not swept by the line above; remove that root, not just the leaf.
+    rmSync(path.dirname(stack.tmuxBase), { recursive: true, force: true });
   }
   globalThis.e2eStack = undefined;
 }

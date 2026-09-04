@@ -209,6 +209,10 @@ export class TmuxRunner {
    * rolls back to `terminated`, i.e. a restart button that just fails.
    */
   newSubshell(socket: string, subshellName: string, cwd: string, cmd: string): void {
+    // Before the spawn, so an over-long TMUX_TMPDIR is reported as itself
+    // rather than as tmux's bare "File name too long" — and so the retry loop
+    // below does not spend its budget on a failure no retry can fix.
+    assertSocketPathFits(socket);
     const args = ["-L", socket, "new-session", "-d", "-s", subshellName, "-c", cwd, cmd];
     for (let attempt = 0; ; attempt++) {
       try {
@@ -340,6 +344,49 @@ export class TmuxRunner {
 export function tmuxSocketFor(subshellId: string): string {
   const hash = createHash("sha1").update(subshellId).digest("hex").slice(0, 12);
   return `subshell-${hash}`;
+}
+
+/**
+ * Longest path a unix domain socket may have: the `sun_path` field of
+ * `sockaddr_un`, which is 104 bytes on the BSDs (macOS) and 108 on Linux.
+ * The terminating NUL is included, so the usable length is one less.
+ */
+const SUN_PATH_MAX = process.platform === "darwin" ? 104 : 108;
+
+/**
+ * The filesystem path tmux will bind for `-L <socket>`.
+ *
+ * tmux resolves a socket NAME to `$TMUX_TMPDIR/tmux-<uid>/<name>`, falling
+ * back to `/tmp` when the variable is unset.
+ *
+ * @param socket - The socket name (see {@link tmuxSocketFor})
+ * @returns The absolute socket path
+ */
+export function tmuxSocketPath(socket: string): string {
+  const base = process.env.TMUX_TMPDIR || "/tmp";
+  return `${base}/tmux-${process.getuid?.() ?? 0}/${socket}`;
+}
+
+/**
+ * Throws before tmux is spawned when the socket path cannot fit in
+ * `sun_path`.
+ *
+ * Without this the failure surfaces as tmux's bare "File name too long",
+ * which reached the browser as an opaque `API 500` naming neither the path,
+ * the limit, nor the variable that controls it — every subshell create failed
+ * and nothing on screen said why.
+ *
+ * @param socket - The socket name about to be used
+ * @throws When the resolved path is at or beyond the platform's limit
+ */
+export function assertSocketPathFits(socket: string): void {
+  const socketPath = tmuxSocketPath(socket);
+  // `sun_path` must hold the bytes AND a terminating NUL.
+  if (Buffer.byteLength(socketPath) < SUN_PATH_MAX) return;
+  throw new TmuxError(
+    `tmux socket path is too long (${Buffer.byteLength(socketPath)} bytes; the kernel allows ${SUN_PATH_MAX - 1} on ` +
+      `${process.platform}): ${socketPath}. Point TMUX_TMPDIR at a shorter directory, e.g. TMUX_TMPDIR=/tmp.`,
+  );
 }
 
 class TmuxError extends Error {

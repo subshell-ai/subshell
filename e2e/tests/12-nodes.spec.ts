@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
+import { shortTmuxBase } from "../stack";
 import { type RunningAgent, startAgent } from "../stub/client";
 import { ADMIN_STATE } from "./helpers";
 
@@ -195,7 +196,10 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   // server under the default socket dir for the rest of the run.
   const home = mkdtempSync(path.join(tmpdir(), "subshell-e2e-agent-"));
   const dataDir = path.join(home, "data");
-  const tmuxBase = path.join(home, "tmux");
+  // NOT under `home`: a tmux socket path cannot exceed the kernel's sun_path
+  // (104 bytes on macOS), and `home` is an os.tmpdir() mkdtemp whose macOS
+  // form already spends ~75 of them (see shortTmuxBase in stack.ts).
+  const tmuxBase = shortTmuxBase();
   mkdirSync(tmuxBase, { recursive: true }); // tmux will not mkdir the TMUX_TMPDIR base itself (stack.ts)
   let agent: RunningAgent | undefined;
   let nodeId: string | undefined;
@@ -369,6 +373,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       leaks.push(`setup-key revoke: ${String(err)}`);
     }
     rmSync(home, { recursive: true, force: true });
+    rmSync(path.dirname(tmuxBase), { recursive: true, force: true });
     if (leaks.length > 0) console.error(`[12-nodes] cleanup problems: ${leaks.join("; ")}`);
   }
 });

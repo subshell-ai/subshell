@@ -361,6 +361,43 @@ echo "server exited unexpectedly" >&2; exit 1
     }
   });
 
+  it("refuses an over-long socket path with an actionable error instead of tmux's 'File name too long'", () => {
+    // A unix socket path cannot exceed the kernel's sun_path field (104 bytes
+    // on macOS, 108 on Linux). tmux expands `-L <name>` to
+    // $TMUX_TMPDIR/tmux-<uid>/<name>, so a long TMUX_TMPDIR breaks EVERY
+    // subshell create — and tmux's own "File name too long" reached the
+    // browser as a bare `API 500`, naming neither the path nor the limit.
+    const previous = process.env.TMUX_TMPDIR;
+    process.env.TMUX_TMPDIR = `/tmp/${"x".repeat(120)}`;
+    try {
+      expect(() => runner.newSubshell(freshSocket("toolong"), "s1", "/tmp", "exec sleep 30")).toThrow(
+        /socket path.*too long/i,
+      );
+      // The message has to carry what a human needs to act: the offending
+      // path, the limit it broke, and the variable that controls it.
+      let message = "";
+      try {
+        runner.newSubshell(freshSocket("toolong2"), "s1", "/tmp", "exec sleep 30");
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).toContain("TMUX_TMPDIR");
+      // The USABLE length, one less than sun_path itself (104 on macOS, 108
+      // on Linux) because the field has to hold a terminating NUL too.
+      expect(message).toMatch(/\b(103|107)\b/);
+    } finally {
+      if (previous === undefined) delete process.env.TMUX_TMPDIR;
+      else process.env.TMUX_TMPDIR = previous;
+    }
+  });
+
+  it("allows a normal socket path (the guard does not fire on the default tmpdir)", () => {
+    const socket = freshSocket("guard-ok");
+    runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
+    expect(runner.hasSubshell(socket, "s1")).toBe(true);
+    runner.killSubshell(socket, "s1");
+  });
+
   it("paneSize: reads the window's REAL grid back, and answers null for a gone pane/socket", async () => {
     // The readback that makes a resize verifiable. A fire-and-forget resize
     // measured 51x13 requested against a pane sitting at 51x16, and a grid
