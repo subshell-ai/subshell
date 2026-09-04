@@ -20,9 +20,24 @@ export const SheetClose = Dialog.Close;
 export interface SheetContentProps extends Dialog.Popup.Props {
   /** Edge the panel slides in from (default left). */
   side?: "left" | "right";
+  /**
+   * Render the built-in floating Close X (default true). Hosts whose content
+   * already carries header actions pass false and place their own
+   * `SheetClose`: the floating X rides the panel's top-right corner at a
+   * safe-area-dependent offset, and on phones that put it directly over the
+   * nav drawer's quick-add + — taps on + hit the X instead (the iPhone
+   * report, 2026-09-04: "the x interferes with adding a session").
+   */
+  showClose?: boolean;
 }
 
-export function SheetContent({ className, side = "left", children, ...props }: SheetContentProps): JSX.Element {
+export function SheetContent({
+  className,
+  side = "left",
+  showClose = true,
+  children,
+  ...props
+}: SheetContentProps): JSX.Element {
   return (
     <Dialog.Portal>
       <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/70 opacity-100 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
@@ -39,14 +54,18 @@ export function SheetContent({ className, side = "left", children, ...props }: S
         {...props}
       >
         {children}
-        {/* Insets resolve against the padding box, so top must clear the
-            safe-area inset the Popup carries (keeps the X below the notch). */}
-        <Dialog.Close
-          aria-label="Close"
-          className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] right-3 rounded-sm p-1 text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-2"
-        >
-          <X className="h-4 w-4" />
-        </Dialog.Close>
+        {showClose && (
+          <>
+            {/* Insets resolve against the padding box, so top must clear the
+                safe-area inset the Popup carries (keeps the X below the notch). */}
+            <Dialog.Close
+              aria-label="Close"
+              className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] right-3 rounded-sm p-1 text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-2"
+            >
+              <X className="h-4 w-4" />
+            </Dialog.Close>
+          </>
+        )}
       </Dialog.Popup>
     </Dialog.Portal>
   );

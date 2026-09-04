@@ -10,9 +10,8 @@ import {
   TerminalSquare,
   Users,
 } from "lucide-react";
-import { Fragment, useState } from "react";
-import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialog";
-import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
+import { Fragment, type ReactNode, useState } from "react";
+import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,9 +92,25 @@ async function signOut() {
  * - Nav icons stay navigable AND stay collapsed; their section name shows as
  *   a tooltip on hover.
  */
-export function AppSidebar({ forceExpanded = false, className }: { forceExpanded?: boolean; className?: string }) {
+export function AppSidebar({
+  forceExpanded = false,
+  className,
+  headerEnd,
+  onQuickAdd,
+}: {
+  forceExpanded?: boolean;
+  className?: string;
+  /** Control rendered where the collapse chevron sits — the drawer host puts
+   * its close button here so it can never float over a nav row (see
+   * SheetContent's `showClose`). */
+  headerEnd?: ReactNode;
+  /** Called after a quick-add + opens its dialog; the drawer host uses it to
+   * dismiss the sheet so the dialog is never a second stacked modal. */
+  onQuickAdd?: () => void;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
+  const quickAdd = useQuickAdd();
   // Identity for the user menu (footer). "" fields while in flight — the
   // menu renders its own "Signed in" placeholder (UserMenu owns that string).
   const { data: user } = useCurrentUser();
@@ -113,10 +128,6 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
   // (no server call — the list is already client-side). Same predicate as
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
-  // Quick-add dialogs (spec 2026-09-03 sidebar-quickadd §3): the rail's + buttons
-  // open in place.
-  const [launchOpen, setLaunchOpen] = useState(false);
-  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const q = subshellQuery.trim();
   // Sorted by liveness BEFORE the recents slice (waiting → working → idle →
   // node-offline → exited → ended), so a pile of old ended sessions can never
@@ -182,7 +193,9 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                 className="h-7 w-auto"
               />
             </Link>
-            {!forceExpanded && (
+            {forceExpanded ? (
+              headerEnd
+            ) : (
               <Button
                 variant="ghost"
                 size="icon"
@@ -233,7 +246,10 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                     aria-label="New workspace"
                     title="New workspace"
                     className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => setNewWorkspaceOpen(true)}
+                    onClick={() => {
+                      quickAdd.openNewWorkspace();
+                      onQuickAdd?.();
+                    }}
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
@@ -245,7 +261,10 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
                     aria-label="New subshell"
                     title="New subshell"
                     className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => setLaunchOpen(true)}
+                    onClick={() => {
+                      quickAdd.openLaunch();
+                      onQuickAdd?.();
+                    }}
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
@@ -296,9 +315,6 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
           );
         })}
       </nav>
-
-      <LaunchSubshellDialog open={launchOpen} onOpenChange={setLaunchOpen} />
-      <NewWorkspaceDialog open={newWorkspaceOpen} onOpenChange={setNewWorkspaceOpen} />
 
       <div className="border-border border-t p-2">
         <UserMenu

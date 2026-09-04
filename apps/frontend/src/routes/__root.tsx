@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
+import { QuickAddProvider } from "@/components/quick-add";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
@@ -112,26 +113,28 @@ function Shell() {
   if (gate === "toLogin") return loginRedirect;
 
   return (
-    <div
-      className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
-      style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
-    >
-      {!bare && <OfflineBanner />}
-      {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
+    <QuickAddProvider>
+      <div
+        className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
+        style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
+      >
+        {!bare && <OfflineBanner />}
+        {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
           the top bar so the warning spans the full width (spec §6 banner). */}
-      {user && <EmergencyLoginBanner />}
-      {!wide && !bare && <MobileTopBar />}
-      {/* The live feed covers everything below it — sidebar dots, home cards,
+        {user && <EmergencyLoginBanner />}
+        {!wide && !bare && <MobileTopBar />}
+        {/* The live feed covers everything below it — sidebar dots, home cards,
           pickers — for the whole signed-in session (spec 2026-09-03 §6). The
           enabled gate keeps its token POST away from /login and /setup. */}
-      <LiveSubshellsFeedProvider enabled={!!user && !bare}>
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          {wide && !bare && <AppSidebar />}
-          <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
-            <Outlet />
+        <LiveSubshellsFeedProvider enabled={!!user && !bare}>
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            {wide && !bare && <AppSidebar />}
+            <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+              <Outlet />
+            </div>
           </div>
-        </div>
-      </LiveSubshellsFeedProvider>
-    </div>
+        </LiveSubshellsFeedProvider>
+      </div>
+    </QuickAddProvider>
   );
 }

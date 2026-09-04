@@ -1,8 +1,8 @@
 import { useLocation } from "@tanstack/react-router";
-import { Menu } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useIsWide } from "@/hooks/use-is-wide";
 
 /**
@@ -32,9 +32,28 @@ export function MobileNav() {
       >
         <Menu className="h-5 w-5" />
       </SheetTrigger>
-      <SheetContent side="left" className="p-0">
+      <SheetContent side="left" className="p-0" showClose={false}>
         <SheetTitle className="sr-only">Navigation</SheetTitle>
-        <AppSidebar forceExpanded className="w-full border-r-0" />
+        <AppSidebar
+          forceExpanded
+          className="w-full border-r-0"
+          // The close control rides in the brand row (where the desktop rail
+          // keeps its collapse chevron) — floating it at the panel's top-right
+          // put it over a nav row's quick-add + on phones (2026-09-04).
+          headerEnd={
+            <SheetClose
+              aria-label="Close"
+              className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </SheetClose>
+          }
+          // A quick-add dialog opened from inside the drawer would be a second
+          // stacked modal — its touch scroll-lock fights the drawer's and
+          // flings the dialog's scroller (e2e repro 99-repro-drawer). Dismiss
+          // the drawer when one opens.
+          onQuickAdd={() => setOpen(false)}
+        />
       </SheetContent>
     </Sheet>
   );

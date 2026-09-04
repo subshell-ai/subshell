@@ -25,4 +25,18 @@ describe("Sheet", () => {
     // happy-dom runs no CSS transitions, so the unmount is synchronous.
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("omits the floating close button when showClose is false", () => {
+    // The nav drawer opts out (the floating X landed on a quick-add + on
+    // phones, 2026-09-04) and supplies its own inline SheetClose.
+    render(
+      <Sheet defaultOpen>
+        <SheetContent side="left" showClose={false}>
+          <SheetTitle>Navigation</SheetTitle>
+        </SheetContent>
+      </Sheet>,
+    );
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
 });
