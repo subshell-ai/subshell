@@ -9,6 +9,7 @@ import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
@@ -27,6 +28,14 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 
 const app = new Elysia().use(errorHandlerPlugin).use(settingsRoutes);
 
+/** Bearer-authenticated request against the settings routes. */
+function bearerRequest(path: string, key: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers);
+  headers.set("authorization", `Bearer ${key}`);
+  if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  return new Request(`http://localhost:3080${path}`, { ...init, headers });
+}
+
 describe("settings routes (admin cookie only)", () => {
   let adminId: string;
   const adminEmail = `settings-admin-${crypto.randomUUID()}@subshell.local`;
@@ -40,14 +49,6 @@ describe("settings routes (admin cookie only)", () => {
   let systemKey: string;
   let subshellId: string;
   const createdKeyIds: string[] = [];
-
-  /** Bearer-authenticated request against the settings routes. */
-  function bearerRequest(path: string, key: string, init?: RequestInit): Request {
-    const headers = new Headers(init?.headers);
-    headers.set("authorization", `Bearer ${key}`);
-    if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-    return new Request(`http://localhost:3080${path}`, { ...init, headers });
-  }
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -251,5 +252,116 @@ describe("settings routes (admin cookie only)", () => {
     const bearer = await app.fetch(bearerRequest("/api/settings/public", adminSubshellKey));
     expect(bearer.status).toBe(200);
     expect(((await bearer.json()) as { viewerIsAdmin: boolean }).viewerIsAdmin).toBe(false);
+  });
+});
+
+/**
+ * GET/PATCH /api/settings/terminal-history — the per-USER terminal attach
+ * history cap that replaced the per-subshell dialog (spec 2026-09-03
+ * close-vocabulary design §2). Self-service (ANY cookie user, no admin),
+ * cookie-actor-only, per-user storage in `user_meta`.
+ */
+describe("/api/settings/terminal-history (per-user, cookie only)", () => {
+  const app = new Elysia().use(errorHandlerPlugin).use(settingsRoutes);
+  const email = `term-hist-${crypto.randomUUID()}@subshell.local`;
+  const pw = "term-hist-pass-1";
+  let userId: string;
+  let cookie: string;
+  let subshellId: string;
+  let apiKeyId: string | null = null;
+
+  beforeAll(async () => {
+    await setupAuthTables();
+    userId = await new UsersRepository(db).createUser({
+      email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    cookie = await signIn(email, pw);
+    // A real subshell of THIS user, for the bearer-actor refusal below.
+    subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
+      userId,
+      profileId: "p",
+      harnessId: "claude-code",
+      name: "term-hist-token-test",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+  });
+
+  afterAll(async () => {
+    if (apiKeyId) authDatabase().run("DELETE FROM apikey WHERE id = ?", [apiKeyId]);
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
+    await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
+    await deleteUserByEmailOrId(email);
+  });
+
+  const get = () => app.fetch(authedRequest("/api/settings/terminal-history", cookie));
+  const patch = (lines: unknown) =>
+    app.fetch(
+      authedRequest("/api/settings/terminal-history", cookie, {
+        method: "PATCH",
+        body: JSON.stringify({ lines }),
+      }),
+    );
+
+  it("no stored preference reads as null (instance default)", async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { lines: number | null }).lines).toBeNull();
+  });
+
+  it("PATCH persists per-user and GET reads it back; null restores the default", async () => {
+    expect(((await (await patch(150)).json()) as { lines: number | null }).lines).toBe(150);
+    expect(((await (await get()).json()) as { lines: number | null }).lines).toBe(150);
+    expect(await new UserMetaRepository(db).getTerminalReplayLines(userId)).toBe(150);
+
+    expect(((await (await patch(null)).json()) as { lines: number | null }).lines).toBeNull();
+    expect(await new UserMetaRepository(db).getTerminalReplayLines(userId)).toBeNull();
+  });
+
+  it("the cap is per-user: another user reads their own (null) preference", async () => {
+    await patch(42);
+    const otherEmail = `term-hist-other-${crypto.randomUUID()}@subshell.local`;
+    const otherId = await new UsersRepository(db).createUser({
+      email: otherEmail,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const otherCookie = await signIn(otherEmail, pw);
+      const res = await app.fetch(authedRequest("/api/settings/terminal-history", otherCookie));
+      expect(((await res.json()) as { lines: number | null }).lines).toBeNull();
+    } finally {
+      await db.deleteFrom("userMeta").where("userId", "=", otherId).execute();
+      await deleteUserByEmailOrId(otherEmail);
+      await patch(null);
+    }
+  });
+
+  it("out-of-range and malformed values -> 400", async () => {
+    for (const bad of [0, 201, -1, "42"]) {
+      const res = await patch(bad);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("bearer actors are refused (cookie self-service only)", async () => {
+    const key = await issueSubshellToken(subshellId, userId);
+    apiKeyId = (await new SubshellsRepository(db).findById(subshellId))?.apiKeyId ?? null;
+    expect((await app.fetch(bearerRequest("/api/settings/terminal-history", key))).status).toBe(403);
+    const res = await app.fetch(
+      bearerRequest("/api/settings/terminal-history", key, {
+        method: "PATCH",
+        body: JSON.stringify({ lines: 50 }),
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("anonymous -> 401", async () => {
+    expect((await app.fetch(new Request("http://localhost:3080/api/settings/terminal-history"))).status).toBe(401);
   });
 });

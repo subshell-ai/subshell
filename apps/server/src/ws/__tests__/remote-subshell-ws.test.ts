@@ -1,6 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import type { JsonValue, NodeCommandBody } from "@internal/subshell-protocol";
+import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import {
   attachConnection,
@@ -166,8 +168,19 @@ function fakeBrowser(lag?: () => number): FakeBrowser {
   return { ws, sent, closed };
 }
 
+/** The synthetic OWNER of every relay test row — the user whose per-user
+ * terminal-history cap (`user_meta.terminal_replay_lines`) governs the attach. */
+const OWNER_UID = "u-relay-owner";
+
 function attachRow(over: Partial<RemoteAttachRow> = {}): RemoteAttachRow {
-  return { id: SID, nodeId: NODE_ID, tmuxSocket: "subshell-relay", terminalReplayLines: null, ...over };
+  return { id: SID, nodeId: NODE_ID, tmuxSocket: "subshell-relay", userId: OWNER_UID, ...over };
+}
+
+/** Seed the owner's per-user cap (null = instance default; out-of-range
+ * values simulate pre-validation/legacy rows, which the read-time clamp must
+ * survive). */
+async function setOwnerCap(lines: number | null): Promise<void> {
+  await new UserMetaRepository(db).setTerminalReplayLines(OWNER_UID, lines);
 }
 
 /** tail_start's subId as it went on the wire (the relay mints a uuid). */
@@ -191,12 +204,15 @@ beforeAll(async () => {
   await runMigrations(); // persistOutput's throttled lastOutputAt write hits the real (temp) DB
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   resetNodeRegistryForTests();
   resetNodeEventsForTests();
   // Every case here reuses one subshell id — without this, a prior case's
   // viewer would be "replaced" by the next case's attach.
   resetLiveViewersForTests();
+  // The cap tests seed the owner's user_meta; clear it so default-cap cases
+  // never inherit a previous case's number (the DB is shared per process).
+  await setOwnerCap(null);
 });
 
 afterEach(() => {
@@ -261,34 +277,32 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     expect(closed).toEqual([]);
   });
 
-  it("honors the per-attach replay cap: the CAPTURE carries the line budget (not the tail offset)", async () => {
+  it("honors the owner's per-user replay cap: the CAPTURE carries the line budget (not the tail offset)", async () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
     scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 });
     const { ws } = fakeBrowser();
 
-    // terminalReplayLines=2 ⇒ `capture` asks for 2 history rows; the tail
+    // cap=2 ⇒ `capture` asks for 2 history rows; the tail
     // still starts at EOF (12) — history ships inside the capture, never as
     // re-played log bytes.
-    await attachRemoteSubshellWs(ws, attachRow({ terminalReplayLines: 2 }), new RemoteLauncher(NODE_ID), "owner");
+    await setOwnerCap(2);
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     await until(() => sim.cmdTypes().includes("tail_start"), "tail at EOF");
     expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 2 }]);
     expect((sim.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(12);
   });
 
-  it("clamps terminalReplayLines to [1,200] exactly like the local attach", async () => {
-    // 9999 ⇒ cap 200 rows on the capture.
+  it("clamps the stored cap to [1,200] exactly like the local attach", async () => {
+    // 9999 ⇒ cap 200 rows on the capture (out-of-range values simulate a
+    // rollback-restored row; the read-time clamp is a load guarantee).
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
     scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 });
-    await attachRemoteSubshellWs(
-      fakeBrowser().ws,
-      attachRow({ terminalReplayLines: 9999 }),
-      new RemoteLauncher(NODE_ID),
-      "owner",
-    );
+    await setOwnerCap(9999);
+    await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     await until(() => sim.cmdsOf("capture").length === 1, "capture (cap 200)");
     expect((sim.cmdsOf("capture")[0] as { lines?: number }).lines).toBe(200);
 
@@ -297,12 +311,8 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim2.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim2.answer("capture", "SCREEN");
     scriptLogRead(sim2, { bytes: "l1\nl2\nl3\n", size: 12 });
-    await attachRemoteSubshellWs(
-      fakeBrowser().ws,
-      attachRow({ terminalReplayLines: 0 }),
-      new RemoteLauncher(NODE_ID),
-      "owner",
-    );
+    await setOwnerCap(0);
+    await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner");
     await until(() => sim2.cmdsOf("capture").length === 1, "capture (cap 1)");
     expect((sim2.cmdsOf("capture")[0] as { lines?: number }).lines).toBe(1);
   });

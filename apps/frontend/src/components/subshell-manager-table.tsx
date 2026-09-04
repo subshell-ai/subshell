@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { RotateCcw, Square, Trash2 } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { RowStatusBadges, relativeElapsed } from "@/components/subshell-status";
@@ -8,14 +8,15 @@ import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { AUTO_RESTART_HELP, describeAutoRestart } from "@/lib/auto-restart";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
-import { confirmDeleteSubshells, confirmTerminateSubshells } from "@/lib/subshell-confirmations";
+import { confirmCloseSubshells } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * Full subshell table with per-row actions (terminate / restart / delete) and
+ * Full subshell table with per-row actions (restart / close — the ⋯ menu) and
  * a bulk-actions bar over the selected rows. Each action loops the existing
  * per-subshell endpoints, then invalidates the subshells query so the
- * SSE-driven list and home page reflect the change.
+ * SSE-driven list and home page reflect the change. Bulk Terminate was
+ * removed with the human-facing action (spec 2026-09-03): Close covers it.
  */
 export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] }) {
   const queryClient = useQueryClient();
@@ -34,24 +35,19 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
 
   const [lastBulkError, setLastBulkError] = useState<string | null>(null);
 
-  async function runBulk(action: "terminate" | "restart" | "delete") {
+  async function runBulk(action: "restart" | "close") {
     const n = selectedIds.length;
-    // Bulk terminate and delete are destructive and ask; bulk restart does
-    // not (it spawns subshells and resumes conversations — nothing is lost).
-    const ok =
-      action === "restart"
-        ? true
-        : action === "terminate"
-          ? await confirmTerminateSubshells(n)
-          : await confirmDeleteSubshells(n);
+    // Bulk close is destructive and asks; bulk restart does not (it spawns
+    // subshells and resumes conversations — nothing is lost).
+    const ok = action === "restart" ? true : await confirmCloseSubshells(n);
     if (!ok) return;
     setBulkBusy(true);
     setLastBulkError(null);
     try {
       // Loop the existing per-subshell endpoints for the selected rows.
       const perId =
-        action === "delete" ? (id: string) => `/api/subshells/${id}` : (id: string) => `/api/subshells/${id}/${action}`;
-      const method = action === "delete" ? ("DELETE" as const) : ("POST" as const);
+        action === "close" ? (id: string) => `/api/subshells/${id}` : (id: string) => `/api/subshells/${id}/${action}`;
+      const method = action === "close" ? ("DELETE" as const) : ("POST" as const);
       const results = await Promise.allSettled(selectedIds.map((id) => apiFetch(perId(id), { method })));
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
       if (failed.length > 0) {
@@ -76,14 +72,11 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-2">
           <span className="mr-2 text-muted-foreground text-sm">{selectedIds.length} selected</span>
-          <Button variant="destructive" size="sm" onClick={() => void runBulk("terminate")} disabled={bulkBusy}>
-            <Square className="fill-current" /> Terminate
-          </Button>
           <Button variant="outline" size="sm" onClick={() => void runBulk("restart")} disabled={bulkBusy}>
             <RotateCcw /> Restart
           </Button>
-          <Button variant="destructive" size="sm" onClick={() => void runBulk("delete")} disabled={bulkBusy}>
-            <Trash2 /> Delete
+          <Button variant="destructive" size="sm" onClick={() => void runBulk("close")} disabled={bulkBusy}>
+            <X /> Close
           </Button>
         </div>
       )}

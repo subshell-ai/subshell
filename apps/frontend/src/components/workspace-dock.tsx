@@ -19,7 +19,7 @@ import { WorkspaceHeader } from "@/components/workspace-header";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { apiFetch, errMessage } from "@/lib/api";
-import { confirmDeleteSubshell, confirmTerminateSubshell } from "@/lib/subshell-confirmations";
+import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
 import {
   normalizeLegacyLayout,
@@ -235,24 +235,10 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     [removePane, onRefetch],
   );
 
-  const handleTerminate = useCallback(
+  const handleCloseSubshell = useCallback(
     async (subshellId: string) => {
       const name = detail.panes.find((p) => p.subshellId === subshellId)?.subshellName ?? subshellId;
-      if (!(await confirmTerminateSubshell(name))) return;
-      try {
-        await apiFetch(`/api/subshells/${subshellId}/terminate`, { method: "POST" });
-        onRefetch();
-      } catch (err) {
-        setError(errMessage(err, "Failed to terminate subshell"));
-      }
-    },
-    [detail.panes, onRefetch],
-  );
-
-  const handleDeleteSubshell = useCallback(
-    async (subshellId: string) => {
-      const name = detail.panes.find((p) => p.subshellId === subshellId)?.subshellName ?? subshellId;
-      if (!(await confirmDeleteSubshell(name))) return;
+      if (!(await confirmCloseSubshell(name))) return;
       try {
         // The FK cascade removes the pane server-side, so there is no separate
         // pane-removal call to make. The panel is closed by the reconciliation
@@ -262,7 +248,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
         await apiFetch(`/api/subshells/${subshellId}`, { method: "DELETE" });
         onRefetch();
       } catch (err) {
-        setError(errMessage(err, "Failed to delete subshell"));
+        setError(errMessage(err, "Failed to close subshell"));
       }
     },
     [detail.panes, onRefetch],
@@ -359,10 +345,9 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
       setSearchAddon,
       onRestart: (subshellId) => void handleRestart(subshellId),
       onRemovePane: (paneId) => void handleRemovePane(paneId),
-      onTerminate: (subshellId) => void handleTerminate(subshellId),
-      onDeleteSubshell: (subshellId) => void handleDeleteSubshell(subshellId),
+      onCloseSubshell: (subshellId) => void handleCloseSubshell(subshellId),
     }),
-    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleTerminate, handleDeleteSubshell],
+    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleCloseSubshell],
   );
 
   return (

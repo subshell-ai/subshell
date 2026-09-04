@@ -312,32 +312,25 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       return /(stub harness ready|\btick \d+)/.test(((await res.json()) as { lines: string[] }).lines.join("\n"));
     });
 
-    // ── 7. Terminate from the subshells list (spec 06's idiom): the card
-    // reaches "ended" via the agent's exit event, and the pane dies on the
-    // node (has-session flips false once tmux reaps it).
+    // ── 7. Close from the subshells list (spec 06's idiom): Close
+    // terminates AND deletes in one act (spec 2026-09-03) — the row vanishes
+    // and the pane dies on the node (has-session flips false once tmux
+    // reaps it); its node artifacts unhook via remove_paths, leaving a clean
+    // node for the teardown's node delete (no running subshells).
     await page.goto("/");
     const actions = page.getByRole("button", { name: `Actions for ${subshellName}` });
     await expect(actions).toBeVisible();
     await actions.click();
-    await page.getByRole("menuitem", { name: "Terminate" }).click();
-    await expect(page.getByText(`Terminate subshell "${subshellName}"?`)).toBeVisible();
-    await page.getByRole("button", { name: "Terminate" }).click();
-    const card = page.getByRole("link").filter({ hasText: subshellName });
-    await expect(card.getByText("ended", { exact: true })).toBeVisible({ timeout: SPAWN_TIMEOUT });
+    await page.getByRole("menuitem", { name: "Close" }).click();
+    await expect(page.getByText(`Close subshell "${subshellName}"?`)).toBeVisible();
+    await page.getByRole("button", { name: "Close" }).click();
+    await expect(page.getByText(subshellName)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
     await pollUntil(
-      `pane "${pane}" outlived terminate on the node`,
+      `pane "${pane}" outlived close on the node`,
       agent,
       async () => !nodeHasPane(tmuxBase, pane),
       1_500,
     );
-
-    // Delete the row (its node artifacts unhook via remove_paths), leaving a
-    // clean node for the teardown's node delete (no running subshells).
-    await actions.click();
-    await page.getByRole("menuitem", { name: "Delete subshell" }).click();
-    await expect(page.getByText(`Delete subshell "${subshellName}"?`)).toBeVisible();
-    await page.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText(subshellName)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
   } finally {
     const leaks: string[] = [];
     // Order matters: daemon first (the node must flip offline before DELETE),

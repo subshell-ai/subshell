@@ -220,12 +220,14 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   }
 
   // Replay = visible grid + the last N reflowed history rows, in ONE paint.
-  // N is per-subshell config, falling back to the instance default; the clamp
-  // lives in {@link replayLineCap}, shared with the remote relay. A SINGLE
+  // N is the OWNER's per-user setting (Account → Terminal history), falling
+  // back to the instance default; a shared viewer gets the owner's cap because
+  // the replay is the owner's pane. The clamp lives in {@link replayLineCap},
+  // shared with the remote relay. A SINGLE
   // capture — the stable-grid poll is obsolete now the byte stream is
   // gap-free: a snapshot that races an animating frame is corrected by the
   // very next diff, which the client is guaranteed to receive.
-  const cap = replayLineCap(row.terminalReplayLines);
+  const cap = replayLineCap(await repos.userMeta.getTerminalReplayLines(row.userId));
   const replay = await captureStable(launcher, row.tmuxSocket, row.id, cap);
   if (replay != null) {
     const painted = captureToTerminalText(replay);

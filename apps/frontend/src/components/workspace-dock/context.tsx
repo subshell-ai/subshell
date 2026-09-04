@@ -26,10 +26,8 @@ export interface WorkspaceDockContextValue {
   onRestart: (subshellId: string) => void;
   /** Removes a pane from the workspace, leaving its subshell alone. */
   onRemovePane: (paneId: string) => void;
-  /** Terminates a subshell's process, after confirming. */
-  onTerminate: (subshellId: string) => void;
-  /** Deletes a subshell outright, after confirming; its pane disappears via the FK cascade. */
-  onDeleteSubshell: (subshellId: string) => void;
+  /** Closes a subshell (terminate + delete), after confirming; its pane disappears via the FK cascade. */
+  onCloseSubshell: (subshellId: string) => void;
 }
 
 const WorkspaceDockContext = createContext<WorkspaceDockContextValue | null>(null);

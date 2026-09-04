@@ -21,7 +21,6 @@ function makeSource(overrides: Partial<SubshellView> = {}): SubshellView {
     nodeOffline: false,
     name: "source",
     nameLocked: false,
-    terminalReplayLines: null,
     workingDir: "/home/theo/projects/demo",
     status: "running",
     createdAt: "2026-09-02T00:00:00.000Z",

@@ -76,9 +76,4 @@ export interface SubshellView {
   waitingSince: string | null;
   /** The caller's effective access to this subshell (viewer-relative; drives which controls render) */
   access: SubshellAccess;
-  /**
-   * Trailing output lines a terminal replays when attaching to this subshell
-   * (1–200); null = the instance default (SUBSHELL_TERMINAL_REPLAY_LINES, 100).
-   */
-  terminalReplayLines: number | null;
 }

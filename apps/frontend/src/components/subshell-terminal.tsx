@@ -5,7 +5,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import { RotateCcw, Trash2 } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
@@ -153,7 +153,7 @@ export function isSubshellExited(subshell?: SubshellView): boolean {
  * True when the harness is dead and the row is kept for explanation and
  * revival: either the crashed-while-managed state ({@link isSubshellExited})
  * or an explicitly terminated subshell. Both render the log-tail panel with
- * Restart/Delete — terminated subshells used to fall through to the bare
+ * Restart/Close — terminated subshells used to fall through to the bare
  * "Subshell is not running" fallback, leaving no way back from a revisit.
  * @param subshell - The subshell record, or undefined while it loads
  * @returns Whether the subshell is dead but restartable from its detail page
@@ -529,7 +529,7 @@ export function SubshellTerminal({
             <RotateCcw className="h-3 w-3" /> {restarting ? "Restarting…" : "Restart"}
           </Button>
           <Button variant="destructive" size="sm" onClick={onDelete} disabled={deleting}>
-            <Trash2 className="h-3 w-3" /> {deleting ? "Deleting…" : "Delete"}
+            <X className="h-3 w-3" /> {deleting ? "Closing…" : "Close"}
           </Button>
         </LogTail>
       )}

@@ -55,6 +55,35 @@ export class UserMetaRepository extends BaseRepository {
       .execute();
   }
 
+  /**
+   * The user's terminal attach history cap, or null when they have no
+   * preference (the instance default applies). A missing row reads as "no
+   * preference", exactly like a missing `notifyEnabled` row reads as "on".
+   * @param userId - better-auth user id
+   */
+  async getTerminalReplayLines(userId: string): Promise<number | null> {
+    const row = await this.db
+      .selectFrom("userMeta")
+      .select("terminalReplayLines")
+      .where("userId", "=", userId)
+      .executeTakeFirst();
+    return row?.terminalReplayLines ?? null;
+  }
+
+  /**
+   * Sets the per-user terminal history cap (`null` = back to the instance
+   * default). Upserts for the same reason as {@link setNotifyEnabled}: a user
+   * predating this column may have no row to update; `role` falls back to its
+   * DB default and only the cap is written on conflict.
+   */
+  async setTerminalReplayLines(userId: string, lines: number | null): Promise<void> {
+    await this.db
+      .insertInto("userMeta")
+      .values({ userId, role: "user", terminalReplayLines: lines })
+      .onConflict((oc) => oc.column("userId").doUpdateSet({ terminalReplayLines: lines }))
+      .execute();
+  }
+
   async countUsers(): Promise<number> {
     const row = await this.db
       .selectFrom("userMeta")

@@ -200,29 +200,19 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
               )
             }
           />
-          <Action
-            label="Terminate"
-            onPress={() =>
-              confirmAction(
-                "Terminate?",
-                "Kills the pane. Restart can revive it.",
-                "Terminate",
-                () => void run("Terminate", (cli) => cli.terminate(subshellId)),
-                { destructive: true },
-              )
-            }
-          />
+          {/* No Terminate action (spec 2026-09-03): Close stops the process
+              AND removes the row, and stop-without-delete had no use-case. */}
           {flags.isOwner && (
             <Action
-              label="Delete"
+              label="Close"
               color={colors.destructive}
               onPress={() =>
                 confirmAction(
-                  "Delete?",
-                  "Removes the subshell for good.",
-                  "Delete",
+                  "Close?",
+                  "Stops the process and removes the subshell and its history permanently. It cannot be recovered.",
+                  "Close",
                   () =>
-                    void run("Delete", async (cli) => {
+                    void run("Close", async (cli) => {
                       await cli.deleteSubshell(subshellId);
                       if (onBack) onBack();
                       else router.back();

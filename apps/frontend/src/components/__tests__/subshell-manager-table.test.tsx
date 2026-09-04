@@ -22,7 +22,6 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     nodeOffline: false,
     name: "subshell",
     nameLocked: false,
-    terminalReplayLines: null,
     workingDir: "/tmp/project",
     status: "running",
     createdAt: "2026-08-30T00:00:00.000Z",

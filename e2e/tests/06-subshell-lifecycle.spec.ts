@@ -64,26 +64,18 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // alive in its pane (a dead-on-arrival subshell would read "exited").
   await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
 
-  // Terminate from the subshells list via the actions menu + confirm. (Cards
-  // carry activity chips — "working"/"idle"/"ended" — never "running", so
-  // that is what these list assertions key on.)
+  // Close it from the subshells list via the actions menu + confirm.
+  // "Close" is the human name for DELETE (spec 2026-09-03): it terminates
+  // the live pane AND removes the row in one act — the old separate
+  // Terminate step left the human UI together with this two-step flow.
   await page.goto("/");
   const actions = page.getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();
-  await page.getByRole("menuitem", { name: "Terminate" }).click();
-  await expect(page.getByText(`Terminate subshell "${name}"?`)).toBeVisible();
-  await page.getByRole("button", { name: "Terminate" }).click();
-  // Card-scoped: spec 05's leftover `e2e-pane` card could also reach "ended"
-  // eventually, so an unscoped first() could pass off the wrong card. The
-  // whole SubshellCard is one <a>, and the activity chip lives inside it.
-  const card = page.getByRole("link").filter({ hasText: name });
-  await expect(card.getByText("ended", { exact: true })).toBeVisible({ timeout: SPAWN_TIMEOUT });
+  await page.getByRole("menuitem", { name: "Close" }).click();
+  await expect(page.getByText(`Close subshell "${name}"?`)).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
 
-  // Delete it and prove it is gone.
-  await actions.click();
-  await page.getByRole("menuitem", { name: "Delete subshell" }).click();
-  await expect(page.getByText(`Delete subshell "${name}"?`)).toBeVisible();
-  await page.getByRole("button", { name: "Delete" }).click();
+  // Prove it is gone.
   await expect(page.getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 });

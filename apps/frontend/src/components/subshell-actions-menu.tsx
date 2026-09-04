@@ -3,23 +3,18 @@ import {
   Bell,
   BellOff,
   Copy,
-  History,
   NotebookPen,
-  Pin,
-  PinOff,
   RotateCcw,
   Share2,
   SlidersHorizontal,
-  SquareStop,
   TextCursorInput,
-  Trash2,
+  X,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { NotesDialog } from "@/components/ui/notes-dialog";
-import { ReplayLinesDialog } from "@/components/ui/replay-lines-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
@@ -53,22 +48,19 @@ export function SubshellActionsMenu({
   // caller's children verbatim (whatever element — or elements — they are).
   const [titleOpen, setTitleOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [replayOpen, setReplayOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const navigate = useNavigate();
   const { data: profiles } = useProfiles();
-  const { terminate, restart, remove, toggleTitleLock, toggleNotify, busy } = useSubshellMutations(
-    subshell.id,
-    subshell,
-    {
-      onDeleted,
-    },
-  );
+  const { restart, remove, toggleNotify, busy } = useSubshellMutations(subshell.id, subshell, {
+    onDeleted,
+  });
   // Access drives which actions exist (spec 2026-08-31 §4.1): `view` can read
   // and watch only (so the menu itself is absent), `edit` interacts and manages
-  // (notes, title, restart/terminate), and only the `owner` may ring the bell,
-  // clone, manage sharing, or delete. A viewer has nothing to do here.
+  // (notes, title, restart), and only the `owner` may ring the bell, clone,
+  // manage sharing, or close. A viewer has nothing to do here.
+  // Lifecycle shrank with the Close rename (spec 2026-09-03): no Terminate
+  // (Close subsumes it) and no title-pin toggle (a rename IS the pin).
   const canEdit = subshell.access !== "view";
   const isOwner = subshell.access === "owner";
   // A subshell's profile is fixed at creation, so editing it + starting again
@@ -95,16 +87,9 @@ export function SubshellActionsMenu({
             label: subshell.notes ? "Edit note" : "Add note",
             onSelect: () => setNotesOpen(true),
           },
-          // Pane-title auto-naming is the default (Claude Code names the subshell
-          // after the current task); a manual rename pins it. This flips back.
-          subshell.nameLocked
-            ? { icon: PinOff, label: "Resume auto title", onSelect: () => void toggleTitleLock() }
-            : { icon: Pin, label: "Pin this title", onSelect: () => void toggleTitleLock() },
-          {
-            icon: History,
-            label: "Terminal history…",
-            onSelect: () => setReplayOpen(true),
-          },
+          // No title-pin item (spec 2026-09-03): pane-title auto-naming is the
+          // default and an explicit "Edit title" IS the pin — the rename locks
+          // the name server-side, with no unlock path by design.
         ]
       : []),
     // Owner-only: the bell decides whether THIS subshell pushes to the owner's
@@ -116,21 +101,20 @@ export function SubshellActionsMenu({
             : { icon: Bell, label: "Notify when done", sidebar: true, onSelect: () => void toggleNotify() },
         ]
       : []),
-    ...(canEdit
+    // Revive is the sidebar's remaining lifecycle gesture (spec 2026-09-03
+    // amendment, shrunk by the close-vocabulary design): a live subshell has
+    // no stop action — Close removes it outright, which terminates first.
+    ...(canEdit && !subshell.alive
       ? [
-          // Lifecycle is the sidebar's reason to exist: stop / revive a
-          // subshell without opening its page (spec 2026-09-03 amendment).
-          subshell.alive
-            ? { icon: SquareStop, label: "Terminate", sidebar: true, onSelect: () => void terminate() }
-            : {
-                icon: RotateCcw,
-                // A tracked-but-dead subshell resumes in place; a terminated one
-                // can only be started afresh from the same profile and directory,
-                // which is a different enough thing to say so.
-                label: subshell.status === "running" ? "Restart" : "Start again",
-                sidebar: true,
-                onSelect: () => void restart(),
-              },
+          {
+            icon: RotateCcw,
+            // A tracked-but-dead subshell resumes in place; a terminated one
+            // can only be started afresh from the same profile and directory,
+            // which is a different enough thing to say so.
+            label: subshell.status === "running" ? "Restart" : "Start again",
+            sidebar: true,
+            onSelect: () => void restart(),
+          },
         ]
       : []),
     // Owner-only, adjacent to the launch actions. Spec §2.1 said `canEdit`,
@@ -161,7 +145,9 @@ export function SubshellActionsMenu({
     ...(isOwner
       ? [
           { icon: Share2, label: "Share…", sidebar: true, onSelect: () => setShareOpen(true) },
-          { icon: Trash2, label: "Delete subshell", destructive: true, sidebar: true, onSelect: () => void remove() },
+          // "Close" is the DELETE verb's human name (spec 2026-09-03): it
+          // terminates a running process first, then removes row + log.
+          { icon: X, label: "Close", destructive: true, sidebar: true, onSelect: () => void remove() },
         ]
       : []),
   ];
@@ -201,15 +187,6 @@ export function SubshellActionsMenu({
           from a previous attempt would be a wrong prefill — remount-on-open
           gives the fresh state for free (Task 2 review). */}
       {cloneOpen && <CloneSubshellDialog source={subshell} open onOpenChange={setCloneOpen} />}
-      {/* Keyed by subshell id (suffixed, see NotesDialog above) so each
-          subshell opens with its own stored cap. */}
-      <ReplayLinesDialog
-        key={`${subshell.id}-replay`}
-        subshellId={subshell.id}
-        current={subshell.terminalReplayLines}
-        open={replayOpen}
-        onOpenChange={setReplayOpen}
-      />
     </>
   );
 }

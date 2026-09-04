@@ -71,23 +71,21 @@ describe("PATCH /api/subshells/:id/name", () => {
     expect(row?.name).toBe("API redesign"); // trimmed on the way in
   });
 
-  it("renaming locks the name; autoTitle toggles the lock", async () => {
+  it("renaming locks the name — a rename IS the pin, and there is no unlock path", async () => {
     const s = await subshellWithToken();
     const headers = { cookie: `better-auth.session_token=${token}` };
     await patch(s.id, { name: "Pinned by hand" }, headers);
     expect((await new SubshellsRepository(db).findById(s.id))?.nameLocked).toBe(1);
 
-    expect((await patch(s.id, { autoTitle: true }, headers)).status).toBe(200);
-    expect((await new SubshellsRepository(db).findById(s.id))?.nameLocked).toBe(0);
-
-    // Pinning without a rename keeps the current name and locks it.
-    expect((await patch(s.id, { autoTitle: false }, headers)).status).toBe(200);
+    // A second rename updates the name but never releases the lock (spec
+    // 2026-09-03: the autoTitle escape hatch was removed with the pin UI).
+    await patch(s.id, { name: "Renamed again" }, headers);
     const row = await new SubshellsRepository(db).findById(s.id);
     expect(row?.nameLocked).toBe(1);
-    expect(row?.name).toBe("Pinned by hand");
+    expect(row?.name).toBe("Renamed again");
   });
 
-  it("empty body (no name, no autoTitle) -> 400", async () => {
+  it("empty body (no name) -> 400", async () => {
     const s = await subshellWithToken();
     const res = await patch(s.id, {}, { cookie: `better-auth.session_token=${token}` });
     expect(res.status).toBe(400);

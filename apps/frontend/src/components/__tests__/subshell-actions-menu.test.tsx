@@ -21,7 +21,6 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     nodeOffline: false,
     name: "subshell",
     nameLocked: false,
-    terminalReplayLines: null,
     workingDir: "/tmp/project",
     status: "running",
     createdAt: "2026-08-30T00:00:00.000Z",
@@ -143,17 +142,35 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
     }
   });
 
-  it("an edit grantee can manage the subshell but not the bell, sharing, or deletion", async () => {
+  it("an edit grantee can manage the subshell but not the bell, sharing, or closing", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "edit", alive: true }));
       await openMenu("subshell");
-      expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Add note" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
       expect(screen.queryByRole("menuitem", { name: "Notify when done" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
-      expect(screen.queryByRole("menuitem", { name: "Delete subshell" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Close" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the removed actions stay gone: no Terminate, no title pin, no Terminal history (spec 2026-09-03)", async () => {
+    const { restore } = mockFetch();
+    try {
+      // A dead row is the one state that still carries a lifecycle item, so
+      // its absence there proves the removal, not just the alive-gate.
+      for (const alive of [true, false]) {
+        await renderMenu(makeSubshell({ alive }));
+        await openMenu("subshell");
+        expect(screen.queryByRole("menuitem", { name: "Terminate" })).toBeNull();
+        expect(screen.queryByRole("menuitem", { name: "Pin this title" })).toBeNull();
+        expect(screen.queryByRole("menuitem", { name: "Resume auto title" })).toBeNull();
+        expect(screen.queryByRole("menuitem", { name: "Terminal history…" })).toBeNull();
+        cleanup();
+      }
     } finally {
       restore();
     }
@@ -211,16 +228,17 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       expect(screen.getByText("the row")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(6));
-      // The curated sidebar set (spec amendment, final): lifecycle, delete,
-      // bell, clone, share, edit-title. Still NOT the dialog-less page extras.
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(5));
+      // The curated sidebar set after spec 2026-09-03: close, bell, clone,
+      // share, edit-title. Terminate is gone (Close subsumes it; the alive
+      // row has no lifecycle item at all) — still NOT the dialog-less extras.
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Notify when done" })).toBeDefined();
-      expect(screen.getByRole("menuitem", { name: "Terminate" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Clone…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Share…" })).toBeDefined();
-      expect(screen.getByRole("menuitem", { name: "Delete subshell" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Close" })).toBeDefined();
       expect(screen.queryByRole("menuitem", { name: "Add note" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Terminate" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Pin this title" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Terminal history…" })).toBeNull();
     } finally {

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { PasskeysCard } from "@/components/passkeys-card";
 import { ProfileCard } from "@/components/profile-card";
 import { TerminalFontCard } from "@/components/terminal-font-card";
+import { TerminalHistoryCard } from "@/components/terminal-history-card";
 
 export const Route = createFileRoute("/account")({ component: AccountPage });
 
@@ -23,6 +24,9 @@ function AccountPage() {
           parent of the per-device opt-in below it. */}
       <NotificationsMasterCard />
       <TerminalFontCard />
+      {/* Per-USER (server-stored) next to its per-device sibling: the font
+          size lives on this device, the history cap rides every attach. */}
+      <TerminalHistoryCard />
       <NotificationsCard />
       {/* Self-service for ANY signed-in user (own passkeys only via the session). */}
       <PasskeysCard />

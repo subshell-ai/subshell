@@ -197,15 +197,13 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
     { timeout: 30_000 },
   );
 
-  // Cleanup: terminate + delete the probe subshell.
+  // Cleanup: close the probe subshell (Close terminates it before deleting,
+  // spec 2026-09-03 — no separate terminate step needed).
   await p2.goto("/");
   const actions = p2.getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();
-  await p2.getByRole("menuitem", { name: "Terminate" }).click();
-  await p2.getByRole("button", { name: "Terminate" }).click();
-  await actions.click();
-  await p2.getByRole("menuitem", { name: "Delete subshell" }).click();
-  await p2.getByRole("button", { name: "Delete" }).click();
+  await p2.getByRole("menuitem", { name: "Close" }).click();
+  await p2.getByRole("button", { name: "Close" }).click();
   await narrow.close();
 });

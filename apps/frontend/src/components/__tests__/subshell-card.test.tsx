@@ -66,7 +66,6 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     notify: false,
     waitingSince: null,
     access: "owner",
-    terminalReplayLines: null,
     ...overrides,
   };
 }

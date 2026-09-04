@@ -59,9 +59,10 @@ export interface SubshellTable {
   /** Node the subshell runs on ('local' = control-plane host) */
   nodeId: string;
   /**
-   * Trailing log lines replayed when a terminal attaches (NULL = instance
-   * default, `SUBSHELL_TERMINAL_REPLAY_LINES`). Readers clamp to [1, 200].
-   * See migration 0018.
+   * DEPRECATED (spec 2026-09-03): the terminal history cap moved per-USER
+   * (`user_meta.terminal_replay_lines`, migration 0020). This column is
+   * read and written by nothing; it stays so a rollback finds its data.
+   * See migration 0018 for the original design.
    */
   terminalReplayLines: number | null;
 }

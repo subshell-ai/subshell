@@ -417,38 +417,6 @@ export class SubshellsService extends BaseService {
   }
 
   /**
-   * Turns pane-title auto-naming on/off for a subshell — an `edit` act.
-   * @throws SubshellError 404 when absent or invisible to the caller.
-   * @throws HttpError 403 when the caller holds only `view`.
-   */
-  async setSubshellAutoTitle(viewerId: string, id: string, enabled: boolean, actor: GuardActor): Promise<{ ok: true }> {
-    const { row } = await this.#gate(viewerId, id, "edit", actor);
-    const ok = await this.#manager.setNameLocked(row.userId, id, !enabled);
-    if (!ok) throw new SubshellError("not_found", "Subshell not found");
-    return { ok: true };
-  }
-
-  /**
-   * Sets how many trailing log lines a terminal replays when attaching to
-   * this subshell — an `edit` act (it is subshell config, like rename/notes).
-   * `null` clears the per-subshell choice so the instance default
-   * (`SUBSHELL_TERMINAL_REPLAY_LINES`) applies again. Clamping [1, 200] is the
-   * route's schema job; this stores what it validated.
-   * @throws SubshellError 404 when absent or invisible to the caller.
-   * @throws HttpError 403 when the caller holds only `view`.
-   */
-  async setSubshellReplayLines(
-    viewerId: string,
-    id: string,
-    lines: number | null,
-    actor: GuardActor,
-  ): Promise<{ ok: true }> {
-    const { row } = await this.#gate(viewerId, id, "edit", actor);
-    await this.repos.subshells.update(row.id, { terminalReplayLines: lines });
-    return { ok: true };
-  }
-
-  /**
    * Rings or mutes a subshell's notifications (the ⋯-menu bell) — OWNER-only
    * (it changes what leaves the instance for the owner's devices). Muting stops
    * pushes only; the waiting stamp is deliberately untouched.

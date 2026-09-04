@@ -19,6 +19,7 @@ import * as sessionSharingMigration from "@/db/migrations/0016-session-sharing.j
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as sessionReplayLinesMigration from "@/db/migrations/0018-session-replay-lines.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as userMetaReplayLinesMigration from "@/db/migrations/0020-user-meta-replay-lines.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -49,6 +50,7 @@ export async function runMigrations(): Promise<void> {
           "0017-nodes": nodesMigration,
           "0018-session-replay-lines": sessionReplayLinesMigration,
           "0019-subshell-rename": subshellRenameMigration,
+          "0020-user-meta-replay-lines": userMetaReplayLinesMigration,
         };
       },
     },

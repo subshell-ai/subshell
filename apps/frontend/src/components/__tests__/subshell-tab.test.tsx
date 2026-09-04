@@ -43,8 +43,7 @@ function renderTab(panes: WorkspacePaneRow[], removed: string[]) {
     setSearchAddon: () => {},
     onRestart: () => {},
     onRemovePane: (paneId) => removed.push(paneId),
-    onTerminate: () => {},
-    onDeleteSubshell: () => {},
+    onCloseSubshell: () => {},
   };
   const props = {
     api: {

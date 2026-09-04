@@ -1,38 +1,39 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
-import { confirmDeleteSubshell, confirmTerminateSubshell } from "@/lib/subshell-confirmations";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";
 
-/** Terminate / restart / delete for one subshell; the destructive ones ask. */
+/** Restart / close for one subshell; the destructive one asks. */
 export interface SubshellMutations {
-  /** Asks, then terminates the subshell's process */
-  terminate: () => Promise<void>;
   /** Revives the subshell in place (same id): new process, conversation resumed where it can */
   restart: () => void;
-  /** Asks, then deletes the subshell and its log */
+  /** Asks, then closes the subshell (terminates it and deletes its row + log) */
   remove: () => Promise<void>;
-  /** True while any of the three is in flight */
+  /** True while any of the two is in flight */
   busy: boolean;
-  /** Flips pane-title auto-naming for the subshell (pin / unpin its name) */
-  toggleTitleLock: () => Promise<void>;
   /** Flips the "notify when done" bell for the subshell */
   toggleNotify: () => Promise<void>;
   /** True while a restart is in flight */
   restarting: boolean;
-  /** True while a delete is in flight */
+  /** True while a close is in flight */
   deleting: boolean;
 }
 
 /**
  * The single implementation of the subshell lifecycle actions, shared by
  * `SubshellActionsMenu` (cards, rows, the detail header) and the terminal's
- * exited-state panel. It owns the endpoints, the delete confirmation, and
- * the cache refresh; callers only decide what a delete *means* where they
- * are — leave the page, or stay put — through the callbacks. A restart is
+ * exited-state panel. It owns the endpoints, the close confirmation, and the
+ * cache refresh; callers only decide what a close *means* where they are —
+ * leave the page, or stay put — through the callbacks. A restart is
  * in-place (same id): every surface just sees the refreshed row.
+ *
+ * Terminate is deliberately absent from the human UI (spec 2026-09-03):
+ * Close subsumes it (the DELETE terminates a running process first), and
+ * the endpoint remains for the agents' MCP tool. Renaming is likewise the
+ * ONLY title-pin gesture — no separate lock mutation.
  * @param id - The subshell to act on
- * @param subshell - The loaded subshell, used for the delete prompt; actions
+ * @param subshell - The loaded subshell, used for the close prompt; actions
  *                  fired before it loads are ignored
  * @param onDeleted - Called once the subshell is gone
  */
@@ -49,10 +50,6 @@ export function useSubshellMutations(
     void queryClient.invalidateQueries({ queryKey: SUBSHELL_QUERY_KEY });
   };
 
-  const terminate = useMutation({
-    mutationFn: () => apiFetch<{ ok: boolean }>(`/api/subshells/${id}/terminate`, { method: "POST" }),
-    onSuccess: refresh,
-  });
   const restart = useMutation({
     mutationFn: () => apiFetch<{ id: string }>(`/api/subshells/${id}/restart`, { method: "POST" }),
     // Revival keeps the id: the refreshed queries ARE the whole sync story.
@@ -63,20 +60,6 @@ export function useSubshellMutations(
     onSuccess: () => {
       refresh();
       onDeleted?.();
-    },
-  });
-  // No confirmation: pinning/unpinning is reversible and non-destructive.
-  // Workspace pane titles show the subshell name, so those queries refresh
-  // too (the sweep re-adopts the live title on the next pass).
-  const toggleTitleLock = useMutation({
-    mutationFn: () =>
-      apiFetch<{ ok: boolean }>(`/api/subshells/${id}/name`, {
-        method: "PATCH",
-        body: JSON.stringify({ autoTitle: subshell?.nameLocked === true }),
-      }),
-    onSuccess: () => {
-      refresh();
-      void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
     },
   });
 
@@ -105,16 +88,14 @@ export function useSubshellMutations(
     action.mutate();
   }
 
-  // Terminate and delete are destructive and always ask. Restart does not:
-  // it revives the same subshell and resumes the conversation — nothing is
-  // lost by clicking it.
+  // Closing is destructive and always asks. Restart does not: it revives the
+  // same subshell and resumes the conversation — nothing is lost by clicking
+  // it.
   return {
-    terminate: () => askThen(confirmTerminateSubshell, terminate),
     restart: runNow(restart),
-    remove: () => askThen(confirmDeleteSubshell, remove),
-    toggleTitleLock: () => toggleTitleLock.mutateAsync().then(() => undefined),
+    remove: () => askThen(confirmCloseSubshell, remove),
     toggleNotify: () => toggleNotify.mutateAsync().then(() => undefined),
-    busy: terminate.isPending || restart.isPending || remove.isPending,
+    busy: restart.isPending || remove.isPending,
     restarting: restart.isPending,
     deleting: remove.isPending,
   };

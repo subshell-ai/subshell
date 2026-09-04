@@ -1,5 +1,5 @@
 import type { IDockviewHeaderActionsProps } from "dockview-react";
-import { Maximize2, Minimize2, Square, Trash2 } from "lucide-react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,9 @@ import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
  * maximize/restore toggle — the one pane action with no room in a small
  * pane's own title bar — and, once the group is maximized, the heavier
  * chrome the tiling spec reserves for one enlarged subshell at a time:
- * Terminate/Delete and the transcript finder.
+ * Close and the transcript finder. (Close replaced the old Terminate/Delete
+ * pair, spec 2026-09-03: the DELETE terminates a live process itself, so the
+ * pane no longer needs a running/dead split here.)
  *
  * dockview creates one instance of this per group and keeps it attached to
  * that same group for its whole lifetime (unlike a panel, a group is never
@@ -23,7 +25,7 @@ import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
  * this subscribes to the container-level `onDidMaximizedGroupChange` itself.
  */
 export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
-  const { detail, searchAddons, onTerminate, onDeleteSubshell } = useWorkspaceDockContext();
+  const { detail, searchAddons, onCloseSubshell } = useWorkspaceDockContext();
 
   const [maximized, setMaximized] = useState(() => props.api.isMaximized());
   useEffect(() => {
@@ -38,8 +40,6 @@ export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
   // as "nothing to act on" rather than looking up a pane that no longer
   // exists.
   const pane = props.activePanel ? detail.panes.find((p) => p.id === props.activePanel?.id) : undefined;
-  const notRunning =
-    !!pane && ((pane.subshellStatus === "running" && !pane.subshellAlive) || pane.subshellStatus === "terminated");
   // Null until the terminal has mounted (or once it's detached) — a Find
   // button wired to a missing addon would just silently do nothing.
   const search = pane ? (searchAddons.get(pane.id) ?? null) : null;
@@ -48,15 +48,9 @@ export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
     <div className="flex items-center gap-2 px-2">
       {maximized && pane && (
         <>
-          {notRunning ? (
-            <Button variant="destructive" size="sm" onClick={() => onDeleteSubshell(pane.subshellId)}>
-              <Trash2 className="h-3 w-3" /> Delete
-            </Button>
-          ) : (
-            <Button variant="destructive" size="sm" onClick={() => onTerminate(pane.subshellId)}>
-              <Square className="h-3 w-3 fill-current" /> Terminate
-            </Button>
-          )}
+          <Button variant="destructive" size="sm" onClick={() => onCloseSubshell(pane.subshellId)}>
+            <X className="h-3 w-3" /> Close
+          </Button>
           {search && <TranscriptSearch search={search} onClose={() => {}} />}
         </>
       )}

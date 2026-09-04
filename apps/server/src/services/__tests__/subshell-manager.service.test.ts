@@ -701,14 +701,16 @@ describe("pane-title auto-naming (reconcile sweep)", () => {
     }
   });
 
-  it("resumes adopting after the lock is released", async () => {
+  it("keeps a renamed name locked across later sweeps (rename IS the pin)", async () => {
+    // The lock-release path was removed with the pin UI (spec 2026-09-03):
+    // once renamed, the sweep never adopts again — pane titles are ignored.
     const s = await liveSubshell();
     try {
       await subshellManager.updateName("u1", s.id, "Pinned");
-      await subshellManager.setNameLocked("u1", s.id, false);
       setPaneTitle(s.socket, s.id, "Back on auto");
       await subshellManager.reconcile("u1");
-      expect((await subshellsRepo.findById(s.id))?.name).toBe("Back on auto");
+      await subshellManager.reconcile("u1");
+      expect((await subshellsRepo.findById(s.id))?.name).toBe("Pinned");
     } finally {
       await subshellManager.terminateSubshell("u1", s.id);
     }

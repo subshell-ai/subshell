@@ -222,12 +222,10 @@ export class SubshellClient {
     return this.request(`/api/subshells/${encodeURIComponent(id)}/restart`, { method: "POST" });
   }
 
-  /** Kills the pane (resumable — restart can revive it). @param id - Subshell id */
-  terminate(id: string): Promise<unknown> {
-    return this.request(`/api/subshells/${encodeURIComponent(id)}/terminate`, { method: "POST" });
-  }
+  // No terminate(): the human UI dropped the action (spec 2026-09-03) —
+  // closeSubshell below stops the process AND removes the row in one act.
 
-  /** Removes the row. Terminal. @param id - Subshell id */
+  /** Removes the row (terminating it first). Terminal — the UI calls this "Close". @param id - Subshell id */
   deleteSubshell(id: string): Promise<unknown> {
     return this.request(`/api/subshells/${encodeURIComponent(id)}`, { method: "DELETE" });
   }

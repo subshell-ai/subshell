@@ -1,12 +1,29 @@
 import { Elysia, t } from "elysia";
-import { authGuard } from "@/api/auth-guard.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+});
+
+/**
+ * Per-user terminal attach history cap (spec 2026-09-03 close-vocabulary
+ * design): null = instance default (`SUBSHELL_TERMINAL_REPLAY_LINES`, 100).
+ * Same 1–200 bounds the removed per-subshell route enforced — the ceiling is
+ * a load guarantee, not a preference (see `replayLineCap`).
+ */
+const TerminalHistorySchema = t.Object({
+  lines: t.Nullable(
+    t.Number({
+      minimum: 1,
+      maximum: 200,
+      description: "Trailing log lines a terminal replays on attach (1–200); null = instance default",
+    }),
+  ),
 });
 
 /** Public read gains the break-glass flag (spec 2026-08-31 §6) — it leaks
@@ -108,6 +125,42 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "updateSettings",
         tags: ["settings"],
         description: "Updates settings (admin only, cookie session)",
+      },
+    },
+  )
+  .get(
+    "/terminal-history",
+    async ({ user, actor }) => {
+      // Self-service, not admin: the caller's OWN cap (cookie actor only —
+      // the notifications-settings precedent). These endpoints live in this
+      // module rather than a new route module on purpose: a fresh .use()
+      // layer pushes the composed `App` type past its inference ceiling.
+      requireCookieActor(actor, "Terminal history settings require a cookie session");
+      return { lines: await new UserMetaRepository(db).getTerminalReplayLines(user.id) } as const;
+    },
+    {
+      response: TerminalHistorySchema,
+      detail: {
+        operationId: "getTerminalHistorySettings",
+        tags: ["settings"],
+        description: "The caller's terminal attach history cap (null = instance default)",
+      },
+    },
+  )
+  .patch(
+    "/terminal-history",
+    async ({ body, user, actor }) => {
+      requireCookieActor(actor, "Terminal history settings require a cookie session");
+      await new UserMetaRepository(db).setTerminalReplayLines(user.id, body.lines);
+      return { lines: body.lines } as const;
+    },
+    {
+      body: TerminalHistorySchema,
+      response: TerminalHistorySchema,
+      detail: {
+        operationId: "updateTerminalHistorySettings",
+        tags: ["settings"],
+        description: "Set the caller's terminal attach history cap (1–200; null = instance default)",
       },
     },
   );

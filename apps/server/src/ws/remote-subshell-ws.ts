@@ -1,3 +1,4 @@
+import { getRequestlessContext } from "@/lib/context.js";
 import { type Access, accessAtLeast } from "@/lib/subshell-access.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import { getLive } from "@/services/nodes/node-registry.js";
@@ -53,8 +54,8 @@ export interface RemoteAttachRow {
   nodeId: string;
   /** tmux socket name — ignored by the remote launcher, carried in `WsData` for shape honesty. */
   tmuxSocket: string | null;
-  /** Per-subshell replay-line budget (NULL = instance default; readers clamp to [1,200]). */
-  terminalReplayLines: number | null;
+  /** Owning user — whose per-user terminal-history cap governs this attach. */
+  userId: string;
 }
 
 /**
@@ -196,13 +197,14 @@ export async function attachRemoteSubshellWs(
       if (detached) return;
     }
 
-    // N is per-subshell config, falling back to the instance default; the
-    // clamp (column predates the API; ceiling is a load guarantee) is the
-    // SHARED {@link replayLineCap} — identical math on both attach paths.
+    // N is the OWNER's per-user setting (Account → Terminal history), falling
+    // back to the instance default — the local twin's rule; the clamp
+    // (ceiling is a load guarantee) is the SHARED {@link replayLineCap} —
+    // identical math on both attach paths.
     // The capture carries the visible grid PLUS the last `cap` reflowed
     // history rows; historical log bytes are never re-played. One capture —
     // the gap-free stream above corrects any raced frame (local twin).
-    const cap = replayLineCap(row.terminalReplayLines);
+    const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
     const replay = await captureStable(launcher, data.socket, row.id, cap);
     if (replay === null) {
       // pane may have just died (the local twin swallows this; remote closes

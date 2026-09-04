@@ -8,12 +8,7 @@ const NameBodySchema = t.Object({
     t.String({
       minLength: 1,
       maxLength: 120,
-      description: "New subshell display name (max 120 chars); locks the name",
-    }),
-  ),
-  autoTitle: t.Optional(
-    t.Boolean({
-      description: "true = hand the name back to the pane-title auto-naming sweep; false = pin the current name",
+      description: "New subshell display name (max 120 chars); locking against auto-naming is implicit in renaming",
     }),
   ),
 });
@@ -35,23 +30,18 @@ export const updateSubshellNameRoute = new Elysia()
       if (actor === "subshell-key" && principal !== `sess:${params.id}`) {
         throw new HttpError(403, "A subshell token may only rename its own subshell");
       }
-      if (body.name === undefined && body.autoTitle === undefined) {
-        throw new HttpError(400, "Provide a name and/or an autoTitle flag");
+      if (body.name === undefined) {
+        throw new HttpError(400, "Provide a name");
       }
       // minLength only rejects ""; whitespace is trimmed here, and a name
       // that empties out is invalid — unlike notes, a subshell must have one.
-      if (body.name !== undefined) {
-        const name = body.name.trim();
-        if (!name) {
-          throw new HttpError(400, "Subshell name cannot be blank");
-        }
-        await ctx.services.subshells.renameSubshell(user.id, params.id, name, actor);
+      const name = body.name.trim();
+      if (!name) {
+        throw new HttpError(400, "Subshell name cannot be blank");
       }
-      // Applied after the rename so a combined body decides the lock state
-      // unambiguously: rename locks, autoTitle then overrides that choice.
-      if (body.autoTitle !== undefined) {
-        await ctx.services.subshells.setSubshellAutoTitle(user.id, params.id, body.autoTitle, actor);
-      }
+      // A rename IS the pin (spec 2026-09-03): an explicit name means the
+      // operator opted out of harness auto-titling; no unlock path exists.
+      await ctx.services.subshells.renameSubshell(user.id, params.id, name, actor);
       return { ok: true } as const;
     },
     {

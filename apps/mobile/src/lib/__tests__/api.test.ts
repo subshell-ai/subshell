@@ -229,7 +229,6 @@ describe("SubshellClient subshell verbs", () => {
     ["rename", (c) => c.rename("s 1", "New Name"), "PATCH", `${BASE}/api/subshells/s%201/name`],
     ["setNotes", (c) => c.setNotes("s1", null), "PATCH", `${BASE}/api/subshells/s1/notes`],
     ["restart", (c) => c.restart("s1"), "POST", `${BASE}/api/subshells/s1/restart`],
-    ["terminate", (c) => c.terminate("s1"), "POST", `${BASE}/api/subshells/s1/terminate`],
     ["deleteSubshell", (c) => c.deleteSubshell("s1"), "DELETE", `${BASE}/api/subshells/s1`],
   ];
   for (const [name, call, method, url] of cases) {

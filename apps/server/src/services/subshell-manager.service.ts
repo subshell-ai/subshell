@@ -517,28 +517,16 @@ export class SubshellManagerService {
 
   /**
    * Renames a subshell AND locks the name: a hand-picked name is exactly the
-   * signal that the pane-title sweep must stop overwriting it. Releasing the
-   * lock is {@link setNameLocked}'s job. The caller must pass a non-blank
-   * trimmed name (the route enforces it); every subshell keeps a name.
+   * signal that the pane-title sweep must stop overwriting it — renaming IS
+   * the pin (spec 2026-09-03); there is deliberately no unlock path. The
+   * caller must pass a non-blank trimmed name (the route enforces it); every
+   * subshell keeps a name.
    * @returns false when the subshell is absent or not the caller's
    */
   async updateName(userId: string, id: string, name: string): Promise<boolean> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
     await this.#subshells.update(id, { name, nameLocked: 1 });
-    return true;
-  }
-
-  /**
-   * Turns the pane-title auto-naming on (`locked` false) or off (true) for
-   * one subshell. Unlocking does not rename anything — the next sweep adopts
-   * the pane's current title whenever it differs.
-   * @returns false when the subshell is absent or not the caller's
-   */
-  async setNameLocked(userId: string, id: string, locked: boolean): Promise<boolean> {
-    const row = await this.#subshells.findById(id);
-    if (!row || row.userId !== userId) return false;
-    await this.#subshells.update(id, { nameLocked: locked ? 1 : 0 });
     return true;
   }
 
@@ -1484,7 +1472,6 @@ export function toSubshellView(
     nameLocked: number;
     notify: number;
     waitingSince: string | null;
-    terminalReplayLines?: number | null;
   },
   status: string,
   /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
@@ -1533,8 +1520,6 @@ export function toSubshellView(
     // state (null = not waiting); cleared by the watcher on output-resume/death.
     waitingSince: row.waitingSince,
     access,
-    // Per-subshell terminal attach history cap; null = instance default.
-    terminalReplayLines: row.terminalReplayLines ?? null,
     // Agent node unreachable right now (see the param doc) — the UI's
     // "node offline" chip; false for every local subshell.
     nodeOffline,
