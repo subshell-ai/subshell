@@ -1,4 +1,4 @@
-import type { ServerFrame } from "@internal/subshell-protocol";
+import type { ServerFrame, ViewerPresence } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
@@ -18,6 +18,23 @@ export interface TermWsHandlers {
    * exactly as before.
    */
   onGeometry?: (cols: number, rows: number) => void;
+  /**
+   * Who else is watching, pushed on every join, leave, resize and visibility
+   * change. Every device constrains the pane's one grid, so this is the only
+   * answer to "why is my terminal this size?" — a caller that renders no
+   * device UI simply omits it.
+   */
+  onViewers?: (state: ViewersState) => void;
+}
+
+/** The `viewers` server frame, as handed to {@link TermWsHandlers.onViewers}. */
+export interface ViewersState {
+  /** Which entry in {@link viewers} is this client. */
+  you: string;
+  /** Everyone attached, including this client. */
+  viewers: ViewerPresence[];
+  /** How the pane's grid is currently being decided. */
+  sizing: { mode: "auto" | "pinned"; pinnedViewerId: string | null };
 }
 
 /** Fixed delay (ms) between automatic reconnect attempts. */
@@ -184,6 +201,8 @@ export function useSubshellWs(
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
+            } else if (frame.type === "viewers") {
+              handlersRef.current.onViewers?.({ you: frame.you, viewers: frame.viewers, sizing: frame.sizing });
             } else if (frame.type === "geometry") {
               // Fact, not a request — the caller pins its grid to this and
               // stays silent about it (see TermWsHandlers.onGeometry).

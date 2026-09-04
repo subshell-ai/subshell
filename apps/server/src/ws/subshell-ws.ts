@@ -1,5 +1,12 @@
 import { getHarness } from "@internal/harnesses";
-import { normalizeDeviceLabel, parseClientFrame, type ViewerPresence } from "@internal/subshell-protocol";
+import {
+  DEFAULT_SIZING,
+  normalizeDeviceLabel,
+  parseClientFrame,
+  resolveSharedGrid,
+  type SizingPolicy,
+  type ViewerPresence,
+} from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
@@ -16,7 +23,7 @@ import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
 import { createPaneStreamRegistry, type Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
-import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy } from "@/ws/shared-geometry.js";
+
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -357,7 +364,7 @@ export interface WsData {
   canInput: boolean;
   /**
    * The grid THIS viewer can display, as last reported. One input to the
-   * shared-grid decision (`ws/shared-geometry.ts`); never applied on its own,
+   * shared-grid decision (`@internal/subshell-protocol`); never applied on its own,
    * because a pane has one size and other devices may be watching it.
    */
   capacity?: { cols: number; rows: number };

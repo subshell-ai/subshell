@@ -85,37 +85,86 @@ function isUsable(grid: Grid): boolean {
   return grid.cols >= MIN_SHARED_COLS && grid.rows >= MIN_SHARED_ROWS;
 }
 
-/** True when a capacity is a real, positive, integral grid. */
-function isWellFormed(grid: Grid | null): grid is Grid {
-  return grid !== null && Number.isInteger(grid.cols) && Number.isInteger(grid.rows) && grid.cols > 0 && grid.rows > 0;
+/** A viewer that has reported a real, positive, integral grid. */
+type SizedViewer = ViewerCapacity & { capacity: Grid };
+
+/**
+ * True when a viewer has reported a capacity worth considering at all.
+ *
+ * A narrowing predicate rather than a filter+cast: the cast is what let a
+ * `capacity: null` reach the reducers as `{cols: undefined}` in an earlier
+ * shape of this code, and NaN propagates silently through Math.min.
+ */
+function isSized(viewer: ViewerCapacity): viewer is SizedViewer {
+  const g = viewer.capacity;
+  return g !== null && Number.isInteger(g.cols) && Number.isInteger(g.rows) && g.cols > 0 && g.rows > 0;
 }
 
-/** Per-axis minimum over a non-empty list. */
-function smallest(grids: readonly Grid[]): Grid {
-  return grids.reduce((min, c) => ({ cols: Math.min(min.cols, c.cols), rows: Math.min(min.rows, c.rows) }));
+/**
+ * The axis extremes of a non-empty viewer list, with attribution: which
+ * viewers actually hold each axis where it is. Attribution is what lets a UI
+ * answer "why is my terminal only 80 columns wide" by naming the device.
+ *
+ * @param viewers - Non-empty list of viewers with well-formed capacities
+ * @param pick - `min` for smallest-wins, `max` for the degenerate fallback
+ * @returns The extreme grid and the ids holding each axis
+ */
+function extremeOf(
+  viewers: readonly SizedViewer[],
+  pick: "min" | "max",
+): { grid: Grid; cols: string[]; rows: string[] } {
+  const better = (a: number, b: number) => (pick === "min" ? Math.min(a, b) : Math.max(a, b));
+  const grid = viewers.reduce<Grid>(
+    (acc, v) => ({ cols: better(acc.cols, v.capacity.cols), rows: better(acc.rows, v.capacity.rows) }),
+    { cols: viewers[0].capacity.cols, rows: viewers[0].capacity.rows },
+  );
+  return {
+    grid,
+    cols: viewers.filter((v) => v.capacity.cols === grid.cols).map((v) => v.id),
+    rows: viewers.filter((v) => v.capacity.rows === grid.rows).map((v) => v.id),
+  };
 }
 
-/** Per-axis maximum over a non-empty list. */
-function largest(grids: readonly Grid[]): Grid {
-  return grids.reduce((max, c) => ({ cols: Math.max(max.cols, c.cols), rows: Math.max(max.rows, c.rows) }));
+/** How a grid was arrived at — see {@link GridDecision}. */
+export type GridReason = "pinned" | "smallest" | "fallback";
+
+/**
+ * The grid a pane takes AND why, so the answer can be shown rather than
+ * merely obeyed.
+ *
+ * The "why" is not decoration. Smallest-wins means one device silently
+ * shrinks everyone else's terminal, and a user staring at an 80-column pane
+ * on a 4K monitor has no way to discover that a phone in another room is the
+ * reason. `cols`/`rows` name the devices actually holding each axis.
+ */
+export interface GridDecision {
+  /** The grid to apply. */
+  grid: Grid;
+  /** Ids of the viewers whose capacity holds the width where it is. */
+  cols: readonly string[];
+  /** Ids of the viewers whose capacity holds the height where it is. */
+  rows: readonly string[];
+  /** Which rule produced the grid. */
+  reason: GridReason;
 }
 
 /**
  * The grid a pane should take, given what each attached viewer can display
- * and the operator's sizing policy.
+ * and the operator's sizing policy — with the reasoning attached.
  *
  * Independent per axis: a short wide phone and a tall narrow one together
- * yield the narrow width and the short height, so both see everything.
+ * yield the narrow width and the short height, so both see everything, and
+ * `cols`/`rows` then name different devices.
  *
  * @param viewers - Every attached viewer, in any order
  * @param policy - The sizing choice; defaults to smallest-visible-wins
- * @returns The grid to apply, or null when there is nothing to size for
+ * @returns The decision, or null when there is nothing to size for
  */
-export function resolveSharedGrid(
+export function decideSharedGrid(
   viewers: readonly ViewerCapacity[],
   policy: SizingPolicy = DEFAULT_SIZING,
-): Grid | null {
-  const valid = viewers.filter((v) => isWellFormed(v.capacity)) as Array<ViewerCapacity & { capacity: Grid }>;
+): GridDecision | null {
+  const valid = viewers.filter(isSized);
   if (valid.length === 0) return null;
 
   // A pin is the operator naming the screen that matters, so it outranks
@@ -123,7 +172,7 @@ export function resolveSharedGrid(
   // pinned device should not lose the pane merely by being backgrounded.
   if (policy.mode === "pinned" && policy.pinnedViewerId) {
     const pinned = valid.find((v) => v.id === policy.pinnedViewerId);
-    if (pinned) return pinned.capacity;
+    if (pinned) return { grid: pinned.capacity, cols: [pinned.id], rows: [pinned.id], reason: "pinned" };
     // The pinned device is gone (closed, reconnected under a new id). Fall
     // through to auto rather than freezing the pane at a departed viewer's
     // size; the caller clears the stale pin when it notices.
@@ -135,12 +184,27 @@ export function resolveSharedGrid(
   const visible = valid.filter((v) => !v.hidden);
   const considered = visible.length > 0 ? visible : valid;
 
-  const usable = considered.filter((v) => isUsable(v.capacity)).map((v) => v.capacity);
-  if (usable.length > 0) return smallest(usable);
+  const usable = considered.filter((v) => isUsable(v.capacity));
+  if (usable.length > 0) return { ...extremeOf(usable, "min"), reason: "smallest" };
 
   // Every considered viewer is mid-layout. Sizing to the smallest of a set of
   // degenerate reports would paint into a 2x1 strip, so take the LARGEST
   // instead — it is the closest thing to a real viewport on offer, and the
   // next report from any settled viewer supersedes it.
-  return largest(considered.map((v) => v.capacity));
+  return { ...extremeOf(considered, "max"), reason: "fallback" };
+}
+
+/**
+ * {@link decideSharedGrid} without the reasoning — what a caller that only
+ * has to APPLY the grid wants.
+ *
+ * @param viewers - Every attached viewer, in any order
+ * @param policy - The sizing choice; defaults to smallest-visible-wins
+ * @returns The grid to apply, or null when there is nothing to size for
+ */
+export function resolveSharedGrid(
+  viewers: readonly ViewerCapacity[],
+  policy: SizingPolicy = DEFAULT_SIZING,
+): Grid | null {
+  return decideSharedGrid(viewers, policy)?.grid ?? null;
 }

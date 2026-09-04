@@ -9,6 +9,7 @@ import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
+import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
@@ -26,6 +27,7 @@ import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
+import type { ViewersState } from "@/lib/use-subshell-ws";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/subshells_/$id")({
@@ -44,6 +46,12 @@ function SubshellPage() {
   const scrollToBottomRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
+  /**
+   * Who else is watching, straight off the terminal's socket. Null while the
+   * socket is down — the device list is live state, not a cache.
+   */
+  const [viewers, setViewers] = useState<ViewersState | null>(null);
+  const setSizingRef = useRef<SubshellTerminalHandles["setSizing"] | null>(null);
   const [closed, setClosed] = useState(false);
   /** Whether the Find bar is up — see the header actions row for why it matters. */
   const [findOpen, setFindOpen] = useState(false);
@@ -116,6 +124,7 @@ function SubshellPage() {
     openImagePickerRef.current = handles.openImagePicker;
     scrollToTopRef.current = handles.scrollToTop;
     scrollToBottomRef.current = handles.scrollToBottom;
+    setSizingRef.current = handles.setSizing;
     setSearch(handles.search);
   }
 
@@ -126,6 +135,7 @@ function SubshellPage() {
     openImagePickerRef.current = null;
     scrollToTopRef.current = null;
     scrollToBottomRef.current = null;
+    setSizingRef.current = null;
     setSearch(null);
   }
 
@@ -213,6 +223,15 @@ function SubshellPage() {
                 actions and refresh the same queries the page observes. Disabled
                 while the panel's own restart/delete is in flight (the menu holds
                 a separate hook instance and can't see it). */}
+                {/* Why the terminal is the size it is — and how to change
+                    which device decides. Renders itself away when this is the
+                    only device attached. */}
+                <SubshellDevices
+                  state={viewers}
+                  onSizing={
+                    subshell?.access === "view" ? undefined : (mode, viewerId) => setSizingRef.current?.(mode, viewerId)
+                  }
+                />
                 {subshell && (
                   <SubshellActionsMenu
                     subshell={subshell}
@@ -258,6 +277,7 @@ function SubshellPage() {
               setConnected(status.connected);
               setClosed(status.closed);
             }}
+            onViewers={setViewers}
             onRestart={() => void restart()}
             restarting={restarting}
             onDelete={() => void remove()}

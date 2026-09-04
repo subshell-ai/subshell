@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
-import { sendInput, sendResize } from "@/lib/subshell-frames.js";
+import { sendInput, sendResize, sendSizing } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import {
   type Box,
@@ -27,7 +27,7 @@ import {
 } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
-import { useSubshellWs } from "@/lib/use-subshell-ws";
+import { useSubshellWs, type ViewersState } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
 
@@ -91,6 +91,13 @@ export interface SubshellTerminalHandles {
   scrollToTop: () => void;
   /** See {@link SubshellTerminalHandles.scrollToTop}. */
   scrollToBottom: () => void;
+  /**
+   * Chooses how the pane is sized while several devices watch it: `auto`
+   * hands it to the smallest visible one, `pinned` to the named viewer.
+   * Refused server-side for a `view` grantee — sizing changes what everyone
+   * sees, so it is an `edit` act like typing.
+   */
+  setSizing: (mode: "auto" | "pinned", viewerId?: string | null) => void;
 }
 
 /** Props for {@link SubshellTerminal}. */
@@ -125,6 +132,12 @@ export interface SubshellTerminalProps {
   onDispose?: () => void;
   /** Called whenever the subshell socket opens or closes */
   onStatusChange?: (status: SubshellTerminalStatus) => void;
+  /**
+   * Called with the live device list on every join, leave, resize and
+   * visibility change — and with null when the socket goes away, so a caller
+   * showing "Devices (3)" does not keep claiming three after a detach.
+   */
+  onViewers?: (state: ViewersState | null) => void;
   /**
   /** Invoked by the exited panel's Restart button */
   onRestart?: () => void;
@@ -202,6 +215,7 @@ export function SubshellTerminal({
   onReady,
   onDispose,
   onStatusChange,
+  onViewers,
   onRestart,
   restarting = false,
   onDelete,
@@ -314,6 +328,8 @@ export function SubshellTerminal({
   onDisposeRef.current = onDispose;
   const onStatusChangeRef = useRef(onStatusChange);
   onStatusChangeRef.current = onStatusChange;
+  const onViewersRef = useRef(onViewers);
+  onViewersRef.current = onViewers;
   // Current status, readable from the WS callbacks without closing over the
   // render they were created in.
   const statusRef = useRef(status);
@@ -325,6 +341,9 @@ export function SubshellTerminal({
   // Reports this client's CAPACITY to the server. Same late-binding trick as
   // sendToSubshellRef: the mount effect must not depend on the socket.
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
+  // Same deferral: published through the handles, but the socket that carries
+  // it is created by an effect that runs after the terminal's.
+  const setSizingRef = useRef<(mode: "auto" | "pinned", viewerId?: string | null) => void>(() => {});
   // Assigned every render below the uploads hook; the onReady handle forwards
   // to it so the closure captured at terminal-setup time never goes stale.
   const openImagePickerRef = useRef<() => void>(() => {});
@@ -559,6 +578,7 @@ export function SubshellTerminal({
       openImagePicker: () => openImagePickerRef.current(),
       scrollToTop: () => term.scrollToTop(),
       scrollToBottom: () => term.scrollToBottom(),
+      setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 
     return () => {
@@ -617,6 +637,10 @@ export function SubshellTerminal({
         // are transient: the hook reconnects on its own and the caller's
         // "reconnecting…" pill covers the gap.
         emitStatus({ connected: false, closed: code >= 4000 });
+        // With the socket down we do not know who is watching — including
+        // whether we still are. Saying so beats leaving a stale "Devices (3)"
+        // on screen through a reconnect.
+        onViewersRef.current?.(null);
       },
       // The pane's real grid. Pin the container to it and say nothing back:
       // FitAddon measuring that box proposes this exact grid, so the
@@ -626,6 +650,7 @@ export function SubshellTerminal({
         paneGridRef.current = { cols, rows };
         applyLetterbox();
       },
+      onViewers: (state) => onViewersRef.current?.(state),
     },
     // A `view` grantee watches the pane but cannot type (spec §4.1).
     subshell?.access === "view",
@@ -644,10 +669,12 @@ export function SubshellTerminal({
   useEffect(() => {
     if (active) return;
     emitStatus({ connected: false, closed: statusRef.current.closed });
+    onViewersRef.current?.(null);
   }, [active, emitStatus]);
 
   sendToSubshellRef.current = (data) => sendInput(wsRef.current, data);
   sendResizeRef.current = (cols, rows) => sendResize(wsRef.current, cols, rows);
+  setSizingRef.current = (mode, viewerId) => sendSizing(wsRef.current, mode, viewerId);
 
   const uploads = useTerminalUploads({ subshellId, wsRef, termRef, enabled: showUploads });
   openImagePickerRef.current = uploads.openImagePicker;

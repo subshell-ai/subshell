@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { DEFAULT_GRID, MIN_SHARED_COLS, MIN_SHARED_ROWS, resolveSharedGrid } from "@/ws/shared-geometry.js";
+import {
+  DEFAULT_GRID,
+  decideSharedGrid,
+  MIN_SHARED_COLS,
+  MIN_SHARED_ROWS,
+  resolveSharedGrid,
+} from "../shared-geometry.js";
 
 /** Terse viewer literal: a capacity with a generated id. */
 let seq = 0;
@@ -168,5 +174,68 @@ describe("a pinned viewer decides alone", () => {
 
   it("still answers nothing when the pinned viewer never reported a size", () => {
     expect(resolveSharedGrid([{ id: "p", capacity: null }], { mode: "pinned", pinnedViewerId: "p" })).toBeNull();
+  });
+});
+
+describe("decideSharedGrid — naming the device that holds each axis", () => {
+  it("attributes each axis separately when two devices constrain one each", () => {
+    // The whole point of attribution: on a 4K monitor showing an 80-column
+    // pane, "why" is a phone in another room, and only the server knows.
+    const wide = v(200, 10);
+    const tall = v(40, 60);
+    const d = decideSharedGrid([wide, tall]);
+    expect(d).toEqual({ grid: { cols: 40, rows: 10 }, cols: [tall.id], rows: [wide.id], reason: "smallest" });
+  });
+
+  it("names every device tied at the limit, not just the first", () => {
+    // Two identical laptops both hold the width; blaming one is arbitrary and
+    // makes unpinning the named one look like it should help, when it won't.
+    const a = v(80, 24);
+    const b = v(80, 40);
+    const d = decideSharedGrid([a, b]);
+    expect(d?.cols).toEqual([a.id, b.id]);
+    expect(d?.rows).toEqual([a.id]);
+  });
+
+  it("credits the pinned device with both axes", () => {
+    const pinned = v(120, 40);
+    const d = decideSharedGrid([pinned, v(60, 20)], { mode: "pinned", pinnedViewerId: pinned.id });
+    expect(d).toEqual({ grid: { cols: 120, rows: 40 }, cols: [pinned.id], rows: [pinned.id], reason: "pinned" });
+  });
+
+  it("never blames a hidden device for a size it is not deciding", () => {
+    // A backgrounded phone takes no part, so listing it as the constraint
+    // would send the user to un-background the one thing that would make it
+    // worse.
+    const phone = v(40, 20, true);
+    const laptop = v(120, 40);
+    const d = decideSharedGrid([phone, laptop]);
+    expect(d?.grid).toEqual({ cols: 120, rows: 40 });
+    expect(d?.cols).toEqual([laptop.id]);
+    expect(d?.rows).toEqual([laptop.id]);
+  });
+
+  it("marks the degenerate fallback as such, so a UI can stay quiet about it", () => {
+    // Every viewer is mid-layout: the grid is a stopgap that the next settled
+    // report supersedes. Naming a "constraining device" here would be noise.
+    const d = decideSharedGrid([v(2, 1), v(10, 3)]);
+    expect(d?.reason).toBe("fallback");
+    expect(d?.grid).toEqual({ cols: 10, rows: 3 });
+  });
+
+  it("agrees with resolveSharedGrid on every shape", () => {
+    // The wrapper must not drift from the function it wraps.
+    const cases = [
+      [v(120, 40)],
+      [v(120, 40), v(80, 24)],
+      [v(200, 10), v(40, 60)],
+      [v(2, 1), v(10, 3)],
+      [v(40, 20, true), v(120, 40)],
+      [{ id: "n", capacity: null }],
+      [],
+    ];
+    for (const viewers of cases) {
+      expect(resolveSharedGrid(viewers)).toEqual(decideSharedGrid(viewers)?.grid ?? null);
+    }
   });
 });
