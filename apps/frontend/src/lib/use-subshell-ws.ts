@@ -9,6 +9,15 @@ export interface TermWsHandlers {
   onOpen?: () => void;
   onClose?: (code: number, reason: string) => void;
   onError?: (msg: string) => void;
+  /**
+   * The pane's REAL grid, as read back from tmux (see the `geometry` server
+   * frame). This is a statement of fact, not a request: the caller renders
+   * this grid and must NOT answer by asking for a different size — that is
+   * the feedback loop eee3a92 reverted. Never fires for panes whose size
+   * cannot be read (remote nodes), leaving those clients sizing themselves
+   * exactly as before.
+   */
+  onGeometry?: (cols: number, rows: number) => void;
 }
 
 /** Fixed delay (ms) between automatic reconnect attempts. */
@@ -150,6 +159,10 @@ export function useSubshellWs(
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
+            } else if (frame.type === "geometry") {
+              // Fact, not a request — the caller pins its grid to this and
+              // stays silent about it (see TermWsHandlers.onGeometry).
+              handlersRef.current.onGeometry?.(frame.cols, frame.rows);
             }
           } catch {
             // ignore malformed frame

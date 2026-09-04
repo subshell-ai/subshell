@@ -14,6 +14,7 @@ import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { sendInput } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
+import { type Box, boxForGrid, type Grid, scrollbarReserve } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSubshellWs } from "@/lib/use-subshell-ws";
@@ -197,6 +198,41 @@ export function SubshellTerminal({
   // while `active` is false so a detached pane still reads as itself.
   const [snapshot, setSnapshot] = useState("");
   const [status, setStatus] = useState<SubshellTerminalStatus>({ connected: false, closed: false });
+  // The container is pinned to exactly the pane's grid (see lib/terminal-geometry):
+  // FitAddon then proposes that same grid, so fitting is idempotent and this
+  // client never answers the server's geometry by asking for a different size.
+  // Null until the pane's real size is known — and it stays null for panes
+  // whose size cannot be read (remote nodes), which keeps those on the
+  // fill-the-box behavior every client had before the readback existed.
+  const [letterbox, setLetterbox] = useState<Box | null>(null);
+  const paneGridRef = useRef<Grid | null>(null);
+
+  /**
+   * Re-derives the container size from the pane's grid and the terminal's
+   * live cell metrics. Runs when the pane's grid changes and when the font
+   * size does — the same grid at a different font size is a different box.
+   * Reads the terminal element's real padding and scrollbar reserve so the
+   * box is the exact inverse of what FitAddon will measure.
+   */
+  const applyLetterbox = useCallback(() => {
+    const term = termRef.current;
+    const grid = paneGridRef.current;
+    const cell = term?.dimensions?.css.cell;
+    if (!term || !grid || !cell || !(cell.width > 0) || !(cell.height > 0)) return;
+    const style = term.element ? getComputedStyle(term.element) : null;
+    const px = (value: string | undefined): number => (value ? Number.parseInt(value, 10) || 0 : 0);
+    setLetterbox(
+      boxForGrid(
+        grid,
+        { width: cell.width, height: cell.height },
+        {
+          padX: px(style?.paddingLeft) + px(style?.paddingRight),
+          padY: px(style?.paddingTop) + px(style?.paddingBottom),
+          reserve: scrollbarReserve({ scrollback: term.options.scrollback, scrollbar: term.options.scrollbar }),
+        },
+      ),
+    );
+  }, []);
 
   // Sync copies of the callbacks: the xterm key handler and the WS handlers
   // are bound once per terminal, so they must read the latest props without
@@ -353,6 +389,9 @@ export function SubshellTerminal({
       if (typeof size === "number" && size > 0) {
         term.options.fontSize = size;
         fit.fit();
+        // The pane's grid has not changed, but its cell size has, so the box
+        // that holds exactly that grid is a different box.
+        applyLetterbox();
       }
     };
     window.addEventListener(TERM_FONT_EVENT, onFontSetting);
@@ -446,6 +485,11 @@ export function SubshellTerminal({
       ro.disconnect();
       // Only a detach leaves the component mounted to show the snapshot; on a
       // real unmount there is nothing left to render it into.
+      // The next terminal learns the pane's grid from its own attach's
+      // geometry frame; carrying this one's over would size a fresh container
+      // from a stale grid for a frame.
+      paneGridRef.current = null;
+      setLetterbox(null);
       if (mountedRef.current) setSnapshot(stripAnsi(serialize.serialize()));
       // Everything published by onReady dies with the terminal, so tell the
       // caller before it does.
@@ -455,7 +499,11 @@ export function SubshellTerminal({
       serializeRef.current = null;
       fitRef.current = null;
     };
-  }, [active]);
+  }, [
+    active, // The pane's grid has not changed, but its cell size has, so the box
+    // that holds exactly that grid is a different box.
+    applyLetterbox,
+  ]);
 
   /** Records the new socket status and reports it to the caller. */
   const emitStatus = useCallback((next: SubshellTerminalStatus) => {
@@ -489,6 +537,14 @@ export function SubshellTerminal({
         // are transient: the hook reconnects on its own and the caller's
         // "reconnecting…" pill covers the gap.
         emitStatus({ connected: false, closed: code >= 4000 });
+      },
+      // The pane's real grid. Pin the container to it and say nothing back:
+      // FitAddon measuring that box proposes this exact grid, so the
+      // corrective resize this would otherwise trigger never happens. Asking
+      // again here is what made the reverted geometry reconciliation loop.
+      onGeometry: (cols, rows) => {
+        paneGridRef.current = { cols, rows };
+        applyLetterbox();
       },
     },
     // A `view` grantee watches the pane but cannot type (spec §4.1).
@@ -540,7 +596,20 @@ export function SubshellTerminal({
         // rootRef (from the dropzone hook) scopes the clipboard-paste
         // interceptor's focus test to THIS terminal — see use-terminal-uploads.
         <div {...rootProps} ref={uploads.rootRef as React.RefObject<HTMLDivElement | null>}>
-          <div ref={containerRef} className="h-full w-full" />
+          {/* The terminal's own box is pinned to the pane's grid and centred
+              in the pane; `letterbox` is null until the pane's real size is
+              known (and forever for panes whose size cannot be read), and
+              then this is exactly the old fill-the-box layout. */}
+          <div className="flex h-full w-full items-center justify-center overflow-hidden">
+            <div
+              ref={containerRef}
+              style={
+                letterbox
+                  ? { width: `${letterbox.width}px`, height: `${letterbox.height}px`, flex: "none" }
+                  : { width: "100%", height: "100%" }
+              }
+            />
+          </div>
           {showUploads && (
             <TerminalDropOverlay
               isDragActive={uploads.isDragActive}
