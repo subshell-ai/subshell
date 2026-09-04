@@ -232,6 +232,85 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     cleanupSubshellWs(second.ws);
   });
 
+  it("forgets a viewer that disconnects, and lets the pane grow back", async () => {
+    // Found by driving two real browser tabs and closing one: the pane stayed
+    // at the departed viewer's size forever. The registry was keyed by SOCKET
+    // IDENTITY, and Elysia hands `close` a different wrapper object than
+    // `open` — so the delete silently missed, every disconnected viewer stayed
+    // in the set, and the pane was pinned to the smallest device that had
+    // EVER attached. The presence list filled with ghosts for the same reason.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      order.push("resize");
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const tall = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const short = await attach(row.userId, row.id, "&cols=100&rows=30");
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 30 }); // smallest wins
+
+    cleanupSubshellWs(short.ws); // the short viewer leaves
+    await Bun.sleep(50);
+
+    // The pane grows back to what the remaining viewer can show.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+
+    // ...and the departed viewer is gone from presence, not a ghost.
+    const latest = tall.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: unknown[] })
+      .at(-1);
+    expect(latest?.viewers).toHaveLength(1);
+
+    cleanupSubshellWs(tall.ws);
+  });
+
+  it("tells the INCUMBENT when a smaller joiner shrinks the pane under it", async () => {
+    // Found by driving two real browser tabs. The pane correctly took the
+    // minimum, and the joiner rendered it — but the incumbent was never told,
+    // so it kept painting the taller grid it had arrived with. A client and a
+    // pane that disagree by even one row is the whole reason this work exists.
+    //
+    // The attach applies the shared fit DIRECTLY (it must be awaited before
+    // the capture) rather than through the geometry queue, so the queue's own
+    // announcement does not cover this path.
+    stubLauncher();
+    let paneRows = 52;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      order.push("resize");
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 122, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const incumbent = await attach(row.userId, row.id, "&cols=122&rows=52");
+    const geometryIn = (frames: string[]) =>
+      frames
+        .filter((f) => f.includes('"type":"geometry"'))
+        .map((f) => {
+          const { cols, rows } = JSON.parse(f) as { cols: number; rows: number };
+          return { cols, rows };
+        });
+    expect(geometryIn(incumbent.sent).at(-1)).toEqual({ cols: 122, rows: 52 });
+
+    // A shorter viewer joins: smallest-wins takes the pane to 49 rows.
+    const joiner = await attach(row.userId, row.id, "&cols=122&rows=49");
+
+    expect(geometryIn(joiner.sent).at(-1)).toEqual({ cols: 122, rows: 49 });
+    // ...and the incumbent is TOLD, rather than left painting 52 rows.
+    expect(geometryIn(incumbent.sent).at(-1)).toEqual({ cols: 122, rows: 49 });
+
+    cleanupSubshellWs(incumbent.ws);
+    cleanupSubshellWs(joiner.ws);
+  });
+
   it("tells every viewer who else is watching, and which entry is itself", async () => {
     // A pane has one grid and the SMALLEST viewer decides it, so "why is my
     // terminal this size?" is only answerable if a client can see the other

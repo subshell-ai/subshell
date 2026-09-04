@@ -135,7 +135,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     ws.close(4004, "subshell not running");
     return;
   }
-  registerViewer(ws, row.id);
 
   // A close can land while this handler still awaits (resize settle + the
   // quiet-poll can span ~1 s), so the disposer is installed BEFORE the first
@@ -165,6 +164,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
   Object.assign(ws.data, data);
+  // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
+  // not exist until the context object carries it.
+  registerViewer(ws, row.id);
   ws.data.cleanup = (): void => {
     detached = true;
     data.cleanup?.();
@@ -292,9 +294,19 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // already agrees with, instead of discovering the mismatch a frame later.
   // Null (a remote pane, an unreadable pane) simply announces nothing and
   // leaves the client sizing itself, exactly as before the readback existed.
+  //
+  // Broadcast, not a direct send: a joiner smaller than the incumbents SHRINKS
+  // the pane for all of them (the fit above is the shared grid), and this
+  // attach applies that resize DIRECTLY rather than through the queue — so the
+  // queue's own announcement never fires and the incumbents would never learn
+  // their pane had moved under them. Measured live with two tabs: the pane
+  // correctly became 122x49, the joiner rendered 49 rows, and the incumbent
+  // sat at 52 forever, which is exactly the client/pane disagreement that
+  // corrupts a relative-positioned redraw. The joiner is already registered,
+  // so this reaches it too, still before its replay.
   const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
   if (attachGeometry) {
-    ws.send(JSON.stringify({ type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows }));
+    broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }
 
   const replay = text != null ? captureToReplayText(text) : null;
@@ -726,7 +738,14 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
 export function cleanupSubshellWs(ws: WsSocket): void {
   const subshellId = ws.data?.subshellId;
   const viewers = subshellId ? liveViewers.get(subshellId) : undefined;
-  if (subshellId && viewers?.delete(ws)) {
+  // Keyed by viewerId, NOT by socket identity: Elysia hands `close` a
+  // different wrapper object than `open`, so `delete(ws)` silently missed and
+  // every disconnected viewer stayed in the set forever. Measured live —
+  // `deleteHit=false` on every close — with two consequences: the pane was
+  // pinned to the smallest viewer that had EVER attached (it never grew back
+  // when a small device left), and the presence list filled with ghosts.
+  const viewerId = ws.data?.viewerId;
+  if (subshellId && viewerId && viewers?.delete(viewerId)) {
     if (viewers.size === 0) {
       liveViewers.delete(subshellId);
       // No one is watching, so the remembered "already applied" size must go
@@ -760,7 +779,7 @@ export function cleanupSubshellWs(ws: WsSocket): void {
  * Called once both paths have PROVEN the pane is alive (post-probe), so a
  * refused attach never evicts the incumbent.
  */
-const liveViewers = new Map<string, Set<WsSocket>>();
+const liveViewers = new Map<string, Map<string, WsSocket>>();
 
 /**
  * Drops all viewer registrations WITHOUT closing the sockets. Only for tests,
@@ -794,9 +813,9 @@ function broadcastToViewers(subshellId: string, frame: object): void {
   const viewers = liveViewers.get(subshellId);
   if (!viewers) return;
   const payload = JSON.stringify(frame);
-  // Snapshot: a send can close a socket, and mutating the set mid-iteration
+  // Snapshot: a send can close a socket, and mutating the map mid-iteration
   // would skip the viewer after it.
-  for (const viewer of [...viewers]) {
+  for (const viewer of [...viewers.values()]) {
     try {
       viewer.send(payload);
     } catch {
@@ -830,7 +849,7 @@ function broadcastToViewers(subshellId: string, frame: object): void {
 function broadcastViewers(subshellId: string): void {
   const viewers = liveViewers.get(subshellId);
   if (!viewers || viewers.size === 0) return;
-  const sockets = [...viewers];
+  const sockets = [...viewers.values()];
   const presence: ViewerPresence[] = sockets
     .filter((v) => v.data)
     .map((v) => ({
@@ -864,7 +883,7 @@ function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket:
 export function sharedGridFor(subshellId: string): PaneGeometry | null {
   const viewers = liveViewers.get(subshellId);
   if (!viewers || viewers.size === 0) return null;
-  const capacities = [...viewers].map((v) => v.data?.capacity).filter((c): c is PaneGeometry => Boolean(c));
+  const capacities = [...viewers.values()].map((v) => v.data?.capacity).filter((c): c is PaneGeometry => Boolean(c));
   return resolveSharedGrid(capacities);
 }
 
@@ -943,7 +962,9 @@ async function readPaneGeometry(
 }
 
 export function registerViewer(ws: WsSocket, subshellId: string): void {
-  const viewers = liveViewers.get(subshellId) ?? new Set<WsSocket>();
-  viewers.add(ws);
+  const viewerId = ws.data?.viewerId;
+  if (!viewerId) return;
+  const viewers = liveViewers.get(subshellId) ?? new Map<string, WsSocket>();
+  viewers.set(viewerId, ws);
   liveViewers.set(subshellId, viewers);
 }

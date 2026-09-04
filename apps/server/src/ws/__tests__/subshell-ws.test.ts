@@ -41,6 +41,11 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
       lastSize: 0,
       lastOutputWriteAt: 0,
       canInput: opts.canInput ?? true,
+      // The registry is keyed by viewerId, so a fake without one registers
+      // as nothing and its resize frames reach no pane.
+      viewerId: crypto.randomUUID(),
+      deviceLabel: "Test device",
+      since: new Date().toISOString(),
     },
     send: (raw: string) => {
       sent.push(JSON.parse(raw) as Record<string, unknown>);

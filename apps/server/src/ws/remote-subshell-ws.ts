@@ -152,6 +152,9 @@ export async function attachRemoteSubshellWs(
     cleanup,
   };
   Object.assign(ws.data, data);
+  // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
+  // not exist until the context object carries it.
+  registerViewer(ws, row.id);
 
   try {
     if (!(await launcher.hasSubshell(data.socket, row.id))) {
@@ -161,7 +164,6 @@ export async function attachRemoteSubshellWs(
     if (detached) return;
     // Pane proven alive — claim the subshell's one live viewer slot (the local
     // twin's rule): the previous viewer's width was about to fight this one's.
-    registerViewer(ws, row.id);
 
     // JOIN POINT (the local twin carries the full reasoning): one 1-byte
     // `log_read` for `size`, sampled BEFORE the resize — the tail streams
