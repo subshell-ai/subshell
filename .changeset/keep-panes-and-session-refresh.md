@@ -22,6 +22,14 @@ SessionStart hook reports the pane's current session id to
 `POST /api/subshells/:id/harness-session` (the subshell's own bearer,
 self-only like /attention), and restart-resume continues the current one.
 
+**The `subshell` MCP now introduces itself.** The server's `initialize`
+handshake carries an `instructions` briefing every harness sees at connect
+time: sibling panes are AGENTS you can question (`list_subshells` /
+`get_subshell` instead of guessing from git), coordinate through
+channels, and know that channel delivery is PULL — the peer only sees a
+post when it calls `read_channel`. (Bundles into both binaries with these
+bumps; `@internal/mcp-core` itself is changeset-ignored.)
+
 **Node-offline precedence on workspace panes.** A docked pane whose agent
 node is unreachable now says "Node offline — reconnecting" (the machine is
 unreachable; the subshell may still be RUNNING there) instead of rendering a
