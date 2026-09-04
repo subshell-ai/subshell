@@ -376,12 +376,22 @@ export function useTerminalUploads({
     input.type = "file";
     input.accept = "image/*";
     input.multiple = true;
+    input.style.display = "none";
     // The element is disposable: once the picker resolves (or is cancelled)
     // it is dropped; the File objects it produced outlive it via handleFiles.
+    // It must be ATTACHED before `.click()`: iOS/WebKit is unreliable about
+    // file inputs that live outside the document — the picker opens but the
+    // first pick's `change` never reaches the page, which is the reported
+    // "I have to insert the same image twice for it to register"
+    // (iPhone, 2026-09-04). `cancel` covers the dismiss path so the node
+    // never accumulates (Safari 16+/Chrome; the change path covers older).
     input.addEventListener("change", () => {
       const files = input.files ? Array.from(input.files) : [];
+      input.remove();
       void handleFiles(files, "");
     });
+    input.addEventListener("cancel", () => input.remove());
+    document.body.appendChild(input);
     input.click();
   }, [handleFiles]);
 

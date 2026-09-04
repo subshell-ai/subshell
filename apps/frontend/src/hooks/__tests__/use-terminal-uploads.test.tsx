@@ -75,6 +75,33 @@ describe("useTerminalUploads.openImagePicker", () => {
     expect(created[0].accept).toBe("image/*");
     expect(created[0].multiple).toBe(true);
     expect(clickSpy).toHaveBeenCalledTimes(1);
+    // iOS/WebKit requirement: the input must be IN the document when
+    // `.click()` fires, or the first pick's `change` never reaches the page
+    // (the "insert the same image twice" report, iPhone 2026-09-04).
+    expect(created[0].parentElement).toBe(document.body);
+
+    createSpy.mockRestore();
+    clickSpy.mockRestore();
+  });
+
+  it("discards the picker element after the pick", () => {
+    const created: HTMLInputElement[] = [];
+    const realCreate = document.createElement.bind(document);
+    const createSpy = spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreate(tag) as HTMLElement;
+      if (tag === "input") created.push(el as HTMLInputElement);
+      return el;
+    });
+    const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+
+    const { result } = renderHook(() =>
+      useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+    );
+    result.current.openImagePicker();
+    expect(created[0].isConnected).toBe(true);
+
+    created[0].dispatchEvent(new Event("change"));
+    expect(created[0].isConnected).toBe(false);
 
     createSpy.mockRestore();
     clickSpy.mockRestore();
@@ -240,7 +267,7 @@ describe("useTerminalUploads clipboard-file interception", () => {
       await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
       const body = FakeXhr.instances[0].sentBody;
       expect(body?.get("file")).toBeInstanceOf(File);
-      const file = body!.get("file") as File;
+      const file = body?.get("file") as File;
       expect(file.type).toBe("image/png");
       expect(file.name).toMatch(/^pasted-image-\d+\.png$/);
     } finally {
