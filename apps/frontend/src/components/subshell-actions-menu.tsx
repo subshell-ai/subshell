@@ -1,20 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Bell,
-  BellOff,
-  Copy,
-  NotebookPen,
-  RotateCcw,
-  Share2,
-  SlidersHorizontal,
-  TextCursorInput,
-  X,
-} from "lucide-react";
+import { Bell, BellOff, Copy, RotateCcw, Share2, SlidersHorizontal, TextCursorInput, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
-import { NotesDialog } from "@/components/ui/notes-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
@@ -47,7 +36,6 @@ export function SubshellActionsMenu({
   // ReactNode, not JSX.Element | null: the viewer's no-menu path returns the
   // caller's children verbatim (whatever element — or elements — they are).
   const [titleOpen, setTitleOpen] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const navigate = useNavigate();
@@ -57,7 +45,7 @@ export function SubshellActionsMenu({
   });
   // Access drives which actions exist (spec 2026-08-31 §4.1): `view` can read
   // and watch only (so the menu itself is absent), `edit` interacts and manages
-  // (notes, title, restart), and only the `owner` may ring the bell, clone,
+  // (title, restart), and only the `owner` may ring the bell, clone,
   // manage sharing, or close. A viewer has nothing to do here.
   // Lifecycle shrank with the Close rename (spec 2026-09-03): no Terminate
   // (Close subsumes it) and no title-pin toggle (a rename IS the pin).
@@ -82,11 +70,8 @@ export function SubshellActionsMenu({
             sidebar: true,
             onSelect: () => setTitleOpen(true),
           },
-          {
-            icon: NotebookPen,
-            label: subshell.notes ? "Edit note" : "Add note",
-            onSelect: () => setNotesOpen(true),
-          },
+          // No note item (spec 2026-09-03 follow-up): the operator-note
+          // feature was removed — dialog, endpoint, and MCP tool included.
           // No title-pin item (spec 2026-09-03): pane-title auto-naming is the
           // default and an explicit "Edit title" IS the pin — the rename locks
           // the name server-side, with no unlock path by design.
@@ -170,22 +155,12 @@ export function SubshellActionsMenu({
         open={titleOpen}
         onOpenChange={setTitleOpen}
       />
-      {/* Keyed by subshell id (suffixed — the dialogs are siblings in one
-          fragment, so bare ids would collide) so each subshell gets a fresh
-          note draft. */}
-      <NotesDialog
-        key={`${subshell.id}-notes`}
-        subshellId={subshell.id}
-        note={subshell.notes}
-        open={notesOpen}
-        onOpenChange={setNotesOpen}
-      />
       {isOwner && <SharingDialog subshellId={subshell.id} open={shareOpen} onOpenChange={setShareOpen} />}
       {/* Mounted only while open, so every open starts from a blank name and a
-          cleared POST error. Title/NotesDialog deliberately keep their draft
-          across closes; a clone is a one-shot launch, so a stale name or error
-          from a previous attempt would be a wrong prefill — remount-on-open
-          gives the fresh state for free (Task 2 review). */}
+          cleared POST error. TitleDialog deliberately keeps its draft across
+          closes; a clone is a one-shot launch, so a stale name or error from a
+          previous attempt would be a wrong prefill — remount-on-open gives the
+          fresh state for free (Task 2 review). */}
       {cloneOpen && <CloneSubshellDialog source={subshell} open onOpenChange={setCloneOpen} />}
     </>
   );

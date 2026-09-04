@@ -53,7 +53,7 @@ function nodePill(subshell: SubshellView, known: Node | undefined, pending: bool
  * Card for a subshell: name, harness, activity chip, a live view of the
  * subshell's screen, and an actions menu — all on the shared `EntityCard`
  * shell the workspace/profile grids use. The menu is passed through the
- * `menu` slot because `SubshellActionsMenu` carries its own state (notes
+ * `menu` slot because `SubshellActionsMenu` carries its own state (title
  * dialog, lifecycle mutations) rather than a plain `items` list.
  *
  * The preview is the subshell's actual terminal screen, captured server-side
@@ -64,7 +64,6 @@ function nodePill(subshell: SubshellView, known: Node | undefined, pending: bool
  */
 export function SubshellCard({ subshell }: { subshell: SubshellView }) {
   const preview = subshell.preview ?? [];
-  const note = subshell.notes;
   const exited = subshell.status === "running" && !subshell.alive;
   // Remote + no live agent: everything "exited" would claim is unknowable
   // right now (spec §5.6), so the offline reading supersedes it everywhere.
@@ -123,7 +122,6 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
           {subshell.backoffCount > 0 && ` · restart ${subshell.backoffCount}`}
         </p>
       )}
-      {note && <p className="truncate pt-1 text-primary/80 text-xs">note: {note}</p>}
     </EntityCard>
   );
 }

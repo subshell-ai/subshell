@@ -40,7 +40,6 @@ export const SubshellSchema = t.Object({
   createdAt: t.String({ description: "Created timestamp" }),
   endedAt: t.Union([t.String({ description: "Ended timestamp" }), t.Null()]),
   lastOutputAt: t.Union([t.String({ description: "Last output timestamp (ISO)" }), t.Null()]),
-  notes: t.Union([t.String({ description: "Operator note" }), t.Null()]),
   activity: t.Union([t.Literal("active"), t.Literal("idle"), t.Literal("terminated")], {
     description: "Rough activity state",
   }),

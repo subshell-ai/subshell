@@ -26,7 +26,6 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     createdAt: "2026-08-30T00:00:00.000Z",
     endedAt: null,
     lastOutputAt: null,
-    notes: null,
     activity: "idle",
     alive: true,
     exitCode: null,
@@ -147,8 +146,8 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
     try {
       await renderMenu(makeSubshell({ access: "edit", alive: true }));
       await openMenu("subshell");
-      expect(screen.getByRole("menuitem", { name: "Add note" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
+      expect(screen.queryByRole("menuitem", { name: "Add note" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Notify when done" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Close" })).toBeNull();

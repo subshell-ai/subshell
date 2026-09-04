@@ -530,16 +530,6 @@ export class SubshellManagerService {
     return true;
   }
 
-  /** Sets or clears a subshell's note. Returns false if not found/not owner. */
-  async updateNotes(userId: string, id: string, notes: string | null): Promise<boolean> {
-    const row = await this.#subshells.findById(id);
-    if (!row || row.userId !== userId) return false;
-    // Normalize empty/whitespace notes to null so API clients get the same
-    // behavior as the UI (a blank notes field means "no note").
-    await this.#subshells.update(id, { notes: notes?.trim() ? notes.trim() : null });
-    return true;
-  }
-
   /**
    * Restart the subshell IN PLACE: same row, same id, same name. Kills the
    * pane (live or already dead), parks the row in the exact crashed shape
@@ -1462,7 +1452,6 @@ export function toSubshellView(
     createdAt: string;
     endedAt: string | null;
     lastOutputAt: string | null;
-    notes: string | null;
     alive: number;
     exitCode: number | null;
     startedAt: string | null;
@@ -1502,7 +1491,6 @@ export function toSubshellView(
     createdAt: row.createdAt,
     endedAt: row.endedAt,
     lastOutputAt: row.lastOutputAt,
-    notes: row.notes,
     activity: computeActivity(row.lastOutputAt, status),
     // The subshell's current screen, captured by the caller (see
     // SubshellManagerService#preview). Passed in rather than read here so this

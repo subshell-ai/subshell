@@ -10,7 +10,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 /**
  * The §4.1 capability matrix, exercised through the real routes:
  *   view  → read (get/log)
- *   edit  → + rename/notes
+ *   edit  → + rename
  *   owner → + the notify bell, delete
  * A private/foreign subshell is a 404 (invisible, no existence leak); a visible
  * subshell the caller lacks the level for is a 403.
@@ -79,22 +79,20 @@ describe("subshell sharing — access matrix over routes", () => {
     );
   }
 
-  it("a view grantee reads (get + log) but cannot rename, note, toggle the bell, or delete", async () => {
+  it("a view grantee reads (get + log) but cannot rename, toggle the bell, or delete", async () => {
     expect((await req("GET", "/s_view", carolCookie)).status).toBe(200);
     const got = (await (await req("GET", "/s_view", carolCookie)).json()) as { access: string };
     expect(got.access).toBe("view");
     expect((await req("GET", "/s_view/log", carolCookie)).status).toBe(200);
     expect((await req("PATCH", "/s_view/name", carolCookie, { name: "hijack" })).status).toBe(403);
-    expect((await req("PATCH", "/s_view/notes", carolCookie, { notes: "x" })).status).toBe(403);
     expect((await req("PATCH", "/s_view/notify", carolCookie, { notify: false })).status).toBe(403);
     expect((await req("DELETE", "/s_view", carolCookie)).status).toBe(403);
   });
 
-  it("an edit grantee renames and notes, but cannot touch the bell or delete", async () => {
+  it("an edit grantee renames, but cannot touch the bell or delete", async () => {
     const got = (await (await req("GET", "/s_edit", bobCookie)).json()) as { access: string };
     expect(got.access).toBe("edit");
     expect((await req("PATCH", "/s_edit/name", bobCookie, { name: "renamed by bob" })).status).toBe(200);
-    expect((await req("PATCH", "/s_edit/notes", bobCookie, { notes: "bob was here" })).status).toBe(200);
     expect((await req("PATCH", "/s_edit/notify", bobCookie, { notify: false })).status).toBe(403);
     expect((await req("DELETE", "/s_edit", bobCookie)).status).toBe(403);
     // The rename actually landed.

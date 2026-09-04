@@ -174,7 +174,7 @@ describe("SubshellManagerService", () => {
   });
 });
 
-describe("SubshellManagerService notes + restart", () => {
+describe("SubshellManagerService restart", () => {
   /** Inserts a subshell row directly (no tmux involvement). */
   async function seedSubshell(userId: string, profileId: string): Promise<string> {
     const id = crypto.randomUUID();
@@ -192,34 +192,6 @@ describe("SubshellManagerService notes + restart", () => {
 
   /** Real profile row (restartSubshell re-validates + spawns tmux). */
   const seedProfileFor = (userId: string) => seedProfile(profilesRepo, { userId });
-
-  it("updateNotes sets a note for the owner", async () => {
-    const id = await seedSubshell("u1", "p");
-    expect(await subshellManager.updateNotes("u1", id, "working on X")).toBe(true);
-    const row = await subshellsRepo.findById(id);
-    expect(row?.notes).toBe("working on X");
-    // Clearing sets null.
-    expect(await subshellManager.updateNotes("u1", id, null)).toBe(true);
-    expect((await subshellsRepo.findById(id))?.notes).toBeNull();
-  });
-
-  it("updateNotes trims and normalizes empty notes to null", async () => {
-    const id = await seedSubshell("u1", "p");
-    expect(await subshellManager.updateNotes("u1", id, "  spaced  ")).toBe(true);
-    expect((await subshellsRepo.findById(id))?.notes).toBe("spaced");
-    expect(await subshellManager.updateNotes("u1", id, "   ")).toBe(true);
-    expect((await subshellsRepo.findById(id))?.notes).toBeNull();
-  });
-
-  it("updateNotes rejects a foreign userId (404 path)", async () => {
-    const id = await seedSubshell("u1", "p");
-    expect(await subshellManager.updateNotes("u2", id, "nope")).toBe(false);
-    expect((await subshellsRepo.findById(id))?.notes).toBeNull();
-  });
-
-  it("updateNotes returns false for a missing subshell", async () => {
-    expect(await subshellManager.updateNotes("u1", "does-not-exist", "x")).toBe(false);
-  });
 
   it("restartSubshell revives the SAME row (same id, name, profile; parked fields cleared)", async () => {
     const profileId = await seedProfileFor("u1");

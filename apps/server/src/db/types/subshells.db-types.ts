@@ -29,7 +29,11 @@ export interface SubshellTable {
   endedAt: string | null;
   /** ISO timestamp of the last bytes written to the subshell log (null = none yet) */
   lastOutputAt: string | null;
-  /** Free-text operator note (null = none) */
+  /**
+   * DEPRECATED (spec 2026-09-03 follow-up): the operator-note feature was
+   * removed with its UI, endpoint, and MCP tool. The column is read and
+   * written by nothing; it stays so a rollback finds its data.
+   */
   notes: string | null;
   /** 1 = pane process alive; 0 = dead/paused */
   alive: number;

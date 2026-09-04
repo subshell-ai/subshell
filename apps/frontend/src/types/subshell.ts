@@ -52,8 +52,6 @@ export interface SubshellView {
   endedAt: string | null;
   /** ISO 8601 timestamp of the last bytes written to the subshell log (null = none yet) */
   lastOutputAt: string | null;
-  /** Free-text operator note (null = none) */
-  notes: string | null;
   /** Rough activity state computed from lastOutputAt + status */
   activity: SubshellActivity;
   /** Recent output preview lines (only populated for running subshells; treat as optional here so the client tolerates older backends) */

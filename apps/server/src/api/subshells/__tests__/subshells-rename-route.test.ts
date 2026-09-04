@@ -11,7 +11,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 /**
  * PATCH /api/subshells/:id/name — the owner renames their subshell; blank
  * names are refused; a subshell bearer key can rename ITS OWN subshell and
- * never another's (same permission shape as the notes route).
+ * never another's (same permission shape as /attention).
  */
 describe("PATCH /api/subshells/:id/name", () => {
   let userId: string;

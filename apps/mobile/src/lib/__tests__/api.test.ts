@@ -227,7 +227,6 @@ describe("SubshellClient device enrollment", () => {
 describe("SubshellClient subshell verbs", () => {
   const cases: [string, (c: SubshellClient) => Promise<unknown>, string, string][] = [
     ["rename", (c) => c.rename("s 1", "New Name"), "PATCH", `${BASE}/api/subshells/s%201/name`],
-    ["setNotes", (c) => c.setNotes("s1", null), "PATCH", `${BASE}/api/subshells/s1/notes`],
     ["restart", (c) => c.restart("s1"), "POST", `${BASE}/api/subshells/s1/restart`],
     ["deleteSubshell", (c) => c.deleteSubshell("s1"), "DELETE", `${BASE}/api/subshells/s1`],
   ];

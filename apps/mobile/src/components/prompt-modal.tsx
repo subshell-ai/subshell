@@ -3,22 +3,19 @@ import { Modal, Pressable, Text, TextInput, View } from "react-native";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 
 /**
- * Minimal text-entry modal for rename/notes (Alert.prompt is iOS-only; this
- * is the Android parity path). `onDone(null)` = cancelled — empty strings are
- * meaningful (they clear notes), so they must not be conflated with cancel.
+ * Minimal text-entry modal for rename (Alert.prompt is iOS-only; this is the
+ * Android parity path). `onDone(null)` = cancelled — empty strings are
+ * meaningful to the caller, so they must not be conflated with cancel.
  */
 export function PromptModal({
   title,
   initial,
-  multiline,
   onDone,
 }: {
   /** Modal heading */
   title: string;
   /** Prefilled text */
   initial: string;
-  /** Multi-line entry (notes) */
-  multiline?: boolean;
   /** Called with the saved text, or null when cancelled */
   onDone: (value: string | null) => void;
 }) {
@@ -48,11 +45,10 @@ export function PromptModal({
           <TextInput
             value={value}
             onChangeText={setValue}
-            multiline={multiline}
             autoFocus
             style={{
-              minHeight: multiline ? 96 : touchTarget,
-              textAlignVertical: multiline ? "top" : "center",
+              minHeight: touchTarget,
+              textAlignVertical: "center",
               borderWidth: 1,
               borderColor: colors.border,
               borderRadius: radius,

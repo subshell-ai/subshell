@@ -203,17 +203,6 @@ export class SubshellClient {
   }
 
   /**
-   * Sets the operator note.
-   * @param id - Subshell id @param notes - Note text (null clears it)
-   */
-  setNotes(id: string, notes: string | null): Promise<unknown> {
-    return this.request(`/api/subshells/${encodeURIComponent(id)}/notes`, {
-      method: "PATCH",
-      body: JSON.stringify({ notes }),
-    });
-  }
-
-  /**
    * Revives the subshell IN PLACE — same id, rotated token (contract 53654a8).
    * Deep links and notifications survive a restart because the id does.
    * @param id - Subshell id

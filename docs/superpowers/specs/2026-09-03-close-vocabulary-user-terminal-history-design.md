@@ -174,6 +174,18 @@ Kept:
   changeset bump (user-visible server change: new `/api/settings/terminal-history`,
   removed `PATCH /:id/replay`).
 
+## Follow-up (same day, after shipping): operator notes removed too
+
+The operator asked to drop notes on the same reasoning ("won't find use"), so
+the feature was removed end-to-end: the Add/Edit-note menu item and
+`NotesDialog`, `PATCH /api/subshells/:id/notes` + its service methods, the
+`notes` field on the subshell view (API + both client mirrors), the card's
+note line, and the **MCP tool `update_subshell_notes`** — unlike terminate,
+its only reader was the human UI being deleted, so keeping the tool would
+have left an agent writing into a void. The `subshells.notes` column stays
+unread (same rollback rule as `terminal_replay_lines`). The sharing docs now
+describe `edit` as: terminal input, rename, restart.
+
 ## Out of scope
 
 - Any change to delete/terminate **semantics** (delete still terminates first).

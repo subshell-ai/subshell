@@ -387,23 +387,6 @@ export class SubshellsService extends BaseService {
   }
 
   /**
-   * Sets or clears a subshell note (an `edit` act).
-   * @throws SubshellError 404 when absent or invisible to the caller.
-   * @throws HttpError 403 when the caller holds only `view`.
-   */
-  async updateSubshellNotes(
-    viewerId: string,
-    id: string,
-    notes: string | null,
-    actor: GuardActor,
-  ): Promise<{ ok: true }> {
-    const { row } = await this.#gate(viewerId, id, "edit", actor);
-    const ok = await this.#manager.updateNotes(row.userId, id, notes);
-    if (!ok) throw new SubshellError("not_found", "Subshell not found");
-    return { ok: true };
-  }
-
-  /**
    * Renames a subshell (which also locks the name against the pane-title
    * sweep) — an `edit` act. Validation (non-blank, length) is the route's job.
    * @throws SubshellError 404 when absent or invisible to the caller.

@@ -233,6 +233,3 @@ export const terminateSubshell = (deps: ToolDeps, id: string) =>
 /** `delete_subshell` */
 export const deleteSubshell = (deps: ToolDeps, id: string) =>
   deps.api.req(`/api/subshells/${encodeURIComponent(id)}`, { method: "DELETE" });
-/** `update_subshell_notes` */
-export const updateSubshellNotes = (deps: ToolDeps, id: string, notes: string | null) =>
-  deps.api.req(`/api/subshells/${encodeURIComponent(id)}/notes`, { method: "PATCH", body: { notes } });

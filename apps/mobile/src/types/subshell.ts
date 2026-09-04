@@ -62,8 +62,6 @@ export interface SubshellView {
   endedAt: string | null;
   /** ISO timestamp of the last pane output. */
   lastOutputAt: string | null;
-  /** Operator note. */
-  notes: string | null;
   /** Rough activity state. */
   activity: SubshellActivity;
   /** Bottom ≤20 screen lines, ANSI-styled, running subshells only — strip before display. */

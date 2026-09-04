@@ -16,6 +16,11 @@ for the agents' MCP tool `terminate_subshell`.
 from the menu, and `PATCH /:id/name` dropped its `autoTitle` flag: an explicit
 name locks the pane-title auto-naming sweep permanently, by design.
 
+**Operator notes are gone.** The "Add/Edit note" dialog, `PATCH
+/api/subshells/:id/notes`, and the MCP tool `update_subshell_notes` were
+removed with the feature — the human UI was its only reader. The
+`subshells.notes` column stays unread so a rollback finds its data.
+
 **Terminal history is now one per-user setting.** The per-subshell "Terminal
 history…" dialog and `PATCH /api/subshells/:id/replay` are gone; Account →
 "Terminal history" stores a single cap (`user_meta.terminal_replay_lines`,

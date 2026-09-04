@@ -52,8 +52,9 @@ be probed. The owner may grant two levels, to **Everyone** (all signed-in users)
 specific users, via `PUT /api/subshells/:id/shares`:
 
 - **view** — read only: list, detail, pane log, and a read-only live terminal.
-- **edit** — view + interact and manage: terminal input, rename, notes, restart,
-  terminate.
+- **edit** — view + interact and manage: terminal input, rename, restart.
+  (Spec 2026-09-03 shed notes, the title pin, and human-facing terminate from
+  the action set; Close = delete, which stays owner-only.)
 
 Owner-only actions (never conferred by a grant, and not held by an admin either): **delete**,
 **managing the shares themselves**, and the **notification bell**. Sharing is a browser

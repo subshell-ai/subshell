@@ -16,7 +16,6 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     createdAt: "2026-08-30T00:00:00.000Z",
     endedAt: null,
     lastOutputAt: null,
-    notes: null,
     activity: "idle",
     alive: true,
     exitCode: null,

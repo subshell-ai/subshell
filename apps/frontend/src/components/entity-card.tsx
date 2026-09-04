@@ -42,7 +42,7 @@ export function EntityCard({
   /**
    * A ready-made menu for the top-right slot instead of an `items` list —
    * for entities whose menu carries its own state (a subshell menu with
-   * notes dialog and lifecycle mutations). Occupies the same floated slot.
+   * dialogs and lifecycle mutations). Occupies the same floated slot.
    */
   menu?: ReactNode;
   /** Optional chip beside the title (a harness badge, an activity chip) */

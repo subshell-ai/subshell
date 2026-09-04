@@ -12,7 +12,6 @@ import { subshellSharesRoutes } from "@/api/subshells/subshell-shares.route.js";
 import { summarySubshellRoute } from "@/api/subshells/summary-subshell.route.js";
 import { terminateSubshellRoute } from "@/api/subshells/terminate-subshell.route.js";
 import { updateSubshellNameRoute } from "@/api/subshells/update-subshell-name.route.js";
-import { updateSubshellNotesRoute } from "@/api/subshells/update-subshell-notes.route.js";
 import { updateSubshellNotifyRoute } from "@/api/subshells/update-subshell-notify.route.js";
 
 /**
@@ -29,7 +28,6 @@ export const subshellRoutes = new Elysia({ prefix: "/api/subshells" })
   .use(getSubshellRoute)
   .use(getSubshellLogRoute)
   .use(subshellSharesRoutes)
-  .use(updateSubshellNotesRoute)
   .use(updateSubshellNotifyRoute)
   .use(subshellAttentionRoute)
   .use(subshellHarnessSessionRoute)

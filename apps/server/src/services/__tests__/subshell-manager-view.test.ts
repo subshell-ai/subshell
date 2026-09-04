@@ -20,7 +20,6 @@ function row(overrides: Partial<Parameters<typeof toSubshellView>[0]> = {}) {
     createdAt: "2026-08-30T10:00:00.000Z",
     endedAt: null,
     lastOutputAt: null,
-    notes: null,
     alive: 1,
     exitCode: null,
     startedAt: null,

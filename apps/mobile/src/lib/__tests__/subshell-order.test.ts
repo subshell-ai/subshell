@@ -14,7 +14,6 @@ function make(over: Partial<SubshellView> = {}): SubshellView {
     createdAt: "2026-08-31T00:00:00.000Z",
     endedAt: null,
     lastOutputAt: null,
-    notes: null,
     activity: "active",
     preview: [],
     alive: true,

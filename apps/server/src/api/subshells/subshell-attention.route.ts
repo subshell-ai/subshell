@@ -14,7 +14,7 @@ const OkResponseSchema = t.Object({ ok: t.Boolean({ description: "Always true" }
 /**
  * `POST /api/subshells/:id/attention` — the harness self-report endpoint the
  * injected hooks call. Subshell-key-only and self-scoped (the same rule as
- * /name and /notes): a harness may ring its OWN subshell's bell, never
+ * /name): a harness may ring its OWN subshell's bell, never
  * another's, and browsers have no reason to be here (they get the state via
  * the subshell feed).
  */

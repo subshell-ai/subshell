@@ -33,7 +33,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
   const wsBlocked = useApp((s) => s.instances.find((r) => r.id === s.activeId)?.wsBlocked ?? false);
   const { data: subshell, refetch, error } = useSubshellData(subshellId);
   const [tab, setTab] = useState<"live" | "log">("log");
-  const [modal, setModal] = useState<"name" | "notes" | null>(null);
+  const [modal, setModal] = useState<"name" | null>(null);
   const log = useSubshellLog(subshellId, tab === "log");
 
   function gone(err: unknown): boolean {
@@ -179,7 +179,6 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
           }}
         >
           <Action label="Rename" onPress={() => setModal("name")} />
-          <Action label="Notes" onPress={() => setModal("notes")} />
           {/* The bell and deletion are owner-only (spec §4.1); edit grantees
             manage the subshell but do not decide its owner's push posture. */}
           {flags.isOwner && (
@@ -227,18 +226,13 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
 
       {modal ? (
         <PromptModal
-          title={modal === "name" ? "Subshell name" : "Notes"}
-          initial={modal === "name" ? (subshell?.name ?? "") : (subshell?.notes ?? "")}
-          multiline={modal === "notes"}
+          title="Subshell name"
+          initial={subshell?.name ?? ""}
           onDone={(value) => {
             setModal(null);
             if (value === null || !client || !subshell) return;
-            if (modal === "name") {
-              const name = value.trim();
-              if (name && name !== subshell.name) void run("Rename", () => client.rename(subshellId, name));
-            } else {
-              void run("Notes", () => client.setNotes(subshellId, value.trim() === "" ? null : value));
-            }
+            const name = value.trim();
+            if (name && name !== subshell.name) void run("Rename", () => client.rename(subshellId, name));
           }}
         />
       ) : null}
