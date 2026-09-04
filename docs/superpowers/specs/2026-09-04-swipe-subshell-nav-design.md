@@ -74,6 +74,11 @@ prev/next, desktop pointer drag.
 
 ## Verification
 
-Unit tests for `findNeighbors` + `swipeIntent`; `bun run verify-types && bun run
-lint:check && bun run test`; manual: phone (or DevTools touch emulation) swipe across
-the sidebar order on :5174.
+Unit tests for `findNeighbors` + `swipeIntent` (`src/lib/__tests__/`); e2e
+`tests/09-mobile-swipe.spec.ts` drives REAL touch events (CDP
+`Input.dispatchTouchEvent`) in the iPhone-15-Pro Playwright project against the
+:3199 stack — two live subshells, swipe down-list then up-list, URL asserted per
+jump, plus zero-`pageerror` (guards the 09-mobile-navcrash live-to-live crash
+territory); `bun run verify-types && bun run lint:check && bun run test` all
+green. On-device feel (thresholds, damping) still worth a thumb pass on a real
+phone.
