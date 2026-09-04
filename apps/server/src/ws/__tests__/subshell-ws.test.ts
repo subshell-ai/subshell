@@ -142,7 +142,9 @@ describe("handleSubshellMessage", () => {
     registerViewer(ws, subshellId); // registers this socket as the viewer
     handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 92, rows: 28 }));
     await tick();
-    expect(sent).toEqual([{ type: "geometry", cols: 92, rows: 28 }]);
+    // Filtered, not exact: the socket also carries `viewers` presence frames
+    // now, and this case is about the geometry announcement.
+    expect(sent.filter((f) => f.type === "geometry")).toEqual([{ type: "geometry", cols: 92, rows: 28 }]);
     resetLiveViewersForTests();
   });
 
@@ -159,7 +161,7 @@ describe("handleSubshellMessage", () => {
     registerViewer(ws, subshellId);
     handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 51, rows: 13 }));
     await tick();
-    expect(sent).toEqual([{ type: "geometry", cols: 51, rows: 16 }]);
+    expect(sent.filter((f) => f.type === "geometry")).toEqual([{ type: "geometry", cols: 51, rows: 16 }]);
     resetLiveViewersForTests();
   });
 

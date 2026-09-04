@@ -232,6 +232,83 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     cleanupSubshellWs(second.ws);
   });
 
+  it("tells every viewer who else is watching, and which entry is itself", async () => {
+    // A pane has one grid and the SMALLEST viewer decides it, so "why is my
+    // terminal this size?" is only answerable if a client can see the other
+    // devices — and it can only answer "is that me?" with `you`.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const first = await attach(row.userId, row.id, "&cols=120&rows=40&device=Laptop");
+    const second = await attach(row.userId, row.id, "&cols=80&rows=24&device=Phone");
+
+    const presenceOf = (frames: string[]) =>
+      frames
+        .filter((f) => f.includes('"type":"viewers"'))
+        .map((f) => JSON.parse(f) as { you: string; viewers: Array<{ id: string; label: string }> })
+        .at(-1);
+
+    const asSeenBySecond = presenceOf(second.sent);
+    expect(asSeenBySecond?.viewers.map((v) => v.label).sort()).toEqual(["Laptop", "Phone"]);
+
+    // The first viewer is TOLD about the joiner — presence is pushed, not polled.
+    const asSeenByFirst = presenceOf(first.sent);
+    expect(asSeenByFirst?.viewers.map((v) => v.label).sort()).toEqual(["Laptop", "Phone"]);
+
+    // Each is pointed at its own entry, and they are different entries.
+    const meForFirst = asSeenByFirst?.viewers.find((v) => v.id === asSeenByFirst.you);
+    const meForSecond = asSeenBySecond?.viewers.find((v) => v.id === asSeenBySecond.you);
+    expect(meForFirst?.label).toBe("Laptop");
+    expect(meForSecond?.label).toBe("Phone");
+    expect(asSeenByFirst?.you).not.toBe(asSeenBySecond?.you);
+
+    cleanupSubshellWs(first.ws);
+    cleanupSubshellWs(second.ws);
+  });
+
+  it("reports each viewer's capacity, which is what explains the shared grid", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const first = await attach(row.userId, row.id, "&cols=120&rows=40&device=Laptop");
+    const second = await attach(row.userId, row.id, "&cols=80&rows=24&device=Phone");
+
+    const latest = second.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map(
+        (f) => JSON.parse(f) as { viewers: Array<{ label: string; capacity: { cols: number; rows: number } | null }> },
+      )
+      .at(-1);
+    const byLabel = Object.fromEntries((latest?.viewers ?? []).map((v) => [v.label, v.capacity]));
+    expect(byLabel.Laptop).toEqual({ cols: 120, rows: 40 });
+    expect(byLabel.Phone).toEqual({ cols: 80, rows: 24 });
+    // ...and the pane took the smaller of them.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 80, rows: 24 });
+
+    cleanupSubshellWs(first.ws);
+    cleanupSubshellWs(second.ws);
+  });
+
+  it("normalizes a hand-built device label rather than trusting it", async () => {
+    // The label is rendered in another viewer's browser and written to a log
+    // line; the client's own sanitizing protects nothing against a crafted
+    // socket URL.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const viewer = await attach(row.userId, row.id, `&device=${encodeURIComponent("Evil\r\nX-Injected: 1")}`);
+    const latest = viewer.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: Array<{ label: string }> })
+      .at(-1);
+    expect(latest?.viewers[0]?.label).toBe("Evil X-Injected: 1");
+
+    cleanupSubshellWs(viewer.ws);
+  });
+
   it("the last viewer leaving stops the stream; one remaining viewer keeps it", async () => {
     stubLauncher();
     const row = await seedLocalRow();
@@ -296,7 +373,10 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // capture grid" mechanism is gone (it painted mid-stream TUI redraw
     // sequences over the snapshot — the jumble that took ~10s to converge and
     // left the oldest scrollback lines garbled forever).
-    expect(sent).toEqual([JSON.stringify({ type: "replay", data: "SCREEN" })]);
+    // Terminal frames only: the socket also carries `viewers` presence now.
+    expect(sent.filter((f) => !f.includes('"type":"viewers"'))).toEqual([
+      JSON.stringify({ type: "replay", data: "SCREEN" }),
+    ]);
 
     // New output AFTER the attach still streams — EOF is a start, not a stop.
     appendFileSync(logFile, "live\r\n");
@@ -304,9 +384,10 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // so this frame can arrive on the 1000ms backstop instead — which is why
     // every other wait in this file allows 1300ms. A fixed 120ms made the case
     // pass in CI and fail on a Mac.
+    const terminalFrames = () => sent.filter((f) => !f.includes('"type":"viewers"'));
     const deadline = Date.now() + 5000;
-    while (sent.length < 2 && Date.now() < deadline) await Bun.sleep(25);
-    expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
+    while (terminalFrames().length < 2 && Date.now() < deadline) await Bun.sleep(25);
+    expect(terminalFrames()[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
   });
 
   it("announces the pane's REAL grid BEFORE the replay, so the capture paints onto an agreed grid", async () => {

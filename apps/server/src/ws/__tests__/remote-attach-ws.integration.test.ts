@@ -160,7 +160,9 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       ]);
 
       // Frame 1: the replay, exactly the local path's shape.
-      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      // Terminal frames only: the socket also carries `viewers` presence now.
+      const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
+      expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
 
       // Owner access ⇒ keystrokes and geometry ride the signed RPC (the
       // geometry passthrough: launch carries no cols today, the attach's
@@ -177,8 +179,8 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // fromByte sits at the armed EOF offset — the launcher's dup-clamp
       // would (correctly) discard anything below it.
       dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
-      await until(() => sent.length === 2, "output frame");
-      expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
+      await until(() => term().length === 2, "output frame");
+      expect(term()[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     } finally {
       sim.detach();
     }
@@ -236,7 +238,9 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
 
     const { ws, sent } = await attach(userId, id);
     try {
-      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      // Terminal frames only: the socket also carries `viewers` presence now.
+      const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
+      expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
       await new Promise((r) => setTimeout(r, 60)); // let the initial catch-up pump land
       cleanupSubshellWs(ws);
       expect(() => cleanupSubshellWs(ws)).not.toThrow(); // the parity claim: second is a no-op

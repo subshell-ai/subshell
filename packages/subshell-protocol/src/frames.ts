@@ -64,7 +64,42 @@ export type ServerFrame =
       cols: number;
       /** Pane height in rows. */
       rows: number;
+    }
+  | {
+      /**
+       * Who else is watching this subshell, pushed on every join, leave and
+       * capacity change.
+       *
+       * A subshell can be open on several devices at once, and each of them
+       * constrains the pane's single grid — so "why is my terminal this size?"
+       * is only answerable if the client can see the other viewers. It rides
+       * the socket that is already open rather than a poll.
+       */
+      type: "viewers";
+      /** This recipient's own entry in {@link viewers}, by id. */
+      you: string;
+      /** Everyone attached, including the recipient. */
+      viewers: ViewerPresence[];
     };
+
+/** One device watching a subshell. */
+export interface ViewerPresence {
+  /** Stable for the lifetime of this socket; the `you` field points at one. */
+  id: string;
+  /** Human label for the device, as the client reported it. */
+  label: string;
+  /**
+   * The grid this viewer says it can display, or null before it has said.
+   * The pane's actual size is the smallest of these, which is what makes the
+   * list worth showing: a device listed smaller than the others is the reason
+   * everyone's terminal is that size.
+   */
+  capacity: { cols: number; rows: number } | null;
+  /** ISO timestamp of when this viewer attached. */
+  since: string;
+  /** True when this viewer may type; a `view` grantee is watching only. */
+  canInput: boolean;
+}
 
 /**
  * Validates and narrows an incoming client frame.
@@ -96,4 +131,30 @@ export function parseClientFrame(raw: string | object): ClientFrame | null {
     return { type: "resize", cols, rows };
   }
   return null;
+}
+
+/** Longest device label accepted on the wire. */
+export const DEVICE_LABEL_MAX = 40;
+
+/**
+ * Normalizes a device label for the wire: control characters replaced,
+ * whitespace collapsed, length capped.
+ *
+ * Shared by both ends deliberately. The label is chosen on one device and
+ * rendered in another user's browser (a shared subshell may have viewers who
+ * are not its owner), and it also reaches a server log line — so it is
+ * sanitized on the way out AND on the way in, rather than trusting either.
+ *
+ * @param raw - A candidate label
+ * @returns The cleaned label, empty when nothing usable remains
+ */
+export function normalizeDeviceLabel(raw: string): string {
+  let out = "";
+  for (const ch of raw) {
+    const code = ch.codePointAt(0) ?? 0;
+    // C0, DEL and C1: never printable, and the pair that matters most here is
+    // CR/LF, which would forge a second line in the attach log.
+    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : ch;
+  }
+  return out.replace(/\s+/g, " ").trim().slice(0, DEVICE_LABEL_MAX);
 }

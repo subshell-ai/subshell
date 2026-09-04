@@ -2,8 +2,11 @@ export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   type ClientFrame,
+  DEVICE_LABEL_MAX,
+  normalizeDeviceLabel,
   parseClientFrame,
   type ServerFrame,
+  type ViewerPresence,
 } from "./frames.js";
 export type { JsonValue } from "./json.js";
 export {

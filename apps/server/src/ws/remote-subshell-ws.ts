@@ -107,6 +107,8 @@ export async function attachRemoteSubshellWs(
   launcher: RemoteLauncher,
   access: Access,
   size?: AttachSize | null,
+  /** Device label from the connect URL; the remote path never sees the URL. */
+  deviceLabel = "Unnamed device",
 ): Promise<void> {
   if (!getLive(row.nodeId)) {
     ws.close(4004, "node offline");
@@ -140,6 +142,13 @@ export async function attachRemoteSubshellWs(
     lastOutputWriteAt: 0,
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),
+    capacity: size ?? undefined,
+    // Presence identity: who this viewer is in the `viewers` frame. The id
+    // lives as long as the socket, so a reconnect is legitimately a new
+    // viewer rather than a resurrected one.
+    viewerId: crypto.randomUUID(),
+    deviceLabel,
+    since: new Date().toISOString(),
     cleanup,
   };
   Object.assign(ws.data, data);

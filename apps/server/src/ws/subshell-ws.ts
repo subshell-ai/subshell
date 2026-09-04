@@ -1,5 +1,5 @@
 import { getHarness } from "@internal/harnesses";
-import { parseClientFrame } from "@internal/subshell-protocol";
+import { normalizeDeviceLabel, parseClientFrame, type ViewerPresence } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
@@ -128,7 +128,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // invariant rather than guessing at the instance.
   const launcher = launcherFor(row.nodeId);
   if (row.nodeId !== LOCAL_NODE_ID) {
-    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, initialSize);
+    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, initialSize, parseDeviceLabel(url));
     return;
   }
   if (!row.tmuxSocket || !(await launcher.hasSubshell(row.tmuxSocket, row.id))) {
@@ -155,6 +155,12 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     // This viewer's own capacity, from the connect URL. One input to the
     // shared decision below — never applied on its own.
     capacity: initialSize ?? undefined,
+    // Presence identity: who this viewer is in the `viewers` frame. The id
+    // lives as long as the socket, so a reconnect is legitimately a new
+    // viewer rather than a resurrected one.
+    viewerId: crypto.randomUUID(),
+    deviceLabel: parseDeviceLabel(url),
+    since: new Date().toISOString(),
   };
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
@@ -300,6 +306,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // The replay is out; release everything the pane produced while it was
   // being captured, then stream live.
   stream.open();
+  // Presence LAST: a joiner should appear to the others once it is actually
+  // receiving, and its own first list should already include itself.
+  broadcastViewers(row.id);
   // Re-wrap (not raw-assign): the close that arrived during the attach awaits
   // must still reach the disposer armed moments ago — `detached` is true by
   // then, so the same wrapper both propagates and immediately tears down.
@@ -340,6 +349,12 @@ export interface WsData {
    * because a pane has one size and other devices may be watching it.
    */
   capacity?: { cols: number; rows: number };
+  /** Identifies this viewer in the `viewers` frame; lives as long as the socket. */
+  viewerId: string;
+  /** Human name for the device, from the connect URL (already normalized). */
+  deviceLabel: string;
+  /** ISO timestamp of the attach, for "watching since" in the devices list. */
+  since: string;
   /**
    * The upgrade request's User-Agent, stashed by the `/ws` `upgrade` hook
    * (`ws.raw.request` is absent in Elysia's WS open context). Journal-only —
@@ -376,6 +391,21 @@ const MAX_BUILD_ID_LEN = 24;
  * @param url - the attach URL
  * @returns the id, or `"MISSING"`
  */
+/**
+ * The device label from the connect URL, normalized and bounded.
+ *
+ * Chosen on the client and rendered in other viewers' browsers — which for a
+ * shared subshell can mean another user — so it is re-normalized here rather
+ * than trusted: the client's own sanitizing protects nothing against a
+ * hand-built socket URL.
+ *
+ * @param url - The attach URL
+ * @returns The label, or a neutral placeholder when absent/unusable
+ */
+export function parseDeviceLabel(url: URL): string {
+  return normalizeDeviceLabel(url.searchParams.get("device") ?? "") || "Unnamed device";
+}
+
 export function parseClientBuild(url: URL): string {
   const raw = (url.searchParams.get("build") ?? "").replace(/[^A-Za-z0-9_.-]/g, "");
   return raw ? raw.slice(0, MAX_BUILD_ID_LEN) : "MISSING";
@@ -676,6 +706,9 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     // of order and strand the pane at a superseded size.
     data.capacity = { cols: frame.cols, rows: frame.rows };
     applySharedGeometry(data.subshellId, data.launcher, data.socket);
+    // The list shows each device's capacity, and it is what explains the
+    // pane's size — so a viewer resizing is a presence change too.
+    broadcastViewers(data.subshellId);
     return;
   }
   // Raw terminal input, forwarded verbatim — but only for callers allowed to
@@ -705,6 +738,7 @@ export function cleanupSubshellWs(ws: WsSocket): void {
       // Someone is still watching, and the pane may have been held small on
       // this viewer's account — re-decide without it so it can grow back.
       applySharedGeometry(subshellId, ws.data.launcher, ws.data.socket);
+      broadcastViewers(subshellId);
     }
   }
   ws.data?.cleanup?.();
@@ -784,6 +818,38 @@ function broadcastToViewers(subshellId: string, frame: object): void {
  * @param launcher - Launcher owning the pane
  * @param socket - tmux socket for the pane
  */
+/**
+ * Pushes the current viewer list to everyone watching `subshellId`.
+ *
+ * Per-recipient rather than one shared payload, because each client needs to
+ * know WHICH entry is itself (`you`) — a device cannot otherwise tell whether
+ * the small viewport holding the pane down is its own.
+ *
+ * @param subshellId - Subshell whose viewers to notify
+ */
+function broadcastViewers(subshellId: string): void {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers || viewers.size === 0) return;
+  const sockets = [...viewers];
+  const presence: ViewerPresence[] = sockets
+    .filter((v) => v.data)
+    .map((v) => ({
+      id: v.data.viewerId,
+      label: v.data.deviceLabel,
+      capacity: v.data.capacity ?? null,
+      since: v.data.since,
+      canInput: v.data.canInput,
+    }));
+  for (const socket of sockets) {
+    if (!socket.data) continue;
+    try {
+      socket.send(JSON.stringify({ type: "viewers", you: socket.data.viewerId, viewers: presence }));
+    } catch {
+      // socket already gone; its close handler does the bookkeeping
+    }
+  }
+}
+
 function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket: string): void {
   const grid = sharedGridFor(subshellId);
   if (grid) requestPaneResize(launcher, socket, subshellId, grid.cols, grid.rows);
