@@ -214,14 +214,21 @@ export class ChannelsService extends BaseService {
     });
     notifyPosts(channel.id);
     if (nudge) {
-      // Fixed, Enter-less line to RUNNING subshell RECIPIENTS only (spec §9).
+      // Fixed line to RUNNING subshell RECIPIENTS only (spec §9). A pane
+      // waiting at its prompt is WOKEN — the line names the tool and is
+      // submitted, so the agent reads the post without being told to poll.
+      // A mid-turn pane gets the old Enter-less cue (submitting into a busy
+      // harness corrupts the turn). Never peer content in either line.
       const subshells = this.repos.subshells;
       for (const recipientId of new Set(recipientIds)) {
         if (!recipientId.startsWith("sess:") || recipientId === principal) continue;
         const row = await subshells.findById(recipientId.slice("sess:".length));
-        if (row?.alive === 1 && row.tmuxSocket) {
-          nudgeSubshell(row.tmuxSocket, row.id, `[subshell] new post in #${channel.name}`);
-        }
+        if (row?.alive !== 1 || !row.tmuxSocket) continue;
+        const waiting = row.waitingSince != null;
+        const line = waiting
+          ? `[#${channel.name}] subshell peer post — read it: call read_channel("${channel.name}")`
+          : `[subshell] new post in #${channel.name}`;
+        nudgeSubshell(row.tmuxSocket, row.id, line, { submit: waiting });
       }
     }
     return { id, seq };

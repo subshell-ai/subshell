@@ -22,6 +22,14 @@ SessionStart hook reports the pane's current session id to
 `POST /api/subshells/:id/harness-session` (the subshell's own bearer,
 self-only like /attention), and restart-resume continues the current one.
 
+**Channel nudges now wake idle agents.** `post_channel(nudge:true)` used to
+type an inert, Enter-less line into a recipient pane — a human cue that woke
+nothing. A recipient that is idle at its prompt (waiting-for-you) now gets a
+submitted "read the channel" line and actually wakes to read it; a pane
+mid-turn still gets the old inert cue (submitting into a busy harness would
+corrupt its turn). The line is a fixed server string — peer message content
+stays E2EE and is only ever read via `read_channel`, never auto-executed.
+
 **The `subshell` MCP now introduces itself.** The server's `initialize`
 handshake carries an `instructions` briefing every harness sees at connect
 time: sibling panes are AGENTS you can question (`list_subshells` /

@@ -55,7 +55,7 @@ describe("channels route", () => {
   const bobEmail = `ch-bob-${crypto.randomUUID()}@subshell.local`;
   const pw = "channe1-pass!";
   const createdSubshells: string[] = [];
-  const nudges: { socket: string; name: string; text: string }[] = [];
+  const nudges: { socket: string; name: string; text: string; entered?: boolean }[] = [];
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -342,6 +342,92 @@ describe("channels route", () => {
       // token hygiene
       const row = await new SubshellsRepository(db).findById(bobSess);
       if (row?.apiKeyId) authDatabase().run("DELETE FROM apikey WHERE id = ?", [row.apiKeyId]);
+    } finally {
+      setNudgeTransportForTests(null);
+    }
+  });
+
+  it("nudge WAKES a waiting recipient (actionable line + Enter); a busy one stays inert", async () => {
+    nudges.length = 0;
+    class FakeTmux extends TmuxRunner {
+      override sendInput(socket: string, subshellName: string, input: string): void {
+        nudges.push({ socket, name: subshellName, text: input, entered: false });
+      }
+      override pressEnter(_socket: string, subshellName: string): void {
+        const last = nudges.toReversed().find((n) => n.name === subshellName);
+        if (last) last.entered = true;
+      }
+    }
+    setNudgeTransportForTests(new FakeTmux());
+    try {
+      await registerIdentity(aliceToken);
+      await call(channelRoutes, "/api/channels", aliceToken, postJson({ name: "wake" }));
+
+      // Join a live recipient subshell, then optionally mark it waiting-for-you.
+      async function memberPane(enterWaiting: boolean): Promise<string> {
+        const id = crypto.randomUUID();
+        createdSubshells.push(id);
+        await new SubshellsRepository(db).create({
+          id,
+          userId: bob,
+          profileId: "p",
+          harnessId: "claude-code",
+          name: "w",
+          workingDir: "/tmp",
+          tmuxSocket: `sock-${id}`,
+          alive: 1,
+        });
+        if (enterWaiting) {
+          await new SubshellsRepository(db).update(id, { waitingSince: new Date().toISOString() });
+        }
+        const key = await issueSubshellToken(id, bob);
+        const { publicJwk } = await generateKeypair();
+        await identityRoutes.fetch(
+          new Request("http://localhost:3080/api/identities", {
+            method: "POST",
+            headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+            body: JSON.stringify({ publicKey: publicJwk }),
+          }),
+        );
+        await channelRoutes.fetch(
+          new Request("http://localhost:3080/api/channels/wake/members", {
+            method: "POST",
+            headers: { authorization: `Bearer ${key}` },
+          }),
+        );
+        return id;
+      }
+
+      const waitingId = await memberPane(true);
+      const busyId = await memberPane(false);
+
+      await call(
+        channelRoutes,
+        "/api/channels/wake/posts",
+        aliceToken,
+        postJson({
+          envelope: envelope("go", [`sess:${waitingId}`, `sess:${busyId}`]),
+          recipientIds: [`sess:${waitingId}`, `sess:${busyId}`],
+          nudge: true,
+        }),
+      );
+
+      const waiting = nudges.find((n) => n.name === waitingId);
+      const busy = nudges.find((n) => n.name === busyId);
+      // The waiting pane is SUBMITTED an actionable line naming the tool — the
+      // peer auto-wakes and reads; no peer text is in the submitted line.
+      expect(waiting?.entered).toBe(true);
+      expect(waiting?.text).toContain("read_channel");
+      expect(waiting?.text).toContain("wake");
+      // The busy pane keeps today's Enter-less inert line (submitting mid-turn
+      // would corrupt the turn); the human sees the same dead cue as before.
+      expect(busy?.entered).toBe(false);
+      expect(busy?.text).toContain("#wake");
+
+      for (const n of [waitingId, busyId]) {
+        const row = await new SubshellsRepository(db).findById(n);
+        if (row?.apiKeyId) authDatabase().run("DELETE FROM apikey WHERE id = ?", [row.apiKeyId]);
+      }
     } finally {
       setNudgeTransportForTests(null);
     }

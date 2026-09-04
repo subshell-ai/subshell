@@ -3,12 +3,20 @@ import { IS_TEST } from "@/constants.js";
 import { logger } from "@/utils/logger.js";
 
 /**
- * Tmux seam for nudging idle subshells about new channel posts.
+ * Tmux seam for nudging subshells about new channel posts.
  *
- * A nudge is a fixed, server-generated line typed into the pane WITHOUT
- * Enter — it can interrupt nothing and submits nothing; a human or an agent
- * that later hits Enter just edits harmless text. Only the nudge path may
- * write to a pane from REST (arbitrary input stays WS/browser-only).
+ * Two deliveries, chosen by the CALLER from the pane's state:
+ * - inert (default): a fixed line typed WITHOUT Enter — interrupts nothing,
+ *   submits nothing; a human or agent that later hits Enter just edits
+ *   harmless text. This is all a BUSY (mid-turn) pane can safely get.
+ * - `submit: true`: the line is followed by Enter, so an IDLE pane at its
+ *   prompt (a waiting-for-you agent) wakes and acts on it. Only ever used
+ *   with a FIXED server-generated line (never peer content), so no
+ *   peer-authored text is ever auto-executed — the payload stays behind
+ *   read_channel, which the woken agent calls on its own judgment.
+ *
+ * Only the nudge path may write to a pane from REST (arbitrary input stays
+ * WS/browser-only).
  */
 let transport = new TmuxRunner();
 
@@ -23,10 +31,20 @@ export function setNudgeTransportForTests(tmux: TmuxRunner | null): void {
   transport = tmux ?? new TmuxRunner();
 }
 
-/** Best-effort: types the line into the subshell's pane, never throws. */
-export function nudgeSubshell(socket: string, subshellName: string, text: string): void {
+/**
+ * Best-effort: types the fixed line into the subshell's pane, never throws.
+ * `submit` adds the Enter that wakes an idle agent (see the module doc); the
+ * line passed MUST be server-generated, never peer content.
+ */
+export function nudgeSubshell(
+  socket: string,
+  subshellName: string,
+  text: string,
+  opts: { submit?: boolean } = {},
+): void {
   try {
     transport.sendInput(socket, subshellName, text);
+    if (opts.submit) transport.pressEnter(socket, subshellName);
   } catch (err) {
     // A vanished pane between liveness-check and type is a normal race.
     logger.withError(err).debug(`nudge failed for ${subshellName}`);
