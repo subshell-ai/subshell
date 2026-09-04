@@ -172,6 +172,139 @@ describe("runConfigure — tmux preflight", () => {
   });
 });
 
+describe("runConfigure — tmux offer-to-install (spec 2026-09-03)", () => {
+  /**
+   * A host with apt-get but no tmux; `installed` flips what `which` answers
+   * after the (stubbed) installer runs, so the runner's re-probe is exercised.
+   */
+  function aptHost() {
+    let installed = false;
+    return {
+      installed: () => installed,
+      markInstalled: () => {
+        installed = true;
+      },
+      which: (n: string) => (n === "apt-get" ? "/usr/bin/apt-get" : n === "tmux" && installed ? "/usr/bin/tmux" : null),
+    };
+  }
+
+  test("interactive + yes + install success → CONTINUES: zero refusals, config written", () => {
+    const host = aptHost();
+    let spawnArgv: readonly string[] | undefined;
+    const { deps, dir, out, err, prompts } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: (argv) => {
+        spawnArgv = argv;
+        host.markInstalled();
+        return 0;
+      },
+      answers: ["y", "", "", "", ""],
+    });
+    expect(runConfigure({}, deps)).toBe(0);
+    expect(spawnArgv).toEqual(["sudo", "apt-get", "install", "-y", "tmux"]);
+    expect(prompts[0]?.[0]).toMatch(/Install tmux now with apt-get\?/i);
+    expect(prompts).toHaveLength(5); // offer, then the four config questions
+    expect(err).toEqual([]); // the stderr REFUSAL never fires (the offer's own stdout preamble is not a refusal)
+    expect(out.join("\n")).toMatch(/tmux installed/i);
+    expect(readCfg(dir).SERVER_PORT).toBe("3080");
+  });
+
+  test("declined offer → the status-quo refusal, still BEFORE any write", () => {
+    const host = aptHost();
+    const { deps, dir, err, prompts } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: () => 0,
+      answers: ["n"],
+    });
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(prompts).toHaveLength(1);
+    expect(err.join("\n")).toMatch(/tmux not found/i);
+    expect(err.join("\n")).toContain("SUBSHELL_SERVER_SKIP_TMUX_CHECK=1");
+    expect(() => readFileSync(envFile(dir))).toThrow();
+  });
+
+  test("yes but the installer FAILS → hint refusal with nothing written", () => {
+    const host = aptHost();
+    const { deps, dir, err } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: () => 1,
+      answers: ["y"],
+    });
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(err.join("\n")).toMatch(/tmux not found/i);
+    expect(() => readFileSync(envFile(dir))).toThrow();
+  });
+
+  test("install exits 0 but tmux is STILL unfindable → refuse (never continue broken)", () => {
+    const host = aptHost(); // installed flag deliberately never flipped
+    const { deps, dir, err } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: () => 0,
+      answers: ["y"],
+    });
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(err.join("\n")).toMatch(/tmux not found/i);
+    expect(() => readFileSync(envFile(dir))).toThrow();
+  });
+
+  test("--yes NEVER offers: prompt and installer seams untouched (CI determinism)", () => {
+    const host = aptHost();
+    let spawned = 0;
+    const { deps, prompts } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: () => {
+        spawned++;
+        return 0;
+      },
+    });
+    expect(runConfigure({ yes: true }, deps)).toBe(1);
+    expect(prompts).toEqual([]);
+    expect(spawned).toBe(0);
+  });
+
+  test("no TTY → no offer even without --yes", () => {
+    const host = aptHost();
+    const { deps, prompts } = makeDeps({ isTTY: false, which: host.which, platform: "linux" });
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(prompts).toEqual([]);
+  });
+
+  test("interactive but NO supported installer on PATH → silent fall to the hint", () => {
+    const { deps, err, prompts } = makeDeps({
+      isTTY: true,
+      which: () => null,
+      platform: "linux",
+      answers: [], // an offer would demand an answer — prompts staying empty proves none
+    });
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(prompts).toEqual([]);
+    expect(err.join("\n")).toMatch(/tmux not found/i);
+  });
+
+  test("EOF at the offer prompt (Ctrl-D) counts as declined", () => {
+    const host = aptHost();
+    const { deps, dir } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: () => 0,
+      answers: [null],
+    });
+    expect(runConfigure({}, deps)).toBe(1);
+    expect(() => readFileSync(envFile(dir))).toThrow();
+  });
+});
+
 describe("runConfigure — interactive flow", () => {
   test("four questions with defaults in brackets; ENTER (empty) accepts; answers trim", () => {
     const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["  9999  ", "", "", ""] });

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { tmuxPreflight } from "@/commands/configure.js";
+import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
 
 /**
  * `subshell-server service install|uninstall` — background the control plane
@@ -77,6 +77,12 @@ export interface ServiceDeps {
    * server. The CLI wires `process.env.PATH`; tests inject it to pin the line.
    */
   pathEnv?: string;
+  /**
+   * tmux offer bundle (spec 2026-09-03): the CLI wires it with
+   * `interactive = TTY` (service install takes no flags). Absent ⇒ the
+   * preflight is its pre-offer self — refuse with the hint.
+   */
+  tmuxOffer?: TmuxOffer;
 }
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
@@ -274,7 +280,14 @@ export function installService(deps: ServiceDeps): CliResult {
   if (!deps.hasConfig()) return errLine(NO_CONFIG);
 
   const preflightErr: string[] = [];
-  if (!tmuxPreflight({ env: deps.env, which: deps.which, error: (line) => preflightErr.push(line) })) {
+  if (
+    !tmuxPreflight({
+      env: deps.env,
+      which: deps.which,
+      error: (line) => preflightErr.push(line),
+      offer: deps.tmuxOffer,
+    })
+  ) {
     return { code: 1, out: "", err: `${preflightErr.join("\n")}\n` };
   }
 
@@ -397,6 +410,8 @@ export interface ServiceSeed {
   env: Record<string, string | undefined>;
   which: (name: string) => string | null;
   pathEnv?: string;
+  /** See {@link ServiceDeps.tmuxOffer}. */
+  tmuxOffer?: TmuxOffer;
 }
 
 /**

@@ -197,7 +197,12 @@ built-in defaults**. `configure` owns four keys — `SERVER_PORT`, `HOST`,
 existing value is never rotated). tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`
 node launches every pane through it); escape hatch
-`SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`.
+`SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`. On an INTERACTIVE run the preflight
+first OFFERS to install tmux (`commands/tmux-install.ts`: brew on macOS,
+`sudo apt-get`/`dnf` on Linux — fixed argvs, inherited stdio so sudo prompts
+in the user's own terminal) and CONTINUES the command on success — no rerun.
+`--yes`, no TTY, a declined prompt, or no supported installer all fall back
+to the plain refusal, byte-identical to before (CI never gets asked).
 
 `service install` (`src/service.ts`) writes `subshell-server.service` under
 `~/.config/systemd/user/` — **the same unit name `svc.sh` writes; one owner

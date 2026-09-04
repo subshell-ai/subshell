@@ -43,8 +43,23 @@ function generateAuthSecret(): string {
  */
 export function runInit(opts: ConfigureOpts, deps: CommandDeps): number {
   // BEFORE any write — including the config home itself: a refused init on a
-  // machine without tmux must leave no trace.
-  if (!tmuxPreflight(deps)) return 1;
+  // machine without tmux must leave no trace. The offer bundle mirrors
+  // runConfigure's (`--yes`/non-TTY never offer); a successful install lets
+  // the flow continue instead of dying for a rerun.
+  if (
+    !tmuxPreflight({
+      ...deps,
+      offer: {
+        interactive: !opts.yes && deps.isTTY,
+        log: deps.log,
+        prompt: deps.prompt,
+        platform: deps.platform,
+        spawn: deps.spawnInstall,
+      },
+    })
+  ) {
+    return 1;
+  }
 
   ensureConfigDir(deps.configDir);
 

@@ -215,6 +215,9 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         env: deps.env ?? process.env,
         which: deps.which ?? ((name) => Bun.which(name) ?? null),
         isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+        // tmux offer seams (spec 2026-09-03): platform drives installer
+        // detection; spawnInstall stays injectable for suites.
+        platform: deps.platform ?? process.platform,
       };
       // runInit/runConfigure are fully synchronous (invariant 1) and return
       // the exit code; the command itself never calls exit — this line does.
@@ -256,6 +259,14 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         env: deps.env ?? process.env,
         which: deps.which ?? ((name) => Bun.which(name) ?? null),
         pathEnv: deps.pathEnv ?? process.env.PATH,
+        // tmux offer (spec 2026-09-03): service install takes no flags, so
+        // the gate is TTY-only — non-interactive installs keep the refusal.
+        tmuxOffer: {
+          interactive: deps.isTTY ?? process.stdin.isTTY === true,
+          log,
+          prompt: deps.prompt ?? promptLineSync,
+          platform: deps.platform ?? process.platform,
+        },
       });
       if (deps.runCmd) sdeps.runCmd = deps.runCmd;
       const result = verb === "install" ? installService(sdeps) : uninstallService(sdeps);

@@ -301,6 +301,52 @@ describe("installService — guards", () => {
     });
     expect(installService(skipped.deps).code).toBe(0);
   });
+
+  test("interactive tmux offer (spec 2026-09-03): yes + install success → install CONTINUES", () => {
+    let installed = false;
+    const offerLog: string[] = [];
+    const s = stub({
+      which: (n) => (n === "apt-get" ? "/usr/bin/apt-get" : n === "tmux" && installed ? "/usr/bin/tmux" : null),
+      tmuxOffer: {
+        interactive: true,
+        log: (line) => void offerLog.push(line),
+        prompt: () => "y",
+        platform: "linux",
+        spawn: () => {
+          installed = true;
+          return 0;
+        },
+      },
+    });
+    const res = installService(s.deps);
+    expect(res.code).toBe(0);
+    expect(offerLog.join("\n")).toMatch(/tmux installed/i);
+    // Continued into the real work: the unit landed and systemctl ran.
+    expect(s.files.size).toBe(1);
+    expect(s.calls.length).toBeGreaterThan(0);
+  });
+
+  test("non-interactive offer bundle (TTY=false) never asks: refusal is byte-identical", () => {
+    let asked = 0;
+    const s = stub({
+      which: (n) => (n === "apt-get" ? "/usr/bin/apt-get" : null),
+      tmuxOffer: {
+        interactive: false,
+        log: () => {},
+        prompt: () => {
+          asked++;
+          return "y";
+        },
+        platform: "linux",
+        spawn: () => 0,
+      },
+    });
+    const res = installService(s.deps);
+    expect(res.code).toBe(1);
+    expect(asked).toBe(0);
+    expect(res.err).toInclude("tmux not found");
+    expect(s.files.size).toBe(0);
+  });
 });
 
 describe("uninstallService — linux", () => {

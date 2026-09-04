@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnvFile } from "@/config-env.js";
+import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-install.js";
 
 /**
  * `subshell-server configure` — (re)write `<configDir>/config.env` from the
@@ -65,6 +66,35 @@ export interface CommandDeps {
   which: (name: string) => string | null;
   /** True when stdin is an interactive TTY (production: `process.stdin.isTTY`). */
   isTTY: boolean;
+  /** Runtime platform for the tmux offer's installer detection (production: `process.platform`). */
+  platform?: NodeJS.Platform;
+  /**
+   * Sync package-manager runner for the tmux offer (production:
+   * `spawnInherit` from tmux-install.ts). Injectable so suites pin the
+   * offer flow without touching a real installer.
+   */
+  spawnInstall?: (argv: readonly string[]) => number;
+}
+
+/**
+ * The offer-to-install bundle for the tmux preflight (spec 2026-09-03):
+ * present-and-`interactive` is the ONLY way the offer can fire — callers
+ * compute `interactive` as `!--yes && TTY` (init/configure) or plain TTY
+ * (service install has no flags). CI, scripts, and piped stdin see the
+ * status-quo refusal; a system-package install is never the silent
+ * consequence of a flag.
+ */
+export interface TmuxOffer {
+  /** Caller-computed interactivity gate — the offer's master switch. */
+  interactive: boolean;
+  /** Where the offer's question/progress lines go (stdout in production). */
+  log: (line: string) => void;
+  /** The y/N question (production: `promptLineSync`); null/EOF = declined. */
+  prompt: (question: string, def: string) => string | null;
+  /** Installer detection platform (default: `process.platform`). */
+  platform?: NodeJS.Platform;
+  /** Installer runner (default: `spawnInherit` — inherited stdio). */
+  spawn?: (argv: readonly string[]) => number;
 }
 
 /** Parsed `init`/`configure` flags — raw strings, validated by the flow. */
@@ -93,6 +123,11 @@ export interface TmuxPreflightDeps {
   which: (name: string) => string | null;
   /** stderr sink (the refusal lines land here). */
   error: (line: string) => void;
+  /**
+   * Offer-to-install bundle (absent or non-interactive ⇒ the preflight is
+   * exactly its pre-offer self: refuse with the platform hint).
+   */
+  offer?: TmuxOffer;
 }
 
 /**
@@ -101,11 +136,37 @@ export interface TmuxPreflightDeps {
  * it is missing. Mirrors the client's enroll-time style: platform hint +
  * escape hatch name (spec 2026-09-03 plan-2 Global Constraints).
  *
- * @returns true when the flow may proceed (tmux present, or the skip var set to "1")
+ * Since spec 2026-09-03 (tmux offer): an interactive run with a supported
+ * installer on PATH gets ONE chance to `brew/apt-get/dnf install tmux`
+ * on the spot — and CONTINUES the command on success (no rerun). Every
+ * non-success path (no offer, non-interactive, no installer, declined,
+ * EOF, failed install, still-not-found) is the original refusal, verbatim.
+ *
+ * @returns true when the flow may proceed (tmux present/skip var/offered install)
  */
 export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
   if (deps.env[SKIP_TMUX_CHECK_ENV] === "1") return true;
   if (deps.which("tmux") !== null) return true;
+  const offer = deps.offer;
+  if (offer?.interactive) {
+    const installer = chooseTmuxInstaller({ platform: offer.platform ?? process.platform, which: deps.which });
+    if (installer) {
+      offer.log(
+        "tmux not found — the server launches its local subshells through tmux. " +
+          `It can be installed right now with ${installer.label}.`,
+      );
+      offer.log(`this would run: ${installer.argv.join(" ")}`);
+      const answer = offer.prompt(`Install tmux now with ${installer.label}?`, "n");
+      if (answer !== null && ["y", "yes"].includes(answer.trim().toLowerCase())) {
+        const found = runTmuxInstall(installer, { spawn: offer.spawn ?? spawnInherit, which: deps.which });
+        if (found) {
+          offer.log(`tmux installed (${found}) — continuing.`);
+          return true;
+        }
+        offer.log("tmux was not installed — falling back to the manual steps.");
+      }
+    }
+  }
   deps.error("tmux not found — the server launches its local subshells through tmux and cannot run without it.");
   const hint =
     process.platform === "darwin"
@@ -233,7 +294,17 @@ function validateOwned(key: (typeof OWNED_KEYS)[number], value: string): string 
  *   (cli.ts hands this to `deps.exit`; the command never calls exit itself)
  */
 export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
-  if (!tmuxPreflight(deps)) return 1;
+  // The interactivity gate is decided BEFORE the preflight: the tmux offer
+  // may fire only here (spec 2026-09-03) — `--yes`/non-TTY keep the refusal.
+  const interactive = !opts.yes && deps.isTTY;
+  if (
+    !tmuxPreflight({
+      ...deps,
+      offer: { interactive, log: deps.log, prompt: deps.prompt, platform: deps.platform, spawn: deps.spawnInstall },
+    })
+  ) {
+    return 1;
+  }
 
   // Read the existing file BEFORE asking: its values become the interactive
   // defaults, and a file we cannot read is refused before a single question
@@ -247,7 +318,6 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     return 1;
   }
 
-  const interactive = !opts.yes && deps.isTTY;
   /** Prompt default for one owned key: the stored value when interactive, else the built-in. */
   const dflt = (key: (typeof OWNED_KEYS)[number], builtin: string): string =>
     (interactive ? existing[key] : undefined) ?? builtin;
