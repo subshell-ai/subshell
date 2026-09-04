@@ -100,13 +100,24 @@ handlers) reaches the same graph via `getRequestlessContext()`
 A garbled live terminal is diagnosed from the journal first — two lines per
 attach, both under `journalctl --user -u subshell-server.service | grep "ws attach"`:
 
-- `geometry WxH … ua="…"` — the client's fitted size (`geometry MISSING` means
-  a stale bundle that predates the feature) and which client sent it.
-- `painted repainted=<bool> nudged=<bool> replay=<n>B dump=<dir|off>` — what
-  the pane did before the capture. `repainted=false nudged=true` means the pane
-  refused to repaint even for a forced SIGWINCH, so a bad replay is the pane's
-  own state; `repainted=true` means a freshly painted frame was shipped and
-  anything still wrong is downstream of the capture.
+- `geometry WxH build=<id> ua="…"` — the client's fitted size (`geometry
+  MISSING` means a stale bundle that predates the feature), **which bundle**
+  is talking, and which client sent it. `build` is the frontend's own asset
+  hash (`apps/frontend/src/lib/build-id.ts`): it CHANGES when the client
+  reloads new code and stays the same when it does not, so "the PWA is still
+  running pre-fix JavaScript" is visible instead of being mistaken for a
+  server bug — static requests are not logged, so this is the only signal.
+  `build=MISSING` is a bundle older than the field; `build=dev` is a dev
+  server.
+- `painted repainted=<bool> nudged=<bool> quiet=<bool> replay=<n>B
+  dump=<dir|off>` — what the pane did before the capture.
+  `repainted=false nudged=true` means the pane refused to repaint even for a
+  forced SIGWINCH, so a bad replay is the pane's own state; `repainted=true`
+  means a freshly painted frame was shipped and anything still wrong is
+  downstream of the capture. `quiet=true` means the replay used the
+  zero-overlap join (snapshot + cursor from one provably still moment);
+  `quiet=false` fell back to the overlap join, which is the fragile path
+  (below).
 
 `SUBSHELL_ATTACH_DEBUG=1` additionally dumps
 `/tmp/subshell-attach-debug/<subshell>/<timestamp>/{pre-resize,replay}.txt` — the
@@ -120,9 +131,27 @@ Two invariants on that path are load-bearing and easy to regress:
   keeps the cursor's column, which staircases every row into scrollback where
   nothing ever repaints it. The live tail must NOT be normalized: those bare
   LFs are the app's own deliberate output.
-- The attach streams **gap-free** from a join point sampled BEFORE the resize.
-  A skipped byte desynchronizes a diff-rendering TUI permanently; a bounded
-  overlap is idempotent.
+- The attach streams **gap-free**: a skipped byte desynchronizes a
+  diff-rendering TUI permanently. The preferred join is the QUIET one
+  (`captureQuietJoin`): repeat `size → capture → cursor → size` until one
+  attempt sees the log not grow, which proves the grid holds everything
+  through that offset, so the tail starts AT the snapshot with **zero
+  overlap** and the pane's cursor can be restored. Only when the pane never
+  pauses does it fall back to an overlapping join from a pre-resize offset.
+  Corrected 2026-09-04 — this file used to claim "a bounded overlap is
+  idempotent", which is **false** for a relative-positioned renderer: Ink
+  replays move the cursor up and rewrite, so re-applying pre-snapshot frames
+  over a fresh capture corrupts it. Prefer quiet; treat overlap as damage
+  control.
+- The replay frame carries **no trailing line terminator** and ends with an
+  absolute CUP (`ws/capture-text.ts:captureToReplayText`). `capture-pane -p`
+  terminates every row including the last, and that final terminator scrolls
+  the client one row past the pane's grid (measured on real xterm 6:
+  `baseY` 1 vs 0), which shifts the whole viewport and makes the pane's
+  viewport-relative cursor name the wrong row. Every later relative-positioned
+  frame then lands on the wrong rows — the long-running "reopen a subshell and
+  it is garbled" report. Verify with
+  `apps/frontend/scripts/probe-replay.ts`.
 
 ### Error contract
 

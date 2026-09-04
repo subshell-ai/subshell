@@ -2,6 +2,7 @@ import type { ServerFrame } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
+import { BUILD_ID } from "@/lib/build-id";
 import { sendInput, sendResize } from "@/lib/subshell-frames.js";
 
 export interface TermWsHandlers {
@@ -96,9 +97,14 @@ export function useSubshellWs(
         measure?.();
         const usedCols = term.cols;
         const usedRows = term.rows;
+        // `build` is this bundle's own asset hash (see lib/build-id.ts): the
+        // journal's attach line then states WHICH client code is talking, so
+        // a cached PWA running pre-fix JavaScript is visible instead of being
+        // mistaken for a server bug.
         const url =
           `${proto}://${window.location.host}/ws?subshell=${encodeURIComponent(subshellId)}` +
-          `&token=${encodeURIComponent(token)}&cols=${usedCols}&rows=${usedRows}`;
+          `&token=${encodeURIComponent(token)}&cols=${usedCols}&rows=${usedRows}` +
+          `&build=${encodeURIComponent(BUILD_ID)}`;
 
         const ws = new WebSocket(url);
         socket = ws;

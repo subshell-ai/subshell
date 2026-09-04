@@ -105,10 +105,18 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // because `ws.raw.request` is NOT populated in Elysia's WS open context
   // (that read is the fallback for direct callers, e.g. tests).
   const ua = ws.data?.attachUa ?? ws.raw?.request?.headers.get("user-agent") ?? "unknown";
+  // WHICH BUNDLE is asking. A cached PWA keeps running old JavaScript across
+  // any number of server deploys, and static requests are not logged, so
+  // "did the client actually load the fix" was unanswerable — the 2026-09-04
+  // session burned hours on renderer theories while the phone may never have
+  // fetched the new chunk. `build=` is the client's own asset hash, so a
+  // reload is visible as a CHANGED id; `build MISSING` is itself the answer,
+  // meaning a bundle older than this line.
+  const build = parseClientBuild(url);
   logger.info(
     initialSize
-      ? `ws attach ${row.id}: geometry ${initialSize.cols}x${initialSize.rows} ua="${ua.slice(0, 90)}"`
-      : `ws attach ${row.id}: geometry MISSING (stale client predates cols/rows) ua="${ua.slice(0, 90)}"`,
+      ? `ws attach ${row.id}: geometry ${initialSize.cols}x${initialSize.rows} build=${build} ua="${ua.slice(0, 90)}"`
+      : `ws attach ${row.id}: geometry MISSING (stale client predates cols/rows) build=${build} ua="${ua.slice(0, 90)}"`,
   );
 
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
@@ -319,6 +327,26 @@ function parseInitialSize(url: URL): { cols: number; rows: number } | null {
   const rows = Number(url.searchParams.get("rows"));
   if (Number.isInteger(cols) && cols > 0 && Number.isInteger(rows) && rows > 0) return { cols, rows };
   return null;
+}
+
+/** Longest client build id the attach line will print (an asset hash is ~8). */
+const MAX_BUILD_ID_LEN = 24;
+
+/**
+ * The client's self-reported bundle id (`&build=`) for the attach log line —
+ * see the call site for why it exists. Untrusted display data: it is logged,
+ * never used for a decision, so it is clamped to
+ * {@link MAX_BUILD_ID_LEN} and reduced to a safe alphabet rather than
+ * validated against a list of known builds. `MISSING` covers both "no param"
+ * and "nothing usable in it", which are the same fact — a client too old to
+ * report.
+ *
+ * @param url - the attach URL
+ * @returns the id, or `"MISSING"`
+ */
+export function parseClientBuild(url: URL): string {
+  const raw = (url.searchParams.get("build") ?? "").replace(/[^A-Za-z0-9_.-]/g, "");
+  return raw ? raw.slice(0, MAX_BUILD_ID_LEN) : "MISSING";
 }
 
 /**

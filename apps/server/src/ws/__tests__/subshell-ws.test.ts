@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import { handleSubshellMessage, type WsSocket } from "@/ws/subshell-ws.js";
+import { handleSubshellMessage, parseClientBuild, type WsSocket } from "@/ws/subshell-ws.js";
 
 // stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
 // pinned there by __tests__/sync-stripper.test.ts.
@@ -100,5 +100,34 @@ describe("handleSubshellMessage", () => {
     handleSubshellMessage(ws, "plain text is no longer input");
     expect(inputs).toEqual([]);
     expect(resizes).toEqual([]);
+  });
+});
+
+/**
+ * `build=` on the attach URL (2026-09-04): the journal must state WHICH client
+ * bundle is talking, because a cached PWA runs pre-fix JavaScript across
+ * server deploys and static requests are not logged.
+ */
+describe("parseClientBuild", () => {
+  const at = (q: string) => new URL(`ws://localhost/ws?subshell=s&token=t${q}`);
+
+  it("reads the client's reported build id", () => {
+    expect(parseClientBuild(at("&build=DGQT8EKK"))).toBe("DGQT8EKK");
+  });
+
+  it("MISSING when absent or empty — a client older than the field", () => {
+    expect(parseClientBuild(at(""))).toBe("MISSING");
+    expect(parseClientBuild(at("&build="))).toBe("MISSING");
+  });
+
+  it("is display-only: hostile input is reduced, never trusted or echoed raw", () => {
+    // It lands in a log line, so strip anything that could forge one.
+    expect(parseClientBuild(at(`&build=${encodeURIComponent('a b"\n c')}`))).toBe("abc");
+    expect(parseClientBuild(at(`&build=${"x".repeat(80)}`))).toBe("x".repeat(24));
+    expect(parseClientBuild(at(`&build=${encodeURIComponent("!!!")}`))).toBe("MISSING");
+  });
+
+  it("keeps the dev sentinel intact", () => {
+    expect(parseClientBuild(at("&build=dev"))).toBe("dev");
   });
 });
