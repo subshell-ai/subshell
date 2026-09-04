@@ -1,5 +1,78 @@
 # @internal/server
 
+## 1.4.1
+
+### Patch Changes
+
+- [`3ba6882`](https://github.com/subshell-ai/subshell/commit/3ba688286dc140c0d5dc6cc617830801357c0fa0) Thanks [@theogravity](https://github.com/theogravity)! - The subshell menu simplified: "Close" everywhere, no Terminate, implicit title pin, per-user terminal history.
+  
+  **"Close" is the new "Delete subshell"** across every human surface (menu,
+  confirm dialogs, workspace pane header, bulk bar, the mobile app). Behavior is
+  unchanged — the DELETE already stopped the process before removing the row.
+  
+  **Terminate left the human UI.** Close subsumes it (it terminates first), and
+  stop-without-delete had no use-case; `POST /api/subshells/:id/terminate` stays
+  for the agents' MCP tool `terminate_subshell`.
+  
+  **Renaming IS the title pin.** "Pin this title" / "Resume auto title" are gone
+  from the menu, and `PATCH /:id/name` dropped its `autoTitle` flag: an explicit
+  name locks the pane-title auto-naming sweep permanently, by design.
+  
+  **Operator notes are gone.** The "Add/Edit note" dialog, `PATCH
+  /api/subshells/:id/notes`, and the MCP tool `update_subshell_notes` were
+  removed with the feature — the human UI was its only reader. The
+  `subshells.notes` column stays unread so a rollback finds its data.
+  
+  **Terminal history is now one per-user setting.** The per-subshell "Terminal
+  history…" dialog and `PATCH /api/subshells/:id/replay` are gone; Account →
+  "Terminal history" stores a single cap (`user_meta.terminal_replay_lines`,
+  migration 0020) applied at attach on both the local and remote paths
+  (`GET`/`PATCH /api/settings/terminal-history`, cookie session, 1–200 or null
+  for the `SUBSHELL_TERMINAL_REPLAY_LINES` default). The old per-subshell column
+  stays unread so a rollback finds its data.
+
+- [`a30f823`](https://github.com/subshell-ai/subshell/commit/a30f8235a7b39b26f063f7c3efd6ac91e0a56d61) Thanks [@theogravity](https://github.com/theogravity)! - Service restarts no longer kill live panes, and restart-resume follows the pane's CURRENT conversation.
+  
+  **Keep the panes across a service restart.** The server and the node daemon
+  spawn each pane's tmux server as a child inside their unit's cgroup, so
+  systemd's default control-group kill SIGKILLed every live subshell on any
+  stop/restart (observed 2026-09-01 and again 2026-09-03 when a renamed unit
+  lost its manual drop-in). Generated systemd units now carry
+  `KillMode=process` and launchd agents `AbandonProcessGroup` — panes are
+  stateful daemons the boot reconciler / reconnect census re-adopts. Hosts
+  already running a generated unit pick this up on the next `service install`.
+  
+  **SessionStart re-pins the harness conversation.** The claude-code harness
+  pins the conversation id at launch (`--session-id`); when the pane switched
+  conversation in-pane (/clear, /resume, /fork) the next restart resurrected
+  the ORIGINAL launch transcript — a silently stale conversation. A new
+  SessionStart hook reports the pane's current session id to
+  `POST /api/subshells/:id/harness-session` (the subshell's own bearer,
+  self-only like /attention), and restart-resume continues the current one.
+  
+  **Channel nudges now wake idle agents.** `post_channel(nudge:true)` used to
+  type an inert, Enter-less line into a recipient pane — a human cue that woke
+  nothing. A recipient that is idle at its prompt (waiting-for-you) now gets a
+  submitted "read the channel" line and actually wakes to read it; a pane
+  mid-turn still gets the old inert cue (submitting into a busy harness would
+  corrupt its turn). The line is a fixed server string — peer message content
+  stays E2EE and is only ever read via `read_channel`, never auto-executed.
+  
+  **The `subshell` MCP now introduces itself.** The server's `initialize`
+  handshake carries an `instructions` briefing every harness sees at connect
+  time: sibling panes are AGENTS you can question (`list_subshells` /
+  `get_subshell` instead of guessing from git), coordinate through
+  channels, and know that channel delivery is PULL — the peer only sees a
+  post when it calls `read_channel`. (Bundles into both binaries with these
+  bumps; `@internal/mcp-core` itself is changeset-ignored.)
+  
+  **Node-offline precedence on workspace panes.** A docked pane whose agent
+  node is unreachable now says "Node offline — reconnecting" (the machine is
+  unreachable; the subshell may still be RUNNING there) instead of rendering a
+  dead-looking frozen terminal — the pane-surface twin of the precedence the
+  cards and the detail badge already follow (spec §5.6). Pane rows from
+  `GET /api/workspaces/:id` gained `subshellNodeId`/`subshellNodeOffline`.
+
 ## 1.4.0
 
 ### Minor Changes
