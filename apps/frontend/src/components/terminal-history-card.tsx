@@ -113,10 +113,12 @@ export function TerminalHistoryCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex max-w-72 items-center gap-3">
-          <Label htmlFor="terminal-history-lines" className="shrink-0">
-            Replayed lines
-          </Label>
+        {/* Stacked on phone widths — a nowrap trigger beside a shrink-0 label
+            overflowed the card on iOS (2026-09-04); from sm up it's the
+            label-left row again, with min-w-0 so a long value truncates
+            instead of escaping. */}
+        <div className="grid max-w-72 gap-x-3 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+          <Label htmlFor="terminal-history-lines">Replayed lines</Label>
           <Select
             id="terminal-history-lines"
             value={choice}
@@ -124,7 +126,7 @@ export function TerminalHistoryCard({
             items={OPTIONS}
             disabled={stored === undefined}
           >
-            <SelectTrigger id="terminal-history-lines" className="flex-1">
+            <SelectTrigger id="terminal-history-lines" className="w-full min-w-0">
               <SelectValue placeholder={stored === undefined ? "Loading…" : undefined} />
             </SelectTrigger>
             <SelectContent>
