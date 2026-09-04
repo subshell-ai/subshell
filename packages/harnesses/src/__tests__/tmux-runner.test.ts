@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
-import { TmuxRunner, tmuxSocketFor } from "../tmux-runner.js";
+import { assertSocketPathFits, TmuxRunner, tmuxSocketFor, tmuxSocketPath } from "../tmux-runner.js";
 
 const runner = new TmuxRunner();
 
@@ -385,6 +385,39 @@ echo "server exited unexpectedly" >&2; exit 1
       // The USABLE length, one less than sun_path itself (104 on macOS, 108
       // on Linux) because the field has to hold a terminating NUL too.
       expect(message).toMatch(/\b(103|107)\b/);
+    } finally {
+      if (previous === undefined) delete process.env.TMUX_TMPDIR;
+      else process.env.TMUX_TMPDIR = previous;
+    }
+  });
+
+  it("measures the REALPATH tmux binds, not the lexical path", () => {
+    // macOS resolves /tmp to /private/tmp — 8 bytes the lexical form never
+    // shows. A base sized so the lexical socket path fits but the resolved one
+    // does not used to pass this guard and then fail INSIDE tmux with the bare
+    // "File name too long" the guard exists to replace.
+    const previous = process.env.TMUX_TMPDIR;
+    try {
+      // socket path = base + "/tmux-<uid>/" + "subshell-<12 hex>"
+      const tail = `/tmux-${process.getuid?.() ?? 0}/`.length + "subshell-000000000000".length;
+      const base = `/tmp/${"y".repeat(Math.max(0, 100 - tail - "/tmp/".length))}`;
+      process.env.TMUX_TMPDIR = base;
+      const socketPath = tmuxSocketPath("subshell-000000000000");
+      const lexical = `${base}/tmux-${process.getuid?.() ?? 0}/subshell-000000000000`;
+      if (socketPath === lexical) return; // a platform where /tmp is not a symlink
+      // The resolved path is longer, and it is the one that gets measured.
+      expect(socketPath.length).toBeGreaterThan(lexical.length);
+      expect(lexical.length).toBeLessThan(104);
+      expect(() => assertSocketPathFits("subshell-000000000000")).toThrow(/too long/i);
+      // ...and the message names BOTH spellings, since the operator only
+      // recognises the one they configured.
+      let message = "";
+      try {
+        assertSocketPathFits("subshell-000000000000");
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).toContain(base);
     } finally {
       if (previous === undefined) delete process.env.TMUX_TMPDIR;
       else process.env.TMUX_TMPDIR = previous;

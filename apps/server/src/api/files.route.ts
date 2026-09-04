@@ -323,7 +323,13 @@ function confinementRoot(): { lexical: string; real: string } | null {
  * @returns Whether the candidate is the root or inside it
  */
 function isWithin(path: string, root: string): boolean {
-  return path === root || path.startsWith(root + sep);
+  // `root + sep` would be "//" for a root of "/", matching nothing and
+  // refusing the entire filesystem the operator just opened up. Comparison is
+  // deliberately case-SENSITIVE: it matches how the kernel resolves the
+  // realpath this is checked against, and a case-insensitive test would let
+  // `/Root/x` pass a `/root` confinement on a case-insensitive volume.
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  return path === root || path.startsWith(prefix);
 }
 
 /**

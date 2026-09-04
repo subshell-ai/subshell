@@ -204,6 +204,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
       await launcher.resize(row.tmuxSocket, row.id, initialSize.cols, initialSize.rows);
+      // Tell the queue: this fit bypassed it, and a client frame asking for
+      // the same size must not then be swallowed as already-applied.
+      seedPaneGeometry(row.id, initialSize.cols, initialSize.rows);
       // `logStart` is the pre-resize size — the baseline a repaint has to grow
       // past. Re-sampling it after the resize would miss a repaint that beat
       // us to the log.
@@ -526,8 +529,12 @@ export async function nudgePaneForRepaint(
       // answer a same-size SIGWINCH. Fall through to the geometry nudge,
       // which forces the repaint with sizes it cannot ignore.
     }
+    // The ±1 step moves the pane behind the queue's back; seed BOTH ends so a
+    // failure between them cannot leave `applied` claiming the pre-nudge size.
+    seedPaneGeometry(id, cols + 1, rows);
     await launcher.resize(socket, id, cols + 1, rows);
     await Bun.sleep(NUDGE_SETTLE_MS);
+    seedPaneGeometry(id, cols, rows);
     await launcher.resize(socket, id, cols, rows);
     // No baseline here (unlike the caller's pre-resize sample): the +1 step
     // above has already provoked whatever bytes a repainting app emits, so a
@@ -791,8 +798,16 @@ function broadcastToViewers(subshellId: string, frame: object): void {
 }
 
 /**
- * The one place a pane is resized, so requests can neither overlap nor land
- * out of order, and every settled size is announced as fact.
+ * The one place a CLIENT resize frame reaches the pane, so requests can
+ * neither overlap nor land out of order, and every settled size is announced
+ * as fact.
+ *
+ * It is NOT the pane's only writer: the attach path fits the pane directly
+ * before capturing (it must be awaited, and it ends with its own authoritative
+ * readback), and the repaint nudge steps the width ±1 and back. Both tell the
+ * queue what they did through {@link seedPaneGeometry} — otherwise `applied`
+ * describes a size the pane no longer holds and the next matching client
+ * request is dropped as a no-op.
  */
 const geometryQueue = createGeometryQueue({
   onGeometry: (subshellId, size) => {
@@ -825,6 +840,19 @@ export function requestPaneResize(
 }
 
 /**
+ * Records a pane size this queue did not apply, so its no-op short-circuit
+ * stays honest. The attach fit and the repaint nudge both move the pane
+ * directly; without this the queue believes a stale size is current and drops
+ * the client's next request for the real one.
+ * @param subshellId - Subshell whose pane moved
+ * @param cols - The size the pane now holds, in columns
+ * @param rows - The size the pane now holds, in rows
+ */
+export function seedPaneGeometry(subshellId: string, cols: number, rows: number): void {
+  geometryQueue.seed(subshellId, cols, rows);
+}
+
+/**
  * Reads the pane's grid for the attach announcement.
  * @param launcher - Launcher owning the pane
  * @param socket - tmux socket for the pane
@@ -845,6 +873,12 @@ async function readPaneGeometry(
 
 export function evictPreviousViewer(ws: WsSocket, subshellId: string): void {
   const prev = liveViewers.get(subshellId);
+  // Drop the remembered pane size BEFORE claiming the slot. `cleanupSubshellWs`
+  // releases only when the closing socket is still the registered viewer, and
+  // the incumbent's close arrives after this line has already replaced it — so
+  // without this the entry survives, and its stale `applied` silently swallows
+  // the new viewer's first request for that size.
+  if (prev && prev !== ws) geometryQueue.release(subshellId);
   liveViewers.set(subshellId, ws);
   if (!prev || prev === ws) return;
   // Release the incumbent's watcher/timer NOW — its close event also runs

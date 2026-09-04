@@ -70,11 +70,30 @@ export function useSubshellWs(
    * arrive mis-wrapped until the next manual resize.
    */
   measure?: () => void,
+  /**
+   * The grid this viewport could show at the current font size.
+   *
+   * Used for the connect URL and the on-open sync INSTEAD of `term.cols`/
+   * `term.rows`, because those are no longer a measure of the viewport: the
+   * caller pins the terminal's container to the grid the server last
+   * announced, so reading the terminal back would echo the server's own
+   * answer. That echo strands a client that resized while the socket was
+   * down — it reconnects announcing the stale grid, the server obligingly
+   * resizes the pane to it, and nothing ever corrects it because the pinned
+   * container never changes and its ResizeObserver never ticks.
+   *
+   * Returns null before the terminal has cell metrics, or for callers that do
+   * not pin (remote panes), in which case the terminal's own grid is used —
+   * exactly the pre-pinning behavior.
+   */
+  capacity?: () => { cols: number; rows: number } | null,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const inputDisposableRef = useRef<{ dispose(): void } | null>(null);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
+  const capacityRef = useRef(capacity);
+  capacityRef.current = capacity;
 
   useEffect(() => {
     const term = terminalRef.current;
@@ -104,8 +123,10 @@ export function useSubshellWs(
         // server resizes the pane to these before capturing, so the replay
         // arrives laid out for this exact terminal width.
         measure?.();
-        const usedCols = term.cols;
-        const usedRows = term.rows;
+        // Capacity, not the terminal's own grid — see the `capacity` param.
+        const fitted = capacityRef.current?.() ?? null;
+        const usedCols = fitted?.cols ?? term.cols;
+        const usedRows = fitted?.rows ?? term.rows;
         // `build` is this bundle's own asset hash (see lib/build-id.ts): the
         // journal's attach line then states WHICH client code is talking, so
         // a cached PWA running pre-fix JavaScript is visible instead of being
@@ -120,7 +141,8 @@ export function useSubshellWs(
         wsRef.current = ws;
 
         const syncSize = () => {
-          sendResize(ws, term.cols, term.rows);
+          const fit = capacityRef.current?.() ?? null;
+          sendResize(ws, fit?.cols ?? term.cols, fit?.rows ?? term.rows);
         };
 
         // Each attach rebuilds full history; the previous connection's screen

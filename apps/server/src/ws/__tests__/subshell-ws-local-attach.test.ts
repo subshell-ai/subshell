@@ -44,6 +44,7 @@ const launcherOriginals = {
   hasSubshell: defaultLocalLauncher.hasSubshell,
   capture: defaultLocalLauncher.capture,
   resize: defaultLocalLauncher.resize,
+  paneSize: defaultLocalLauncher.paneSize,
   signalPaneWinch: defaultLocalLauncher.signalPaneWinch,
 };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
@@ -69,6 +70,13 @@ function stubLauncher(): void {
   // Default: the machine cannot deliver a bare SIGWINCH (as for a remote
   // node today), so the nudge path under test is the ±1 resize. Its
   // no-reflow-first behavior gets its own cases below.
+  // Unreadable BY DEFAULT, and deliberately so: the real `paneSize` shells out
+  // to tmux against a socket that does not exist, which happened to answer
+  // null and left every case on the no-geometry path by accident — with the
+  // attach's `geometry` frame silently never firing under test, and the file's
+  // own "the tmux CLI is not a bun test dependency" claim quietly broken.
+  // Cases that want the frame override this.
+  defaultLocalLauncher.paneSize = async () => null;
   defaultLocalLauncher.signalPaneWinch = async () => {
     order.push("winch");
     return false;
@@ -83,6 +91,7 @@ afterEach(() => {
   defaultLocalLauncher.hasSubshell = launcherOriginals.hasSubshell;
   defaultLocalLauncher.capture = launcherOriginals.capture;
   defaultLocalLauncher.resize = launcherOriginals.resize;
+  defaultLocalLauncher.paneSize = launcherOriginals.paneSize;
   defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
   captureCalls = 0;
   captureLinesArg = undefined;
@@ -271,6 +280,50 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     const deadline = Date.now() + 5000;
     while (sent.length < 2 && Date.now() < deadline) await Bun.sleep(25);
     expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
+  });
+
+  it("announces the pane's REAL grid BEFORE the replay, so the capture paints onto an agreed grid", async () => {
+    // The capture is taken at whatever the pane actually holds, which is not
+    // necessarily what the client asked for on the URL (tmux can clamp it, or
+    // the request can be lost). Telling the client first means it paints the
+    // replay onto a grid it already agrees with instead of discovering the
+    // mismatch a frame later — and the ORDER is the whole point.
+    stubLauncher();
+    defaultLocalLauncher.paneSize = async () => ({ cols: 132, rows: 43 });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "x\n");
+
+    const { sent } = await attach(row.userId, row.id, "&cols=132&rows=43");
+
+    expect(sent[0]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
+    expect(sent[1]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+  });
+
+  it("announces the pane's size even when tmux did not take the client's request", async () => {
+    // The measured defect: the browser asked 51x13 and the pane sat at 51x16.
+    // The client must be told 16 — an echo of its own request would be
+    // indistinguishable from a confirmation and defeats the readback.
+    stubLauncher();
+    defaultLocalLauncher.paneSize = async () => ({ cols: 51, rows: 16 });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "x\n");
+
+    const { sent } = await attach(row.userId, row.id, "&cols=51&rows=13");
+
+    expect(sent[0]).toBe(JSON.stringify({ type: "geometry", cols: 51, rows: 16 }));
+  });
+
+  it("announces NO geometry for a pane whose size cannot be read (remote nodes)", async () => {
+    // RemoteLauncher answers null rather than echoing the request, which keeps
+    // those clients on the pre-readback behavior instead of trusting a guess.
+    stubLauncher(); // paneSize defaults to null
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "x\n");
+
+    const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
+
+    expect(sent.some((f) => f.includes('"type":"geometry"'))).toBe(false);
+    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
   });
 
   it("the replay ships CRLF rows — a bare LF froze a staircase into scrollback", async () => {

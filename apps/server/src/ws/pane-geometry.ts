@@ -60,6 +60,13 @@ interface Entry {
   pendingSizer: PaneSizer | null;
   /** Last size successfully applied, so a repeat request is a cheap no-op. */
   applied: PaneGeometry | null;
+  /**
+   * Set by {@link GeometryQueue.release}. An in-flight `run` captured this
+   * object before the release and would otherwise keep going: draining
+   * `pending` re-inserts an entry for a subshell nobody is watching, whose
+   * stale `applied` then suppresses the next attach's first request.
+   */
+  released: boolean;
 }
 
 /** A serialize/coalesce queue keyed by subshell id. */
@@ -73,6 +80,19 @@ export interface GeometryQueue {
   request(key: string, cols: number, rows: number, sizer: PaneSizer): void;
   /** Drops a subshell's state — call when its last viewer detaches. */
   release(key: string): void;
+  /**
+   * Records a size the pane was moved to by something OTHER than this queue.
+   *
+   * `request` short-circuits when the asked-for size equals the last one
+   * applied, which is only sound while this queue is the pane's sole writer —
+   * and it is not: the attach path fits the pane directly before capturing,
+   * and the repaint nudge steps the width ±1. Left unrecorded, those writes
+   * make `applied` describe a size the pane no longer holds, and the next
+   * client request for that size is dropped as a no-op with nothing reaching
+   * tmux (the terminal then stays mis-fitted until the viewport happens to
+   * change to some OTHER value).
+   */
+  seed(key: string, cols: number, rows: number): void;
 }
 
 /**
@@ -87,7 +107,7 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
   const entryFor = (key: string): Entry => {
     let entry = entries.get(key);
     if (!entry) {
-      entry = { busy: false, pending: null, pendingSizer: null, applied: null };
+      entry = { busy: false, pending: null, pendingSizer: null, applied: null, released: false };
       entries.set(key, entry);
     }
     return entry;
@@ -99,8 +119,10 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
    * keeps arriving mid-apply is always answered by exactly one more round
    * trip carrying the newest size.
    */
-  const run = async (key: string, size: PaneGeometry, sizer: PaneSizer): Promise<void> => {
-    const entry = entryFor(key);
+  const run = async (key: string, size: PaneGeometry, sizer: PaneSizer, existing?: Entry): Promise<void> => {
+    // The recursive tail reuses the entry it already holds: calling
+    // `entryFor` again would resurrect one that `release` deleted mid-apply.
+    const entry = existing ?? entryFor(key);
     entry.busy = true;
     try {
       await sizer.apply(size.cols, size.rows);
@@ -114,6 +136,9 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
     } finally {
       entry.busy = false;
     }
+    // Released while this apply was in flight: the viewer is gone, so drop
+    // whatever coalesced behind it rather than resizing a pane nobody sees.
+    if (entry.released) return;
     const next = entry.pending;
     const nextSizer = entry.pendingSizer;
     entry.pending = null;
@@ -121,7 +146,7 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
     if (!next || !nextSizer) return;
     // The burst may have settled on the size the pane already holds.
     if (entry.applied && entry.applied.cols === next.cols && entry.applied.rows === next.rows) return;
-    await run(key, next, nextSizer);
+    await run(key, next, nextSizer, entry);
   };
 
   return {
@@ -137,7 +162,13 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
       if (entry.applied && entry.applied.cols === cols && entry.applied.rows === rows) return;
       void run(key, size, sizer);
     },
+    seed(key, cols, rows) {
+      if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) return;
+      entryFor(key).applied = { cols, rows };
+    },
     release(key) {
+      const entry = entries.get(key);
+      if (entry) entry.released = true;
       entries.delete(key);
     },
   };

@@ -244,7 +244,7 @@ export function SubshellTerminal({
   }, []);
 
   /**
-   * Reports the grid this viewport COULD show at the current font size.
+   * The grid this viewport COULD show at the current font size.
    *
    * This is the client's only size request, and it is measured against the
    * OUTER box — the pane — never the terminal's own container. The container
@@ -254,18 +254,23 @@ export function SubshellTerminal({
    * window shrank to 522px tall while the terminal stayed pinned at 882px and
    * 58 rows, clipped, with no resize ever sent).
    */
-  const reportCapacity = useCallback(() => {
+  const measureCapacity = useCallback((): Grid | null => {
     const term = termRef.current;
     const outer = outerRef.current;
     const cell = term?.dimensions?.css.cell;
-    if (!term || !outer || !cell) return;
-    const capacity = gridForBox(
+    if (!term || !outer || !cell) return null;
+    return gridForBox(
       { width: outer.clientWidth, height: outer.clientHeight },
       { width: cell.width, height: cell.height },
       terminalInsets(term),
     );
-    if (capacity) sendResizeRef.current(capacity.cols, capacity.rows);
   }, []);
+
+  /** Sends {@link measureCapacity}'s answer to the server. */
+  const reportCapacity = useCallback(() => {
+    const capacity = measureCapacity();
+    if (capacity) sendResizeRef.current(capacity.cols, capacity.rows);
+  }, [measureCapacity]);
 
   // Sync copies of the callbacks: the xterm key handler and the WS handlers
   // are bound once per terminal, so they must read the latest props without
@@ -323,9 +328,17 @@ export function SubshellTerminal({
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
     // NO renderer addon — xterm 6's own DOM renderer, deliberately (2026-09-04).
-    // Neither third-party renderer supports this core: `@xterm/addon-canvas`
-    // (every release through 0.8.0-beta.48) and `@xterm/addon-webgl` both
-    // peer-require `@xterm/xterm@^5`, and under 6.0.0 the canvas addon crashed
+    // `@xterm/addon-canvas` is out for good: every release through
+    // 0.8.0-beta.48 peer-requires `@xterm/xterm@^5`, and its last publish was
+    // 2024-07-14. `@xterm/addon-webgl` is a different case now —
+    // 0.20.0-beta.300 is the first build to peer-require ^6.1, so it IS
+    // installed (see 484b02e) but deliberately NOT loaded: a GPU renderer
+    // paints into a canvas, which makes devicePixelRatio handling mandatory,
+    // and this app has never had any — the DOM renderer paints through the
+    // browser and got DPR for free. Loading it belongs with that work.
+    //
+    // The history below is why the swap is not attempted casually. Under
+    // 6.0.0 the CANVAS addon crashed
     // the page with `undefined is not an object (evaluating
     // 'this._linkifier2.onShowLinkUnderline')` — xterm 6 moved the linkifier
     // behind a lazily-populated holder, and a renderer built against the v5
@@ -431,9 +444,11 @@ export function SubshellTerminal({
       if (typeof size === "number" && size > 0) {
         term.options.fontSize = size;
         fit.fit();
-        // The pane's grid has not changed, but its cell size has, so the box
-        // that holds exactly that grid is a different box.
+        // The pane's grid has not changed, but its cell size has — so both
+        // the box that holds exactly that grid AND how much this viewport can
+        // show are different now.
         applyLetterbox();
+        reportCapacity();
       }
     };
     window.addEventListener(TERM_FONT_EVENT, onFontSetting);
@@ -542,12 +557,7 @@ export function SubshellTerminal({
       serializeRef.current = null;
       fitRef.current = null;
     };
-  }, [
-    active,
-    // that holds exactly that grid is a different box.
-    applyLetterbox,
-    reportCapacity,
-  ]);
+  }, [active, applyLetterbox, reportCapacity]);
 
   /** Records the new socket status and reports it to the caller. */
   const emitStatus = useCallback((next: SubshellTerminalStatus) => {
@@ -595,6 +605,9 @@ export function SubshellTerminal({
     subshell?.access === "view",
     // Re-fit before the attach URL commits to a grid size.
     measureGrid,
+    // ...and announce the VIEWPORT's capacity rather than the pinned grid, so
+    // a resize that happened while the socket was down is not lost.
+    measureCapacity,
   );
 
   // A deliberate detach never reports a close: useSubshellWs nulls its socket

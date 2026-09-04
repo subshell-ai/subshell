@@ -48,21 +48,48 @@ export const liveRoutes = new Elysia({ prefix: "/api/events" }).use(contextPlugi
     // it; the services below are stateless over the shared `db` singleton.
     const services = ctx.services;
     const encoder = new TextEncoder();
+    // Hoisted so `cancel` can stop it: a consumer that drops the body without
+    // aborting the request (any `reader.cancel()`) would otherwise leave this
+    // interval running for the life of the process, re-listing subshells —
+    // a DB read plus a tmux capture per running pane — for a client that is
+    // gone. Measured in the test suite, where one such feed kept calling the
+    // launcher long after its suite finished.
+    let ticker: ReturnType<typeof setInterval> | null = null;
+    const stopTicking = (): void => {
+      if (ticker) clearInterval(ticker);
+      ticker = null;
+    };
     const stream = new ReadableStream({
       async start(controller) {
         const tick = async () => {
+          let frame: string;
           try {
             const subshells = await services.subshells.listSubshells(userId);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ subshells })}\n\n`));
+            frame = `data: ${JSON.stringify({ subshells })}\n\n`;
           } catch {
-            // subshell list errors are non-fatal; keep the feed alive
+            return; // subshell list errors are non-fatal; keep the feed alive
+          }
+          try {
+            controller.enqueue(encoder.encode(frame));
+          } catch {
+            // Enqueueing into a closed controller throws, and that is the only
+            // disconnect signal that always arrives: `request.signal` may never
+            // abort, and a consumer's `reader.cancel()` reaches this source only
+            // if nothing re-wrapped the stream on the way out. Swallowing it
+            // with the list errors above is what kept a feed ticking for a
+            // client that had already gone — re-listing every subshell, which
+            // is a DB read plus a tmux capture per running pane.
+            stopTicking();
           }
         };
         await tick();
-        const iv = setInterval(tick, SSE_INTERVAL_MS);
+        ticker = setInterval(tick, SSE_INTERVAL_MS);
         // Abort when the client disconnects.
-        const abort = () => clearInterval(iv);
-        if (request.signal) request.signal.addEventListener("abort", abort);
+        if (request.signal) request.signal.addEventListener("abort", stopTicking);
+      },
+      // The other half: dropping the body is a disconnect too.
+      cancel() {
+        stopTicking();
       },
     });
     return new Response(stream, {

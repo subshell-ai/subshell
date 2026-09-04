@@ -58,12 +58,25 @@ so the CWD the run is launched from never matters.
 
 ## What the terminal assertions may use
 
-xterm.js paints through the **WebGL addon into a `<canvas>`** — pane text is
-NOT in the DOM and must never be asserted. Prove liveness through server/
-network truth instead: `POST /api/auth/ws-token` returns 200, the
+The app loads **no renderer addon** — xterm 6 paints through its own DOM
+renderer (see the long comment in `components/subshell-terminal.tsx`), so pane
+text IS technically in the DOM. Do not assert on it anyway: it is an emulator
+implementation detail — viewport rows only (scrollback is not rendered), split
+into style-run spans that break a phrase across elements, and whitespace-padded
+to the grid width. Prove liveness through server/network truth instead: `POST /api/auth/ws-token` returns 200, the
 `/ws?subshell=…` WebSocket upgrade fires, the "reconnecting…" pill is absent,
 and status chips (`working` / `running` on the detail badge / `ended` /
-`exited`) reflect the API. See `.sdd` design notes or the spec doc,
+`exited`) reflect the API.
+
+The client's GRID is now a testable contract and is fair game: the server
+announces the pane's real size in a `geometry` frame and the client pins its
+terminal container to exactly that grid, so `.xterm-rows > div` count equals
+the pane's rows, and the container's inline width/height are an exact function
+of the grid and the cell size (`lib/terminal-geometry.ts`). Spec `10` covers
+the neighbouring contract — that the attach URL carries the client's cols/rows
+and no replayed row exceeds them — while the `geometry` frame itself is pinned
+by server unit tests (`ws/__tests__/subshell-ws-local-attach.test.ts`); no e2e
+spec asserts the client grid yet. See `.sdd` design notes or the spec doc,
 "Terminal gotchas", and spec `06` for the pattern.
 
 Channels are machine-facing (no browser UI): spec `07` is API-only, seals with

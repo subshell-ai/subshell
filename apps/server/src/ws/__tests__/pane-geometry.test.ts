@@ -173,6 +173,83 @@ describe("createGeometryQueue — serialize + coalesce per subshell", () => {
     expect(seen).toEqual([]);
   });
 
+  it("a release during an in-flight apply drops the queued burst instead of resizing an unwatched pane", async () => {
+    const rec = recorder({ block: true });
+    const queue = createGeometryQueue({ onGeometry: () => {} });
+
+    queue.request("s1", 80, 24, rec.sizer);
+    await settle();
+    queue.request("s1", 90, 30, rec.sizer); // coalesced behind the in-flight one
+    queue.release("s1"); // the viewer detaches mid-apply
+    rec.release();
+    await settle();
+
+    // Only the first apply ran: the pending size belonged to a viewer that
+    // is gone, and draining it would resize a pane nobody is watching.
+    expect(rec.applied).toEqual([{ cols: 80, rows: 24 }]);
+  });
+
+  it("a release during an in-flight apply does not resurrect the entry", async () => {
+    // The tail used to call entryFor() again, re-inserting a released entry
+    // whose stale `applied` then suppressed the next attach's first request.
+    const rec = recorder({ block: true });
+    const queue = createGeometryQueue({ onGeometry: () => {} });
+
+    queue.request("s1", 80, 24, rec.sizer);
+    await settle();
+    queue.request("s1", 90, 30, rec.sizer);
+    queue.release("s1");
+    rec.release();
+    await settle();
+
+    const next = recorder();
+    queue.request("s1", 80, 24, next.sizer); // the size the DELETED entry held
+    await settle();
+    expect(next.applied).toEqual([{ cols: 80, rows: 24 }]);
+  });
+
+  it("seed records an out-of-band resize, so the same size is not re-applied", async () => {
+    const rec = recorder();
+    const queue = createGeometryQueue({ onGeometry: () => {} });
+
+    // The attach path fits the pane directly before capturing.
+    queue.seed("s1", 92, 28);
+    queue.request("s1", 92, 28, rec.sizer);
+    await settle();
+
+    expect(rec.applied).toEqual([]);
+  });
+
+  it("seed lets a later out-of-band move be corrected by an identical request", async () => {
+    // THE bug seed exists for: the repaint nudge steps the width +1 then back.
+    // Without re-seeding, `applied` still claims the nudged value and the
+    // client's request for its real size is dropped with nothing reaching tmux.
+    const rec = recorder();
+    const queue = createGeometryQueue({ onGeometry: () => {} });
+
+    queue.request("s1", 92, 28, rec.sizer);
+    await settle();
+    expect(rec.applied).toEqual([{ cols: 92, rows: 28 }]);
+
+    queue.seed("s1", 93, 28); // the nudge moved the pane behind the queue's back
+    queue.request("s1", 92, 28, rec.sizer); // client re-asserts its real size
+    await settle();
+
+    expect(rec.applied).toEqual([
+      { cols: 92, rows: 28 },
+      { cols: 92, rows: 28 },
+    ]);
+  });
+
+  it("ignores a degenerate seed", async () => {
+    const rec = recorder();
+    const queue = createGeometryQueue({ onGeometry: () => {} });
+    queue.seed("s1", 0, 0);
+    queue.request("s1", 80, 24, rec.sizer);
+    await settle();
+    expect(rec.applied).toEqual([{ cols: 80, rows: 24 }]);
+  });
+
   it("forgets a subshell's queue state on release, so ids can be reused", async () => {
     const rec = recorder();
     const queue = createGeometryQueue({ onGeometry: () => {} });

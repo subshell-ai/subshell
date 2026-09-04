@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "bun";
 import { shellQuote } from "./shell.js";
 
@@ -364,7 +365,40 @@ const SUN_PATH_MAX = process.platform === "darwin" ? 104 : 108;
  */
 export function tmuxSocketPath(socket: string): string {
   const base = process.env.TMUX_TMPDIR || "/tmp";
-  return `${base}/tmux-${process.getuid?.() ?? 0}/${socket}`;
+  return join(resolveExisting(base), `tmux-${process.getuid?.() ?? 0}`, socket);
+}
+
+/**
+ * Resolves the symlinks in `path` as far as it actually exists, keeping the
+ * not-yet-created remainder verbatim.
+ *
+ * The realpath is what matters: the kernel binds the RESOLVED path, so that is
+ * the string `sun_path` has to hold — and on macOS `/tmp` is a symlink to
+ * `/private/tmp`, 8 bytes the lexical form never shows. Measuring the lexical
+ * path let a base whose sockets land at 96 lexical bytes pass the guard and
+ * then fail inside tmux with the bare "File name too long" this exists to
+ * replace. A blind `realpathSync` cannot be used instead: tmux creates its
+ * `tmux-<uid>` directory itself, so the leaf rarely exists at check time, and
+ * a throw there would fall back to the lexical string anyway.
+ *
+ * @param path - Absolute or relative path to resolve
+ * @returns The path with every existing component symlink-resolved
+ */
+function resolveExisting(path: string): string {
+  const absolute = resolve(path);
+  const missing: string[] = [];
+  let cursor = absolute;
+  for (;;) {
+    try {
+      const real = realpathSync(cursor);
+      return missing.length > 0 ? join(real, ...missing) : real;
+    } catch {
+      const parent = dirname(cursor);
+      if (parent === cursor) return absolute; // nothing along the path exists
+      missing.unshift(basename(cursor));
+      cursor = parent;
+    }
+  }
 }
 
 /**
@@ -383,9 +417,13 @@ export function assertSocketPathFits(socket: string): void {
   const socketPath = tmuxSocketPath(socket);
   // `sun_path` must hold the bytes AND a terminating NUL.
   if (Buffer.byteLength(socketPath) < SUN_PATH_MAX) return;
+  const asked = join(process.env.TMUX_TMPDIR || "/tmp", `tmux-${process.getuid?.() ?? 0}`, socket);
+  // Name BOTH spellings when they differ: the resolved one is what broke the
+  // limit, but the operator only recognises the one they configured.
+  const shown = asked === socketPath ? socketPath : `${socketPath} (from ${asked})`;
   throw new TmuxError(
     `tmux socket path is too long (${Buffer.byteLength(socketPath)} bytes; the kernel allows ${SUN_PATH_MAX - 1} on ` +
-      `${process.platform}): ${socketPath}. Point TMUX_TMPDIR at a shorter directory, e.g. TMUX_TMPDIR=/tmp.`,
+      `${process.platform}): ${shown}. Point TMUX_TMPDIR at a shorter directory, e.g. TMUX_TMPDIR=/tmp.`,
   );
 }
 
