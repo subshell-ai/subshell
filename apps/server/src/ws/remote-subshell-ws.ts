@@ -8,10 +8,10 @@ import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
 import {
   captureStable,
-  evictPreviousViewer,
   nudgePaneForRepaint,
   persistOutput,
   RESIZE_SETTLE_MS,
+  registerViewer,
   type WsData,
   type WsSocket,
   waitForPaneRepaint,
@@ -152,7 +152,7 @@ export async function attachRemoteSubshellWs(
     if (detached) return;
     // Pane proven alive — claim the subshell's one live viewer slot (the local
     // twin's rule): the previous viewer's width was about to fight this one's.
-    evictPreviousViewer(ws, row.id);
+    registerViewer(ws, row.id);
 
     // JOIN POINT (the local twin carries the full reasoning): one 1-byte
     // `log_read` for `size`, sampled BEFORE the resize — the tail streams

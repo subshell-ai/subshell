@@ -16,6 +16,7 @@ import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
 import { createPaneStreamRegistry, type Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
+import { resolveSharedGrid } from "@/ws/shared-geometry.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -134,7 +135,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     ws.close(4004, "subshell not running");
     return;
   }
-  evictPreviousViewer(ws, row.id);
+  registerViewer(ws, row.id);
 
   // A close can land while this handler still awaits (resize settle + the
   // quiet-poll can span ~1 s), so the disposer is installed BEFORE the first
@@ -151,6 +152,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     lastOutputWriteAt: 0,
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),
+    // This viewer's own capacity, from the connect URL. One input to the
+    // shared decision below — never applied on its own.
+    capacity: initialSize ?? undefined,
   };
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
@@ -227,10 +231,15 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   if (initialSize) {
     const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
-      await launcher.resize(row.tmuxSocket, row.id, initialSize.cols, initialSize.rows);
+      // The pane is fitted to what EVERY viewer can display, not to the
+      // joiner's own size: a phone opening a subshell a desktop is already
+      // watching must shrink the pane for both, so the capture below matches
+      // the grid both of them will render.
+      const fit = sharedGridFor(row.id) ?? initialSize;
+      await launcher.resize(row.tmuxSocket, row.id, fit.cols, fit.rows);
       // Tell the queue: this fit bypassed it, and a client frame asking for
       // the same size must not then be swallowed as already-applied.
-      seedPaneGeometry(row.id, initialSize.cols, initialSize.rows);
+      seedPaneGeometry(row.id, fit.cols, fit.rows);
       // `logStart` is the pre-resize size — the baseline a repaint has to grow
       // past. Re-sampling it after the resize would miss a repaint that beat
       // us to the log.
@@ -325,6 +334,12 @@ export interface WsData {
   lastOutputWriteAt: number;
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
   canInput: boolean;
+  /**
+   * The grid THIS viewer can display, as last reported. One input to the
+   * shared-grid decision (`ws/shared-geometry.ts`); never applied on its own,
+   * because a pane has one size and other devices may be watching it.
+   */
+  capacity?: { cols: number; rows: number };
   /**
    * The upgrade request's User-Agent, stashed by the `/ws` `upgrade` hook
    * (`ws.raw.request` is absent in Elysia's WS open context). Journal-only —
@@ -654,11 +669,13 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // browser socket must not await, and the promise must not go unhandled.
   const logFailure = (err: unknown) => logger.withError(err).warn("ws input failed");
   if (frame.type === "resize") {
-    // Through the queue, never straight at the launcher: two bare
-    // `void resize(...)` calls can complete out of order and leave the pane
-    // at a superseded size, which is what made a relative-positioning TUI
-    // paint onto the wrong rows until a reattach.
-    requestPaneResize(data.launcher, data.socket, data.subshellId, frame.cols, frame.rows);
+    // A client frame reports what THIS viewer can display; it is not an
+    // instruction. The pane's size is decided from every attached viewer
+    // (`resolveSharedGrid`) and applied through the queue — never straight at
+    // the launcher, because two bare `void resize(...)` calls can complete out
+    // of order and strand the pane at a superseded size.
+    data.capacity = { cols: frame.cols, rows: frame.rows };
+    applySharedGeometry(data.subshellId, data.launcher, data.socket);
     return;
   }
   // Raw terminal input, forwarded verbatim — but only for callers allowed to
@@ -675,13 +692,20 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
   const subshellId = ws.data?.subshellId;
-  if (subshellId && liveViewers.get(subshellId) === ws) {
-    liveViewers.delete(subshellId);
-    // No one is watching, so the remembered "already applied" size must go
-    // too: the next attach has to be able to re-assert the same geometry (the
-    // pane may have been resized by anything in between), and holding the
-    // entry would make that request look like a no-op.
-    geometryQueue.release(subshellId);
+  const viewers = subshellId ? liveViewers.get(subshellId) : undefined;
+  if (subshellId && viewers?.delete(ws)) {
+    if (viewers.size === 0) {
+      liveViewers.delete(subshellId);
+      // No one is watching, so the remembered "already applied" size must go
+      // too: the next attach has to be able to re-assert the same geometry (the
+      // pane may have been resized by anything in between), and holding the
+      // entry would make that request look like a no-op.
+      geometryQueue.release(subshellId);
+    } else if (ws.data) {
+      // Someone is still watching, and the pane may have been held small on
+      // this viewer's account — re-decide without it so it can grow back.
+      applySharedGeometry(subshellId, ws.data.launcher, ws.data.socket);
+    }
   }
   ws.data?.cleanup?.();
 }
@@ -702,7 +726,7 @@ export function cleanupSubshellWs(ws: WsSocket): void {
  * Called once both paths have PROVEN the pane is alive (post-probe), so a
  * refused attach never evicts the incumbent.
  */
-const liveViewers = new Map<string, WsSocket>();
+const liveViewers = new Map<string, Set<WsSocket>>();
 
 /**
  * Drops all viewer registrations WITHOUT closing the sockets. Only for tests,
@@ -733,13 +757,49 @@ export function resetGeometryQueueForTests(ids: string[]): void {
  * that.
  */
 function broadcastToViewers(subshellId: string, frame: object): void {
-  const viewer = liveViewers.get(subshellId);
-  if (!viewer) return;
-  try {
-    viewer.send(JSON.stringify(frame));
-  } catch {
-    // socket already gone; its close handler does the bookkeeping
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers) return;
+  const payload = JSON.stringify(frame);
+  // Snapshot: a send can close a socket, and mutating the set mid-iteration
+  // would skip the viewer after it.
+  for (const viewer of [...viewers]) {
+    try {
+      viewer.send(payload);
+    } catch {
+      // socket already gone; its close handler does the bookkeeping
+    }
   }
+}
+
+/**
+ * Re-decides the pane's grid from every attached viewer and asks for it.
+ *
+ * Called whenever the viewer SET changes (attach, detach) or any viewer
+ * reports a new capacity. The answer is a pure function of that set
+ * (`resolveSharedGrid`), which is what makes several viewers safe: the same
+ * devices always produce the same grid regardless of who spoke last, so the
+ * pane cannot bounce between two sizes the way last-writer-wins did.
+ *
+ * @param subshellId - Subshell whose viewers to poll
+ * @param launcher - Launcher owning the pane
+ * @param socket - tmux socket for the pane
+ */
+function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket: string): void {
+  const grid = sharedGridFor(subshellId);
+  if (grid) requestPaneResize(launcher, socket, subshellId, grid.cols, grid.rows);
+}
+
+/**
+ * The grid every viewer of `subshellId` can display, or null when none has
+ * reported a usable one.
+ * @param subshellId - Subshell whose viewers to poll
+ * @returns The shared grid, or null
+ */
+export function sharedGridFor(subshellId: string): PaneGeometry | null {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers || viewers.size === 0) return null;
+  const capacities = [...viewers].map((v) => v.data?.capacity).filter((c): c is PaneGeometry => Boolean(c));
+  return resolveSharedGrid(capacities);
 }
 
 /**
@@ -816,24 +876,8 @@ async function readPaneGeometry(
   }
 }
 
-export function evictPreviousViewer(ws: WsSocket, subshellId: string): void {
-  const prev = liveViewers.get(subshellId);
-  // Drop the remembered pane size BEFORE claiming the slot. `cleanupSubshellWs`
-  // releases only when the closing socket is still the registered viewer, and
-  // the incumbent's close arrives after this line has already replaced it — so
-  // without this the entry survives, and its stale `applied` silently swallows
-  // the new viewer's first request for that size.
-  if (prev && prev !== ws) geometryQueue.release(subshellId);
-  liveViewers.set(subshellId, ws);
-  if (!prev || prev === ws) return;
-  // Release the incumbent's watcher/timer NOW — its close event also runs
-  // `cleanupSubshellWs`, but the disposer is idempotent and the map entry
-  // already names the new socket, so neither the double-run nor the
-  // bookkeeping can disturb the fresh attach.
-  try {
-    prev.data?.cleanup?.();
-    prev.close(4003, "subshell open in another viewer");
-  } catch {
-    // socket already gone — the registry entry was stale, and we just replaced it
-  }
+export function registerViewer(ws: WsSocket, subshellId: string): void {
+  const viewers = liveViewers.get(subshellId) ?? new Set<WsSocket>();
+  viewers.add(ws);
+  liveViewers.set(subshellId, viewers);
 }

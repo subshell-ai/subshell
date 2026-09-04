@@ -48,7 +48,6 @@ function SubshellPage() {
   /** Whether the Find bar is up — see the header actions row for why it matters. */
   const [findOpen, setFindOpen] = useState(false);
   /** Superseded by a newer viewer (close 4003) — the subshell runs, elsewhere. */
-  const [replaced, setReplaced] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { subshell, isLoading, isError, isNotFound, exited, dead } = useSubshellData(id);
@@ -150,7 +149,7 @@ function SubshellPage() {
   // is the terminal replaced by a state panel.
   // `isLoading` is NOT a reconnect: the terminal is not even mounted yet, and
   // claiming "reconnecting…" before a first attach would be a lie.
-  const showPill = !connected && !closed && !replaced && !dead && !restarting && !isLoading;
+  const showPill = !connected && !closed && !dead && !restarting && !isLoading;
 
   // Gone is gone: a 404 means the record will never arrive (deleted, or never
   // shared with this viewer — the backend answers 404 for both), so do NOT
@@ -256,7 +255,6 @@ function SubshellPage() {
             onStatusChange={(status) => {
               setConnected(status.connected);
               setClosed(status.closed);
-              setReplaced(status.replaced ?? false);
             }}
             onRestart={() => void restart()}
             restarting={restarting}

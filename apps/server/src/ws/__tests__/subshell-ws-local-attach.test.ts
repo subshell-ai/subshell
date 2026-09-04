@@ -205,11 +205,12 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     expect(sent.slice(framesAtDisconnect)).toEqual([]);
   });
 
-  it("a NEW attach replaces the previous viewer: the old socket closes 4003 and goes silent", async () => {
-    // One tmux pane has one width; two viewers at different widths thrash it
-    // and shatter the TUI (2026-09-01 jumble). Newest attach wins, and the
-    // replaced socket must stop streaming immediately — its watcher/timer,
-    // not just its close event.
+  it("a SECOND attach joins instead of evicting: both viewers get the same bytes", async () => {
+    // This is the behaviour 4003 used to forbid. Eviction existed because one
+    // tmux pane has one width and two viewers asserting their own sizes
+    // thrashed it (the 2026-09-01 jumble) — that is now answered by deciding
+    // the grid from the whole viewer set (`resolveSharedGrid`) rather than by
+    // throwing a viewer off, so a subshell can be watched from two devices.
     stubLauncher();
     const row = await seedLocalRow();
     const logFile = subshellLogPath(row.id);
@@ -217,16 +218,42 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
 
     const first = await attach(row.userId, row.id);
     await Bun.sleep(60); // first viewer settles into its tail
-    const second = await attach(row.userId, row.id); // newer viewer takes over
+    const second = await attach(row.userId, row.id);
 
-    expect(first.closed.some((c) => c.code === 4003)).toBe(true);
-    const firstFrames = first.sent.length;
+    expect(first.closed).toEqual([]); // nobody is thrown off any more
 
-    appendFileSync(logFile, "for the new owner\n");
+    appendFileSync(logFile, "for both viewers\n");
     await Bun.sleep(1300); // watch fires ~instantly; backstop twice
-    expect(first.sent.slice(firstFrames)).toEqual([]); // evicted: nothing more ships
-    expect(second.sent.some((s) => s.includes("for the new owner"))).toBe(true);
+    // BYTE-IDENTICAL, because one shared pump feeds both — two independent
+    // pumps would each observe their own instant and drift apart.
+    expect(first.sent.some((f) => f.includes("for both viewers"))).toBe(true);
+    expect(second.sent.some((f) => f.includes("for both viewers"))).toBe(true);
+    cleanupSubshellWs(first.ws);
     cleanupSubshellWs(second.ws);
+  });
+
+  it("the last viewer leaving stops the stream; one remaining viewer keeps it", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = subshellLogPath(row.id);
+    await Bun.write(logFile, "old\n");
+
+    const first = await attach(row.userId, row.id);
+    const second = await attach(row.userId, row.id);
+    await Bun.sleep(60);
+
+    cleanupSubshellWs(first.ws); // one leaves
+    const firstFrames = first.sent.length;
+    appendFileSync(logFile, "still streaming\n");
+    await Bun.sleep(1300);
+    expect(first.sent.slice(firstFrames)).toEqual([]); // the one who left is silent
+    expect(second.sent.some((f) => f.includes("still streaming"))).toBe(true); // the other is not
+
+    cleanupSubshellWs(second.ws); // the last one leaves
+    const secondFrames = second.sent.length;
+    appendFileSync(logFile, "after everyone left\n");
+    await Bun.sleep(1300);
+    expect(second.sent.slice(secondFrames)).toEqual([]);
   });
 
   it("the pane-poll branch: cleanup clears the poll interval — no captures after disconnect", async () => {

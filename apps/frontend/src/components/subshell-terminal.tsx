@@ -54,12 +54,6 @@ export interface SubshellTerminalStatus {
   connected: boolean;
   /** True once the server *rejected* the attach (close code >= 4000) */
   closed: boolean;
-  /**
-   * True when this viewer was superseded (close 4003): the subshell is alive
-   * and streaming in a NEWER viewer — one pane, one size, newest wins. Not
-   * `closed`: a subshell watched elsewhere must not be reported as dead.
-   */
-  replaced?: boolean;
 }
 
 /**
@@ -578,13 +572,6 @@ export function SubshellTerminal({
     {
       onOpen: () => emitStatus({ connected: true, closed: statusRef.current.closed }),
       onClose: (code, _reason) => {
-        // 4003: a NEWER viewer took the subshell (one pane has one width; the
-        // newest viewer owns it). The subshell is alive — say so, do not
-        // render the dead-subshell state, and the hook will not retry.
-        if (code === 4003) {
-          emitStatus({ connected: false, closed: false, replaced: true });
-          return;
-        }
         // A server rejection code (4xxx) means the attach is refused (subshell
         // missing / not running) — a reconnect cannot succeed, so surface the
         // dead-subshell state. All other closes (network drops, backend restart)
