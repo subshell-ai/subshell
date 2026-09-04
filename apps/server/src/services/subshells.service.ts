@@ -529,6 +529,23 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * A harness re-pins its conversation identity (SessionStart hook). The
+   * launch-time pin goes stale whenever the pane switches conversation
+   * in-pane (/clear, /resume <other>, /fork) — without this write the next
+   * restart resumes the ORIGINAL launch conversation instead of the current
+   * one. Unlike attention, a row that is alive=0 but still `running` (just
+   * died mid-transition, auto-restart pending) is a valuable report: the
+   * next respawn should continue the CURRENT transcript. Terminated/deleted
+   * rows silently drop it — the operator retired that lineage.
+   * The caller still sees 200: hooks are fire-and-forget.
+   */
+  async recordHarnessSession(id: string, sessionId: string): Promise<void> {
+    const row = await this.repos.subshells.findById(id);
+    if (row?.status !== "running" || row.harnessSessionId === sessionId) return;
+    await this.repos.subshells.update(id, { harnessSessionId: sessionId });
+  }
+
+  /**
    * Revives a subshell IN PLACE (same id, same row): the manager kills the
    * pane and re-runs the auto-restart's guarded respawn on this row,
    * resuming the harness conversation when its transcript survived.

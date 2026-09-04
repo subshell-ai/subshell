@@ -259,4 +259,27 @@ describe("ClaudeCodePlugin attention hooks", () => {
     expect(settings.model).toBe("sonnet");
     expect(settings.hooks).toBeDefined();
   });
+
+  it("SessionStart reports the pane's current session id to /harness-session", () => {
+    const cmd = plugin.buildCommand({
+      binary: "/usr/bin/claude",
+      cwd: "/tmp/ws",
+      profile: emptyProfile(),
+      subshellName: "",
+    });
+    const idx = cmd.indexOf("--settings");
+    const settings = JSON.parse(cmd[idx + 1]) as {
+      hooks: { SessionStart?: [{ hooks: [{ command: string }] }] };
+    };
+    const ss = settings.hooks.SessionStart;
+    expect(ss).toBeDefined();
+    const ssCmd = ss?.[0].hooks[0].command ?? "";
+    expect(ssCmd).toContain("bun -e");
+    expect(ssCmd).toContain("/harness-session");
+    // The hook forwards ONLY the payload's session_id — the id is what
+    // restart-resume needs, nothing else from stdin may leave the pane.
+    expect(ssCmd).toContain("session_id");
+    expect(ssCmd).not.toContain("transcript_path");
+    expect(ssCmd).not.toContain("last_assistant_message");
+  });
 });

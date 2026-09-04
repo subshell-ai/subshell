@@ -112,10 +112,34 @@ const attentionPing = (kind: string): string =>
   `body:JSON.stringify({kind:${JSON.stringify(kind)}}),signal:AbortSignal.timeout(5000)})` +
   `.catch(()=>{}).finally(()=>process.exit(0))'`;
 
+/**
+ * Conversation-identity reporting. The restart-resume pin (`--session-id`
+ * at launch) only survives while the pane keeps that ONE conversation — but
+ * /clear, /resume <other>, and /fork start a DIFFERENT transcript id in-pane
+ * and nothing else tells the server, so the next restart would resurrect a
+ * stale conversation (observed 2026-09-03). The SessionStart hook fires on
+ * every such transition (source: startup|resume|clear|compact|fork).
+ *
+ * Unlike the attention pings, THIS command reads stdin — the deliberate,
+ * documented exception to the no-stdin rule (whose rationale is that
+ * Stop/Notification payloads carry conversation text): the SessionStart
+ * payload is pure metadata ({session_id, transcript_path, cwd, source,…})
+ * and ONLY `session_id` is forwarded; the response is fire-and-forget like
+ * the pings — every failure path is swallowed.
+ */
+const sessionReportPing = (): string =>
+  `bun -e '` +
+  `try{const j=JSON.parse(await Bun.stdin.text());` +
+  `if(j.session_id)await fetch(process.env.SUBSHELL_BASE_URL+"/api/subshells/"+process.env.SUBSHELL_ID+"/harness-session",` +
+  `{method:"POST",headers:{authorization:"Bearer "+process.env.SUBSHELL_API_KEY,"content-type":"application/json"},` +
+  `body:JSON.stringify({sessionId:j.session_id}),signal:AbortSignal.timeout(5000)})}catch{}` +
+  `process.exit(0)'`;
+
 /** The `--settings` hooks object injected into every Claude Code launch. */
 export const ATTENTION_HOOKS = {
   Stop: [{ hooks: [{ type: "command", command: attentionPing("turn_complete") }] }],
   Notification: [{ hooks: [{ type: "command", command: attentionPing("needs_attention") }] }],
+  SessionStart: [{ hooks: [{ type: "command", command: sessionReportPing() }] }],
 } as const;
 
 /** Claude's state dir: the documented override, else `~/.claude`. */
