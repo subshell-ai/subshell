@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router"
 import type { SearchAddon } from "@xterm/addon-search";
 import type { Terminal } from "@xterm/xterm";
 import { SlidersHorizontal } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
@@ -16,12 +16,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
+import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
+import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import { findNeighbors } from "@/lib/subshell-neighbors";
+import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/subshells_/$id")({
@@ -83,6 +87,26 @@ function SubshellPage() {
   // badge, the actions menu, or the back arrow — while it is open they all
   // vacate (desktop keeps everything; the ✕ closes the bar and they return).
   const findTakesRow = stacked && findOpen;
+
+  // Swipe prev/next (spec 2026-09-04): walk the sidebar order with the thumb.
+  // Neighbours are recomputed per render — SSE reshuffles the list live, so
+  // the gesture must never hold a stale neighbour id.
+  const ordered = useOrderedSubshells();
+  const { prev, next } = useMemo(() => findNeighbors(ordered, id), [ordered, id]);
+  // Per-device opt-out (Preferences → This device, default on). A mount-time
+  // read is enough: toggling it lives on /preferences, and coming back here
+  // remounts this page.
+  const [swipeOn] = useState(() => swipeNavEnabled());
+  const swipeZoneRef = useRef<HTMLDivElement>(null);
+  useSwipeNav(swipeZoneRef, {
+    enabled: swipeOn && Boolean(prev ?? next),
+    onPrev: () => {
+      if (prev) void navigate({ to: "/subshells/$id", params: { id: prev } });
+    },
+    onNext: () => {
+      if (next) void navigate({ to: "/subshells/$id", params: { id: next } });
+    },
+  });
 
   /** Takes ownership of a freshly created terminal and its addons. */
   function handleTerminalReady(handles: SubshellTerminalHandles) {
@@ -210,7 +234,7 @@ function SubshellPage() {
         }
       />
 
-      <div className="relative flex-1 overflow-hidden bg-terminal-strip p-0">
+      <div ref={swipeZoneRef} className="relative flex-1 overflow-hidden bg-terminal-strip p-0">
         {/* Mount only once the record has settled: attaching under a
             "loading" key and remounting when the query lands replayed the
             whole pane twice per visit (the visible double-jumble). An errored
