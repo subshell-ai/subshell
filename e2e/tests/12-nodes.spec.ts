@@ -323,7 +323,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await actions.click();
     await page.getByRole("menuitem", { name: "Close" }).click();
     await expect(page.getByText(`Close subshell "${subshellName}"?`)).toBeVisible();
-    await page.getByRole("button", { name: "Close" }).click();
+    await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
     await expect(page.getByText(subshellName)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
     await pollUntil(
       `pane "${pane}" outlived close on the node`,

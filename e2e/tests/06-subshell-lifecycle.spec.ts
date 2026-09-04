@@ -74,7 +74,7 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   await actions.click();
   await page.getByRole("menuitem", { name: "Close" }).click();
   await expect(page.getByText(`Close subshell "${name}"?`)).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
 
   // Prove it is gone.
   await expect(page.getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });

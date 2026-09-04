@@ -51,6 +51,76 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
   }
 });
 
+test("drawer quick-add: inline ✕, dialog opens, drawer dismissed", async ({ page }) => {
+  // The 2026-09-04 phone reports: the drawer's floating ✕ landed on the
+  // quick-add + row (taps hit the X instead), and the quick-add dialog was
+  // mounted INSIDE the drawer — a second stacked modal. Now: the close lives
+  // in the sheet's header row, and a quick-add opens the root-mounted dialog
+  // while the drawer dismisses. (The scroller-restore rule the same report
+  // drove is pinned by the desktop variant below + combobox unit tests;
+  // combining both into this one flow races the drawer's exit animation.)
+  test.skip(!isPhone(), "phone-only drawer flow");
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Open navigation" }).tap();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible();
+  // The close control is in the sheet's header row, beside the wordmark —
+  // no floating button over the nav rows.
+  await expect(drawer.getByLabel("Close")).toBeVisible();
+
+  await drawer.getByRole("button", { name: "New subshell", exact: true }).tap();
+  // The ONLY dialog left is the root-mounted launch one.
+  await expect(page.getByRole("dialog", { name: "New subshell" })).toBeVisible();
+});
+
+test("launch dialog survives the profile dropdown's scroll shift", async ({ page }) => {
+  // 2026-09-04 report #4: focusing the type-to-filter combobox shifts the
+  // dialog's scroller on phones (keyboard/scroll-into-view) and the shift
+  // used to survive the dismiss, stranding the header off-screen. Searchable-
+  // Select now snapshots the scroller at pointerdown and restores it when the
+  // popup closes. Desktop shell (no drawer in the flow) at a height where the
+  // dialog overflows, so the scroller exists; the phone's shove is applied
+  // by hand (headless chromium has no soft keyboard), and the taps are raw
+  // coordinates — locator actions run their own scroll-into-view first,
+  // which would shift the scroller BEFORE the app can capture it.
+  test.skip(!isPhone(), "needs the touch profile; geometry forced below");
+  page.on("pageerror", (e) => console.log("PAGEERROR:", String(e).slice(0, 300)));
+  await page.setViewportSize({ width: 1024, height: 420 });
+  await page.goto("/");
+
+  // The rail's + specifically (the home page has its own "New subshell").
+  // Mouse click to open: this test owns the SCROLL behavior; the tap-open
+  // gesture is pinned by the drawer test above. (Touch-tapping the rail + at
+  // this width races the dialog's first commit in-suite and intermittently
+  // finds it already dismissed — see the drawer test for the reliable path.)
+  await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).tap();
+  const dialog = page.locator("[data-slot='dialog-content']").first();
+  await expect(dialog).toBeVisible();
+  const scroller = page.locator("[data-slot='dialog-content'] > div").first();
+  await expect(scroller).toBeVisible();
+
+  await scroller.evaluate((el) => {
+    el.scrollTop = 25;
+  });
+  const combo = await page.getByRole("combobox", { name: "Profile" }).boundingBox();
+  expect(combo).toBeTruthy();
+  await page.touchscreen.tap(combo!.x + combo!.width / 2, combo!.y + combo!.height / 2);
+  await page.waitForTimeout(400);
+  await scroller.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  // Dismiss the dropdown: a point inside the dialog's bottom padding —
+  // outside the popup, and NOT the backdrop (a backdrop tap closes the
+  // whole dialog).
+  const dbox = await dialog.boundingBox();
+  expect(dbox).toBeTruthy();
+  await page.touchscreen.tap(dbox!.x + 40, dbox!.y + dbox!.height - 8);
+  await page.waitForTimeout(400);
+  await expect(dialog).toBeVisible(); // the dialog itself survived
+  expect(await scroller.evaluate((el) => el.scrollTop)).toBe(25);
+});
+
 test("add-subshell dialog fits and scrolls on small screens", async ({ page }, testInfo) => {
   // Workspace via API, not the "New workspace" button: the UI auto-names with
   // a minute-granularity timestamp and the backend enforces per-user name
