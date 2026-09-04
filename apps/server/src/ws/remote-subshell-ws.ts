@@ -5,7 +5,7 @@ import { getLive } from "@/services/nodes/node-registry.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
-import { captureToTerminalText } from "@/ws/capture-text.js";
+import { captureToReplayText } from "@/ws/capture-text.js";
 import {
   captureQuietJoin,
   captureStable,
@@ -215,7 +215,7 @@ export async function attachRemoteSubshellWs(
     let painted: string;
     if (quiet) {
       logStart = quiet.joinAt;
-      painted = `${captureToTerminalText(quiet.text)}\x1b[${quiet.cursor.y + 1};${quiet.cursor.x + 1}H`;
+      painted = captureToReplayText(quiet.text, quiet.cursor);
     } else {
       const replay = await captureStable(launcher, data.socket, row.id, cap);
       if (replay === null) {
@@ -224,7 +224,7 @@ export async function attachRemoteSubshellWs(
         ws.close(4004, "subshell not running");
         return;
       }
-      painted = captureToTerminalText(replay);
+      painted = captureToReplayText(replay);
     }
     ws.send(JSON.stringify({ type: "replay", data: painted }));
     recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged, quiet: quiet !== null });

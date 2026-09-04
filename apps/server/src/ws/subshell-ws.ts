@@ -12,7 +12,7 @@ import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
-import { captureToTerminalText } from "@/ws/capture-text.js";
+import { captureToReplayText, captureToTerminalText } from "@/ws/capture-text.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
 import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
@@ -243,10 +243,13 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   let replay: string | null = null;
   if (quiet) {
     logStart = quiet.joinAt;
-    replay = `${captureToTerminalText(quiet.text)}\x1b[${quiet.cursor.y + 1};${quiet.cursor.x + 1}H`;
+    replay = captureToReplayText(quiet.text, quiet.cursor);
   } else {
     const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
-    if (text != null) replay = captureToTerminalText(text);
+    // No cursor to restore on this path, but the trailing terminator still
+    // has to go: it would scroll the client's viewport out of step with the
+    // pane's rows (see captureToReplayText).
+    if (text != null) replay = captureToReplayText(text);
   }
   if (replay != null) {
     ws.send(JSON.stringify({ type: "replay", data: replay }));

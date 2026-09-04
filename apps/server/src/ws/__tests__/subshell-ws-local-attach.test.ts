@@ -465,10 +465,13 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
         firstCapture = false;
         appendFileSync(logFile, "between-join-and-snapshot\r\n"); // in the grid the capture reports
       }
-      return "SCREEN";
+      // Trailing terminator included, as tmux emits it for the LAST row too.
+      return "SCREEN\n";
     };
 
     const { sent } = await attach(row.userId, row.id, "&cols=80&rows=24");
+    // That terminator must NOT survive: it would scroll the client one row
+    // past the pane's grid and make the CUP below name the wrong row.
     expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN\x1b[10;5H" }));
     expect(sent.some((f) => f.includes("between-join-and-snapshot"))).toBe(false);
 
