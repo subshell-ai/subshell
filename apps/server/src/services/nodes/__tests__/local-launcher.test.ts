@@ -74,6 +74,17 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     expect((await launcher.readLogTail(lid)).lines).toEqual([]); // missing log = empty
   });
 
+  it("paneCursor answers for a live pane and null once it is gone", async () => {
+    const cur = await launcher.paneCursor(socket, id);
+    expect(cur).not.toBeNull();
+    expect(Number.isInteger(cur?.x) && Number.isInteger(cur?.y)).toBe(true);
+    // A dead socket answers null. (A GONE name on a LIVE server does not:
+    // `display-message -t` falls through to the server's newest session and
+    // prints that pane's cursor — same reason the attach path probes liveness
+    // with `has-session`, never with a display-message.)
+    expect(await launcher.paneCursor("subshell-no-such-socket", id)).toBeNull();
+  });
+
   it("signalPaneWinch repaints the pane WITHOUT touching its geometry; dead pane ⇒ false", async () => {
     // The whole point of the winch route (vs the ±1 resize nudge): the app
     // gets a SIGWINCH it must answer with a repaint while tmux never reflows

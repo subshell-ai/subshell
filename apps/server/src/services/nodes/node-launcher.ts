@@ -71,6 +71,18 @@ export interface NodeLauncher {
   /** Pane's OSC title plus the running command, null if the pane is gone. */
   paneTitle(socket: string, id: string): Promise<{ title: string; command: string } | null>;
   /**
+   * The pane's live cursor position (0-based column/row inside the viewport),
+   * null when unavailable. The attach replay pairs it with the grid capture:
+   * a snapshot has no cursor, and a diff-rendering TUI starts its next repaint
+   * with RELATIVE moves from where it left the cursor — so without the real
+   * position the client's grid silently shifts by the delta (2026-09-04
+   * "garbled when I background and return while it's animating": the replay
+   * cursor sat at the end of the capture text instead of the app's cursor).
+   * Remote agents have no `cursor` command yet — implementations answer null
+   * and the attach falls back to the pre-cursor join rule.
+   */
+  paneCursor(socket: string, id: string): Promise<{ x: number; y: number } | null>;
+  /**
    * Snapshot of the pane's visible grid as text. With `scrollbackLines`, also
    * prepends up to that many rows of the pane's own (reflowed, rendered)
    * history — the attach-time replay ships the grid PLUS history in one clean

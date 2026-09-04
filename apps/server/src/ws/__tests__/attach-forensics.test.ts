@@ -25,7 +25,14 @@ describe("attach forensics", () => {
     // Screen contents can hold secrets, and every attach writing to /tmp
     // would churn the disk — the dump is opt-in per instance.
     expect(forensicsEnabled()).toBe(false);
-    recordAttachPaint({ subshellId: SID, preResize: "BEFORE", replay: "AFTER", repainted: true, nudged: false });
+    recordAttachPaint({
+      subshellId: SID,
+      preResize: "BEFORE",
+      replay: "AFTER",
+      repainted: true,
+      nudged: false,
+      quiet: true,
+    });
     expect(existsSync(`${ROOT}/${SID}`)).toBe(false);
   });
 
@@ -37,6 +44,7 @@ describe("attach forensics", () => {
       replay: "CLEAN-AFTER-REPAINT",
       repainted: true,
       nudged: true,
+      quiet: false,
     });
 
     // One timestamped directory per attach, so successive attaches on one
@@ -52,7 +60,14 @@ describe("attach forensics", () => {
     // A stale client sends no geometry ⇒ no resize ⇒ nothing to capture
     // "before" it. The replay half is still the evidence that matters.
     setForensicsEnabledForTests(true);
-    recordAttachPaint({ subshellId: SID, preResize: null, replay: "REPLAY", repainted: false, nudged: false });
+    recordAttachPaint({
+      subshellId: SID,
+      preResize: null,
+      replay: "REPLAY",
+      repainted: false,
+      nudged: false,
+      quiet: false,
+    });
 
     const files = [...new Bun.Glob("*/*.txt").scanSync(`${ROOT}/${SID}`)];
     const dir = `${ROOT}/${SID}/${files[0].split("/")[0]}`;
@@ -72,6 +87,7 @@ describe("attach forensics", () => {
         replay: "R",
         repainted: false,
         nudged: false,
+        quiet: false,
       }),
     ).not.toThrow();
   });

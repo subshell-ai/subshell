@@ -7,6 +7,7 @@ import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { captureToTerminalText } from "@/ws/capture-text.js";
 import {
+  captureQuietJoin,
   captureStable,
   evictPreviousViewer,
   nudgePaneForRepaint,
@@ -160,8 +161,9 @@ export async function attachRemoteSubshellWs(
     // desync a diff-rendering TUI can never heal; skipped-overlap it replays
     // is idempotent repaint). A missing/empty log reads size 0 and the tail
     // still arms (the agent tolerates a log pipe-pane has not created yet).
-    const logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
+    let logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
     if (detached) return;
+    const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
 
     // The pane as the viewer found it — forensics only, and only when armed
     // (an extra capture RPC). The local twin carries the reasoning.
@@ -174,7 +176,6 @@ export async function attachRemoteSubshellWs(
     let repainted = false;
     let nudged = false;
     if (size) {
-      const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
       try {
         await launcher.resize(data.socket, row.id, size.cols, size.rows);
         // Wait for the pane's TUI to repaint at the new geometry (burst of
@@ -205,16 +206,28 @@ export async function attachRemoteSubshellWs(
     // history rows; historical log bytes are never re-played. One capture —
     // the gap-free stream above corrects any raced frame (local twin).
     const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
-    const replay = await captureStable(launcher, data.socket, row.id, cap);
-    if (replay === null) {
-      // pane may have just died (the local twin swallows this; remote closes
-      // the same refusal the probe path uses — nothing after it can stream)
-      ws.close(4004, "subshell not running");
-      return;
+    // Quiet join first (the local twin's rule and reasoning). Today's agents
+    // cannot answer `paneCursor`, so this returns null after ONE probe RPC
+    // and the relay stays on the overlap join; the day the agent protocol
+    // grows a cursor command, animated-reattach garble is fixed here too
+    // without touching this file.
+    const quiet = !detached ? await captureQuietJoin(launcher, data.socket, row.id, cap, sizeOf, () => detached) : null;
+    let painted: string;
+    if (quiet) {
+      logStart = quiet.joinAt;
+      painted = `${captureToTerminalText(quiet.text)}\x1b[${quiet.cursor.y + 1};${quiet.cursor.x + 1}H`;
+    } else {
+      const replay = await captureStable(launcher, data.socket, row.id, cap);
+      if (replay === null) {
+        // pane may have just died (the local twin swallows this; remote closes
+        // the same refusal the probe path uses — nothing after it can stream)
+        ws.close(4004, "subshell not running");
+        return;
+      }
+      painted = captureToTerminalText(replay);
     }
-    const painted = captureToTerminalText(replay);
     ws.send(JSON.stringify({ type: "replay", data: painted }));
-    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
+    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged, quiet: quiet !== null });
     if (detached) return;
 
     // Per-connection decode/strip state, mirroring the local twin:
