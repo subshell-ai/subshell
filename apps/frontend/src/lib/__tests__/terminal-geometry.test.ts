@@ -6,8 +6,10 @@ import {
   boxForGrid,
   type CellSize,
   DEFAULT_SCROLLBAR_WIDTH_PX,
+  fontSizeToFit,
   gridForBox,
   gridOverflowsBox,
+  isDegenerateGrid,
   scrollbarReserve,
 } from "@/lib/terminal-geometry";
 
@@ -211,5 +213,67 @@ describe("gridOverflowsBox", () => {
   it("is false at exactly the box produced by boxForGrid (the boundary)", () => {
     const grid = { cols: 45, rows: 24 };
     expect(gridOverflowsBox(grid, boxForGrid(grid, cell, insets), cell, insets)).toBe(false);
+  });
+});
+
+describe("isDegenerateGrid — refusing FitAddon's floor", () => {
+  it("recognises the 2x1 clamp a mid-layout terminal reports", () => {
+    // Observed live as `ws attach … geometry 2x1`. Harmless while one client
+    // owned its own size; with several viewers the pane takes the SMALLEST
+    // report, so this would shrink every device to a two-column strip.
+    expect(isDegenerateGrid({ cols: 2, rows: 1 })).toBe(true);
+  });
+
+  it("recognises a floor hit on EITHER axis alone", () => {
+    expect(isDegenerateGrid({ cols: 2, rows: 40 })).toBe(true);
+    expect(isDegenerateGrid({ cols: 120, rows: 1 })).toBe(true);
+  });
+
+  it("passes any real viewport", () => {
+    expect(isDegenerateGrid({ cols: 80, rows: 24 })).toBe(false);
+    expect(isDegenerateGrid({ cols: 3, rows: 2 })).toBe(false); // tiny, but measured
+  });
+});
+
+describe("fontSizeToFit — shrinking rather than clipping", () => {
+  const insets = { padX: 0, padY: 0, reserve: DEFAULT_SCROLLBAR_WIDTH_PX };
+  const cell = { width: 8, height: 17 };
+
+  it("keeps the chosen size when the grid already fits", () => {
+    // The ordinary case: the pane is the smallest viewer's grid, so everyone
+    // else has room and letterboxes at their own font size.
+    const grid = { cols: 40, rows: 10 };
+    const box = { width: 2000, height: 2000 };
+    expect(fontSizeToFit(grid, box, cell, insets, 13)).toBe(13);
+  });
+
+  it("shrinks until the grid fits a box too small for it", () => {
+    const grid = { cols: 120, rows: 40 };
+    const box = { width: 500, height: 400 };
+    const fitted = fontSizeToFit(grid, box, cell, insets, 13);
+    expect(fitted).toBeLessThan(13);
+    // ...and the shrunken text really does fit: re-measure the cell at the
+    // new size (metrics are linear) and check the grid's box.
+    const scaled = { width: (cell.width * fitted) / 13, height: (cell.height * fitted) / 13 };
+    const needed = boxForGrid(grid, scaled, insets);
+    expect(needed.width).toBeLessThanOrEqual(box.width);
+    expect(needed.height).toBeLessThanOrEqual(box.height);
+  });
+
+  it("is driven by whichever axis is tighter", () => {
+    const grid = { cols: 120, rows: 5 };
+    const wideEnoughButShort = { width: 5000, height: 40 };
+    expect(fontSizeToFit(grid, wideEnoughButShort, cell, insets, 13)).toBeLessThan(13);
+  });
+
+  it("never returns a size below 1px, however hopeless the box", () => {
+    expect(fontSizeToFit({ cols: 200, rows: 80 }, { width: 10, height: 10 }, cell, insets, 13)).toBeGreaterThanOrEqual(
+      1,
+    );
+  });
+
+  it("returns whole pixels — a fractional size re-measures to a cell that may not fit", () => {
+    const fitted = fontSizeToFit({ cols: 100, rows: 30 }, { width: 613, height: 411 }, cell, insets, 13);
+    expect(Number.isInteger(fitted)).toBe(true);
   });
 });

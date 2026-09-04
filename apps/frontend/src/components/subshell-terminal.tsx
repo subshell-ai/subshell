@@ -14,7 +14,17 @@ import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { sendInput, sendResize } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
-import { type Box, type BoxInsets, boxForGrid, type Grid, gridForBox, scrollbarReserve } from "@/lib/terminal-geometry";
+import {
+  type Box,
+  type BoxInsets,
+  boxForGrid,
+  fontSizeToFit,
+  type Grid,
+  gridForBox,
+  gridOverflowsBox,
+  isDegenerateGrid,
+  scrollbarReserve,
+} from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSubshellWs } from "@/lib/use-subshell-ws";
@@ -234,7 +244,32 @@ export function SubshellTerminal({
     const grid = paneGridRef.current;
     const cell = term?.dimensions?.css.cell;
     if (!term || !grid || !cell || !(cell.width > 0) || !(cell.height > 0)) return;
-    setLetterbox(boxForGrid(grid, { width: cell.width, height: cell.height }, terminalInsets(term)));
+    const insets = terminalInsets(term);
+    const outer = outerRef.current;
+    const box = outer ? { width: outer.clientWidth, height: outer.clientHeight } : null;
+    let size = { width: cell.width, height: cell.height };
+
+    // Ordinarily the shared pane is the SMALLEST viewer's grid, so this one
+    // has room to spare and simply letterboxes. A viewer whose capacity was
+    // refused as degenerate takes no part in that decision though, so it can
+    // be handed a grid it cannot show — and clipping hides the prompt row.
+    // Shrink the text to fit rather than cut it off.
+    if (box && gridOverflowsBox(grid, box, size, insets)) {
+      const preferred = terminalFontSize();
+      const fitted = fontSizeToFit(grid, box, size, insets, preferred);
+      if (fitted !== term.options.fontSize) {
+        term.options.fontSize = fitted;
+        const remeasured = term.dimensions?.css.cell;
+        if (remeasured) size = { width: remeasured.width, height: remeasured.height };
+      }
+    } else if (term.options.fontSize !== terminalFontSize()) {
+      // Room again: back to the size the user actually chose.
+      term.options.fontSize = terminalFontSize();
+      const remeasured = term.dimensions?.css.cell;
+      if (remeasured) size = { width: remeasured.width, height: remeasured.height };
+    }
+
+    setLetterbox(boxForGrid(grid, size, insets));
   }, []);
 
   /**
@@ -253,11 +288,15 @@ export function SubshellTerminal({
     const outer = outerRef.current;
     const cell = term?.dimensions?.css.cell;
     if (!term || !outer || !cell) return null;
-    return gridForBox(
+    const measured = gridForBox(
       { width: outer.clientWidth, height: outer.clientHeight },
       { width: cell.width, height: cell.height },
       terminalInsets(term),
     );
+    // Never report the degenerate floor: with several viewers the pane takes
+    // the SMALLEST reported grid, so a terminal measured mid-layout would
+    // shrink every other device's terminal to a two-column strip.
+    return measured && !isDegenerateGrid(measured) ? measured : null;
   }, []);
 
   /** Sends {@link measureCapacity}'s answer to the server. */

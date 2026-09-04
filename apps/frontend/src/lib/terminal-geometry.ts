@@ -158,3 +158,54 @@ export function gridOverflowsBox(grid: Grid, box: Box, cell: CellSize, insets: B
   const needed = boxForGrid(grid, cell, insets);
   return needed.width > box.width || needed.height > box.height;
 }
+
+/**
+ * True when a grid is only FitAddon's degenerate FLOOR rather than a real
+ * measurement.
+ *
+ * `gridForBox` mirrors FitAddon and clamps to 2x1, so a terminal measured
+ * before its layout settles reports that instead of failing. Harmless while
+ * one client owned its own size; with several viewers it is not, because the
+ * pane is sized to the SMALLEST of them — one mid-layout device would drag
+ * every other device's terminal down to a two-column strip. Observed live as
+ * `ws attach … geometry 2x1`.
+ *
+ * The server refuses such a report as well (`resolveSharedGrid`); this stops
+ * it being sent at all, which also keeps it out of the attach log.
+ *
+ * @param grid - A measured grid
+ * @returns Whether it is too small to be a real viewport
+ */
+export function isDegenerateGrid(grid: Grid): boolean {
+  return grid.cols <= MIN_COLS || grid.rows <= MIN_ROWS;
+}
+
+/**
+ * The largest font size (px) at which `grid` still fits inside `box`.
+ *
+ * The shared pane is sized to the smallest viewer, so ordinarily every device
+ * has room to spare and letterboxes. Not always: a viewer whose capacity was
+ * REFUSED as degenerate takes no part in the decision, so the grid it is
+ * handed can be larger than it can show — a phone in split view, a pane being
+ * dragged narrow. Clipping there hides the prompt row, which is the one row
+ * that matters, so the font shrinks to fit instead.
+ *
+ * Cell metrics scale linearly with font size, so the ratio that makes the
+ * grid fit is the ratio to apply. Rounded DOWN to a whole pixel, because a
+ * fractional size re-measures to a cell that may not fit.
+ *
+ * @param grid - The authoritative grid to display
+ * @param box - The room available in CSS px
+ * @param cell - The cell size at `fontSize`
+ * @param insets - Padding and scrollbar reserve
+ * @param fontSize - The font size `cell` was measured at
+ * @returns A font size in px, never above `fontSize` and never below 1
+ */
+export function fontSizeToFit(grid: Grid, box: Box, cell: CellSize, insets: BoxInsets, fontSize: number): number {
+  const needed = boxForGrid(grid, cell, insets);
+  const widthRatio =
+    (box.width - insets.padX - insets.reserve) / Math.max(1, needed.width - insets.padX - insets.reserve);
+  const heightRatio = (box.height - insets.padY) / Math.max(1, needed.height - insets.padY);
+  const ratio = Math.min(1, widthRatio, heightRatio);
+  return Math.max(1, Math.floor(fontSize * ratio));
+}

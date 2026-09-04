@@ -1,4 +1,4 @@
-import type { ClientFrame, ServerFrame } from "@internal/subshell-protocol";
+import { type ClientFrame, normalizeDeviceLabel, type ServerFrame } from "@internal/subshell-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SubshellClient } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";
@@ -14,6 +14,9 @@ export const RECONNECT_DELAY_MS = 1500;
 export function shouldReconnectAfterClose(code: number): boolean {
   return code < 4000;
 }
+
+/** Used when the caller names no device. */
+export const DEFAULT_DEVICE_LABEL = "Subshell app";
 
 /** Live status for the detail pill/banner (spec §Error handling). */
 export type SocketStatus =
@@ -42,6 +45,14 @@ export function useSubshellSocket(opts: {
   subshellId: string;
   active: boolean;
   handlers: SubshellSocketHandlers;
+  /**
+   * Names this device in the shared-viewers list. A subshell can be open on a
+   * phone and a laptop at once, and the pane is sized to the smaller of them.
+   * Passed in rather than read from `Platform` here: this module is covered by
+   * the pure `bun test` suite, and importing `react-native` drags Flow syntax
+   * into it that the runner cannot parse.
+   */
+  deviceLabel?: string;
 }) {
   const { client, subshellId, active } = opts;
   const handlersRef = useRef(opts.handlers);
@@ -90,7 +101,19 @@ export function useSubshellSocket(opts: {
       try {
         const { token } = await client.wsToken(); // mint per attempt, never reused
         if (cancelled) return;
-        const url = `${wsOrigin(client.baseUrl)}/ws?subshell=${encodeURIComponent(subshellId)}&token=${encodeURIComponent(token)}`;
+        // Geometry rides the URL, exactly as the web client does: the server
+        // resizes the pane to it BEFORE capturing the replay, so the snapshot
+        // arrives laid out for this screen. Without it the pane was captured
+        // at whatever size it happened to hold — tmux births windows at 80x24
+        // — and the phone painted a grid that was never its own. The attach
+        // journal called this out as `geometry MISSING`.
+        const fitted = sizeRef.current;
+        const geometry = fitted ? `&cols=${fitted.cols}&rows=${fitted.rows}` : "";
+        // Names this device in the shared-viewers list; a subshell can be open
+        // on a phone and a laptop at once, and the pane is sized to the
+        // smaller of them.
+        const device = `&device=${encodeURIComponent(normalizeDeviceLabel(opts.deviceLabel ?? "") || DEFAULT_DEVICE_LABEL)}`;
+        const url = `${wsOrigin(client.baseUrl)}/ws?subshell=${encodeURIComponent(subshellId)}&token=${encodeURIComponent(token)}${geometry}${device}`;
         const ws = new WebSocket(url);
         wsRef.current = ws;
         let replayStarted = false;
@@ -152,7 +175,7 @@ export function useSubshellSocket(opts: {
         /* already dead */
       }
     };
-  }, [client, subshellId, active]);
+  }, [client, subshellId, active, opts.deviceLabel]);
 
   return { sendInput, sendResize, status };
 }

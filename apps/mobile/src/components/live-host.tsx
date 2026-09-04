@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { KeyBar } from "@/components/key-bar";
 import type { SubshellClient } from "@/lib/api";
@@ -70,6 +70,8 @@ export function LiveHost({
   }, []);
 
   const { sendInput, sendResize, status } = useSubshellSocket({
+    // The platform lookup lives here, in RN-land, not in the socket module.
+    deviceLabel: `Subshell on ${Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : Platform.OS}`,
     client,
     subshellId,
     active: active && unlocked,
