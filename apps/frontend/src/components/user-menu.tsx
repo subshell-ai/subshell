@@ -1,4 +1,4 @@
-import { ChevronUp, LogOut, UserRound } from "lucide-react";
+import { ChevronUp, LogOut, SlidersHorizontal, UserRound } from "lucide-react";
 import type { JSX } from "react";
 import {
   DropdownMenu,
@@ -33,13 +33,22 @@ export interface UserMenuProps {
   email: string;
   /** Icon-only trigger for the collapsed rail */
   collapsed: boolean;
+  /** Opens the preferences surface (app-global + this-device controls) */
+  onPreferences: () => void;
   /** Opens the account surface (routing belongs to the caller) */
   onAccountSettings: () => void;
   /** Runs sign-out */
   onSignOut: () => void;
 }
 
-export function UserMenu({ name, email, collapsed, onAccountSettings, onSignOut }: UserMenuProps): JSX.Element {
+export function UserMenu({
+  name,
+  email,
+  collapsed,
+  onPreferences,
+  onAccountSettings,
+  onSignOut,
+}: UserMenuProps): JSX.Element {
   const display = name.trim() || email || "Signed in";
   const avatar = (
     <span
@@ -78,6 +87,9 @@ export function UserMenu({ name, email, collapsed, onAccountSettings, onSignOut 
           {email ? <p className="truncate text-muted-foreground text-xs">{email}</p> : null}
         </div>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onPreferences}>
+          <SlidersHorizontal className="h-4 w-4" /> Preferences
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onAccountSettings}>
           <UserRound className="h-4 w-4" /> Account settings
         </DropdownMenuItem>

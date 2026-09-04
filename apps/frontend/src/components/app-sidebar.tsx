@@ -305,6 +305,7 @@ export function AppSidebar({ forceExpanded = false, className }: { forceExpanded
           name={user?.name ?? ""}
           email={user?.email ?? ""}
           collapsed={collapsed}
+          onPreferences={() => void navigate({ to: "/preferences" })}
           onAccountSettings={() => void navigate({ to: "/account" })}
           onSignOut={() => void signOut()}
         />

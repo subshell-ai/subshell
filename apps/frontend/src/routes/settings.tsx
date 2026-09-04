@@ -120,6 +120,10 @@ function SettingsPage() {
       ) : (
         <p className="text-muted-foreground text-sm">
           Server settings are for instance admins — your settings live under{" "}
+          <Link to="/preferences" className="underline">
+            Preferences
+          </Link>{" "}
+          and{" "}
           <Link to="/account" className="underline">
             Account settings
           </Link>

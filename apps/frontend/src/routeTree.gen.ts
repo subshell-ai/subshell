@@ -14,6 +14,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as NodesRouteImport } from './routes/nodes'
+import { Route as PreferencesRouteImport } from './routes/preferences'
 import { Route as ProfilesRouteImport } from './routes/profiles'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
@@ -47,6 +48,11 @@ const NewRoute = NewRouteImport.update({
 const NodesRoute = NodesRouteImport.update({
   id: '/nodes',
   path: '/nodes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PreferencesRoute = PreferencesRouteImport.update({
+  id: '/preferences',
+  path: '/preferences',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfilesRoute = ProfilesRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/preferences': typeof PreferencesRoute
   '/profiles': typeof ProfilesRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -117,6 +124,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/preferences': typeof PreferencesRoute
   '/profiles': typeof ProfilesRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/preferences': typeof PreferencesRoute
   '/profiles': typeof ProfilesRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/preferences'
     | '/profiles'
     | '/settings'
     | '/setup'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/preferences'
     | '/profiles'
     | '/settings'
     | '/setup'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/preferences'
     | '/profiles'
     | '/settings'
     | '/setup'
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
   NodesRoute: typeof NodesRoute
+  PreferencesRoute: typeof PreferencesRoute
   ProfilesRoute: typeof ProfilesRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
@@ -247,6 +260,13 @@ declare module '@tanstack/react-router' {
       path: '/nodes'
       fullPath: '/nodes'
       preLoaderRoute: typeof NodesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/preferences': {
+      id: '/preferences'
+      path: '/preferences'
+      fullPath: '/preferences'
+      preLoaderRoute: typeof PreferencesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profiles': {
@@ -321,6 +341,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   NewRoute: NewRoute,
   NodesRoute: NodesRoute,
+  PreferencesRoute: PreferencesRoute,
   ProfilesRoute: ProfilesRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,

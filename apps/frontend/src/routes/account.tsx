@@ -1,35 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ChangePasswordCard } from "@/components/change-password-card";
-import { NotificationsCard } from "@/components/notifications-card";
-import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
 import { PasskeysCard } from "@/components/passkeys-card";
 import { ProfileCard } from "@/components/profile-card";
-import { TerminalFontCard } from "@/components/terminal-font-card";
-import { TerminalHistoryCard } from "@/components/terminal-history-card";
 
 export const Route = createFileRoute("/account")({ component: AccountPage });
 
 /**
- * Everything that configures THIS user and their devices (spec 2026-09-02
- * settings-split §1) — reached from the sidebar user menu, not the nav rail.
- * Instance-wide concerns live on /settings ("Server").
+ * Identity and credentials ONLY (spec 2026-09-04 app-settings-page split the
+ * preference-tier cards out to /preferences). Reached from the sidebar user
+ * menu, not the nav rail. App behaviour lives on /preferences; instance-wide
+ * concerns on /settings ("Server").
  */
 function AccountPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Account" subtitle="Your profile, devices and credentials" />
+      <PageHeader title="Account" subtitle="Your profile and credentials" />
       <ProfileCard />
-      {/* Account-wide switch first: it gates every device, so it reads as the
-          parent of the per-device opt-in below it. Keep the two adjacent —
-          they are one decision (2026-09-04: terminal cards had drifted
-          between them and the pair stopped reading as a group). */}
-      <NotificationsMasterCard />
-      <NotificationsCard />
-      <TerminalFontCard />
-      {/* Per-USER (server-stored) next to its per-device sibling: the font
-          size lives on this device, the history cap rides every attach. */}
-      <TerminalHistoryCard />
       {/* Self-service for ANY signed-in user (own passkeys only via the session). */}
       <PasskeysCard />
       <ChangePasswordCard />

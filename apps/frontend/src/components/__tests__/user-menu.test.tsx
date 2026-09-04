@@ -20,7 +20,8 @@ describe("initialsOf", () => {
 });
 
 describe("UserMenu", () => {
-  it("shows the user and offers Account settings + Sign out", async () => {
+  it("shows the user and offers Preferences, Account settings + Sign out", async () => {
+    const prefs: string[] = [];
     const account: string[] = [];
     const signed: string[] = [];
     render(
@@ -28,14 +29,18 @@ describe("UserMenu", () => {
         name="Thea"
         email="thea@example.com"
         collapsed={false}
+        onPreferences={() => prefs.push("p")}
         onAccountSettings={() => account.push("a")}
         onSignOut={() => signed.push("s")}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Preferences" }));
+    expect(prefs).toEqual(["p"]);
+    // Choosing an item closes the menu; reopen for the next action.
+    fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Account settings" }));
     expect(account).toEqual(["a"]);
-    // Choosing an item closes the menu; reopen for the second action.
     fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(signed).toEqual(["s"]);
