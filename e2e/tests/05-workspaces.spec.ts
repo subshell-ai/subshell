@@ -8,7 +8,17 @@ const PANE_TIMEOUT = 30_000;
 
 test("create a workspace, add a subshell pane, and the layout survives reload", async ({ page }) => {
   await page.goto("/workspaces");
-  await page.getByRole("button", { name: "New workspace" }).click();
+  // Scoped to <main>: the sidebar's Workspaces-row quick-add + has
+  // aria-label "New workspace" too (spec 2026-09-03 sidebar-quickadd), so the
+  // page-level role query is a 2-element strict-mode violation. Click the
+  // page header's own button.
+  await page.getByRole("main").getByRole("button", { name: "New workspace" }).click();
+  // Creation no longer happens on click (spec 2026-09-03 sidebar-quickadd §4b):
+  // the button opens NewWorkspaceDialog. Zero selected is the valid "empty
+  // workspace, fill it inside" answer — the old immediate-create behavior.
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "New workspace" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Create workspace" }).click();
   await expect(page).toHaveURL(/\/workspaces\/.+/);
 
   // Wide viewport (Desktop Chrome) → dock. The add button's accessible name
