@@ -23,7 +23,6 @@
     "@loglayer/transport-simple-pretty-terminal": "3.3.0",
     "@tanstack/react-query": "5.101.4",
     "@tanstack/react-router": "1.170.30",
-    "@xterm/addon-canvas": "0.7.0",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-search": "0.16.0",
     "@xterm/addon-serialize": "0.14.0",

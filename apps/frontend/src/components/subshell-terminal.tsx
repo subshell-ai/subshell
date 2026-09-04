@@ -1,6 +1,5 @@
 import { stripAnsi } from "@internal/backend-errors";
 import { Link } from "@tanstack/react-router";
-import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -251,20 +250,21 @@ export function SubshellTerminal({
     serializeRef.current = serialize;
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
-    // Canvas renderer, deliberately NOT WebGL (2026-09-04): the WebGL
-    // texture atlas was leaving stale cells on BOTH platforms — a `❯` from a
-    // moved selection, spinner fragments, even whole mixed rows kept painting
-    // where tmux's own capture proved the grid had moved on (iPhone + Chrome
-    // desktop reports). The canvas path has no atlas to go stale; phones also
-    // escape Safari's lazy WebGL-layer compositing. CanvasAddon is the
-    // documented fallback this component always promised ("canvas/DOM") but
-    // never actually loaded — it is now the primary, with the DOM renderer
-    // still the safety net if the 2D context cannot be created.
-    try {
-      term.loadAddon(new CanvasAddon());
-    } catch {
-      // fall back to the DOM renderer
-    }
+    // NO renderer addon — xterm 6's own DOM renderer, deliberately (2026-09-04).
+    // Neither third-party renderer supports this core: `@xterm/addon-canvas`
+    // (every release through 0.8.0-beta.48) and `@xterm/addon-webgl` both
+    // peer-require `@xterm/xterm@^5`, and under 6.0.0 the canvas addon crashed
+    // the page with `undefined is not an object (evaluating
+    // 'this._linkifier2.onShowLinkUnderline')` — xterm 6 moved the linkifier
+    // behind a lazily-populated holder, and a renderer built against the v5
+    // shape reads it as undefined. The failure was invisible for a long time
+    // because `open()` wraps its `onWillOpen` fire in `try {} catch {}`: a
+    // throwing renderer addon is SWALLOWED, xterm quietly installs its own DOM
+    // renderer, and only the dispose path (navigating between subshells)
+    // surfaced the throw. So the earlier "WebGL → canvas" swap never actually
+    // put a canvas renderer on screen; the stale-cell reports it was chasing
+    // were the replay cursor misalignment fixed server-side in
+    // `ws/capture-text.ts`.
     term.open(containerRef.current);
     fit.fit();
     termRef.current = term;
