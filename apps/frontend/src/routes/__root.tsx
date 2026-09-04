@@ -6,6 +6,7 @@ import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
+import { RouteError } from "@/components/route-error";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
@@ -18,6 +19,10 @@ import { shellGate } from "@/lib/shell-gate";
 
 export const Route = createRootRoute({
   component: RootComponent,
+  // A route crash used to land on TanStack's DEFAULT screen: unstyled, under
+  // the phone status bar, no escape (2026-09-04). This one is safe-area aware
+  // and auto-recovers from the common cause (stale lazy chunk after a deploy).
+  errorComponent: RouteError,
 });
 
 /**
