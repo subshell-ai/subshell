@@ -45,14 +45,14 @@ export async function execFsLs(_ctx: CommandContext, cmd: Cmd<"fs_ls">): Promise
   let resolved: string;
   try {
     resolved = await realpath(target);
-  } catch {
-    return { ok: false, error: `ENOENT: ${target}` };
+  } catch (err) {
+    return { ok: false, error: `${lookupErrorCode(err)}: ${target}` };
   }
   let st: Awaited<ReturnType<typeof stat>>;
   try {
     st = await stat(resolved);
-  } catch {
-    return { ok: false, error: `ENOENT: ${target}` };
+  } catch (err) {
+    return { ok: false, error: `${lookupErrorCode(err)}: ${target}` };
   }
   // Present but not a directory: the local route answers an empty listing
   // (a FILE path is browsable-looking with nothing in it) — mirror that
@@ -98,4 +98,22 @@ function parentOf(resolved: string): string | null {
 /** The local route's file-path answer: the directory fields, no children. */
 function emptyListing(resolved: string): NodeFsLsResult {
   return { path: resolved, parent: parentOf(resolved), entries: [], truncated: false };
+}
+
+/**
+ * The error class a path lookup failure belongs to.
+ *
+ * Only `EACCES` is distinguished from "not there": the server maps `EACCES:`
+ * to 403 and everything else to the picker's 404, so collapsing a permission
+ * failure into `ENOENT` told the operator a directory they cannot read does
+ * not exist. WHERE that failure surfaces is platform-dependent — resolving an
+ * unreadable directory throws EACCES from `realpath` on macOS, while Linux
+ * gets that far and only refuses at `readdir` — so the mapping has to hold at
+ * every step rather than at the one a given kernel happens to fail on.
+ *
+ * @param err - The rejection from a path lookup
+ * @returns `"EACCES"` for a permission failure, `"ENOENT"` otherwise
+ */
+function lookupErrorCode(err: unknown): "EACCES" | "ENOENT" {
+  return (err as NodeJS.ErrnoException | null)?.code === "EACCES" ? "EACCES" : "ENOENT";
 }

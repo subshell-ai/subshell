@@ -76,6 +76,10 @@ function stubLauncher(): void {
 }
 
 afterEach(() => {
+  // Before the stubs are restored: a live poller must not survive into the
+  // next test, and cleanupSubshellWs is idempotent, so cases that already
+  // release their own socket are unaffected.
+  for (const fake of attached.splice(0)) cleanupSubshellWs(fake.ws);
   defaultLocalLauncher.hasSubshell = launcherOriginals.hasSubshell;
   defaultLocalLauncher.capture = launcherOriginals.capture;
   defaultLocalLauncher.resize = launcherOriginals.resize;
@@ -129,10 +133,25 @@ function fakeBrowser(): FakeBrowser {
 }
 
 /** Runs the real handler with a real single-use WS token (+ optional query, e.g. `&cols=132&rows=43`). */
+/**
+ * Every browser this file attaches, so `afterEach` can release it.
+ *
+ * An attach arms a stream that OUTLIVES the test: the log-tail branch leaves
+ * an fs watcher plus a 1s backstop interval, and the pane-poll branch a 300ms
+ * capture loop. Both keep calling the STUBBED launcher, and the stubs push
+ * into module-level recorders (`order`, `captureCalls`) that the next test
+ * reassigns and then asserts on — so a leaked poller from an earlier case
+ * spilled extra "capture" entries into a later one's expectations, the more
+ * of them the busier the machine. That is what made these cases pass alone
+ * and fail under a full-suite run.
+ */
+const attached: FakeBrowser[] = [];
+
 async function attach(userId: string, subshellId: string, extraQuery = ""): Promise<FakeBrowser> {
   const url = new URL(`ws://localhost/ws/subshell?subshell=${subshellId}&token=${issueWsToken(userId)}${extraQuery}`);
   const fake = fakeBrowser();
   await handleSubshellWs(fake.ws, url);
+  attached.push(fake);
   return fake;
 }
 
@@ -212,6 +231,12 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
       await Bun.sleep(700); // ≥ 2 ticks of the 300ms poller
       expect(captureCalls).toBeGreaterThan(1); // replay capture + poll ticks ran
       cleanupSubshellWs(ws);
+      // Snapshot AFTER a short settle. Clearing the interval cannot recall a
+      // tick that already fired and is awaiting its capture, so reading the
+      // counter in the same breath as the disconnect races that in-flight
+      // call and blames it on the interval. What must be true is that no
+      // FURTHER ticks arrive, which the 700ms window below (>2 ticks) proves.
+      await Bun.sleep(50);
       const capturesAtDisconnect = captureCalls;
       await Bun.sleep(700);
       // RED today: the interval never cleared — the poller captures the pane
@@ -239,7 +264,12 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
 
     // New output AFTER the attach still streams — EOF is a start, not a stop.
     appendFileSync(logFile, "live\r\n");
-    await Bun.sleep(120); // fs.watch fires ~instantly
+    // POLL. Only Linux's inotify fires "~instantly"; macOS coalesces FSEvents,
+    // so this frame can arrive on the 1000ms backstop instead — which is why
+    // every other wait in this file allows 1300ms. A fixed 120ms made the case
+    // pass in CI and fail on a Mac.
+    const deadline = Date.now() + 5000;
+    while (sent.length < 2 && Date.now() < deadline) await Bun.sleep(25);
     expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
   });
 
@@ -395,7 +425,16 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "FRESH" }));
     // The fit only — the width never moved, so the history never reflowed.
     expect(resizeCalls).toEqual([{ cols: 80, rows: 24 }]);
-    expect(order).toEqual(["resize", "winch", "capture"]);
+    // Collapse runs of the same op: what this pins is the ORDER — the fit,
+    // then the geometry-free winch, then the capture — not how many captures
+    // the attach took. Capture counts track machine load here (the replay
+    // path re-reads the pane while it waits for the repaint), so an exact
+    // array failed a correct implementation whenever the box was busy. A
+    // capture BEFORE the winch, or a second resize, still fails: the ±1
+    // nudge this test exists to forbid would show up as a second "resize",
+    // and `resizeCalls` above independently pins the width to one fit.
+    const collapsed = order.filter((op, i) => op !== order[i - 1]);
+    expect(collapsed).toEqual(["resize", "winch", "capture"]);
   });
 
   it("a SIGWINCH the app ignores still falls through to the ±1 nudge", async () => {

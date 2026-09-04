@@ -6,6 +6,7 @@ import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { restoreLocalNode } from "@/services/__tests__/helpers/local-node.js";
 import { ensureLocalNode } from "../seed-local.js";
 
 /**
@@ -38,10 +39,11 @@ beforeAll(async () => {
   await runAuthMigrations();
 });
 
-// The tests here MUTATE the shared `local` row (wipe, rename, os edits) — wipe
-// it on the way out too, so a later suite in the same `bun test` invocation
-// doesn't inherit a "Renamed"/plan9 local node from this file.
-afterAll(wipeLocal);
+// The tests here MUTATE the shared `local` row (wipe, rename, os edits), so it
+// has to be handed back. RESTORED, not merely wiped: a later suite in the same
+// `bun test` invocation needs the row boot seeds, and an absent `local` breaks
+// it just as thoroughly as a "Renamed"/plan9 one.
+afterAll(restoreLocalNode);
 
 describe("ensureLocalNode", () => {
   it("seeds exactly one local row + one Everyone/edit share, and a double run changes nothing", async () => {

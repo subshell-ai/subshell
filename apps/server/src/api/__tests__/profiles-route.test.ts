@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
 import { usableHarnessIds } from "@/api/harness-utils.js";
 import { profileRoutes } from "@/api/profiles.route.js";
 import { authDatabase } from "@/auth/database.js";
@@ -82,7 +83,7 @@ describe("profile write routes (cookie only) + env name validation", () => {
     // missing"). CLAUDE_PATH is the plugin's documented binary override
     // (same technique as harness-enable.test.ts / the PI_PATH negative case);
     // /bin/true exists on every POSIX runner.
-    process.env.CLAUDE_PATH = "/bin/true";
+    process.env.CLAUDE_PATH = TRUE_BINARY;
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
@@ -405,7 +406,7 @@ describe("profile node pinning (spec 2026-08-31 §6.2, T15a)", () => {
   }
 
   beforeAll(async () => {
-    process.env.CLAUDE_PATH = "/bin/true";
+    process.env.CLAUDE_PATH = TRUE_BINARY;
     await setupAuthTables();
     ownerId = await new UsersRepository(db).createUser({
       email: ownerEmail,
@@ -522,7 +523,7 @@ describe("GET /api/profiles — node=any", () => {
     // claude-code must read as INSTALLED so the row's absence under the
     // default listing can only come from the disabled state (same technique
     // as the file's first describe).
-    process.env.CLAUDE_PATH = "/bin/true";
+    process.env.CLAUDE_PATH = TRUE_BINARY;
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,

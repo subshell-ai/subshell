@@ -7,6 +7,7 @@ import type { NodeCommandBody, NodeProbeEntry } from "@internal/subshell-protoco
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { runMigrations } from "@/db/migrate.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
 import * as remoteOpsMigration from "@/db/migrations/0003-remote-ops.js";
@@ -66,6 +67,15 @@ function trackTmuxSocket(socket: string): void {
 }
 
 beforeAll(async () => {
+  // Migrate the SHARED module database too, not just this file's private
+  // in-memory one. The service under test reaches past its injected db for
+  // harness state: the auto-restart gate calls `harnessUsable`, which reads
+  // `harness_plugins` through `@/db`. Unmigrated, that query throws, the
+  // restart is swallowed as "auto-restart failed", and the row never comes
+  // back alive — so this file passed only when some earlier file happened to
+  // migrate the shared db first, and failed whenever it ran alone.
+  await runMigrations();
+
   // Hermetic harness. These tests used to resolve the real `claude` binary off
   // the host, so they passed on a developer machine and failed anywhere without
   // it (CI had no harness installed). CLAUDE_PATH is the first thing

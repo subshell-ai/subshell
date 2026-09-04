@@ -102,6 +102,8 @@ interface FakeWs {
   events: NodeEvent[];
   bufferedAmount: number | undefined;
   throwOnSend: boolean;
+  /** Every send ATTEMPT, throwing ones included — lets tests wait on pumps. */
+  sendAttempts: number;
 }
 
 function fakeWs(): FakeWs {
@@ -110,9 +112,11 @@ function fakeWs(): FakeWs {
     events: [],
     bufferedAmount: undefined,
     throwOnSend: false,
+    sendAttempts: 0,
   };
   f.ws = {
     send: (ev: NodeEvent) => {
+      f.sendAttempts += 1;
       if (f.throwOnSend) throw new Error("ws send exploded");
       f.events.push(ev);
     },
@@ -477,7 +481,14 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     const file = seedLog(ctx, S1, "abc");
     ws.throwOnSend = true;
     expect(await dispatchCommand(ctx, tailStartCmd())).toEqual({ ok: true });
-    await sleep(60); // first failure: transient, the sub survives
+    // Wait for the first send to have been ATTEMPTED rather than sleeping a
+    // fixed span. What is being pinned is "one failure is transient", so the
+    // window has to end on the failure itself: a flat 60ms could straddle a
+    // second pump — the log was written before the tail started, so the fs
+    // watcher can deliver its own event right behind the catch-up pump — and
+    // then the sub has legitimately self-stopped and the assertion below
+    // fails for the very behavior the NEXT line goes on to prove.
+    await waitFor(() => ws.sendAttempts >= 1, "first (failing) send attempt");
     expect(ctx.tails.size).toBe(1);
     appendFileSync(file, "de"); // second failure (consecutive) ⇒ stop
     await waitFor(() => ctx.tails.size === 0, "self-stop after two consecutive send failures");

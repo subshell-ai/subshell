@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { sql } from "kysely";
+import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
 import { profileRoutes } from "@/api/profiles.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
@@ -32,7 +33,7 @@ describe("harness enable/disable", () => {
     // binary override (claude-code.ts findBinary) — the same technique the
     // pi negative case below uses with PI_PATH. /bin/true exists on every
     // POSIX runner and answers `--version` with exit 0.
-    process.env.CLAUDE_PATH = "/bin/true";
+    process.env.CLAUDE_PATH = TRUE_BINARY;
     await setupAuthTables();
     // The subshell-create call below takes resolveLaunchNode's step 3 (the
     // seeded local node). That row arrives with app boot in production, and

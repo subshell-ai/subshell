@@ -305,15 +305,25 @@ class FilesError extends Error {
  * does not exist) the lexical form is kept — nothing under it can exist
  * either, so the candidate-side realpath check refuses everything anyway.
  */
-function confinementRoot(): string | null {
+function confinementRoot(): { lexical: string; real: string } | null {
   const root = process.env.SUBSHELL_FS_ROOT?.trim();
   if (!root) return null;
-  const resolved = resolve(root);
+  const lexical = resolve(root);
   try {
-    return realpathSync(resolved);
+    return { lexical, real: realpathSync(lexical) };
   } catch {
-    return resolved;
+    return { lexical, real: lexical };
   }
+}
+
+/**
+ * True when `path` is `root` or lives beneath it.
+ * @param path - Absolute candidate path
+ * @param root - Absolute root to test against
+ * @returns Whether the candidate is the root or inside it
+ */
+function isWithin(path: string, root: string): boolean {
+  return path === root || path.startsWith(root + sep);
 }
 
 /**
@@ -334,10 +344,16 @@ function isAllowedRoot(path: string): boolean {
   const root = confinementRoot();
   if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
   const resolved = resolve(path);
-  if (resolved !== root && !resolved.startsWith(root + sep)) return false;
+  // The cheap reject compares LIKE WITH LIKE. Testing an unresolved candidate
+  // against the realpath-resolved root refused the root itself whenever the
+  // root is reached through a symlink — on macOS `/tmp` IS a symlink to
+  // `/private/tmp`, so `SUBSHELL_FS_ROOT=/tmp/x` 403'd every path including
+  // `/tmp/x`, locking the operator out of the directory they configured.
+  // Either spelling may pass here; the realpath comparison below is the
+  // security boundary and is unchanged.
+  if (!isWithin(resolved, root.lexical) && !isWithin(resolved, root.real)) return false;
   try {
-    const real = realpathSync(resolved);
-    return real === root || real.startsWith(root + sep);
+    return isWithin(realpathSync(resolved), root.real);
   } catch {
     try {
       lstatSync(resolved); // a present-but-unresolvable path (broken symlink)

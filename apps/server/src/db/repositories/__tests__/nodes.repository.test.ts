@@ -1,9 +1,10 @@
-import { beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { restoreLocalNode } from "@/services/__tests__/helpers/local-node.js";
 
 let seq = 0;
 // Salt per file: every test file in one `bun test` invocation shares one process
@@ -26,6 +27,12 @@ async function mkNode(repo: NodesRepository, ownerUserId: string, name = unique(
 beforeAll(async () => {
   await runMigrations();
 });
+
+// This file re-owns `local` to a fixture user and revokes its Everyone
+// share to prove the share row IS the visibility filter. Both mutations are
+// invisible to this file and fatal to later ones, which assume the row boot
+// seeds — so hand it back exactly as found.
+afterAll(restoreLocalNode);
 
 describe("NodesRepository", () => {
   const repo = new NodesRepository(db);

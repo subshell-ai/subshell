@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
+import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
+import { TAIL_BACKSTOP_MS } from "@/services/nodes/log-tail.js";
 import { LocalLauncher } from "../local-launcher.js";
 import type { LaunchPlan } from "../node-launcher.js";
 import { subshellLogPath } from "../subshell-paths.js";
@@ -59,15 +61,25 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     expect(read.next).toBe(read.bytes.byteLength);
     const chunks: Uint8Array[] = [];
     const stop = await launcher.tailStart(lid, "sub1", read.next, (b) => chunks.push(b));
+    const total = () => chunks.reduce((n, c) => n + c.byteLength, 0);
     tmux.sendInput(lsock, lid, "streamed\r");
-    await sleep(600);
+    // POLL rather than sleep a fixed span. tailStart delivers on an fs.watch
+    // event with a TAIL_BACKSTOP_MS (1s) poll behind it, and only Linux's
+    // inotify is prompt: macOS coalesces FSEvents, so a fixed 600ms wait —
+    // shorter than the backstop itself — lost the race deterministically on a
+    // Mac and passed in CI. The deadline is comfortably past the backstop, so
+    // this asserts the same delivery on both platforms.
+    const deadline = Date.now() + 5000;
+    while (total() === 0 && Date.now() < deadline) await sleep(50);
     stop();
-    const before = chunks.reduce((n, c) => n + c.byteLength, 0);
+    const before = total();
     expect(before).toBeGreaterThan(0);
     stop(); // disposer is idempotent
     tmux.sendInput(lsock, lid, "after-stop\r");
-    await sleep(600);
-    expect(chunks.reduce((n, c) => n + c.byteLength, 0)).toBe(before);
+    // A fixed wait is right for proving ABSENCE, but it has to outlast the
+    // backstop or a stopped tailer would look quiet merely by being polled.
+    await sleep(TAIL_BACKSTOP_MS + 500);
+    expect(total()).toBe(before);
     tmux.killSubshell(lsock, lid);
     tmux.cleanSocket(lsock);
     await launcher.removeArtifacts([subshellLogPath(lid)]);
@@ -159,7 +171,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
     id: `launch-besteffort-${process.pid}`,
     socket: tmuxSocketFor(`launch-besteffort-${process.pid}`),
     harness: pi,
-    binary: "/bin/true",
+    binary: TRUE_BINARY,
     cwd: tmpdir(),
     profile: {
       name: "p",
