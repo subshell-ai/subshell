@@ -3,6 +3,7 @@ import type { SubshellStatus } from "@/db/types/subshell-status.js";
 import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
 import { accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService } from "@/services/base.service.js";
+import { isNodeOffline } from "@/services/nodes/node-registry.js";
 
 /** Route error carrying an HTTP status; Elysia maps `status` to the response code. */
 class WorkspacesError extends Error {
@@ -74,6 +75,15 @@ interface WorkspacePaneView {
   subshellWaitingSince: string | null;
   /** Absolute working directory of the subshell */
   workingDir: string;
+  /** Node the subshell runs on (`local` = control-plane host) */
+  subshellNodeId: string;
+  /**
+   * True = the pane's agent node has no live connection (spec §5.6) — the
+   * subshell may still be RUNNING there, its state is just unobservable.
+   * Joined so the docked pane can render the same node-offline precedence
+   * the cards and the detail badge already show.
+   */
+  subshellNodeOffline: boolean;
 }
 
 /** Body of a detail read (`GET /:id`): the workspace plus its panes. */
@@ -157,6 +167,8 @@ export class WorkspacesService extends BaseService {
         subshellExitCode: subshell.exitCode,
         subshellWaitingSince: subshell.waitingSince,
         workingDir: subshell.workingDir,
+        subshellNodeId: subshell.nodeId,
+        subshellNodeOffline: isNodeOffline(subshell.nodeId),
       });
     }
 

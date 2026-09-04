@@ -141,6 +141,13 @@ export const WorkspacePaneSchema = t.Object({
     t.Null(),
   ]),
   workingDir: t.String({ description: "Absolute working directory of the subshell" }),
+  subshellNodeId: t.String({
+    description: "Node the subshell runs on ('local' = control-plane host)",
+  }),
+  subshellNodeOffline: t.Boolean({
+    description:
+      "True = the subshell's agent node has no live connection (spec §5.6) — it may still be RUNNING there, its state is just unobservable from here. Always false for subshells on 'local'",
+  }),
 });
 
 export const WorkspaceDetailSchema = t.Object({

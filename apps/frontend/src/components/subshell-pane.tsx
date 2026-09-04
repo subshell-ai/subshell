@@ -55,6 +55,11 @@ export function SubshellPane({
 }: SubshellPaneProps) {
   const exited = pane.subshellStatus === "running" && !pane.subshellAlive;
   const gone = exited || pane.subshellStatus === "terminated";
+  // Spec §5.6 precedence, the pane-surface twin of the home cards: while the
+  // node is away the process state is UNOBSERVABLE, not dead — neither an
+  // alive row (no attach possible) nor a stale exited stamp gets to decide
+  // what this pane claims about reality.
+  const nodeOffline = pane.subshellNodeOffline === true && pane.subshellStatus === "running";
   // A crashed subshell explains itself even in a pane: fetch the pane log's
   // tail for the exited state only (terminated was deliberate — no inquest).
   const { data: logTail } = useSubshellLog(pane.subshellId, exited);
@@ -89,6 +94,27 @@ export function SubshellPane({
       </Button>
     </>
   );
+
+  // Node away: say what is actually known — the machine is unreachable and
+  // the daemon is dialing back; the pane may well be running there. No
+  // Restart (the server 409s it while the node is offline); Remove pane
+  // stays, the one honest local act.
+  if (nodeOffline) {
+    return (
+      <div className="flex h-full flex-col bg-background">
+        <div className="flex shrink-0 flex-col items-center gap-2 py-3 text-center">
+          <p className="text-muted-foreground text-sm">Node offline — reconnecting</p>
+          <p className="text-muted-foreground text-xs">
+            This subshell may still be running on its node. Output and input resume when the node reconnects to the
+            server.
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => onRemovePane(pane.id)}>
+            <Trash2 className="h-3 w-3" /> Remove pane
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Exited: the shared full-page panel — headline, the pane's own two
   // actions, and the scrollable log tail (the compact variant silently

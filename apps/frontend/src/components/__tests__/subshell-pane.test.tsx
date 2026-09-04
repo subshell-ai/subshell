@@ -100,3 +100,47 @@ describe("SubshellPane touch key bar", () => {
     spy.mockRestore();
   });
 });
+
+describe("SubshellPane node-offline state (spec §5.6 precedence)", () => {
+  it("a live subshell on an offline node shows the offline panel, never a terminal", () => {
+    renderPane(
+      <SubshellPane
+        pane={paneRow({ subshellNodeOffline: true })}
+        active
+        showKeyBar
+        onRestart={() => {}}
+        onRemovePane={() => {}}
+      />,
+    );
+    expect(screen.getByText(/node offline/i)).toBeDefined();
+    expect(screen.queryByRole("toolbar", { name: "Terminal special keys" })).toBeNull();
+  });
+
+  it("node-offline outranks the exited panel — the state is unobservable, not dead", () => {
+    renderPane(
+      <SubshellPane
+        pane={paneRow({ subshellNodeOffline: true, subshellAlive: false })}
+        active
+        showKeyBar
+        onRestart={() => {}}
+        onRemovePane={() => {}}
+      />,
+    );
+    expect(screen.getByText(/node offline/i)).toBeDefined();
+    expect(screen.queryByText(/subshell exited/i)).toBeNull();
+  });
+
+  it("the offline panel offers Remove pane but not Restart (restart 409s while the node is away)", () => {
+    renderPane(
+      <SubshellPane
+        pane={paneRow({ subshellNodeOffline: true })}
+        active
+        showKeyBar
+        onRestart={() => {}}
+        onRemovePane={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /remove pane/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /restart/i })).toBeNull();
+  });
+});

@@ -46,6 +46,17 @@ export interface WorkspacePaneRow {
   subshellWaitingSince: string | null;
   /** Absolute working directory of the subshell */
   workingDir: string;
+  /**
+   * Node the subshell runs on ("local" = control-plane host). Optional like
+   * `SubshellView.nodeId` — older cached payloads keep typechecking.
+   */
+  subshellNodeId?: string;
+  /**
+   * True = the subshell's agent node has no live connection (spec §5.6):
+   * the pane may still be RUNNING there, its state is just unobservable
+   * from here. Always false for subshells on `local`.
+   */
+  subshellNodeOffline?: boolean;
 }
 
 /** A workspace plus its panes, as returned by `GET /api/workspaces/:id`. */
