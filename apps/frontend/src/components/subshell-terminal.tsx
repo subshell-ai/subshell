@@ -16,7 +16,7 @@ import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { sendInput } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import { isPasteChord } from "@/lib/terminal-keys";
-import { attachTouchScroll, isTouchUi } from "@/lib/terminal-touch-scroll";
+import { attachTouchScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
 import { useSubshellWs } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
@@ -271,6 +271,9 @@ export function SubshellTerminal({
     // iPhone/iPad: xterm's own touchmove preventDefault kills the CSS pan
     // (see lib/terminal-touch-scroll.ts); this drives line-scroll instead.
     const detachTouchScroll = attachTouchScroll(term, containerRef.current);
+    // Tap = type (keyboard), swipe/scrollbar-drag = read (no keyboard) —
+    // see lib/terminal-touch-scroll.ts for why xterm needs un-focusing.
+    const detachTouchKeyboard = gateTouchKeyboard(term, containerRef.current);
 
     // Shift+Enter must insert a newline at the harness prompt (Claude Code
     // reads ESC+CR — the very sequence its /terminal-setup keybinding emits
@@ -313,11 +316,27 @@ export function SubshellTerminal({
     // the bottom and hand focus back to the pane's input target. Desktop is
     // deliberately untouched: a window resize must not yank a reader out of
     // scrollback they scrolled up to study.
+    // "Keyboard is up" by viewport geometry: iOS shrinks the visual
+    // viewport by the keyboard's height when it opens. ~120 px is well past
+    // any URL-bar chore and well under any real keyboard.
+    const keyboardOpen = () => {
+      const v = window.visualViewport;
+      return !!v && window.innerHeight - v.height > 120;
+    };
     const repairCursorVisibility = () => {
       if (!isTouchUi()) return;
       term.scrollToBottom();
       const active = document.activeElement;
-      if (!active || active === document.body || container.contains(active)) term.focus();
+      // Refocus only for a keyboard session that is actually RUNNING:
+      // focus still inside the terminal (reassert after the layout churn) or
+      // lost to the body while the keyboard is up (iOS's mid-typing drop).
+      // An IDLE pan (keyboard down, focus nowhere) must NOT yank focus into
+      // the terminal: this handler runs from visualViewport SCROLL events,
+      // which every finger pan fires, and a focus() during a touch turn is
+      // exactly what shows a keyboard — the "any touch pops the keyboard"
+      // report (2026-09-04).
+      if (container.contains(active)) term.focus();
+      else if ((!active || active === document.body) && keyboardOpen()) term.focus();
     };
     const ro = new ResizeObserver(() => {
       fit.fit();
@@ -388,7 +407,10 @@ export function SubshellTerminal({
     const onFocusOut = (e: FocusEvent) => {
       if (!isTouchUi() || e.relatedTarget) return;
       requestAnimationFrame(() => {
-        if (container.isConnected && document.activeElement === document.body) term.focus();
+        // Only the mid-typing blur (keyboard still up) gets reclaimed —
+        // a blur to the body with the keyboard down is the user leaving
+        // input mode (or the swipe gate un-focusing), not a loss to repair.
+        if (container.isConnected && document.activeElement === document.body && keyboardOpen()) term.focus();
       });
     };
     container.addEventListener("focusout", onFocusOut);
@@ -408,6 +430,7 @@ export function SubshellTerminal({
 
     return () => {
       detachTouchScroll();
+      detachTouchKeyboard();
       if (vv) {
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);

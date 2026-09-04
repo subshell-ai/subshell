@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { attachTouchScroll } from "@/lib/terminal-touch-scroll";
+import { attachTouchScroll, gateTouchKeyboard } from "@/lib/terminal-touch-scroll";
 
 /** Minimal Terminal stand-in: only scrollLines matters here. */
 function fakeTerm() {
@@ -77,5 +77,88 @@ describe("attachTouchScroll", () => {
     screen.dispatchEvent(touchEvent("touchstart", 300));
     screen.dispatchEvent(touchEvent("touchmove", 100));
     expect(term.scrolled).toEqual([]);
+  });
+});
+
+/** Pointer events for the gate: happy-dom has no PointerEvent ctor, and the
+ * gate only reads `pointerType` + the coordinates + the dispatch target. */
+function pointerDown(x: number, y: number, pointerType = "touch") {
+  const e = new Event("pointerdown", { bubbles: true }) as Event & {
+    pointerType: string;
+    clientX: number;
+    clientY: number;
+  };
+  e.pointerType = pointerType;
+  e.clientX = x;
+  e.clientY = y;
+  return e;
+}
+
+function touchAt(type: string, x: number, y: number) {
+  const e = new Event(type) as Event & { touches: { clientX: number; clientY: number }[] };
+  Object.defineProperty(e, "touches", { value: [{ clientX: x, clientY: y }], configurable: true });
+  return e;
+}
+
+describe("gateTouchKeyboard", () => {
+  function gateSetup() {
+    const root = document.createElement("div");
+    const screen = document.createElement("div");
+    screen.className = "xterm-screen";
+    const viewport = document.createElement("div");
+    viewport.className = "xterm-viewport";
+    root.append(screen, viewport);
+    let blurs = 0;
+    const term = { textarea: { blur: () => blurs++ } };
+    const detach = gateTouchKeyboard(term as never, root, () => true);
+    return { root, screen, viewport, blurs: () => blurs, detach };
+  }
+
+  it("a scrollbar (viewport) touch un-focuses before the gesture turn ends", async () => {
+    const { viewport, blurs, detach } = gateSetup();
+    viewport.dispatchEvent(pointerDown(300, 120));
+    await Promise.resolve(); // the gate's blur is queued as a microtask
+    expect(blurs()).toBe(1);
+    detach();
+  });
+
+  it("a swipe on the grid un-focuses once past the slop", () => {
+    const { root, screen, blurs, detach } = gateSetup();
+    screen.dispatchEvent(pointerDown(100, 300)); // bubbles to the gate's capture listener
+    root.dispatchEvent(touchAt("touchmove", 100, 295)); // inside slop: still a possible tap
+    expect(blurs()).toBe(0);
+    root.dispatchEvent(touchAt("touchmove", 100, 250)); // 50px up: swipe
+    expect(blurs()).toBe(1);
+    root.dispatchEvent(touchAt("touchmove", 100, 200)); // later moves do not re-blur
+    expect(blurs()).toBe(1);
+    detach();
+  });
+
+  it("a tap keeps xterm's focus (that is how the keyboard is opened)", () => {
+    const { root, screen, blurs, detach } = gateSetup();
+    screen.dispatchEvent(pointerDown(100, 300));
+    root.dispatchEvent(touchAt("touchmove", 103, 298)); // a finger's tremble
+    root.dispatchEvent(new Event("touchend"));
+    expect(blurs()).toBe(0);
+    detach();
+  });
+
+  it("mouse and pen touches the gate not at all (desktop stays byte-identical)", async () => {
+    const { root, screen, viewport, blurs, detach } = gateSetup();
+    viewport.dispatchEvent(pointerDown(300, 120, "mouse"));
+    screen.dispatchEvent(pointerDown(100, 300, "mouse"));
+    root.dispatchEvent(touchAt("touchmove", 100, 100));
+    await Promise.resolve();
+    expect(blurs()).toBe(0);
+    detach();
+  });
+
+  it("no-op on non-touch UIs", () => {
+    const root = document.createElement("div");
+    let blurs = 0;
+    const detach = gateTouchKeyboard({ textarea: { blur: () => blurs++ } } as never, root, () => false);
+    root.dispatchEvent(pointerDown(1, 1));
+    expect(blurs).toBe(0);
+    detach();
   });
 });

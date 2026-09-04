@@ -78,3 +78,77 @@ export function attachTouchScroll(term: Terminal, root: HTMLElement, isTouch: ()
     target.removeEventListener("touchcancel", onEnd);
   };
 }
+
+/** Movement (CSS px) past which a finger-down gesture is a swipe, not a tap. */
+const SWIPE_SLOP_PX = 10;
+
+/**
+ * Tap-vs-swipe keyboard gate (2026-09-04 iPhone report: "if I touch ANY part
+ * of the terminal, including the scroll bars, it goes into input mode").
+ *
+ * xterm focuses its helper textarea from the very first POINTERDOWN of a
+ * touch — inside the user-gesture window, which is exactly when iOS shows the
+ * soft keyboard. That is right for a tap (the user means to type) and wrong
+ * for the scroll gestures this phone lives on: a swipe across the grid or a
+ * drag of the viewport scrollbar popped the keyboard every time and left it
+ * covering half the pane.
+ *
+ * The gate cannot cancel xterm's focus (its handler runs first on
+ * `pointerdown`), so it UN-FOCUSES before iOS commits: a microtask blur for
+ * touches that land on the scrollbar/viewport at all, and a first-move blur
+ * once a grid touch turns out to be a swipe. A gesture that ends without
+ * moving keeps xterm's focus — tapping still opens the keyboard to type.
+ * Touch only; mouse/pen keep xterm's own behavior.
+ */
+export function gateTouchKeyboard(term: Terminal, root: HTMLElement, isTouch: () => boolean = isTouchUi): () => void {
+  if (!isTouch()) return () => {};
+  const blur = () => term.textarea?.blur();
+  let kind: "tap" | "swipe" | "viewport" | null = null;
+  let x0 = 0;
+  let y0 = 0;
+
+  // Capture phase on the container: iOS dispatches `pointerdown` BEFORE the
+  // compatibility `touchstart`, so this classifies the gesture while the
+  // finger is still down and before any move. xterm's own focus runs on the
+  // same event's bubble phase — the microtask below lands right after it,
+  // still inside the gesture turn, so the keyboard for a scrollbar grab
+  // never gets to show.
+  const onPointerDown = (e: PointerEvent) => {
+    if (e.pointerType !== "touch") {
+      kind = null;
+      return;
+    }
+    const onViewport = e.target instanceof Element && !!e.target.closest(".xterm-viewport");
+    kind = onViewport ? "viewport" : "tap";
+    x0 = e.clientX;
+    y0 = e.clientY;
+    if (onViewport) queueMicrotask(blur);
+  };
+  // `touchstart` here (not another pointer listener): it fires once per
+  // gesture with the stable origin coordinates, after pointerdown classified.
+  const onTouchMove = (e: TouchEvent) => {
+    if (kind !== "tap" || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (!t) return;
+    if (Math.hypot(t.clientX - x0, t.clientY - y0) > SWIPE_SLOP_PX) {
+      kind = "swipe";
+      blur();
+    }
+  };
+  const onEnd = () => {
+    kind = null;
+  };
+
+  root.addEventListener("pointerdown", onPointerDown, true);
+  root.addEventListener("touchmove", onTouchMove, { passive: true });
+  root.addEventListener("touchend", onEnd, { passive: true });
+  root.addEventListener("touchcancel", onEnd, { passive: true });
+  return () => {
+    // Removal matches on (type, handler, capture) only — `passive` is an
+    // ADD-side option and a non-capture remove covers all three touch types.
+    root.removeEventListener("pointerdown", onPointerDown, true);
+    root.removeEventListener("touchmove", onTouchMove);
+    root.removeEventListener("touchend", onEnd);
+    root.removeEventListener("touchcancel", onEnd);
+  };
+}
