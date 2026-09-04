@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import {
   handleSubshellMessage,
-  paneResyncBytes,
   parseClientBuild,
   resizePaneForClient,
   type WsData,
@@ -222,63 +221,5 @@ describe("resizePaneForClient", () => {
     await resizePaneForClient(ws, data, 80, 24);
     expect(sent).toEqual([]);
     expect(data.resizeRunning).toBe(false); // and the queue is not wedged
-  });
-});
-
-/**
- * DRIFT RESYNC (2026-09-04). The client tracks the pane by replaying the app's
- * own bytes, which are almost entirely RELATIVE moves with differential
- * rewrites. Relative moves clamp at the screen edges, so a clamped `ESC[14A`
- * followed by an unclamped `ESC[14B` does not cancel — from some cursor rows
- * the client and pane permanently stop agreeing which row is which, and every
- * later frame lands high (measured: labels painted over the transcript ~8 rows
- * up). An ABSOLUTE repaint depends on no prior state, so it wipes the drift.
- */
-describe("paneResyncBytes", () => {
-  const ESC = String.fromCharCode(27);
-  const launcherFor = (grid: string | null, cursor: { x: number; y: number } | null) =>
-    ({
-      async capture() {
-        if (grid === null) throw new Error("pane gone");
-        return grid;
-      },
-      async paneCursor() {
-        return cursor;
-      },
-    }) as unknown as NodeLauncher;
-
-  it("repaints every row absolutely and ends on the pane's cursor", async () => {
-    const bytes = await paneResyncBytes(launcherFor("r0\nr1\nr2\n", { x: 3, y: 1 }), "s", "i");
-    // Home first (so it cannot inherit a drifted cursor), each row cleared to
-    // end-of-line, and the pane's 1-based cursor last.
-    expect(bytes).toBe(`${ESC}[Hr0${ESC}[K\r\nr1${ESC}[K\r\nr2${ESC}[K${ESC}[2;4H`);
-  });
-
-  it("uses rows-1 separators so the repaint never scrolls the client", async () => {
-    const bytes = (await paneResyncBytes(launcherFor("a\nb\nc\nd\n", { x: 0, y: 0 }), "s", "i")) ?? "";
-    expect(bytes.split("\r\n").length - 1).toBe(3); // 4 rows, 3 separators
-  });
-
-  it("captures the VISIBLE grid only — scrollback is already written", async () => {
-    let askedFor: number | undefined = -1;
-    const launcher = {
-      async capture(_s: string, _i: string, lines?: number) {
-        askedFor = lines;
-        return "x\n";
-      },
-      async paneCursor() {
-        return { x: 0, y: 0 };
-      },
-    } as unknown as NodeLauncher;
-    await paneResyncBytes(launcher, "s", "i");
-    expect(askedFor).toBe(0); // no history, or the repaint would duplicate it
-  });
-
-  it("declines when the machine cannot report a cursor (remote agent) — no blind repaint", async () => {
-    expect(await paneResyncBytes(launcherFor("r0\n", null), "s", "i")).toBeNull();
-  });
-
-  it("declines when the pane is gone rather than throwing into the tail", async () => {
-    expect(await paneResyncBytes(launcherFor(null, { x: 0, y: 0 }), "s", "i")).toBeNull();
   });
 });
