@@ -80,54 +80,63 @@ test("swipe left/right on /subshells/$id walks the sidebar order", async ({ page
   await waitAlive(b);
 
   // Independent re-derivation of the order: B must be A's neighbour above.
+  // (Snapshot race accepted: a leftover row floating INTO a higher band
+  // between this fetch and the swipe would retarget the `below` assertion —
+  // near-impossible on the pristine suite DB, and it fails loudly.)
   const rows = (await (await page.request.get("/api/subshells")).json()) as Row[];
   const ordered = [...rows].sort((x, y) => rank(x) - rank(y));
   const ia = ordered.findIndex((r) => r.id === a);
   expect(ia).toBeGreaterThan(-1);
   expect(ordered[ia - 1]?.id).toBe(b);
 
+  // $ anchor: ids are hex today, but the URL must match EXACTLY whatever the
+  // id alphabet becomes.
+  const onSubshell = (id: string) => new RegExp(`/subshells/${id}$`);
+
   const errors: Error[] = [];
   page.on("pageerror", (e) => errors.push(e));
 
-  // Attach A's terminal fully before the swipe — the crash-adjacent path is
-  // live-to-live navigation, not navigation to a cold pane.
-  const socket = page.waitForEvent("websocket", {
-    predicate: (w) => w.url().includes("/ws?subshell="),
-    timeout: SPAWN_TIMEOUT,
-  });
-  await page.goto(`/subshells/${a}`);
-  await socket;
-  await expect(page.locator(".xterm")).toBeVisible();
-
-  const client = await page.context().newCDPSession(page);
-  const vp = page.viewportSize();
-  const cy = Math.round((vp?.height ?? 659) / 2);
-  const cx = Math.round((vp?.width ?? 393) / 2);
-
-  // Left swipe (finger moves left) → next, i.e. DOWN the list → back to B? No:
-  // B is ABOVE A, so from A the left swipe goes to whatever sits below A — the
-  // assertion is the oracle-computed neighbour, never a hardcoded guess.
-  const below = ordered[ia + 1]?.id;
-  if (below) {
-    await swipe(client, cx, cx - 140, cy);
-    await expect(page).toHaveURL(new RegExp(`/subshells/${below}`));
-    // Right swipe back up: B sits above that row? Only above A is B — return
-    // to A first, then exercise the up-swipe from A itself.
+  try {
+    // Attach A's terminal fully before the swipe — the crash-adjacent path is
+    // live-to-live navigation, not navigation to a cold pane.
+    const socket = page.waitForEvent("websocket", {
+      predicate: (w) => w.url().includes("/ws?subshell="),
+      timeout: SPAWN_TIMEOUT,
+    });
     await page.goto(`/subshells/${a}`);
+    await socket;
     await expect(page.locator(".xterm")).toBeVisible();
-  }
-  await swipe(client, cx, cx + 140, cy);
-  await expect(page).toHaveURL(new RegExp(`/subshells/${b}`));
-  // B's terminal attached too; swipe left from B must land on A (its oracle
-  // neighbour below is exactly the row we came from).
-  await expect(page.locator(".xterm")).toBeVisible();
-  await swipe(client, cx, cx - 140, cy);
-  await expect(page).toHaveURL(new RegExp(`/subshells/${a}`));
 
-  expect(errors, errors.map((e) => e.message).join("\n")).toHaveLength(0);
+    const client = await page.context().newCDPSession(page);
+    const vp = page.viewportSize();
+    const cy = Math.round((vp?.height ?? 659) / 2);
+    const cx = Math.round((vp?.width ?? 393) / 2);
 
-  for (const id of [a, b]) {
-    await page.request.post(`/api/subshells/${id}/terminate`);
-    expect((await page.request.delete(`/api/subshells/${id}`)).ok()).toBe(true);
+    // Left swipe (finger moves left) → next = DOWN the list: from A that is
+    // whatever row the oracle places below A.
+    const below = ordered[ia + 1]?.id;
+    if (below) {
+      await swipe(client, cx, cx - 140, cy);
+      await expect(page).toHaveURL(onSubshell(below));
+      // Only above A sits B, so return to A before exercising the up-swipe.
+      await page.goto(`/subshells/${a}`);
+      await expect(page.locator(".xterm")).toBeVisible();
+    }
+    // Right swipe from A → previous = B.
+    await swipe(client, cx, cx + 140, cy);
+    await expect(page).toHaveURL(onSubshell(b));
+    // B's terminal attached too; left swipe from B lands back on A.
+    await expect(page.locator(".xterm")).toBeVisible();
+    await swipe(client, cx, cx - 140, cy);
+    await expect(page).toHaveURL(onSubshell(a));
+
+    expect(errors, errors.map((e) => e.message).join("\n")).toHaveLength(0);
+  } finally {
+    // Failure-safe: a leaked live row pollutes every later order-sensitive
+    // assertion in the shared single-DB suite.
+    for (const id of [a, b]) {
+      await page.request.post(`/api/subshells/${id}/terminate`);
+      await page.request.delete(`/api/subshells/${id}`);
+    }
   }
 });

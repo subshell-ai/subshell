@@ -29,7 +29,9 @@ selection, `workspace-tabs.tsx` §comment) stands.
 - **Geometry**: trigger on drag end when `|dx| ≥ 70px` AND `|dx| > 1.3·|dy|` (the slop
   keeps vertical scroll/`attachTouchScroll` untouched). Gestures starting within 24px of
   the left/right viewport edge are ignored — that strip belongs to the browser/OS
-  back gesture.
+  back gesture. A commit is also skipped while the page holds a text selection
+  (iOS selection-extension drags can satisfy the geometry — code review, 2026-09-04),
+  and the follow-finger transform only animates in the committable regime.
 - **Feedback**: damped follow-finger (`translateX = dx × 0.25`, cap ±48px) on the
   terminal wrapper while dragging, spring-free reset on cancel; skipped entirely under
   `prefers-reduced-motion`. On commit the route changes — no exit animation (the next
