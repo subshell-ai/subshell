@@ -171,20 +171,22 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
     // The pane-spawned MCP stdio server (spec 2026-09-03): the ONLY
     // long-running command — legal because the graph evaluates IO-free (lazy
     // getAuth) and `isCliEngaged()` (set above, synchronously) keeps the boot
-    // body from running in the suspension window. cli-bootstrap's
-    // `.then(handled ⇒ exit 0)` is the natural end once stdin closes.
+    // body from running in the suspension window. The runner resolves when
+    // the CONNECTION ENDS (attach is not done — the client's T18 lesson;
+    // see mcp-core's runSubshellMcp), so the `exit(0)` below lands after the
+    // transport is gone, never on a live one.
     case "mcp":
       try {
         await (deps.mcpRun ?? runSubshellMcp)();
       } catch (err: unknown) {
-        // Mirror `src/mcp/main.ts`: a rejected runner goes to stderr + exit 1
-        // HERE — index.ts's global unhandledRejection handler (FATAL log +
-        // exit 1) must never see it. `return true` keeps an injected
-        // (non-terminal) exit from falling through to the success exit below.
-        // MESSAGE-first, not main.ts's stack: measured on bun 1.4.0, the
-        // COMPILED bundle's `err.stack` header line omits the message
-        // ("Error\n  at …") while `err.message` is intact, and the contract
-        // refusal text is the actionable half for whoever spawned the pane.
+        // A rejected runner goes to stderr + exit 1 HERE — index.ts's global
+        // unhandledRejection handler (FATAL log + exit 1) must never see it.
+        // `return true` keeps an injected (non-terminal) exit from falling
+        // through to the success exit below. MESSAGE-first, not stack-first:
+        // measured on bun 1.4.0, the COMPILED bundle's `err.stack` header
+        // line omits the message ("Error\n  at …") while `err.message` is
+        // intact, and the contract refusal text is the actionable half for
+        // whoever spawned the pane.
         const detail =
           err instanceof Error ? (err.message !== "" ? err.message : (err.stack ?? String(err))) : String(err);
         error(`subshell mcp: fatal: ${detail}`);

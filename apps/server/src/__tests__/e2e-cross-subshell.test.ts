@@ -76,7 +76,10 @@ describe("cross-subshell e2e (two subshell mcp processes)", () => {
     const client = new Client({ name: `e2e-client-${index}`, version: "0.0.0" });
     const transport = new StdioClientTransport({
       command: BUN,
-      args: ["src/mcp/main.ts"],
+      // The `mcp` subcommand through the real entry (spec 2026-09-03): the
+      // server binary IS the MCP server — the retired companion entry
+      // (`src/mcp/main.ts`) is gone; this IS the production spawn shape.
+      args: ["src/index.ts", "mcp"],
       cwd: BACKEND_DIR,
       env: childEnv({
         SUBSHELL_API_KEY: s.token,

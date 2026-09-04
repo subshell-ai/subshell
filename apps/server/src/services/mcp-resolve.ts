@@ -14,14 +14,6 @@ import type { McpLaunchSpec } from "@internal/harnesses";
  */
 
 /**
- * The retired companion artifact's name (`subshell-mcp`, still what the
- * release pipeline ships beside each server binary). Referenced only by the
- * resolution-failure hint until the release stops producing it; a follow-up
- * task retires the name entirely.
- */
-export const MCP_BINARY = "subshell-mcp";
-
-/**
  * The server executable's product name — the gate on the SELF rung's compiled
  * shape. The `startsWith` also admits the triple-suffixed release artifacts
  * (`subshell-server-darwin-arm64`).
@@ -84,10 +76,11 @@ export function probeMcpLaunch(env: NodeJS.ProcessEnv = process.env, io: McpReso
         if (!Array.isArray(parsed) || parsed.some((a) => typeof a !== "string")) throw new Error("not a string array");
         args = parsed as string[];
       } catch {
-        // The probe NEVER throws — `status` runs it on the sync-exit CLI path,
-        // where a throw would suspend the entry mid-command and let the boot
-        // graph evaluate (better-auth opening SQLite in the CWD; see
-        // cli-entry.test.ts). A malformed override is a resolution failure.
+        // The probe NEVER throws — `status` runs it on the sync CLI path,
+        // where a throw would abort the prelude before `status` can REPORT
+        // the failure (boot itself is held off by `isCliEngaged()`, set
+        // synchronously before dispatch — not by anything at this call
+        // site). A malformed override is a resolution failure.
         return { spec: null, error: `SUBSHELL_MCP_ARGS is not a JSON string array (got "${env.SUBSHELL_MCP_ARGS}")` };
       }
     }
@@ -109,7 +102,7 @@ export function probeMcpLaunch(env: NodeJS.ProcessEnv = process.env, io: McpReso
   //    Covers hosts whose server predates the self rung.
   const client = which(CLIENT_BINARY);
   if (client) return { spec: { command: client, args: ["mcp"] }, source: "client-on-path" };
-  return { spec: null, error: `cannot locate the ${MCP_BINARY} entrypoint; set SUBSHELL_MCP_COMMAND` };
+  return { spec: null, error: "cannot locate the subshell mcp entrypoint; set SUBSHELL_MCP_COMMAND" };
 }
 
 /**

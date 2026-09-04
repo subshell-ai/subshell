@@ -60,18 +60,6 @@ export function serverArtifactFileName(target: string): string {
   return `subshell-server-${target}`;
 }
 
-/**
- * The file name the server release builds its MCP companion as:
- * `subshell-mcp-<target>`. The server's own resolver (apps/server
- * `mcp-resolve.ts`) finds it as the `subshell-mcp` sibling of the installed
- * executable, so an operator installs BOTH artifacts of a triple side by side
- * (triple suffix dropped) and a server-only host self-resolves its MCP
- * entrypoint. Same digest/sidecar discipline as {@link serverArtifactFileName}.
- */
-export function serverMcpArtifactFileName(target: string): string {
-  return `subshell-mcp-${target}`;
-}
-
 /** Fallback SQLite path when `DATABASE_PATH` is unset — the data dir derives from it. */
 export const DEFAULT_DATABASE_PATH = "./data/subshell.db";
 

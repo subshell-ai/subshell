@@ -89,6 +89,17 @@ describe("probeMcpLaunch", () => {
     expect(resolvedSource(probe)).toBe("self");
   });
 
+  it("a `subshell` on PATH never shadows the bun-interpreted self rung either", () => {
+    // Dev shape under a host with the node agent installed: plain bun + a
+    // usable argv[1] must self-resolve BEFORE the PATH rung is consulted.
+    const probe = probeMcpLaunch(
+      {},
+      { execPath: "/usr/bin/bun", argv1: "src/index.ts", which: () => "/usr/bin/subshell" },
+    );
+    expect(resolvedSource(probe)).toBe("self");
+    expect(probe.spec?.command).toBe("/usr/bin/bun");
+  });
+
   it("nothing resolves: probe reports the error, resolveMcpLaunch throws it", () => {
     const probe = probeMcpLaunch({}, NOTHING);
     expect(probe.spec).toBeNull();

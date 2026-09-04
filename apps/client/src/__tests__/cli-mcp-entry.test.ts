@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 
 /**
  * End-to-end liveness of the `subshell mcp` ENTRY (the regression T18 parity
- * found): `runSubshellMcp()` RESOLVES once the stdio transport is connected — the
- * connection itself (the SDK's stdin listener) is what keeps the process
- * alive. If the entry treats that resolution as "command finished" and calls
- * `process.exit`, the live transport dies milliseconds after `ready` and every
- * pane-side MCP client gets a dead connection.
+ * found): attaching the stdio transport is NOT the command finishing. An
+ * entry that exits on its await kills the live transport milliseconds after
+ * `ready` and every pane-side MCP client gets a dead connection. (Since
+ * then, `runSubshellMcp` holds its promise until the connection ENDS — the
+ * no-exit-while-serving rule stands independent of where the line is drawn:
+ * the server's `subshell-server mcp` path hit the same shape when its
+ * dispatch exited on the attach-time resolve.)
  *
  * Spawns the real source entry (`src/main.ts mcp` — same shape as the compiled
  * binary) against a stub control plane. Pre-fix this child exits 0 right after

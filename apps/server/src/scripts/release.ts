@@ -26,7 +26,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SERVER_TARGETS, serverArtifactFileName, serverMcpArtifactFileName } from "@internal/subshell-protocol";
+import { SERVER_TARGETS, serverArtifactFileName } from "@internal/subshell-protocol";
 import {
   assertBunFloor,
   type BuiltArtifact,
@@ -52,11 +52,10 @@ export interface BuildTarget {
 }
 
 /**
- * The build schedule: one TRIPLE per SERVER_TARGETS entry (or per `scope`
- * entry — `SUBSHELL_SERVER_RELEASE_TRIPLES` narrows it, CI sharding); each
- * triple expands into a server + MCP-binary PAIR inside {@link buildAll}.
- * Every target ships `--bytecode` (the client pipeline's rule, spec 2026-09-03
- * §5); the floor is asserted in main().
+ * The build schedule: one artifact per SERVER_TARGETS entry (or per `scope`
+ * entry — `SUBSHELL_SERVER_RELEASE_TRIPLES` narrows it, CI sharding). Every
+ * target ships `--bytecode` (the client pipeline's rule, spec 2026-09-03 §5);
+ * the floor is asserted in main().
  * @param scope - triples to build; null/undefined = the full SERVER_TARGETS set
  */
 export function buildTargets(scope: readonly string[] | null = null): BuildTarget[] {
@@ -85,29 +84,6 @@ export function buildArgs(triple: string, outDir: string): string[] {
   ];
 }
 
-/**
- * `bun build` argv for the triple's MCP companion — the compiled
- * `subshell-mcp` binary an operator installs beside the server so
- * `resolveMcpLaunch`'s compiled-sibling rung works on a server-only host
- * (the entry is the side-effect-free `src/mcp/main.ts`; NO SPA embed applies
- * to it — the same uniform `--bytecode --minify --target` flags as
- * {@link buildArgs}, and the darwin sign hook runs on it like any artifact).
- * @param triple - platform triple to build
- * @param outDir - directory for the `subshell-mcp-<triple>` output file
- */
-export function mcpBuildArgs(triple: string, outDir: string): string[] {
-  return [
-    "build",
-    "--compile",
-    "--bytecode",
-    "--minify",
-    "./src/mcp/main.ts",
-    `--target=bun-${triple}`,
-    "--outfile",
-    join(outDir, serverMcpArtifactFileName(triple)),
-  ];
-}
-
 /** Injectable build runner for tests (a real spawn in `main`). */
 export interface ReleaseDeps {
   /** Runs one `bun build` argv (relative to `apps/server`); resolves with its exit code. */
@@ -126,40 +102,29 @@ export interface ReleaseDeps {
 export type BuildAllResult = { ok: true; artifacts: Map<string, BuiltArtifact> } | { ok: false; failed: string };
 
 /**
- * Builds every target (full set, or `scope`) and digests it. Each triple is a
- * PAIR — the `subshell-server` binary and its `subshell-mcp` companion — and
- * either half failing fails the triple: a standalone install missing the MCP
- * sibling is the 500-on-create shape `resolveMcpLaunch` documents. NEVER
- * publishes — {@link runRelease} publishes only on `ok:true`, so a failed
- * target publishes nothing (all-or-nothing, design §1).
+ * Builds every target (full set, or `scope`) and digests it. NEVER publishes
+ * — {@link runRelease} publishes only on `ok:true`, so a failed target
+ * publishes nothing (all-or-nothing, design §1).
  * @param deps - injected runner + output directory
  * @param scope - triples to build; null/undefined = the full served set
  */
 export async function buildAll(deps: ReleaseDeps, scope?: string[] | null): Promise<BuildAllResult> {
-  // Map keys are artifact FILE NAMES (two per triple — the shared publish
-  // primitive keys nothing off them, but the tests and the summary do).
   const artifacts = new Map<string, BuiltArtifact>();
   for (const target of buildTargets(scope ?? null)) {
-    const builds = [
-      { args: buildArgs(target.triple, deps.outDir), name: serverArtifactFileName(target.triple) },
-      { args: mcpBuildArgs(target.triple, deps.outDir), name: serverMcpArtifactFileName(target.triple) },
-    ];
-    for (const { args, name } of builds) {
-      const code = await deps.runBuild(args);
-      if (code !== 0) return { ok: false, failed: target.triple };
-      const path = join(deps.outDir, name);
-      // Sign (when configured) BEFORE digesting — the sidecar must match the
-      // bytes that get published, and a refused signature fails this target.
-      if (!(await (deps.sign ?? ((p: string) => runSignHook(p)))(path))) {
-        return { ok: false, failed: target.triple };
-      }
-      try {
-        artifacts.set(name, { path, digest: await digestFile(path) });
-      } catch {
-        // Exit 0 without an output file is that target's failure — publishing a
-        // stale or phantom artifact is worse than publishing nothing.
-        return { ok: false, failed: target.triple };
-      }
+    const code = await deps.runBuild(buildArgs(target.triple, deps.outDir));
+    if (code !== 0) return { ok: false, failed: target.triple };
+    const path = join(deps.outDir, serverArtifactFileName(target.triple));
+    // Sign (when configured) BEFORE digesting — the sidecar must match the
+    // bytes that get published, and a refused signature fails this target.
+    if (!(await (deps.sign ?? ((p: string) => runSignHook(p)))(path))) {
+      return { ok: false, failed: target.triple };
+    }
+    try {
+      artifacts.set(target.triple, { path, digest: await digestFile(path) });
+    } catch {
+      // Exit 0 without an output file is that target's failure — publishing a
+      // stale or phantom artifact is worse than publishing nothing.
+      return { ok: false, failed: target.triple };
     }
   }
   return { ok: true, artifacts };
@@ -292,10 +257,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  process.stdout.write(`\npublished ${result.artifacts.size} binaries (server + mcp per triple) → ${destDir}\n\n`);
-  for (const [name, { path, digest }] of result.artifacts) {
+  process.stdout.write(`\npublished ${result.artifacts.size} subshell-server builds → ${destDir}\n\n`);
+  for (const [triple, { path, digest }] of result.artifacts) {
     const bytes = (await Bun.file(path).stat())?.size ?? 0;
-    process.stdout.write(`  ${name.padEnd(26)} ${String(bytes).padStart(12)} bytes  ${digest}\n`);
+    process.stdout.write(
+      `  ${serverArtifactFileName(triple).padEnd(26)} ${String(bytes).padStart(12)} bytes  ${digest}\n`,
+    );
   }
 }
 
