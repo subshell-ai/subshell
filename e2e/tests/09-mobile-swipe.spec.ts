@@ -164,7 +164,10 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
     if (below) {
       await swipe(client, cx, cx - 140, cy);
       await expect(page).toHaveURL(onSubshell(below));
-      await swipeReady(page);
+      // No readiness wait here, deliberately: `below` is whatever the order
+      // puts under A — a leftover from an earlier spec, which may be EXITED
+      // and therefore renders a log panel with no terminal at all. Only the
+      // URL is the claim; the return trip does its own waiting.
       // Only above A sits B, so return to A before exercising the up-swipe.
       await gotoSubshell(page, a);
     }

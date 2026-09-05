@@ -16,6 +16,7 @@ import {
   broadcastViewers,
   paneStreams,
   persistOutputFor,
+  readPaneGeometry,
   registerViewer,
   seedPaneGeometry,
   sharedGridFor,
@@ -297,8 +298,17 @@ export async function attachRemoteSubshellWs(
     // the pane does, putting every later relative-positioned frame a row out.
     // An unconfirmed number all viewers share beats a confirmed disagreement;
     // `pane-geometry.ts` carries the same reasoning for the queue's path.
-    if (appliedFit) {
-      broadcastToViewers(row.id, { type: "geometry", cols: appliedFit.cols, rows: appliedFit.rows });
+    // Confirmed where the node can confirm it (protocol v4 `pane_size`), else
+    // the fit we applied — the local twin's rule, and the same expression.
+    // Without the readback here, the FIRST geometry a client gets is
+    // unconfirmed even on a node that could answer, and it is the one the
+    // replay is painted against; only later resizes went through the queue
+    // and got the confirmation. A null from a node that CAN measure means the
+    // pane died, and a dying pane gets no announcement.
+    const readBack = await readPaneGeometry(launcher, data.socket, row.id);
+    const attachGeometry = readBack ?? (launcher.reportsPaneSize() ? null : appliedFit);
+    if (attachGeometry) {
+      broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
     }
 
     const painted = captureToReplayText(replay);
