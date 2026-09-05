@@ -45,6 +45,13 @@ signed-in-only — which writes each `/api/events` frame into
 `SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
 by opening another EventSource.
 
+`routes/settings_.status.tsx` (`/settings/status`, components in
+`components/admin-status/`, data in `hooks/use-admin-status.ts`) is the
+read-only half of the admin surface: `/settings` is where an admin CHANGES the
+instance, Status is where they see what it currently IS. Its admin gate is the
+same server-derived `viewerIsAdmin`, and `undefined` counts as NOT admin — the
+query is `enabled`-gated on it so a non-admin mount fires no doomed 403.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 Add-node dialog renders the install one-liner from `GET /api/settings/public →

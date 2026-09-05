@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  Activity,
   ChevronLeft,
   LayoutDashboard,
   type LucideIcon,
@@ -48,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal, short: "Prof" },
   { to: "/settings", label: "Server", icon: Settings, requiresAdmin: true },
+  { to: "/settings/status", label: "Status", icon: Activity, requiresAdmin: true, short: "Stat" },
   { to: "/users", label: "Users", icon: Users, short: "Users" },
 ];
 

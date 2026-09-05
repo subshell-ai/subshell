@@ -5,7 +5,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { PageHeader } from "@/components/page-header";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -68,7 +68,18 @@ function SettingsPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Server" subtitle="Instance-wide configuration (admins)" />
+      <PageHeader
+        title="Server"
+        subtitle="Instance-wide configuration (admins)"
+        action={
+          // A Link WEARING the button style, not a Button wrapping a Link —
+          // nesting two interactive elements is what `asChild` exists to avoid,
+          // and this Button primitive has no `asChild`.
+          <Link to="/settings/status" className={buttonVariants({ variant: "outline", size: "sm" })}>
+            Status
+          </Link>
+        }
+      />
       {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so
           rendering them for a non-admin would only produce error banners. The
           server-side gates remain the actual enforcement either way. */}

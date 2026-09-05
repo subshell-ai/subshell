@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { auditRoutes } from "@/api/audit.route.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
@@ -37,6 +38,7 @@ import { wsTokenRoutes } from "@/api/ws-token.route.js";
  * so splitting one flat chain into three changes nothing about routing.
  */
 const coreRoutes = new Elysia()
+  .use(adminStatusRoutes)
   .use(settingsRoutes)
   .use(setupRoutes)
   .use(metaRoutes)

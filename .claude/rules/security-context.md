@@ -38,8 +38,16 @@ credential kinds:
     only a hash is stored). Treat them as full-access bearer credentials — disable/delete
     revokes instantly.
 
-Admin-gated routes (`/api/users`, `/api/system-keys`, …) **reject bearer keys** (403):
-machine credentials can never manage the instance.
+Admin-gated routes (`/api/users`, `/api/system-keys`, `/api/admin/status`, …) **reject
+bearer keys** (403): machine credentials can never manage the instance.
+
+`GET /api/admin/status` is the widest of these READS — versions, host paths, the
+resolved MCP command, instance-wide counts and the security posture in one
+body. It carries **no secret in any form**: the auth secret appears only as
+`usingPlaceholderSecret`, the break-glass password only as
+`emergencyLoginActive`, and a test scans the serialized response for the actual
+values so a field added later cannot regress that. Treat an admin's screen as
+quotable — it is the thing that gets screenshotted into an issue.
 
 WS attach requires a short-lived (30 s) single-use token minted through an authenticated
 REST call — replay-resistant.

@@ -22,6 +22,7 @@ import { Route as UsersRouteImport } from './routes/users'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as ProfilesIdRouteImport } from './routes/profiles_.$id'
+import { Route as SettingsStatusRouteImport } from './routes/settings_.status'
 import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
 
@@ -90,6 +91,11 @@ const ProfilesIdRoute = ProfilesIdRouteImport.update({
   path: '/profiles/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsStatusRoute = SettingsStatusRouteImport.update({
+  id: '/settings_/status',
+  path: '/settings/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SubshellsIdRoute = SubshellsIdRouteImport.update({
   id: '/subshells_/$id',
   path: '/subshells/$id',
@@ -115,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
+  '/settings/status': typeof SettingsStatusRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
 }
@@ -132,6 +139,7 @@ export interface FileRoutesByTo {
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/profiles/$id': typeof ProfilesIdRoute
+  '/settings/status': typeof SettingsStatusRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
 }
@@ -150,6 +158,7 @@ export interface FileRoutesById {
   '/workspaces': typeof WorkspacesRoute
   '/nodes_/$id': typeof NodesIdRoute
   '/profiles_/$id': typeof ProfilesIdRoute
+  '/settings_/status': typeof SettingsStatusRoute
   '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
 }
@@ -169,6 +178,7 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/nodes/$id'
     | '/profiles/$id'
+    | '/settings/status'
     | '/subshells/$id'
     | '/workspaces/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -186,6 +196,7 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/nodes/$id'
     | '/profiles/$id'
+    | '/settings/status'
     | '/subshells/$id'
     | '/workspaces/$id'
   id:
@@ -203,6 +214,7 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/nodes_/$id'
     | '/profiles_/$id'
+    | '/settings_/status'
     | '/subshells_/$id'
     | '/workspaces_/$id'
   fileRoutesById: FileRoutesById
@@ -221,6 +233,7 @@ export interface RootRouteChildren {
   WorkspacesRoute: typeof WorkspacesRoute
   NodesIdRoute: typeof NodesIdRoute
   ProfilesIdRoute: typeof ProfilesIdRoute
+  SettingsStatusRoute: typeof SettingsStatusRoute
   SubshellsIdRoute: typeof SubshellsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
 }
@@ -318,6 +331,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfilesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/status': {
+      id: '/settings_/status'
+      path: '/settings/status'
+      fullPath: '/settings/status'
+      preLoaderRoute: typeof SettingsStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/subshells_/$id': {
       id: '/subshells_/$id'
       path: '/subshells/$id'
@@ -349,6 +369,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspacesRoute: WorkspacesRoute,
   NodesIdRoute: NodesIdRoute,
   ProfilesIdRoute: ProfilesIdRoute,
+  SettingsStatusRoute: SettingsStatusRoute,
   SubshellsIdRoute: SubshellsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
 }

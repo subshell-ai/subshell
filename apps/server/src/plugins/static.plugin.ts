@@ -272,6 +272,28 @@ export function embeddedStaticPlugin(source: Record<string, string> = EMBEDDED_W
   return app;
 }
 
+/** Which SPA source {@link selectStaticPlugin} actually chose at boot. */
+export type StaticSource = "disk" | "embedded" | "unselected";
+
+/**
+ * Recorded rather than recomputed. The choice is made ONCE at boot and cannot
+ * change under a running process, while re-deriving it later would `existsSync`
+ * a path that may have appeared or vanished since — reporting a source the
+ * server is not actually serving from. `unselected` means boot never got here
+ * (a test importing the module, or a failed selection).
+ */
+let chosenSource: StaticSource = "unselected";
+
+/**
+ * The SPA source this process is serving. Admin diagnostics only: a compiled
+ * binary run from a repo checkout silently prefers the checkout's dist over
+ * its own embedded copy (the build-time `import.meta.url` caveat in
+ * AGENTS.md), and this is the only way to see that from outside.
+ */
+export function staticSource(): StaticSource {
+  return chosenSource;
+}
+
 /**
  * Boot-time source selection (spec 2026-09-03 §4): a built dist dir on disk
  * wins (dev checkouts and svc.sh deployments stay byte-identical), else the
@@ -285,8 +307,14 @@ export function embeddedStaticPlugin(source: Record<string, string> = EMBEDDED_W
  * @param embedded - whether this build carries an embedded SPA
  */
 export function selectStaticPlugin(distDir: string, embedded: boolean) {
-  if (existsSync(join(distDir, "index.html"))) return staticPlugin(distDir);
-  if (embedded) return embeddedStaticPlugin();
+  if (existsSync(join(distDir, "index.html"))) {
+    chosenSource = "disk";
+    return staticPlugin(distDir);
+  }
+  if (embedded) {
+    chosenSource = "embedded";
+    return embeddedStaticPlugin();
+  }
   throw new Error(
     `static plugin: built frontend not found at ${join(distDir, "index.html")} — and no embedded assets in this binary`,
     { cause: new Error(distDir) },
