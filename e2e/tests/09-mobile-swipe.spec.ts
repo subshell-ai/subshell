@@ -8,26 +8,30 @@ const SPAWN_TIMEOUT = 30_000;
 /** The fields the order oracle reads (camelCase API shape). */
 interface Row {
   id: string;
-  status: string;
   alive: boolean;
-  activity: string;
-  nodeOffline: boolean;
-  waitingSince: string | null;
+  createdAt: string;
 }
 
 /**
- * Band rank mirroring `lib/subshell-indicator.ts` (waiting 0 → active 1 →
- * idle 2 → node-offline 3 → exited 4 → ended 5) — written independently so
- * the test is an oracle, not an echo of the implementation. Stable sort over
- * the API's createdAt-DESC order is the sidebar (and swipe) order.
+ * The order the swipe walks: newest-created first, id as a total tie-break.
+ * Written independently of `lib/subshell-order.ts` so this is an oracle
+ * rather than an echo of the implementation.
+ *
+ * Deliberately NOT the sidebar's band order (`lib/subshell-indicator.ts`,
+ * which ranks by `activity` = "produced output within the last 60s"). This
+ * oracle DID model the bands, and agreed with the swipe only for as long as
+ * every row sat in the same one — so a leftover subshell from an earlier spec
+ * printing a line put it in a different band, the oracle named a different
+ * neighbour than the swipe did, and the run failed with no bad code anywhere.
+ * Navigation order has to be one that does not move on its own, which is why
+ * the feature stopped using the bands; the oracle simply had not followed.
  */
-function rank(s: Row): number {
-  if (s.nodeOffline === true) return 3;
-  if (s.status === "running" && !s.alive) return 4;
-  if (s.status === "running" && s.alive && s.waitingSince != null) return 0;
-  if (s.activity === "active") return 1;
-  if (s.activity === "idle") return 2;
-  return 5;
+function ordering(rows: readonly Row[]): Row[] {
+  return [...rows].sort((x, y) => {
+    const byTime = Date.parse(y.createdAt) - Date.parse(x.createdAt);
+    if (byTime !== 0 && Number.isFinite(byTime)) return byTime;
+    return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+  });
 }
 
 /** Dispatch a horizontal touch drag through CDP — the only way to deliver
@@ -45,11 +49,11 @@ async function swipe(client: CDPSession, fromX: number, toX: number, y: number) 
 
 /**
  * Swipe prev/next between subshells (spec 2026-09-04): on a phone, dragging
- * left over the terminal walks DOWN the sidebar order, dragging right walks
+ * left over the terminal walks DOWN the creation order, dragging right walks
  * UP. Also guards the 09-mobile-navcrash territory for free: navigating
  * between two LIVE terminals must throw no pageerror.
  */
-test("swipe left/right on /subshells/$id walks the sidebar order", async ({ page }) => {
+test("swipe left/right on /subshells/$id walks creation order", async ({ page }) => {
   test.setTimeout(150_000);
   const tag = `e2e-swipe-${test.info().retry}`;
 
@@ -62,8 +66,8 @@ test("swipe left/right on /subshells/$id walks the sidebar order", async ({ page
     expect(res.ok(), await res.text()).toBe(true);
     return ((await res.json()) as { id: string }).id;
   };
-  // A created first, B second: in createdAt-DESC both land in the same (idle)
-  // band, so B sits DIRECTLY above A in the sidebar order.
+  // A created first, B second: newest-first puts B DIRECTLY above A, and
+  // nothing either of them does later can change that.
   const a = await mk(`${tag}-a`);
   const b = await mk(`${tag}-b`);
   const waitAlive = async (id: string) =>
@@ -80,11 +84,10 @@ test("swipe left/right on /subshells/$id walks the sidebar order", async ({ page
   await waitAlive(b);
 
   // Independent re-derivation of the order: B must be A's neighbour above.
-  // (Snapshot race accepted: a leftover row floating INTO a higher band
-  // between this fetch and the swipe would retarget the `below` assertion —
-  // near-impossible on the pristine suite DB, and it fails loudly.)
+  // No snapshot race any more — creation order cannot change between this
+  // fetch and the swipe, whatever the other rows are doing.
   const rows = (await (await page.request.get("/api/subshells")).json()) as Row[];
-  const ordered = [...rows].sort((x, y) => rank(x) - rank(y));
+  const ordered = ordering(rows);
   const ia = ordered.findIndex((r) => r.id === a);
   expect(ia).toBeGreaterThan(-1);
   expect(ordered[ia - 1]?.id).toBe(b);
