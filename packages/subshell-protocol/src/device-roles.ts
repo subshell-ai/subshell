@@ -1,5 +1,22 @@
-import { decideSharedGrid, type Grid, type ViewerPresence } from "@internal/subshell-protocol";
-import type { ViewersState } from "@/lib/use-subshell-ws";
+import type { ViewerPresence } from "./frames.js";
+import { decideSharedGrid, type Grid, type SizingPolicy } from "./shared-geometry.js";
+
+/**
+ * The `viewers` frame's payload, as any client holds it.
+ *
+ * Named here rather than in each client because all THREE of them need it now
+ * — the web header, a workspace pane, and the phone — and the roles below are
+ * derived from it identically. A per-client copy is how the browser's
+ * explanation once drifted from the server's behaviour by one field.
+ */
+export interface ViewersState {
+  /** Which entry in {@link viewers} is this client. */
+  you: string;
+  /** Everyone attached, including this client. */
+  viewers: ViewerPresence[];
+  /** How the pane's grid is currently being decided. */
+  sizing: SizingPolicy & { mode: "auto" | "pinned"; pinnedViewerId: string | null };
+}
 
 /**
  * What one device is doing to the pane's size right now.

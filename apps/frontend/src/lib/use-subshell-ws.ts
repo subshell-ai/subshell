@@ -1,4 +1,4 @@
-import type { ServerFrame, ViewerPresence } from "@internal/subshell-protocol";
+import type { ServerFrame, ViewersState } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
@@ -26,16 +26,6 @@ export interface TermWsHandlers {
    * device UI simply omits it.
    */
   onViewers?: (state: ViewersState) => void;
-}
-
-/** The `viewers` server frame, as handed to {@link TermWsHandlers.onViewers}. */
-export interface ViewersState {
-  /** Which entry in {@link viewers} is this client. */
-  you: string;
-  /** Everyone attached, including this client. */
-  viewers: ViewerPresence[];
-  /** How the pane's grid is currently being decided. */
-  sizing: { mode: "auto" | "pinned"; pinnedViewerId: string | null };
 }
 
 /** Fixed delay (ms) between automatic reconnect attempts. */

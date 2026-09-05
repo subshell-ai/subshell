@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import type { ViewerPresence } from "@internal/subshell-protocol";
+import type { ViewerPresence, ViewersState } from "@internal/subshell-protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SubshellDevices } from "@/components/subshell-devices";
-import type { ViewersState } from "@/lib/use-subshell-ws";
 
 function viewer(id: string, label: string, cols: number, rows: number, over: Partial<ViewerPresence> = {}) {
   return {

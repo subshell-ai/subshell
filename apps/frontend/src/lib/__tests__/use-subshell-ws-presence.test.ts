@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import type { ViewersState } from "@internal/subshell-protocol";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import { DEVICE_NAME_KEY } from "@/lib/device-name";
-import { useSubshellWs, type ViewersState } from "@/lib/use-subshell-ws";
+import { useSubshellWs } from "@/lib/use-subshell-ws";
 
 /**
  * The multi-device half of the attach: naming this device on the connect URL,

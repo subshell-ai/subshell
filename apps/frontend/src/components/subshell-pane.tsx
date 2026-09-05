@@ -1,3 +1,4 @@
+import type { ViewersState } from "@internal/subshell-protocol";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
@@ -7,7 +8,6 @@ import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
-import type { ViewersState } from "@/lib/use-subshell-ws";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */

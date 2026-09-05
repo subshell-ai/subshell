@@ -1,4 +1,5 @@
 import { stripAnsi } from "@internal/backend-errors";
+import type { ViewersState } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -27,7 +28,7 @@ import {
 } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
-import { useSubshellWs, type ViewersState } from "@/lib/use-subshell-ws";
+import { useSubshellWs } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
 

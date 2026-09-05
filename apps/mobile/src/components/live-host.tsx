@@ -2,6 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import { DevicesStrip } from "@/components/devices-strip";
 import { KeyBar } from "@/components/key-bar";
 import { useForeground } from "@/hooks/use-foreground";
 import type { SubshellClient } from "@/lib/api";
@@ -71,7 +72,7 @@ export function LiveHost({
     webview.current?.injectJavaScript(`${expr}; true;`);
   }, []);
 
-  const { sendInput, sendResize, status } = useSubshellSocket({
+  const { sendInput, sendResize, setSizing, status, viewers } = useSubshellSocket({
     // The platform lookup lives here, in RN-land, not in the socket module.
     deviceLabel: `Subshell on ${Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : Platform.OS}`,
     client,
@@ -157,6 +158,10 @@ export function LiveHost({
             onShouldStartLoadWithRequest={(r) => r.url.startsWith("file://") || r.url === "about:blank"}
             originWhitelist={["file://*"]}
           />
+          {/* Above the key bar: the pane's size is the thing being explained,
+              and a strip under the terminal reads as part of it. Renders
+              itself away below two devices, which is the usual case. */}
+          <DevicesStrip state={viewers} onSizing={setSizing} />
           {!readOnly && (
             <KeyBar disabled={status.state !== "open"} onBytes={sendInput} onPaste={() => void onPaste()} />
           )}

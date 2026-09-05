@@ -1,3 +1,4 @@
+import type { ViewersState } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -27,7 +28,6 @@ import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
-import type { ViewersState } from "@/lib/use-subshell-ws";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/subshells_/$id")({
