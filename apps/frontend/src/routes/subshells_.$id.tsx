@@ -9,6 +9,7 @@ import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
+import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
@@ -16,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
-import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
+import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
@@ -26,6 +27,7 @@ import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
+import type { ViewersState } from "@/lib/use-subshell-ws";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/subshells_/$id")({
@@ -44,11 +46,15 @@ function SubshellPage() {
   const scrollToBottomRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
+  /**
+   * Who else is watching, straight off the terminal's socket. Null while the
+   * socket is down — the device list is live state, not a cache.
+   */
+  const [viewers, setViewers] = useState<ViewersState | null>(null);
+  const setSizingRef = useRef<SubshellTerminalHandles["setSizing"] | null>(null);
   const [closed, setClosed] = useState(false);
   /** Whether the Find bar is up — see the header actions row for why it matters. */
   const [findOpen, setFindOpen] = useState(false);
-  /** Superseded by a newer viewer (close 4003) — the subshell runs, elsewhere. */
-  const [replaced, setReplaced] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { subshell, isLoading, isError, isNotFound, exited, dead } = useSubshellData(id);
@@ -91,7 +97,9 @@ function SubshellPage() {
   // Swipe prev/next (spec 2026-09-04): walk the sidebar order with the thumb.
   // Neighbours are recomputed per render — SSE reshuffles the list live, so
   // the gesture must never hold a stale neighbour id.
-  const ordered = useOrderedSubshells();
+  // Creation order, not sidebar order: the sidebar re-ranks by activity,
+  // which would move the swipe target while the user is swiping.
+  const ordered = useSwipeOrderedSubshells();
   const { prev, next } = useMemo(() => findNeighbors(ordered, id), [ordered, id]);
   // Per-device opt-out (Preferences → This device, default on). A mount-time
   // read is enough: toggling it lives on /preferences, and coming back here
@@ -115,6 +123,7 @@ function SubshellPage() {
     openImagePickerRef.current = handles.openImagePicker;
     scrollToTopRef.current = handles.scrollToTop;
     scrollToBottomRef.current = handles.scrollToBottom;
+    setSizingRef.current = handles.setSizing;
     setSearch(handles.search);
   }
 
@@ -125,6 +134,7 @@ function SubshellPage() {
     openImagePickerRef.current = null;
     scrollToTopRef.current = null;
     scrollToBottomRef.current = null;
+    setSizingRef.current = null;
     setSearch(null);
   }
 
@@ -150,7 +160,7 @@ function SubshellPage() {
   // is the terminal replaced by a state panel.
   // `isLoading` is NOT a reconnect: the terminal is not even mounted yet, and
   // claiming "reconnecting…" before a first attach would be a lie.
-  const showPill = !connected && !closed && !replaced && !dead && !restarting && !isLoading;
+  const showPill = !connected && !closed && !dead && !restarting && !isLoading;
 
   // Gone is gone: a 404 means the record will never arrive (deleted, or never
   // shared with this viewer — the backend answers 404 for both), so do NOT
@@ -212,6 +222,15 @@ function SubshellPage() {
                 actions and refresh the same queries the page observes. Disabled
                 while the panel's own restart/delete is in flight (the menu holds
                 a separate hook instance and can't see it). */}
+                {/* Why the terminal is the size it is — and how to change
+                    which device decides. Renders itself away when this is the
+                    only device attached. */}
+                <SubshellDevices
+                  state={viewers}
+                  onSizing={
+                    subshell?.access === "view" ? undefined : (mode, viewerId) => setSizingRef.current?.(mode, viewerId)
+                  }
+                />
                 {subshell && (
                   <SubshellActionsMenu
                     subshell={subshell}
@@ -256,8 +275,8 @@ function SubshellPage() {
             onStatusChange={(status) => {
               setConnected(status.connected);
               setClosed(status.closed);
-              setReplaced(status.replaced ?? false);
             }}
+            onViewers={setViewers}
             onRestart={() => void restart()}
             restarting={restarting}
             onDelete={() => void remove()}

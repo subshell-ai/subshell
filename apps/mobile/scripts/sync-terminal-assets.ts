@@ -10,13 +10,29 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
-mkdirSync(join(root, "assets"), { recursive: true });
-const js = readFileSync(join(root, "node_modules/@xterm/xterm/lib/xterm.js"), "utf8");
-const css = readFileSync(join(root, "node_modules/@xterm/xterm/css/xterm.css"), "utf8");
-const fit = readFileSync(join(root, "node_modules/@xterm/addon-fit/lib/addon-fit.js"), "utf8");
+export const ASSET_ROOT = new URL("..", import.meta.url).pathname;
 
-const html = `<!doctype html>
+/** Where the generated page lives; Metro serves it as a bundled asset. */
+export const TERMINAL_HTML_PATH = join(ASSET_ROOT, "assets/terminal.html");
+
+/**
+ * Builds the self-contained terminal page from the CURRENTLY INSTALLED
+ * @xterm packages.
+ *
+ * Exported so a test can compare it against the committed file. Keeping the
+ * two in step is otherwise a manual step documented only in prose — and it
+ * had already been missed: the file committed before this guard carried
+ * xterm bytes matching neither pinned version, having been rewritten in
+ * place by a formatter before the biome exclusion was added.
+ *
+ * @returns The complete HTML document
+ */
+export function buildTerminalHtml(): string {
+  const js = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/xterm/lib/xterm.js"), "utf8");
+  const css = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/xterm/css/xterm.css"), "utf8");
+  const fit = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/addon-fit/lib/addon-fit.js"), "utf8");
+
+  return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -57,6 +73,12 @@ const html = `<!doctype html>
   </body>
 </html>
 `;
+}
 
-writeFileSync(join(root, "assets/terminal.html"), html);
-console.log(`wrote assets/terminal.html (${html.length} bytes)`);
+// Only when run directly: importing this for its builder must not write.
+if (import.meta.main) {
+  mkdirSync(join(ASSET_ROOT, "assets"), { recursive: true });
+  const html = buildTerminalHtml();
+  writeFileSync(TERMINAL_HTML_PATH, html);
+  console.log(`wrote assets/terminal.html (${html.length} bytes)`);
+}

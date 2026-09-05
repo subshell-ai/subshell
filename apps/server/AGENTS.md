@@ -95,6 +95,63 @@ handlers) reaches the same graph via `getRequestlessContext()`
 (`src/lib/context.ts`) — a singleton context whose log is the app logger
 (no request id).
 
+The pane's size with SEVERAL viewers attached is not decided here: the rule is
+`shared-geometry.ts` in `@internal/subshell-protocol`, because the browser has
+to EXPLAIN the same decision the server APPLIES. It picks the smallest
+capacity among the narrowest non-empty **rung** — devices being rendered whose
+viewer can type, else any device being rendered, else every attached device —
+with a pin overriding all of it. A rung that holds nobody with a usable size is
+skipped, so excluding a device can never shrink the pane below what the
+remaining ones reported.
+
+`ws/subshell-ws.ts` owns the state around it: the per-subshell viewer registry
+(keyed by `viewerId`, NEVER by socket identity — Elysia hands `close` a
+different wrapper than `open`) and the in-memory sizing policy, dropped with
+the last viewer. `resetLiveViewersForTests()` clears ALL of that module's
+per-subshell state together (viewers, policy, heartbeat stamps, pumps, applied
+geometry) because tests reuse subshell ids and any one of those surviving a
+case corrupts the next in a way that reads as a product bug.
+
+**Both attach paths are the same shape**, and the remote one (`ws/remote-subshell-ws.ts`)
+was brought to it late — before that it fitted the pane to whoever attached
+last and ran its own `tail_start` per socket, which `NodeLauncher`'s contract
+forbids ("callers MUST NOT overlap per-subshell pumps"). Both now:
+
+1. subscribe to the shared pump (`ws/pane-stream.ts`) BEFORE reading the pane,
+2. fit to `sharedGridFor()`, seed the geometry queue with what they applied,
+3. capture, send the replay, then `open()` the subscription and broadcast presence.
+
+Step 1 before step 3 is the join-point rule as a subscription. It also means a
+refusal AFTER the subscription must tear it down explicitly, or a tail keeps
+running for a viewer that was never admitted.
+
+**The `geometry` frame is confirmed where it can be and asserted where it
+cannot.** `NodeLauncher.reportsPaneSize` says which: tmux answers, so a null
+read there means the pane DIED and nothing is announced; a node pane can never
+be measured (the agent protocol has no size command — the same bill
+`signalPaneWinch` is waiting on), so the size the pane was ASKED for is
+announced instead. Silence used to be right for node panes and stopped being
+right when eviction went: with several viewers the pane is the MINIMUM, so a
+client left to size itself renders more rows than the pane holds, and a client
+taller than its pane does not scroll when the pane does — putting every later
+relative-positioned frame a row out, which is the exact corruption this whole
+subsystem exists to prevent. An unconfirmed number every viewer shares beats a
+confirmed disagreement.
+
+**Still degraded on node panes:** the announced size is what tmux was asked
+for, not what it took. If it clamps the request, every viewer of that pane
+pins to a grid the pane does not have — the same for all of them, so they at
+least agree with each other. The real fix is a `pane_size` command in the
+agent protocol, at which point `RemoteLauncher.reportsPaneSize` flips to true
+and the fallback stops being reachable there.
+
+Anything a client must not lose in the attach race rides the **connect URL**,
+not a first frame: `handleSubshellMessage` drops frames that arrive before
+`ws.data` is assigned, and the client's `onopen` regularly wins that race
+against the handler's own awaits. Capacity survived it only because clients
+re-send it; `&hidden=` was added for the same reason (`visibility` is sent once
+and then only on change).
+
 ### Terminal attach diagnostics
 
 A garbled live terminal is diagnosed from the journal first — two lines per

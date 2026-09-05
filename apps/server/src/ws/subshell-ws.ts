@@ -1,6 +1,12 @@
-import { type FSWatcher, watch } from "node:fs";
 import { getHarness } from "@internal/harnesses";
-import { parseClientFrame } from "@internal/subshell-protocol";
+import {
+  DEFAULT_SIZING,
+  normalizeDeviceLabel,
+  parseClientFrame,
+  resolveSharedGrid,
+  type SizingPolicy,
+  type ViewerPresence,
+} from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
@@ -12,10 +18,12 @@ import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
-import { captureToReplayText, captureToTerminalText } from "@/ws/capture-text.js";
+import { captureToReplayText } from "@/ws/capture-text.js";
 import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
+import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
+import { createPaneStreamRegistry, type Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
-import { SyncStreamStripper } from "@/ws/sync-stripper.js";
+
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -41,10 +49,11 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * everything past the delegation below is the local path.
  *
  * Import note: `subshell-ws.ts` ↔ `remote-subshell-ws.ts` is a deliberate
- * cycle (the relay reuses `persistOutput`/the `WsData` shape; marker
- * stripping lives beside both in `sync-stripper.ts`); both use each other's
- * hoisted function declarations only at call time, so module evaluation order
- * never matters.
+ * cycle — the relay reuses this module's viewer registry, shared-grid
+ * decision, pump and geometry queue, and this module dispatches to the relay.
+ * Both use each other's hoisted function declarations only at call time, so
+ * module evaluation order never matters. Extracting presence + sizing into
+ * their own module would dissolve it; see the file-size note below.
  */
 export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   const subshellId = url.searchParams.get("subshell");
@@ -127,14 +136,21 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // invariant rather than guessing at the instance.
   const launcher = launcherFor(row.nodeId);
   if (row.nodeId !== LOCAL_NODE_ID) {
-    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, initialSize);
+    await attachRemoteSubshellWs(
+      ws,
+      row,
+      launcher as RemoteLauncher,
+      access,
+      initialSize,
+      parseDeviceLabel(url),
+      parseHidden(url),
+    );
     return;
   }
   if (!row.tmuxSocket || !(await launcher.hasSubshell(row.tmuxSocket, row.id))) {
     ws.close(4004, "subshell not running");
     return;
   }
-  evictPreviousViewer(ws, row.id);
 
   // A close can land while this handler still awaits (resize settle + the
   // quiet-poll can span ~1 s), so the disposer is installed BEFORE the first
@@ -147,14 +163,39 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     socket: row.tmuxSocket,
     subshellId: row.id,
     logFile: subshellLogPath(row.id),
-    lastSize: 0,
-    lastOutputWriteAt: 0,
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),
+    // This viewer's own capacity, from the connect URL. One input to the
+    // shared decision below — never applied on its own.
+    capacity: initialSize ?? undefined,
+    // From the URL for the same reason capacity is: a frame sent from the
+    // client's `onopen` races this handler's own awaits (access lookup, a
+    // tmux probe) and `handleSubshellMessage` DROPS anything that arrives
+    // before `ws.data` exists. Capacity survived that race because the
+    // client re-sends it on every resize; `visibility` is sent once and then
+    // only on change, so a tab attached while already hidden would have
+    // stayed "visible" for its whole life — holding every other device's
+    // pane at its size, which is the exact failure the hidden rule exists to
+    // prevent.
+    hidden: parseHidden(url),
+    // Presence identity: who this viewer is in the `viewers` frame. The id
+    // lives as long as the socket, so a reconnect is legitimately a new
+    // viewer rather than a resurrected one.
+    viewerId: crypto.randomUUID(),
+    deviceLabel: parseDeviceLabel(url),
+    since: new Date().toISOString(),
   };
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
   Object.assign(ws.data, data);
+  // The browser left while we were still looking things up. Its close already
+  // ran and found nothing to undo, so nothing here may be armed — returning
+  // BEFORE `registerViewer` is what keeps a ghost out of the sizing decision
+  // and a pump from running for a reader that does not exist.
+  if (ws.data.detachedEarly) return;
+  // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
+  // not exist until the context object carries it.
+  registerViewer(ws, row.id);
   ws.data.cleanup = (): void => {
     detached = true;
     data.cleanup?.();
@@ -181,6 +222,30 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     hasLog = false;
   }
 
+  // Attach to the subshell's shared pump BEFORE the pane is read. The
+  // subscription starts QUEUED, so nothing is delivered until the replay has
+  // been sent — but from this instant no byte can be missed, which is the
+  // JOIN-POINT RULE above expressed as a subscription instead of an offset a
+  // later reader hopes is still current.
+  const stream: Subscription = paneStreams.subscribe(
+    row.id,
+    () =>
+      hasLog
+        ? // An empty log tails from 0 like any other size; a log that appears
+          // LATER is out of reach here (both the stat and the watcher need a
+          // file) — the poll fallback covers that pre-existing gap as before.
+          createLogTailSource({ logFile: data.logFile, fromByte: logStart, onOutput: () => persistOutputFor(row.id) })
+        : createPanePollSource({
+            launcher,
+            socket: data.socket,
+            subshellId: row.id,
+            onOutput: () => persistOutputFor(row.id),
+          }),
+    (text) => ws.send(JSON.stringify({ type: "output", data: text })),
+  );
+  if (!hasLog) logger.info(`ws attach: no log file for ${row.id}, polling pane`);
+  data.cleanup = (): void => stream.close();
+
   // The pane as the viewer FOUND it — forensics only, and only when the dump
   // is armed (it costs an extra capture). Taken before the resize, it is the
   // evidence that tells "the pane was already holding garbage" apart from
@@ -200,13 +265,21 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // instead of leaving the user to do it by hand with a window resize.
   let repainted = false;
   let nudged = false;
+  /** The grid this attach actually asked the pane for, for the announcement below. */
+  let appliedFit: PaneGeometry | null = null;
   if (initialSize) {
     const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
-      await launcher.resize(row.tmuxSocket, row.id, initialSize.cols, initialSize.rows);
+      // The pane is fitted to what EVERY viewer can display, not to the
+      // joiner's own size: a phone opening a subshell a desktop is already
+      // watching must shrink the pane for both, so the capture below matches
+      // the grid both of them will render.
+      const fit = sharedGridFor(row.id) ?? initialSize;
+      appliedFit = fit;
+      await launcher.resize(row.tmuxSocket, row.id, fit.cols, fit.rows);
       // Tell the queue: this fit bypassed it, and a client frame asking for
       // the same size must not then be swallowed as already-applied.
-      seedPaneGeometry(row.id, initialSize.cols, initialSize.rows);
+      seedPaneGeometry(row.id, fit.cols, fit.rows);
       // `logStart` is the pre-resize size — the baseline a repaint has to grow
       // past. Re-sampling it after the resize would miss a repaint that beat
       // us to the log.
@@ -216,14 +289,13 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       // no information and a blind nudge would thrash every pane-poll attach.
       if (!repainted && hasLog && !detached) {
         nudged = true;
-        repainted = await nudgePaneForRepaint(
-          launcher,
-          row.tmuxSocket,
-          row.id,
-          initialSize.cols,
-          initialSize.rows,
-          sizeOf,
-        );
+        // `fit`, NOT `initialSize`: the nudge ENDS by resizing the pane to
+        // the size it is handed (it steps ±1 and back), and seeds the queue
+        // with it. Handing it the joiner's own size undid the shared fit
+        // three lines above — an incumbent at 122x49 was left rendering a
+        // pane a 122x52 joiner had claimed, clipping every later frame, with
+        // nothing scheduled to re-decide it.
+        repainted = await nudgePaneForRepaint(launcher, row.tmuxSocket, row.id, fit.cols, fit.rows, sizeOf);
       }
     } catch (err) {
       logger.withError(err).warn("ws attach: initial resize failed; replay uses the current size");
@@ -253,9 +325,29 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // already agrees with, instead of discovering the mismatch a frame later.
   // Null (a remote pane, an unreadable pane) simply announces nothing and
   // leaves the client sizing itself, exactly as before the readback existed.
-  const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
+  //
+  // Broadcast, not a direct send: a joiner smaller than the incumbents SHRINKS
+  // the pane for all of them (the fit above is the shared grid), and this
+  // attach applies that resize DIRECTLY rather than through the queue — so the
+  // queue's own announcement never fires and the incumbents would never learn
+  // their pane had moved under them. Measured live with two tabs: the pane
+  // correctly became 122x49, the joiner rendered 49 rows, and the incumbent
+  // sat at 52 forever, which is exactly the client/pane disagreement that
+  // corrupts a relative-positioned redraw. The joiner is already registered,
+  // so this reaches it too, still before its replay.
+  // Confirmed where it can be, else the fit this attach applied — the queue's
+  // rule, and the same reasoning (see `pane-geometry.ts`): with several
+  // viewers the pane is the MINIMUM, so a client left to its own grid renders
+  // more rows than the pane holds and stops scrolling in step with it.
+  //
+  // The fallback is only for a machine that can never measure. On one that
+  // can, a null read means the pane has died, and a dying pane gets no
+  // announcement. `appliedFit` is null when this attach carried no size at
+  // all, and then there is genuinely nothing to announce either.
+  const readBack = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
+  const attachGeometry = readBack ?? (launcher.reportsPaneSize ? null : appliedFit);
   if (attachGeometry) {
-    ws.send(JSON.stringify({ type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows }));
+    broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }
 
   const replay = text != null ? captureToReplayText(text) : null;
@@ -264,16 +356,24 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
   }
 
-  if (hasLog) {
-    // An empty log tails from 0 like any other size; a log that appears LATER
-    // is out of reach here (both this stat and the watcher need a file) — the
-    // pane-poll fallback below covers that pre-existing gap exactly as before.
-    data.lastSize = logStart;
-    startLogTail(ws, data);
-  } else {
-    logger.info(`ws attach: no log file for ${row.id}, polling pane`);
-    startPanePoll(ws, data);
-  }
+  // The replay is out; release everything the pane produced while it was
+  // being captured, then stream live.
+  stream.open();
+  // Presence LAST: a joiner should appear to the others once it is actually
+  // receiving, and its own first list should already include itself.
+  broadcastViewers(row.id);
+  // Re-decide now the attach is over.
+  //
+  // This path resizes the pane DIRECTLY (it must be awaited before the
+  // capture) and seeds the queue behind its back, so it can interleave with a
+  // concurrent `requestPaneResize` from another viewer: the queue applies G2
+  // and records it, this attach's seed then overwrites the record with G1,
+  // and the repaint nudge returns the pane to G1 — leaving the pane at G1,
+  // the correct shared grid at G2, and nothing scheduled to notice. Two
+  // simultaneous attaches reach the same end by another route. Re-deciding
+  // here is idempotent (the queue drops a request for the size it already
+  // holds), so the quiet case costs nothing.
+  applySharedGeometry(row.id, launcher, row.tmuxSocket);
   // Re-wrap (not raw-assign): the close that arrived during the attach awaits
   // must still reach the disposer armed moments ago — `detached` is true by
   // then, so the same wrapper both propagates and immediately tears down.
@@ -304,10 +404,33 @@ export interface WsData {
   socket: string;
   subshellId: string;
   logFile: string;
-  lastSize: number;
-  lastOutputWriteAt: number;
+
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
   canInput: boolean;
+  /**
+   * The grid THIS viewer can display, as last reported. One input to the
+   * shared-grid decision (`@internal/subshell-protocol`); never applied on its own,
+   * because a pane has one size and other devices may be watching it.
+   */
+  capacity?: { cols: number; rows: number };
+  /** Identifies this viewer in the `viewers` frame; lives as long as the socket. */
+  viewerId: string;
+  /**
+   * True while this viewer's page is not being rendered. Set by the client's
+   * `visibility` frame; a hidden viewer takes no part in sizing.
+   */
+  hidden?: boolean;
+  /**
+   * Set by {@link cleanupSubshellWs} when the socket closed before the attach
+   * had assigned anything to `ws.data`. The attach reads it the moment it
+   * assigns, and abandons instead of registering a viewer nothing can ever
+   * remove. See the check in {@link handleSubshellWs}.
+   */
+  detachedEarly?: boolean;
+  /** Human name for the device, from the connect URL (already normalized). */
+  deviceLabel: string;
+  /** ISO timestamp of the attach, for "watching since" in the devices list. */
+  since: string;
   /**
    * The upgrade request's User-Agent, stashed by the `/ws` `upgrade` hook
    * (`ws.raw.request` is absent in Elysia's WS open context). Journal-only —
@@ -331,6 +454,41 @@ function parseInitialSize(url: URL): { cols: number; rows: number } | null {
 
 /** Longest client build id the attach line will print (an asset hash is ~8). */
 const MAX_BUILD_ID_LEN = 24;
+
+/**
+ * The device label from the connect URL, normalized and bounded.
+ *
+ * Chosen on the client and rendered in other viewers' browsers — which for a
+ * shared subshell can mean another user — so it is re-normalized here rather
+ * than trusted: the client's own sanitizing protects nothing against a
+ * hand-built socket URL.
+ *
+ * @param url - The attach URL
+ * @returns The label, or a neutral placeholder when absent/unusable
+ */
+export function parseDeviceLabel(url: URL): string {
+  return normalizeDeviceLabel(url.searchParams.get("device") ?? "") || "Unnamed device";
+}
+
+/**
+ * Whether this viewer says it is NOT being rendered (`&hidden=1`).
+ *
+ * A hidden viewer takes no part in the shared-grid decision. It rides the URL
+ * rather than waiting for the client's first frame because a frame sent from
+ * `onopen` races this handler's own awaits and is dropped when it wins — and
+ * unlike capacity, `visibility` is sent once and then only on change, so a
+ * lost one is lost for the socket's whole life.
+ *
+ * Absent or unrecognized means visible: the pre-existing clients that send no
+ * such param are exactly the ones with no way to be hidden.
+ *
+ * @param url - The attach URL
+ * @returns True when the client declared itself hidden
+ */
+export function parseHidden(url: URL): boolean {
+  const raw = url.searchParams.get("hidden");
+  return raw === "1" || raw === "true";
+}
 
 /**
  * The client's self-reported bundle id (`&build=`) for the attach log line —
@@ -571,119 +729,40 @@ export async function captureStable(
 }
 
 /**
- * Persists the subshell's lastOutputAt when new output arrives, throttled to
- * at most one DB write per 2s (drives the active/idle heuristic).
- * Exported so the remote relay (`remote-subshell-ws.ts`) keeps the heuristic
- * byte-identical for agent-node subshells — one throttle, both paths.
+ * One output pump per subshell, shared by every viewer watching it (see
+ * `ws/pane-stream.ts`). Both attach paths subscribe to it: the pump's state
+ * (decoder, sync stripper, log offset) belongs to the SUBSHELL rather than to
+ * a socket, which is what lets several devices watch one pane and see
+ * byte-identical chunks in the same order.
  */
-export function persistOutput(_ws: WsSocket, data: WsData): void {
-  const now = Date.now();
-  if (now - data.lastOutputWriteAt < 2000) return;
-  data.lastOutputWriteAt = now;
-  getRequestlessContext()
-    .repos.subshells.update(data.subshellId, { lastOutputAt: new Date().toISOString() })
-    .catch((err: unknown) => logger.withError(err).warn("failed to persist lastOutputAt"));
-}
-
-/** Safety net for missed watch events (file replaced under the watch, quota). */
-const TAIL_BACKSTOP_MS = 1000;
+export const paneStreams = createPaneStreamRegistry();
 
 /**
- * Streams new log file appends to the WS client.
+ * How each subshell's grid is decided, while anyone is watching it.
  *
- * Event-driven: `fs.watch` (inotify on Linux) fires the moment pipe-pane
- * appends, so a keystroke's echo arrives immediately rather than waiting for
- * the next tick of a poll — polling at 250ms quantized every echo to 0–250ms.
- * A slow interval remains only as a backstop for lost watch events; both
- * paths share this size-based read, so delivery is identical either way.
+ * Deliberately in memory and dropped with the last viewer: a pin names a
+ * VIEWER, and viewer ids do not survive a disconnect, so persisting it would
+ * only preserve a pin that can never match again.
  */
-function startLogTail(ws: WsSocket, data: WsData): void {
-  // spec §6.5: phase 2 routes local + remote tails through NodeLauncher.tailStart
-  // Watch events and the backstop can land together; `pumping`/`again`
-  // serialize the reads so a byte is never sliced twice.
-  let pumping = false;
-  let again = false;
-  // Connection-lived decode/strip state: `stream: true` keeps a multi-byte
-  // char split across reads intact (a fresh decoder would burn it to U+FFFD),
-  // and the stripper holds a marker split across the same boundary until its
-  // other half arrives (see ws/sync-stripper.ts).
-  const decoder = new TextDecoder();
-  const stripper = new SyncStreamStripper();
+const sizingPolicies = new Map<string, SizingPolicy>();
 
-  async function pump(): Promise<void> {
-    if (pumping) {
-      again = true;
-      return;
-    }
-    pumping = true;
-    do {
-      again = false;
-      try {
-        const size = (await Bun.file(data.logFile).stat()).size;
-        if (size > data.lastSize) {
-          const buf = await Bun.file(data.logFile).slice(data.lastSize, size).arrayBuffer();
-          data.lastSize = size;
-          const text = stripper.push(decoder.decode(buf, { stream: true }));
-          // Empty when the whole read was a held marker prefix or a false
-          // sync marker: nothing paintable, so nothing to send or persist.
-          if (!text) continue;
-          ws.send(JSON.stringify({ type: "output", data: text }));
-          persistOutput(ws, data);
-        }
-      } catch {
-        // file gone
-      }
-    } while (again);
-    pumping = false;
-  }
+/** Last lastOutputAt write per subshell — the heartbeat throttle, stream-lived. */
+const lastOutputWrites = new Map<string, number>();
 
-  let watcher: FSWatcher | null = null;
-  try {
-    watcher = watch(data.logFile, () => void pump());
-    // If the inode dies the watcher is dead weight; the backstop still delivers.
-    watcher.on("error", () => {
-      watcher?.close();
-      watcher = null;
-    });
-  } catch {
-    watcher = null;
-  }
-  const timer = setInterval(() => void pump(), TAIL_BACKSTOP_MS);
-  void pump(); // ship anything written between the replay and the attach
-  data.cleanup = () => {
-    stripper.flush(); // held partial-sequence bytes belong to the next attach
-    watcher?.close();
-    clearInterval(timer);
-  };
-}
-
-/** Fallback: poll capture-pane for output (no log file configured). */
-function startPanePoll(ws: WsSocket, data: WsData): void {
-  let last = "";
-  // The capture is async behind the launcher seam; the tick stays fire-and-forget
-  // (`void`). Local capture resolves synchronously inside the wrapper, so ticks
-  // never overlap in practice.
-  async function poll(): Promise<void> {
-    try {
-      // Normalize the WHOLE capture before diffing (not the delta): the rows
-      // need CRLF re-termination like any capture text (see capture-text.ts),
-      // and stripping markers on the full string also catches one straddling
-      // the boundary between what was already sent and what is new.
-      const out = captureToTerminalText(await data.launcher.capture(data.socket, data.subshellId));
-      if (out !== last) {
-        const delta = out.startsWith(last) ? out.slice(last.length) : out;
-        last = out;
-        if (delta) {
-          ws.send(JSON.stringify({ type: "output", data: delta }));
-          persistOutput(ws, data);
-        }
-      }
-    } catch {
-      // subshell dead
-    }
-  }
-  const timer = setInterval(() => void poll(), 300);
-  data.cleanup = () => clearInterval(timer);
+/**
+ * Records that a subshell produced output, at most once per 2s.
+ *
+ * Keyed by SUBSHELL, not by socket: the pump is shared now, so a per-viewer
+ * throttle would multiply the write rate by the number of devices watching.
+ * @param subshellId - The subshell that produced output
+ */
+export function persistOutputFor(subshellId: string): void {
+  const now = Date.now();
+  if (now - (lastOutputWrites.get(subshellId) ?? 0) < 2000) return;
+  lastOutputWrites.set(subshellId, now);
+  getRequestlessContext()
+    .repos.subshells.update(subshellId, { lastOutputAt: new Date().toISOString() })
+    .catch((err: unknown) => logger.withError(err).warn("failed to persist lastOutputAt"));
 }
 
 /**
@@ -708,12 +787,43 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // rejections the old sync try/catch used to log are logged in place — the
   // browser socket must not await, and the promise must not go unhandled.
   const logFailure = (err: unknown) => logger.withError(err).warn("ws input failed");
+  if (frame.type === "visibility") {
+    // A hidden viewer is excluded from the shared grid, so this changes the
+    // pane's size for everyone — backgrounding a phone hands the pane back to
+    // the laptops, and showing it takes it again.
+    if (data.hidden === frame.hidden) return;
+    data.hidden = frame.hidden;
+    applySharedGeometry(data.subshellId, data.launcher, data.socket);
+    broadcastViewers(data.subshellId);
+    return;
+  }
+  if (frame.type === "set-sizing") {
+    // Changing how the pane is sized changes what every viewer sees, so it is
+    // an `edit` act — the same gate keystrokes pass, and a `view` grantee's
+    // choice is dropped exactly like one.
+    if (!data.canInput) return;
+    setSizingPolicy(data.subshellId, { mode: frame.mode, pinnedViewerId: frame.viewerId ?? null });
+    applySharedGeometry(data.subshellId, data.launcher, data.socket);
+    broadcastViewers(data.subshellId);
+    return;
+  }
   if (frame.type === "resize") {
-    // Through the queue, never straight at the launcher: two bare
-    // `void resize(...)` calls can complete out of order and leave the pane
-    // at a superseded size, which is what made a relative-positioning TUI
-    // paint onto the wrong rows until a reattach.
-    requestPaneResize(data.launcher, data.socket, data.subshellId, frame.cols, frame.rows);
+    // A client re-announces its capacity on every fit, and most of those
+    // repeat the value it already reported. Presence is serialized PER
+    // RECIPIENT, so forwarding an unchanged number costs every viewer a frame
+    // that says nothing.
+    const moved = data.capacity?.cols !== frame.cols || data.capacity?.rows !== frame.rows;
+    // A client frame reports what THIS viewer can display; it is not an
+    // instruction. The pane's size is decided from every attached viewer
+    // (`resolveSharedGrid`) and applied through the queue — never straight at
+    // the launcher, because two bare `void resize(...)` calls can complete out
+    // of order and strand the pane at a superseded size.
+    data.capacity = { cols: frame.cols, rows: frame.rows };
+    applySharedGeometry(data.subshellId, data.launcher, data.socket);
+    // The list shows each device's capacity, and it is what explains the
+    // pane's size — so a viewer resizing is a presence change too, when the
+    // number actually changed.
+    if (moved) broadcastViewers(data.subshellId);
     return;
   }
   // Raw terminal input, forwarded verbatim — but only for callers allowed to
@@ -729,44 +839,104 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
 
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
+  // The attach is fired unawaited from the plugin's `open` and reaches
+  // `Object.assign(ws.data, data)` only after an access lookup and a tmux
+  // probe. A close inside that window finds NOTHING here — no viewerId to
+  // delete, no cleanup to call — and used to return having done nothing at
+  // all, after which the attach carried on and registered a viewer for a
+  // socket that was already gone and would never close again.
+  //
+  // Under the old one-viewer rule the next attach evicted that ghost. Now it
+  // is permanent: it holds a place in the shared-grid decision, so every
+  // other device's pane stays sized for a viewer nobody is looking at, and
+  // its subscription keeps the pane's pump running with no reader. Leave a
+  // mark instead; the attach checks it the instant it has somewhere to look.
+  if (ws.data && !ws.data.viewerId) ws.data.detachedEarly = true;
   const subshellId = ws.data?.subshellId;
-  if (subshellId && liveViewers.get(subshellId) === ws) {
-    liveViewers.delete(subshellId);
-    // No one is watching, so the remembered "already applied" size must go
-    // too: the next attach has to be able to re-assert the same geometry (the
-    // pane may have been resized by anything in between), and holding the
-    // entry would make that request look like a no-op.
-    geometryQueue.release(subshellId);
+  const viewers = subshellId ? liveViewers.get(subshellId) : undefined;
+  // Keyed by viewerId, NOT by socket identity: Elysia hands `close` a
+  // different wrapper object than `open`, so `delete(ws)` silently missed and
+  // every disconnected viewer stayed in the set forever. Measured live —
+  // `deleteHit=false` on every close — with two consequences: the pane was
+  // pinned to the smallest viewer that had EVER attached (it never grew back
+  // when a small device left), and the presence list filled with ghosts.
+  const viewerId = ws.data?.viewerId;
+  if (subshellId && viewerId && viewers?.delete(viewerId)) {
+    if (viewers.size === 0) {
+      liveViewers.delete(subshellId);
+      sizingPolicies.delete(subshellId);
+      // The pump is gone with the last viewer, so its throttle stamp is dead
+      // weight — and an entry kept here would also suppress the FIRST
+      // lastOutputAt write of a subshell re-attached within 2s.
+      lastOutputWrites.delete(subshellId);
+      // No one is watching, so the remembered "already applied" size must go
+      // too: the next attach has to be able to re-assert the same geometry (the
+      // pane may have been resized by anything in between), and holding the
+      // entry would make that request look like a no-op.
+      geometryQueue.release(subshellId);
+    } else if (ws.data) {
+      // The pin named THIS viewer, so it no longer names anything.
+      // `decideSharedGrid` already falls through to auto for a pin it cannot
+      // resolve, so the pane was never wrong — but the policy still rode the
+      // presence frame, and the UI faithfully reported "pinned" plus a "Back
+      // to automatic" for a pin that had not been in effect since the moment
+      // that device closed its tab. A control that lies about the state it
+      // controls is worse than no control.
+      const policy = sizingPolicies.get(subshellId);
+      if (policy?.pinnedViewerId === viewerId) sizingPolicies.delete(subshellId);
+      // Someone is still watching, and the pane may have been held small on
+      // this viewer's account — re-decide without it so it can grow back.
+      applySharedGeometry(subshellId, ws.data.launcher, ws.data.socket);
+      broadcastViewers(subshellId);
+    }
   }
   ws.data?.cleanup?.();
 }
 
 /**
- * One LIVE VIEWER per subshell — newest wins.
+ * Every socket watching each subshell, keyed by subshell id and then by
+ * VIEWER id.
  *
- * A tmux pane has exactly one width, but two viewers (a reloaded tab and its
- * zombie pre-reload socket, a laptop and a phone) fit it differently: every
- * geometry switch re-wraps the TUI's hard rows under the other viewer's
- * absolute-positioned diff repaints, and the screen shatters into the
- * alternating-offset jumble (2026-09-01 report — the journal showed the same
- * subshell attached at 92x28 and 86x28 seconds apart while the pane bounced
- * between the two). Letting the newest attach close the previous one makes a
- * single terminal the sole size authority; the replaced client sees the
- * terminal-4xxx close and stops reconnecting (see `use-subshell-ws`).
+ * Keyed by `viewerId`, never by socket identity: Elysia hands the `close`
+ * handler a different wrapper object than `open`, so `delete(ws)` silently
+ * missed and every disconnected viewer stayed in the map forever. Measured
+ * live — `deleteHit=false` on every close — with two consequences: the pane
+ * stayed pinned to the smallest viewer that had EVER attached (it never grew
+ * back when a small device left), and the presence list filled with ghosts.
  *
- * Called once both paths have PROVEN the pane is alive (post-probe), so a
- * refused attach never evicts the incumbent.
+ * This replaces the old one-viewer-per-subshell rule, where a new attach
+ * closed the previous one (code 4003) so that a single terminal was the sole
+ * size authority. Opening a subshell on a laptop closed it on the phone. The
+ * pane's one grid is now arbitrated instead — see `resolveSharedGrid` in
+ * `@internal/subshell-protocol` — which needs the whole set, not the newest.
  */
-const liveViewers = new Map<string, WsSocket>();
+const liveViewers = new Map<string, Map<string, WsSocket>>();
 
 /**
- * Drops all viewer registrations WITHOUT closing the sockets. Only for tests,
- * which reuse subshell ids across cases and must not see a prior case's socket
- * evicted.
+ * Drops every scrap of per-subshell state this module holds, WITHOUT closing
+ * any socket. Only for tests.
+ *
+ * Tests reuse subshell ids across cases, and each of these maps outliving a
+ * case corrupts the next one in a way that reads as a product bug rather than
+ * a leak — so they are cleared TOGETHER rather than left for each test file
+ * to remember:
+ *
+ * - viewers: a prior case's socket would still be registered.
+ * - sizing policy / heartbeat stamps: a pin or a throttle from another case.
+ * - pumps: a case that left a subscription open hands the next one a running
+ *   stream, whose attach then reuses it and never builds a source at all —
+ *   the failure reads as "the tail never started".
+ * - applied geometry: a size another case already applied silently swallows
+ *   this one's identical request as a no-op, and no resize reaches tmux.
+ *
  * @internal
  */
 export function resetLiveViewersForTests(): void {
   liveViewers.clear();
+  sizingPolicies.clear();
+  lastOutputWrites.clear();
+  paneStreams.resetForTests();
+  geometryQueue.releaseAll();
 }
 
 /**
@@ -782,19 +952,108 @@ export function resetGeometryQueueForTests(ids: string[]): void {
 /**
  * Sends a frame to every socket currently watching `subshellId`.
  *
- * One viewer today (see {@link liveViewers}), so this is a lookup with a
- * loop's shape — deliberately, because the shared-session work replaces the
- * registry's value with a Set and every caller here is already correct for
- * that.
+ * Use this, not `ws.send`, for anything that describes the PANE: the pane is
+ * shared, so a change one viewer caused is news to all of them. The
+ * `geometry` frame is the case that bit — sent only to the joiner, it left
+ * every incumbent rendering a grid the pane no longer held.
+ *
+ * @param subshellId - Subshell whose viewers to notify
+ * @param frame - The server frame to send, serialized once for all of them
  */
-function broadcastToViewers(subshellId: string, frame: object): void {
-  const viewer = liveViewers.get(subshellId);
-  if (!viewer) return;
-  try {
-    viewer.send(JSON.stringify(frame));
-  } catch {
-    // socket already gone; its close handler does the bookkeeping
+export function broadcastToViewers(subshellId: string, frame: object): void {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers) return;
+  const payload = JSON.stringify(frame);
+  // Snapshot: a send can close a socket, and mutating the map mid-iteration
+  // would skip the viewer after it.
+  for (const viewer of [...viewers.values()]) {
+    try {
+      viewer.send(payload);
+    } catch {
+      // socket already gone; its close handler does the bookkeeping
+    }
   }
+}
+
+/**
+ * Pushes the current viewer list to everyone watching `subshellId`.
+ *
+ * Per-recipient rather than one shared payload, because each client needs to
+ * know WHICH entry is itself (`you`) — a device cannot otherwise tell whether
+ * the small viewport holding the pane down is its own.
+ *
+ * @param subshellId - Subshell whose viewers to notify
+ */
+export function broadcastViewers(subshellId: string): void {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers || viewers.size === 0) return;
+  const sockets = [...viewers.values()];
+  const presence: ViewerPresence[] = sockets
+    .filter((v) => v.data)
+    .map((v) => ({
+      id: v.data.viewerId,
+      label: v.data.deviceLabel,
+      capacity: v.data.capacity ?? null,
+      since: v.data.since,
+      canInput: v.data.canInput,
+      hidden: v.data.hidden === true,
+    }));
+  const policy = sizingPolicies.get(subshellId) ?? DEFAULT_SIZING;
+  for (const socket of sockets) {
+    if (!socket.data) continue;
+    try {
+      socket.send(
+        JSON.stringify({
+          type: "viewers",
+          you: socket.data.viewerId,
+          viewers: presence,
+          sizing: { mode: policy.mode, pinnedViewerId: policy.pinnedViewerId ?? null },
+        }),
+      );
+    } catch {
+      // socket already gone; its close handler does the bookkeeping
+    }
+  }
+}
+
+/**
+ * Re-decides the pane's grid from every attached viewer and asks for it.
+ *
+ * Called whenever the viewer SET changes (attach, detach) or any viewer
+ * reports a new capacity. The answer is a pure function of that set
+ * (`resolveSharedGrid`), which is what makes several viewers safe: the same
+ * devices always produce the same grid regardless of who spoke last, so the
+ * pane cannot bounce between two sizes the way last-writer-wins did.
+ *
+ * @param subshellId - Subshell whose viewers to poll
+ * @param launcher - Launcher owning the pane
+ * @param socket - tmux socket for the pane
+ */
+export function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket: string): void {
+  const grid = sharedGridFor(subshellId);
+  if (grid) requestPaneResize(launcher, socket, subshellId, grid.cols, grid.rows);
+}
+
+/**
+ * The grid every viewer of `subshellId` can display, or null when none has
+ * reported a usable one.
+ * @param subshellId - Subshell whose viewers to poll
+ * @returns The shared grid, or null
+ */
+export function sharedGridFor(subshellId: string): PaneGeometry | null {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers || viewers.size === 0) return null;
+  const inputs = [...viewers.values()]
+    .filter((v) => v.data)
+    .map((v) => ({
+      id: v.data.viewerId,
+      capacity: v.data.capacity ?? null,
+      hidden: v.data.hidden === true,
+      // A `view` grantee watches; it does not get to shrink the owner's pane
+      // (see the rungs in `resolveSharedGrid`).
+      canInput: v.data.canInput,
+    }));
+  return resolveSharedGrid(inputs, sizingPolicies.get(subshellId) ?? DEFAULT_SIZING);
 }
 
 /**
@@ -836,7 +1095,22 @@ export function requestPaneResize(
   geometryQueue.request(subshellId, cols, rows, {
     apply: (c, r) => launcher.resize(socket, subshellId, c, r),
     read: () => launcher.paneSize(socket, subshellId),
+    confirms: launcher.reportsPaneSize,
   });
+}
+
+/**
+ * Sets how a subshell's pane is sized while several devices watch it.
+ *
+ * In memory, and dropped with the last viewer: a pin names a VIEWER, and
+ * viewer ids do not survive a disconnect, so persisting it would only preserve
+ * a pin that can never match again.
+ *
+ * @param subshellId - The subshell
+ * @param policy - `auto` (smallest visible viewer) or `pinned` (one decides)
+ */
+export function setSizingPolicy(subshellId: string, policy: SizingPolicy): void {
+  sizingPolicies.set(subshellId, policy);
 }
 
 /**
@@ -871,24 +1145,22 @@ async function readPaneGeometry(
   }
 }
 
-export function evictPreviousViewer(ws: WsSocket, subshellId: string): void {
-  const prev = liveViewers.get(subshellId);
-  // Drop the remembered pane size BEFORE claiming the slot. `cleanupSubshellWs`
-  // releases only when the closing socket is still the registered viewer, and
-  // the incumbent's close arrives after this line has already replaced it — so
-  // without this the entry survives, and its stale `applied` silently swallows
-  // the new viewer's first request for that size.
-  if (prev && prev !== ws) geometryQueue.release(subshellId);
-  liveViewers.set(subshellId, ws);
-  if (!prev || prev === ws) return;
-  // Release the incumbent's watcher/timer NOW — its close event also runs
-  // `cleanupSubshellWs`, but the disposer is idempotent and the map entry
-  // already names the new socket, so neither the double-run nor the
-  // bookkeeping can disturb the fresh attach.
-  try {
-    prev.data?.cleanup?.();
-    prev.close(4003, "subshell open in another viewer");
-  } catch {
-    // socket already gone — the registry entry was stale, and we just replaced it
-  }
+/**
+ * Adds a socket to the set watching `subshellId`.
+ *
+ * MUST be called after `Object.assign(ws.data, data)`: the map is keyed by
+ * `ws.data.viewerId`, which does not exist until the context object carries
+ * it. Registering earlier keys every viewer under `undefined`, so the second
+ * attach evicts the first from the map and the pane is sized for a viewer
+ * nobody can see.
+ *
+ * @param ws - The attached socket, with its `WsData` already assigned
+ * @param subshellId - The subshell it is watching
+ */
+export function registerViewer(ws: WsSocket, subshellId: string): void {
+  const viewerId = ws.data?.viewerId;
+  if (!viewerId) return;
+  const viewers = liveViewers.get(subshellId) ?? new Map<string, WsSocket>();
+  viewers.set(viewerId, ws);
+  liveViewers.set(subshellId, viewers);
 }

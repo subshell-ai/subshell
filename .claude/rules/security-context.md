@@ -63,6 +63,20 @@ per-subshell route, runs with the admin boost and shared grants switched **off**
 a machine token can act only on its own owner's subshells, never a foreign or
 shared one.
 
+**Everyone attached to a shared subshell sees everyone else attached.** The
+`viewers` frame carries, to every viewer including a `view` grantee, each
+other device's chosen name (`lib/device-name.ts` — defaulted from the
+User-Agent, so "Safari on iPad", never a fingerprint), the grid it can
+display, when it attached, whether it is being rendered, and whether it may
+type. That is a real widening: before, a grantee could not tell whether anyone
+else was watching. It is deliberate — a pane has ONE size and is sized to the
+smallest visible viewer, so "why is my terminal 80 columns" is unanswerable
+without it — and it is sound on the trusted-network posture, but it is a
+disclosure to everyone the owner shared with, not only to the owner. A
+device's name is chosen client-side and re-normalized server-side
+(`normalizeDeviceLabel`), so it cannot carry control characters into another
+user's screen or a log line.
+
 Admins hold instance-wide **edit** (effective operator access) — they can read and
 interact with any subshell but cannot delete it or re-share it; those stay with the real
 owner.

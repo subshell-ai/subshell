@@ -44,3 +44,30 @@ export function injectText(ws: WebSocket | null, text: string, bracketed: boolea
   if (!text) return;
   sendInput(ws, bracketed ? `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}` : text);
 }
+
+/**
+ * Tells the server whether this viewer's page is being rendered.
+ *
+ * A hidden viewer is excluded from the shared-grid decision. It has to be,
+ * because a hidden tab is not laid out at all — the browser stops
+ * `requestAnimationFrame` and `ResizeObserver` outright, so it cannot re-fit
+ * even if it wanted to — and a backgrounded phone holding every other device's
+ * terminal at phone size, with nothing on screen to explain it, is
+ * indistinguishable from a bug.
+ *
+ * @param ws - The subshell socket (may be null while reconnecting)
+ * @param hidden - `document.hidden`
+ */
+export function sendVisibility(ws: WebSocket | null, hidden: boolean): void {
+  send(ws, { type: "visibility", hidden });
+}
+
+/**
+ * Chooses how the pane is sized while several devices watch it.
+ * @param ws - The subshell socket (may be null while reconnecting)
+ * @param mode - `auto` (smallest visible viewer) or `pinned` (one decides)
+ * @param viewerId - Which viewer decides under `pinned`
+ */
+export function sendSizing(ws: WebSocket | null, mode: "auto" | "pinned", viewerId?: string | null): void {
+  send(ws, { type: "set-sizing", mode, viewerId: viewerId ?? null });
+}

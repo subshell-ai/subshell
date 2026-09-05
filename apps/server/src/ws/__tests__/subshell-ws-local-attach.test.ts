@@ -10,8 +10,11 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import {
   attachUrlFromQuery,
   cleanupSubshellWs,
+  handleSubshellMessage,
   handleSubshellWs,
+  paneStreams,
   resetLiveViewersForTests,
+  sharedGridFor,
   type WsSocket,
 } from "@/ws/subshell-ws.js";
 import { issueWsToken } from "@/ws/ws-token.js";
@@ -205,11 +208,12 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     expect(sent.slice(framesAtDisconnect)).toEqual([]);
   });
 
-  it("a NEW attach replaces the previous viewer: the old socket closes 4003 and goes silent", async () => {
-    // One tmux pane has one width; two viewers at different widths thrash it
-    // and shatter the TUI (2026-09-01 jumble). Newest attach wins, and the
-    // replaced socket must stop streaming immediately — its watcher/timer,
-    // not just its close event.
+  it("a SECOND attach joins instead of evicting: both viewers get the same bytes", async () => {
+    // This is the behaviour 4003 used to forbid. Eviction existed because one
+    // tmux pane has one width and two viewers asserting their own sizes
+    // thrashed it (the 2026-09-01 jumble) — that is now answered by deciding
+    // the grid from the whole viewer set (`resolveSharedGrid`) rather than by
+    // throwing a viewer off, so a subshell can be watched from two devices.
     stubLauncher();
     const row = await seedLocalRow();
     const logFile = subshellLogPath(row.id);
@@ -217,16 +221,442 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
 
     const first = await attach(row.userId, row.id);
     await Bun.sleep(60); // first viewer settles into its tail
-    const second = await attach(row.userId, row.id); // newer viewer takes over
+    const second = await attach(row.userId, row.id);
 
-    expect(first.closed.some((c) => c.code === 4003)).toBe(true);
-    const firstFrames = first.sent.length;
+    expect(first.closed).toEqual([]); // nobody is thrown off any more
 
-    appendFileSync(logFile, "for the new owner\n");
+    appendFileSync(logFile, "for both viewers\n");
     await Bun.sleep(1300); // watch fires ~instantly; backstop twice
-    expect(first.sent.slice(firstFrames)).toEqual([]); // evicted: nothing more ships
-    expect(second.sent.some((s) => s.includes("for the new owner"))).toBe(true);
+    // BYTE-IDENTICAL, because one shared pump feeds both — two independent
+    // pumps would each observe their own instant and drift apart.
+    expect(first.sent.some((f) => f.includes("for both viewers"))).toBe(true);
+    expect(second.sent.some((f) => f.includes("for both viewers"))).toBe(true);
+    cleanupSubshellWs(first.ws);
     cleanupSubshellWs(second.ws);
+  });
+
+  it("forgets a viewer that disconnects, and lets the pane grow back", async () => {
+    // Found by driving two real browser tabs and closing one: the pane stayed
+    // at the departed viewer's size forever. The registry was keyed by SOCKET
+    // IDENTITY, and Elysia hands `close` a different wrapper object than
+    // `open` — so the delete silently missed, every disconnected viewer stayed
+    // in the set, and the pane was pinned to the smallest device that had
+    // EVER attached. The presence list filled with ghosts for the same reason.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      order.push("resize");
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const tall = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const short = await attach(row.userId, row.id, "&cols=100&rows=30");
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 30 }); // smallest wins
+
+    cleanupSubshellWs(short.ws); // the short viewer leaves
+    await Bun.sleep(50);
+
+    // The pane grows back to what the remaining viewer can show.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+
+    // ...and the departed viewer is gone from presence, not a ghost.
+    const latest = tall.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: unknown[] })
+      .at(-1);
+    expect(latest?.viewers).toHaveLength(1);
+
+    cleanupSubshellWs(tall.ws);
+  });
+
+  it("a close that lands DURING the attach leaves no ghost viewer and no running pump", async () => {
+    // `open` fires `void handleSubshellWs(...)` unawaited and `close` calls
+    // `cleanupSubshellWs` regardless of how far the attach has got. Everything
+    // the cleanup needs — `viewerId`, `cleanup` — only exists after
+    // `Object.assign(ws.data, data)`, and the attach awaits an access lookup
+    // and a tmux probe before reaching it. A close in that window found an
+    // empty `ws.data`, deleted nothing, and disarmed nothing; the attach then
+    // carried on and registered a viewer for a socket that was already gone
+    // and would never fire `close` again.
+    //
+    // Under the old one-viewer rule the next attach evicted that ghost. Now
+    // it is permanent: it holds a place in the shared-grid decision, so every
+    // other device's pane stays sized for a viewer nobody is looking at, and
+    // its subscription keeps the pane's pump running with no reader.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const fake = fakeBrowser();
+    attached.push(fake);
+    // A capacity on the URL, so a ghost would actually DECIDE something: this
+    // is the damage, not the map entry.
+    const url = new URL(
+      `ws://localhost/ws/subshell?subshell=${row.id}&token=${issueWsToken(row.userId)}&cols=40&rows=12`,
+    );
+    const attaching = handleSubshellWs(fake.ws, url);
+    // Mid-flight, before the attach can have assigned ws.data.
+    cleanupSubshellWs(fake.ws);
+    await attaching;
+
+    expect(sharedGridFor(row.id)).toBeNull(); // no ghost in the sizing decision
+    expect(paneStreams.viewerCount(row.id)).toBe(0); // and no pump left running
+  });
+
+  it("nudges around the SHARED fit, never the joiner's own size", async () => {
+    // The nudge ENDS by resizing the pane to the size it is handed (it steps
+    // ±1 and back) and seeds the queue with it, so handing it the joiner's
+    // size silently undid the shared fit applied moments earlier. An
+    // incumbent at 122x49 was left rendering a pane a 122x52 joiner had
+    // claimed, clipping every later frame, with nothing scheduled to
+    // re-decide it. The nudge fires whenever no repaint burst is detected,
+    // which is the COMMON case for a reopen at a size the pane already has.
+    stubLauncher();
+    let paneRows = 49;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 122, rows: paneRows });
+    // No SIGWINCH route and no log growth: the geometry nudge is forced.
+    defaultLocalLauncher.signalPaneWinch = async () => false;
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const incumbent = await attach(row.userId, row.id, "&cols=122&rows=49");
+    const joiner = await attach(row.userId, row.id, "&cols=122&rows=52");
+
+    // Whatever the nudge stepped through, the pane must END at the shared
+    // grid — the size BOTH viewers can display — not the joiner's 52.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 122, rows: 49 });
+    expect(resizeCalls.some((c) => c.rows === 52)).toBe(false);
+
+    cleanupSubshellWs(joiner.ws);
+    cleanupSubshellWs(incumbent.ws);
+  });
+
+  it("clears a pin when the device it names leaves", async () => {
+    // `decideSharedGrid` already falls through to auto for a pin it cannot
+    // resolve, so the pane is never wrong — but the policy still rides the
+    // presence frame, and the UI faithfully reported "pinned" plus a "Back to
+    // automatic" for a pin that had not been in effect since that tab closed.
+    // A control that lies about the state it controls is worse than none.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const phone = await attach(row.userId, row.id, "&cols=100&rows=20");
+    const laptopId = (
+      JSON.parse(laptop.sent.filter((f) => f.includes('"type":"viewers"')).at(-1) ?? "{}") as {
+        you: string;
+      }
+    ).you;
+
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: laptopId }));
+    await Bun.sleep(60);
+    const pinned = JSON.parse(phone.sent.filter((f) => f.includes('"type":"viewers"')).at(-1) ?? "{}") as {
+      sizing: { mode: string; pinnedViewerId: string | null };
+    };
+    expect(pinned.sizing).toEqual({ mode: "pinned", pinnedViewerId: laptopId });
+
+    cleanupSubshellWs(laptop.ws); // the pinned device closes its tab
+    await Bun.sleep(60);
+
+    const after = JSON.parse(phone.sent.filter((f) => f.includes('"type":"viewers"')).at(-1) ?? "{}") as {
+      sizing: { mode: string; pinnedViewerId: string | null };
+    };
+    expect(after.sizing).toEqual({ mode: "auto", pinnedViewerId: null });
+
+    cleanupSubshellWs(phone.ws);
+  });
+
+  it("re-decides the grid once the attach is over, so a raced resize is not lost", async () => {
+    // The attach resizes the pane DIRECTLY (it must be awaited before the
+    // capture) and seeds the queue behind its back, so it can interleave with
+    // a concurrent `requestPaneResize` from another viewer: the queue applies
+    // the newer shared grid and records it, this attach's seed overwrites the
+    // record, and the repaint nudge returns the pane to the attach's own fit.
+    // The pane is then left at a size the viewer set does not call for, with
+    // nothing scheduled to notice.
+    //
+    // Driven here through the front door: a second viewer whose capacity the
+    // attach could not have seen, applied while the attach is still running.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const first = await attach(row.userId, row.id, "&cols=100&rows=50");
+    // A second viewer that can only show 30 rows. Whatever order the attach
+    // and this frame interleave in, the pane must END at the shared minimum.
+    const second = await attach(row.userId, row.id, "&cols=100&rows=30");
+    handleSubshellMessage(second.ws, JSON.stringify({ type: "resize", cols: 100, rows: 30 }));
+    await Bun.sleep(80);
+
+    expect(sharedGridFor(row.id)).toEqual({ cols: 100, rows: 30 });
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 30 });
+
+    cleanupSubshellWs(second.ws);
+    cleanupSubshellWs(first.ws);
+  });
+
+  it("honours `&hidden=1` from the connect URL, without waiting for a frame", async () => {
+    // The client's on-open `visibility` frame races this handler's own awaits
+    // and is DROPPED when it wins (`handleSubshellMessage` returns while
+    // `ws.data` is still empty). Capacity survives that race because it is
+    // re-sent on every resize; `visibility` is sent once and then only on
+    // change, so a tab attached while already hidden would have held every
+    // other device's pane at its size for the socket's whole life.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const pocketed = await attach(row.userId, row.id, "&cols=100&rows=20&hidden=1");
+
+    // The hidden joiner takes no part: the pane stays at the laptop's size.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+    const presence = laptop.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: Array<{ hidden: boolean; capacity: { rows: number } | null }> })
+      .at(-1);
+    expect(presence?.viewers.find((v) => v.capacity?.rows === 20)?.hidden).toBe(true);
+
+    cleanupSubshellWs(pocketed.ws);
+    cleanupSubshellWs(laptop.ws);
+  });
+
+  it("tells the INCUMBENT when a smaller joiner shrinks the pane under it", async () => {
+    // Found by driving two real browser tabs. The pane correctly took the
+    // minimum, and the joiner rendered it — but the incumbent was never told,
+    // so it kept painting the taller grid it had arrived with. A client and a
+    // pane that disagree by even one row is the whole reason this work exists.
+    //
+    // The attach applies the shared fit DIRECTLY (it must be awaited before
+    // the capture) rather than through the geometry queue, so the queue's own
+    // announcement does not cover this path.
+    stubLauncher();
+    let paneRows = 52;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      order.push("resize");
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 122, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const incumbent = await attach(row.userId, row.id, "&cols=122&rows=52");
+    const geometryIn = (frames: string[]) =>
+      frames
+        .filter((f) => f.includes('"type":"geometry"'))
+        .map((f) => {
+          const { cols, rows } = JSON.parse(f) as { cols: number; rows: number };
+          return { cols, rows };
+        });
+    expect(geometryIn(incumbent.sent).at(-1)).toEqual({ cols: 122, rows: 52 });
+
+    // A shorter viewer joins: smallest-wins takes the pane to 49 rows.
+    const joiner = await attach(row.userId, row.id, "&cols=122&rows=49");
+
+    expect(geometryIn(joiner.sent).at(-1)).toEqual({ cols: 122, rows: 49 });
+    // ...and the incumbent is TOLD, rather than left painting 52 rows.
+    expect(geometryIn(incumbent.sent).at(-1)).toEqual({ cols: 122, rows: 49 });
+
+    cleanupSubshellWs(incumbent.ws);
+    cleanupSubshellWs(joiner.ws);
+  });
+
+  it("hands the pane back when the small viewer is HIDDEN, and takes it again when shown", async () => {
+    // A backgrounded tab is not laid out at all, so it cannot re-fit — and
+    // pinning everyone else's terminal to phone size with nothing on screen to
+    // explain it is indistinguishable from a bug.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const phone = await attach(row.userId, row.id, "&cols=100&rows=20");
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 20 });
+
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "visibility", hidden: true }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 }); // laptop gets it back
+
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "visibility", hidden: false }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 20 }); // and loses it again
+
+    cleanupSubshellWs(laptop.ws);
+    cleanupSubshellWs(phone.ws);
+  });
+
+  it("a pinned viewer decides the grid, and a `view` grantee cannot pin", async () => {
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const phone = await attach(row.userId, row.id, "&cols=100&rows=20");
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 20 });
+
+    // Pin the laptop: it decides alone, even though it is the larger.
+    const laptopId = (laptop.ws.data as { viewerId: string }).viewerId;
+    handleSubshellMessage(laptop.ws, JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: laptopId }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+
+    // The policy is announced, so a client can render which device is driving.
+    const latest = phone.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { sizing: { mode: string; pinnedViewerId: string | null } })
+      .at(-1);
+    expect(latest?.sizing).toEqual({ mode: "pinned", pinnedViewerId: laptopId });
+
+    // A read-only viewer cannot change what everyone sees.
+    (phone.ws.data as { canInput: boolean }).canInput = false;
+    const phoneId = (phone.ws.data as { viewerId: string }).viewerId;
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: phoneId }));
+    await Bun.sleep(50);
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 }); // unchanged
+
+    cleanupSubshellWs(laptop.ws);
+    cleanupSubshellWs(phone.ws);
+  });
+
+  it("tells every viewer who else is watching, and which entry is itself", async () => {
+    // A pane has one grid and the SMALLEST viewer decides it, so "why is my
+    // terminal this size?" is only answerable if a client can see the other
+    // devices — and it can only answer "is that me?" with `you`.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const first = await attach(row.userId, row.id, "&cols=120&rows=40&device=Laptop");
+    const second = await attach(row.userId, row.id, "&cols=80&rows=24&device=Phone");
+
+    const presenceOf = (frames: string[]) =>
+      frames
+        .filter((f) => f.includes('"type":"viewers"'))
+        .map((f) => JSON.parse(f) as { you: string; viewers: Array<{ id: string; label: string }> })
+        .at(-1);
+
+    const asSeenBySecond = presenceOf(second.sent);
+    expect(asSeenBySecond?.viewers.map((v) => v.label).sort()).toEqual(["Laptop", "Phone"]);
+
+    // The first viewer is TOLD about the joiner — presence is pushed, not polled.
+    const asSeenByFirst = presenceOf(first.sent);
+    expect(asSeenByFirst?.viewers.map((v) => v.label).sort()).toEqual(["Laptop", "Phone"]);
+
+    // Each is pointed at its own entry, and they are different entries.
+    const meForFirst = asSeenByFirst?.viewers.find((v) => v.id === asSeenByFirst.you);
+    const meForSecond = asSeenBySecond?.viewers.find((v) => v.id === asSeenBySecond.you);
+    expect(meForFirst?.label).toBe("Laptop");
+    expect(meForSecond?.label).toBe("Phone");
+    expect(asSeenByFirst?.you).not.toBe(asSeenBySecond?.you);
+
+    cleanupSubshellWs(first.ws);
+    cleanupSubshellWs(second.ws);
+  });
+
+  it("reports each viewer's capacity, which is what explains the shared grid", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const first = await attach(row.userId, row.id, "&cols=120&rows=40&device=Laptop");
+    const second = await attach(row.userId, row.id, "&cols=80&rows=24&device=Phone");
+
+    const latest = second.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map(
+        (f) => JSON.parse(f) as { viewers: Array<{ label: string; capacity: { cols: number; rows: number } | null }> },
+      )
+      .at(-1);
+    const byLabel = Object.fromEntries((latest?.viewers ?? []).map((v) => [v.label, v.capacity]));
+    expect(byLabel.Laptop).toEqual({ cols: 120, rows: 40 });
+    expect(byLabel.Phone).toEqual({ cols: 80, rows: 24 });
+    // ...and the pane took the smaller of them.
+    expect(resizeCalls.at(-1)).toEqual({ cols: 80, rows: 24 });
+
+    cleanupSubshellWs(first.ws);
+    cleanupSubshellWs(second.ws);
+  });
+
+  it("normalizes a hand-built device label rather than trusting it", async () => {
+    // The label is rendered in another viewer's browser and written to a log
+    // line; the client's own sanitizing protects nothing against a crafted
+    // socket URL.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const viewer = await attach(row.userId, row.id, `&device=${encodeURIComponent("Evil\r\nX-Injected: 1")}`);
+    const latest = viewer.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: Array<{ label: string }> })
+      .at(-1);
+    expect(latest?.viewers[0]?.label).toBe("Evil X-Injected: 1");
+
+    cleanupSubshellWs(viewer.ws);
+  });
+
+  it("the last viewer leaving stops the stream; one remaining viewer keeps it", async () => {
+    stubLauncher();
+    const row = await seedLocalRow();
+    const logFile = subshellLogPath(row.id);
+    await Bun.write(logFile, "old\n");
+
+    const first = await attach(row.userId, row.id);
+    const second = await attach(row.userId, row.id);
+    await Bun.sleep(60);
+
+    cleanupSubshellWs(first.ws); // one leaves
+    const firstFrames = first.sent.length;
+    appendFileSync(logFile, "still streaming\n");
+    await Bun.sleep(1300);
+    expect(first.sent.slice(firstFrames)).toEqual([]); // the one who left is silent
+    expect(second.sent.some((f) => f.includes("still streaming"))).toBe(true); // the other is not
+
+    cleanupSubshellWs(second.ws); // the last one leaves
+    const secondFrames = second.sent.length;
+    appendFileSync(logFile, "after everyone left\n");
+    await Bun.sleep(1300);
+    expect(second.sent.slice(secondFrames)).toEqual([]);
   });
 
   it("the pane-poll branch: cleanup clears the poll interval — no captures after disconnect", async () => {
@@ -269,7 +699,10 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // capture grid" mechanism is gone (it painted mid-stream TUI redraw
     // sequences over the snapshot — the jumble that took ~10s to converge and
     // left the oldest scrollback lines garbled forever).
-    expect(sent).toEqual([JSON.stringify({ type: "replay", data: "SCREEN" })]);
+    // Terminal frames only: the socket also carries `viewers` presence now.
+    expect(sent.filter((f) => !f.includes('"type":"viewers"'))).toEqual([
+      JSON.stringify({ type: "replay", data: "SCREEN" }),
+    ]);
 
     // New output AFTER the attach still streams — EOF is a start, not a stop.
     appendFileSync(logFile, "live\r\n");
@@ -277,9 +710,10 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // so this frame can arrive on the 1000ms backstop instead — which is why
     // every other wait in this file allows 1300ms. A fixed 120ms made the case
     // pass in CI and fail on a Mac.
+    const terminalFrames = () => sent.filter((f) => !f.includes('"type":"viewers"'));
     const deadline = Date.now() + 5000;
-    while (sent.length < 2 && Date.now() < deadline) await Bun.sleep(25);
-    expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
+    while (terminalFrames().length < 2 && Date.now() < deadline) await Bun.sleep(25);
+    expect(terminalFrames()[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
   });
 
   it("announces the pane's REAL grid BEFORE the replay, so the capture paints onto an agreed grid", async () => {

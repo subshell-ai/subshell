@@ -293,14 +293,20 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * Not yet readable on a node: the agent protocol has no command that
-   * reports a pane's grid (spec §6.4), so this answers null honestly rather
-   * than echoing the last requested size back as if it were confirmed — an
-   * echo would be indistinguishable from a real readback and would defeat
-   * the whole point of confirming. Remote panes therefore get no `geometry`
-   * frame and their clients keep sizing themselves, exactly as every client
-   * did before the readback existed. Closing this needs a protocol bump plus
-   * a client release, the same bill `signalPaneWinch` is waiting on.
+   * A node pane cannot be measured: the agent protocol has no command that
+   * reports a pane's grid (spec §6.4). Closing this needs a protocol bump
+   * plus a client release, the same bill `signalPaneWinch` is waiting on.
+   */
+  readonly reportsPaneSize = false;
+
+  /**
+   * Answers null honestly rather than echoing the last requested size back as
+   * if it were confirmed — an echo would be indistinguishable from a real
+   * readback and would defeat the whole point of confirming.
+   *
+   * The server does now announce the requested size to remote clients, but it
+   * does so knowing it is unconfirmed (see {@link reportsPaneSize}), which is
+   * exactly the distinction this method refuses to blur.
    */
   async paneSize(_socket: string, _id: string): Promise<{ cols: number; rows: number } | null> {
     return null;

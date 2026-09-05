@@ -19,7 +19,7 @@ subshell/
 │   ├── tsconfig/                   # Shared TypeScript configuration
 │   ├── backend-errors/             # Error emission and handling for the backend
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
-│   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits
+│   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits, shared-pane sizing
 │   ├── harnesses/                  # Harness plugin interface and built-in agent harness plugins
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── turbo.json                      # Turbo task configuration

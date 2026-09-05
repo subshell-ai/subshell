@@ -12,12 +12,22 @@ import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
-import { sendInput, sendResize } from "@/lib/subshell-frames.js";
+import { sendInput, sendResize, sendSizing } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
-import { type Box, type BoxInsets, boxForGrid, type Grid, gridForBox, scrollbarReserve } from "@/lib/terminal-geometry";
+import {
+  type Box,
+  type BoxInsets,
+  boxForGrid,
+  fontSizeToFit,
+  type Grid,
+  gridForBox,
+  gridOverflowsBox,
+  isDegenerateGrid,
+  scrollbarReserve,
+} from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
-import { useSubshellWs } from "@/lib/use-subshell-ws";
+import { useSubshellWs, type ViewersState } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
 
@@ -54,12 +64,6 @@ export interface SubshellTerminalStatus {
   connected: boolean;
   /** True once the server *rejected* the attach (close code >= 4000) */
   closed: boolean;
-  /**
-   * True when this viewer was superseded (close 4003): the subshell is alive
-   * and streaming in a NEWER viewer — one pane, one size, newest wins. Not
-   * `closed`: a subshell watched elsewhere must not be reported as dead.
-   */
-  replaced?: boolean;
 }
 
 /**
@@ -87,6 +91,13 @@ export interface SubshellTerminalHandles {
   scrollToTop: () => void;
   /** See {@link SubshellTerminalHandles.scrollToTop}. */
   scrollToBottom: () => void;
+  /**
+   * Chooses how the pane is sized while several devices watch it: `auto`
+   * hands it to the smallest visible one, `pinned` to the named viewer.
+   * Refused server-side for a `view` grantee — sizing changes what everyone
+   * sees, so it is an `edit` act like typing.
+   */
+  setSizing: (mode: "auto" | "pinned", viewerId?: string | null) => void;
 }
 
 /** Props for {@link SubshellTerminal}. */
@@ -121,6 +132,12 @@ export interface SubshellTerminalProps {
   onDispose?: () => void;
   /** Called whenever the subshell socket opens or closes */
   onStatusChange?: (status: SubshellTerminalStatus) => void;
+  /**
+   * Called with the live device list on every join, leave, resize and
+   * visibility change — and with null when the socket goes away, so a caller
+   * showing "Devices (3)" does not keep claiming three after a detach.
+   */
+  onViewers?: (state: ViewersState | null) => void;
   /**
   /** Invoked by the exited panel's Restart button */
   onRestart?: () => void;
@@ -198,6 +215,7 @@ export function SubshellTerminal({
   onReady,
   onDispose,
   onStatusChange,
+  onViewers,
   onRestart,
   restarting = false,
   onDelete,
@@ -227,6 +245,20 @@ export function SubshellTerminal({
   // fill-the-box behavior every client had before the readback existed.
   const [letterbox, setLetterbox] = useState<Box | null>(null);
   const paneGridRef = useRef<Grid | null>(null);
+  /**
+   * Cell metrics at the font size the USER chose, recorded whenever the
+   * letterbox applies that size.
+   *
+   * Capacity is "how much could this viewport show", and it has to depend on
+   * the viewport and the user's font choice ONLY — never on the grid the
+   * server announced. Shrink-to-fit breaks that: it lowers the font to make
+   * an oversized grid fit, and a capacity measured against the shrunken cell
+   * then reports MORE cells than the viewport really offers. The server keeps
+   * the large grid because this viewer now claims it can show it, the next
+   * letterbox pass overflows again at the preferred size, and the font never
+   * comes back — the user's choice silently overridden for good.
+   */
+  const preferredCellRef = useRef<{ width: number; height: number } | null>(null);
 
   /**
    * Re-derives the container size from the pane's grid and the terminal's
@@ -240,8 +272,65 @@ export function SubshellTerminal({
     const grid = paneGridRef.current;
     const cell = term?.dimensions?.css.cell;
     if (!term || !grid || !cell || !(cell.width > 0) || !(cell.height > 0)) return;
-    setLetterbox(boxForGrid(grid, { width: cell.width, height: cell.height }, terminalInsets(term)));
+    const insets = terminalInsets(term);
+    const outer = outerRef.current;
+    const box = outer ? { width: outer.clientWidth, height: outer.clientHeight } : null;
+    const preferred = terminalFontSize();
+    let size = { width: cell.width, height: cell.height };
+
+    /** Applies a font size and re-reads the cell metrics that follow from it. */
+    const setFontSize = (next: number): void => {
+      if (term.options.fontSize === next) return;
+      term.options.fontSize = next;
+      const remeasured = term.dimensions?.css.cell;
+      if (remeasured && remeasured.width > 0 && remeasured.height > 0) {
+        size = { width: remeasured.width, height: remeasured.height };
+      }
+    };
+
+    // ALWAYS decide from the size the user chose, never from whatever this
+    // function last left behind. Testing overflow against an already-shrunken
+    // cell says "it fits now" — which is only true BECAUSE it was shrunk — so
+    // the previous shape restored the preferred size, overflowed again on the
+    // next call, shrank again, and flapped between the two forever, with the
+    // letterbox wrong on every other frame.
+    setFontSize(preferred);
+    // Recorded here, at the one instant the terminal is guaranteed to be at
+    // the user's own size, so capacity can be measured against it even while
+    // shrink-to-fit holds the live font lower. See `preferredCellRef`.
+    preferredCellRef.current = { ...size };
+
+    // Ordinarily the shared pane is the SMALLEST viewer's grid, so this one
+    // has room to spare and simply letterboxes. A viewer whose capacity was
+    // refused as degenerate takes no part in that decision though, so it can
+    // be handed a grid it cannot show — and clipping hides the prompt row.
+    // Shrink the text to fit rather than cut it off.
+    if (box && gridOverflowsBox(grid, box, size, insets)) {
+      setFontSize(fontSizeToFit(grid, box, size, insets, preferred));
+    }
+
+    setLetterbox(boxForGrid(grid, size, insets));
   }, []);
+
+  /**
+   * {@link applyLetterbox}, plus one re-run on the next frame.
+   *
+   * Cell metrics are read back immediately after `options.fontSize` is
+   * assigned, and xterm does not promise to have re-measured the font by
+   * then — a stale read sizes the container from the OLD cell, so FitAddon
+   * proposes a grid that does not match the pane and this viewer reports an
+   * inflated capacity. Observed live as a capacity that crept 46 → 49 rows
+   * over several seconds after a font change, rather than landing.
+   *
+   * The re-run is idempotent (the font is already right, so it only
+   * recomputes the box from now-settled metrics) and costs one frame.
+   */
+  const applyLetterboxSettled = useCallback(() => {
+    applyLetterbox();
+    requestAnimationFrame(() => {
+      if (mountedRef.current) applyLetterbox();
+    });
+  }, [applyLetterbox]);
 
   /**
    * The grid this viewport COULD show at the current font size.
@@ -257,13 +346,23 @@ export function SubshellTerminal({
   const measureCapacity = useCallback((): Grid | null => {
     const term = termRef.current;
     const outer = outerRef.current;
-    const cell = term?.dimensions?.css.cell;
-    if (!term || !outer || !cell) return null;
-    return gridForBox(
+    const live = term?.dimensions?.css.cell;
+    if (!term || !outer || !live) return null;
+    // The PREFERRED font's cell, not the live one. Shrink-to-fit can be
+    // holding the live font below the user's choice, and measuring against
+    // that reports a capacity this viewport does not really have — which the
+    // server then honours, so the shrink never lifts. Falls back to the live
+    // cell before the letterbox has ever run, when the two are the same.
+    const cell = preferredCellRef.current ?? live;
+    const measured = gridForBox(
       { width: outer.clientWidth, height: outer.clientHeight },
       { width: cell.width, height: cell.height },
       terminalInsets(term),
     );
+    // Never report the degenerate floor: with several viewers the pane takes
+    // the SMALLEST reported grid, so a terminal measured mid-layout would
+    // shrink every other device's terminal to a two-column strip.
+    return measured && !isDegenerateGrid(measured) ? measured : null;
   }, []);
 
   /** Sends {@link measureCapacity}'s answer to the server. */
@@ -281,6 +380,8 @@ export function SubshellTerminal({
   onDisposeRef.current = onDispose;
   const onStatusChangeRef = useRef(onStatusChange);
   onStatusChangeRef.current = onStatusChange;
+  const onViewersRef = useRef(onViewers);
+  onViewersRef.current = onViewers;
   // Current status, readable from the WS callbacks without closing over the
   // render they were created in.
   const statusRef = useRef(status);
@@ -292,6 +393,9 @@ export function SubshellTerminal({
   // Reports this client's CAPACITY to the server. Same late-binding trick as
   // sendToSubshellRef: the mount effect must not depend on the socket.
   const sendResizeRef = useRef<(cols: number, rows: number) => void>(() => {});
+  // Same deferral: published through the handles, but the socket that carries
+  // it is created by an effect that runs after the terminal's.
+  const setSizingRef = useRef<(mode: "auto" | "pinned", viewerId?: string | null) => void>(() => {});
   // Assigned every render below the uploads hook; the onReady handle forwards
   // to it so the closure captured at terminal-setup time never goes stale.
   const openImagePickerRef = useRef<() => void>(() => {});
@@ -446,8 +550,9 @@ export function SubshellTerminal({
         fit.fit();
         // The pane's grid has not changed, but its cell size has — so both
         // the box that holds exactly that grid AND how much this viewport can
-        // show are different now.
-        applyLetterbox();
+        // show are different now. Settled, because the metrics this reads
+        // were only just invalidated by the assignment above.
+        applyLetterboxSettled();
         reportCapacity();
       }
     };
@@ -526,6 +631,7 @@ export function SubshellTerminal({
       openImagePicker: () => openImagePickerRef.current(),
       scrollToTop: () => term.scrollToTop(),
       scrollToBottom: () => term.scrollToBottom(),
+      setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 
     return () => {
@@ -557,7 +663,7 @@ export function SubshellTerminal({
       serializeRef.current = null;
       fitRef.current = null;
     };
-  }, [active, applyLetterbox, reportCapacity]);
+  }, [active, applyLetterboxSettled, reportCapacity]);
 
   /** Records the new socket status and reports it to the caller. */
   const emitStatus = useCallback((next: SubshellTerminalStatus) => {
@@ -578,19 +684,16 @@ export function SubshellTerminal({
     {
       onOpen: () => emitStatus({ connected: true, closed: statusRef.current.closed }),
       onClose: (code, _reason) => {
-        // 4003: a NEWER viewer took the subshell (one pane has one width; the
-        // newest viewer owns it). The subshell is alive — say so, do not
-        // render the dead-subshell state, and the hook will not retry.
-        if (code === 4003) {
-          emitStatus({ connected: false, closed: false, replaced: true });
-          return;
-        }
         // A server rejection code (4xxx) means the attach is refused (subshell
         // missing / not running) — a reconnect cannot succeed, so surface the
         // dead-subshell state. All other closes (network drops, backend restart)
         // are transient: the hook reconnects on its own and the caller's
         // "reconnecting…" pill covers the gap.
         emitStatus({ connected: false, closed: code >= 4000 });
+        // With the socket down we do not know who is watching — including
+        // whether we still are. Saying so beats leaving a stale "Devices (3)"
+        // on screen through a reconnect.
+        onViewersRef.current?.(null);
       },
       // The pane's real grid. Pin the container to it and say nothing back:
       // FitAddon measuring that box proposes this exact grid, so the
@@ -598,8 +701,12 @@ export function SubshellTerminal({
       // again here is what made the reverted geometry reconciliation loop.
       onGeometry: (cols, rows) => {
         paneGridRef.current = { cols, rows };
-        applyLetterbox();
+        // Settled: a new grid can push this viewport into (or out of) the
+        // shrink-to-fit path, and the cell metrics behind that decision are
+        // read back the instant the font is assigned.
+        applyLetterboxSettled();
       },
+      onViewers: (state) => onViewersRef.current?.(state),
     },
     // A `view` grantee watches the pane but cannot type (spec §4.1).
     subshell?.access === "view",
@@ -618,10 +725,12 @@ export function SubshellTerminal({
   useEffect(() => {
     if (active) return;
     emitStatus({ connected: false, closed: statusRef.current.closed });
+    onViewersRef.current?.(null);
   }, [active, emitStatus]);
 
   sendToSubshellRef.current = (data) => sendInput(wsRef.current, data);
   sendResizeRef.current = (cols, rows) => sendResize(wsRef.current, cols, rows);
+  setSizingRef.current = (mode, viewerId) => sendSizing(wsRef.current, mode, viewerId);
 
   const uploads = useTerminalUploads({ subshellId, wsRef, termRef, enabled: showUploads });
   openImagePickerRef.current = uploads.openImagePicker;

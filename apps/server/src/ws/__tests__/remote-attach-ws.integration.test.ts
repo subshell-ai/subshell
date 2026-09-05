@@ -149,18 +149,29 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
     try {
       expect(closed).toEqual([]); // the dispatch ran to completion, not a refusal
 
-      // The §6.5 flow fired THROUGH the delegation: liveness, capture
-      // (carrying the replay line budget), size probe AFTER it, tail at that
-      // EOF — the same command list the relay's own suite pins. Historical
-      // log bytes are never re-played, so there is exactly ONE log_read.
-      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "capture", "tail_start"]);
+      // The §6.5 flow fired THROUGH the delegation: liveness, the join size
+      // probe, the tail, then the capture — the same command list the relay's
+      // own suite pins. Historical log bytes are never re-played, so there is
+      // exactly ONE log_read.
+      //
+      // The tail precedes the capture because this path joins the SHARED pump
+      // (subscribe → capture → open), which is what lets several browsers
+      // watch one node pane without two overlapping tails. `fromByte` is
+      // still the pre-capture EOF, so the join stays gap-free either way.
+      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture"]);
       expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
         { type: "tail_start", subshellId: id, subId: expect.any(String), fromByte: LOG.length },
       ]);
 
       // Frame 1: the replay, exactly the local path's shape.
-      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      // Terminal frames only: the socket also carries `viewers` presence now.
+      const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
+      // No geometry frame: this attach carries no size (there is no `resize`
+      // on the wire above), so there is nothing the pane was asked for to
+      // announce. An attach that DOES carry one announces it before the
+      // replay — see the relay's own suite.
+      expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
 
       // Owner access ⇒ keystrokes and geometry ride the signed RPC (the
       // geometry passthrough: launch carries no cols today, the attach's
@@ -176,9 +187,15 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // browser's `output` frame.
       // fromByte sits at the armed EOF offset — the launcher's dup-clamp
       // would (correctly) discard anything below it.
+      // The resize above went through the geometry queue, and a node pane
+      // cannot be read back — so the queue announces the size it APPLIED
+      // rather than staying silent. That is what keeps several viewers of one
+      // node pane rendering the same grid as each other and as the pane.
+      expect(term()[1]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
+
       dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
-      await until(() => sent.length === 2, "output frame");
-      expect(sent[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
+      await until(() => term().length === 3, "output frame");
+      expect(term()[2]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     } finally {
       sim.detach();
     }
@@ -236,7 +253,9 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
 
     const { ws, sent } = await attach(userId, id);
     try {
-      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      // Terminal frames only: the socket also carries `viewers` presence now.
+      const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
+      expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
       await new Promise((r) => setTimeout(r, 60)); // let the initial catch-up pump land
       cleanupSubshellWs(ws);
       expect(() => cleanupSubshellWs(ws)).not.toThrow(); // the parity claim: second is a no-op

@@ -1,9 +1,10 @@
-import type { ServerFrame } from "@internal/subshell-protocol";
+import type { ServerFrame, ViewerPresence } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { BUILD_ID } from "@/lib/build-id";
-import { sendInput, sendResize } from "@/lib/subshell-frames.js";
+import { deviceName } from "@/lib/device-name";
+import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 
 export interface TermWsHandlers {
   onOpen?: () => void;
@@ -18,6 +19,23 @@ export interface TermWsHandlers {
    * exactly as before.
    */
   onGeometry?: (cols: number, rows: number) => void;
+  /**
+   * Who else is watching, pushed on every join, leave, resize and visibility
+   * change. Every device constrains the pane's one grid, so this is the only
+   * answer to "why is my terminal this size?" — a caller that renders no
+   * device UI simply omits it.
+   */
+  onViewers?: (state: ViewersState) => void;
+}
+
+/** The `viewers` server frame, as handed to {@link TermWsHandlers.onViewers}. */
+export interface ViewersState {
+  /** Which entry in {@link viewers} is this client. */
+  you: string;
+  /** Everyone attached, including this client. */
+  viewers: ViewerPresence[];
+  /** How the pane's grid is currently being decided. */
+  sizing: { mode: "auto" | "pinned"; pinnedViewerId: string | null };
 }
 
 /** Fixed delay (ms) between automatic reconnect attempts. */
@@ -124,6 +142,11 @@ export function useSubshellWs(
         // arrives laid out for this exact terminal width.
         measure?.();
         // Capacity, not the terminal's own grid — see the `capacity` param.
+        // At CONNECT there is no socket yet, so silence is not an option —
+        // the URL must carry something. A pinning caller that cannot measure
+        // falls back to the terminal's grid here and only here, because at
+        // this instant that grid is the previous connection's, not an echo of
+        // a live server answer, and the first observer tick corrects it.
         const fitted = capacityRef.current?.() ?? null;
         const usedCols = fitted?.cols ?? term.cols;
         const usedRows = fitted?.rows ?? term.rows;
@@ -131,18 +154,40 @@ export function useSubshellWs(
         // journal's attach line then states WHICH client code is talking, so
         // a cached PWA running pre-fix JavaScript is visible instead of being
         // mistaken for a server bug.
+        // `device` names this browser in everyone else's Devices list. Without
+        // it every row reads "Unnamed device", which is worse than no list at
+        // all: two identical rows cannot be told apart, so neither the pane's
+        // size nor the pin control means anything (seen live, 2026-09-04).
         const url =
           `${proto}://${window.location.host}/ws?subshell=${encodeURIComponent(subshellId)}` +
           `&token=${encodeURIComponent(token)}&cols=${usedCols}&rows=${usedRows}` +
-          `&build=${encodeURIComponent(BUILD_ID)}`;
+          `&build=${encodeURIComponent(BUILD_ID)}&device=${encodeURIComponent(deviceName())}` +
+          // `hidden` rides the URL as well as the on-open frame: that frame
+          // races the server's own attach awaits and is DROPPED if it wins,
+          // and unlike a resize nothing re-sends it until the tab is shown.
+          // A tab attached while already hidden would then hold every other
+          // device's pane at its size for the socket's whole life.
+          `&hidden=${document.hidden ? "1" : "0"}`;
 
         const ws = new WebSocket(url);
         socket = ws;
         wsRef.current = ws;
 
+        // The one place this client states its size. A caller that PINS
+        // reports only what it measured: `capacity()` returning null means
+        // "I could not measure right now" (mid-layout, no cell metrics), and
+        // answering that with `term.cols` would report the server's own grid
+        // straight back — the echo that strands the pane at the smallest
+        // viewer's size forever. Silence is correct; the next observer tick
+        // reports the real number.
         const syncSize = () => {
-          const fit = capacityRef.current?.() ?? null;
-          sendResize(ws, fit?.cols ?? term.cols, fit?.rows ?? term.rows);
+          const provider = capacityRef.current;
+          if (!provider) {
+            sendResize(ws, term.cols, term.rows); // no pinning: the grid IS the viewport
+            return;
+          }
+          const fit = provider();
+          if (fit) sendResize(ws, fit.cols, fit.rows);
         };
 
         // Each attach rebuilds full history; the previous connection's screen
@@ -152,6 +197,9 @@ export function useSubshellWs(
 
         ws.onopen = () => {
           handlersRef.current.onOpen?.();
+          // State, not an event: a tab attached while hidden must say so, or
+          // it silently constrains every other device's pane.
+          sendVisibility(ws, document.hidden);
           // Sync the detached tmux window to the browser terminal size
           // (tmux subshells start at 80×24; the pane must match the client).
           syncSize();
@@ -181,6 +229,8 @@ export function useSubshellWs(
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
+            } else if (frame.type === "viewers") {
+              handlersRef.current.onViewers?.({ you: frame.you, viewers: frame.viewers, sizing: frame.sizing });
             } else if (frame.type === "geometry") {
               // Fact, not a request — the caller pins its grid to this and
               // stays silent about it (see TermWsHandlers.onGeometry).
@@ -226,17 +276,43 @@ export function useSubshellWs(
       sendInput(wsRef.current, data);
     });
 
-    // Keep the tmux window in sync with the client terminal across resizes
-    // (window changes, DevTools, fullscreen). Hooked before connect so no
-    // size update is lost; the terminal emits onResize after the page's
-    // ResizeObserver calls fit().
+    // Keep the tmux window in sync with the client across resizes (window
+    // changes, DevTools, fullscreen). Hooked before connect so no size update
+    // is lost; the terminal emits onResize after the page's ResizeObserver
+    // calls fit().
+    //
+    // CAPACITY, not the terminal's grid, whenever the caller pins. A pinning
+    // caller sizes its container to the grid the server announced, FitAddon
+    // then measures that box, and the terminal resizes to the server's own
+    // answer — so forwarding `cols`/`rows` here reports the server's number
+    // back as this viewer's capacity. With one viewer that is a harmless
+    // no-op, which is why it survived; with two it is fatal. Measured live
+    // (2026-09-04): a 77x29 laptop reported 50x18 seconds after a 50x18 phone
+    // attached, and because the laptop then genuinely claimed it could show
+    // no more, the pane never grew back when the phone left — a third viewer
+    // at 90x30 was still handed 50x18.
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      sendResize(wsRef.current, cols, rows);
+      const provider = capacityRef.current;
+      if (!provider) {
+        sendResize(wsRef.current, cols, rows);
+        return;
+      }
+      // A null measurement is NOT a reason to fall back to `cols`/`rows`:
+      // those are the echo this whole handler exists to avoid, and a
+      // momentarily unmeasurable box (a sash mid-drag) would reintroduce it.
+      const fit = provider();
+      if (fit) sendResize(wsRef.current, fit.cols, fit.rows);
     });
+
+    // A viewer that stops being rendered stops taking part in sizing, and
+    // rejoins the moment it is shown.
+    const onVisibility = () => sendVisibility(wsRef.current, document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
 
     void connect();
 
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
       inputDisposableRef.current?.dispose();

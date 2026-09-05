@@ -2,8 +2,11 @@ export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   type ClientFrame,
+  DEVICE_LABEL_MAX,
+  normalizeDeviceLabel,
   parseClientFrame,
   type ServerFrame,
+  type ViewerPresence,
 } from "./frames.js";
 export type { JsonValue } from "./json.js";
 export {
@@ -67,6 +70,20 @@ export {
   type ServerTarget,
   serverArtifactFileName,
 } from "./paths.js";
+export {
+  DEFAULT_GRID,
+  DEFAULT_SIZING,
+  decideSharedGrid,
+  type Grid,
+  type GridDecision,
+  type GridReason,
+  MIN_SHARED_COLS,
+  MIN_SHARED_ROWS,
+  resolveSharedGrid,
+  type SizingMode,
+  type SizingPolicy,
+  type ViewerCapacity,
+} from "./shared-geometry.js";
 // NOTE: release-artifacts.ts (node: builtins) is intentionally NOT re-exported
 // here — this barrel is imported by apps/mobile through Metro, which cannot
 // resolve `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts".

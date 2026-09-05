@@ -6,17 +6,24 @@ import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
+import { createRemoteTailSource } from "@/ws/pane-sources.js";
+import type { Subscription } from "@/ws/pane-stream.js";
 import {
+  applySharedGeometry,
+  broadcastToViewers,
+  broadcastViewers,
   captureStable,
-  evictPreviousViewer,
   nudgePaneForRepaint,
-  persistOutput,
+  paneStreams,
+  persistOutputFor,
   RESIZE_SETTLE_MS,
+  registerViewer,
+  seedPaneGeometry,
+  sharedGridFor,
   type WsData,
   type WsSocket,
   waitForPaneRepaint,
 } from "@/ws/subshell-ws.js";
-import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 
 /**
  * Live-terminal relay for subshells running on an agent node (spec
@@ -107,6 +114,18 @@ export async function attachRemoteSubshellWs(
   launcher: RemoteLauncher,
   access: Access,
   size?: AttachSize | null,
+  /** Device label from the connect URL; the remote path never sees the URL. */
+  deviceLabel = "Unnamed device",
+  /**
+   * Whether the client declared itself not-being-rendered on the connect URL.
+   *
+   * Same reason the local twin reads it there: the on-open `visibility` frame
+   * races this handler's awaits and is DROPPED when it wins, and unlike a
+   * resize nothing re-sends it until the tab is shown. Without it a phone
+   * attached to a node subshell while already backgrounded holds every
+   * laptop's pane at phone size for the socket's whole life.
+   */
+  hidden = false,
 ): Promise<void> {
   if (!getLive(row.nodeId)) {
     ws.close(4004, "node offline");
@@ -136,13 +155,26 @@ export async function attachRemoteSubshellWs(
     socket: row.tmuxSocket ?? "",
     subshellId: row.id,
     logFile: "",
-    lastSize: 0,
-    lastOutputWriteAt: 0,
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),
+    capacity: size ?? undefined,
+    hidden,
+    // Presence identity: who this viewer is in the `viewers` frame. The id
+    // lives as long as the socket, so a reconnect is legitimately a new
+    // viewer rather than a resurrected one.
+    viewerId: crypto.randomUUID(),
+    deviceLabel,
+    since: new Date().toISOString(),
     cleanup,
   };
   Object.assign(ws.data, data);
+  // The browser left while the node registry was being consulted — see the
+  // local twin: its close found nothing to undo, so registering now would
+  // strand a viewer that can never be removed.
+  if (ws.data.detachedEarly) return;
+  // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
+  // not exist until the context object carries it.
+  registerViewer(ws, row.id);
 
   try {
     if (!(await launcher.hasSubshell(data.socket, row.id))) {
@@ -150,9 +182,6 @@ export async function attachRemoteSubshellWs(
       return;
     }
     if (detached) return;
-    // Pane proven alive — claim the subshell's one live viewer slot (the local
-    // twin's rule): the previous viewer's width was about to fight this one's.
-    evictPreviousViewer(ws, row.id);
 
     // JOIN POINT (the local twin carries the full reasoning): one 1-byte
     // `log_read` for `size`, sampled BEFORE the resize — the tail streams
@@ -162,6 +191,36 @@ export async function attachRemoteSubshellWs(
     // still arms (the agent tolerates a log pipe-pane has not created yet).
     const logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
     if (detached) return;
+
+    // Attach to the subshell's shared pump BEFORE the pane is read — the
+    // local twin's ordering, and here it is also a hard requirement rather
+    // than an optimization: `NodeLauncher`'s contract forbids overlapping
+    // per-subshell pumps, so two viewers each running their own `tailStart`
+    // over one pane is two independent dup-clamp/backfill states on one byte
+    // stream. Each device could observe a different order and neither would
+    // be authoritative. The subscription starts QUEUED; nothing is delivered
+    // until the replay has been sent.
+    const stream: Subscription = paneStreams.subscribe(
+      row.id,
+      () =>
+        createRemoteTailSource({
+          launcher,
+          subshellId: row.id,
+          fromByte: logStart,
+          onOutput: () => persistOutputFor(row.id),
+        }),
+      (text) => {
+        // Spec §3.4: a browser that cannot keep up is cut, not queued into —
+        // its reconnect replays fresh. (Measured on the server send queue.)
+        const lag = (ws.raw as RawWithBackpressure | undefined)?.getBufferedAmount?.() ?? 0;
+        if (lag > CLIENT_LAG_LIMIT_BYTES) {
+          ws.close(1011, "client too slow");
+          return;
+        }
+        ws.send(JSON.stringify({ type: "output", data: text }));
+      },
+    );
+    disposer = () => stream.close();
 
     // The pane as the viewer found it — forensics only, and only when armed
     // (an extra capture RPC). The local twin carries the reasoning.
@@ -173,10 +232,24 @@ export async function attachRemoteSubshellWs(
     // with its own refusal if the node actually went away.
     let repainted = false;
     let nudged = false;
+    /** The grid this attach asked the pane for, for the announcement below. */
+    let appliedFit: { cols: number; rows: number } | null = null;
     if (size) {
       const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
       try {
-        await launcher.resize(data.socket, row.id, size.cols, size.rows);
+        // The pane is fitted to what EVERY viewer can display, not to the
+        // joiner's own size — the local twin's rule, and the remote path was
+        // the half that never got it: a phone attaching to a node subshell a
+        // laptop was already watching applied its own 60x20 unconditionally,
+        // so the pane bounced between the two exactly as it did before
+        // eviction was removed.
+        const fit = sharedGridFor(row.id) ?? size;
+        appliedFit = fit;
+        await launcher.resize(data.socket, row.id, fit.cols, fit.rows);
+        // Tell the queue this fit bypassed it, or `applied` keeps naming a
+        // size the pane no longer holds and the next client frame asking for
+        // the real one is swallowed as already-applied.
+        seedPaneGeometry(row.id, fit.cols, fit.rows);
         // Wait for the pane's TUI to repaint at the new geometry (burst of
         // fresh log bytes, then quiet) — a flat settle captures tmux's
         // re-wrapped approximation of the OLD frame — and when no burst comes
@@ -188,7 +261,9 @@ export async function attachRemoteSubshellWs(
         repainted = await waitForPaneRepaint(sizeOf, { baseline: logStart });
         if (!repainted && !detached) {
           nudged = true;
-          repainted = await nudgePaneForRepaint(launcher, data.socket, row.id, size.cols, size.rows, sizeOf);
+          // `fit`, not `size`: the nudge ENDS by resizing to what it is
+          // handed, which would undo the shared fit three lines above.
+          repainted = await nudgePaneForRepaint(launcher, data.socket, row.id, fit.cols, fit.rows, sizeOf);
         }
       } catch (err) {
         logger.withError(err).warn("remote attach: initial resize failed; replay uses the current size");
@@ -208,37 +283,56 @@ export async function attachRemoteSubshellWs(
     const replay = await captureStable(launcher, data.socket, row.id, cap);
     if (replay === null) {
       // pane may have just died (the local twin swallows this; remote closes
-      // the same refusal the probe path uses — nothing after it can stream)
+      // the same refusal the probe path uses — nothing after it can stream).
+      // Tear the subscription down HERE rather than trusting the platform to
+      // deliver a close event for a socket we just closed ourselves: the pump
+      // is armed before the capture (the join-point rule), so a refusal after
+      // it would otherwise leave a tail running for a viewer that never was.
+      cleanup();
       ws.close(4004, "subshell not running");
       return;
     }
     // Trailing terminator stripped, no cursor restored — the local twin's
     // reasoning (kept from b76a22f).
+    // The grid the pane was asked for, announced to EVERY viewer and BEFORE
+    // the replay — the local twin's order, and for its reason: a client told
+    // first paints the capture onto a grid it already agrees with instead of
+    // discovering the mismatch a frame later.
+    //
+    // A node pane cannot be read back (`RemoteLauncher.paneSize` answers null
+    // until the agent protocol grows a size command), and this path used to
+    // announce nothing at all on that account — remote clients sized
+    // themselves. That was sound while a pane had one viewer, whose own grid
+    // WAS the grid the pane had just been given. With several it is not: the
+    // pane takes the MINIMUM, so every larger client renders more rows than
+    // the pane holds, and a client taller than its pane does not scroll when
+    // the pane does, putting every later relative-positioned frame a row out.
+    // An unconfirmed number all viewers share beats a confirmed disagreement;
+    // `pane-geometry.ts` carries the same reasoning for the queue's path.
+    if (appliedFit) {
+      broadcastToViewers(row.id, { type: "geometry", cols: appliedFit.cols, rows: appliedFit.rows });
+    }
+
     const painted = captureToReplayText(replay);
     ws.send(JSON.stringify({ type: "replay", data: painted }));
     recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
     if (detached) return;
 
-    // Per-connection decode/strip state, mirroring the local twin:
-    // `stream: true` keeps a multi-byte char split across reads intact, and
-    // the stripper holds a DEC-2026 marker split across a read boundary until
-    // its other half arrives (see ws/sync-stripper.ts).
-    const decoder = new TextDecoder();
-    const stripper = new SyncStreamStripper();
-    disposer = await launcher.tailStart(row.id, crypto.randomUUID(), logStart, (bytes) => {
-      // Spec §3.4: a browser that cannot keep up is cut, not queued into —
-      // its reconnect replays fresh. (Measured on the server send queue.)
-      const lag = (ws.raw as RawWithBackpressure | undefined)?.getBufferedAmount?.() ?? 0;
-      if (lag > CLIENT_LAG_LIMIT_BYTES) {
-        ws.close(1011, "client too slow");
-        return;
-      }
-      const text = stripper.push(decoder.decode(bytes, { stream: true }));
-      if (!text) return; // nothing paintable yet — the whole read is held
-      ws.send(JSON.stringify({ type: "output", data: text }));
-      persistOutput(ws, data);
-    });
-    if (detached) disposer(); // vanished during the tail_start round-trip
+    // Deliver: flush what the pump held while the replay was being taken,
+    // then stream live. Decode/strip state lives in the SOURCE, not here —
+    // per-viewer copies would each see only part of the byte stream and burn
+    // characters split across a read boundary to U+FFFD.
+    stream.open();
+    // Presence LAST, like the local twin: a joiner appears to the others once
+    // it is actually receiving, and its own first list already includes it.
+    broadcastViewers(row.id);
+    // Re-decide now the attach is over — the local twin's reasoning: this
+    // path resized the pane DIRECTLY and seeded the queue behind its back, so
+    // a client frame that landed mid-attach could have been applied and then
+    // undone. Idempotent when nothing raced (the queue drops a request for
+    // the size it already holds), so the quiet case costs nothing.
+    applySharedGeometry(row.id, launcher, data.socket);
+    if (detached) stream.close();
   } catch (err) {
     // Anything after open that throws (rpc drop, malformed answer): tear the
     // tail down (idempotent — cleanup may already have run) and close. The

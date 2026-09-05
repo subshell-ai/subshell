@@ -86,3 +86,40 @@ Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
 panel remount disposes its terminal, closes the WS, and forces a history
 replay — every panel must keep `renderer: "always"`, and every `dockview-react`
 upgrade must re-run the manual probe documented in the root `AGENTS.md`.
+
+### Several devices, one pane
+
+A tmux pane has ONE grid, so every attached viewer constrains it. The rule
+itself lives in `@internal/subshell-protocol` (`shared-geometry.ts`) so the
+server can APPLY it and the browser can EXPLAIN it from one definition:
+smallest visible viewer wins, hidden viewers drop out, a pin overrides both.
+`decideSharedGrid` returns the grid plus the viewer ids holding each axis;
+`lib/device-roles.ts` turns that into the rows `<SubshellDevices>` renders in
+the subshell header ("Devices (2)", each device's size, "sets width", pin).
+
+Two traps on this path, both invisible with a single viewer and both hit for
+real (2026-09-04):
+
+- **Do not report `term.cols`/`term.rows` as this client's size.** The
+  container is pinned to the grid the server announced, so the terminal's own
+  grid is an ECHO of the server's answer. Sending it back makes this viewer
+  claim it can show no more than the smallest one — after which the pane never
+  grows back when that viewer leaves. The client's only size statement is
+  `measureCapacity()`, measured from the OUTER (pane) box.
+  A null measurement is NOT a fallback to the terminal's grid either: it
+  means "could not measure right now" (a sash mid-drag), and answering it with
+  `term.cols` is the same echo by another route. A pinning caller stays SILENT
+  until it can measure; the next observer tick reports the real number.
+- **`&device=` on the attach URL is load-bearing.** Without it every row of
+  everyone's Devices list reads "Unnamed device" and the list explains
+  nothing. `lib/device-name.ts` derives it from the User-Agent and honours a
+  per-device localStorage override. `&hidden=` rides the URL for a different
+  reason: the on-open `visibility` frame races the server's attach and is
+  dropped when it wins, and nothing re-sends it until the tab is shown.
+- **Decide the letterbox font from the size the user CHOSE, never from the
+  one this function last left behind.** Testing overflow against an
+  already-shrunken cell says "it fits" — which is only true because it was
+  shrunk — so the font flapped between the two on alternate frames. And cell
+  metrics read back immediately after assigning `options.fontSize` may be
+  stale, so anything that changes the font re-runs on the next frame
+  (`applyLetterboxSettled`).

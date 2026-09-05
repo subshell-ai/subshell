@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { SubshellView } from "@/types/subshell";
 import type { WorkspacePaneRow } from "@/types/workspace";
-import { isPaneWaiting, isWaiting, priorityRunning } from "../subshell-order";
+import { isPaneWaiting, isWaiting, priorityRunning, sortByCreation } from "../subshell-order";
 
 /** A subshell with only the fields these helpers read. */
 function subshell(overrides: Partial<SubshellView>): SubshellView {
@@ -105,5 +105,62 @@ describe("priorityRunning", () => {
     priorityRunning(input);
 
     expect(input.map((s) => s.name)).toEqual(["c", "a"]);
+  });
+});
+
+describe("sortByCreation — the swipe's stable spine", () => {
+  const at = (iso: string, id: string) => ({ id, createdAt: iso });
+
+  it("orders newest-created first", () => {
+    const out = sortByCreation([
+      at("2026-09-01T00:00:00.000Z", "old"),
+      at("2026-09-03T00:00:00.000Z", "new"),
+      at("2026-09-02T00:00:00.000Z", "mid"),
+    ]);
+    expect(out.map((s) => s.id)).toEqual(["new", "mid", "old"]);
+  });
+
+  it("does NOT move when activity changes — the whole point", () => {
+    // The sidebar ranks by `activity` ("output within 60s"), so a subshell
+    // printing a line jumps its band and the neighbours change under the
+    // user's finger. Creation order cannot: it reads no such field.
+    const rows = [
+      { ...at("2026-09-01T00:00:00.000Z", "a"), activity: "idle" },
+      { ...at("2026-09-02T00:00:00.000Z", "b"), activity: "idle" },
+      { ...at("2026-09-03T00:00:00.000Z", "c"), activity: "idle" },
+    ];
+    const before = sortByCreation(rows).map((s) => s.id);
+    const afterBurst = sortByCreation(rows.map((r) => (r.id === "a" ? { ...r, activity: "active" } : r))).map(
+      (s) => s.id,
+    );
+    expect(afterBurst).toEqual(before);
+  });
+
+  it("is independent of the input order", () => {
+    const rows = [
+      at("2026-09-01T00:00:00.000Z", "a"),
+      at("2026-09-02T00:00:00.000Z", "b"),
+      at("2026-09-03T00:00:00.000Z", "c"),
+    ];
+    const forward = sortByCreation(rows).map((s) => s.id);
+    expect(sortByCreation([...rows].reverse()).map((s) => s.id)).toEqual(forward);
+  });
+
+  it("stays deterministic when two rows share a timestamp", () => {
+    const same = "2026-09-02T00:00:00.000Z";
+    const one = sortByCreation([at(same, "b"), at(same, "a")]).map((s) => s.id);
+    const two = sortByCreation([at(same, "a"), at(same, "b")]).map((s) => s.id);
+    expect(one).toEqual(two);
+  });
+
+  it("does not mutate its input", () => {
+    const rows = [at("2026-09-01T00:00:00.000Z", "a"), at("2026-09-03T00:00:00.000Z", "c")];
+    sortByCreation(rows);
+    expect(rows.map((s) => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("survives an unparseable timestamp rather than scrambling the list", () => {
+    const out = sortByCreation([at("not-a-date", "bad"), at("2026-09-02T00:00:00.000Z", "good")]);
+    expect(out.map((s) => s.id).sort()).toEqual(["bad", "good"]);
   });
 });

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import {
-  evictPreviousViewer,
   handleSubshellMessage,
   parseClientBuild,
+  registerViewer,
   resetGeometryQueueForTests,
   resetLiveViewersForTests,
   type WsSocket,
@@ -38,15 +38,23 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
       socket: "sock",
       subshellId,
       logFile: "/dev/null",
-      lastSize: 0,
-      lastOutputWriteAt: 0,
       canInput: opts.canInput ?? true,
+      // The registry is keyed by viewerId, so a fake without one registers
+      // as nothing and its resize frames reach no pane.
+      viewerId: crypto.randomUUID(),
+      deviceLabel: "Test device",
+      since: new Date().toISOString(),
     },
     send: (raw: string) => {
       sent.push(JSON.parse(raw) as Record<string, unknown>);
     },
     close: () => undefined,
   } as unknown as WsSocket;
+  // A resize frame reports what THIS viewer can display, and the pane's size
+  // is then decided across every REGISTERED viewer — so a socket that never
+  // registered has no say and nothing reaches tmux. Every real attach
+  // registers; the fake must too, or these cases test an unreachable state.
+  registerViewer(ws, subshellId);
   return { ws, inputs, resizes, sent, subshellId };
 }
 
@@ -134,10 +142,12 @@ describe("handleSubshellMessage", () => {
     const { ws, sent, subshellId } = fakeSocket({ subshellId: "resize-geom" });
     resetGeometryQueueForTests([subshellId]);
     resetLiveViewersForTests();
-    evictPreviousViewer(ws, subshellId); // registers this socket as the viewer
+    registerViewer(ws, subshellId); // registers this socket as the viewer
     handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 92, rows: 28 }));
     await tick();
-    expect(sent).toEqual([{ type: "geometry", cols: 92, rows: 28 }]);
+    // Filtered, not exact: the socket also carries `viewers` presence frames
+    // now, and this case is about the geometry announcement.
+    expect(sent.filter((f) => f.type === "geometry")).toEqual([{ type: "geometry", cols: 92, rows: 28 }]);
     resetLiveViewersForTests();
   });
 
@@ -151,10 +161,10 @@ describe("handleSubshellMessage", () => {
     });
     resetGeometryQueueForTests([subshellId]);
     resetLiveViewersForTests();
-    evictPreviousViewer(ws, subshellId);
+    registerViewer(ws, subshellId);
     handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 51, rows: 13 }));
     await tick();
-    expect(sent).toEqual([{ type: "geometry", cols: 51, rows: 16 }]);
+    expect(sent.filter((f) => f.type === "geometry")).toEqual([{ type: "geometry", cols: 51, rows: 16 }]);
     resetLiveViewersForTests();
   });
 
