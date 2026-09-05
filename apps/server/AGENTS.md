@@ -161,10 +161,21 @@ not carrying one input, with nothing in the types to say so. A struct makes
 the next omission a compile error.
 
 **The `ws/` split:** `subshell-ws.ts` is the local attach plus the plugin's
-three entry points; `viewers.ts` owns who is watching and what that means for
-the pane (registry, sizing policy, pump registry, resize queue);
-`pane-repaint.ts` makes a pane repaint and reads it back; `attach-params.ts`
-reads the URL. Both attach paths import those three, which is what dissolved
+three entry points; `attach-resolve.ts` answers "who is asking, may they, and
+about which subshell" and needs NO socket (refusals are returned, so the one
+place holding the socket owns every close code — and the auth path is
+testable without standing one up); `viewers.ts` owns who is watching and what
+that means for the pane (registry, sizing policy, pump registry, resize
+queue); `pane-repaint.ts` makes a pane repaint and reads it back;
+`attach-params.ts` reads the URL.
+
+`viewers.ts` stays one module at ~430 lines against the ~300-400 guidance,
+deliberately: presence and sizing look separable but are not. The pane's size
+IS a function of the viewer set, so `sharedGridFor` reads the registry while
+`detachViewer` re-decides and `broadcastViewers` ships the policy — splitting
+them re-introduces a cycle, or needs a third module that exists only to hold
+the knot. One cohesive concern beats two that cannot stop importing each
+other. Both attach paths import those three, which is what dissolved
 the old `subshell-ws` ↔ `remote-subshell-ws` cycle — the relay no longer
 reaches into the local attach handler for shared machinery.
 

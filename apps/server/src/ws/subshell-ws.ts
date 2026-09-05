@@ -1,16 +1,14 @@
-import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
-import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
+import { accessAtLeast } from "@/lib/subshell-access.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
-import { parseAttachParams } from "@/ws/attach-params.js";
+import { resolveAttach } from "@/ws/attach-resolve.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
 import type { PaneGeometry } from "@/ws/pane-geometry.js";
 import { captureStable, nudgePaneForRepaint, RESIZE_SETTLE_MS, waitForPaneRepaint } from "@/ws/pane-repaint.js";
@@ -32,7 +30,6 @@ import {
   type WsData,
   type WsSocket,
 } from "@/ws/viewers.js";
-import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
  * WebSocket attach endpoint: streams a subshell's live output to the client
@@ -66,78 +63,22 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * local attach handler for shared machinery.
  */
 export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
-  const subshellId = url.searchParams.get("subshell");
-  if (!subshellId) {
-    ws.close(4001, "missing subshell");
+  // Who is asking, may they, and about which subshell — one decision, made
+  // without touching the socket (see `attach-resolve.ts`). Refusals come back
+  // rather than closing there, so every close code is owned here.
+  const resolved = await resolveAttach({
+    url,
+    cookieHeader: ws.raw?.request?.headers.get("cookie") ?? "",
+    // `ws.data.attachUa` is stashed by the plugin's `upgrade` hook, because
+    // `ws.raw.request` is NOT populated in Elysia's WS open context (that read
+    // is the fallback for direct callers, e.g. tests).
+    attachUa: ws.data?.attachUa ?? ws.raw?.request?.headers.get("user-agent") ?? "unknown",
+  });
+  if (!resolved.ok) {
+    ws.close(resolved.code, resolved.reason);
     return;
   }
-
-  // Auth: the `token` query param is a short-lived WS token issued by
-  // POST /api/auth/ws-token (the frontend authenticates via its HttpOnly
-  // cookie on that call). Fall back to reading the session cookie when it
-  // reaches us directly (same-host WS without a proxy).
-  const tokenParam = url.searchParams.get("token");
-  const cookieHeader = ws.raw?.request?.headers.get("cookie") ?? "";
-
-  let userId: string | null = null;
-  if (tokenParam) {
-    userId = consumeWsToken(tokenParam);
-  } else {
-    // Same shared extraction as the REST guard — accepts the https
-    // `__Secure-` spelling and re-presents it under both names.
-    const session = await resolveCookieSession(cookieHeader);
-    userId = session?.user.id ?? null;
-  }
-  if (!userId) {
-    ws.close(4001, "unauthorized");
-    return;
-  }
-
-  const { repos } = getRequestlessContext();
-  // Resolve the caller's access to THIS subshell (a human browser path: admin
-  // and shared grants both count). Invisible (absent or unshared) closes with
-  // the same 4004 an owner-mismatch used to, so a stranger learns nothing.
-  const { row, access } = await loadSubshellAccess(
-    { subshells: repos.subshells, shares: repos.subshellShares, userMeta: repos.userMeta },
-    userId,
-    subshellId,
-  );
-  if (!row || !accessAtLeast(access, "view")) {
-    ws.close(4004, "subshell not found");
-    return;
-  }
-
-  // The client's fitted geometry rides the URL so the pane can be resized
-  // BEFORE the replay is captured: a capture taken at tmux's 80×24 birth size
-  // (or any stale size) re-wraps history rows against the wrong column count,
-  // which is exactly the mis-positioned garbage that used to scroll up and
-  // stay garbled. Both attach branches consume it.
-  // Every attach input, read off the URL once — see `attach-params.ts`.
-  const params = parseAttachParams(url);
-  // One line per attach makes "still jumbled" reports diagnosable from the
-  // journal alone: `geometry WxH` proves the browser's cols/rows survived
-  // proxy + plugin handoff; `geometry MISSING` names the remaining culprits
-  // (stale client bundle that sends no geometry, or a proxy stripping the
-  // WS upgrade query).
-  // The UA names the app behind the socket: `geometry MISSING` plus a plain
-  // browser UA = a stale PWA bundle that predates the geometry feature (and
-  // the paste fixes) — a reload/reinstall is the cure, not a server change.
-  // It rides `ws.data.attachUa`, stashed by the plugin's `upgrade` hook,
-  // because `ws.raw.request` is NOT populated in Elysia's WS open context
-  // (that read is the fallback for direct callers, e.g. tests).
-  const ua = ws.data?.attachUa ?? ws.raw?.request?.headers.get("user-agent") ?? "unknown";
-  // WHICH BUNDLE is asking. A cached PWA keeps running old JavaScript across
-  // any number of server deploys, and static requests are not logged, so
-  // "did the client actually load the fix" was unanswerable — the 2026-09-04
-  // session burned hours on renderer theories while the phone may never have
-  // fetched the new chunk. `build=` is the client's own asset hash, so a
-  // reload is visible as a CHANGED id; `build MISSING` is itself the answer,
-  // meaning a bundle older than this line.
-  logger.info(
-    params.size
-      ? `ws attach ${row.id}: geometry ${params.size.cols}x${params.size.rows} build=${params.build} ua="${ua.slice(0, 90)}"`
-      : `ws attach ${row.id}: geometry MISSING (stale client predates cols/rows) build=${params.build} ua="${ua.slice(0, 90)}"`,
-  );
+  const { row, access, params } = resolved;
 
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
   // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row
@@ -199,9 +140,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     detached = true;
     data.cleanup?.();
   };
-
-  const harness = row.harnessId ? getHarness(row.harnessId) : undefined;
-  void harness;
 
   // JOIN-POINT RULE (learned the hard way, twice): the client attaches at a
   // log offset taken BEFORE the resize, then gets the snapshot plus EVERY
@@ -310,7 +248,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // capture — the stable-grid poll is obsolete now the byte stream is
   // gap-free: a snapshot that races an animating frame is corrected by the
   // very next diff, which the client is guaranteed to receive.
-  const cap = replayLineCap(await repos.userMeta.getTerminalReplayLines(row.userId));
+  const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
   const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
   // The trailing terminator still goes (kept from b76a22f): it would land the
   // client one row past the pane's last row, scrolling the viewport out of
@@ -382,21 +320,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   };
   if (detached) ws.data.cleanup();
 }
-
-/**
- * The client geometry a browser passed on the WS URL (`&cols=&rows=`), or
- * null when absent/malformed (older client, manual connect) — the attach then
- * skips the pre-capture resize and behaves the old way.
- */
-function _parseInitialSize(url: URL): { cols: number; rows: number } | null {
-  const cols = Number(url.searchParams.get("cols"));
-  const rows = Number(url.searchParams.get("rows"));
-  if (Number.isInteger(cols) && cols > 0 && Number.isInteger(rows) && rows > 0) return { cols, rows };
-  return null;
-}
-
-/** Longest client build id the attach line will print (an asset hash is ~8). */
-const _MAX_BUILD_ID_LEN = 24;
 
 /**
  * Client → server frame dispatch.
