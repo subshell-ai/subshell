@@ -83,7 +83,13 @@ async function gotoSubshell(page: Page, id: string): Promise<void> {
  * with no error anywhere.
  */
 async function swipeReady(page: Page): Promise<void> {
-  await expect(page.locator('[data-swipe-nav="ready"]')).toBeVisible();
+  // EXACTLY ONE ready zone. During a client-side navigation the outgoing
+  // route's zone can still be mounted while the incoming one arrives, and a
+  // bare "is one visible" would be satisfied by the zone we are leaving —
+  // the same race, just narrower. Waiting for the count to settle at one is
+  // what makes this a fact about the page rather than about whichever
+  // element the locator happened to reach first.
+  await expect(page.locator('[data-swipe-nav="ready"]')).toHaveCount(1);
   await expect(page.locator(".xterm")).toBeVisible();
 }
 

@@ -232,6 +232,14 @@ export function parseNodeCaptureResult(data: unknown): string | null {
   return isStr(data) ? data : null;
 }
 
+/** A pane's real grid, as the agent measured it. */
+export interface NodePaneSizeResult {
+  /** Pane width in columns; always positive. */
+  cols: number;
+  /** Pane height in rows; always positive. */
+  rows: number;
+}
+
 /**
  * Validates and narrows a `pane_size` command's `result{data}`.
  *
@@ -249,10 +257,11 @@ export function parseNodeCaptureResult(data: unknown): string | null {
  * @param data - the `data` member of a successful result frame
  * @returns the pane's grid, or null when absent/malformed
  */
-export function parseNodePaneSizeResult(data: unknown): { cols: number; rows: number } | null {
+export function parseNodePaneSizeResult(data: unknown): NodePaneSizeResult | null {
   if (!isRecord(data)) return null;
   const { cols, rows } = data as { cols?: unknown; rows?: unknown };
+  // `isInt` is a type predicate, so both are `number` from here — no casts.
   if (!isInt(cols) || !isInt(rows)) return null;
-  if ((cols as number) <= 0 || (rows as number) <= 0) return null;
-  return { cols: cols as number, rows: rows as number };
+  if (cols <= 0 || rows <= 0) return null;
+  return { cols, rows };
 }

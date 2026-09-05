@@ -76,8 +76,12 @@ export function useSwipeNav(
   // `enabled` flips false mid-drag, unbinding the listeners) would strand
   // the damped translateX on the element — clear it on unbind too.
   //
-  // The element also PUBLISHES whether it is a live swipe target, in the same
-  // effect that governs unbinding so the two cannot drift. It is written for
+  // The element also PUBLISHES whether it is a live swipe target. Written
+  // from the same `enabled` the recognizer is configured with, in an effect
+  // that commits alongside use-gesture's own binding effect — so the two
+  // agree on every settled render. (Not a lock: within one commit the two
+  // effects still run in order, so this is "same input, same flush", not
+  // "impossible to observe apart".) It is written for
   // the e2e suite, whose whole difficulty with this feature was that nothing
   // observable said when a swipe could work: `enabled` is false until the
   // subshell list has loaded and neighbours exist, the terminal mounts well

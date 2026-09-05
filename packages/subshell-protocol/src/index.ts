@@ -26,6 +26,7 @@ export {
   FS_LS_MAX_ENTRIES,
   type NodeFsLsResult,
   type NodeLogReadResult,
+  type NodePaneSizeResult,
   type NodeProbeEntry,
   type NodeProbeResumeResult,
   type NodePromptDeliverResult,

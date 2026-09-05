@@ -100,6 +100,41 @@ describe("resolveAttach", () => {
     expect(unshared).toEqual(missing);
   });
 
+  it("refuses the no-token path when the cookie carries no session", async () => {
+    // The cookie branch exists for a same-host WS with no proxy in front. A
+    // garbage cookie must land on the same 4001 a bad token does — the two
+    // auth routes cannot disagree about what "not signed in" looks like.
+    const row = await seedRow();
+    const out = await resolveAttach({
+      url: new URL(`ws://localhost/ws?subshell=${row.id}`),
+      cookieHeader: "better-auth.session_token=nonsense",
+      attachUa: "test-ua",
+    });
+    expect(out).toEqual({ ok: false, code: 4001, reason: "unauthorized" });
+  });
+
+  it("admits a `view` grantee as view, not as owner", async () => {
+    // Access is what decides whether this socket may type, so resolving it to
+    // the wrong level here is an authorization bug, not a display one.
+    const row = await seedRow();
+    const guest = `u-attach-guest-${seq}`;
+    const { repos } = getRequestlessContext();
+    await repos.subshellShares.replaceForSubshell(row.id, [{ granteeUserId: guest, permission: "view" }], row.userId);
+    const out = await resolveAttach(request(`subshell=${row.id}&token=${issueWsToken(guest)}`));
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.access).toBe("view");
+  });
+
+  it("admits an `edit` grantee as edit", async () => {
+    const row = await seedRow();
+    const guest = `u-attach-editor-${seq}`;
+    const { repos } = getRequestlessContext();
+    await repos.subshellShares.replaceForSubshell(row.id, [{ granteeUserId: guest, permission: "edit" }], row.userId);
+    const out = await resolveAttach(request(`subshell=${row.id}&token=${issueWsToken(guest)}`));
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.access).toBe("edit");
+  });
+
   it("defaults every param a bare client omits", async () => {
     const row = await seedRow();
     const out = await resolveAttach(request(`subshell=${row.id}&token=${issueWsToken(row.userId)}`));
