@@ -157,3 +157,6 @@ file::memory:*
 e2e/.auth/
 e2e/test-results/
 e2e/playwright-report/
+
+# macOS Finder metadata — never useful in a diff.
+.DS_Store

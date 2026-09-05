@@ -289,6 +289,41 @@ littering that once made sync-exit load-bearing — `@/auth.js` building
 better-auth, and opening its SQLite file, eagerly at import — is gone
 with the lazy construction, so the boot gate now carries that load.)
 
+### Boot output
+
+Boot opens with the `/subshell` wordmark, then `subshell-server <version>`.
+
+The wordmark in `src/banner.ts` is **hand-set for the terminal**, and that is a
+decision rather than an oversight. Rasterizing `brand/src/wordmark.svg` was
+tried first — it would have kept the banner sourced from the master — but
+Acherus is a hairline face, and at the ~12 pixel rows a banner can afford every
+weight in the family thresholds into uneven, broken strokes. It reads as wrong
+rather than as small. This is the 16px-favicon problem with the usual answer:
+below a certain size a mark is REDRAWN for the grid, not resampled onto it.
+The COLOURS are still the master's own values, since a palette is the part that
+can silently drift.
+
+It is **plain ASCII** — `#` and `+`, no block elements or box drawing. Those
+depend on the font rendering them at exactly the cell box and the seams show in
+a lot of terminals. The `#`/`+` split is not decoration either: it draws the
+same `sub`/`shell` boundary the colour does, so the two-tone survives a
+journal, a piped log, or a terminal without truecolor. Those are two
+independent constants describing one edge (the characters, and `SUB_END` in the
+painter), which is exactly the kind of pair that drifts silently — a test pins
+them together.
+
+It reaches stdout through a LogLayer **group** (`BANNER_GROUP` in
+`utils/logger.ts`) bound to its own unprefixed `ConsoleTransport`. The pretty
+transport stamps `[time] INFO` on a message's first line, which would shear the
+top row off the letterforms — and writing to `console` directly would put an
+unmanaged writer back into a codebase that routes everything through LogLayer.
+`ungroupedBehavior: ["pretty"]` keeps ordinary logs on the prefixed transport
+only; without it every line would print twice.
+
+Colour is 24-bit ANSI, taken from the master's own fills, and is emitted **only
+when stdout is a TTY** — under systemd or launchd it is not, and escape codes
+written into a journal are something an operator has to read around forever.
+
 ### config.env (`src/config-env.ts`)
 
 `~/.config/subshell-server/config.env` — home overridden by

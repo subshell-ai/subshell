@@ -18,21 +18,57 @@ const SRC_DIR = path.join(BRAND_DIR, "src");
 const ICONS_DIR = path.join(BRAND_DIR, "../apps/frontend/public/icons");
 const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
 
-// brand:generate is a root script, not a turbo task — no cache key to declare for.
-// biome-ignore lint/suspicious/noUndeclaredEnvVars: maintainer-local font path, outside turbo
-const fontDir = process.env.SUBSHELL_BRAND_FONTS_DIR ?? path.join(homedir(), "fonts", "acherus");
 /** Everything — wordmark and mark — is Light 300 (operator choice 2026-09-03: Thin read too weak beside the UI's label weights). */
-const fontFiles = ["Acherus-Grotesque-Light.otf"].map((f) => path.join(fontDir, f));
-for (const f of fontFiles) {
-  if (!existsSync(f)) {
-    console.error(
-      `Licensed font not found: ${f}\n` +
-        "Place the Acherus Grotesque OTFs there (or set SUBSHELL_BRAND_FONTS_DIR).\n" +
-        "The font CANNOT be vendored into this repo — see the branding spec §2.",
-    );
-    process.exit(1);
+const FONT_FILE = "Acherus-Grotesque-Light.otf";
+
+/**
+ * Where the licensed OTF might live, most specific first.
+ *
+ * The original single default (`~/fonts/acherus`) was one maintainer's Linux
+ * layout, so the pipeline simply refused to run for anyone who had installed
+ * the family the normal way for their OS. The font is INSTALLED, not vendored,
+ * so the honest thing is to look where each platform actually installs fonts —
+ * `SUBSHELL_BRAND_FONTS_DIR` remains the override for anything unusual.
+ *
+ * `loadSystemFonts` stays false in {@link render}: finding the file by
+ * convention is not the same as letting resvg pick a substitute, and a silent
+ * fallback face would produce PNGs that look almost right.
+ */
+function fontSearchPath(): string[] {
+  const home = homedir();
+  // biome-ignore lint/suspicious/noUndeclaredEnvVars: maintainer-local font path, outside turbo
+  const override = process.env.SUBSHELL_BRAND_FONTS_DIR;
+  if (override) return [override];
+  const shared = [path.join(home, "fonts", "acherus"), path.join(home, "fonts")];
+  if (process.platform === "darwin") {
+    return [path.join(home, "Library", "Fonts"), "/Library/Fonts", ...shared];
   }
+  if (process.platform === "win32") {
+    // biome-ignore lint/suspicious/noUndeclaredEnvVars: Windows-only font root
+    const windir = process.env.WINDIR ?? "C:\\Windows";
+    return [path.join(home, "AppData", "Local", "Microsoft", "Windows", "Fonts"), path.join(windir, "Fonts"), ...shared];
+  }
+  return [
+    path.join(home, ".local", "share", "fonts"),
+    path.join(home, ".fonts"),
+    "/usr/local/share/fonts",
+    "/usr/share/fonts",
+    ...shared,
+  ];
 }
+
+const searched = fontSearchPath();
+const fontDir = searched.find((dir) => existsSync(path.join(dir, FONT_FILE)));
+if (!fontDir) {
+  console.error(
+    `Licensed font ${FONT_FILE} not found. Searched:\n` +
+      searched.map((d) => `  ${d}`).join("\n") +
+      "\n\nInstall the Acherus Grotesque OTFs (or set SUBSHELL_BRAND_FONTS_DIR).\n" +
+      "The font CANNOT be vendored into this repo — see the branding spec §2.",
+  );
+  process.exit(1);
+}
+const fontFiles = [path.join(fontDir, FONT_FILE)];
 
 type Mode = "width" | "height";
 

@@ -34,7 +34,8 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
-import { getLogger } from "@/utils/logger.js";
+import { BANNER_GROUP, getLogger } from "@/utils/logger.js";
+import { banner } from "@/banner.js";
 import { SERVER_VERSION } from "@/version.js";
 import { sweepWsTokens } from "@/ws/ws-token.js";
 
@@ -77,6 +78,18 @@ process.on("uncaughtException", (error) => {
 if (bootRequested) void bootServer();
 
 async function bootServer(): Promise<void> {
+  // Decoration, and deliberately separate from the version line below: the
+  // banner rides its own transport (no timestamp/level prefix, or the wordmark
+  // would be sheared at the top) and carries no fact, so anything filtering
+  // logs loses nothing by dropping it.
+  //
+  // The blank lines are PADDING, added here rather than baked into the art:
+  // `banner()` returns the wordmark and nothing else, so it stays reusable and
+  // its tests can assert on the drawing alone. Boot output is what needs the
+  // breathing room — butted straight against a timestamped log line, the mark
+  // reads as part of the log rather than as a header.
+  getLogger().withGroup(BANNER_GROUP).info(`\n${banner()}\n`);
+
   // FIRST line in the journal, before anything can fail: after a restart,
   // "which build came up?" is what decides how to read every line beneath it.
   // The service manager restarts whatever binary sits at the unit's ExecStart
