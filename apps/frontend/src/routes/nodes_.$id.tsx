@@ -4,6 +4,7 @@ import { RefreshCw, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { EditableText } from "@/components/editable-text";
 import { ErrorBanner } from "@/components/error-banner";
+import { NodeAllowedDirs } from "@/components/nodes/node-allowed-dirs";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
 import { osLabel } from "@/components/nodes/node-row";
@@ -126,7 +127,7 @@ function NodeDetailPage() {
             n.name
           )
         }
-        subtitle={n.kind === "local" ? "The control-plane host" : (n.hostname ?? "Enrolled agent")}
+        subtitle={n.kind === "local" ? "The control-plane host" : (n.hostname ?? "Enrolled node")}
         action={
           <div className="flex items-center gap-2">
             <Button
@@ -162,17 +163,17 @@ function NodeDetailPage() {
             <dd className="mt-1 flex flex-wrap items-center gap-2">
               <Badge variant={n.status === "online" ? "success" : "muted"}>{n.status}</Badge>
               {/* Any mismatch, either direction: the protocol is matched
-                  EXACTLY, so an agent ahead of the server is refused just as
-                  an agent behind it is. Naming which way round it is turns a
+                  EXACTLY, so a node ahead of the server is refused just as
+                  a node behind it is. Naming which way round it is turns a
                   bare "offline" into an actionable message. */}
               {n.status === "offline" && n.protocolVersion != null && n.protocolVersion !== NODE_PROTOCOL_VERSION && (
                 <Badge
                   variant="warning"
-                  title={`Agent speaks node protocol v${n.protocolVersion}; this control plane speaks v${NODE_PROTOCOL_VERSION}. Deploy the ${
-                    n.protocolVersion < NODE_PROTOCOL_VERSION ? "agent" : "server"
+                  title={`This node speaks protocol v${n.protocolVersion}; this control plane speaks v${NODE_PROTOCOL_VERSION}. Update the ${
+                    n.protocolVersion < NODE_PROTOCOL_VERSION ? "node" : "server"
                   } to match.`}
                 >
-                  {n.protocolVersion < NODE_PROTOCOL_VERSION ? "agent too old" : "agent too new"}
+                  {n.protocolVersion < NODE_PROTOCOL_VERSION ? "node too old" : "node too new"}
                 </Badge>
               )}
             </dd>
@@ -193,20 +194,20 @@ function NodeDetailPage() {
             <dd className="truncate">{n.hostname ?? "—"}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Agent version</dt>
+            <dt className="text-muted-foreground">Node version</dt>
             <dd className="mt-1 flex flex-wrap items-center gap-2">
               {n.agentVersion ?? "—"}
               {/* The OTHER refusal gate, and an independent one: the floor is
-                  raised whenever the server needs newer agent behaviour, with
+                  raised whenever the server needs newer node behaviour, with
                   or without a protocol bump. Without this badge the Status
                   page can list a node as below the floor and link here, to a
                   page showing no warning at all — and unlike the protocol
                   chip this is not gated on `offline`, because the floor is
-                  checked at connect and such an agent never gets online. */}
+                  checked at connect and such a node never gets online. */}
               {n.agentVersion != null && !agentVersionSupported(n.agentVersion) && (
                 <Badge
                   variant="warning"
-                  title={`This control plane requires subshell ${MIN_AGENT_VERSION} or newer; this agent reports ${n.agentVersion}. Update the agent on that host.`}
+                  title={`This control plane requires subshell ${MIN_AGENT_VERSION} or newer; this node reports ${n.agentVersion}. Update the node on that host.`}
                 >
                   below minimum ({MIN_AGENT_VERSION})
                 </Badge>
@@ -254,9 +255,15 @@ function NodeDetailPage() {
         </div>
       )}
 
-      {/* Key rotation lives with the agents: `local`'s key is the control
+      {/* Key rotation lives with the enrolled nodes: `local`'s key is the control
           plane's own credential — mint/rotate it server-side deliberately,
           not from a button on its own status page. */}
+      {/* Which directories may run code here. Above key rotation because it
+          is a rule an owner revisits, not a one-off recovery action; shown for
+          `local` too, where the control-plane host is just another launch
+          target. */}
+      <NodeAllowedDirs node={n} />
+
       {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
       <NodeHarnessCard nodeId={n.id} canConfigure={canConfigure} />

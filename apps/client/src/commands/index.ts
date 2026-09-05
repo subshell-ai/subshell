@@ -9,6 +9,7 @@ import {
   execProbeResume,
   execRemovePaths,
   execResize,
+  execSetAllowedDirs,
   execStatDir,
   execTerminate,
 } from "./basics.js";
@@ -25,7 +26,8 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–6
  * are `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
  * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`,
- * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`
+ * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`,
+ * `set_allowed_dirs`
  * (Task 6), and `fs_ls` (node protocol v3, remote folder picker). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
@@ -77,6 +79,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execTailStop(ctx, cmd);
       case "remove_paths":
         return await execRemovePaths(ctx, cmd);
+      case "set_allowed_dirs":
+        return await execSetAllowedDirs(ctx, cmd);
       case "write_file":
         return await execWriteFile(ctx, cmd);
       default:

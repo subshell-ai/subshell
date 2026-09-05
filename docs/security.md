@@ -317,6 +317,51 @@ consequences are:
   everything else here.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
+### Directory allowlist (spec 2026-09-05)
+
+A node owner may restrict **where** subshells can be created on their machine:
+`PUT /api/nodes/:id/allowed-dirs` stores a set of absolute directories, and a
+subshell may only be launched in one of them or beneath it.
+
+- **Empty means unrestricted**, not "deny everything" — every node predating
+  the feature is unaffected, and clearing the rules returns a node to that
+  state.
+- **Owner-only to edit** (`canManage`), deliberately not the `edit` gate the
+  harness toggles use: any node share lets the grantee launch there, so an
+  `edit` grantee able to widen the list to `/` would face no restriction at
+  all. The rules are **read-visible to everyone who can see the node**,
+  grantees included — a refusal is unexplainable without them, and they name
+  directories rather than contents.
+- **Enforced twice.** The control plane checks the resolved cwd at create and
+  restart; the node checks every `launch` and `stat_dir` against a copy it
+  persists at `<dataDir>/allowed-dirs.json` (0600). The second check is the
+  point: signing proves *who* sent a launch, never *whether* the directory is
+  permitted, so a list carried inside the command would be worthless against a
+  compromised control plane.
+- **Rules are stored already-resolved on their node** (via the same
+  `validateWorkingDir` the launch gate uses). Storing them as typed made the
+  planes disagree — `/tmp/work` never matching a candidate that resolved to
+  `/private/tmp/work` — refusing the owner the directory they had just
+  permitted. That divergence was fail-closed (the server refused what the node
+  would allow, never the reverse), and it is gone.
+- **Restarts are gated too**: a restart spawns a fresh pane in that directory.
+  Panes already running are untouched by a rule change.
+- **Browsing is not gated on the node** — the folder picker is filtered by the
+  control plane for callers who cannot manage the node, and unfiltered for the
+  owner, who browses in order to choose what to permit. That filter is UX,
+  never the boundary; the launch gates are.
+- **Stale window**: a node offline when the rules change keeps its previous set
+  until it reconnects, when the `ready` push reconciles it. The control-plane
+  check holds meanwhile, so the window matters only if the control plane is
+  itself compromised — the assumption the whole node plane already rests on.
+  A push failure is logged, not surfaced.
+- **Fail-open on an unreadable rules file.** A corrupt or missing
+  `allowed-dirs.json` reads as unrestricted rather than deny-all. Deliberate:
+  the list is a restriction an owner opts into, not an authentication decision,
+  and a disk hiccup must not take a node offline for every launch. The control
+  plane still enforces its own copy.
+- Changes are audited (`node.allowed_dirs.update`).
+
 - **Setup keys** are single-use, 24 h, shown once, hashed at rest, revocable, and
   audited. The install command embeds one in a URL, so it lands in shell history
   and server access logs — the same posture as enrollment links everywhere.
@@ -445,7 +490,8 @@ These are choices, not oversights, and they follow from §0:
 Audit events are written for: `user.create`, `system-key.create`,
 `system-key.delete`, `subshell.create`, `subshell.terminate`, `subshell.restart`,
 `subshell.delete`, `node.enroll`, `node.delete`, `node.rename`,
-`node.key_rotate`, `setup_key.create`, `setup_key.revoke`, `settings.update`, and
+`node.key_rotate`, `node.allowed_dirs.update`, `setup_key.create`,
+`setup_key.revoke`, `settings.update`, and
 `emergency_login.rewrite_credential`.
 
 Read them with `GET /api/audit?limit=50` (admin).

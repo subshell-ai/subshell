@@ -7,6 +7,13 @@ export {
   type ViewersState,
 } from "./device-roles.js";
 export {
+  dirAllowed,
+  dirNavigable,
+  MAX_ALLOWED_DIRS,
+  normalizeAllowedDir,
+  normalizeAllowedDirs,
+} from "./dir-allowlist.js";
+export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   type ClientFrame,

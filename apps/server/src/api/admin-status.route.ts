@@ -48,8 +48,8 @@ import { SERVER_VERSION } from "@/version.js";
 
 const VersionsSchema = t.Object({
   server: t.String({ description: "Server app version (apps/server package.json)" }),
-  nodeProtocol: t.Number({ description: "Node protocol version this control plane speaks; agents must match EXACTLY" }),
-  minAgent: t.String({ description: "Oldest subshell agent version this control plane will accept on /ws/node" }),
+  nodeProtocol: t.Number({ description: "Node protocol version this control plane speaks; nodes must match EXACTLY" }),
+  minAgent: t.String({ description: "Oldest subshell node version this control plane will accept on /ws/node" }),
   bun: t.String({ description: "Bun runtime version this process is running on" }),
 });
 
@@ -57,8 +57,8 @@ const VersionsSchema = t.Object({
 const OutdatedAgentSchema = t.Object({
   id: t.String({ description: "Node id" }),
   name: t.String({ description: "Node display name" }),
-  agentVersion: t.Nullable(t.String({ description: "Last-known agent version" }), {
-    description: "Last-known agent version, or null when the node has never reported one",
+  agentVersion: t.Nullable(t.String({ description: "Last-known node version" }), {
+    description: "Last-known node version, or null when the node has never reported one",
   }),
 });
 
@@ -110,7 +110,7 @@ const InventorySchema = t.Object({
   nodes: t.Object({
     total: t.Number({ description: "Enrolled nodes, including the seeded `local` row" }),
     online: t.Number({
-      description: "Nodes holding a live agent socket right now — the in-memory registry, not the DB projection",
+      description: "Nodes holding a live socket right now — the in-memory registry, not the DB projection",
     }),
     needingUpdate: t.Array(OutdatedAgentSchema, {
       description:

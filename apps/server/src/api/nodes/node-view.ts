@@ -1,5 +1,6 @@
 import { type Static, t } from "elysia";
 import { db } from "@/db/index.js";
+import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
@@ -38,9 +39,9 @@ export const NodeHarnessViewSchema = t.Object({
   harnessId: t.String({ description: "Harness plugin id" }),
   enabled: t.Boolean({ description: "Explicit node state when set, else the plugin's default" }),
   installed: t.Boolean({
-    description: "local: live binary probe; agent: cached inventory (false until the first inventory lands)",
+    description: "local: live binary probe; enrolled node: cached inventory (false until the first inventory lands)",
   }),
-  version: t.Optional(t.String({ description: "Installed version from the agent's inventory (agent nodes)" })),
+  version: t.Optional(t.String({ description: "Installed version from the node's inventory (enrolled nodes)" })),
 });
 
 /**
@@ -58,7 +59,7 @@ export const InventoryStaleSchema = t.Boolean({
 export const NodeViewSchema = t.Object({
   id: t.String({ description: "Node id (the control-plane host is literally 'local')" }),
   name: t.String({ description: "Display name (unique per owner)" }),
-  kind: t.Union([t.Literal("local"), t.Literal("agent")], { description: "Control-plane host vs enrolled agent" }),
+  kind: t.Union([t.Literal("local"), t.Literal("agent")], { description: "Control-plane host vs enrolled node" }),
   os: t.Nullable(t.String({ description: "Reported OS" }), {
     description: "Reported OS (local: the server's own platform in the view), null until first ready",
   }),
@@ -69,7 +70,7 @@ export const NodeViewSchema = t.Object({
     description: "Reported hostname, null until first ready",
   }),
   status: t.Union([t.Literal("online"), t.Literal("offline")], {
-    description: "Status projection; the live agent socket is authoritative",
+    description: "Status projection; the live node socket is authoritative",
   }),
   lastSeenAt: t.Nullable(t.String({ description: "ISO 8601 of the last heartbeat/ready" }), {
     description: "ISO 8601 of the last heartbeat/ready, null when never seen",
@@ -78,7 +79,7 @@ export const NodeViewSchema = t.Object({
     description: "subshell version, null until first ready",
   }),
   protocolVersion: t.Nullable(t.Number({ description: "Node protocol version from `ready`" }), {
-    description: "Node protocol version, null until first ready (the UI's agent-too-old check, spec §9)",
+    description: "Node protocol version, null until first ready (the UI's node-too-old check, spec §9)",
   }),
   access: NodeAccessSchema,
   canManage: t.Boolean({
@@ -87,6 +88,10 @@ export const NodeViewSchema = t.Object({
   }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
+  }),
+  allowedDirs: t.Array(t.String({ description: "Absolute directory a subshell may be launched under" }), {
+    description:
+      "Directories subshells may be created in on this node. EMPTY MEANS UNRESTRICTED, never 'nothing permitted'. Readable by anyone who can see the node — a refused directory is unexplainable without it; only the owner may change it",
   }),
   harnesses: t.Array(NodeHarnessViewSchema, { description: "Every registered harness × this node's state" }),
   inventoryStale: InventoryStaleSchema,
@@ -154,8 +159,11 @@ function parseCapabilities(json: string | null): string[] {
  * `local`'s os/arch fall back to this process (see the inline note) — the only
  * row where the view is permitted to know more than the table.
  */
-function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean) {
+function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean, allowedDirs: string[]) {
   return {
+    // Empty = unrestricted (see the schema note). Passed in rather than read
+    // here so the list path can batch one query for every row.
+    allowedDirs,
     id: row.id,
     name: row.name,
     kind: row.kind,
@@ -186,7 +194,8 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boole
  */
 export async function toNodeView(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
-  return { ...nodeViewBase(row, access, isAdmin), harnesses, inventoryStale: stale };
+  const allowedDirs = await new NodeAllowedDirsRepository(db).listForNode(row.id);
+  return { ...nodeViewBase(row, access, isAdmin, allowedDirs), harnesses, inventoryStale: stale };
 }
 
 /**
@@ -199,16 +208,21 @@ export async function toNodeViews(
 ): Promise<NodeView[]> {
   let localReport: EffectiveHarnessReport | undefined;
   const out: NodeView[] = [];
+  // ONE query for every row's rules, not one per row — the same batching the
+  // local install probe gets above, for the same reason.
+  const dirsBy = await new NodeAllowedDirsRepository(db).listForNodes(entries.map((e) => e.row.id));
   for (const { row, access, isAdmin } of entries) {
+    const allowedDirs = dirsBy.get(row.id) ?? [];
     if (row.kind === "local") {
       localReport ??= await effectiveHarnessStates(row);
       out.push({
-        ...nodeViewBase(row, access, isAdmin),
+        ...nodeViewBase(row, access, isAdmin, allowedDirs),
         harnesses: localReport.harnesses,
         inventoryStale: localReport.stale,
       });
     } else {
-      out.push(await toNodeView(row, access, isAdmin));
+      const { harnesses, stale } = await effectiveHarnessStates(row);
+      out.push({ ...nodeViewBase(row, access, isAdmin, allowedDirs), harnesses, inventoryStale: stale });
     }
   }
   return out;

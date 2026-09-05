@@ -59,7 +59,7 @@ function NodesPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Nodes"
-        subtitle="Machines subshells can run on — this host plus enrolled agents"
+        subtitle="Machines subshells can run on — this host plus enrolled nodes"
         action={
           <Button onClick={() => setDialogOpen(true)}>
             <Plus /> Add node

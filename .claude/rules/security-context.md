@@ -190,6 +190,18 @@ shares and subshell shares are two independent axes:
   `edit` on a subshell running there — hold that subshell's bearer key. Sharing a
   node does not hand out subshell keys, but anything launched there trusts the
   machine.
+- **Directory allowlist** (spec 2026-09-05): a node owner may restrict which
+  directories subshells can be created in on that machine. **Empty =
+  unrestricted**, never "deny everything" — invert that anywhere and every
+  node locks out on upgrade. **Owner-only** to edit (`canManage`, NOT
+  `nodeCanConfigure`): any node share lets the grantee launch there, so an
+  `edit` grantee who could widen the list would face no restriction at all.
+  Enforced on the control plane (create + restart, on the RESOLVED path) and
+  independently on the node against `<dataDir>/allowed-dirs.json` — signing
+  proves who, never whether. Browsing is NOT gated (filtered for non-managers
+  as a UX nicety only); gating it made the second rule unaddable, since the
+  owner browses to pick what to permit.
+
 - **Setup keys**: single-use, 24 h expiry, shown once, hashed at rest,
   revocable, audited. The install command embeds one in a URL, so it lands in
   shell history and server/access logs — same posture as enrollment links

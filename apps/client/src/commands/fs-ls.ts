@@ -27,13 +27,21 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  *   wire-side future-proofing — the explore response has no truncation field.
  *
  * Confinement: NONE of the `SUBSHELL_FS_ROOT` kind — that root belongs to the
- * control-plane host and means nothing on another machine. This command is
- * deliberately OUTSIDE the {@link import("../path-policy.js").pathAllowed}
- * policy, exactly like `stat_dir` (probing a user-typed directory IS the
- * feature); the boundary is the agent user's filesystem permissions, the same
- * posture as every other node-side command. Missing / unreadable / refused
- * targets answer `ok:false` with an `ENOENT:`/`EACCES:`/`EINVAL:` prefix the
- * server maps to 404/403/400 (stat_dir's `ENOENT:`/`ENOTDIR:` style).
+ * control-plane host and means nothing on another machine. The boundary is
+ * the agent user's filesystem permissions, the same posture as every other
+ * node-side command. Missing / unreadable / refused targets answer `ok:false`
+ * with an `ENOENT:`/`EACCES:`/`EINVAL:` prefix the server maps to
+ * 404/403/400 (stat_dir's `ENOENT:`/`ENOTDIR:` style).
+ *
+ * **The directory allowlist deliberately does NOT gate this command.**
+ * Browsing is not launching: `launch` and `stat_dir` are where a directory
+ * becomes execution, and those DO enforce it (`allowed-dirs.ts`). Scoping the
+ * listing here as well looked like defence in depth and was actually a trap —
+ * the owner editing the rules browses through this same command, so the first
+ * rule made every OTHER directory unbrowsable and a second rule unaddable.
+ * The control plane filters listings for the launch picker instead, where it
+ * knows whether the caller is choosing a working directory or defining the
+ * rules themselves.
  */
 export async function execFsLs(_ctx: CommandContext, cmd: Cmd<"fs_ls">): Promise<CommandResult> {
   const raw = cmd.path;
