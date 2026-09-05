@@ -1,4 +1,4 @@
-import { existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
+import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
 import { stripAnsi } from "@internal/backend-errors";
 import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/harnesses";
 import { logger } from "@/utils/logger.js";
@@ -18,7 +18,7 @@ export class LocalLauncher implements NodeLauncher {
     // between construction and launch), but constructing a launcher is also
     // what direct consumers (attach, tests seeding panes) rely on.
     try {
-      mkdirSync(subshellLogDir(), { recursive: true });
+      ensureLogDirMode(subshellLogDir());
     } catch {
       // best-effort; launch()'s mkdir is the one that gates real spawns
     }
@@ -86,7 +86,7 @@ export class LocalLauncher implements NodeLauncher {
    */
   #ensureLogDir(logFile: string): void {
     const logDir = logFile.slice(0, Math.max(0, logFile.lastIndexOf("/")));
-    if (logDir && logDir !== "." && !existsSync(logDir)) mkdirSync(logDir, { recursive: true });
+    if (logDir && logDir !== ".") ensureLogDirMode(logDir);
   }
 
   /**
@@ -326,6 +326,26 @@ export class LocalLauncher implements NodeLauncher {
       }
     }
   }
+}
+
+/**
+ * Creates the pane-log directory if absent and pins it to 0700.
+ *
+ * The mode is asserted unconditionally rather than passed to `mkdirSync`,
+ * for the two reasons this codebase has already met elsewhere (see
+ * `apps/client/src/identity.ts` and `commands/configure.ts`): mkdir's `mode`
+ * is clamped by the umask, and it applies only to segments mkdir actually
+ * creates — so a directory that predates this fix keeps whatever mode the old
+ * bare `mkdirSync(recursive)` gave it, which was 0755.
+ *
+ * 0700 matters because of what is inside: pane logs are the verbatim
+ * transcript of everything the terminal rendered, typed secrets included.
+ * The files themselves are created 0600 by `TmuxRunner.pipePane`'s umask;
+ * this is the other half of the same guarantee.
+ */
+function ensureLogDirMode(logDir: string): void {
+  if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
+  chmodSync(logDir, 0o700);
 }
 
 let defaultLauncher: LocalLauncher | null = null;

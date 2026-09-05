@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
@@ -154,6 +154,32 @@ describe("TmuxRunner", () => {
     }
   });
 
+  it("creates the pipe-pane file 0600, whatever the caller's umask", async () => {
+    // The pane log is the plaintext transcript of everything the terminal
+    // rendered — including whatever the operator typed, since a tty echoes.
+    // tmux's shell CREATES the file (`cat >>`), so there is no mode argument
+    // to pass: the `umask 077` in the pipe-pane command is the only thing
+    // standing between that transcript and a world-readable 0644 file. This
+    // asserts the real end-to-end mode, not the command string — a shell that
+    // parsed the umask differently would still pass an argv assertion.
+    const socket = freshSocket("pipe-mode");
+    const outFile = `/tmp/subshell-pipe-mode-${Date.now()}.txt`;
+    // Deliberately permissive: without the umask in the command, `cat` would
+    // create this file 0666 and the assertion below would read 0666.
+    const previous = process.umask(0o000);
+    try {
+      runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read l; echo piped-$l; exec sleep 30'");
+      runner.pipePane(socket, "s1", outFile);
+      runner.sendInput(socket, "s1", "line\r");
+      await waitForFileToContain(outFile, "piped-line", 3000);
+      expect(statSync(outFile).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(previous);
+      if (existsSync(outFile)) unlinkSync(outFile);
+      runner.killSubshell(socket, "s1");
+    }
+  });
+
   it("pipe-pane single-quotes the output path (shell-inert, no $() execution)", async () => {
     // `pipe-pane -o` runs through tmux's shell, so the `cat >> <path>` command
     // must survive as ONE literal argv element with the path quoted. The old
@@ -179,7 +205,7 @@ describe("TmuxRunner", () => {
         "-t",
         "s1",
         "-o",
-        "cat >> '/tmp/x$(touch /tmp/pwned)`id`y'\\''z.txt'",
+        "(umask 077; cat >> '/tmp/x$(touch /tmp/pwned)`id`y'\\''z.txt')",
       ]);
     } finally {
       rmSync(stubDir, { recursive: true, force: true });

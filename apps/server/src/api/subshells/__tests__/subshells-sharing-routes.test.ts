@@ -106,6 +106,52 @@ describe("subshell sharing — access matrix over routes", () => {
     expect((await new SubshellsRepository(db).findById("s_edit"))?.notify).toBe(0);
   });
 
+  it("reports the share exposure on get and list, so the UI can warn about it", async () => {
+    // The disclosure warning is only honest if it names the real audience:
+    // a private subshell must read 0/false, and a shared one must say so to
+    // the OWNER (who is the one deciding whether to keep typing secrets into
+    // it), not only to the grantee.
+    const priv = (await (await req("GET", "/s_own", aliceCookie)).json()) as {
+      shareCount: number;
+      sharedWithEveryone: boolean;
+    };
+    expect(priv).toMatchObject({ shareCount: 0, sharedWithEveryone: false });
+
+    const shared = (await (await req("GET", "/s_edit", aliceCookie)).json()) as {
+      shareCount: number;
+      sharedWithEveryone: boolean;
+    };
+    expect(shared).toMatchObject({ shareCount: 1, sharedWithEveryone: false });
+
+    // The grantee sees the same exposure the owner does — a guest should know
+    // it is not a private room either.
+    const asGuest = (await (await req("GET", "/s_edit", bobCookie)).json()) as { shareCount: number };
+    expect(asGuest.shareCount).toBe(1);
+
+    const list = (await (await req("GET", "", aliceCookie)).json()) as {
+      id: string;
+      shareCount: number;
+    }[];
+    expect(list.find((row) => row.id === "s_edit")?.shareCount).toBe(1);
+    expect(list.find((row) => row.id === "s_own")?.shareCount).toBe(0);
+  });
+
+  it("distinguishes an Everyone grant from a countable audience", async () => {
+    // "3 people can see this" and "every signed-in user can see this" are
+    // different sentences, and only the grant rows can tell them apart.
+    await ownSubshell("s_everyone");
+    await new SubshellSharesRepository(db).replaceForSubshell(
+      "s_everyone",
+      [{ granteeUserId: null, permission: "view" }],
+      aliceId,
+    );
+    const got = (await (await req("GET", "/s_everyone", aliceCookie)).json()) as {
+      shareCount: number;
+      sharedWithEveryone: boolean;
+    };
+    expect(got).toMatchObject({ shareCount: 1, sharedWithEveryone: true });
+  });
+
   it("a subshell not shared to a viewer is invisible: 404, not 403", async () => {
     // carol was granted s_view only; s_edit and s_own are foreign+unshared to her.
     expect((await req("GET", "/s_edit", carolCookie)).status).toBe(404);

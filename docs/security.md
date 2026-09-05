@@ -211,6 +211,43 @@ filesystem permissions, nothing more.
 **Uploads are working-directory-scoped.** Dropped or pasted files land in
 `<workingDir>/.subshell/uploads/`, git-excluded, filename-sanitized, capped at
 `MAX_UPLOAD_BYTES` (25 MiB). Paths are injected into the pane via bracketed paste.
+They are not swept — an uploaded file stays until someone removes it.
+
+### Pane logs: the session transcript on disk
+
+Every subshell streams its pane through `tmux pipe-pane` into
+`<SUBSHELL_SERVER_DATA_DIR>/subshells/<id>.log` — on the control-plane host for
+a `local` subshell, on the node's own disk for a remote one. It is what the
+attach replay is built from, and it is **the single most sensitive artifact the
+app writes**: a terminal echoes, so the file holds not only what the commands
+printed but what the operator typed — a pasted API token, an `export SECRET=…`,
+a value read out of a `.env`.
+
+- **Plaintext.** It is not encrypted, and encrypting it would not help against
+  the attacker this model actually names: the key would live on the same host,
+  readable by the same OS user that can already read the log (§1). The
+  protections are permissions and retention, not cryptography.
+- **0600, in a 0700 directory.** The file is created by tmux's own shell
+  (`cat >>`), so there is no mode to pass and no post-hoc `chmod` without a
+  window — the `umask 077` inside the pipe-pane command is what guarantees it
+  (`TmuxRunner.pipePane`). Logs written before that fix are repaired at boot by
+  `services/pane-log-hygiene.ts`.
+- **Aged out after `SUBSHELL_LOG_RETENTION_DAYS` (default 30).** An hourly
+  sweep unlinks the logs of subshells that are no longer running; `0` keeps
+  them forever. Deleting a subshell still unlinks its log immediately. A
+  terminated-but-kept subshell used to hold its full transcript for the life of
+  the instance.
+- **Running subshells are never swept**, whatever the file's age: the log is
+  the live replay buffer.
+- **A remote node's logs are its own.** Deleting a subshell whose node is
+  offline cannot name the paths to remove, so those files age out with the node
+  rather than at delete time (§5.6).
+
+**Typed input also transits argv.** Input reaches the pane as
+`tmux send-keys -t <id> -l -- <input>`, one process per client frame — and a
+paste arrives as a single frame, so the whole pasted value is one argv element.
+On Linux `/proc/<pid>/cmdline` is world-readable. Accepted (§11), same class as
+the bearer token above.
 
 ## 5. Sharing
 
@@ -418,7 +455,21 @@ passthrough. Session lifecycle and `user.create` are. This is a known gap.
 
 **Attach diagnostics can contain secrets.** `SUBSHELL_ATTACH_DEBUG=1` dumps real
 pane contents to `/tmp/subshell-attach-debug/`. It is off by default and should
-stay off outside active debugging.
+stay off outside active debugging — the dumps land world-readable and nothing
+sweeps them.
+
+**Pane logs are the long-lived copy of the same thing** (§4): 0600 in a 0700
+directory, swept after `SUBSHELL_LOG_RETENTION_DAYS` (default 30). Application
+logs themselves carry no pane content — request logging records method, path,
+remote address and status, never bodies or headers, and no log line contains
+terminal output or keystrokes.
+
+**The UI discloses exposure rather than assuming it is understood.** A subshell
+running on a node the viewer does not own, or one that is shared, carries a
+permanent amber icon in its header (with the reason on hover) plus a one-time
+banner. The banner can be dismissed and switched off per device; the icon
+cannot be turned off, because it is the part that answers "is it safe to type
+this here?".
 
 ## 11. Accepted risks
 
@@ -428,7 +479,9 @@ Recorded so they are decisions rather than surprises:
    node signing key, pane contents and process environments are all readable by
    that account. Nothing in the app changes this.
 2. **Subshell bearer tokens are `ps`-visible** on the backend host and on every
-   node — the token is part of the tmux start command.
+   node — the token is part of the tmux start command. So is **typed input**:
+   keystrokes reach the pane as `send-keys -l -- <input>` argv, and a paste is
+   one frame, so a pasted secret is one argv element (§4).
 3. **A control-plane key compromise is every node.**
 4. **The host filesystem is browsable by default** to any signed-in human.
    `SUBSHELL_FS_ROOT` narrows it; nothing narrows it by default.
@@ -451,6 +504,9 @@ holds and the following are prerequisites, not improvements:
       just login.
 - [ ] **Input length validation** and **pagination** on every list endpoint.
 - [ ] **Set `SUBSHELL_FS_ROOT`** — do not leave the host filesystem browsable.
+- [ ] **Shorten `SUBSHELL_LOG_RETENTION_DAYS`**, and encrypt the volume holding
+      the data directory. Pane logs are plaintext session transcripts (§4);
+      file permissions stop other OS users, not a stolen disk or a backup.
 - [ ] **Re-examine the E2EE threat model.** It protects neither metadata nor a
       host-compromising local user; if either matters, the current design does not
       deliver it.

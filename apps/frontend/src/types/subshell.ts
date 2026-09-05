@@ -74,4 +74,13 @@ export interface SubshellView {
   waitingSince: string | null;
   /** The caller's effective access to this subshell (viewer-relative; drives which controls render) */
   access: SubshellAccess;
+  /**
+   * How many sharing grants this subshell carries; 0 = private to its owner.
+   * Optional for the same reason `nodeId` is — a payload cached by a client
+   * older than the field must keep typechecking. Drives the disclosure notice
+   * in `lib/trust-notices.ts`: every grantee reads the pane's full output.
+   */
+  shareCount?: number;
+  /** True when one of those grants is the Everyone grant (an uncountable audience). */
+  sharedWithEveryone?: boolean;
 }

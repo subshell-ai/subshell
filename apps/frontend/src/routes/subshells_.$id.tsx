@@ -14,6 +14,8 @@ import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
+import { TrustIndicators } from "@/components/trust-indicators";
+import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
@@ -24,6 +26,7 @@ import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
+import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { findNeighbors } from "@/lib/subshell-neighbors";
@@ -58,6 +61,9 @@ function SubshellPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { subshell, isLoading, isError, isNotFound, exited, dead } = useSubshellData(id);
+  // What this subshell discloses and to whom (foreign node / shared). The
+  // icons render always; the banner shows once per exposure.
+  const trustNotices = useTrustNotices(subshell);
 
   /** Renames this subshell in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {
@@ -217,6 +223,10 @@ function SubshellPage() {
                 {subshell && subshell.backoffCount > 0 && (
                   <span className="text-muted-foreground text-xs">restart #{subshell.backoffCount} pending</span>
                 )}
+                {/* Permanent disclosure: whose machine this runs on, and who
+                    else can read it. Never suppressible — see
+                    components/trust-indicators.tsx. */}
+                <TrustIndicators notices={trustNotices} />
                 {/* Same menu the cards and rows use, fed by the same mutation hook
                 this page's exited panel uses — so both surfaces run the same
                 actions and refresh the same queries the page observes. Disabled
@@ -250,6 +260,10 @@ function SubshellPage() {
           </>
         }
       />
+
+      {/* Above the terminal, not over it: the strip is transient and must not
+          cover the very output it is warning about. */}
+      <TrustNoticeBanner notices={trustNotices} />
 
       <div ref={swipeZoneRef} className="relative flex-1 overflow-hidden bg-terminal-strip p-0">
         {/* Mount only once the record has settled: attaching under a

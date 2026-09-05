@@ -299,6 +299,7 @@ export class SubshellsService extends BaseService {
     return views.map((view) => ({
       ...view,
       access: accessBy.get(view.id) ?? ("view" as const),
+      ...shareExposure(sharesBy.get(view.id) ?? []),
     }));
   }
 
@@ -360,7 +361,11 @@ export class SubshellsService extends BaseService {
     // caller never sees the owner id, only their resolved access level.
     const subshell = await this.#manager.getSubshell(row.userId, id);
     if (!subshell) throw new SubshellError("not_found", "Subshell not found");
-    return { ...subshell, access: access === "none" ? "view" : access };
+    // One extra read on a single-row path: the gate resolves access without
+    // handing back the grants it looked at, and the disclosure warning needs
+    // the audience, not just the caller's own level.
+    const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
+    return { ...subshell, access: access === "none" ? "view" : access, ...shareExposure(shares) };
   }
 
   /**
@@ -591,4 +596,23 @@ export class SubshellsService extends BaseService {
     }
     return { ok: true };
   }
+}
+
+/**
+ * Reduces a subshell's grant rows to the two facts the UI's disclosure warning
+ * needs: how many grants exist, and whether one of them is the Everyone grant.
+ *
+ * The distinction matters for what the warning can honestly say. A list of
+ * named grantees is a countable audience ("3 people can see this terminal");
+ * the Everyone grant is not — it is every signed-in user, present and future,
+ * which is a different sentence and a different risk.
+ */
+function shareExposure(shares: { granteeUserId: string | null }[]): {
+  shareCount: number;
+  sharedWithEveryone: boolean;
+} {
+  return {
+    shareCount: shares.length,
+    sharedWithEveryone: shares.some((share) => share.granteeUserId === null),
+  };
 }

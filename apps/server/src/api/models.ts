@@ -60,6 +60,14 @@ export const SubshellSchema = t.Object({
     description:
       "True when the subshell's agent node has no live connection — the subshell may still be running there (spec §5.6); always false for local subshells",
   }),
+  shareCount: t.Number({
+    description:
+      "How many grants this subshell carries (0 = private to its owner). Drives the UI's disclosure warning: every grantee can read the pane's full output, and an `edit` grantee its keystroke stream",
+  }),
+  sharedWithEveryone: t.Boolean({
+    description:
+      "True when one of the grants is the Everyone grant — the audience is every signed-in user, not a countable list",
+  }),
 });
 
 /** Tail of a subshell's pane log — the diagnostic record of what it printed. */
