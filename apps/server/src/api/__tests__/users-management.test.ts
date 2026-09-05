@@ -136,7 +136,7 @@ describe("admin user management", () => {
       const others = await otherAdminIds(adminId);
       for (const id of others) await meta.upsert({ userId: id, role: "user" });
       try {
-        expect(await meta.countAdmins()).toBe(1);
+        expect(await countAdmins()).toBe(1);
 
         const res = await req("PATCH", `/${adminId}/role`, adminCookie, { role: "user" });
         expect(res.status).toBe(409);
@@ -187,7 +187,7 @@ describe("admin user management", () => {
         expect(results.every((r) => r.status === "fulfilled")).toBe(true);
         const refused = results.filter((r) => r.status === "fulfilled" && r.value === false);
         expect(refused).toHaveLength(1);
-        expect(await meta.countAdmins()).toBe(1);
+        expect(await countAdmins()).toBe(1);
       } finally {
         for (const id of others) await meta.upsert({ userId: id, role: "admin" });
       }
@@ -386,6 +386,19 @@ describe("admin user management", () => {
     });
   });
 });
+
+/**
+ * How many admins exist right now.
+ *
+ * Local to the test rather than a repository method: production has no need
+ * for it (`instance-stats.repository.ts` already reports the count for the
+ * admin status page), and a repository method that only tests call is a second
+ * definition of the same fact waiting to disagree with the first.
+ */
+async function countAdmins(): Promise<number> {
+  const rows = await db.selectFrom("userMeta").select("userId").where("role", "=", "admin").execute();
+  return rows.length;
+}
 
 /** Every admin except `keep` — the shared test database holds other suites' admins too. */
 async function otherAdminIds(keep: string): Promise<string[]> {

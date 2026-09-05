@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch, errMessage } from "@/lib/api";
+import type { UserRole } from "@/types/user-role";
 
 /**
  * Per-user admin controls on `/users`: reassign the role, and reset the
@@ -33,7 +34,7 @@ import { apiFetch, errMessage } from "@/lib/api";
  */
 export interface UserRowActionsProps {
   /** The user this row is for. */
-  user: { id: string; email: string; role: string | null };
+  user: { id: string; email: string; role: UserRole | string | null };
   /** The signed-in admin's own id — self gets a role control but no reset. */
   viewerId: string | null;
   /** Refetch the roster after a change. */
@@ -47,6 +48,31 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
   const [password, setPassword] = useState("");
   const [done, setDone] = useState<{ sessionsRevoked: number } | null>(null);
   const isSelf = viewerId !== null && viewerId === user.id;
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The password lives in component state and, once set, in the DOM as text.
+  // Unmounting — navigating away with the dialog still open — must not be the
+  // one path that leaves it there.
+  useEffect(() => {
+    return () => {
+      setPassword("");
+      setDone(null);
+      if (errorTimer.current) clearTimeout(errorTimer.current);
+    };
+  }, []);
+
+  /**
+   * Shows an error and retires it.
+   *
+   * Row-level errors have no dismiss affordance and nothing else clears them,
+   * so a failed role change used to sit beside the row indefinitely — long
+   * after the state it described stopped being true.
+   */
+  function reportError(message: string): void {
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    setError(message);
+    errorTimer.current = setTimeout(() => setError(null), 8000);
+  }
 
   async function changeRole(role: string): Promise<void> {
     if (role === (user.role ?? "user")) return;
@@ -59,7 +85,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
       // The last-admin refusal lands here. Showing the server's sentence
       // verbatim keeps one explanation of the rule, on the side that enforces
       // it.
-      setError(errMessage(err, "Could not change the role"));
+      reportError(errMessage(err, "Could not change the role"));
     } finally {
       setBusy(false);
     }
@@ -76,7 +102,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
       setDone({ sessionsRevoked: res.sessionsRevoked });
       onChanged();
     } catch (err) {
-      setError(errMessage(err, "Could not reset the password"));
+      reportError(errMessage(err, "Could not reset the password"));
     } finally {
       setBusy(false);
     }
@@ -84,6 +110,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
 
   function closeReset(): void {
     setResetOpen(false);
+    if (errorTimer.current) clearTimeout(errorTimer.current);
     // Cleared on close, not on open: the password must not survive in memory
     // (or in a re-opened dialog) after the admin has finished with it.
     setPassword("");

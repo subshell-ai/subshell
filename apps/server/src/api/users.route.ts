@@ -6,6 +6,7 @@ import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
 import { audit } from "@/services/audit.js";
 import { ensureDefaultProfilesForUser } from "@/services/default-profiles.js";
 import { logger } from "@/utils/logger.js";
@@ -27,10 +28,10 @@ const CreateUserBodySchema = t.Object({
     description:
       "Initial password, at least 8 characters. Checked in the handler, not by the schema, so a rejection cannot echo it back (see MIN_PASSWORD_LENGTH)",
   }),
-  role: t.Union([t.Literal("admin"), t.Literal("user")], {
-    default: "user",
-    description: "App role for the new user",
-  }),
+  role: t.Union(
+    USER_ROLES.map((role) => t.Literal(role)),
+    { default: DEFAULT_USER_ROLE, description: "App role for the new user" },
+  ),
 });
 
 const CreateUserResponseSchema = t.Object({
@@ -73,14 +74,19 @@ function assertPasswordLength(password: string): void {
   }
 }
 
-const RoleBodySchema = t.Object({
-  role: t.Union([t.Literal("admin"), t.Literal("user")], { description: "Role to assign" }),
-});
+const RoleSchema = t.Union(
+  USER_ROLES.map((role) => t.Literal(role)),
+  { description: "App role" },
+);
+
+const RoleBodySchema = t.Object({ role: RoleSchema });
 
 const RoleResponseSchema = t.Object({
   id: t.String({ description: "User id" }),
   email: t.String({ description: "User email" }),
-  role: t.String({ description: "Role now in force" }),
+  // The union, not a bare string: the response says the same thing the body
+  // accepts, so the generated client narrows it.
+  role: RoleSchema,
 });
 
 const PasswordBodySchema = t.Object({
@@ -173,7 +179,11 @@ const adminOnly = new Elysia()
     async ({ params, body, user }) => {
       const target = await requireManageableUser(params.id);
       const meta = new UserMetaRepository(db);
-      const from = (await meta.getRole(target.id)) ?? "user";
+      const from = (await meta.getRole(target.id)) ?? DEFAULT_USER_ROLE;
+      // A no-op write would still land an audit row reading `from === to`,
+      // which is noise in the one log an operator reads to reconstruct what
+      // actually happened.
+      if (from === body.role) return { id: target.id, email: target.email, role: body.role } as const;
       // The guard is inside the repository because the count and the write
       // must be one transaction — see `setRole`. A refusal here means the
       // instance would have been left with no admin at all.

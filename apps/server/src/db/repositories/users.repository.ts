@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import type { UserRole } from "@/db/types/user-role.js";
 
 /**
  * App-side user row shape for admin listing (auth `user` + `user_meta` join).
@@ -70,7 +71,7 @@ export class UsersRepository extends BaseRepository {
    * @throws On duplicate email (the `user.email` unique constraint fires a raw
    * SQLite error; callers map it to a 409)
    */
-  async createUser(input: { email: string; passwordHash: string; role: "admin" | "user" }): Promise<string> {
+  async createUser(input: { email: string; passwordHash: string; role: UserRole }): Promise<string> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     // user id doubles as the credential accountId (issuer local:credential),

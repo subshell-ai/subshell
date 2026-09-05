@@ -1,5 +1,6 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NewUserMeta } from "@/db/types/user-meta.db-types.js";
+import type { UserRole } from "@/db/types/user-role.js";
 
 /**
  * Repository for extra user metadata (roles). The first user to register
@@ -44,7 +45,7 @@ export class UserMetaRepository extends BaseRepository {
    *
    * @returns `false` when the change was refused as the last admin's demotion
    */
-  async setRole(userId: string, role: "admin" | "user"): Promise<boolean> {
+  async setRole(userId: string, role: UserRole): Promise<boolean> {
     return await this.db.transaction().execute(async (trx) => {
       if (role !== "admin") {
         const current = await trx.selectFrom("userMeta").select("role").where("userId", "=", userId).executeTakeFirst();
@@ -66,16 +67,6 @@ export class UserMetaRepository extends BaseRepository {
         .execute();
       return true;
     });
-  }
-
-  /** How many users currently hold the admin role. */
-  async countAdmins(): Promise<number> {
-    const { admins } = await this.db
-      .selectFrom("userMeta")
-      .select((eb) => eb.fn.countAll<number>().as("admins"))
-      .where("role", "=", "admin")
-      .executeTakeFirstOrThrow();
-    return Number(admins);
   }
 
   async getRole(userId: string): Promise<string | null> {
