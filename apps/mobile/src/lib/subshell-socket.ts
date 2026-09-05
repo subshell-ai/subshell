@@ -138,7 +138,13 @@ export function useSubshellSocket(opts: {
         // on a phone and a laptop at once, and the pane is sized to the
         // smaller of them.
         const device = `&device=${encodeURIComponent(normalizeDeviceLabel(opts.deviceLabel ?? "") || DEFAULT_DEVICE_LABEL)}`;
-        const url = `${wsOrigin(client.baseUrl)}/ws?subshell=${encodeURIComponent(subshellId)}&token=${encodeURIComponent(token)}${geometry}${device}`;
+        // `hidden` rides the URL as well as the on-open frame: that frame
+        // races the server's own attach awaits and is DROPPED when it wins,
+        // and nothing re-sends it until the app is foregrounded again. A
+        // reconnect while pocketed would otherwise count as a visible viewer
+        // for the socket's whole life, holding every laptop's pane at phone
+        // size — the exact failure the frame was added to prevent.
+        const url = `${wsOrigin(client.baseUrl)}/ws?subshell=${encodeURIComponent(subshellId)}&token=${encodeURIComponent(token)}${geometry}${device}&hidden=${hiddenRef.current ? "1" : "0"}`;
         const ws = new WebSocket(url);
         wsRef.current = ws;
         let replayStarted = false;

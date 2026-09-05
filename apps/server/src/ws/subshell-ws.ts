@@ -135,7 +135,15 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // invariant rather than guessing at the instance.
   const launcher = launcherFor(row.nodeId);
   if (row.nodeId !== LOCAL_NODE_ID) {
-    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, initialSize, parseDeviceLabel(url));
+    await attachRemoteSubshellWs(
+      ws,
+      row,
+      launcher as RemoteLauncher,
+      access,
+      initialSize,
+      parseDeviceLabel(url),
+      parseHidden(url),
+    );
     return;
   }
   if (!row.tmuxSocket || !(await launcher.hasSubshell(row.tmuxSocket, row.id))) {
@@ -353,6 +361,18 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // Presence LAST: a joiner should appear to the others once it is actually
   // receiving, and its own first list should already include itself.
   broadcastViewers(row.id);
+  // Re-decide now the attach is over.
+  //
+  // This path resizes the pane DIRECTLY (it must be awaited before the
+  // capture) and seeds the queue behind its back, so it can interleave with a
+  // concurrent `requestPaneResize` from another viewer: the queue applies G2
+  // and records it, this attach's seed then overwrites the record with G1,
+  // and the repaint nudge returns the pane to G1 — leaving the pane at G1,
+  // the correct shared grid at G2, and nothing scheduled to notice. Two
+  // simultaneous attaches reach the same end by another route. Re-deciding
+  // here is idempotent (the queue drops a request for the size it already
+  // holds), so the quiet case costs nothing.
+  applySharedGeometry(row.id, launcher, row.tmuxSocket);
   // Re-wrap (not raw-assign): the close that arrived during the attach awaits
   // must still reach the disposer armed moments ago — `detached` is true by
   // then, so the same wrapper both propagates and immediately tears down.
@@ -993,7 +1013,7 @@ export function broadcastViewers(subshellId: string): void {
  * @param launcher - Launcher owning the pane
  * @param socket - tmux socket for the pane
  */
-function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket: string): void {
+export function applySharedGeometry(subshellId: string, launcher: NodeLauncher, socket: string): void {
   const grid = sharedGridFor(subshellId);
   if (grid) requestPaneResize(launcher, socket, subshellId, grid.cols, grid.rows);
 }

@@ -9,6 +9,7 @@ import { captureToReplayText } from "@/ws/capture-text.js";
 import { createRemoteTailSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import {
+  applySharedGeometry,
   broadcastToViewers,
   broadcastViewers,
   captureStable,
@@ -115,6 +116,16 @@ export async function attachRemoteSubshellWs(
   size?: AttachSize | null,
   /** Device label from the connect URL; the remote path never sees the URL. */
   deviceLabel = "Unnamed device",
+  /**
+   * Whether the client declared itself not-being-rendered on the connect URL.
+   *
+   * Same reason the local twin reads it there: the on-open `visibility` frame
+   * races this handler's awaits and is DROPPED when it wins, and unlike a
+   * resize nothing re-sends it until the tab is shown. Without it a phone
+   * attached to a node subshell while already backgrounded holds every
+   * laptop's pane at phone size for the socket's whole life.
+   */
+  hidden = false,
 ): Promise<void> {
   if (!getLive(row.nodeId)) {
     ws.close(4004, "node offline");
@@ -147,6 +158,7 @@ export async function attachRemoteSubshellWs(
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),
     capacity: size ?? undefined,
+    hidden,
     // Presence identity: who this viewer is in the `viewers` frame. The id
     // lives as long as the socket, so a reconnect is legitimately a new
     // viewer rather than a resurrected one.
@@ -314,6 +326,12 @@ export async function attachRemoteSubshellWs(
     // Presence LAST, like the local twin: a joiner appears to the others once
     // it is actually receiving, and its own first list already includes it.
     broadcastViewers(row.id);
+    // Re-decide now the attach is over — the local twin's reasoning: this
+    // path resized the pane DIRECTLY and seeded the queue behind its back, so
+    // a client frame that landed mid-attach could have been applied and then
+    // undone. Idempotent when nothing raced (the queue drops a request for
+    // the size it already holds), so the quiet case costs nothing.
+    applySharedGeometry(row.id, launcher, data.socket);
     if (detached) stream.close();
   } catch (err) {
     // Anything after open that throws (rpc drop, malformed answer): tear the

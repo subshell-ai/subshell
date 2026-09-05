@@ -245,6 +245,20 @@ export function SubshellTerminal({
   // fill-the-box behavior every client had before the readback existed.
   const [letterbox, setLetterbox] = useState<Box | null>(null);
   const paneGridRef = useRef<Grid | null>(null);
+  /**
+   * Cell metrics at the font size the USER chose, recorded whenever the
+   * letterbox applies that size.
+   *
+   * Capacity is "how much could this viewport show", and it has to depend on
+   * the viewport and the user's font choice ONLY — never on the grid the
+   * server announced. Shrink-to-fit breaks that: it lowers the font to make
+   * an oversized grid fit, and a capacity measured against the shrunken cell
+   * then reports MORE cells than the viewport really offers. The server keeps
+   * the large grid because this viewer now claims it can show it, the next
+   * letterbox pass overflows again at the preferred size, and the font never
+   * comes back — the user's choice silently overridden for good.
+   */
+  const preferredCellRef = useRef<{ width: number; height: number } | null>(null);
 
   /**
    * Re-derives the container size from the pane's grid and the terminal's
@@ -281,6 +295,10 @@ export function SubshellTerminal({
     // next call, shrank again, and flapped between the two forever, with the
     // letterbox wrong on every other frame.
     setFontSize(preferred);
+    // Recorded here, at the one instant the terminal is guaranteed to be at
+    // the user's own size, so capacity can be measured against it even while
+    // shrink-to-fit holds the live font lower. See `preferredCellRef`.
+    preferredCellRef.current = { ...size };
 
     // Ordinarily the shared pane is the SMALLEST viewer's grid, so this one
     // has room to spare and simply letterboxes. A viewer whose capacity was
@@ -328,8 +346,14 @@ export function SubshellTerminal({
   const measureCapacity = useCallback((): Grid | null => {
     const term = termRef.current;
     const outer = outerRef.current;
-    const cell = term?.dimensions?.css.cell;
-    if (!term || !outer || !cell) return null;
+    const live = term?.dimensions?.css.cell;
+    if (!term || !outer || !live) return null;
+    // The PREFERRED font's cell, not the live one. Shrink-to-fit can be
+    // holding the live font below the user's choice, and measuring against
+    // that reports a capacity this viewport does not really have — which the
+    // server then honours, so the shrink never lifts. Falls back to the live
+    // cell before the letterbox has ever run, when the two are the same.
+    const cell = preferredCellRef.current ?? live;
     const measured = gridForBox(
       { width: outer.clientWidth, height: outer.clientHeight },
       { width: cell.width, height: cell.height },

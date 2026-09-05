@@ -568,6 +568,47 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
     cleanupSubshellWs(laptop.ws);
   });
 
+  it("honours `hidden` from the connect URL on a node pane too", async () => {
+    // The local twin reads it there because the on-open `visibility` frame
+    // races the handler's awaits and is dropped when it wins; the remote path
+    // took the label from the URL and left this behind. A phone attached to a
+    // node subshell while already backgrounded then counted as a visible
+    // viewer for the socket's whole life.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 60);
+    const laptop = fakeBrowser();
+    const pocketed = fakeBrowser();
+
+    await attachRemoteSubshellWs(laptop.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", {
+      cols: 120,
+      rows: 40,
+    });
+    await attachRemoteSubshellWs(
+      pocketed.ws,
+      attachRow(),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      { cols: 40, rows: 12 },
+      "Phone",
+      true, // hidden on the connect URL
+    );
+
+    // The hidden joiner takes no part: the pane stays at the laptop's size.
+    expect(sharedGridFor(SID)).toEqual({ cols: 120, rows: 40 });
+    const presence = laptop.sent
+      .filter((f) => f.includes('"type":"viewers"'))
+      .map((f) => JSON.parse(f) as { viewers: Array<{ hidden: boolean; label: string }> })
+      .at(-1);
+    expect(presence?.viewers.find((v) => v.label === "Phone")?.hidden).toBe(true);
+
+    cleanupSubshellWs(pocketed.ws);
+    cleanupSubshellWs(laptop.ws);
+  });
+
   it("a close DURING the attach leaves no ghost viewer and no running pump", async () => {
     // The local twin carries the full reasoning: the attach is fired
     // unawaited and reaches `Object.assign(ws.data, data)` only after the

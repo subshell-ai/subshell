@@ -339,6 +339,41 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     cleanupSubshellWs(incumbent.ws);
   });
 
+  it("re-decides the grid once the attach is over, so a raced resize is not lost", async () => {
+    // The attach resizes the pane DIRECTLY (it must be awaited before the
+    // capture) and seeds the queue behind its back, so it can interleave with
+    // a concurrent `requestPaneResize` from another viewer: the queue applies
+    // the newer shared grid and records it, this attach's seed overwrites the
+    // record, and the repaint nudge returns the pane to the attach's own fit.
+    // The pane is then left at a size the viewer set does not call for, with
+    // nothing scheduled to notice.
+    //
+    // Driven here through the front door: a second viewer whose capacity the
+    // attach could not have seen, applied while the attach is still running.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const first = await attach(row.userId, row.id, "&cols=100&rows=50");
+    // A second viewer that can only show 30 rows. Whatever order the attach
+    // and this frame interleave in, the pane must END at the shared minimum.
+    const second = await attach(row.userId, row.id, "&cols=100&rows=30");
+    handleSubshellMessage(second.ws, JSON.stringify({ type: "resize", cols: 100, rows: 30 }));
+    await Bun.sleep(80);
+
+    expect(sharedGridFor(row.id)).toEqual({ cols: 100, rows: 30 });
+    expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 30 });
+
+    cleanupSubshellWs(second.ws);
+    cleanupSubshellWs(first.ws);
+  });
+
   it("honours `&hidden=1` from the connect URL, without waiting for a frame", async () => {
     // The client's on-open `visibility` frame races this handler's own awaits
     // and is DROPPED when it wins (`handleSubshellMessage` returns while
