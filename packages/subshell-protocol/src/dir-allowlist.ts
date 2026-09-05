@@ -123,3 +123,35 @@ export function dirAllowed(candidate: string, roots: readonly string[]): boolean
     return normalizedRoot !== null && isUnder(path, normalizedRoot);
   });
 }
+
+/**
+ * Whether a picker may LIST `candidate` — inside a root, or an ancestor of
+ * one.
+ *
+ * Distinct from {@link dirAllowed}, and the distinction is what makes a
+ * restricted picker usable. `dirAllowed` is a descendant test, so with a rule
+ * of `/home/theo/projects` it answers false for `/home/theo` — an ancestor —
+ * and a picker filtered by it alone shows an empty, unnavigable panel with no
+ * way DOWN to the very directory that is permitted. Ancestors have to stay
+ * visible as stepping stones.
+ *
+ * This is a NAVIGATION predicate, never an authorization one. Listing a
+ * directory is not launching in it: `dirAllowed` (control plane) and
+ * `pathAllowed` (node) remain the gates, and both are descendant tests.
+ *
+ * @param candidate - an absolute path
+ * @param roots - normalized allowlist entries; empty = unrestricted
+ */
+export function dirNavigable(candidate: string, roots: readonly string[]): boolean {
+  if (roots.length === 0) return true;
+  const path = normalizeAllowedDir(candidate);
+  if (path === null) return false;
+  return roots.some((root) => {
+    // Both sides normalized: an entry or a node-supplied path carrying a
+    // trailing slash or a doubled separator must not slip past either
+    // direction of the test.
+    const normalizedRoot = normalizeAllowedDir(root);
+    if (normalizedRoot === null) return false;
+    return isUnder(path, normalizedRoot) || isUnder(normalizedRoot, path);
+  });
+}

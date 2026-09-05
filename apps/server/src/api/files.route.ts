@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { dirAllowed } from "@internal/subshell-protocol";
+import { dirAllowed, dirNavigable } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
@@ -118,23 +118,36 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         return await exploreNodeDirectory(user.id, nodeId, query.path);
       }
 
-      const raw = query.path?.trim() || homedir();
+      // `?? ""`, not `|| homedir()`: the empty case has to stay distinguishable
+      // here so the landing directory below can differ from home. (It was
+      // `|| homedir()`, which made the fallback dead code — `raw` was never
+      // falsy, so a restricted picker 403'd on first open with no way back.)
+      const raw = query.path?.trim() ?? "";
       // The local node's directory allowlist, read once for the whole request
       // (the gate, the recents filter and the favorites filter all consult it).
       const allowedDirs = await launchScopeFor(user.id, LOCAL_NODE_ID);
-      // With rules in force, home is often outside them — land on the first
-      // allowed directory instead of on a 403 the user cannot navigate out of.
-      const fallback = allowedDirs.length > 0 && !dirAllowed(homedir(), allowedDirs) ? allowedDirs[0] : homedir();
-      const path = expandTilde(raw || fallback, fallback);
+      // Where an unspecified browse LANDS. Home is the natural default and
+      // usually outside the rules, so with rules in force the picker opens on
+      // the first one instead of on a 403 the user cannot navigate out of.
+      const landing =
+        allowedDirs.length > 0 && !dirNavigable(homedir(), allowedDirs) ? (allowedDirs[0] ?? homedir()) : homedir();
+      // An explicit `~` still means HOME, and is refused honestly if home is
+      // out of bounds — only the UNSPECIFIED case is redirected.
+      const path = raw === "" ? landing : expandTilde(raw, homedir());
 
-      if (!isAllowedRoot(path, allowedDirs)) {
+      // Navigable, not allowed: an ancestor of a rule must remain listable or
+      // there is no way DOWN to the rule. Its ENTRIES are filtered below, and
+      // launching is gated separately and strictly.
+      if (!isAllowedRoot(path, allowedDirs, { navigation: true })) {
         throw new FilesError("forbidden", "Path outside allowed roots", 403);
       }
 
       let resolved: string;
       try {
         resolved = resolve(path);
-        if (!isAllowedRoot(resolved, allowedDirs)) {
+        // Navigation mode again — the pair must agree, or the resolved form
+        // rejects the ancestor the raw form just admitted.
+        if (!isAllowedRoot(resolved, allowedDirs, { navigation: true })) {
           throw new FilesError("forbidden", "Path outside allowed roots", 403);
         }
       } catch (err) {
@@ -171,6 +184,11 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         }
       }
 
+      // Entries a restricted caller could never use are hidden, but ancestors
+      // of a rule stay so the tree can be walked down to it. Directories only —
+      // a FILE under an allowed root is fine, one outside it is noise.
+      const visible = allowedDirs.length === 0 ? entries : entries.filter((e) => dirNavigable(e.path, allowedDirs));
+
       const parent = resolved === "/" ? null : join(resolved, "..");
       // Both sections in one response so the picker needs one request per
       // folder. A path is listed once — favorites win over recents.
@@ -184,7 +202,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         .filter((r) => !starred.has(r.path))
         .slice(0, 3)
         .map(({ path: p, label }) => ({ path: p, label }));
-      return { path: resolved, parent, entries, recent, favorites } as const;
+      return { path: resolved, parent, entries: visible, recent, favorites } as const;
     },
     {
       query: t.Object({
@@ -357,7 +375,20 @@ function isWithin(path: string, root: string): boolean {
  * all cannot list anything, so it passes through to the normal 404. Unset
  * confinement keeps the exact old behavior: anything absolute is allowed.
  */
-function isAllowedRoot(path: string, allowedDirs: readonly string[] = []): boolean {
+/**
+ * @param opts.navigation - use the WIDER `dirNavigable` test (inside a rule,
+ *   or an ancestor of one) instead of the strict `dirAllowed`. Pass it only
+ *   for BROWSING a directory: an ancestor has to stay listable or there is no
+ *   way down to the rule. Everything that names a directory to LAUNCH or
+ *   shortcut into — `/favorite`, the recents and favorites filters — stays
+ *   strict, because offering a shortcut to a directory no subshell can be
+ *   created in is a dead click.
+ */
+function isAllowedRoot(
+  path: string,
+  allowedDirs: readonly string[] = [],
+  opts: { navigation?: boolean } = {},
+): boolean {
   if (!isAbsolute(path)) return false;
   // The LOCAL node's directory allowlist (spec 2026-09-05), layered on top of
   // SUBSHELL_FS_ROOT: both must pass. They answer different questions — the
@@ -368,7 +399,8 @@ function isAllowedRoot(path: string, allowedDirs: readonly string[] = []): boole
   // Tested lexically here because the realpath comparison below is the
   // boundary that matters and runs on the same value; a lexical-only pass is
   // never the last word for an existing path.
-  if (!dirAllowed(resolve(path), allowedDirs)) return false;
+  const inScope = opts.navigation ? dirNavigable : dirAllowed;
+  if (!inScope(resolve(path), allowedDirs)) return false;
   const root = confinementRoot();
   if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
   const resolved = resolve(path);
@@ -384,7 +416,7 @@ function isAllowedRoot(path: string, allowedDirs: readonly string[] = []): boole
     const real = realpathSync(resolved);
     // Re-test the RESOLVED form: a symlink out of an allowed tree is exactly
     // what the lexical pass above cannot see.
-    return dirAllowed(real, allowedDirs) && isWithin(real, root.real);
+    return inScope(real, allowedDirs) && isWithin(real, root.real);
   } catch {
     try {
       lstatSync(resolved); // a present-but-unresolvable path (broken symlink)

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { dirAllowed, MAX_ALLOWED_DIRS, normalizeAllowedDir, normalizeAllowedDirs } from "../dir-allowlist.js";
+import {
+  dirAllowed,
+  dirNavigable,
+  MAX_ALLOWED_DIRS,
+  normalizeAllowedDir,
+  normalizeAllowedDirs,
+} from "../dir-allowlist.js";
 
 describe("normalizeAllowedDir", () => {
   it("accepts an absolute path and strips the trailing slash", () => {
@@ -124,5 +130,53 @@ describe("dirAllowed", () => {
   it("lets a root entry of `/` allow everything absolute", () => {
     expect(dirAllowed("/etc", ["/"])).toBe(true);
     expect(dirAllowed("/", ["/"])).toBe(true);
+  });
+});
+
+describe("dirNavigable", () => {
+  it("is unrestricted with no roots", () => {
+    expect(dirNavigable("/anywhere", [])).toBe(true);
+  });
+
+  it("keeps ANCESTORS of a root visible — the stepping stones to it", () => {
+    // The bug this exists for: filtering a picker by `dirAllowed` alone hides
+    // /home when the rule is /home/theo/projects, leaving an empty panel with
+    // no way down to the one directory that IS permitted.
+    const roots = ["/home/theo/projects"];
+    expect(dirNavigable("/", roots)).toBe(true);
+    expect(dirNavigable("/home", roots)).toBe(true);
+    expect(dirNavigable("/home/theo", roots)).toBe(true);
+  });
+
+  it("keeps the root and its descendants visible", () => {
+    const roots = ["/home/theo/projects"];
+    expect(dirNavigable("/home/theo/projects", roots)).toBe(true);
+    expect(dirNavigable("/home/theo/projects/deep/er", roots)).toBe(true);
+  });
+
+  it("hides siblings and unrelated trees", () => {
+    const roots = ["/home/theo/projects"];
+    expect(dirNavigable("/home/theo/secrets", roots)).toBe(false);
+    expect(dirNavigable("/etc", roots)).toBe(false);
+    // The prefix near-miss, in the ancestor direction too.
+    expect(dirNavigable("/home/theodore", roots)).toBe(false);
+  });
+
+  it("is not fooled by a trailing slash or doubled separators on either side", () => {
+    // Entries are normalized at rest, but a node supplies `entries[].path`
+    // and this predicate must not depend on that being clean.
+    expect(dirNavigable("/home/theo/", ["/home/theo/projects"])).toBe(true);
+    expect(dirNavigable("/home//theo", ["/home/theo/projects"])).toBe(true);
+    expect(dirNavigable("/home/theo", ["/home/theo/projects/"])).toBe(true);
+  });
+
+  it("refuses a candidate carrying `..`, like every other check here", () => {
+    expect(dirNavigable("/home/theo/../etc", ["/home/theo/projects"])).toBe(false);
+  });
+
+  it("is strictly wider than dirAllowed — navigation is not authorization", () => {
+    const roots = ["/srv/work"];
+    expect(dirNavigable("/srv", roots)).toBe(true);
+    expect(dirAllowed("/srv", roots)).toBe(false);
   });
 });

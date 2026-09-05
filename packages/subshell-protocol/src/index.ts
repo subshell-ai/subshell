@@ -8,6 +8,7 @@ export {
 } from "./device-roles.js";
 export {
   dirAllowed,
+  dirNavigable,
   MAX_ALLOWED_DIRS,
   normalizeAllowedDir,
   normalizeAllowedDirs,

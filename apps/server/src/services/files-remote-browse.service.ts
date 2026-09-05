@@ -1,5 +1,5 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
-import { dirAllowed, parseNodeFsLsResult } from "@internal/subshell-protocol";
+import { dirNavigable, parseNodeFsLsResult } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -175,7 +175,24 @@ export async function exploreNodeDirectory(
   const dirs = nodeCanManageFor(row.kind, access, isAdmin)
     ? []
     : await getRequestlessContext().repos.nodeAllowedDirs.listForNode(nodeId);
-  const entries = dirs.length === 0 ? listing.entries : listing.entries.filter((e) => dirAllowed(e.path, dirs));
+  // `dirNavigable`, NOT `dirAllowed`: the latter is a descendant test, so
+  // browsing `/home` with a rule of `/home/theo/projects` would filter out
+  // `/home/theo` — an ancestor — and leave an empty panel with no way down to
+  // the one directory that is permitted. Ancestors are stepping stones.
+  const entries = dirs.length === 0 ? listing.entries : listing.entries.filter((e) => dirNavigable(e.path, dirs));
+  // The picker opens on the node's HOME (`path: ""`), which is usually outside
+  // the rules — so a constrained caller's first view would be an empty,
+  // unnavigable panel. Answer with the roots themselves instead. `parent: null`
+  // caps "up" here; the roots are absolute, so nothing depends on `path`.
+  if (dirs.length > 0 && entries.length === 0 && !dirNavigable(listing.path, dirs)) {
+    return {
+      path: listing.path,
+      parent: null,
+      entries: dirs.map((dir) => ({ name: dir, path: dir, kind: "dir" as const })),
+      recent: [],
+      favorites: [],
+    };
+  }
   return {
     path: listing.path,
     parent: listing.parent,

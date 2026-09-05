@@ -42,6 +42,15 @@ export function semverLt(a: string, b: string): boolean {
  *
  * Raise this in the same commit that bumps the protocol, so the refusal an
  * operator sees always tells them the version to install.
+ *
+ * And raise `apps/client/package.json` to the SAME value in that commit.
+ * `AGENT_VERSION` is that field, so a floor above it makes HEAD refuse a node
+ * built from HEAD — the server and the agent ship together, and for the
+ * window before the version PR lands there would be no agent that satisfies
+ * its own server. (Changesets then releases the client one patch above the
+ * floor, which passes; do not use a `minor` changeset on top of a hand-raised
+ * version or the released client lands two versions clear of the floor for
+ * nothing.)
  */
 export const MIN_AGENT_VERSION = "0.4.0";
 

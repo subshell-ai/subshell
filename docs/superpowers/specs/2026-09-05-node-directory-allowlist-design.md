@@ -1,7 +1,20 @@
 # Node directory allowlist — design
 
 **Date:** 2026-09-05
-**Status:** approved, implementing
+**Status:** implemented
+
+> **Revision 2026-09-05 (during implementation).** The node no longer gates
+> `fs_ls`; the filtering described under *Node* and *Testing* below moved to the
+> control plane. Gating browsing on the node is a trap: the owner browses
+> through that same command to choose what to permit, so the first rule hides
+> every other directory and a **second rule becomes unaddable**. The node sees
+> only a signed command with no principal, so it cannot tell "someone picking a
+> working directory" from "the owner defining rule #2" — the control plane can,
+> and skips filtering for callers who `canManage` the node. The launch gates
+> (`launch`, `stat_dir`) are unchanged and remain enforced on both sides;
+> browsing was never inside `path-policy` and any node-share grantee could
+> already list the node's filesystem, so nothing was given up. Sections below
+> are otherwise as designed.
 
 ## Problem
 

@@ -1,6 +1,6 @@
 ---
 "@internal/server": minor
-"@internal/client": minor
+"@internal/client": patch
 ---
 
 Per-node directory allowlist: restrict where subshells may be created.
