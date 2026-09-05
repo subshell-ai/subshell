@@ -203,7 +203,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   let repainted = false;
   let nudged = false;
   /** The grid this attach actually asked the pane for, for the announcement below. */
-  let appliedFit: PaneGeometry | null = null;
+  const _appliedFit: PaneGeometry | null = null;
   if (params.size) {
     const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
@@ -212,7 +212,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       // watching must shrink the pane for both, so the capture below matches
       // the grid both of them will render.
       const fit = sharedGridFor(row.id) ?? params.size;
-      appliedFit = fit;
       await launcher.resize(row.tmuxSocket, row.id, fit.cols, fit.rows);
       // Tell the queue: this fit bypassed it, and a client frame asking for
       // the same size must not then be swallowed as already-applied.
@@ -250,39 +249,12 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // very next diff, which the client is guaranteed to receive.
   const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
   const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
-  // The trailing terminator still goes (kept from b76a22f): it would land the
-  // client one row past the pane's last row, scrolling the viewport out of
-  // step with the pane's grid. No cursor is restored — the replay ends where
-  // the last captured row ends, which is the bottom of the grid. See
-  // {@link captureToReplayText}.
-  // The pane's real grid, announced BEFORE the replay: the capture below was
-  // taken at whatever size the pane actually holds, which is not necessarily
-  // the size this client asked for on the URL (the request can be clamped, or
-  // lost). Telling the client first means it paints the capture onto a grid it
-  // already agrees with, instead of discovering the mismatch a frame later.
-  // Null (a remote pane, an unreadable pane) simply announces nothing and
-  // leaves the client sizing itself, exactly as before the readback existed.
-  //
-  // Broadcast, not a direct send: a joiner smaller than the incumbents SHRINKS
-  // the pane for all of them (the fit above is the shared grid), and this
-  // attach applies that resize DIRECTLY rather than through the queue — so the
-  // queue's own announcement never fires and the incumbents would never learn
-  // their pane had moved under them. Measured live with two tabs: the pane
-  // correctly became 122x49, the joiner rendered 49 rows, and the incumbent
-  // sat at 52 forever, which is exactly the client/pane disagreement that
-  // corrupts a relative-positioned redraw. The joiner is already registered,
-  // so this reaches it too, still before its replay.
-  // Confirmed where it can be, else the fit this attach applied — the queue's
-  // rule, and the same reasoning (see `pane-geometry.ts`): with several
-  // viewers the pane is the MINIMUM, so a client left to its own grid renders
-  // more rows than the pane holds and stops scrolling in step with it.
-  //
-  // The fallback is only for a machine that can never measure. On one that
-  // can, a null read means the pane has died, and a dying pane gets no
-  // announcement. `appliedFit` is null when this attach carried no size at
-  // all, and then there is genuinely nothing to announce either.
-  const readBack = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
-  const attachGeometry = readBack ?? (launcher.reportsPaneSize() ? null : appliedFit);
+  // The pane's CONFIRMED grid, announced to every viewer before the
+  // replay so the capture is painted onto a grid they already agree
+  // with. Null means the pane died between the fit and here, and a
+  // dying pane gets no announcement — there is no second meaning to
+  // disambiguate any more, because every machine can measure.
+  const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
   if (attachGeometry) {
     broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }

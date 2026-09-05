@@ -2,7 +2,6 @@ import type { HarnessPlugin } from "@internal/harnesses";
 import {
   type NodeCommandBody,
   type NodeProbeEntry,
-  PANE_SIZE_MIN_PROTOCOL_VERSION,
   parseNodeCaptureResult,
   parseNodeLogReadResult,
   parseNodePaneSizeResult,
@@ -47,6 +46,15 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "./node-rp
 /** Per-command deadlines (spec §6.3 table); anything unlisted uses the RPC default. */
 const STAT_DIR_TIMEOUT_MS = 5_000;
 const PROBE_TIMEOUT_MS = 5_000;
+/**
+ * Deadline for `pane_size` — shorter still than the cheap reads above.
+ *
+ * It sits on two hot paths: the resize queue holds its entry `busy` across
+ * this round trip, and the attach waits on it AHEAD of the replay paint. The
+ * default 10s would stall a viewer's first frame behind a wedged node for the
+ * whole window; a missed readback merely costs the confirmation.
+ */
+const PANE_SIZE_TIMEOUT_MS = 3_000;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const LOG_READ_TIMEOUT_MS = 10_000;
 const TAIL_START_TIMEOUT_MS = 10_000;
@@ -295,36 +303,26 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * Whether THIS node's agent can measure a pane — protocol v4 and up.
-   *
-   * Per-connection, not a constant: the fleet is mixed, and an older agent
-   * keeps every other service while losing only the confirmation. Absent
-   * facts (no `ready` yet) read as "too old", which is the safe direction —
-   * the caller then announces the size it asked for rather than treating a
-   * null readback as a dead pane.
-   */
-  reportsPaneSize(): boolean {
-    return (this.#facts()?.protocolVersion ?? 0) >= PANE_SIZE_MIN_PROTOCOL_VERSION;
-  }
-
-  /**
    * The pane's REAL grid, from the agent (protocol v4 `pane_size`).
    *
-   * Still answers null rather than echoing the last requested size when it
-   * cannot know — an echo would be indistinguishable from a real readback and
-   * would defeat the whole point of confirming. What changed is that the
-   * caller can now tell WHICH null it got, by asking
-   * {@link reportsPaneSize}: below v4 there was never a confirmation to be
-   * had, so the announced size is the request; at v4 a null means the pane
-   * has gone and nothing is announced at all.
+   * Null means the pane is gone — never an echo of the requested size, which
+   * would be indistinguishable from a real readback and would defeat the
+   * point of confirming.
    */
   async paneSize(_socket: string, id: string): Promise<{ cols: number; rows: number } | null> {
-    if (!this.reportsPaneSize()) return null;
     try {
-      return parseNodePaneSizeResult(await this.#send({ type: "pane_size", subshellId: id }));
-    } catch {
-      // The node went away mid-question. Indistinguishable from a dead pane
-      // for our purposes, and treated the same: no announcement.
+      return parseNodePaneSizeResult(await this.#send({ type: "pane_size", subshellId: id }, PANE_SIZE_TIMEOUT_MS));
+    } catch (err) {
+      // Null is read by the caller as "the pane died", so a wedged-but-
+      // connected node would silently stop every geometry announcement for
+      // that pane with nothing in the journal. The answer stays null — there
+      // is nothing honest to announce — but it is visible. Debug, not warn: a
+      // node dropping mid-question is ordinary, and this runs on every resize.
+      if (err instanceof NodeRpcError) {
+        logger.debug(`pane_size failed for ${id} on node ${this.#nodeId}: ${err.message}`);
+      } else {
+        logger.withError(err).warn(`pane_size failed unexpectedly for ${id}`);
+      }
       return null;
     }
   }

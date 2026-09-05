@@ -138,46 +138,17 @@ relative-positioned frame a row out, which is the exact corruption this whole
 subsystem exists to prevent. An unconfirmed number every viewer shares beats a
 confirmed disagreement.
 
-`reportsPaneSize()` is a METHOD, not a constant, because the node fleet is
-mixed: it answers from the agent's reported protocol version (v4 and up
-speak `pane_size`). An older agent keeps every other service and loses only
-the confirmation — the control plane then announces the size it ASKED for,
-which is right for one viewer and the best available answer for several. A
-node that is offline or pre-`ready` reads as unable to measure, which is the
-safe direction: the caller announces the request rather than mistaking a null
-for a dead pane.
+**The agent protocol is matched EXACTLY.** `node-ws-handler.ts` refuses any
+agent whose reported version differs from `NODE_PROTOCOL_VERSION`, in either
+direction, with `agent update required` (4406); the Nodes page chips it "agent
+too old" or "agent too new" so the operator knows which side to redeploy.
+There is no compatibility window and no per-feature gating: the server and the
+agent ship together, so a mismatch is a deployment out of step rather than a
+node to be carried. Bump the version whenever a frame changes — additive or
+not — and release both.
 
-Anything a client must not lose in the attach race rides the **connect URL**,
-not a first frame: `handleSubshellMessage` drops frames that arrive before
-`ws.data` is assigned, and the client's `onopen` regularly wins that race
-against the handler's own awaits. Capacity survived it only because clients
-re-send it; `&hidden=` was added for the same reason (`visibility` is sent once
-and then only on change).
-
-Those inputs are parsed ONCE into an `AttachParams` (`ws/attach-params.ts`)
-that both attach paths take whole. They used to travel as separate positional
-arguments, and a run of live-only bugs all had the same shape — one channel
-not carrying one input, with nothing in the types to say so. A struct makes
-the next omission a compile error.
-
-**The `ws/` split:** `subshell-ws.ts` is the local attach plus the plugin's
-three entry points; `attach-resolve.ts` answers "who is asking, may they, and
-about which subshell" and needs NO socket (refusals are returned, so the one
-place holding the socket owns every close code — and the auth path is
-testable without standing one up); `viewers.ts` owns who is watching and what
-that means for the pane (registry, sizing policy, pump registry, resize
-queue); `pane-repaint.ts` makes a pane repaint and reads it back;
-`attach-params.ts` reads the URL.
-
-`viewers.ts` stays one module at ~430 lines against the ~300-400 guidance,
-deliberately: presence and sizing look separable but are not. The pane's size
-IS a function of the viewer set, so `sharedGridFor` reads the registry while
-`detachViewer` re-decides and `broadcastViewers` ships the policy — splitting
-them re-introduces a cycle, or needs a third module that exists only to hold
-the knot. One cohesive concern beats two that cannot stop importing each
-other. Both attach paths import those three, which is what dissolved
-the old `subshell-ws` ↔ `remote-subshell-ws` cycle — the relay no longer
-reaches into the local attach handler for shared machinery.
+The pane's grid is therefore always readable: `paneSize` answers a grid or
+null, and null has ONE meaning — the pane is gone, so nothing is announced.
 
 ### Terminal attach diagnostics
 

@@ -171,7 +171,6 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       capabilities: ["uploads"],
       hostname: "box",
       agentVersion: "0.1.0",
-      protocolVersion: NODE_PROTOCOL_VERSION,
       executablePath: "/usr/local/bin/subshell",
     });
   });
@@ -190,9 +189,6 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       capabilities: ["uploads"],
       hostname: "box",
       agentVersion: "0.1.0",
-      // Stashed per-connection so per-feature gates (pane_size, fs_ls) are
-      // decided without a DB read on a hot path.
-      protocolVersion: NODE_PROTOCOL_VERSION,
     });
     expect(conn.agent && "executablePath" in conn.agent).toBe(false);
   });

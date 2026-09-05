@@ -315,7 +315,6 @@ export function requestPaneResize(
   geometryQueue.request(subshellId, cols, rows, {
     apply: (c, r) => launcher.resize(socket, subshellId, c, r),
     read: () => launcher.paneSize(socket, subshellId),
-    confirms: launcher.reportsPaneSize(),
   });
 }
 

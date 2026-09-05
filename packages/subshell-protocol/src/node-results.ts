@@ -10,7 +10,7 @@
  * version went to 2 so pre-rename agents are refused at `ready`. `fs_ls`
  * (v3) arrived as an ADDITIVE command: no frozen frame changed, so the floor
  * stayed at 2 and the server feature-gates old agents instead (see
- * `FS_LS_MIN_PROTOCOL_VERSION` in `node-frames.ts`).
+ * the protocol version in `node-frames.ts`).
  *
  * `launch` / `terminate` / `kill` / `input` / `resize` / `tail_start` /
  * `tail_stop` / `remove_paths` / `inventory` / `ping` carry no data — their

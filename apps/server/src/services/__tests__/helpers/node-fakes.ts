@@ -69,11 +69,6 @@ export class FakeNodeLauncher implements NodeLauncher {
    * keeping every existing attach assertion on the no-geometry path — the
    * behavior clients had before the readback existed.
    */
-  /** Measurable, like the local launcher this fake stands in for. */
-  reportsPaneSize(): boolean {
-    return true;
-  }
-
   async paneSize(): Promise<{ cols: number; rows: number } | null> {
     return null;
   }

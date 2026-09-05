@@ -133,11 +133,6 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.resizeWindow(socket, id, cols, rows);
   }
 
-  /** tmux answers `display-message -p '#{window_width}:#{window_height}'`. */
-  reportsPaneSize(): boolean {
-    return true;
-  }
-
   async paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null> {
     return this.#tmux.paneSize(socket, id);
   }

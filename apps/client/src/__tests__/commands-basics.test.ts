@@ -7,6 +7,7 @@ import {
   NODE_MAX_FRAME_BYTES,
   type NodeEvent,
   parseNodeCaptureResult,
+  parseNodePaneSizeResult,
   parseNodeProbeEntries,
   parseNodeProbeResume,
   parseNodeStatDirResult,
@@ -59,6 +60,7 @@ interface Spec {
   capturePane?: (socket: string, id: string) => string;
   paneTitle?: (socket: string, id: string) => { title: string; command: string } | null;
   paneExitCode?: (socket: string, id: string) => number | null;
+  paneSize?: (socket: string, id: string) => { cols: number; rows: number } | null;
 }
 
 /** Build a CommandContext over a scripted double; unstubbed methods throw (a test calling one is a bug). */
@@ -81,6 +83,7 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
     capturePane: method("capturePane"),
     paneTitle: method("paneTitle"),
     paneExitCode: method("paneExitCode"),
+    paneSize: method("paneSize"),
   };
   const config: AgentConfig = {
     serverUrl: "http://localhost:1",
@@ -190,6 +193,29 @@ describe("command executors (spec §7)", () => {
     // S1's socket comes from the recorded meta ("recorded-sock", seeded by
     // the terminate test on the same dataDir) — the resolveSocket precedence.
     expect(argsOf(tmux, "capturePane")).toEqual([["recorded-sock", S1, 100]]);
+  });
+
+  it("pane_size answers the pane's real grid, in the shape the server parses", async () => {
+    // This half ships INSIDE the compiled agent binary and cannot be
+    // hot-fixed from the server, so the contract is asserted against the
+    // server's own parser rather than a hand-written shape.
+    const { ctx, tmux } = makeCtx({ paneSize: () => ({ cols: 132, rows: 43 }) }, []);
+    const result = await dispatchCommand(ctx, { type: "pane_size", subshellId: S1 });
+    expect(result).toEqual({ ok: true, data: { cols: 132, rows: 43 } });
+    expect(parseNodePaneSizeResult(result.ok ? result.data : null)).toEqual({ cols: 132, rows: 43 });
+    expect(argsOf(tmux, "paneSize")).toEqual([["recorded-sock", S1]]);
+  });
+
+  it("pane_size answers ok:true with null data for a pane that is gone", async () => {
+    // The dead-pane contract the SERVER now depends on: a vanished pane is a
+    // successful answer of "no size", NOT an error. The server reads that
+    // null as "the pane died" and announces nothing — if this ever became an
+    // error result instead, the server would read it as a wedged node and the
+    // distinction it draws would collapse.
+    const { ctx } = makeCtx({ paneSize: () => null }, []);
+    const result = await dispatchCommand(ctx, { type: "pane_size", subshellId: S1 });
+    expect(result).toEqual({ ok: true, data: null });
+    expect(parseNodePaneSizeResult(result.ok ? result.data : null)).toBeNull();
   });
 
   it("probe: live row carries title/command/capture; dead row carries the exit code and NO capture", async () => {

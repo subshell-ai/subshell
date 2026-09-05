@@ -90,20 +90,6 @@ export interface NodeLauncher {
    */
   paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null>;
   /**
-   * Whether {@link paneSize} can answer for this machine RIGHT NOW.
-   *
-   * A method, not a constant: the node fleet is mixed, so this is decided
-   * per-connection from the agent's reported protocol version.
-   *
-   * Null from `paneSize` means two different things and the server has to
-   * tell them apart: "this pane just died" (announce nothing — it is about to
-   * be closed) and "this machine has no way to measure a pane" (announce the
-   * size the pane was ASKED for, because with several viewers the alternative
-   * is every larger client rendering a grid the pane does not have). Without
-   * this flag those collapse into one silence.
-   */
-  reportsPaneSize(): boolean;
-  /**
    * Sends `SIGWINCH` to the pane's process WITHOUT changing its size, so a
    * diff-rendering TUI repaints the grid it already has. Returns false when
    * the machine cannot deliver the signal.

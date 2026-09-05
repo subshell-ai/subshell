@@ -26,9 +26,6 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
     // Echoes the last applied size: a pane that takes every request, which is
     // the case where the client's grid and the pane agree.
     paneSize: async () => resizes.at(-1) ?? null,
-    // Measurable, like the tmux launcher this stands in for: a null read
-    // therefore means the pane DIED, and nothing is announced.
-    reportsPaneSize: () => true,
   } as unknown as NodeLauncher;
   const ws = {
     data: {

@@ -1,6 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import type { JsonValue, NodeCommandBody } from "@internal/subshell-protocol";
-import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -112,9 +111,6 @@ function makeNodeSim() {
     hostname: "box",
     agentVersion: "0.2.0",
     executablePath: "/usr/bin/subshell",
-    // A current agent: `pane_size` (v4) is answerable, so a null readback
-    // means the pane DIED rather than "this node cannot measure".
-    protocolVersion: NODE_PROTOCOL_VERSION,
   };
 
   return {
