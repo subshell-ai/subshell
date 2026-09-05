@@ -491,8 +491,8 @@ Audit events are written for: `user.create`, `system-key.create`,
 `system-key.delete`, `subshell.create`, `subshell.terminate`, `subshell.restart`,
 `subshell.delete`, `node.enroll`, `node.delete`, `node.rename`,
 `node.key_rotate`, `node.allowed_dirs.update`, `setup_key.create`,
-`setup_key.revoke`, `settings.update`, and
-`emergency_login.rewrite_credential`.
+`setup_key.revoke`, `settings.update`, `user.role_change`,
+`user.password_reset`, and `emergency_login.rewrite_credential`.
 
 Read them with `GET /api/audit?limit=50` (admin).
 
@@ -532,7 +532,16 @@ Recorded so they are decisions rather than surprises:
 4. **The host filesystem is browsable by default** to any signed-in human.
    `SUBSHELL_FS_ROOT` narrows it; nothing narrows it by default.
 5. **Admins are unconstrained operators.** No separation of duties, no
-   four-eyes on system-key minting.
+   four-eyes on system-key minting — and, since 2026-09-05, an admin can
+   **reset any other user's password** from the Users page. That grants no
+   reach an admin lacked (they could already mint a full-access system key and
+   read every subshell), but it is now a one-click credential takeover, and it
+   is audited as `user.password_reset` with the session count rather than the
+   password. Two guards bound it: an admin cannot reset their OWN password
+   there (Account requires the current one, so an unlocked laptop is not a
+   takeover), and the `system` service account is untouchable. A reset
+   **revokes every session the target holds**, so it does evict an attacker
+   already holding a cookie.
 6. **System keys are bearer-equals-full-access** and long-lived. Every holder is
    effectively an operator.
 7. **No DoS protection** beyond login backoff.
@@ -562,6 +571,8 @@ holds and the following are prerequisites, not improvements:
       VPN, and command signing alone does not close it.
 - [ ] **Add sign-in/sign-out audit events** before anyone needs to reconstruct an
       incident.
-- [ ] **Separate admin duties**, or accept that any admin compromise is total.
+- [ ] **Separate admin duties**, or accept that any admin compromise is total —
+      admin password reset (§11.5) makes that compromise one click from any
+      other account.
 - [ ] **Clear `SUBSHELL_EMERGENCY_PASSWORD`** and verify it is unset in every
       environment file and unit.

@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UserRowActions } from "@/components/users/user-row-actions";
 import { apiFetch, errMessage } from "@/lib/api";
+import { useCurrentUser } from "@/lib/auth";
 
 export const Route = createFileRoute("/users")({
   component: UsersPage,
@@ -51,6 +53,10 @@ function UsersPage() {
   // Strict: while the envelope is loading (undefined) or for members (false),
   // the audit query stays disabled so it can never fire a doomed 403 request.
   const viewerIsAdmin = envelope?.viewerIsAdmin === true;
+  // Own id, so the row for yourself offers a role control but no password
+  // reset — that path lives under Account, where the current password is
+  // required.
+  const { data: currentUser } = useCurrentUser();
 
   const {
     data: auditEvents,
@@ -203,7 +209,8 @@ function UsersPage() {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="pr-4 pb-2 font-medium">Email</th>
                     <th className="pr-4 pb-2 font-medium">Role</th>
-                    <th className="pb-2 font-medium">Created</th>
+                    <th className="pr-4 pb-2 font-medium">Created</th>
+                    {viewerIsAdmin && <th className="pb-2 font-medium">Manage</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -218,9 +225,18 @@ function UsersPage() {
                           {u.role ?? "user"}
                         </Badge>
                       </td>
-                      <td className="py-2 text-muted-foreground">
+                      <td className="py-2 pr-4 text-muted-foreground">
                         {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
                       </td>
+                      {viewerIsAdmin && (
+                        <td className="py-2">
+                          <UserRowActions
+                            user={u}
+                            viewerId={currentUser?.id ?? null}
+                            onChanged={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
+                          />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

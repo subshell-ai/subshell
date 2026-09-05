@@ -18,6 +18,56 @@ export class UserMetaRepository extends BaseRepository {
       .execute();
   }
 
+  /**
+   * Sets a user's role, refusing to remove the LAST admin.
+   *
+   * The count and the write are one transaction, and that is the whole reason
+   * this lives in the repository rather than as a check in the route: two
+   * admins demoting each other concurrently would otherwise both read "2
+   * admins", both pass, and leave an instance nobody can administer — no role
+   * changes, no user creation, no system keys, no settings, recoverable only
+   * through `SUBSHELL_EMERGENCY_PASSWORD` and a restart.
+   *
+   * Self-demotion is allowed and deliberately not special-cased: an admin
+   * stepping down while others remain is legitimate, and the last-admin rule
+   * already covers the only case that matters.
+   *
+   * @returns `false` when the change was refused as the last admin's demotion
+   */
+  async setRole(userId: string, role: "admin" | "user"): Promise<boolean> {
+    return await this.db.transaction().execute(async (trx) => {
+      if (role !== "admin") {
+        const current = await trx.selectFrom("userMeta").select("role").where("userId", "=", userId).executeTakeFirst();
+        // Only a demotion OF an admin can strand the instance; promoting or
+        // re-writing a non-admin's role never can.
+        if (current?.role === "admin") {
+          const { admins } = await trx
+            .selectFrom("userMeta")
+            .select((eb) => eb.fn.countAll<number>().as("admins"))
+            .where("role", "=", "admin")
+            .executeTakeFirstOrThrow();
+          if (Number(admins) <= 1) return false;
+        }
+      }
+      await trx
+        .insertInto("userMeta")
+        .values({ userId, role })
+        .onConflict((oc) => oc.column("userId").doUpdateSet({ role }))
+        .execute();
+      return true;
+    });
+  }
+
+  /** How many users currently hold the admin role. */
+  async countAdmins(): Promise<number> {
+    const { admins } = await this.db
+      .selectFrom("userMeta")
+      .select((eb) => eb.fn.countAll<number>().as("admins"))
+      .where("role", "=", "admin")
+      .executeTakeFirstOrThrow();
+    return Number(admins);
+  }
+
   async getRole(userId: string): Promise<string | null> {
     const row = await this.db.selectFrom("userMeta").select("role").where("userId", "=", userId).executeTakeFirst();
     return row?.role ?? null;
