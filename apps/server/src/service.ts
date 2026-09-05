@@ -113,7 +113,7 @@ export function serviceArtifactPath(platform: NodeJS.Platform, home: string): st
 /**
  * The argv the service manager should run. Compiled binary (basename starts
  * with `subshell`): the binary ALONE — the server boots from a bare
- * `subshell-server` invocation (the svc.sh/systemd no-subcommand contract),
+ * `subshell-server` invocation (the systemd no-subcommand boot contract),
  * so unlike the client there is no trailing `run`. Dev/interpreter launch
  * (`bun src/index.ts`): interpreter + the resolved script path — a bare
  * relative `argv1` would break the moment the manager starts us from another
@@ -255,14 +255,14 @@ const unsupported = (action: string, platform: string): string =>
 /** Linux install guards that run BEFORE any write or manager command. */
 function systemdGuards(deps: ServiceDeps): CliResult | null {
   // The user instance is where this unit lives — no XDG_RUNTIME_DIR means no
-  // D-Bus to talk to (svc.sh checks the same, with the same message shape).
+  // D-Bus to talk to.
   if (!deps.env.XDG_RUNTIME_DIR) {
     return errLine(
       "no XDG_RUNTIME_DIR — no systemd user session here; run `subshell-server` in a terminal " +
         "(e.g. inside tmux/screen) instead",
     );
   }
-  // Reachability probe (svc.sh's `systemctl --user is-system-running`): the
+  // Reachability probe: the
   // classic "Failed to connect to bus" answers HERE, as a refusal with
   // nothing written — unlike the client (which learns it from a failing
   // daemon-reload AFTER the unit landed on disk).

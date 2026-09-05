@@ -17,7 +17,7 @@ import { join } from "node:path";
 /**
  * The server's config home: `SUBSHELL_SERVER_CONFIG_DIR` when set (the
  * documented test/CI override), else `~/.config/subshell-server` — the same
- * home `svc.sh` already treats as the instance's data dir.
+ * home the deployment already treats as the instance's data dir.
  *
  * @returns Absolute path to the config directory (need not exist yet)
  */
@@ -38,8 +38,8 @@ export function configEnvPath(): string {
 
 /**
  * Parses a KEY=VALUE file. Grammar (intentionally minimal — systemd's
- * EnvironmentFile is the reference behaviour, and `svc.sh` forbids quoted
- * values there):
+ * EnvironmentFile is the reference behaviour, which keeps quotes LITERALLY —
+ * so quoted values are refused rather than silently mis-read):
  *
  * - blank/whitespace-only lines and `#comment` lines are skipped;
  * - everything before the FIRST `=` is the key, everything after it the value

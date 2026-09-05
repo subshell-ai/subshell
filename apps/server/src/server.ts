@@ -36,7 +36,7 @@ export function createApp() {
     // (it is not a dist file). spec 2026-08-31 §8.
     .use(installScriptRoute)
     .use(authPlugin)
-    // Disk dist wins when present (dev + svc.sh behave byte-identically);
+    // Disk dist wins when present (dev and checkout deployments behave alike);
     // else the SPA embedded by scripts/embed-web.ts; else boot fails loudly.
     .use(selectStaticPlugin(FRONTEND_DIST, EMBEDDED))
     .use(wsPlugin)

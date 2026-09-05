@@ -296,7 +296,7 @@ export function staticSource(): StaticSource {
 
 /**
  * Boot-time source selection (spec 2026-09-03 §4): a built dist dir on disk
- * wins (dev checkouts and svc.sh deployments stay byte-identical), else the
+ * wins (a dev run and a checkout-based deployment stay byte-identical), else the
  * bytes embedded in this binary, else boot fails loudly — an extended form of
  * the disk factory's own "built frontend not found" throw.
  *

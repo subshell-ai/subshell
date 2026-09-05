@@ -12,7 +12,7 @@ import { SERVER_VERSION } from "@/version.js";
 /**
  * Hand-rolled subcommand dispatch for the `subshell-server` binary
  * (client `cli.ts` precedent — no flag library). The rule that keeps the
- * svc.sh/systemd boot contract byte-identical: `dispatchCli` returns FALSE
+ * no-subcommand systemd boot contract byte-identical: `dispatchCli` returns FALSE
  * for anything that is not a known subcommand (no args, or a leading flag),
  * and the caller falls through to booting the server.
  *
@@ -161,8 +161,8 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
   const exit = deps.exit ?? ((code: number) => process.exit(code));
 
   const [command] = argv;
-  // Boot path: no subcommand, or a leading flag (svc.sh/systemd pass flags
-  // and env, never a subcommand word). The boot graph continues untouched.
+  // Boot path: no subcommand, or a leading flag (a service manager passes
+  // flags and env, never a subcommand word). The boot graph continues untouched.
   if (!command || command.startsWith("-")) return false;
   cliEngaged = true;
 

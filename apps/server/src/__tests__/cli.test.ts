@@ -60,7 +60,7 @@ describe("dispatchCli — boot-path passthrough", () => {
     expect(err).toEqual([]);
   });
 
-  test("a leading flag is NOT a subcommand → false (svc.sh/systemd boot form)", async () => {
+  test("a leading flag is NOT a subcommand → false (systemd boot form)", async () => {
     const { deps } = collectingDeps();
     expect(await dispatchCli(["--help"], deps)).toBe(false);
     expect(await dispatchCli(["-v", "extra"], deps)).toBe(false);
@@ -223,7 +223,7 @@ describe("dispatchCli — status", () => {
 
   test("process env shadows the file; unset secret → MISSING; nothing mutates", async () => {
     const dir = newConfigDir(); // no config.env inside
-    // HOST may legitimately be set in the runner's environment (svc.sh host
+    // HOST may legitimately be set in the runner's environment (a host
     // sets 0.0.0.0) — capture it so the "status mutates nothing" assertion
     // compares against the real pre-state, not against undefined.
     const hostBefore = process.env.HOST;

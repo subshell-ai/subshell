@@ -298,7 +298,7 @@ describe("dispatchCli — existing behaviour untouched", () => {
   test("boot passthrough still false; version/status untouched by the new cases", async () => {
     const { deps, exits } = harness();
     expect(await dispatchCli([], deps)).toBe(false);
-    expect(await dispatchCli(["--port", "1234"], deps)).toBe(false); // leading flag = boot path (svc.sh form)
+    expect(await dispatchCli(["--port", "1234"], deps)).toBe(false); // leading flag = boot path (systemd form)
     expect(exits).toEqual([]);
     const v = harness();
     expect(await dispatchCli(["version"], v.deps)).toBe(true);
