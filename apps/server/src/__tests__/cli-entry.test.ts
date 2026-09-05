@@ -61,6 +61,24 @@ async function runCli(args: string[], opts: { cwd: string; env: Record<string, s
   return { code, stdout, stderr };
 }
 
+/**
+ * Asserts a clean exit, and on failure SAYS WHY.
+ *
+ * A bare `expect(code).toBe(0)` reports "expected 0, received 1" and throws
+ * the subprocess's stderr away — which is where the reason always is. That
+ * cost a long investigation once already: `@internal/server#test` had a turbo
+ * override that dropped `^build`, so a concurrent dependency rebuild could
+ * wipe a dependency dist mid-run and the child died on
+ * `Cannot find module '@internal/subshell-protocol'`. The message was right
+ * there and invisible.
+ */
+function expectCleanExit(run: RunResult, what: string): void {
+  if (run.code === 0) return;
+  throw new Error(
+    `${what} exited ${run.code}\n--- stderr ---\n${run.stderr.trim() || "(empty)"}\n--- stdout ---\n${run.stdout.trim() || "(empty)"}`,
+  );
+}
+
 /** Ephemeral port nobody owns for the duration of one test. */
 async function freePort(): Promise<number> {
   const srv = createServer();
@@ -88,7 +106,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
           SUBSHELL_SERVER_SKIP_TMUX_CHECK: "1",
         },
       });
-      expect(run.code).toBe(0);
+      expectCleanExit(run, "configure --yes");
       // 1. The file landed, with the documented defaults.
       const text = readFileSync(join(cfg, "config.env"), "utf8");
       const parsed = parseEnvFile(text);
@@ -116,11 +134,11 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       const cfg = join(cwd, "cfghome", "subshell-server"); // does not exist yet — init creates it
       const env = { SUBSHELL_SERVER_CONFIG_DIR: cfg, SUBSHELL_SERVER_SKIP_TMUX_CHECK: "1" };
       const first = await runCli(["init", "--yes"], { cwd, env });
-      expect(first.code).toBe(0);
+      expectCleanExit(first, "init --yes (first)");
       const secret = parseEnvFile(readFileSync(join(cfg, "config.env"), "utf8")).BETTER_AUTH_SECRET;
       expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
       const second = await runCli(["init", "--yes"], { cwd, env });
-      expect(second.code).toBe(0);
+      expectCleanExit(second, "init --yes (second)");
       expect(parseEnvFile(readFileSync(join(cfg, "config.env"), "utf8")).BETTER_AUTH_SECRET).toBe(secret);
       // Init itself is pure fs too: no sqlite file appeared in the CWD…
       const dbFiles = sqliteLitter(cwd).filter((f) => !f.startsWith(`${cfg}/`));
@@ -152,7 +170,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
           SUBSHELL_MCP_ARGS: "mcp", // operator typo: not the JSON array the contract wants
         },
       });
-      expect(run.code).toBe(0);
+      expectCleanExit(run, "status");
       expect(run.stdout).toContain("SUBSHELL_MCP_ARGS");
       expect(sqliteLitter(cwd)).toEqual([]);
     },
