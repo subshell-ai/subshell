@@ -407,6 +407,41 @@ jobs:
           pattern: ${{ matrix.app }}-*
           path: dist
 
+      # Solely to read the CHANGELOG: releases used to publish with an EMPTY
+      # body, so the one page a user lands on to ask "what changed in 1.6.0?"
+      # answered with a bare asset list. The prose already exists — changesets
+      # wrote it at version time — it just never travelled to the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+
+      # Slice out this version's section. Anchored on the "## <version>"
+      # heading changesets emits, stopping at the next one.
+      - id: notes
+        env:
+          APP: ${{ matrix.app }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          changelog="repo/apps/$APP/CHANGELOG.md"
+          out="$RUNNER_TEMP/release-notes-$APP.md"
+          if [ -f "$changelog" ]; then
+            awk -v want="$VERSION" '
+              /^## / { if (found) exit; if ($2 == want) { found = 1; next } }
+              found { print }
+            ' "$changelog" > "$out"
+          else
+            : > "$out"
+          fi
+          # A version cut with no changeset is legitimate (a re-cut, a manual
+          # version input), and an empty body must never fail the publish — a
+          # release with thin notes beats no release at all.
+          if [ ! -s "$out" ]; then
+            echo "::warning::no CHANGELOG section for $APP $VERSION — publishing with a placeholder body"
+            printf '%s\n' "\`$APP\` $VERSION. See the commit history for changes." > "$out"
+          fi
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
       # Draft first: a failed upload never ships a live release.
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
@@ -414,6 +449,7 @@ jobs:
           name: ${{ matrix.tag }}
           target_commitish: ${{ github.sha }}
           draft: true
+          body_path: ${{ steps.notes.outputs.path }}
           files: dist/${{ matrix.app }}-*/*
           fail_on_unmatched_files: true
 
@@ -423,3 +459,4 @@ jobs:
         with:
           tag_name: ${{ matrix.tag }}
           name: ${{ matrix.tag }}
+          body_path: ${{ steps.notes.outputs.path }}
