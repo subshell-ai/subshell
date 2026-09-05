@@ -208,6 +208,20 @@ cut tags by hand.
   changes to `apps/server`/`apps/client` → a version PR ("chore: release
   package(s)") maintained on every push to main; merging it bumps the app's
   `package.json` + CHANGELOG. Merging does NOT cut a release.
+- **Release notes live in the GitHub Release.** The publish job slices this
+  version's section out of `apps/<app>/CHANGELOG.md` and passes it as the
+  release body, so the page a user lands on says what changed instead of
+  listing six assets. Treat `apps/<app>/CHANGELOG.md` as a BUILD ARTIFACT, not
+  a document to read or hand-edit: changesets renders it from the
+  `.changeset/*.md` files (which it then deletes), and the release body is
+  derived from it, so the two cannot disagree. This is the same mechanism
+  changesets' own `createGithubReleases` uses — that path is off here because
+  it fires only on npm publish, which is out of scope, and tags releases
+  `<pkg>@<version>` rather than `<app>-v<version>`.
+  The ROOT `CHANGELOG.md` is gone (2026-09-05): it predated changesets, still
+  carried the monorepo template's 2024 history, and its `Unreleased` section
+  described work that had shipped in 1.0–1.5. A hand-written changelog beside
+  generated ones is the one that goes stale.
 - **macOS signing + notarization (darwin shards):** the Release-build step sets
   `SUBSHELL_RELEASE_SIGN_CMD=scripts/macos-sign-notarize.sh` for darwin triples;
   the release scripts run it per artifact **between build and digest**, so the
