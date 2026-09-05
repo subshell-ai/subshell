@@ -66,9 +66,24 @@ async function swipe(client: CDPSession, fromX: number, toX: number, y: number) 
  * already landed.
  */
 async function gotoSubshell(page: Page, id: string): Promise<void> {
-  const listed = page.waitForResponse((r) => r.url().includes("/api/subshells") && r.ok());
   await page.goto(`/subshells/${id}`);
-  await listed;
+  await swipeReady(page);
+}
+
+/**
+ * Waits until the pane will actually respond to a swipe.
+ *
+ * `data-swipe-nav="ready"` is set by `useSwipeNav` in the same effect that
+ * binds the gesture, so it cannot claim ready while the listeners are off.
+ * Everything softer than this raced: `.xterm` visible is true long before the
+ * subshell list has loaded (no neighbours ⇒ the gesture is not even bound),
+ * and waiting for the list RESPONSE is not the app having rendered from it —
+ * that version still lost about one run in eleven. A swipe dispatched early
+ * is silently a no-op, so the failure looks like "the page did not move",
+ * with no error anywhere.
+ */
+async function swipeReady(page: Page): Promise<void> {
+  await expect(page.locator('[data-swipe-nav="ready"]')).toBeVisible();
   await expect(page.locator(".xterm")).toBeVisible();
 }
 
@@ -149,14 +164,17 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
     if (below) {
       await swipe(client, cx, cx - 140, cy);
       await expect(page).toHaveURL(onSubshell(below));
+      await swipeReady(page);
       // Only above A sits B, so return to A before exercising the up-swipe.
       await gotoSubshell(page, a);
     }
     // Right swipe from A → previous = B.
     await swipe(client, cx, cx + 140, cy);
     await expect(page).toHaveURL(onSubshell(b));
-    // B's terminal attached too; left swipe from B lands back on A.
-    await expect(page.locator(".xterm")).toBeVisible();
+    // B's zone has to arm before the next swipe: this is a CLIENT-SIDE
+    // navigation, so the gesture rebinds to a new element and the old one's
+    // `.xterm` can still be on screen while it does.
+    await swipeReady(page);
     await swipe(client, cx, cx - 140, cy);
     await expect(page).toHaveURL(onSubshell(a));
 
