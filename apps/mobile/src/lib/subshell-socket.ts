@@ -1,4 +1,9 @@
-import { type ClientFrame, normalizeDeviceLabel, type ServerFrame } from "@internal/subshell-protocol";
+import {
+  type ClientFrame,
+  normalizeDeviceLabel,
+  type ServerFrame,
+  type ViewersState,
+} from "@internal/subshell-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SubshellClient } from "@/lib/api";
 import { wsOrigin } from "@/lib/instance-url";
@@ -80,6 +85,13 @@ export function useSubshellSocket(opts: {
   const hiddenRef = useRef(hidden);
   hiddenRef.current = hidden;
   const [status, setStatus] = useState<SocketStatus>({ state: "connecting" });
+  /**
+   * Who else is watching, straight off the socket. Null while it is down —
+   * presence is live state, not a cache, and a phone that keeps claiming two
+   * devices through a reconnect is lying about the thing it is there to
+   * explain.
+   */
+  const [viewers, setViewers] = useState<ViewersState | null>(null);
 
   const frame = useCallback((f: ClientFrame) => {
     const ws = wsRef.current;
@@ -90,6 +102,19 @@ export function useSubshellSocket(opts: {
   const sendInput = useCallback(
     (data: string) => {
       if (data) frame({ type: "input", data });
+    },
+    [frame],
+  );
+
+  /**
+   * Chooses how the pane is sized while several devices watch it: `auto`
+   * hands it to the smallest visible one, `pinned` to the named viewer.
+   * Refused server-side for a `view` grantee — sizing changes what everyone
+   * sees, so it is an `edit` act like typing.
+   */
+  const setSizing = useCallback(
+    (mode: "auto" | "pinned", viewerId?: string | null) => {
+      frame({ type: "set-sizing", mode, viewerId: viewerId ?? null });
     },
     [frame],
   );
@@ -169,6 +194,8 @@ export function useSubshellSocket(opts: {
               handlersRef.current.onBytes(f.data);
             } else if (f.type === "output" && f.data) {
               handlersRef.current.onBytes(f.data);
+            } else if (f.type === "viewers") {
+              setViewers({ you: f.you, viewers: f.viewers, sizing: f.sizing });
             }
           } catch {
             /* malformed frame: ignore, like the web client */
@@ -180,6 +207,7 @@ export function useSubshellSocket(opts: {
           // RN's CloseEvent types code as optional; 1006 (abnormal closure) is
           // what a dropped socket reports.
           const code = ev.code ?? 1006;
+          setViewers(null); // with the socket down we do not know who is watching
           if (shouldReconnectAfterClose(code)) {
             setStatus({ state: "closed", code });
             scheduleRetry();
@@ -211,5 +239,5 @@ export function useSubshellSocket(opts: {
     };
   }, [client, subshellId, active, opts.deviceLabel]);
 
-  return { sendInput, sendResize, status };
+  return { sendInput, sendResize, setSizing, status, viewers };
 }

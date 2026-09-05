@@ -38,3 +38,27 @@ describe("visibility frames (the shared-pane rule this app has to obey)", () => 
     expect(parseClientFrame(JSON.stringify({ type: "visibility", hidden: "yes" }))).toBeNull();
   });
 });
+
+describe("set-sizing frames (the phone can pin the pane too)", () => {
+  it("emits exactly the frame the server parses", () => {
+    // A phone is usually the SMALLEST viewer, so it is the device most likely
+    // to be shrinking everyone else's terminal — which makes it the one that
+    // most needs to hand the pane to a bigger screen. Same arbiter as the
+    // visibility frame: assert against `parseClientFrame`, not a string.
+    expect(parseClientFrame(JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: "v1" }))).toEqual({
+      type: "set-sizing",
+      mode: "pinned",
+      viewerId: "v1",
+    });
+    expect(parseClientFrame(JSON.stringify({ type: "set-sizing", mode: "auto", viewerId: null }))).toEqual({
+      type: "set-sizing",
+      mode: "auto",
+      viewerId: null,
+    });
+  });
+
+  it("is rejected for a mode the server does not know", () => {
+    expect(parseClientFrame(JSON.stringify({ type: "set-sizing", mode: "biggest" }))).toBeNull();
+    expect(parseClientFrame(JSON.stringify({ type: "set-sizing" }))).toBeNull();
+  });
+});

@@ -133,6 +133,14 @@ phone size, with nothing on any screen to explain it — `LiveHost` passes
 `hidden: !useForeground()` into `useSubshellSocket`, which announces it on
 open and on every foreground change.
 
+**The Devices strip mirrors the web's, from the same code.** `describeDevices`
+and the sizing rule live in `@internal/subshell-protocol` precisely so all
+three clients explain one decision identically — the browser's explanation
+once drifted from the server's by a single dropped field, and a per-client
+copy is how that happens. On a phone the question is usually inverted: this
+device is normally the SMALLEST viewer, so it is the one shrinking everyone
+else's terminal, and the strip is where it hands the pane to a bigger screen.
+
 ## Layout
 
 ```

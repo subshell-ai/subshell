@@ -1,4 +1,12 @@
 export {
+  type DeviceReport,
+  type DeviceRole,
+  type DeviceRow,
+  describeDevices,
+  roleLabel,
+  type ViewersState,
+} from "./device-roles.js";
+export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   type ClientFrame,

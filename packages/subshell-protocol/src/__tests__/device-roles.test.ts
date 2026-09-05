@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { ViewerPresence } from "@internal/subshell-protocol";
-import { describeDevices, roleLabel } from "@/lib/device-roles";
-import type { ViewersState } from "@/lib/use-subshell-ws";
+import { describeDevices, roleLabel, type ViewersState } from "../device-roles.js";
+import type { ViewerPresence } from "../frames.js";
 
 /** A viewer literal; `since` ascends with the id so ordering is predictable. */
 function viewer(id: string, cols: number | null, rows = 0, over: Partial<ViewerPresence> = {}): ViewerPresence {

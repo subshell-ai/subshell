@@ -107,7 +107,7 @@ itself lives in `@internal/subshell-protocol` (`shared-geometry.ts`) so the
 server can APPLY it and the browser can EXPLAIN it from one definition:
 smallest visible viewer wins, hidden viewers drop out, a pin overrides both.
 `decideSharedGrid` returns the grid plus the viewer ids holding each axis;
-`lib/device-roles.ts` turns that into the rows `<SubshellDevices>` renders —
+`describeDevices` (also in the protocol package, beside the rule it explains — the phone needs it too) turns that into the rows `<SubshellDevices>` renders —
 in the subshell header, and floated over a workspace pane's top-right corner
 (dockview owns that panel's frame, and a row of our own would cost every pane
 vertical space for a control that is absent whenever one device is attached).

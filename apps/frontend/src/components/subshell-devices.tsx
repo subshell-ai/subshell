@@ -1,3 +1,4 @@
+import { describeDevices, roleLabel, type ViewersState } from "@internal/subshell-protocol";
 import { Check, Monitor, Pin } from "lucide-react";
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
@@ -8,8 +9,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { describeDevices, roleLabel } from "@/lib/device-roles";
-import type { ViewersState } from "@/lib/use-subshell-ws";
 import { cn } from "@/lib/utils";
 
 /** Props for {@link SubshellDevices}. */
