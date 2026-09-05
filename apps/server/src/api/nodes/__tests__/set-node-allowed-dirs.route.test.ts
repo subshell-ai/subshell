@@ -182,6 +182,26 @@ describe("node allowed-dirs route", () => {
     await new NodeAllowedDirsRepository(db).clearForNode(LOCAL_NODE_ID);
   });
 
+  it("refuses a bearer key outright — machine credentials never configure an instance", async () => {
+    const res = await nodesRoutes.fetch(
+      new Request(`http://localhost:3080/api/nodes/${NODE}/allowed-dirs`, {
+        method: "PUT",
+        headers: { authorization: "Bearer subshell_whatever", "content-type": "application/json" },
+        body: JSON.stringify({ dirs: ["/tmp"] }),
+      }),
+    );
+    // 401 (key unknown) or 403 (key rejected on an admin surface) — either is
+    // a refusal; what must never happen is a 200.
+    expect([401, 403]).toContain(res.status);
+  });
+
+  it("an admin does NOT get to rewrite a foreign agent node's rules", async () => {
+    // Admins hold instance-wide EDIT, and the seeded-`local` exception is
+    // exactly that — an exception. On someone else's agent node the rules stay
+    // with the real owner, like shares and rename.
+    expect((await put(ownerAdminCookie, ["/tmp"])).status).toBe(403);
+  });
+
   it("an empty array clears the rules back to unrestricted", async () => {
     const res = await put(ownerCookie, []);
     expect(res.status).toBe(200);

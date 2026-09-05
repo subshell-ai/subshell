@@ -144,16 +144,31 @@ describe("launch refusal", () => {
   });
 });
 
-describe("stat_dir refusal", () => {
-  it("refuses a directory outside the rules, so the pre-launch probe agrees with launch", async () => {
+describe("stat_dir is deliberately NOT gated", () => {
+  it("probes a directory outside the rules — a probe is not a launch", async () => {
+    // Gating this broke rule #2 on any node that already had rule #1: the
+    // control plane RESOLVES each new rule by calling stat_dir here, so a
+    // second rule outside the first was refused, resolution fell back to the
+    // raw string, and the rule then never matched the realpath'd candidate.
+    // The control plane refuses a disallowed cwd before it probes, and
+    // execLaunch is still this node's own gate, so nothing is lost.
     const dataDir = freshDir();
     const outside = freshDir();
     mkdirSync(join(dataDir, "work"), { recursive: true });
     writeAllowedDirs(dataDir, [join(dataDir, "work")]);
 
     const res = await dispatchCommand(makeCtx(dataDir), { type: "stat_dir", path: outside });
+    expect(res.ok).toBe(true);
+    // ...and it answers the RESOLVED path, which is the whole point: that is
+    // what gets stored as the rule.
+    expect(res.ok && res.data).toMatchObject({ path: outside, isDirectory: true });
+  });
+
+  it("still refuses a path that is missing or not a directory", async () => {
+    const dataDir = freshDir();
+    const res = await dispatchCommand(makeCtx(dataDir), { type: "stat_dir", path: join(dataDir, "nope") });
     expect(res.ok).toBe(false);
-    expect(res.ok === false && res.error).toContain("allowed directories");
+    expect(res.ok === false && res.error).toContain("ENOENT");
   });
 
   it("allows a directory inside the rules", async () => {

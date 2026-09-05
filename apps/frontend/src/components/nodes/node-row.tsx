@@ -47,7 +47,7 @@ export function NodeRow({
         <p className="truncate text-muted-foreground text-xs">
           {node.kind === "local" ? "this machine" : (node.hostname ?? node.id)}
           {node.lastSeenAt ? ` · seen ${relativeElapsed(node.lastSeenAt)}` : ""}
-          {node.agentVersion ? ` · node ${node.agentVersion}` : ""}
+          {node.agentVersion ? ` · v${node.agentVersion}` : ""}
         </p>
       </div>
 

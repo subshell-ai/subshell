@@ -1,7 +1,7 @@
 import { realpath, stat, unlink } from "node:fs/promises";
 import { getHarness, tmuxSocketFor } from "@internal/harnesses";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
-import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs, writeAllowedDirs } from "../allowed-dirs.js";
+import { writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSubshellId } from "../subshell-meta.js";
@@ -164,7 +164,7 @@ export async function execProbeResume(_ctx: CommandContext, cmd: Cmd<"probe_resu
  * feature). Success answers the realpath + `isDirectory: true`; a missing
  * path or a non-directory answers `ENOENT:`/`ENOTDIR:` with the raw path.
  */
-export async function execStatDir(ctx: CommandContext, cmd: Cmd<"stat_dir">): Promise<CommandResult> {
+export async function execStatDir(_ctx: CommandContext, cmd: Cmd<"stat_dir">): Promise<CommandResult> {
   let resolved: string;
   try {
     resolved = await realpath(cmd.path);
@@ -178,13 +178,19 @@ export async function execStatDir(ctx: CommandContext, cmd: Cmd<"stat_dir">): Pr
     return { ok: false, error: `ENOENT: ${cmd.path}` };
   }
   if (!st.isDirectory()) return { ok: false, error: `ENOTDIR: ${cmd.path}` };
-  // The allowlist gate, on the RESOLVED path: this probe is the control
-  // plane's pre-launch check, so it has to answer the same way `launch` will.
-  // Refusing here is what turns "Create failed" into a refusal the UI can
-  // explain before anything is spawned.
-  if (!(await launchDirAllowed(resolved, readAllowedDirs(ctx.config.dataDir)))) {
-    return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.path}` };
-  }
+  // NOT gated by the directory allowlist, deliberately — the same rule `fs_ls`
+  // follows: a PROBE is not a launch.
+  //
+  // It was gated, on the argument that the pre-launch check should answer the
+  // way `launch` will. That was wrong twice over. The control plane already
+  // refuses a disallowed cwd before it ever probes (`assertDirAllowed`, with a
+  // message naming the permitted directories), and `execLaunch` remains this
+  // node's own independent gate — so nothing was gained. What it cost was
+  // real: the control plane RESOLVES each new rule by calling `stat_dir` here,
+  // so once a node had one rule, adding a second one outside it was refused,
+  // the resolution silently fell back to the raw string, and the rule never
+  // matched the realpath'd candidate. The "second rule unaddable" trap,
+  // resurfacing one layer down.
   return { ok: true, data: { path: resolved, isDirectory: true } };
 }
 

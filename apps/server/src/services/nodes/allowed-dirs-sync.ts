@@ -50,8 +50,12 @@ export async function pushAllowedDirs(nodeId: string, dirs?: readonly string[]):
  */
 export function pushAllowedDirsBestEffort(nodeId: string, dirs?: readonly string[]): void {
   void pushAllowedDirs(nodeId, dirs).catch((err: unknown) => {
+    // `warn`, not debug: the node is now enforcing rules its owner has already
+    // replaced. The control plane still refuses correctly, so nothing is
+    // exposed — but a security control running on a stale set is worth a line
+    // an operator will actually see.
     logger
       .withError(err)
-      .debug(`allowed-dirs push failed for node ${nodeId}; the node keeps its last set until it reconnects`);
+      .warn(`allowed-dirs push failed for node ${nodeId}; the node keeps its last set until it reconnects`);
   });
 }
