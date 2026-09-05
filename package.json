@@ -1,6 +1,6 @@
 {
-  "name": "monorepo-boilerplate",
-  "description": "",
+  "name": "subshell",
+  "description": "Launch, attach to, and orchestrate interactive CLI coding agents from the browser.",
   "version": "1.0.0",
   "private": true,
   "scripts": {

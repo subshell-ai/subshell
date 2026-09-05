@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "monorepo-boilerplate",
+      "name": "subshell",
       "dependencies": {
         "@elysiajs/eden": "1.4.9",
         "@loglayer/elysia": "2.4.0",
