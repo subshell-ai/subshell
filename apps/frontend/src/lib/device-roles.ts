@@ -51,7 +51,18 @@ export interface DeviceReport {
  */
 export function describeDevices(state: ViewersState): DeviceReport {
   const decision = decideSharedGrid(
-    state.viewers.map((v) => ({ id: v.id, capacity: v.capacity, hidden: v.hidden })),
+    // EVERY field the rule reads, or the explanation contradicts the thing it
+    // explains. Dropping `canInput` put a `view` grantee back in the top rung
+    // here while the server had already excluded it: the pane said 120x40 and
+    // this list said "Pane is 50x16 — sized so every device fits", blamed the
+    // guest for a size it was not causing, and offered a pin that appeared to
+    // do nothing.
+    state.viewers.map((v) => ({
+      id: v.id,
+      capacity: v.capacity,
+      hidden: v.hidden,
+      canInput: v.canInput,
+    })),
     state.sizing,
   );
   const settled = decision !== null && decision.reason !== "fallback";

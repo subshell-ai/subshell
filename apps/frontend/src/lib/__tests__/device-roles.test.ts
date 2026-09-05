@@ -101,3 +101,28 @@ describe("roleLabel", () => {
     ]);
   });
 });
+
+describe("describeDevices agrees with the server about who gets a say", () => {
+  it("does not blame a read-only viewer for a size it is not causing", () => {
+    // The server excludes a `view` grantee from the top rung, so the pane is
+    // the OWNER's size. A list that forgot `canInput` re-admitted the guest,
+    // reported a pane size that was never applied, labelled the guest "sets
+    // size", and offered a pin that looked broken. The explanation has to
+    // read every field the rule reads.
+    const owner = viewer("10", 120, 40);
+    const guest = viewer("20", 50, 16, { canInput: false });
+    const report = describeDevices(state([owner, guest]));
+    expect(report.grid).toEqual({ cols: 120, rows: 40 });
+    expect(report.rows.map((r) => [r.viewer.id, r.role])).toEqual([
+      ["10", "size"],
+      ["20", "spare"],
+    ]);
+  });
+
+  it("still explains a pane sized for a read-only viewer watching alone", () => {
+    const guest = viewer("10", 50, 16, { canInput: false });
+    const report = describeDevices(state([guest]));
+    expect(report.grid).toEqual({ cols: 50, rows: 16 });
+    expect(report.rows[0].role).toBe("size");
+  });
+});
