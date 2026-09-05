@@ -305,8 +305,12 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain('DEST="./subshell"');
     expect(body).toContain("ENROLL_DATA_DIR_ARGS=()");
     expect(body).toContain('${ENROLL_DATA_DIR_ARGS[@]+"${ENROLL_DATA_DIR_ARGS[@]}"}');
-    // One download/verify/chmod/enroll pipeline, parameterized by $DEST.
-    expect(body).toContain('--output "$DEST"');
+    // One download/verify/chmod/enroll pipeline, parameterized by $DEST —
+    // bytes land in a temp path and only REPLACE $DEST after the digest
+    // passes, so a failed download can never clobber an installed binary.
+    expect(body).toContain('--output "$TMP"');
+    expect(body).toContain('mv -f "$TMP" "$DEST"');
+    expect(body).not.toContain('--output "$DEST"');
     expect(body).toContain('chmod +x "$DEST"');
     expect(body).toContain('start the agent with:  \\"$DEST\\" run'); // echo names the right path
   });
@@ -410,6 +414,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
             "done",
             'if [ -n "$out" ]; then',
             '  printf \'%s\\n\' \'#!/usr/bin/env bash\' \'for a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\' > "$out"',
+            "  printf 200", // the binary leg reads the HTTP code off stdout
             "else",
             "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"", // 64 zeros; the verifier is stubbed too
             "fi",
@@ -462,6 +467,91 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(opt.args[opt.args.indexOf("--data-dir") + 1]).toBe(dest);
         expect(existsSync(join(dest, "subshell"))).toBe(true);
         expect(existsSync(join(cwd2, "subshell"))).toBe(false); // nothing lands in the CWD
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!BASH || !FILE_EXEC)(
+    "install.sh EXECUTED against a failing server: 404/network/mismatch arms advise, exit 1, and leave a pre-existing agent byte-intact",
+    async () => {
+      // The review-fixture for the guard the first fix shipped WITHOUT: curl
+      // --fail leaves an existing output file intact, so a failed download
+      // must NEVER touch an already-installed $DEST — and each failure class
+      // needs its OWN advice (404 = publish artifacts, 401-class dead keys
+      // and plain network errors do not; the first guard conflated them).
+      const key = await mkKey();
+      const body = await (await install(key)).text();
+      const work = mkdtempSync(join(tmpdir(), "subshell-install-fail-"));
+      try {
+        const bin = join(work, "bin");
+        mkdirSync(bin);
+        // FAIL_MODE picks the arm. Binary vs digest leg is told apart by
+        // --output. In `corrupt` the REAL sha256sum (no stub here) must
+        // reject the mismatching sidecar the stub serves.
+        writeFileSync(
+          join(bin, "curl"),
+          [
+            "#!/usr/bin/env bash",
+            'out=""; prev=""; for a in "$@"; do [ "$prev" = "--output" ] && out="$a"; prev="$a"; done',
+            'case "${FAIL_MODE:-ok}" in',
+            "  net) exit 7 ;;",
+            '  four-oh-four) [ -n "$out" ] && printf "no such artifact" > "$out"; printf 404; exit 0 ;;',
+            '  corrupt) if [ -n "$out" ]; then printf "definitely-not-a-binary" > "$out"; printf 200; else printf \'%s\\n\' "$(printf \'f%.0s\' $(seq 1 64))"; fi; exit 0 ;;',
+            "esac",
+            'if [ -n "$out" ]; then printf "x" > "$out"; printf 200; else printf \'%s\\n\' "$(printf \'0%.0s\' $(seq 1 64))"; fi',
+          ].join("\n"),
+        );
+        writeFileSync(
+          join(bin, "uname"),
+          '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
+        );
+        chmodSync(join(bin, "curl"), 0o755);
+        chmodSync(join(bin, "uname"), 0o755);
+
+        function runFailBranch(mode: string) {
+          const cwd = join(work, `cwd-${mode}`);
+          mkdirSync(cwd, { recursive: true });
+          // A WORKING agent already sits at $DEST — the whole contract of the
+          // failure path is that it survives byte-intact.
+          writeFileSync(join(cwd, "subshell"), "WORKING-BINARY\n");
+          const proc = Bun.spawnSync(["bash", "-c", body], {
+            cwd,
+            env: {
+              ...(process.env as Record<string, string>),
+              PATH: `${bin}:${process.env.PATH ?? ""}`,
+              FAIL_MODE: mode,
+            },
+          });
+          return {
+            cwd,
+            exitCode: proc.exitCode,
+            stderr: proc.stderr.toString(),
+            survivor: readFileSync(join(cwd, "subshell"), "utf8"),
+          };
+        }
+
+        const gone404 = runFailBranch("four-oh-four");
+        expect(gone404.exitCode).toBe(1);
+        expect(gone404.stderr).toContain("no linux-x64 agent binary published");
+        expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:client
+        expect(gone404.survivor).toBe("WORKING-BINARY\n");
+        expect(existsSync(join(gone404.cwd, "subshell.part"))).toBe(false); // temp cleaned
+
+        const net = runFailBranch("net");
+        expect(net.exitCode).toBe(1);
+        expect(net.stderr).toContain("could not reach");
+        expect(net.stderr).not.toContain("published"); // a dead line is NOT a publishing problem
+        expect(net.survivor).toBe("WORKING-BINARY\n");
+
+        if (Bun.which("sha256sum")) {
+          const corrupt = runFailBranch("corrupt");
+          expect(corrupt.exitCode).toBe(1);
+          expect(corrupt.stderr).toContain("checksum mismatch");
+          expect(corrupt.survivor).toBe("WORKING-BINARY\n");
+          expect(existsSync(join(corrupt.cwd, "subshell.part"))).toBe(false);
+        }
       } finally {
         rmSync(work, { recursive: true, force: true });
       }

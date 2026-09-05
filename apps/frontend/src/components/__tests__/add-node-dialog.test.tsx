@@ -155,26 +155,49 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("stays silent when all targets are published — and when the server predates the field", async () => {
-    // `{}` above (the default mock) is the pre-field server shape: a cached
-    // PWA against an older backend must not nag about a field it can't see.
-    for (const settings of [
-      {
-        appBaseUrl: "https://subshell.example",
-        nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"],
-      },
-      {},
-    ]) {
-      const { restore } = mockFetch(settings);
-      try {
-        renderDialog();
-        fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
-        fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-        await screen.findByText("nsk_secret");
-        expect(screen.queryByText(/no agent binary published/i)).toBeNull();
-      } finally {
-        restore();
-      }
+  it("stays silent when every target is published", async () => {
+    // Two shapes, TWO its: a loop here would keep iteration 1's dialog
+    // mounted (cleanup is an afterEach hook), so iteration 2's findByText
+    // resolves against the stale tree — a false green either way.
+    const { restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"],
+    });
+    try {
+      renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+      expect(screen.queryByText(/no agent binary published/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent when the server predates the field ({} — a cached PWA must not nag)", async () => {
+    const { restore } = mockFetch({});
+    try {
+      renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+      expect(screen.queryByText(/no agent binary published/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows the missing-artifacts warning already in step 1, before any key is minted", async () => {
+    // The paragraph reads only /settings/public — making the operator burn a
+    // single-use key to learn the one-liner 404s was the review finding.
+    const { calls, restore } = mockFetch({ appBaseUrl: "https://subshell.example", nodeArtifactTargets: [] });
+    try {
+      renderDialog();
+      expect(await screen.findByText(/no agent binary published/i)).toBeDefined();
+      // And no key was minted by merely opening the dialog.
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys")).toBe(false);
+    } finally {
+      restore();
     }
   });
 

@@ -1,10 +1,12 @@
 import { existsSync, readFileSync, readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { runSubshellMcp } from "@internal/mcp-core";
-import { DEFAULT_DATABASE_PATH } from "@internal/subshell-protocol";
+import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
 import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { runInit } from "@/commands/init.js";
 import { resolveConfig, serverConfigDir } from "@/config-env.js";
+import { NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { DEFAULT_DEPS, installService, serviceArtifactPath, uninstallService } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -461,6 +463,17 @@ function runStatus(log: (line: string) => void, deps: CliDeps): void {
     mcpProbe.spec
       ? `mcp entrypoint       = ${[mcpProbe.spec.command, ...mcpProbe.spec.args].join(" ")}  (via ${mcpProbe.source})`
       : `mcp entrypoint       = UNRESOLVED — subshell create will fail; ${mcpProbe.error}`,
+  );
+
+  // Node-plane artifacts: the enroll one-liner (install.sh) can only serve
+  // what sits on this host's disk, and a binary-only install ships NOTHING
+  // here — so the Nodes page fails at the user's terminal until someone
+  // publishes. Same class of deploy-time fact as tmux and the mcp rung:
+  // print it before anyone has to discover it.
+  const publishedArtifacts = publishedNodeTargets().length;
+  log(
+    `node artifacts       = ${publishedArtifacts}/${NODE_TARGETS.length} published (${NODE_ARTIFACTS_DIR})` +
+      (publishedArtifacts < NODE_TARGETS.length ? " — install.sh 404s for the rest" : ""),
   );
 
   // Liveness: is something already listening on the resolved port? A bind

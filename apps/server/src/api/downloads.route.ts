@@ -1,12 +1,11 @@
-import { type Stats, statSync } from "node:fs";
-import { join } from "node:path";
+import { statSync } from "node:fs";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
+import { artifactPath, artifactStat } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 
@@ -60,41 +59,6 @@ function unauthorized() {
     code: BackendErrorCodes.INVALID_CREDENTIALS,
     message: "Download requires a signed-in session cookie or a valid ?setup_key=.",
   } as const;
-}
-
-/** Absolute path of a target's binary. `target` is {@link isNodeTarget}-gated upstream. */
-function artifactPath(target: NodeTarget): string {
-  return join(NODE_ARTIFACTS_DIR, nodeArtifactFileName(target));
-}
-
-/**
- * The single published-artifact rule shared by the binary route and
- * {@link artifactSha}: a build is published only when a regular, NON-EMPTY
- * file sits at the target's path — a zero-length artifact (partial write,
- * deliberate stub) is unpublished, never served as a 200 and never digested
- * as the sha of "". Both routes therefore 404 identically for the same
- * on-disk state.
- * @returns the file's stat, or null when unpublished (missing / not a file / empty)
- */
-function artifactStat(target: NodeTarget): Stats | null {
-  try {
-    const stat = statSync(artifactPath(target));
-    return stat.isFile() && stat.size > 0 ? stat : null;
-  } catch {
-    return null; // ENOENT/ENOTDIR → unpublished → 404 upstream
-  }
-}
-
-/**
- * The targets this instance ACTUALLY serves — the same on-disk truth
- * {@link artifactStat} applies to the download routes, widened to the whole
- * closed set. Reported by `GET /api/settings/public` so the Nodes dialog
- * cannot advertise the install one-liner on a server that would only 404 it:
- * a binary-only server install (GitHub release) ships an EMPTY artifacts dir,
- * which nothing populates until `release:client` publishes to it.
- */
-export function publishedNodeTargets(): NodeTarget[] {
-  return NODE_TARGETS.filter((target) => artifactStat(target) !== null);
 }
 
 /** Max entries in {@link shaCache} — FIFO-evicted so mtime churn can't grow it. */

@@ -1,11 +1,11 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { publishedNodeTargets } from "@/api/downloads.route.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { audit } from "@/services/audit.js";
 import { SERVER_VERSION } from "@/version.js";
 

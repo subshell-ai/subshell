@@ -58,7 +58,15 @@ Add-node dialog renders the install one-liner from `GET /api/settings/public →
 appBaseUrl` — NOT `window.location.origin` (fallback only while settings load) —
 so the command always names the same SERVER the backend bakes into the served
 `/install.sh`; a loopback `appBaseUrl` renders the amber "remote node cannot
-dial this machine" hint.
+dial this machine" hint. The dialog also reads `nodeArtifactTargets` — the
+triples the server actually serves — and names the missing ones (in step 1,
+BEFORE a single-use key is minted, and in step 2 with a copyable
+`subshell enroll` fallback): a binary-only server install publishes no agent
+binaries until `release:client` runs, and the one-liner 404s on every machine
+until then. The field being ABSENT (older server behind a cached PWA) stays
+silent; the query still loading or errored shows a "could not check" line
+instead — no verdict without data. Opening the dialog refetches so a just-
+published artifact set is visible at once.
 
 ## Talking to the backend
 
