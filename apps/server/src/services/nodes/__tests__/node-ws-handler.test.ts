@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
+  MIN_AGENT_VERSION,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
@@ -111,7 +112,7 @@ function makeHarness(): Harness {
 
 const readyFrame = (over: Record<string, unknown> = {}) => ({
   type: "ready",
-  agentVersion: "0.1.0",
+  agentVersion: MIN_AGENT_VERSION,
   protocolVersion: NODE_PROTOCOL_VERSION,
   os: "linux",
   arch: "x64",
@@ -216,7 +217,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       {
         id: "n1",
         report: {
-          agentVersion: "0.1.0",
+          agentVersion: MIN_AGENT_VERSION,
           protocolVersion: NODE_PROTOCOL_VERSION,
           os: "linux",
           arch: "x64",
@@ -234,25 +235,52 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: 999 }));
     expect(h.ready).toHaveLength(1); // persisted so the UI can say "agent too old"
-    expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
     expect(h.inventoryRequests).toEqual([]);
   });
 
-  it("ready with the floor protocol (v2) → accepted in the window, inventory still requested", async () => {
-    // v3 (fs_ls) is additive: an in-window-but-older agent keeps its socket
-    // and full service; only folder browsing is feature-gated elsewhere.
+  it("ready at the agent floor → accepted, inventory still requested", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_VERSION }));
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: MIN_AGENT_VERSION }));
     expect(ws.closed).toHaveLength(0);
     expect(h.inventoryRequests).toEqual(["n1"]);
   });
 
-  it("ready one below the floor (v1) → pre-rename agent refused with 4406", async () => {
+  it("refuses an agent below the floor, and the reason names BOTH versions", async () => {
+    // The whole point of the floor over a bare protocol number: the operator
+    // is told what to install and what they are running. A message naming
+    // neither is a support ticket.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_VERSION - 1 }));
-    expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
+    expect(ws.closed).toHaveLength(1);
+    expect(ws.closed[0].code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed[0].reason).toContain(MIN_AGENT_VERSION);
+    expect(ws.closed[0].reason).toContain("0.0.1");
+  });
+
+  it("refuses an agent that cannot say what version it is", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "" }));
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed[0]?.reason).toContain("unversioned");
+  });
+
+  it("keeps the protocol check as a backstop, with a reason that says so", async () => {
+    // Unreachable if the floor is set right — an agent above the floor ships
+    // the current protocol — so this fires only when the floor itself is
+    // wrong, and the message has to distinguish that from the floor refusal.
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      readyFrame({ agentVersion: "99.0.0", protocolVersion: NODE_PROTOCOL_VERSION + 1 }),
+    );
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
   });
 
   it("heartbeat → touch only", async () => {

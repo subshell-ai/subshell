@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { NODE_CLOSE_UPDATE_REQUIRED, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/subshell-protocol";
+import {
+  MIN_AGENT_VERSION,
+  NODE_CLOSE_UPDATE_REQUIRED,
+  NODE_PROTOCOL_VERSION,
+  type NodeEvent,
+} from "@internal/subshell-protocol";
 import { dispatchOutput, resetNodeEventsForTests, setNodeLifecycleHooks, subscribeOutput } from "../node-events.js";
 import { resetNodeRegistryForTests } from "../node-registry.js";
 import {
@@ -79,7 +84,7 @@ function makeHarness(): Harness {
 
 const readyFrame = (over: Record<string, unknown> = {}) => ({
   type: "ready",
-  agentVersion: "0.1.0",
+  agentVersion: MIN_AGENT_VERSION,
   protocolVersion: NODE_PROTOCOL_VERSION,
   os: "linux",
   arch: "x64",
@@ -170,7 +175,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
-      agentVersion: "0.1.0",
+      agentVersion: MIN_AGENT_VERSION,
       executablePath: "/usr/local/bin/subshell",
     });
   });
@@ -188,12 +193,12 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
-      agentVersion: "0.1.0",
+      agentVersion: MIN_AGENT_VERSION,
     });
     expect(conn.agent && "executablePath" in conn.agent).toBe(false);
   });
 
-  it("facts are recorded even for an INCOMPATIBLE agent (diagnosis, before the protocol floor)", async () => {
+  it("records facts even for an agent it is about to refuse (diagnosis first)", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     handleNodeOpen(ws);
@@ -202,8 +207,11 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
 
     await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
 
-    expect(conn.agent?.agentVersion).toBe("0.1.0");
-    expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
+    // Recorded BEFORE the refusal, on purpose: an operator diagnosing a node
+    // that will not connect needs to see what it reported.
+    expect(conn.agent?.agentVersion).toBe(MIN_AGENT_VERSION);
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
   });
 });
 

@@ -96,3 +96,4 @@ export {
 // here — this barrel is imported by apps/mobile through Metro, which cannot
 // resolve `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts".
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
+export { agentVersionSupported, MIN_AGENT_VERSION, semverLt } from "./versions.js";

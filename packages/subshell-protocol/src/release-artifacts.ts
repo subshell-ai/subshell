@@ -3,7 +3,7 @@
  * digest + the atomic tmp+rename publish that BOTH apps' `compile:release`
  * pipelines use, plus the shared schedule/scoping helpers the two pipelines
  * were duplicating (plan 2 Task E): the {@link parseScope} env override, the
- * {@link semverLt} comparator and the {@link assertBunFloor} bytecode-version
+ * {@link assertBunFloor} bytecode-version
  * guard. Lives here beside NODE_TARGETS for the same reason — the apps never
  * import each other. Node builtins only (like the rest of this module), so it
  * stays OFF the Metro-safe barrel; pipelines import the subpath.
@@ -14,6 +14,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, mkdir, rename } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { semverLt } from "./versions.js";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -121,20 +122,6 @@ export function parseScope(raw: string | undefined, knownTargets: readonly strin
     }
   }
   return parts;
-}
-
-/**
- * Compare `a` vs `b` numerically over the dotted-numeric prefix (suffixes
- * ignored — a `-canary` tag never makes a build OLDER than its floor).
- */
-export function semverLt(a: string, b: string): boolean {
-  const nums = (v: string) => (v.match(/^\d+(\.\d+)*/)?.[0] ?? "0").split(".").map(Number);
-  const [av, bv] = [nums(a), nums(b)];
-  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
-    const d = (av[i] ?? 0) - (bv[i] ?? 0);
-    if (d !== 0) return d < 0;
-  }
-  return false;
 }
 
 /**

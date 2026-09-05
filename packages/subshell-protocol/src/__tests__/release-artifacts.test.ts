@@ -11,8 +11,8 @@ import {
   parseScope,
   publishArtifacts,
   runSignHook,
-  semverLt,
 } from "../release-artifacts.js";
+import { semverLt } from "../versions.js";
 
 describe("publishArtifacts", () => {
   let workDir = "";

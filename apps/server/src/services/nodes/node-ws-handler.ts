@@ -1,4 +1,6 @@
 import {
+  agentVersionSupported,
+  MIN_AGENT_VERSION,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
@@ -281,12 +283,27 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           ...(event.executablePath ? { executablePath: event.executablePath } : {}),
         };
       }
-      // EXACT match. The server and the agent ship together, so a mismatch
-      // in either direction is a deployment that got out of step, not a node
-      // to be carried — identity is already persisted above, so the Nodes
-      // page can name the problem.
+      // The floor FIRST, because its refusal is the one a person can act on:
+      // it names the version to install and the version found, where a bare
+      // protocol number names neither. Identity is already persisted above,
+      // so the Nodes page can show the same thing.
+      if (!agentVersionSupported(event.agentVersion)) {
+        ws.close(
+          NODE_CLOSE_UPDATE_REQUIRED,
+          `subshell ${MIN_AGENT_VERSION} or newer required (this agent is ${event.agentVersion || "unversioned"})`,
+        );
+        return;
+      }
+      // Backstop. An agent at or above the floor should always speak the
+      // current protocol — they ship together — so reaching this means the
+      // floor is set wrong, not that a node needs carrying. Kept because
+      // parsing frames from an agent that does not speak them is worse than
+      // refusing, and the message says which of the two failed.
       if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
-        ws.close(NODE_CLOSE_UPDATE_REQUIRED, "agent update required");
+        ws.close(
+          NODE_CLOSE_UPDATE_REQUIRED,
+          `protocol v${NODE_PROTOCOL_VERSION} required (this agent speaks v${event.protocolVersion})`,
+        );
         return;
       }
       // Spec §5.3: `ready` triggers an immediate inventory refresh.
