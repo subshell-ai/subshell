@@ -1,5 +1,49 @@
 # @internal/server
 
+## 1.8.0
+
+### Minor Changes
+
+- [`9a97acc`](https://github.com/subshell-ai/subshell/commit/9a97acc76ee3dad606984b6ece791ca0deccc489) Thanks [@theogravity](https://github.com/theogravity)! - Admins can assign roles and reset other users' passwords.
+  
+  Creating users already existed; this adds the two operations that were missing
+  from the Users page.
+  
+  - `PATCH /api/users/:id/role` — assign Admin or User. **Demoting the last admin
+    is refused**, counted and written in one transaction so two concurrent
+    demotions cannot both succeed and leave an instance nobody can administer.
+    Stepping down yourself is allowed while another admin remains.
+  - `PATCH /api/users/:id/password` — set another user's password and **sign them
+    out of every device**. A reset is usually an answer to "this account may be
+    compromised", so leaving live sessions would achieve nothing.
+  
+  Both are admin-only over a browser session; bearer keys are refused like every
+  other admin surface. The `system` service account cannot be modified, and an
+  admin cannot reset their own password here — Account is the path that requires
+  the current one. Audited as `user.role_change` and `user.password_reset`; the
+  password itself is never logged, echoed, or audited.
+
+- [`77168d5`](https://github.com/subshell-ai/subshell/commit/77168d527fe6cd95edcc0f70cdddc435215d3e61) Thanks [@theogravity](https://github.com/theogravity)! - Per-node directory allowlist: restrict where subshells may be created.
+  
+  A node grants arbitrary command execution under its OS user to anyone who can
+  launch there, and any node share confers that. A node owner can now say "on
+  this machine, only under these directories".
+  
+  - `PUT /api/nodes/:id/allowed-dirs` (owner-only, audited) stores the rules and
+    pushes them to the node. **An empty list means unrestricted**, so existing
+    nodes are unaffected.
+  - Enforced twice: the control plane checks the resolved working directory at
+    create and restart, and the node checks every launch against a copy it
+    persists itself — signing proves who sent a launch, never whether the
+    directory is permitted.
+  - The folder picker is scoped to the rules for anyone who cannot manage the
+    node; the owner browses unfiltered, since they browse in order to choose
+    what to permit.
+  
+  **Node protocol v4 → v5, and the agent floor rises to 0.4.0.** The protocol is
+  matched exactly, so every enrolled node must be updated to this release or it
+  is refused at connect. Server and client must be released together.
+
 ## 1.7.0
 
 ### Minor Changes
