@@ -33,7 +33,7 @@ usage:
   subshell run
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell status [--json] [--probe]
-  subshell version
+  subshell version        (also --version, -v)
   subshell mcp            (stdio MCP server for a subshell pane — internal)
 `;
 
@@ -41,6 +41,18 @@ usage:
 class UsageError extends Error {}
 
 const COMMANDS = new Set(["enroll", "mcp", "run", "service", "status", "version"]);
+/**
+ * Bare flags accepted IN THE COMMAND SLOT. argv[0] is the command here, so
+ * `subshell --version` would otherwise die as `unknown command '--version'`
+ * — accurate about the parser, useless to whoever typed the one thing every
+ * other CLI answers. The alias is confined to the FIRST token on purpose:
+ * `--version` stays an unknown flag everywhere else, because
+ * `subshell status --version` is a typo, not a request for the version.
+ */
+const COMMAND_ALIASES: Record<string, string> = {
+  "--version": "version",
+  "-v": "version",
+};
 /** Command → bare subtoken accepted in its FIRST positional slot (validated there). */
 const SUBCOMMANDS: Record<string, string[]> = {
   service: ["install", "uninstall"],
@@ -77,9 +89,12 @@ export interface ParsedArgs {
 
 /** Hand-rolled flag map (precedent: backend mcp entry) — no dependency needed for 5 flags. */
 export function parseArgs(argv: string[]): ParsedArgs {
-  const [command, ...rest] = argv;
-  if (!command) throw new UsageError("no command given");
-  if (!COMMANDS.has(command)) throw new UsageError(`unknown command '${command}'`);
+  const [first, ...rest] = argv;
+  if (!first) throw new UsageError("no command given");
+  const command = COMMAND_ALIASES[first] ?? first;
+  // Reports what was TYPED, not what it aliased to — an unknown token is
+  // still `unknown command '--bogus'`.
+  if (!COMMANDS.has(command)) throw new UsageError(`unknown command '${first}'`);
   const flags: Record<string, string> = {};
   const allowed = new Set(COMMAND_FLAGS[command]);
   // The FIRST bare (non-`--`) token is the subtoken slot — only commands with a

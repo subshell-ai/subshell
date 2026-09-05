@@ -88,3 +88,32 @@ describe("missing required flags", () => {
     expect(msgLine(none.err)).toInclude("--server <url> and --key <nsk_…>");
   });
 });
+
+describe("--version / -v in the command slot", () => {
+  // argv[0] IS the command in this parser, so `subshell --version` used to
+  // die as `unknown command '--version'` — accurate about the parser and
+  // useless to whoever typed the one thing every other CLI answers.
+  test("--version and -v resolve to the version command", () => {
+    expect(parseArgs(["--version"])).toEqual({ command: "version", sub: undefined, flags: {} });
+    expect(parseArgs(["-v"])).toEqual({ command: "version", sub: undefined, flags: {} });
+  });
+
+  test("they print exactly what `version` prints, exit 0", async () => {
+    const canonical = await run(["version"]);
+    expect(canonical.code).toBe(0);
+    expect(canonical.out).toMatch(/^subshell \d+\.\d+\.\d+ \(node protocol v\d+\)\n$/);
+    for (const alias of [["--version"], ["-v"]]) {
+      expect(await run(alias)).toEqual(canonical);
+    }
+  });
+
+  test("the alias is confined to the FIRST token — elsewhere it stays an unknown flag", async () => {
+    // `subshell status --version` is a typo, not a request for the version.
+    expect(() => parseArgs(["status", "--version"])).toThrow(/unknown flag '--version'/);
+    expect(() => parseArgs(["version", "-v"])).toThrow(/unknown flag '-v'/);
+  });
+
+  test("an unknown leading token still reports what was TYPED", () => {
+    expect(() => parseArgs(["--bogus"])).toThrow(/unknown command '--bogus'/);
+  });
+});

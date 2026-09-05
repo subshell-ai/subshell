@@ -35,6 +35,7 @@ import { getNotifyService } from "@/services/notify.service.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { getLogger } from "@/utils/logger.js";
+import { SERVER_VERSION } from "@/version.js";
 import { sweepWsTokens } from "@/ws/ws-token.js";
 
 export type { App } from "@/server.js";
@@ -76,6 +77,14 @@ process.on("uncaughtException", (error) => {
 if (bootRequested) void bootServer();
 
 async function bootServer(): Promise<void> {
+  // FIRST line in the journal, before anything can fail: after a restart,
+  // "which build came up?" is what decides how to read every line beneath it.
+  // The service manager restarts whatever binary sits at the unit's ExecStart
+  // path, so the answer is NOT always the one whoever is reading the log
+  // assumes — an interrupted deploy, a binary scp'd over, a rolled-back
+  // release. Same string `version` and `status` print: one fact, one spelling.
+  getLogger().info(`subshell-server ${SERVER_VERSION}`);
+
   // Name the database before the first write touches it: a migration or
   // seeding failure is undiagnosable if the log never says which file was
   // opened (the path is config-driven — `DATABASE_PATH`, default

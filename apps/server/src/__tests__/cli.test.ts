@@ -344,3 +344,27 @@ describe("dispatchCli — tmux offer wiring (spec 2026-09-03)", () => {
     expect(err.join("\n")).toMatch(/tmux not found/i);
   });
 });
+
+describe("dispatchCli — status names the build", () => {
+  // "Which version is this host running?" was unanswerable from status: the
+  // version lived only in the `version` subcommand, so an operator diagnosing
+  // a stale deploy had to run a second command to learn the one fact that
+  // decides whether the rest of the output is even relevant.
+  test("status opens with the same string `version` prints", async () => {
+    const dir = newConfigDir();
+    const status = collectingDeps({ probePort: () => false });
+    const version = collectingDeps({});
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir }, async () => {
+      expect(await dispatchCli(["status"], status.deps)).toBe(true);
+      expect(await dispatchCli(["version"], version.deps)).toBe(true);
+    });
+    // Shape, not a copied constant — asserting the literal would just restate
+    // package.json and pass while both drifted together.
+    expect(status.out[0]).toMatch(/^subshell-server \d+\.\d+\.\d+/);
+    // ONE fact, ONE spelling: status must not grow a second rendering of the
+    // version that can disagree with the subcommand.
+    expect(status.out[0]).toBe(version.out[0]);
+    expect(status.err).toEqual([]);
+    expect(status.exits).toEqual([0]);
+  });
+});

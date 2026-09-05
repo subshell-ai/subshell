@@ -43,7 +43,10 @@ subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane an
                                      # newest-wins KICKS a running agent — warned loudly
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
                                      # configured purely by the SUBSHELL_* pane env)
-subshell version
+subshell version                   # also `--version` / `-v` — aliased in the
+                                     # COMMAND slot only, since argv[0] IS the
+                                     # command here (`status --version` stays an
+                                     # unknown flag, because it is a typo)
 ```
 
 `service install` refuses without an enrolled config; `service uninstall`

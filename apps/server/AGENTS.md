@@ -247,7 +247,7 @@ so the svc.sh/systemd deployment behaves byte-identically (spec 2026-09-03).
 | Command | |
 | --- | --- |
 | `version` | print `subshell-server <version>` and exit |
-| `status` | "what WOULD this boot with" — config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, port liveness, service definition on disk; reads only, never boots |
+| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, port liveness, service definition on disk; reads only, never boots |
 | `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
 | `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --db-path --yes` |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |

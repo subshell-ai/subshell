@@ -1,17 +1,16 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
+import { SERVER_VERSION } from "@/version.js";
 
 const MetaStatusSchema = t.Object({
-  appVersion: t.String({ description: "App version" }),
+  appVersion: t.String({ description: "Server app version (apps/server package.json) — per-app, not instance-wide" }),
   serverTime: t.String({ description: "Server time (ISO)" }),
 });
-
-const VERSION = "1.0.0";
 
 export const metaRoutes = new Elysia({ prefix: "/api/meta" }).use(authGuard).get(
   "/status",
   async () => {
-    return { appVersion: VERSION, serverTime: new Date().toISOString() } as const;
+    return { appVersion: SERVER_VERSION, serverTime: new Date().toISOString() } as const;
   },
   {
     response: MetaStatusSchema,

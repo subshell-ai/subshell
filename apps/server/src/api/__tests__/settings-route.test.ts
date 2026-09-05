@@ -13,6 +13,7 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { SERVER_VERSION } from "@/version.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -278,6 +279,19 @@ describe("settings routes (admin cookie only)", () => {
       appBaseUrl: string;
     };
     expect(body.appBaseUrl).toBe(APP_BASE_URL);
+  });
+
+  it("GET /public reports serverVersion tracking package.json, not a literal", async () => {
+    // The regression this pins is one that already happened next door:
+    // /api/meta/status shipped a hardcoded "1.0.0" and was still claiming it
+    // at 1.5.0, because nothing compared the two. Asserting against
+    // SERVER_VERSION (not a copied string) is what makes drift impossible —
+    // a literal here would pass happily while both went stale together.
+    const res = await app.fetch(authedRequest("/api/settings/public", adminCookie));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { serverVersion: string };
+    expect(body.serverVersion).toBe(SERVER_VERSION);
+    expect(body.serverVersion).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   /**

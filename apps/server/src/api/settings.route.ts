@@ -6,6 +6,7 @@ import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { audit } from "@/services/audit.js";
+import { SERVER_VERSION } from "@/version.js";
 
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
@@ -47,6 +48,13 @@ const PublicSettingsSchema = t.Object({
     description:
       "True when the caller is a signed-in admin via COOKIE session (drives the Server nav entry); bearer actors always read false",
   }),
+  // Rides the shared public read rather than earning its own request: every
+  // signed-in page already holds this payload, and a version nobody can see
+  // without an admin session is a version nobody quotes in a bug report.
+  serverVersion: t.String({
+    description:
+      "Version of the SERVER app (apps/server package.json). Per-app, not instance-wide — the agent and frontend version independently",
+  }),
 });
 
 /**
@@ -69,6 +77,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         // Cookie-admin rule in one place (user-utils): bearer actors read
         // false even when their owner is an admin.
         viewerIsAdmin: await isCookieAdmin(user, actor),
+        serverVersion: SERVER_VERSION,
       } as const;
     },
     {
@@ -77,7 +86,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getPublicSettings",
         tags: ["settings"],
         description:
-          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state + instance base URL + viewerIsAdmin admin-nav signal, cookie-only); anonymous callers get 401",
+          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state + instance base URL + viewerIsAdmin admin-nav signal, cookie-only + server version); anonymous callers get 401",
       },
     },
   )

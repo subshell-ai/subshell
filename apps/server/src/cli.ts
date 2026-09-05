@@ -428,6 +428,10 @@ function runStatus(log: (line: string) => void, deps: CliDeps): void {
     log(`${key.padEnd(20)} = ${value}  (${tag(key)})`);
   };
 
+  // Names the BUILD first — "which version is this host running" is the
+  // question status exists to answer and could not, and the byte-identical
+  // string the `version` subcommand prints means one fact with one spelling.
+  log(`subshell-server ${SERVER_VERSION}`);
   log(`config.env: ${cfg.path} (${cfg.exists ? "present" : "missing"})`);
   // Mirrors of constants.ts defaults (imported by the boot path only; kept in
   // sync deliberately — importing constants here would run dotenvx in a CLI

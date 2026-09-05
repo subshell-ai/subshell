@@ -22,6 +22,12 @@ export interface PublicSettings {
    * always read false.
    */
   viewerIsAdmin: boolean;
+  /**
+   * Version of the SERVER app (its package.json). Per-app, not instance-wide:
+   * the server, the node agent and this bundle all version independently, so
+   * this is never "the subshell version".
+   */
+  serverVersion: string;
 }
 
 /**
