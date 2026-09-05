@@ -1,10 +1,11 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
-import { parseNodeFsLsResult } from "@internal/subshell-protocol";
+import { dirAllowed, parseNodeFsLsResult } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { loadNodeAccess } from "@/lib/node-access.js";
+import { getRequestlessContext } from "@/lib/context.js";
+import { loadNodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
@@ -161,10 +162,24 @@ export async function exploreNodeDirectory(
       message: "The node returned a malformed directory listing",
     });
   }
+  // UX scoping for the launch picker (spec 2026-09-05): a caller who cannot
+  // MANAGE this node sees only entries they could actually launch in — an
+  // entry whose only outcome is a refusal is friction, not information. The
+  // node's owner browses unfiltered, because they are choosing what to permit
+  // and a scoped view would make the second rule unaddable.
+  //
+  // NOT the security boundary. That is the launch gate, applied here
+  // (`assertDirAllowed`) and independently on the node, neither of which cares
+  // who is browsing.
+  const isAdmin = (await new UserMetaRepository(db).getRole(userId)) === "admin";
+  const dirs = nodeCanManageFor(row.kind, access, isAdmin)
+    ? []
+    : await getRequestlessContext().repos.nodeAllowedDirs.listForNode(nodeId);
+  const entries = dirs.length === 0 ? listing.entries : listing.entries.filter((e) => dirAllowed(e.path, dirs));
   return {
     path: listing.path,
     parent: listing.parent,
-    entries: listing.entries,
+    entries,
     recent: [],
     favorites: [],
   };

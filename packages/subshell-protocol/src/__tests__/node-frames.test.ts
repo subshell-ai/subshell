@@ -115,7 +115,25 @@ describe("parseNodeCommandBody", () => {
     // Matched EXACTLY: there is no compat window and no per-feature gating,
     // because the server and the agent ship together. Bump this whenever a
     // frame changes and release both sides.
-    expect(NODE_PROTOCOL_VERSION).toBe(4);
+    expect(NODE_PROTOCOL_VERSION).toBe(5);
+  });
+
+  it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
+    // v5's addition. The parser checks SHAPE only — normalization is the
+    // executor's job, so one malformed entry inside a well-formed array must
+    // not reject the whole push and leave the node on stale rules.
+    expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: ["/a", "/b"] })).toEqual({
+      type: "set_allowed_dirs",
+      dirs: ["/a", "/b"],
+    });
+    // Empty is meaningful: it CLEARS the rules (unrestricted), so it must parse.
+    expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: [] })).toEqual({
+      type: "set_allowed_dirs",
+      dirs: [],
+    });
+    expect(parseNodeCommandBody({ type: "set_allowed_dirs" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: "/a" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: [1, 2] })).toBeNull();
   });
 
   it("accepts pane_size and rejects a missing or non-string id", () => {

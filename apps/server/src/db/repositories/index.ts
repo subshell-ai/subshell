@@ -1,6 +1,7 @@
 import type { ChannelPostsRepository } from "@/db/repositories/channel-posts.repository.js";
 import type { ChannelsRepository } from "@/db/repositories/channels.repository.js";
 import type { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
+import type { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
 import type { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import type { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import type { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
@@ -36,4 +37,6 @@ export interface Repositories {
   readonly nodeShares: NodeSharesRepository;
   readonly nodeSetupKeys: NodeSetupKeysRepository;
   readonly nodeHarnesses: NodeHarnessesRepository;
+  /** Per-node directory allowlist; an empty list means UNRESTRICTED. */
+  readonly nodeAllowedDirs: NodeAllowedDirsRepository;
 }

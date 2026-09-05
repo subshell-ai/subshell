@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { buildHarnessCommand, getHarness, type McpRegistration, type ProfileDefinition } from "@internal/harnesses";
+import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { enforceMode } from "../fs-mode.js";
 import { log } from "../log.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
@@ -38,6 +39,14 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // malformed id and every path below interpolates it — never touch harness,
   // fs, or tmux with an id the control plane could not have minted.
   if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
+
+  // The node's OWN allowlist, checked before anything is resolved or spawned.
+  // Signed commands prove who asked, never whether the directory is permitted
+  // — so this is the check a compromised control plane cannot talk its way
+  // past (see allowed-dirs.ts). Empty rules = unrestricted.
+  if (!(await launchDirAllowed(cmd.cwd, readAllowedDirs(ctx.config.dataDir)))) {
+    return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.cwd}` };
+  }
 
   const harness = getHarness(cmd.harnessId);
   if (!harness) return { ok: false, error: `unknown harness: ${cmd.harnessId}` };

@@ -146,3 +146,29 @@ export function useDeleteSetupKey() {
     },
   });
 }
+
+/**
+ * Replaces a node's directory allowlist — the complete set, never a delta.
+ *
+ * OWNER-only server-side (`canManage`); the card hides the controls for
+ * everyone else, but the server is the gate. An empty array CLEARS the rules
+ * and returns the node to unrestricted.
+ */
+export function useSetNodeAllowedDirs(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dirs: string[]) =>
+      apiFetch<NodeDetail>(`/api/nodes/${id}/allowed-dirs`, {
+        method: "PUT",
+        body: JSON.stringify({ dirs }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+      // The folder picker's listings are scoped by these rules, so a change
+      // makes every cached explore response stale.
+      void queryClient.invalidateQueries({ queryKey: ["explore"] });
+      void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
+    },
+  });
+}

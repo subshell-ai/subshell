@@ -87,7 +87,7 @@ export const recheckNodeRoute = new Elysia()
       detail: {
         operationId: "recheckNode",
         tags: ["nodes"],
-        description: "Ask an agent node for a fresh harness inventory (409 when offline or unresponsive)",
+        description: "Ask an enrolled node for a fresh harness inventory (409 when offline or unresponsive)",
       },
     },
   );

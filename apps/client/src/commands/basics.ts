@@ -1,6 +1,7 @@
 import { realpath, stat, unlink } from "node:fs/promises";
 import { getHarness, tmuxSocketFor } from "@internal/harnesses";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
+import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs, writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSubshellId } from "../subshell-meta.js";
@@ -163,7 +164,7 @@ export async function execProbeResume(_ctx: CommandContext, cmd: Cmd<"probe_resu
  * feature). Success answers the realpath + `isDirectory: true`; a missing
  * path or a non-directory answers `ENOENT:`/`ENOTDIR:` with the raw path.
  */
-export async function execStatDir(_ctx: CommandContext, cmd: Cmd<"stat_dir">): Promise<CommandResult> {
+export async function execStatDir(ctx: CommandContext, cmd: Cmd<"stat_dir">): Promise<CommandResult> {
   let resolved: string;
   try {
     resolved = await realpath(cmd.path);
@@ -177,7 +178,35 @@ export async function execStatDir(_ctx: CommandContext, cmd: Cmd<"stat_dir">): P
     return { ok: false, error: `ENOENT: ${cmd.path}` };
   }
   if (!st.isDirectory()) return { ok: false, error: `ENOTDIR: ${cmd.path}` };
+  // The allowlist gate, on the RESOLVED path: this probe is the control
+  // plane's pre-launch check, so it has to answer the same way `launch` will.
+  // Refusing here is what turns "Create failed" into a refusal the UI can
+  // explain before anything is spawned.
+  if (!(await launchDirAllowed(resolved, readAllowedDirs(ctx.config.dataDir)))) {
+    return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.path}` };
+  }
   return { ok: true, data: { path: resolved, isDirectory: true } };
+}
+
+/**
+ * `set_allowed_dirs` (protocol v5): replace this node's persisted directory
+ * allowlist and answer with what was stored.
+ *
+ * The control plane pushes on every owner edit and again after each `ready`,
+ * so this is both the update and the reconciliation path — a node that was
+ * offline for an edit learns the current rules on reconnect. Idempotent by
+ * construction: the file is replaced wholesale.
+ */
+export async function execSetAllowedDirs(ctx: CommandContext, cmd: Cmd<"set_allowed_dirs">): Promise<CommandResult> {
+  try {
+    const stored = writeAllowedDirs(ctx.config.dataDir, cmd.dirs);
+    return { ok: true, data: { dirs: stored } };
+  } catch (err) {
+    // A failed write leaves the PREVIOUS rules in force (temp + rename never
+    // half-applies), which is the safe direction — the node keeps enforcing
+    // what it last agreed to rather than falling open.
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**

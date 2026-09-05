@@ -12,7 +12,7 @@ import type { NodeDetail } from "@/types/node";
  * Re-check gating (`nodeCanConfigure` = owner | edit — a `view` grantee gets
  * a disabled button, matching the read-only harness toggles), the owner-only
  * inline rename, the manager-only rotate-key flow with its plaintext-once
- * reveal, and the `agent too old` chip. The page component is rendered
+ * reveal, and the `node too old` chip. The page component is rendered
  * through the real route object (its `useParams` is strict), mounted under a
  * minimal memory router the way routeTree.gen wires it.
  */
@@ -248,12 +248,12 @@ describe("NodeDetailPage rotate-key", () => {
 });
 
 describe("NodeDetailPage protocol-mismatch chip", () => {
-  it("chips an offline agent whose reported protocol predates the control plane's", async () => {
+  it("chips an offline node whose reported protocol predates the control plane's", async () => {
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 0 }));
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
-      expect(screen.getByText("agent too old")).toBeDefined();
+      expect(screen.getByText("node too old")).toBeDefined();
     } finally {
       restore();
     }
@@ -265,13 +265,13 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
-      expect(screen.queryByText("agent too old")).toBeNull();
+      expect(screen.queryByText("node too old")).toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("names an agent AHEAD of the server, not just one behind it", async () => {
+  it("names a node AHEAD of the server, not just one behind it", async () => {
     // The protocol is matched exactly, so an agent newer than the control
     // plane is refused too — and "offline" alone would send someone to
     // upgrade the agent, which is the wrong end. There is no in-window case
@@ -280,7 +280,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
-      expect(screen.getByText("agent too new")).toBeDefined();
+      expect(screen.getByText("node too new")).toBeDefined();
     } finally {
       restore();
     }
@@ -291,7 +291,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
-      expect(screen.queryByText("agent too old")).toBeNull();
+      expect(screen.queryByText("node too old")).toBeNull();
     } finally {
       restore();
     }
@@ -302,7 +302,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
-      expect(screen.queryByText("agent too old")).toBeNull();
+      expect(screen.queryByText("node too old")).toBeNull();
     } finally {
       restore();
     }

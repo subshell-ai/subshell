@@ -6,6 +6,7 @@ import type { DeviceTokenTable } from "@/db/types/device-tokens.db-types.js";
 import type { FavoriteTable } from "@/db/types/favorites.db-types.js";
 import type { HarnessPluginTable } from "@/db/types/harness-plugins.db-types.js";
 import type { IdentityTable } from "@/db/types/identities.db-types.js";
+import type { NodeAllowedDirTable } from "@/db/types/node-allowed-dirs.db-types.js";
 import type { NodeHarnessTable } from "@/db/types/node-harnesses.db-types.js";
 import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
@@ -36,6 +37,7 @@ export interface Database {
   nodeShares: NodeShareTable;
   nodeSetupKeys: NodeSetupKeyTable;
   nodeHarnesses: NodeHarnessTable;
+  nodeAllowedDirs: NodeAllowedDirTable;
   recentPaths: RecentPathTable;
   favorites: FavoriteTable;
   settings: SettingTable;

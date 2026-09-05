@@ -43,7 +43,7 @@ export function semverLt(a: string, b: string): boolean {
  * Raise this in the same commit that bumps the protocol, so the refusal an
  * operator sees always tells them the version to install.
  */
-export const MIN_AGENT_VERSION = "0.3.0";
+export const MIN_AGENT_VERSION = "0.4.0";
 
 /**
  * Whether an agent reporting `version` may connect.

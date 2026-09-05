@@ -24,14 +24,14 @@ const EnrollBodySchema = t.Object({
   }),
   name: t.String({ minLength: 1, maxLength: 64, description: "Display name for the new node (unique per owner)" }),
   os: t.Union([t.Literal("linux"), t.Literal("darwin"), t.Literal("unknown")], {
-    description: "Operating system reported by the agent (mirrors the `ready` frame validator)",
+    description: "Operating system reported by the node (mirrors the `ready` frame validator)",
   }),
   arch: t.String({
     minLength: 1,
     maxLength: 64,
-    description: "CPU architecture reported by the agent (e.g. x64, arm64)",
+    description: "CPU architecture reported by the node (e.g. x64, arm64)",
   }),
-  hostname: t.String({ minLength: 1, maxLength: 128, description: "Machine hostname reported by the agent" }),
+  hostname: t.String({ minLength: 1, maxLength: 128, description: "Machine hostname reported by the node" }),
   agentVersion: t.String({ minLength: 1, maxLength: 32, description: "subshell version reporting in" }),
   publicKey: t.String({
     minLength: 16,
@@ -45,7 +45,7 @@ const EnrollResponseSchema = t.Object({
   nodeId: t.String({ description: "Server-assigned node id (uuid)" }),
   nodeKey: t.String({ description: "Plaintext node bearer key — shown exactly once here; only its hash is stored" }),
   controlPublicKey: t.String({
-    description: "JSON-serialized control-plane signing public JWK; the agent pins it to verify commands",
+    description: "JSON-serialized control-plane signing public JWK; the node pins it to verify commands",
   }),
   wsUrl: t.String({
     description:

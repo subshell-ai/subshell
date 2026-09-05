@@ -12,6 +12,7 @@ import { getAuth } from "@/auth.js";
 import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeStatus } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
 import { logger } from "@/utils/logger.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
 import { attachConnection, detachConnection, getLive, type NodeConnection, type NodeSocket } from "./node-registry.js";
@@ -290,7 +291,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       if (!agentVersionSupported(event.agentVersion)) {
         ws.close(
           NODE_CLOSE_UPDATE_REQUIRED,
-          `subshell ${MIN_AGENT_VERSION} or newer required (this agent is ${event.agentVersion || "unversioned"})`,
+          `subshell ${MIN_AGENT_VERSION} or newer required (this node is ${event.agentVersion || "unversioned"})`,
         );
         return;
       }
@@ -302,12 +303,16 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
         ws.close(
           NODE_CLOSE_UPDATE_REQUIRED,
-          `protocol v${NODE_PROTOCOL_VERSION} required (this agent speaks v${event.protocolVersion})`,
+          `protocol v${NODE_PROTOCOL_VERSION} required (this node speaks v${event.protocolVersion})`,
         );
         return;
       }
       // Spec §5.3: `ready` triggers an immediate inventory refresh.
       deps.requestInventory(nodeId);
+      // ...and the node re-learns its directory allowlist (spec 2026-09-05).
+      // This is the reconciliation: an owner may have changed the rules while
+      // this node was offline, and nothing else would ever tell it.
+      pushAllowedDirsBestEffort(nodeId);
       return;
     }
     case "heartbeat":
@@ -350,7 +355,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       return;
     }
     case "error":
-      logger.withMetadata({ nodeId, code: event.code }).warn(`node agent reported error: ${event.message}`);
+      logger.withMetadata({ nodeId, code: event.code }).warn(`node reported error: ${event.message}`);
       return;
   }
 }

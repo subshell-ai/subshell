@@ -11,6 +11,7 @@ import { patchNodeHarnessRoute } from "@/api/nodes/patch-node-harness.route.js";
 import { recheckNodeRoute } from "@/api/nodes/recheck-node.route.js";
 import { renameNodeRoute } from "@/api/nodes/rename-node.route.js";
 import { rotateNodeKeyRoute } from "@/api/nodes/rotate-node-key.route.js";
+import { setNodeAllowedDirsRoute } from "@/api/nodes/set-node-allowed-dirs.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 
 /**
@@ -33,6 +34,7 @@ export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(deleteNodeRoute)
   .use(getNodeSharesRoute)
   .use(setNodeSharesRoute)
+  .use(setNodeAllowedDirsRoute)
   .use(rotateNodeKeyRoute)
   .use(patchNodeHarnessRoute)
   .use(recheckNodeRoute);

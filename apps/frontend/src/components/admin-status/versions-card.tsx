@@ -24,17 +24,17 @@ export function VersionsCard({ status }: { status: AdminStatus }) {
       <Fact label="Node protocol" mono>
         v{status.versions.nodeProtocol}
       </Fact>
-      <Fact label="Minimum agent" mono>
+      <Fact label="Minimum node version" mono>
         {status.versions.minAgent}
       </Fact>
-      <Fact label="Agents needing update" wide>
+      <Fact label="Nodes needing update" wide>
         {outdated.length === 0 ? (
           <span className="text-muted-foreground">
-            None — every enrolled agent meets the {status.versions.minAgent} floor
+            None — every enrolled node meets the {status.versions.minAgent} floor
           </span>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {/* A refused agent shows up everywhere else as a plain offline
+            {/* A refused node shows up everywhere else as a plain offline
                 node, with nothing saying why. This is the only place that
                 explains it, so each one links to the node it names. */}
             {outdated.map((node) => (

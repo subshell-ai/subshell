@@ -1,16 +1,18 @@
 import { lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
+import { dirAllowed } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
+import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { loadNodeAccess } from "@/lib/node-access.js";
+import { loadNodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
 import { exploreNodeDirectory } from "@/services/files-remote-browse.service.js";
 import { expandTilde } from "@/utils/path.js";
 
@@ -117,16 +119,22 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       }
 
       const raw = query.path?.trim() || homedir();
-      const path = expandTilde(raw, homedir());
+      // The local node's directory allowlist, read once for the whole request
+      // (the gate, the recents filter and the favorites filter all consult it).
+      const allowedDirs = await launchScopeFor(user.id, LOCAL_NODE_ID);
+      // With rules in force, home is often outside them — land on the first
+      // allowed directory instead of on a 403 the user cannot navigate out of.
+      const fallback = allowedDirs.length > 0 && !dirAllowed(homedir(), allowedDirs) ? allowedDirs[0] : homedir();
+      const path = expandTilde(raw || fallback, fallback);
 
-      if (!isAllowedRoot(path)) {
+      if (!isAllowedRoot(path, allowedDirs)) {
         throw new FilesError("forbidden", "Path outside allowed roots", 403);
       }
 
       let resolved: string;
       try {
         resolved = resolve(path);
-        if (!isAllowedRoot(resolved)) {
+        if (!isAllowedRoot(resolved, allowedDirs)) {
           throw new FilesError("forbidden", "Path outside allowed roots", 403);
         }
       } catch (err) {
@@ -258,7 +266,11 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         throw new FilesError("invalid", "Path is required", 400);
       }
       const resolved = resolve(expandTilde(path, homedir()));
-      if (!isAllowedRoot(resolved)) {
+      // Starring is a local-path affordance, so `local`'s rules gate it too —
+      // otherwise a favorite could be created that the picker then filters
+      // straight back out, which reads as the star silently failing.
+      const allowedDirs = await launchScopeFor(user.id, LOCAL_NODE_ID);
+      if (!isAllowedRoot(resolved, allowedDirs)) {
         throw new FilesError("forbidden", "Path outside allowed roots", 403);
       }
       await new FavoritesRepository(db).setFavorite(user.id, "directory", resolved, body.favorite);
@@ -345,8 +357,18 @@ function isWithin(path: string, root: string): boolean {
  * all cannot list anything, so it passes through to the normal 404. Unset
  * confinement keeps the exact old behavior: anything absolute is allowed.
  */
-function isAllowedRoot(path: string): boolean {
+function isAllowedRoot(path: string, allowedDirs: readonly string[] = []): boolean {
   if (!isAbsolute(path)) return false;
+  // The LOCAL node's directory allowlist (spec 2026-09-05), layered on top of
+  // SUBSHELL_FS_ROOT: both must pass. They answer different questions — the
+  // env root is the operator's instance-wide "show nothing outside this tree",
+  // the allowlist is the node owner's "subshells may only run under these" —
+  // and a path has to satisfy whichever are in force.
+  //
+  // Tested lexically here because the realpath comparison below is the
+  // boundary that matters and runs on the same value; a lexical-only pass is
+  // never the last word for an existing path.
+  if (!dirAllowed(resolve(path), allowedDirs)) return false;
   const root = confinementRoot();
   if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
   const resolved = resolve(path);
@@ -359,7 +381,10 @@ function isAllowedRoot(path: string): boolean {
   // security boundary and is unchanged.
   if (!isWithin(resolved, root.lexical) && !isWithin(resolved, root.real)) return false;
   try {
-    return isWithin(realpathSync(resolved), root.real);
+    const real = realpathSync(resolved);
+    // Re-test the RESOLVED form: a symlink out of an allowed tree is exactly
+    // what the lexical pass above cannot see.
+    return dirAllowed(real, allowedDirs) && isWithin(real, root.real);
   } catch {
     try {
       lstatSync(resolved); // a present-but-unresolvable path (broken symlink)
@@ -368,6 +393,37 @@ function isAllowedRoot(path: string): boolean {
       return true; // nothing exists at this path → nothing to leak, 404 next
     }
   }
+}
+
+/**
+ * The allowlist to FILTER a picker listing by, for one caller and node.
+ *
+ * Empty (no filtering) whenever the caller can MANAGE the node, because that
+ * is the person who defines the rules: they browse in order to choose what to
+ * permit, and scoping their view to the rules already in force would make the
+ * second rule unaddable — the first one would have hidden everywhere else.
+ * Anyone else sees only what they could actually launch in, since offering a
+ * directory whose only outcome is a refusal is pure friction.
+ *
+ * This is a UX filter, NOT the security boundary. The boundary is the launch
+ * gate, applied on the control plane (`assertDirAllowed`) and independently on
+ * the node — neither of which cares who is browsing.
+ */
+async function launchScopeFor(userId: string, nodeId: string): Promise<string[]> {
+  const dirs = await new NodeAllowedDirsRepository(db).listForNode(nodeId);
+  if (dirs.length === 0) return dirs;
+  const { row, access } = await loadNodeAccess(
+    {
+      nodes: new NodesRepository(db),
+      shares: new NodeSharesRepository(db),
+      userMeta: new UserMetaRepository(db),
+    },
+    userId,
+    nodeId,
+  );
+  if (!row) return dirs;
+  const isAdmin = (await new UserMetaRepository(db).getRole(userId)) === "admin";
+  return nodeCanManageFor(row.kind, access, isAdmin) ? [] : dirs;
 }
 
 /**
@@ -380,7 +436,10 @@ function isAllowedRoot(path: string): boolean {
 async function recentPaths(userId: string, nodeId = LOCAL_NODE_ID) {
   const repo = new RecentPathsRepository(db);
   const all = await repo.listByUser(userId, 20, nodeId);
-  return all.filter((r) => isAllowedRoot(r.path));
+  // Node-scoped: a recent path is filtered by THAT node's rules, so a row
+  // saved before a rule tightened stops being offered as a shortcut.
+  const allowedDirs = await launchScopeFor(userId, nodeId);
+  return all.filter((r) => isAllowedRoot(r.path, allowedDirs));
 }
 
 /**
@@ -390,5 +449,8 @@ async function recentPaths(userId: string, nodeId = LOCAL_NODE_ID) {
 async function favoritePaths(userId: string) {
   const repo = new FavoritesRepository(db);
   const all = await repo.listByUser(userId, "directory");
-  return all.filter((f) => isAllowedRoot(f.ref)).map(({ ref, label }) => ({ path: ref, label }));
+  // Favorites are control-plane (local) paths, so they answer to `local`'s
+  // rules — a star saved before a rule tightened must not leak past it either.
+  const allowedDirs = await launchScopeFor(userId, LOCAL_NODE_ID);
+  return all.filter((f) => isAllowedRoot(f.ref, allowedDirs)).map(({ ref, label }) => ({ path: ref, label }));
 }

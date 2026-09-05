@@ -10,12 +10,13 @@ import {
   type TmuxRunner,
   tmuxSocketFor,
 } from "@internal/harnesses";
-import { type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
+import { dirAllowed, type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
+import { getRequestlessContext } from "@/lib/context.js";
 import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import {
@@ -290,6 +291,7 @@ export class SubshellManagerService {
     const targetNode = nodeId ?? LOCAL_NODE_ID;
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
+    await assertDirAllowed(targetNode, realPath);
     const profile = parseProfile(profileRow);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) {
@@ -861,6 +863,10 @@ export class SubshellManagerService {
     // restart map to 409 NODE_OFFLINE and the sweep defer (§5.6).
     const launcher = this.#launcherFor(row.nodeId);
     const realPath = await launcher.validateWorkingDir(row.workingDir);
+    // A restart spawns a FRESH pane in that directory, so it is a launch and
+    // takes the launch gate (spec 2026-09-05). Running panes are untouched by
+    // a rule change; reviving one into a now-excluded directory is not.
+    await assertDirAllowed(row.nodeId, realPath);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) throw new Error("harness binary missing");
     const profile = parseProfile(profileRow);
@@ -1417,6 +1423,45 @@ export function screenTail(screen: string, maxLines = PREVIEW_LINES): string[] {
   let start = Math.max(0, end - maxLines);
   while (start < end && isBlank(lines[start])) start++;
   return lines.slice(start, end);
+}
+
+/**
+ * A launch refused by the node's directory allowlist (spec 2026-09-05).
+ *
+ * Carries `status = 403` so the global error handler maps it without a
+ * per-route branch — the `.status`-carrying convention every service-local
+ * error class here uses. It is an EXPECTED refusal, not a fault: the message
+ * names the directory and the rules in force so the operator can act on it.
+ */
+export class DirNotAllowedError extends Error {
+  readonly status = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = "DirNotAllowedError";
+  }
+}
+
+/**
+ * Refuses a launch whose directory is outside the node's allowlist
+ * (spec 2026-09-05).
+ *
+ * Applied to the RESOLVED path: `validateWorkingDir` returns `realpathSync`,
+ * and testing anything earlier is symlink-blind — `/allowed/link/../../etc`
+ * collapses inside the root while the kernel walks out of it.
+ *
+ * This is the CONTROL PLANE's copy of the rule. The node enforces the same
+ * list against its own persisted copy, which is what survives a compromised
+ * control plane; this half is what gives the user a clear refusal before
+ * anything is spawned, and what holds while a node has yet to receive a push.
+ *
+ * An empty list means unrestricted, so an unconfigured node is unaffected.
+ */
+async function assertDirAllowed(nodeId: string, resolvedDir: string): Promise<void> {
+  const dirs = await getRequestlessContext().repos.nodeAllowedDirs.listForNode(nodeId);
+  if (dirAllowed(resolvedDir, dirs)) return;
+  throw new DirNotAllowedError(
+    `"${resolvedDir}" is outside the directories this node allows. Allowed: ${dirs.join(", ")}`,
+  );
 }
 
 /** JSON-safe subshell view (no internal fields). */

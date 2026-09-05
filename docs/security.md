@@ -445,7 +445,8 @@ These are choices, not oversights, and they follow from §0:
 Audit events are written for: `user.create`, `system-key.create`,
 `system-key.delete`, `subshell.create`, `subshell.terminate`, `subshell.restart`,
 `subshell.delete`, `node.enroll`, `node.delete`, `node.rename`,
-`node.key_rotate`, `setup_key.create`, `setup_key.revoke`, `settings.update`, and
+`node.key_rotate`, `node.allowed_dirs.update`, `setup_key.create`,
+`setup_key.revoke`, `settings.update`, and
 `emergency_login.rewrite_credential`.
 
 Read them with `GET /api/audit?limit=50` (admin).

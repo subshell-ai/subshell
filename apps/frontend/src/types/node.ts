@@ -57,6 +57,18 @@ export interface Node {
    * so the client must never re-derive admin identity.
    */
   canManage: boolean;
+  /**
+   * Directories subshells may be created under on this node.
+   *
+   * **EMPTY MEANS UNRESTRICTED**, never "nothing permitted" — the
+   * backwards-compatible default every node starts with. Readable by anyone
+   * who can see the node (a refused directory is unexplainable without it);
+   * only the owner may change it, which `canManage` gates.
+   *
+   * Optional for the same reason `nodeId` is on SubshellView: a payload cached
+   * by a client older than the field must keep typechecking.
+   */
+  allowedDirs?: string[];
   /** Capability strings from `ready` (empty when none reported) */
   capabilities: string[];
   /** Every registered harness × this node's state */

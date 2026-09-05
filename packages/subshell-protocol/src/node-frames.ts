@@ -29,7 +29,7 @@ import type { JsonValue } from "./json.js";
  * goes offline, while an agent that lags is refused just as clearly — the
  * Nodes page names it either way.
  */
-export const NODE_PROTOCOL_VERSION = 4;
+export const NODE_PROTOCOL_VERSION = 5;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -202,6 +202,24 @@ export type NodeCommandBody =
       chunk_b64: string;
       chunk: number;
       eof: boolean;
+    }
+  | {
+      /**
+       * Replace the node's directory allowlist (protocol v5).
+       *
+       * The node PERSISTS this and checks every launch against its own copy.
+       * That is the whole point: command signing proves WHO sent a launch,
+       * never WHETHER the directory is permitted, so an allowlist carried
+       * inside the `launch` command would be worth nothing against a
+       * compromised control plane.
+       *
+       * An EMPTY array means unrestricted — the same meaning as never having
+       * had a list, so clearing the rules and never setting any are one state.
+       * Pushed on every owner edit and again after each `ready`, which is what
+       * heals an edit made while the node was offline.
+       */
+      type: "set_allowed_dirs";
+      dirs: string[];
     }
   | { type: "ping" };
 
@@ -376,6 +394,12 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return isStr(value.subId) ? { type: "tail_stop", subId: value.subId } : null;
     case "remove_paths":
       return isStrArray(value.paths) ? { type: "remove_paths", paths: value.paths } : null;
+    case "set_allowed_dirs":
+      // Normalization is NOT applied here — the parser's job is shape, and
+      // the executor re-normalizes anyway. A malformed entry inside a
+      // well-formed array is dropped there, never here, so one bad rule
+      // cannot reject the whole push.
+      return isStrArray(value.dirs) ? { type: "set_allowed_dirs", dirs: value.dirs } : null;
     case "inventory":
       return { type: "inventory" };
     case "write_file":

@@ -46,7 +46,7 @@ export function NodeKeyRotate({
     const ok = await confirmAction({
       title: `Rotate the key for "${nodeName}"?`,
       description:
-        "The current key stops working immediately and a connected agent is dropped. It reconnects only after the new key is put into its config by hand.",
+        "The current key stops working immediately and a connected node is dropped. It reconnects only after the new key is put into its config by hand.",
       confirmLabel: "Rotate key",
       danger: true,
     });
