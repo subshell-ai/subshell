@@ -1,5 +1,45 @@
 # @internal/client
 
+## 0.3.0
+
+### Minor Changes
+
+- [`d938d7f`](https://github.com/subshell-ai/subshell/commit/d938d7fe65b055aa51b82a7f396022682f8b80be) Thanks [@theogravity](https://github.com/theogravity)! - Node panes now report their real grid, so several devices watching one
+  subshell on an agent node agree about its size.
+  
+  A tmux pane has one grid and is sized to the smallest viewer, and the server
+  announces that grid for clients to pin their terminal to. On the control-plane
+  host it could read the pane back, so the announcement was confirmed. On a node
+  it could not — the protocol had no size command — so it announced the size it
+  had *asked for*: exact for one viewer, a guess for several, and wrong for
+  everyone if tmux clamped the request. Protocol v4 adds `pane_size`, and the
+  announcement is now confirmed on every machine.
+  
+  The agent protocol is also matched exactly now, in place of the old
+  compatibility window and its per-feature version gates. Server and agent ship
+  together, so an agent reporting any other version is refused at `ready` and
+  its node is chipped "agent too old" or "agent too new" — naming which side to
+  redeploy instead of leaving a bare "offline".
+
+### Patch Changes
+
+- [`1354ff8`](https://github.com/subshell-ai/subshell/commit/1354ff899333ee1e71659ae9830289c4ec0d2e94) Thanks [@theogravity](https://github.com/theogravity)! - Fix two path bugs that only surfaced on macOS.
+  
+  `SUBSHELL_FS_ROOT` confinement compared the unresolved candidate path against
+  a realpath-resolved root, so a root reached through a symlink refused
+  everything — including itself. `/tmp` is a symlink to `/private/tmp` on macOS,
+  so setting the root to `/tmp/x` returned 403 for `/tmp/x`, locking the operator
+  out of the directory they had just configured. The permission boundary is
+  unchanged: the realpath comparison still decides, and only the two legitimate
+  spellings of the configured root now pass the cheap pre-check.
+  
+  The node agent's `fs_ls` reported `ENOENT` for every path-lookup failure,
+  swallowing `EACCES`. Since the control plane maps `ENOENT` to the folder
+  picker's 404 and `EACCES` to 403, an unreadable directory told the operator it
+  did not exist. Which call raises the error is platform-dependent — `realpath`
+  refuses on macOS while Linux reaches `readdir` first — so the error class is
+  now preserved at every step.
+
 ## 0.2.3
 
 ### Patch Changes
