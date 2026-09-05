@@ -481,17 +481,20 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     const file = seedLog(ctx, S1, "abc");
     ws.throwOnSend = true;
     expect(await dispatchCommand(ctx, tailStartCmd())).toEqual({ ok: true });
-    // Wait for the first send to have been ATTEMPTED rather than sleeping a
-    // fixed span. What is being pinned is "one failure is transient", so the
-    // window has to end on the failure itself: a flat 60ms could straddle a
-    // second pump — the log was written before the tail started, so the fs
-    // watcher can deliver its own event right behind the catch-up pump — and
-    // then the sub has legitimately self-stopped and the assertion below
-    // fails for the very behavior the NEXT line goes on to prove.
-    await waitFor(() => ws.sendAttempts >= 1, "first (failing) send attempt");
-    expect(ctx.tails.size).toBe(1);
-    appendFileSync(file, "de"); // second failure (consecutive) ⇒ stop
+    appendFileSync(file, "de"); // more to pump, so a second attempt is certain
+
+    // Stated as a MONOTONE property, because "is it still alive right now?"
+    // cannot be asked safely here. The log is written before the tail starts,
+    // so the fs watcher can deliver its own event right behind the catch-up
+    // pump; an earlier shape waited for the first failed attempt and then
+    // asserted `tails.size === 1` on the next line, which loses whenever that
+    // second pump lands in between — the sub has legitimately self-stopped
+    // and the assertion fails for the very behavior the test goes on to
+    // prove. Waiting for the STOP and then asserting how many attempts it
+    // took says the same thing (a single failure never stops it, or the count
+    // would be 1) and has no window to lose.
     await waitFor(() => ctx.tails.size === 0, "self-stop after two consecutive send failures");
+    expect(ws.sendAttempts).toBeGreaterThanOrEqual(2);
     expect(ws.events.length).toBe(0); // nothing ever landed
   });
 
