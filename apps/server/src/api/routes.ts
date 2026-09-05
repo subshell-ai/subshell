@@ -38,7 +38,6 @@ import { wsTokenRoutes } from "@/api/ws-token.route.js";
  * so splitting one flat chain into three changes nothing about routing.
  */
 const coreRoutes = new Elysia()
-  .use(adminStatusRoutes)
   .use(settingsRoutes)
   .use(setupRoutes)
   .use(metaRoutes)
@@ -59,10 +58,19 @@ const computeRoutes = new Elysia()
 
 const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(liveRoutes).use(channelRoutes);
 
+/**
+ * Admin-only surfaces. Its own group rather than an eleventh module bolted
+ * onto `coreRoutes`, which already carries the most: the depth budget above is
+ * the whole reason these groups exist, and spending it in the fullest one is
+ * how the next feature route ends up paying for a regrouping.
+ */
+const adminRoutes = new Elysia().use(adminStatusRoutes);
+
 export const routes = new Elysia()
   .use(coreRoutes)
   .use(computeRoutes)
   .use(commsRoutes)
+  .use(adminRoutes)
   .onError(({ error }) => {
     // Keep API errors JSON-shaped and small; the global error handler also runs.
     throw error;

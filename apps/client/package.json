@@ -29,7 +29,8 @@
     "@internal/harnesses": "workspace:*",
     "@internal/mcp-core": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
-    "jose": "6.2.9"
+    "jose": "6.2.9",
+    "loglayer": "9.4.0"
   },
   "devDependencies": {
     "@internal/tsconfig": "workspace:*",

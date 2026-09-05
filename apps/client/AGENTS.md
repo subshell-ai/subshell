@@ -49,6 +49,30 @@ subshell version                   # also `--version` / `-v` — aliased in the
                                      # unknown flag, because it is a typo)
 ```
 
+## Logging
+
+`src/log.ts` is the agent's only log surface: **LogLayer** with the core
+`ConsoleTransport` — both ship inside the `loglayer` package, so the compiled
+binary takes on no third-party dependency for logging. `log(message)` is the
+common call; `logger` is there for `withError()` / `withMetadata()` / levels.
+
+Three things about it are deliberate:
+
+- **The line format is unchanged** from the hand-rolled `console.log` it
+  replaced (`[subshell <ISO>] <message>`, via `messageFn`). The daemon's stdout
+  is read by whoever runs `subshell run` and by systemd/launchd, and launchd's
+  log file stamps nothing itself.
+- **`errorSerializer` flattens errors to plain strings.** Handing the console a
+  raw `Error` makes Bun's inspector print source context, which inside a
+  `--compile --bytecode` binary is the *whole minified bundle* — measured at
+  ~25 KB in front of one stack trace. Four lines, no `serialize-error`
+  dependency (the server can afford one; a downloaded artifact should not).
+- **Tests never spy on `console`.** `__tests__/helpers/capture-logs.ts` swaps
+  the TRANSPORT (`logger.withFreshTransports`), LogLayer's own seam. The old
+  console spies asserted against which console method a level happens to call,
+  so routing through LogLayer blinded eight tests at once — each still passing
+  its setup and failing its assertion, with nothing naming the cause.
+
 `service install` refuses without an enrolled config; `service uninstall`
 deliberately does NOT (a deleted config is the de-facto unenroll — an enabled
 unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`

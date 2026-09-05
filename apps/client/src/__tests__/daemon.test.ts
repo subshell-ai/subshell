@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,11 +16,20 @@ import {
 import { run as runCli } from "../cli.js";
 import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";
-import { type DaemonDeps, probeOnline, runDaemon, type WsConstructor, type WsLike, wsUrlFor } from "../daemon.js";
+import {
+  type DaemonDeps,
+  probeOnline,
+  runDaemon,
+  updateRequiredMessage,
+  type WsConstructor,
+  type WsLike,
+  wsUrlFor,
+} from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
+import { captureLogs } from "./helpers/capture-logs.js";
 
 /**
  * The daemon under a fake control plane. The plane is a real `Bun.serve` ws
@@ -546,10 +555,7 @@ test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
 // uninterruptible one would only exit at ~2000 ms — past every deadline here.
 test("SIGINT during the backoff sleep: exits 0 inside the raised slice budget and never dials again", async () => {
   const [keys] = await Promise.all([keysReady]);
-  const lines: string[] = [];
-  const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    lines.push(a.join(" ")); // every daemon log line doubles as the dial counter
-  });
+  const { lines, restore } = captureLogs();
   const exits: number[] = [];
   let fatal: unknown;
   const stopped = runDaemon(
@@ -597,7 +603,7 @@ test("SIGINT during the backoff sleep: exits 0 inside the raised slice budget an
     await sleep(300);
     expect(lines.length).toBe(frozen);
   } finally {
-    spy.mockRestore();
+    restore();
   }
 });
 
@@ -944,16 +950,13 @@ test("a throwing send does not kill the periodic loop: later ticks still deliver
   const sockets: Array<{ sends: string[] }> = [];
   const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, state) });
   await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 2, "connect push + first tick");
-  const lines: string[] = [];
-  const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    lines.push(a.join(" "));
-  });
+  const { lines, restore } = captureLogs();
   state.throwOnSend = true;
   await sleep(160); // several ticks whose sends throw — every one must be swallowed + logged
   const before = count(h, (e) => e.type === "inventory");
   state.throwOnSend = false;
   await waitFor(h, () => count(h, (e) => e.type === "inventory") > before, "a tick after the send recovered");
-  spy.mockRestore();
+  restore();
   expect(h.plane.closes).toBe(0); // a failed push costs a log line, never the connection
   expect(lines.some((l) => l.includes("send inventory failed"))).toBe(true);
 });
@@ -963,13 +966,10 @@ test("outbound guard: an oversize result is suppressed + logged, never sent; the
     capturePane: () => "x".repeat(NODE_MAX_FRAME_BYTES), // result frame exceeds the 1 MiB cap
   } as unknown as TmuxRunner;
   const h = await startDaemon({ tmux: fakeTmux });
-  const lines: string[] = [];
-  const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    lines.push(a.join(" "));
-  });
+  const { lines, restore } = captureLogs();
   const jti = await signAndSend(h, { type: "capture", subshellId: HEX_A }, { jti: "big-1", seq: 1 });
   await sleep(100);
-  spy.mockRestore();
+  restore();
   // Mirrors the inbound rule: suppress, do NOT close.
   expect(count(h, (e) => e.type === "result" && e.ref === jti)).toBe(0);
   expect(h.plane.closes).toBe(0);
@@ -1013,4 +1013,25 @@ test("socket close stops every live tail: no output into the dead ws, none resur
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+describe("4406 refusal message", () => {
+  // The floor exists so an operator can ACT on the refusal, and this line is
+  // the only place they read it. It used to be hardcoded to "rejected protocol
+  // vN", which named the wrong gate for a version-floor refusal and told them
+  // neither the required nor the found version.
+  test("relays the server's reason verbatim", () => {
+    expect(updateRequiredMessage("subshell 0.3.0 or newer required (this agent is 0.2.1)")).toContain(
+      "subshell 0.3.0 or newer required (this agent is 0.2.1)",
+    );
+    expect(updateRequiredMessage("protocol v4 required (this agent speaks v3)")).toContain("this agent speaks v3");
+  });
+
+  test("still says something actionable when the server sent no reason", () => {
+    const line = updateRequiredMessage(undefined);
+    expect(line).toContain("4406");
+    expect(line).toContain("newer subshell");
+    expect(line).not.toContain("undefined");
+    expect(updateRequiredMessage("")).toBe(line);
+  });
 });

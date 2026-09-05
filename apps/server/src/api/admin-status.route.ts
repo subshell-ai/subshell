@@ -4,7 +4,7 @@ import { agentVersionSupported, MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from 
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { listSystemKeys } from "@/auth/apikey-store.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
+import { findSystemUserId } from "@/auth/system-user.js";
 import {
   APP_BASE_URL,
   AUTH_SECRET,
@@ -97,7 +97,10 @@ const RuntimeSchema = t.Object({
 
 const InventorySchema = t.Object({
   users: t.Object({
-    total: t.Number({ description: "Registered users" }),
+    total: t.Number({
+      description:
+        "Registered PEOPLE (user_meta rows). The `system` service account that owns system API keys has no user_meta row and is deliberately not counted here — note that /api/users does list it",
+    }),
     admins: t.Number({ description: "How many of them are admins" }),
   }),
   subshells: t.Object({
@@ -129,7 +132,9 @@ const SecuritySchema = t.Object({
   }),
   systemKeys: t.Object({
     total: t.Number({ description: "System API keys that exist" }),
-    active: t.Number({ description: "How many are enabled — each is a full-access bearer credential" }),
+    active: t.Number({
+      description: "How many are enabled AND unexpired — each of these is a usable full-access bearer credential",
+    }),
   }),
 });
 
@@ -140,6 +145,29 @@ const AdminStatusSchema = t.Object({
   security: SecuritySchema,
   generatedAt: t.String({ description: "When the server assembled this snapshot (ISO)" }),
 });
+
+/**
+ * Deploy facts, resolved once.
+ *
+ * Neither can change under a running process in any way that matters — the MCP
+ * ladder reads execPath/argv/PATH and the env the prelude already applied, and
+ * tmux is installed or it is not — but both walk $PATH synchronously, and this
+ * endpoint POLLS. Every open admin tab would otherwise re-run a full PATH scan
+ * every 15 s on the loop that also serves terminal frames. `staticSource()` is
+ * memoised at boot for exactly this reason; these follow it.
+ */
+let deployFacts: { tmuxPath: string | null; mcpEntrypoint: string | null; mcpSource: string | null } | null = null;
+
+function resolveDeployFacts(): NonNullable<typeof deployFacts> {
+  if (deployFacts) return deployFacts;
+  const mcp = probeMcpLaunch();
+  deployFacts = {
+    tmuxPath: Bun.which("tmux"),
+    mcpEntrypoint: mcp.spec ? [mcp.spec.command, ...mcp.spec.args].join(" ") : null,
+    mcpSource: mcp.spec ? mcp.source : null,
+  };
+  return deployFacts;
+}
 
 /** Size of the SQLite file, or null when it cannot be stat'd (missing, permissions). */
 function databaseBytes(path: string): number | null {
@@ -155,22 +183,33 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
   async () => {
     const stats = new InstanceStatsRepository(db);
     const settings = new SettingsRepository(db);
-    const mcp = probeMcpLaunch();
+    const deploy = resolveDeployFacts();
     const platform = localPlatform();
     const memory = process.memoryUsage();
     const uptimeSeconds = Math.floor(process.uptime());
-    const [inventory, agents, registrationsOpen, systemUserId] = await Promise.all([
+    const [inventory, agents, registrationsOpen] = await Promise.all([
       stats.snapshot(),
       stats.agentVersions(),
       settings.get("allow_registrations", true),
-      ensureSystemUser(),
     ]);
+    // The NON-creating lookup: `ensureSystemUser` INSERTs and logs a creation
+    // line, and a GET that advertises itself as read-only must not do that.
+    // No system user means no system keys, so the answer is the same.
+    const systemUserId = findSystemUserId();
     // The SAME predicate the WS handler refuses with (node-ws-handler.ts), not
     // a second comparison that could drift from it. A node that has never
     // reported a version has never completed a `ready`, so it is not yet a
     // compatibility problem — only a version BELOW the floor is.
     const needingUpdate = agents.filter((a) => a.agentVersion !== null && !agentVersionSupported(a.agentVersion));
-    const systemKeys = listSystemKeys(systemUserId);
+    const systemKeys = systemUserId ? listSystemKeys(systemUserId) : [];
+    // "Active" must mean USABLE. An enabled key past its expiry cannot
+    // authenticate, and the card calls each active key a full-access bearer
+    // credential — counting a dead one there overstates the exposure an admin
+    // is being asked to review.
+    const now = Date.now();
+    const activeKeys = systemKeys.filter(
+      (k) => k.enabled === 1 && (k.expiresAt === null || Date.parse(k.expiresAt) > now),
+    );
 
     return {
       versions: {
@@ -197,9 +236,9 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
         staticSource: staticSource(),
         databasePath: DATABASE_PATH,
         databaseBytes: databaseBytes(DATABASE_PATH),
-        tmuxPath: Bun.which("tmux"),
-        mcpEntrypoint: mcp.spec ? [mcp.spec.command, ...mcp.spec.args].join(" ") : null,
-        mcpSource: mcp.spec ? mcp.source : null,
+        tmuxPath: deploy.tmuxPath,
+        mcpEntrypoint: deploy.mcpEntrypoint,
+        mcpSource: deploy.mcpSource,
       },
       inventory: {
         ...inventory,
@@ -211,7 +250,7 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
         registrationsOpen,
         emergencyLoginActive: emergencyLoginArmed(),
         usingPlaceholderSecret: AUTH_SECRET === PLACEHOLDER_AUTH_SECRET,
-        systemKeys: { total: systemKeys.length, active: systemKeys.filter((k) => k.enabled === 1).length },
+        systemKeys: { total: systemKeys.length, active: activeKeys.length },
       },
       generatedAt: new Date().toISOString(),
     };

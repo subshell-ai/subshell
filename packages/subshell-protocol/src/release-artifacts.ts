@@ -2,9 +2,12 @@
  * Shared release-artifact primitives (spec 2026-09-03 §5): the streaming
  * digest + the atomic tmp+rename publish that BOTH apps' `compile:release`
  * pipelines use, plus the shared schedule/scoping helpers the two pipelines
- * were duplicating (plan 2 Task E): the {@link parseScope} env override, the
- * {@link assertBunFloor} bytecode-version
- * guard. Lives here beside NODE_TARGETS for the same reason — the apps never
+ * were duplicating (plan 2 Task E): the {@link parseScope} env override and
+ * the {@link assertBunFloor} bytecode-version guard. (The semver comparator
+ * that used to sit between them moved to `./versions.js`, which the agent
+ * floor also needs and which — unlike this module — imports no node builtins,
+ * so it can live on the Metro-safe barrel.)
+ * Lives here beside NODE_TARGETS for the same reason — the apps never
  * import each other. Node builtins only (like the rest of this module), so it
  * stays OFF the Metro-safe barrel; pipelines import the subpath.
  */

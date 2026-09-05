@@ -33,10 +33,17 @@ function ServerStatusPage() {
       <PageHeader
         title="Server status"
         subtitle="What this instance is running right now (admins)"
+        // Refresh lives INSIDE the admin branch, not here. `refetch()` ignores
+        // `enabled` (TanStack Query calls straight through to the fetcher), so
+        // a Refresh button rendered for a non-admin would fire exactly the
+        // doomed 403 the `enabled` gate exists to prevent — and render nothing,
+        // because the error banner is inside that branch too.
         action={
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            Refresh
-          </Button>
+          viewerIsAdmin === true ? (
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Refresh
+            </Button>
+          ) : null
         }
       />
       {viewerIsAdmin === undefined ? null : viewerIsAdmin ? (

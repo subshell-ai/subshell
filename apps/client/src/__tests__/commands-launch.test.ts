@@ -17,6 +17,7 @@ import {
 } from "../commands/report.js";
 import type { AgentConfig } from "../config.js";
 import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
+import { captureLogs } from "./helpers/capture-logs.js";
 
 /**
  * Task 4: the `launch` executor, the exit watcher, and `subshells_report`
@@ -389,10 +390,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   it("mcp content drift ⇒ one warn line and the LOCAL content wins over the wire value", async () => {
     const dataDir = freshDataDir("mcp-drift");
     const mcpFile = join(dataDir, "mcp", `${S1}.json`);
-    const lines: string[] = [];
-    const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-      lines.push(a.join(" "));
-    });
+    const { lines, restore } = captureLogs();
     let ctx: CommandContext | undefined;
     try {
       const made = makeCtx(
@@ -413,17 +411,14 @@ describe("execLaunch (spec §6.4/§7)", () => {
       expect(await Bun.file(mcpFile).text()).toBe(localMcpContent()); // local wins
       expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(1); // ONE warn line
     } finally {
-      spy.mockRestore();
+      restore();
       if (ctx) stopWatcher(ctx, S1);
     }
   });
 
   it("bestEffortLog + throwing pipePane ⇒ one warn line, still {ok:true}, resize + watcher run", async () => {
     const dataDir = freshDataDir("best-effort-pipe");
-    const lines: string[] = [];
-    const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-      lines.push(a.join(" "));
-    });
+    const { lines, restore } = captureLogs();
     try {
       const { ctx, calls } = makeCtx(
         dataDir,
@@ -443,16 +438,13 @@ describe("execLaunch (spec §6.4/§7)", () => {
       expect(ctx.watchers.has(S1)).toBe(true);
       stopWatcher(ctx, S1);
     } finally {
-      spy.mockRestore();
+      restore();
     }
   });
 
   it("bestEffortLog wraps mkdir TOO: throwing subshells-dir mkdir ⇒ warn + {ok:true}, pipePane skipped", async () => {
     const dataDir = freshDataDir("best-effort-mkdir");
-    const lines: string[] = [];
-    const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-      lines.push(a.join(" "));
-    });
+    const { lines, restore } = captureLogs();
     try {
       const { ctx, calls } = makeCtx(
         dataDir,
@@ -470,7 +462,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
       expect(methodsOf(calls)).toEqual(["newSubshell", "resizeWindow"]);
       stopWatcher(ctx, S1);
     } finally {
-      spy.mockRestore();
+      restore();
     }
   });
 
@@ -498,10 +490,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
 
   it("throwing resizeWindow is log-and-continue (geometry is cosmetic)", async () => {
     const dataDir = freshDataDir("resize-throws");
-    const lines: string[] = [];
-    const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-      lines.push(a.join(" "));
-    });
+    const { lines, restore } = captureLogs();
     try {
       const { ctx } = makeCtx(
         dataDir,
@@ -518,7 +507,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
       expect(lines.some((l) => l.toLowerCase().includes("resize"))).toBe(true);
       stopWatcher(ctx, S1);
     } finally {
-      spy.mockRestore();
+      restore();
     }
   });
 });

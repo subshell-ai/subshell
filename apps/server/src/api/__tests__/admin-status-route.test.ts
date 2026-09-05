@@ -44,6 +44,14 @@ describe("GET /api/admin/status", () => {
   let adminCookie: string;
   let nonAdminCookie: string;
   let adminSubshellKey: string;
+  // Every app-table row this suite creates. There are NO foreign keys between
+  // the app tables and better-auth's (helpers/auth-tables.ts says so
+  // outright), so deleting the users cascades NOTHING — and the test database
+  // is shared by every suite in the same `bun test` process. An orphaned
+  // `agent` node left here is a node some later instance-wide count did not
+  // create, and which suite it breaks depends on file order.
+  const createdSubshells: string[] = [];
+  const createdNodes: string[] = [];
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -64,6 +72,7 @@ describe("GET /api/admin/status", () => {
     // A subshell owned by the ADMIN — the credential whose owner is an admin
     // but which must still be refused.
     const subshellId = crypto.randomUUID();
+    createdSubshells.push(subshellId);
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId: adminId,
@@ -77,6 +86,10 @@ describe("GET /api/admin/status", () => {
   });
 
   afterAll(async () => {
+    const subshells = new SubshellsRepository(db);
+    const nodes = new NodesRepository(db);
+    for (const id of createdSubshells) await subshells.delete(id);
+    for (const id of createdNodes) await nodes.deleteById(id);
     await deleteUserByEmailOrId(adminId);
     await deleteUserByEmailOrId(nonAdminId);
   });
@@ -116,8 +129,10 @@ describe("GET /api/admin/status", () => {
     expect(before.inventory.users.total).toBeGreaterThanOrEqual(2);
     expect(before.inventory.users.admins).toBeGreaterThanOrEqual(1);
 
+    const countedId = crypto.randomUUID();
+    createdSubshells.push(countedId);
     await new SubshellsRepository(db).create({
-      id: crypto.randomUUID(),
+      id: countedId,
       userId: adminId,
       profileId: "p",
       harnessId: "claude-code",
@@ -140,6 +155,7 @@ describe("GET /api/admin/status", () => {
     const nodes = new NodesRepository(db);
     const staleId = `stale-${crypto.randomUUID()}`;
     const currentId = `current-${crypto.randomUUID()}`;
+    createdNodes.push(staleId, currentId);
     await nodes.create({
       id: staleId,
       ownerUserId: adminId,

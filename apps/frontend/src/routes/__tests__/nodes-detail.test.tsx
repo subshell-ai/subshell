@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -303,6 +303,32 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
       renderDetail("agent1");
       await screen.findByText("Your access");
       expect(screen.queryByText("agent too old")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NodeDetailPage agent floor", () => {
+  it("badges an agent below MIN_AGENT_VERSION, independently of the protocol chip", async () => {
+    // The Status page lists such a node and links HERE. Before this badge the
+    // link landed on a page showing no warning at all, because the only chip
+    // keys off protocolVersion — which a floor-refused agent may well match.
+    const { restore } = mockFetch(agentNode({ agentVersion: "0.0.1", protocolVersion: NODE_PROTOCOL_VERSION }));
+    try {
+      renderDetail("agent1");
+      await waitFor(() => expect(screen.getByText(`below minimum (${MIN_AGENT_VERSION})`)).toBeDefined());
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not badge an agent that meets the floor", async () => {
+    const { restore } = mockFetch(agentNode({ agentVersion: MIN_AGENT_VERSION }));
+    try {
+      renderDetail("agent1");
+      await waitFor(() => expect(screen.getByText(MIN_AGENT_VERSION)).toBeDefined());
+      expect(screen.queryByText(/below minimum/)).toBeNull();
     } finally {
       restore();
     }

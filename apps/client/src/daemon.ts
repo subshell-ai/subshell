@@ -192,6 +192,29 @@ function jtiOfUnverified(jws: string): string | undefined {
 const HAS_MCP = true;
 
 /** The `ready` frame: machine identity + protocol version (spec §3.3/§5.3). */
+/**
+ * What this host prints when the control plane refuses it with 4406.
+ *
+ * RELAYS the server's reason, because it is the only place the operator learns
+ * WHICH gate refused them: the agent-version floor names the version required
+ * and the version found, the protocol backstop names both protocol numbers,
+ * and this host cannot work out which applied. The previous line asserted a
+ * protocol mismatch unconditionally — wrong for the commoner of the two
+ * refusals, and it named a number that was not the problem.
+ *
+ * Pure and exported so the wording is testable: `log` is a module import here,
+ * and a message an operator is expected to act on should not be verifiable
+ * only by capturing stdout.
+ *
+ * @param reason - the server's close reason, empty when it sent none
+ * @returns The line to print before exiting
+ */
+export function updateRequiredMessage(reason: string | undefined): string {
+  return reason
+    ? `the control plane refused this agent (close 4406): ${reason} — exiting`
+    : `the control plane refused this agent (close 4406) — a newer subshell is required; exiting`;
+}
+
 function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
@@ -548,9 +571,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         stop(1);
       }
       if (close.code === NODE_CLOSE_UPDATE_REQUIRED) {
-        log(
-          `the control plane rejected protocol v${NODE_PROTOCOL_VERSION} (close 4406) — a newer subshell is required; exiting`,
-        );
+        log(updateRequiredMessage(close.reason));
         stop(1);
       }
       const delay = backoffDelay(attempt++, rand);

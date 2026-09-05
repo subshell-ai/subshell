@@ -138,14 +138,31 @@ relative-positioned frame a row out, which is the exact corruption this whole
 subsystem exists to prevent. An unconfirmed number every viewer shares beats a
 confirmed disagreement.
 
-**The agent protocol is matched EXACTLY.** `node-ws-handler.ts` refuses any
-agent whose reported version differs from `NODE_PROTOCOL_VERSION`, in either
-direction, with `agent update required` (4406); the Nodes page chips it "agent
-too old" or "agent too new" so the operator knows which side to redeploy.
-There is no compatibility window and no per-feature gating: the server and the
-agent ship together, so a mismatch is a deployment out of step rather than a
-node to be carried. Bump the version whenever a frame changes — additive or
-not — and release both.
+**An agent is refused by TWO gates, in this order** (`node-ws-handler.ts`,
+both closing 4406 with a reason the agent RELAYS to its own log):
+
+1. **The version floor.** `MIN_AGENT_VERSION`
+   (`@internal/subshell-protocol` `versions.ts`) is the operator-facing
+   statement "this server needs subshell >= X". The reason names both the
+   required and the found version. This is the gate an operator can act on,
+   which is why it runs first — and it is bumped deliberately, on its own
+   schedule, whenever a server needs newer agent BEHAVIOUR.
+2. **The protocol, matched EXACTLY.** Any `protocolVersion` differing from
+   `NODE_PROTOCOL_VERSION`, in either direction, is refused; the reason names
+   both numbers. No compatibility window, no per-feature gating — the server
+   and the agent ship together, so a mismatch is a deployment out of step
+   rather than a node to be carried. Bump it whenever a frame changes,
+   additive or not, and release both.
+
+The identity is persisted BEFORE either gate, so a refused agent still shows
+its version on the Nodes page. The node detail page chips "agent too old" /
+"agent too new" for a protocol mismatch and "below minimum" for a floor
+refusal; Settings → Status lists every enrolled agent under the floor in one
+place, since a refused agent looks like an ordinary offline node everywhere
+else.
+
+The two gates are INDEPENDENT — raising the floor without a protocol bump is
+the normal case — so never infer one from the other.
 
 The pane's grid is therefore always readable: `paneSize` answers a grid or
 null, and null has ONE meaning — the pane is gone, so nothing is announced.

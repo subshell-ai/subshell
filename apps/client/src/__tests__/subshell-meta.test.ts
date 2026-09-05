@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isSubshellId, type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
+import { captureLogs } from "./helpers/capture-logs.js";
 
 const base = mkdtempSync(join(tmpdir(), "subshell-meta-"));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -58,15 +59,11 @@ describe("SubshellMetaStore", () => {
     mkdirSync(join(dataDir, "subshells"), { recursive: true });
     writeFileSync(join(dataDir, "subshells", "bad.meta.json"), "{not json");
     await store.record(meta("f00d"));
-    const lines: string[] = [];
-    const orig = console.log;
-    console.log = (...parts: unknown[]) => {
-      lines.push(parts.join(" "));
-    };
+    const { lines, restore } = captureLogs();
     try {
       expect(await store.get("bad")).toBeUndefined();
     } finally {
-      console.log = orig;
+      restore();
     }
     expect(lines.length).toBe(1);
     const listed = await store.list();

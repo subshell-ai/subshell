@@ -119,6 +119,22 @@ describe("Server status page", () => {
     }
   });
 
+  it("gives a non-admin no Refresh button — refetch() ignores the `enabled` gate", async () => {
+    // The gate only covers the AUTOMATIC fetch. `refetch()` calls straight
+    // through to the fetcher regardless of `enabled`, so a Refresh button
+    // rendered outside the admin branch would hand a non-admin a one-click
+    // 403 that renders nothing (the error banner is inside that branch).
+    const { calls, restore } = mockFetch(null, false);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText(/for instance admins/)).toBeDefined());
+      expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+      expect(calls.some((c) => c.url === "/api/admin/status")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
   it("names the agents below the floor, so a refused node is explicable", async () => {
     const { restore } = mockFetch(
       {

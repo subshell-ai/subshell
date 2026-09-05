@@ -15,6 +15,25 @@ let cachedId: string | null = null;
  * camelCase and the app's Kysely instance would rename them via its
  * CamelCasePlugin (the trap documented in api/__tests__/helpers/auth-tables.ts).
  */
+/**
+ * The system user's id if it already exists, WITHOUT creating it.
+ *
+ * For read-only callers. `ensureSystemUser` INSERTs as a side effect and logs
+ * a creation line, which a GET must not do — and a caller that only wants to
+ * count that user's keys has its answer either way: no system user means no
+ * system keys.
+ *
+ * @returns The id, or null when the service account has not been seeded yet
+ */
+export function findSystemUserId(): string | null {
+  if (cachedId) return cachedId;
+  const row = authDatabase()
+    .prepare<{ id: string }, [string]>(`SELECT id FROM "user" WHERE email = ?`)
+    .get(SYSTEM_USER_EMAIL);
+  if (row) cachedId = row.id;
+  return row?.id ?? null;
+}
+
 export async function ensureSystemUser(): Promise<string> {
   if (cachedId) return cachedId;
   const db = authDatabase();

@@ -283,6 +283,23 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
   });
 
+  it("the backstop refuses an agent BEHIND the protocol too, not just ahead of it", async () => {
+    // The direction the previous suite covered and the rewrite dropped: a
+    // version-current agent speaking an older protocol. It is the case the
+    // node detail page's "agent too old" chip is driven by, and without it a
+    // `>=` slipping into the comparison would let a behind-protocol agent
+    // through with a green suite.
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      readyFrame({ agentVersion: "99.0.0", protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
+    );
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
+  });
+
   it("heartbeat → touch only", async () => {
     const h = makeHarness();
     await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify({ type: "heartbeat", ts: "now" }));

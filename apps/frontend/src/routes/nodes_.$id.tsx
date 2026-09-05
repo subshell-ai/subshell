@@ -1,4 +1,4 @@
-import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { agentVersionSupported, MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { RefreshCw, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -194,7 +194,24 @@ function NodeDetailPage() {
           </div>
           <div>
             <dt className="text-muted-foreground">Agent version</dt>
-            <dd>{n.agentVersion ?? "—"}</dd>
+            <dd className="mt-1 flex flex-wrap items-center gap-2">
+              {n.agentVersion ?? "—"}
+              {/* The OTHER refusal gate, and an independent one: the floor is
+                  raised whenever the server needs newer agent behaviour, with
+                  or without a protocol bump. Without this badge the Status
+                  page can list a node as below the floor and link here, to a
+                  page showing no warning at all — and unlike the protocol
+                  chip this is not gated on `offline`, because the floor is
+                  checked at connect and such an agent never gets online. */}
+              {n.agentVersion != null && !agentVersionSupported(n.agentVersion) && (
+                <Badge
+                  variant="warning"
+                  title={`This control plane requires subshell ${MIN_AGENT_VERSION} or newer; this agent reports ${n.agentVersion}. Update the agent on that host.`}
+                >
+                  below minimum ({MIN_AGENT_VERSION})
+                </Badge>
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Your access</dt>
