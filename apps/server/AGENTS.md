@@ -465,6 +465,19 @@ Route tests live in `__tests__/` next to the route and share
 Migrations must be applied by the code under test or the helper — never
 assumed from a developer's local `data/subshell.db`.
 
+**`test` must keep turbo's `dependsOn: ["^build"]`** — do not narrow it for a
+faster loop. This package once overrode it to
+`["@internal/backend-errors#build:dev"]`, which let `@internal/server#test` run
+CONCURRENTLY with a dependency's build. `tsdown` cleans `outDir` before writing,
+so `packages/subshell-protocol/dist` vanishes for a moment mid-run — and
+`__tests__/cli-entry.test.ts` spawns a REAL subprocess (`bun src/index.ts`),
+which is the one place that re-resolves the workspace package from disk rather
+than from the parent's module cache. The child died with `Cannot find module
+'@internal/subshell-protocol'`, surfacing as a rare "configure must not boot"
+failure that passed in isolation and on every re-run. `@internal/server#build`
+failed the same way, less often. The override is gone; the root config is
+correct and this package now inherits it.
+
 Separately, the repo-root `e2e/` suite drives this server as a real subprocess
 (`bun src/index.ts` with `NODE_ENV=development` against a temp-file DB and a
 stub `pi` harness on port 3199) — a full-stack check that is deliberately

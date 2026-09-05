@@ -34,13 +34,6 @@
         "src/**"
       ]
     },
-    "test": {
-      "dependsOn": [
-        "@internal/backend-errors#build:dev"
-      ],
-      "persistent": true,
-      "cache": false
-    },
     "verify-types": {
       "inputs": [
         "*.ts",
