@@ -138,3 +138,39 @@ describe("SubshellDevices", () => {
     expect(screen.getByText("Measuring…")).toBeDefined();
   });
 });
+
+describe("SubshellDevices — who may change the sizing", () => {
+  afterEach(cleanup);
+
+  it("stays inert for a read-only viewer even when the caller offers the action", () => {
+    // The caller does not decide this: a workspace pane has no access field
+    // to hand, and any caller-side copy can disagree with the server. The
+    // presence frame's own `canInput` on YOUR entry is the same fact the
+    // server enforces, so the control reads it there.
+    const readOnlyMe: ViewersState = {
+      ...TWO,
+      viewers: [viewer("10", "MacBook (Chrome)", 200, 60, { canInput: false }), TWO.viewers[1]],
+    };
+    const calls: string[] = [];
+    render(<SubshellDevices state={readOnlyMe} onSizing={(mode) => calls.push(mode)} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: /devices watching/i }), { key: "ArrowDown" });
+    const items = screen.getAllByRole("menuitem");
+    expect(items.every((i) => i.getAttribute("data-disabled") !== null)).toBe(true);
+    fireEvent.click(items[0]);
+    expect(calls).toEqual([]);
+  });
+
+  it("stays active when someone ELSE is the read-only one", () => {
+    // Only your own entry gates the control; a guest watching read-only must
+    // not disable the owner's pin.
+    const guestIsReadOnly: ViewersState = {
+      ...TWO,
+      viewers: [TWO.viewers[0], viewer("20", "iPhone (Safari)", 80, 24, { canInput: false })],
+    };
+    const calls: string[] = [];
+    render(<SubshellDevices state={guestIsReadOnly} onSizing={(mode) => calls.push(mode)} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: /devices watching/i }), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("menuitem", { name: /MacBook/ }));
+    expect(calls).toEqual(["pinned"]);
+  });
+});
