@@ -179,6 +179,11 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
   Object.assign(ws.data, data);
+  // The browser left while we were still looking things up. Its close already
+  // ran and found nothing to undo, so nothing here may be armed — returning
+  // BEFORE `registerViewer` is what keeps a ghost out of the sizing decision
+  // and a pump from running for a reader that does not exist.
+  if (ws.data.detachedEarly) return;
   // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
   // not exist until the context object carries it.
   registerViewer(ws, row.id);
@@ -381,6 +386,13 @@ export interface WsData {
    * `visibility` frame; a hidden viewer takes no part in sizing.
    */
   hidden?: boolean;
+  /**
+   * Set by {@link cleanupSubshellWs} when the socket closed before the attach
+   * had assigned anything to `ws.data`. The attach reads it the moment it
+   * assigns, and abandons instead of registering a viewer nothing can ever
+   * remove. See the check in {@link handleSubshellWs}.
+   */
+  detachedEarly?: boolean;
   /** Human name for the device, from the connect URL (already normalized). */
   deviceLabel: string;
   /** ISO timestamp of the attach, for "watching since" in the devices list. */
@@ -787,6 +799,19 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
 
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
+  // The attach is fired unawaited from the plugin's `open` and reaches
+  // `Object.assign(ws.data, data)` only after an access lookup and a tmux
+  // probe. A close inside that window finds NOTHING here — no viewerId to
+  // delete, no cleanup to call — and used to return having done nothing at
+  // all, after which the attach carried on and registered a viewer for a
+  // socket that was already gone and would never close again.
+  //
+  // Under the old one-viewer rule the next attach evicted that ghost. Now it
+  // is permanent: it holds a place in the shared-grid decision, so every
+  // other device's pane stays sized for a viewer nobody is looking at, and
+  // its subscription keeps the pane's pump running with no reader. Leave a
+  // mark instead; the attach checks it the instant it has somewhere to look.
+  if (ws.data && !ws.data.viewerId) ws.data.detachedEarly = true;
   const subshellId = ws.data?.subshellId;
   const viewers = subshellId ? liveViewers.get(subshellId) : undefined;
   // Keyed by viewerId, NOT by socket identity: Elysia hands `close` a

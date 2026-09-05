@@ -155,6 +155,10 @@ export async function attachRemoteSubshellWs(
     cleanup,
   };
   Object.assign(ws.data, data);
+  // The browser left while the node registry was being consulted — see the
+  // local twin: its close found nothing to undo, so registering now would
+  // strand a viewer that can never be removed.
+  if (ws.data.detachedEarly) return;
   // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
   // not exist until the context object carries it.
   registerViewer(ws, row.id);

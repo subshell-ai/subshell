@@ -14,7 +14,14 @@ import { resolveResult } from "@/services/nodes/node-rpc.js";
 import { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { readSubshellLogTail } from "@/services/subshell-manager.service.js";
 import { attachRemoteSubshellWs, type RemoteAttachRow } from "@/ws/remote-subshell-ws.js";
-import { cleanupSubshellWs, handleSubshellMessage, resetLiveViewersForTests, type WsSocket } from "@/ws/subshell-ws.js";
+import {
+  cleanupSubshellWs,
+  handleSubshellMessage,
+  paneStreams,
+  resetLiveViewersForTests,
+  sharedGridFor,
+  type WsSocket,
+} from "@/ws/subshell-ws.js";
 
 /**
  * Task 11 — the live-terminal relay for agent-node rows (spec 2026-08-31
@@ -559,6 +566,29 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
 
     cleanupSubshellWs(phone.ws);
     cleanupSubshellWs(laptop.ws);
+  });
+
+  it("a close DURING the attach leaves no ghost viewer and no running pump", async () => {
+    // The local twin carries the full reasoning: the attach is fired
+    // unawaited and reaches `Object.assign(ws.data, data)` only after the
+    // node registry and a liveness probe, so a close in that window finds
+    // nothing to undo. Registering afterwards strands a viewer that can never
+    // be removed — permanently holding a place in the shared-grid decision
+    // and keeping the pane's pump running with no reader.
+    const sim = makeNodeSim();
+    scriptHappy(sim);
+    const { ws } = fakeBrowser();
+
+    const attaching = attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", {
+      cols: 40,
+      rows: 12,
+    });
+    cleanupSubshellWs(ws); // browser gone before the attach assigned anything
+    await attaching;
+
+    expect(sharedGridFor(SID)).toBeNull();
+    expect(paneStreams.viewerCount(SID)).toBe(0);
+    expect(sim.cmdTypes()).not.toContain("tail_start");
   });
 
   it("runs ONE tail for the pane however many browsers watch it", async () => {

@@ -12,7 +12,9 @@ import {
   cleanupSubshellWs,
   handleSubshellMessage,
   handleSubshellWs,
+  paneStreams,
   resetLiveViewersForTests,
+  sharedGridFor,
   type WsSocket,
 } from "@/ws/subshell-ws.js";
 import { issueWsToken } from "@/ws/ws-token.js";
@@ -269,6 +271,40 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     expect(latest?.viewers).toHaveLength(1);
 
     cleanupSubshellWs(tall.ws);
+  });
+
+  it("a close that lands DURING the attach leaves no ghost viewer and no running pump", async () => {
+    // `open` fires `void handleSubshellWs(...)` unawaited and `close` calls
+    // `cleanupSubshellWs` regardless of how far the attach has got. Everything
+    // the cleanup needs — `viewerId`, `cleanup` — only exists after
+    // `Object.assign(ws.data, data)`, and the attach awaits an access lookup
+    // and a tmux probe before reaching it. A close in that window found an
+    // empty `ws.data`, deleted nothing, and disarmed nothing; the attach then
+    // carried on and registered a viewer for a socket that was already gone
+    // and would never fire `close` again.
+    //
+    // Under the old one-viewer rule the next attach evicted that ghost. Now
+    // it is permanent: it holds a place in the shared-grid decision, so every
+    // other device's pane stays sized for a viewer nobody is looking at, and
+    // its subscription keeps the pane's pump running with no reader.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const fake = fakeBrowser();
+    attached.push(fake);
+    // A capacity on the URL, so a ghost would actually DECIDE something: this
+    // is the damage, not the map entry.
+    const url = new URL(
+      `ws://localhost/ws/subshell?subshell=${row.id}&token=${issueWsToken(row.userId)}&cols=40&rows=12`,
+    );
+    const attaching = handleSubshellWs(fake.ws, url);
+    // Mid-flight, before the attach can have assigned ws.data.
+    cleanupSubshellWs(fake.ws);
+    await attaching;
+
+    expect(sharedGridFor(row.id)).toBeNull(); // no ghost in the sizing decision
+    expect(paneStreams.viewerCount(row.id)).toBe(0); // and no pump left running
   });
 
   it("nudges around the SHARED fit, never the joiner's own size", async () => {
