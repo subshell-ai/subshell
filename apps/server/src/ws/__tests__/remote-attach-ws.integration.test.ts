@@ -14,7 +14,8 @@ import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-e
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { attachScriptedNode, ok, probeAllAlive, type ScriptedNode } from "@/test-helpers/scripted-node.js";
-import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs, type WsSocket } from "@/ws/subshell-ws.js";
+import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
+import type { WsSocket } from "@/ws/viewers.js";
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**

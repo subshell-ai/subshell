@@ -1,13 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import {
-  handleSubshellMessage,
-  parseClientBuild,
-  registerViewer,
-  resetGeometryQueueForTests,
-  resetLiveViewersForTests,
-  type WsSocket,
-} from "@/ws/subshell-ws.js";
+import { parseClientBuild } from "@/ws/attach-params.js";
+import { handleSubshellMessage } from "@/ws/subshell-ws.js";
+import { registerViewer, resetGeometryQueueForTests, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
 
 // stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
 // pinned there by __tests__/sync-stripper.test.ts.
