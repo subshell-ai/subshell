@@ -1,5 +1,51 @@
 # @internal/client
 
+## 0.3.1
+
+### Patch Changes
+
+- [`87e58d0`](https://github.com/subshell-ai/subshell/commit/87e58d02709ed79ea4e87504b31d9a95f4a9aa25) Thanks [@theogravity](https://github.com/theogravity)! - Move the agent's logging onto LogLayer, matching the server.
+  
+  `src/log.ts` was the last hand-rolled logger in the repo — a bare `console.log`
+  with a manual timestamp. It is now LogLayer with the core `ConsoleTransport`,
+  both of which ship inside the `loglayer` package, so the compiled agent binary
+  gains no third-party dependency.
+  
+  Output is byte-identical: `[subshell <ISO>] <message>`, still on stdout. What
+  changes is what the agent CAN now do — levels, `withError()`, `withMetadata()`,
+  and a swappable transport — none of which the previous logger allowed.
+  
+  Errors are flattened to plain strings by a four-line `errorSerializer`, because
+  handing Bun's console a raw `Error` inside a `--compile --bytecode` binary
+  prints the entire minified bundle as source context (~25 KB per call).
+
+- [`a0b4377`](https://github.com/subshell-ai/subshell/commit/a0b4377301afcde5bd6d97492cf5cda75dc59c1b) Thanks [@theogravity](https://github.com/theogravity)! - Make the running version answerable everywhere it is asked.
+  
+  - `subshell --version` / `-v` now work. They alias the `version` subcommand,
+    but only in the command slot: argv[0] IS the command in this parser, so
+    `subshell status --version` remains an unknown flag, because it is a typo
+    rather than a request for the version.
+  - The server LOGS its version as the first line of boot, before anything can
+    fail. After a restart, which build came up decides how to read every line
+    beneath it — and the service manager restarts whatever binary sits at the
+    unit's ExecStart path, which is not always the one you assume.
+  - `subshell-server status` opens with the same `subshell-server <version>`
+    line the `version` subcommand prints. "Which build is this host running?"
+    is the question that decides whether the rest of the output is even
+    relevant, and status could not answer it.
+  - `GET /api/meta/status` reported a hardcoded `appVersion: "1.0.0"` while the
+    server was at 1.5.0. It now derives from `SERVER_VERSION`, with a test that
+    compares the two so the drift cannot recur.
+  - `GET /api/settings/public` gains `serverVersion`, and Preferences gains an
+    About section showing it beside the bundle build id. The two version
+    independently, and a bug report needs the pair.
+  
+  No `--version` flag on `subshell-server`: a leading `-` there is the boot path
+  by contract (svc.sh and systemd pass flags, never subcommand words), so the
+  flag would have to carve an exception out of the one rule that keeps the
+  service deployment byte-identical. `subshell-server version` and now `status`
+  both answer instead.
+
 ## 0.3.0
 
 ### Minor Changes
