@@ -125,6 +125,26 @@ Step 1 before step 3 is the join-point rule as a subscription. It also means a
 refusal AFTER the subscription must tear it down explicitly, or a tail keeps
 running for a viewer that was never admitted.
 
+**The `geometry` frame is confirmed where it can be and asserted where it
+cannot.** `NodeLauncher.reportsPaneSize` says which: tmux answers, so a null
+read there means the pane DIED and nothing is announced; a node pane can never
+be measured (the agent protocol has no size command — the same bill
+`signalPaneWinch` is waiting on), so the size the pane was ASKED for is
+announced instead. Silence used to be right for node panes and stopped being
+right when eviction went: with several viewers the pane is the MINIMUM, so a
+client left to size itself renders more rows than the pane holds, and a client
+taller than its pane does not scroll when the pane does — putting every later
+relative-positioned frame a row out, which is the exact corruption this whole
+subsystem exists to prevent. An unconfirmed number every viewer shares beats a
+confirmed disagreement.
+
+**Still degraded on node panes:** the announced size is what tmux was asked
+for, not what it took. If it clamps the request, every viewer of that pane
+pins to a grid the pane does not have — the same for all of them, so they at
+least agree with each other. The real fix is a `pane_size` command in the
+agent protocol, at which point `RemoteLauncher.reportsPaneSize` flips to true
+and the fallback stops being reachable there.
+
 Anything a client must not lose in the attach race rides the **connect URL**,
 not a first frame: `handleSubshellMessage` drops frames that arrive before
 `ws.data` is assigned, and the client's `onopen` regularly wins that race

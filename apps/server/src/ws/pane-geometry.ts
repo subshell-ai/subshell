@@ -28,6 +28,15 @@ export interface PaneSizer {
   apply(cols: number, rows: number): Promise<void>;
   /** Reads the pane's REAL grid back, or null when it cannot be read. */
   read(): Promise<{ cols: number; rows: number } | null>;
+  /**
+   * Whether {@link read} can EVER answer for this pane.
+   *
+   * False disambiguates the null: "this machine has no way to measure a pane"
+   * rather than "this pane just died". The first still needs an announcement
+   * (see `run`); the second must stay silent, because a pane that has gone is
+   * about to take its socket with it.
+   */
+  confirms: boolean;
 }
 
 /** A terminal grid size. */
@@ -41,9 +50,14 @@ export interface PaneGeometry {
 /** Callbacks a {@link createGeometryQueue} owner supplies. */
 export interface GeometryQueueOptions {
   /**
-   * The pane's confirmed size, after a successful apply + readback. Called
-   * once per settled burst — not once per coalesced request — and never with
-   * an unreadable size.
+   * The pane's size after a successful apply: the value read back when the
+   * launcher can read it, else the value applied. Called once per settled
+   * burst, not once per coalesced request.
+   *
+   * Either way this is a STATEMENT, never a request — the client pins its
+   * grid to it and does not answer, which is what keeps the loop closed. See
+   * the note in `run` for why an unreadable pane now reports the applied size
+   * instead of staying silent.
    */
   onGeometry(key: string, size: PaneGeometry): void;
   /** A failed apply or readback. The queue stays usable either way. */
@@ -130,9 +144,30 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
       await sizer.apply(size.cols, size.rows);
       entry.applied = size;
       const real = await sizer.read();
-      // A dead pane reads as null; reporting 0x0 would tell every viewer to
-      // paint into nothing.
+      // Confirmed where it can be, else what the pane was ASKED for — but
+      // only where a readback was never possible in the first place. A
+      // measurable pane that answers null has DIED, and announcing a size for
+      // it would tell viewers to lay out a pane that is about to disappear.
+      //
+      // Announcing nothing was safe only while a pane had one viewer: that
+      // viewer rendered its own grid, which is the grid the pane had just
+      // been given, so client and pane agreed by construction. With several
+      // viewers the pane takes the MINIMUM, so every larger client is
+      // guaranteed to render more rows than the pane holds — and a client
+      // taller than its pane does not scroll when the pane does, which puts
+      // every later relative-positioned frame a row out. That is precisely
+      // the corruption this module exists to prevent, so silence is now the
+      // more dangerous answer.
+      //
+      // This costs nothing where a readback exists (tmux on the control-plane
+      // host always answers). Where it does not — a pane on an agent node,
+      // whose protocol has no size command yet — the applied size is a better
+      // number than the client's own: the client's is certain to be wrong the
+      // moment anyone smaller attaches, while this one is wrong only if tmux
+      // clamped the request. And with ONE viewer the two are the same number,
+      // so that path is unchanged.
       if (real) options.onGeometry(key, real);
+      else if (!sizer.confirms) options.onGeometry(key, size);
     } catch (err) {
       options.onError?.(err, key);
     } finally {

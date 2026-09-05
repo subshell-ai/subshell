@@ -256,6 +256,8 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // instead of leaving the user to do it by hand with a window resize.
   let repainted = false;
   let nudged = false;
+  /** The grid this attach actually asked the pane for, for the announcement below. */
+  let appliedFit: PaneGeometry | null = null;
   if (initialSize) {
     const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
@@ -264,6 +266,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       // watching must shrink the pane for both, so the capture below matches
       // the grid both of them will render.
       const fit = sharedGridFor(row.id) ?? initialSize;
+      appliedFit = fit;
       await launcher.resize(row.tmuxSocket, row.id, fit.cols, fit.rows);
       // Tell the queue: this fit bypassed it, and a client frame asking for
       // the same size must not then be swallowed as already-applied.
@@ -323,7 +326,17 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // sat at 52 forever, which is exactly the client/pane disagreement that
   // corrupts a relative-positioned redraw. The joiner is already registered,
   // so this reaches it too, still before its replay.
-  const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
+  // Confirmed where it can be, else the fit this attach applied — the queue's
+  // rule, and the same reasoning (see `pane-geometry.ts`): with several
+  // viewers the pane is the MINIMUM, so a client left to its own grid renders
+  // more rows than the pane holds and stops scrolling in step with it.
+  //
+  // The fallback is only for a machine that can never measure. On one that
+  // can, a null read means the pane has died, and a dying pane gets no
+  // announcement. `appliedFit` is null when this attach carried no size at
+  // all, and then there is genuinely nothing to announce either.
+  const readBack = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
+  const attachGeometry = readBack ?? (launcher.reportsPaneSize ? null : appliedFit);
   if (attachGeometry) {
     broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }
@@ -911,7 +924,7 @@ export function resetGeometryQueueForTests(ids: string[]): void {
  * @param subshellId - Subshell whose viewers to notify
  * @param frame - The server frame to send, serialized once for all of them
  */
-function broadcastToViewers(subshellId: string, frame: object): void {
+export function broadcastToViewers(subshellId: string, frame: object): void {
   const viewers = liveViewers.get(subshellId);
   if (!viewers) return;
   const payload = JSON.stringify(frame);
@@ -1046,6 +1059,7 @@ export function requestPaneResize(
   geometryQueue.request(subshellId, cols, rows, {
     apply: (c, r) => launcher.resize(socket, subshellId, c, r),
     read: () => launcher.paneSize(socket, subshellId),
+    confirms: launcher.reportsPaneSize,
   });
 }
 
