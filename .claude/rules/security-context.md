@@ -1,5 +1,11 @@
 # Security Context
 
+> **The authoritative threat model is [`docs/security.md`](../../docs/security.md).**
+> This file is the working summary that loads into an agent's context: the rules
+> to code by, and the decisions not to "fix". When the two disagree,
+> `docs/security.md` is right and this file is stale — say so rather than
+> reconciling silently.
+
 This is a **local / trusted-network service** designed to run on a developer's machine or
 within a trusted local network (VPN, WireGuard, Tailscale, SSH tunnel). It is not
 internet-grade.
@@ -205,13 +211,10 @@ enforces the origin check strictly — this is where a mismatched origin shows u
 
 ## When This Changes
 
-If this service is ever deployed to a shared or public environment:
-
-- Serve over HTTPS only; set `secure` cookies, a real `BETTER_AUTH_SECRET`, and strict
-  `TRUSTED_ORIGINS`.
-- Proper CORS origin validation and rate limiting on all routes.
-- Input length validation and pagination for every list endpoint.
-- Rotate/review **system API keys** via Settings — they are long-lived bearer-equals-full
-  credentials; every holder is effectively an operator.
-- Re-examine the E2EE threat model: it does not protect metadata or a host-compromising
-  local user (see above).
+If this service is ever deployed to a shared or public environment, work through
+the full checklist in [`docs/security.md` §12](../../docs/security.md#12-hardening-checklist-for-a-wider-deployment).
+The headlines: HTTPS only with `secure` cookies and a real `BETTER_AUTH_SECRET`;
+proper CORS origin validation and rate limiting on all routes; input length
+validation and pagination on every list endpoint; set `SUBSHELL_FS_ROOT`; rotate
+and review system API keys; and re-examine the E2EE threat model, which protects
+neither metadata nor a host-compromising local user.
