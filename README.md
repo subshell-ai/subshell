@@ -198,23 +198,55 @@ docker compose up -d         # http://localhost:3080
 
 ### Host service (no Docker)
 
-`svc.sh` (repo root) runs subshell as a systemd **user** service at boot — the
-panes then get native host tools instead of the image's package set. No sudo
-is involved; the one-time `sudo loginctl enable-linger $USER` (so user
-services start without a login) is checked for you.
+Run the control plane as a systemd **user** service (or a launchd agent on
+macOS) so it starts at boot — the panes then get native host tools instead of a
+container's package set. No sudo is involved; on Linux the one-time
+`sudo loginctl enable-linger $USER` keeps user services running without a login,
+and the installer prints the hint.
+
+From a release binary — the usual case, and the one that needs no checkout:
 
 ```bash
-turbo build            # fresh dist artifacts (prerequisite of install)
-./svc.sh install       # generate ~/.config/systemd/user/subshell-server.service + enable
-./svc.sh start         # stop / restart / status / uninstall also exist
+subshell-server init              # config home (0700), auth secret, port/host/db
+subshell-server service install   # write + enable the unit / agent
+subshell-server status            # what this host would boot with
 ```
 
-The service reads the same `.env` and the same data dir (`~/.config/subshell-server`) as
-the Docker deployment — switching over is just `docker compose down`, then
-install + start (guard the container against resurrection with a
-`restart: "no"` override if you keep the compose files around). `:3080` must
-be free, and `.env` must contain no double quotes (systemd `EnvironmentFile`
-keeps them literally).
+From a checkout, the same CLI is the entry point — `src/index.ts` is both the
+boot entry and the CLI, and the generated unit records the interpreter plus the
+resolved script path:
+
+```bash
+bunx turbo build
+bun apps/server/src/index.ts init
+bun apps/server/src/index.ts service install
+```
+
+Ordinary `systemctl --user start|stop|restart|status subshell-server.service`
+drives it from there (`launchctl kickstart -k gui/$(id -u)/dev.subshell.server`
+on macOS).
+
+Configuration lives in `~/.config/subshell-server/config.env` (0600), which the
+unit loads as its `EnvironmentFile` — the binary's own loader reads the same
+file, so the two cannot disagree. `:3080` must be free.
+
+> **Upgrading from `svc.sh`.** Earlier versions shipped a `svc.sh` script that
+> wrote the *same* unit name from the repo's `.env` instead. It has been
+> removed: two installers owning one unit path from two different config
+> sources is a footgun, and the CLI covers the from-a-checkout case it existed
+> for. To cut over, move the values from the repo `.env` into `config.env`
+> (`init` adopts an existing `BETTER_AUTH_SECRET`; carry across anything beyond
+> the four keys `configure` owns), then reinstall:
+>
+> ```bash
+> systemctl --user disable --now subshell-server.service
+> rm ~/.config/systemd/user/subshell-server.service
+> bun apps/server/src/index.ts init && bun apps/server/src/index.ts service install
+> ```
+>
+> Both installers write `KillMode=process`, so a restart does not take live
+> panes down with it — verify with
+> `systemctl --user show subshell-server.service -p KillMode`.
 
 ## Configuration
 

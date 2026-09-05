@@ -278,8 +278,11 @@ in the schema but only populated once request-scoped logging attaches it.
 `src/index.ts` is BOTH the boot entry and the `subshell-server` CLI entry:
 `bun build --compile` of it yields a self-contained binary — no bun, no repo
 checkout on the host, and the built SPA **embedded** (see below). The boot
-contract is untouched: no subcommand, or a leading flag, IS the boot path,
-so the svc.sh/systemd deployment behaves byte-identically (spec 2026-09-03).
+contract is untouched: no subcommand, or a leading flag, IS the boot path, so
+a systemd unit whose `ExecStart` names the binary (or `bun <entry>`) with no
+subcommand boots the server exactly as before (spec 2026-09-03). That form
+predates the CLI — it is what the removed `svc.sh` wrote — and the tests pin
+it, so never make a bare invocation mean anything else.
 
 ### Subcommands (hand-rolled dispatch in `src/cli.ts`, no flag library)
 
@@ -366,8 +369,10 @@ in the user's own terminal) and CONTINUES the command on success — no rerun.
 to the plain refusal, byte-identical to before (CI never gets asked).
 
 `service install` (`src/service.ts`) writes `subshell-server.service` under
-`~/.config/systemd/user/` — **the same unit name `svc.sh` writes; one owner
-per host**, so pick one and uninstall the other — with `WorkingDirectory=` and
+`~/.config/systemd/user/` — **one owner per host**: the retired `svc.sh` wrote
+this same path from the repo's `.env`, so a host upgrading from it must
+uninstall that unit before installing this one (README, "Host service") — with
+`WorkingDirectory=` and
 `EnvironmentFile=` pointed at the config home (systemd and the binary's own
 loader read the same file, so they cannot disagree), the installing shell's
 PATH baked (a Homebrew/Nix tmux would vanish under the manager's stock
@@ -400,7 +405,8 @@ companion-binary era that made a separate tiny entry necessary is retired.)
 ### Embedded SPA + release dance
 
 `selectStaticPlugin` picks the static source at boot: an on-disk frontend
-dist wins (dev + svc.sh stay byte-identical), else the SPA baked into the
+dist wins (so a dev run and a checkout-based service behave identically),
+else the SPA baked into the
 binary by `scripts/embed-web.ts` (`src/generated/embedded-web.ts` — a
 TRACKED stub keeps the unconditional import legal on a fresh clone;
 embedded responses carry a strong `ETag`, the tell of memory mode), else

@@ -26,7 +26,6 @@ subshell/
 ├── brand/                          # Wordmark/palette masters + generators (`bun run brand:generate`)
 ├── docker/                         # Dockerfile support files (gitconfig.example, ssh-config)
 ├── scripts/                        # Release + smoke scripts (macOS signing/notarization, entitlements)
-├── svc.sh                          # systemd user-service installer for a checkout-based deployment
 ├── turbo.json                      # Turbo task configuration
 ├── package.json                    # Root workspace definition
 ├── biome.json                      # Linting and formatting
