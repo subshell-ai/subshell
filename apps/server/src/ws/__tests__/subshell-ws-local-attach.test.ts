@@ -7,16 +7,9 @@ import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
 const defaultLocalLauncher = getDefaultLocalLauncher();
 
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import {
-  attachUrlFromQuery,
-  cleanupSubshellWs,
-  handleSubshellMessage,
-  handleSubshellWs,
-  paneStreams,
-  resetLiveViewersForTests,
-  sharedGridFor,
-  type WsSocket,
-} from "@/ws/subshell-ws.js";
+import { attachUrlFromQuery } from "@/ws/attach-params.js";
+import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
+import { paneStreams, resetLiveViewersForTests, sharedGridFor, type WsSocket } from "@/ws/viewers.js";
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**

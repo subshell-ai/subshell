@@ -1,11 +1,13 @@
 import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
+import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
+import type { ViewersState } from "@/lib/use-subshell-ws";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */
@@ -71,6 +73,14 @@ export function SubshellPane({
   const coarse = useIsCoarsePointer();
   const handlesRef = useRef<SubshellTerminalHandles | null>(null);
   const [connected, setConnected] = useState(false);
+  /**
+   * Who else is watching this pane's subshell. A pane is exactly where the
+   * question bites — the terminal is already small, so "is this the layout or
+   * is a phone holding it down?" has no other answer — and dockview owns the
+   * tab strip, so the control rides the pane's own corner instead of a
+   * header. It renders itself away below two devices, which is almost always.
+   */
+  const [viewers, setViewers] = useState<ViewersState | null>(null);
   const handleReady = useCallback(
     (handles: SubshellTerminalHandles) => {
       handlesRef.current = handles;
@@ -81,6 +91,7 @@ export function SubshellPane({
   const handleDispose = useCallback(() => {
     handlesRef.current = null;
     setConnected(false);
+    setViewers(null);
     onDispose?.();
   }, [onDispose]);
 
@@ -153,11 +164,37 @@ export function SubshellPane({
       onReady={handleReady}
       onDispose={handleDispose}
       onStatusChange={(status) => setConnected(status.connected)}
+      onViewers={setViewers}
     />
   );
 
+  /**
+   * The Devices control, floated over the pane's top-right corner.
+   *
+   * An overlay rather than chrome because dockview owns this panel's frame
+   * and tab, and a row of our own would cost every pane vertical space for a
+   * control that is absent whenever one device is attached — which is the
+   * normal case. `pointer-events-none` on the wrapper keeps the terminal
+   * clickable through the empty area around the button.
+   */
+  const devices = (
+    // Inset past xterm's scrollbar track (14px, `scrollbarReserve`): the
+    // overlay is only present with two devices attached, but while it is, a
+    // button sitting on the track would eat drags meant for the scrollbar.
+    <div className="pointer-events-none absolute top-1 right-4 z-10">
+      <div className="pointer-events-auto rounded-md bg-terminal-strip/85 backdrop-blur-sm">
+        <SubshellDevices state={viewers} onSizing={(mode, viewerId) => handlesRef.current?.setSizing(mode, viewerId)} />
+      </div>
+    </div>
+  );
+
   if (!showKeyBar || !coarse) {
-    return <div className="h-full w-full bg-terminal-strip">{terminal}</div>;
+    return (
+      <div className="relative h-full w-full bg-terminal-strip">
+        {terminal}
+        {devices}
+      </div>
+    );
   }
   // The active pane's touch chrome: the terminal keeps the space the bar
   // takes (its ResizeObserver refits), and the bar sits under THIS pane —
@@ -165,7 +202,10 @@ export function SubshellPane({
   // attaches; the scroll jumps drive the local scrollback and never do.
   return (
     <div className="flex h-full w-full flex-col bg-terminal-strip">
-      <div className="min-h-0 flex-1">{terminal}</div>
+      <div className="relative min-h-0 flex-1">
+        {terminal}
+        {devices}
+      </div>
       <TerminalKeyBar
         disabled={!connected}
         onBytes={(bytes) => handlesRef.current?.sendInput(bytes)}

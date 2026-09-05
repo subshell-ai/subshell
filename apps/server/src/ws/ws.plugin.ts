@@ -8,7 +8,9 @@ import {
   type NodeWsSocket,
 } from "@/services/nodes/node-ws-handler.js";
 import { logger } from "@/utils/logger.js";
-import { attachUrlFromQuery, cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
+import { attachUrlFromQuery } from "@/ws/attach-params.js";
+import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
+import type { WsSocket } from "@/ws/viewers.js";
 
 /**
  * WebSocket attach endpoint at /ws.
@@ -96,5 +98,3 @@ wsPlugin.ws("/ws/node", {
     });
   },
 });
-
-import type { WsSocket } from "@/ws/subshell-ws.js";

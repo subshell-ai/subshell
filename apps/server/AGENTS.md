@@ -152,6 +152,20 @@ against the handler's own awaits. Capacity survived it only because clients
 re-send it; `&hidden=` was added for the same reason (`visibility` is sent once
 and then only on change).
 
+Those inputs are parsed ONCE into an `AttachParams` (`ws/attach-params.ts`)
+that both attach paths take whole. They used to travel as separate positional
+arguments, and a run of live-only bugs all had the same shape — one channel
+not carrying one input, with nothing in the types to say so. A struct makes
+the next omission a compile error.
+
+**The `ws/` split:** `subshell-ws.ts` is the local attach plus the plugin's
+three entry points; `viewers.ts` owns who is watching and what that means for
+the pane (registry, sizing policy, pump registry, resize queue);
+`pane-repaint.ts` makes a pane repaint and reads it back; `attach-params.ts`
+reads the URL. Both attach paths import those three, which is what dissolved
+the old `subshell-ws` ↔ `remote-subshell-ws` cycle — the relay no longer
+reaches into the local attach handler for shared machinery.
+
 ### Terminal attach diagnostics
 
 A garbled live terminal is diagnosed from the journal first — two lines per

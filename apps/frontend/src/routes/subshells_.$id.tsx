@@ -227,9 +227,7 @@ function SubshellPage() {
                     only device attached. */}
                 <SubshellDevices
                   state={viewers}
-                  onSizing={
-                    subshell?.access === "view" ? undefined : (mode, viewerId) => setSizingRef.current?.(mode, viewerId)
-                  }
+                  onSizing={(mode, viewerId) => setSizingRef.current?.(mode, viewerId)}
                 />
                 {subshell && (
                   <SubshellActionsMenu

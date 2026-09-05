@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { DeviceNameCard } from "@/components/device-name-card";
 import { NotificationsCard } from "@/components/notifications-card";
 import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
@@ -49,6 +50,7 @@ function PreferencesPage() {
       <Section id="prefs-device" label="This device">
         <div className="space-y-6">
           <TerminalFontCard />
+          <DeviceNameCard />
           <SwipeNavCard />
         </div>
         {/* Bundle stamp: on-device bug reports are only trustworthy when the

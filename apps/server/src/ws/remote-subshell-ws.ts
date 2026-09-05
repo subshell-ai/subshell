@@ -5,25 +5,23 @@ import { getLive } from "@/services/nodes/node-registry.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
+import type { AttachParams } from "@/ws/attach-params.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
+import { captureStable, nudgePaneForRepaint, RESIZE_SETTLE_MS, waitForPaneRepaint } from "@/ws/pane-repaint.js";
 import { createRemoteTailSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import {
   applySharedGeometry,
   broadcastToViewers,
   broadcastViewers,
-  captureStable,
-  nudgePaneForRepaint,
   paneStreams,
   persistOutputFor,
-  RESIZE_SETTLE_MS,
   registerViewer,
   seedPaneGeometry,
   sharedGridFor,
   type WsData,
   type WsSocket,
-  waitForPaneRepaint,
-} from "@/ws/subshell-ws.js";
+} from "@/ws/viewers.js";
 
 /**
  * Live-terminal relay for subshells running on an agent node (spec
@@ -47,10 +45,10 @@ import {
  * `handleSubshellMessage`/`cleanupSubshellWs` — attach sets `ws.data` to the
  * same {@link WsData} shape the local path builds.
  *
- * Cycle note: imports `subshell-ws.ts` and is imported by it — both directions
- * consume the other's exports (hoisted functions, types, and the
- * `RESIZE_SETTLE_MS` value) only at call time, by which point both modules
- * have evaluated, so evaluation order never deadlocks.
+ * No longer part of an import cycle: everything both attach paths share
+ * lives in `ws/viewers.ts` (the registry, sizing and pump), `ws/pane-repaint.ts`
+ * and `ws/attach-params.ts`, so this module reaches for those directly instead
+ * of into the local attach handler.
  */
 
 /** The row fields the relay consumes (`SubshellTable` subset). */
@@ -74,14 +72,6 @@ type RawWithBackpressure = { getBufferedAmount?: () => number };
 
 /** Browser queue depth above which the client is dropped (spec §3.4: a lagging browser reconnects and replays). */
 const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
-
-/** The client's fitted terminal size from the attach URL (see `subshell-ws.ts`). */
-export interface AttachSize {
-  /** Column count the browser terminal rendered at */
-  cols: number;
-  /** Row count the browser terminal rendered at */
-  rows: number;
-}
 
 /**
  * Attaches a browser socket to a subshell living on an agent node.
@@ -113,20 +103,18 @@ export async function attachRemoteSubshellWs(
   row: RemoteAttachRow,
   launcher: RemoteLauncher,
   access: Access,
-  size?: AttachSize | null,
-  /** Device label from the connect URL; the remote path never sees the URL. */
-  deviceLabel = "Unnamed device",
   /**
-   * Whether the client declared itself not-being-rendered on the connect URL.
+   * Everything the client declared on the connect URL, as ONE value.
    *
-   * Same reason the local twin reads it there: the on-open `visibility` frame
-   * races this handler's awaits and is DROPPED when it wins, and unlike a
-   * resize nothing re-sends it until the tab is shown. Without it a phone
-   * attached to a node subshell while already backgrounded holds every
-   * laptop's pane at phone size for the socket's whole life.
+   * The relay never sees the URL itself, and taking these one positional
+   * argument at a time is exactly how `hidden` came to be missing here while
+   * the local twin had it — a phone attached to a node subshell while
+   * backgrounded then counted as a visible viewer for its whole life. A
+   * struct makes the next omission a type error instead.
    */
-  hidden = false,
+  params: AttachParams,
 ): Promise<void> {
+  const { size, deviceLabel, hidden } = params;
   if (!getLive(row.nodeId)) {
     ws.close(4004, "node offline");
     return;

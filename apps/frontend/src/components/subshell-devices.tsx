@@ -17,9 +17,13 @@ export interface SubshellDevicesProps {
   /** The latest `viewers` frame, or null while the socket is down. */
   state: ViewersState | null;
   /**
-   * Applies a sizing choice (the terminal's `setSizing` handle). Absent for a
-   * `view` grantee, who may look at the list but not change what everyone
-   * sees — the server refuses it either way; this keeps the UI honest.
+   * Applies a sizing choice (the terminal's `setSizing` handle).
+   *
+   * Whether this viewer MAY is not asked of the caller: the presence frame
+   * already says, in `canInput` on this client's own entry, and that is the
+   * same fact the server enforces. Deriving it here means a surface that has
+   * no access field to hand — a workspace pane — cannot get the answer wrong,
+   * and no caller can disagree with the server about it.
    */
   onSizing?: (mode: "auto" | "pinned", viewerId?: string | null) => void;
 }
@@ -41,6 +45,16 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
   if (!state || state.viewers.length < 2) return null;
   const { rows, grid, settled } = describeDevices(state);
   const pinnedId = state.sizing.mode === "pinned" ? state.sizing.pinnedViewerId : null;
+  // Sizing changes what everyone sees, so it is an `edit` act like typing. A
+  // `view` grantee gets the list and inert rows; the server refuses the frame
+  // either way, and this keeps the buttons honest about it.
+  //
+  // Reads `=== true`, so an entry that is missing or says nothing leaves the
+  // control INERT. The server is the authority and would refuse the frame
+  // regardless, so either direction is safe — but a control that quietly does
+  // nothing is a better failure than one that looks disabled for an owner.
+  const me = state.viewers.find((v) => v.id === state.you);
+  const mayResize = me?.canInput === true ? onSizing : undefined;
 
   return (
     <DropdownMenu>
@@ -78,8 +92,8 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
               // Clicking a device pins the pane to it; clicking the pinned one
               // again releases it. Without a way back, pinning would be a
               // one-way door out of the default.
-              onSelect={onSizing ? () => onSizing(isPinned ? "auto" : "pinned", viewer.id) : undefined}
-              disabled={!onSizing}
+              onSelect={mayResize ? () => mayResize(isPinned ? "auto" : "pinned", viewer.id) : undefined}
+              disabled={!mayResize}
               className="flex-col items-start gap-0.5"
             >
               <span className="flex w-full items-center gap-2">
@@ -95,10 +109,10 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
             </DropdownMenuItem>
           );
         })}
-        {onSizing && pinnedId && (
+        {mayResize && pinnedId && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => onSizing("auto", null)}>
+            <DropdownMenuItem onSelect={() => mayResize("auto", null)}>
               <Check className="h-3 w-3" /> Back to automatic
             </DropdownMenuItem>
           </>
