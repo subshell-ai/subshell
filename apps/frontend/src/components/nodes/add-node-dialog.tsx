@@ -1,3 +1,4 @@
+import { NODE_TARGETS } from "@internal/subshell-protocol";
 import { useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Button } from "@/components/ui/button";
@@ -104,6 +105,14 @@ export function AddNodeDialog({
   // ?setup_key= (downloads route); origin is the pre-load fallback.
   const baseUrl = publicSettings?.appBaseUrl ?? window.location.origin;
   const installCommand = created ? `curl -fsSL "${baseUrl}/install.sh?setup_key=${created.key}" | bash` : "";
+  // The dialog cannot know the NEW machine's platform, so it judges the
+  // one-liner by what the server can serve: a target missing from
+  // nodeArtifactTargets 404s the download on that machine (the fresh
+  // binary-only-install bug — an empty artifacts dir until release:client
+  // runs). `undefined` = a server predating the field → stay silent.
+  const targets = publicSettings?.nodeArtifactTargets;
+  const missingTargets = targets ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
+  const enrollCommand = created ? `subshell enroll --server "${baseUrl}" --key "${created.key}"` : "";
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
@@ -123,6 +132,17 @@ export function AddNodeDialog({
               </Button>
             </div>
             <CopyCommandRow text={installCommand} />
+            {missingTargets.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-amber-600 text-xs dark:text-amber-400">
+                  This server has no agent binary published for: {missingTargets.join(", ")} — the command above 404s on
+                  those machines. Publish the binaries on the server (run{" "}
+                  <code className="font-mono">bun run release:client</code> from a checkout, or copy the release
+                  binaries into its node-artifacts dir), or install the subshell agent another way and enroll directly:
+                </p>
+                <CopyCommandRow text={enrollCommand} />
+              </div>
+            )}
             {isLoopbackUrl(baseUrl) && (
               <p className="text-amber-600 text-xs dark:text-amber-400">
                 APP_BASE_URL points at loopback ({baseUrl}) — a remote node cannot dial this machine from itself;

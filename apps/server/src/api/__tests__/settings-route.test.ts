@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { nodeArtifactFileName } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
-import { APP_BASE_URL } from "@/constants.js";
+import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -292,6 +295,33 @@ describe("settings routes (admin cookie only)", () => {
     const body = (await res.json()) as { serverVersion: string };
     expect(body.serverVersion).toBe(SERVER_VERSION);
     expect(body.serverVersion).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("GET /public reports nodeArtifactTargets from the artifacts dir (Nodes dialog honesty)", async () => {
+    // The bug this field fixes: a binary-only server install serves install.sh
+    // but its node-artifacts dir is EMPTY, so the one-liner 404s every
+    // machine. The dialog reads this list instead of guessing. Membership is
+    // asserted around a REAL file write, never exact equality — the
+    // downloads-route suite writes fixtures into the same per-process dir,
+    // and the empty-file arm pins artifactStat's published rule (a zero-
+    // length artifact is unpublished, so the list must not claim it).
+    const read = async (): Promise<string[]> => {
+      const res = await app.fetch(authedRequest("/api/settings/public", adminCookie));
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { nodeArtifactTargets: string[] }).nodeArtifactTargets;
+    };
+    mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
+    const path = join(NODE_ARTIFACTS_DIR, nodeArtifactFileName("darwin-x64"));
+    try {
+      rmSync(path, { force: true });
+      expect(await read()).not.toContain("darwin-x64");
+      writeFileSync(path, "");
+      expect(await read()).not.toContain("darwin-x64");
+      writeFileSync(path, "binary-bytes");
+      expect(await read()).toContain("darwin-x64");
+    } finally {
+      rmSync(path, { force: true });
+    }
   });
 
   /**

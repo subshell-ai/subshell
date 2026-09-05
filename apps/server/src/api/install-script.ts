@@ -98,9 +98,21 @@ case "$OS/$ARCH" in
 esac
 
 echo "==> downloading subshell ($TARGET) from $SERVER"
-curl --fail --silent --show-error --location \\
+# A binary-only server install (GitHub release) ships with an EMPTY artifacts
+# dir, so this is the step that 404s there — bare curl(22) said nothing about
+# why or what to do (the bug this guard fixes). The dialog now warns up-front
+# via /settings/public nodeArtifactTargets; this is the backstop.
+if ! curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
-  --output "$DEST"
+  --output "$DEST"; then
+  rm -f "$DEST"
+  echo "subshell: this server has no $TARGET agent binary published." >&2
+  echo "    Publish them on the server host: 'bun run release:client' from a checkout," >&2
+  echo "    or copy the release binaries into its node-artifacts dir. Or install the" >&2
+  echo "    subshell agent for this machine another way and enroll directly:" >&2
+  echo "      subshell enroll --server $SERVER --key $KEY" >&2
+  exit 1
+fi
 
 # Verify the digest BEFORE the file is ever executed. The endpoint answers
 # with the bare 64-hex; sha256sum -c / shasum -a 256 -c both take the

@@ -85,6 +85,18 @@ function artifactStat(target: NodeTarget): Stats | null {
   }
 }
 
+/**
+ * The targets this instance ACTUALLY serves — the same on-disk truth
+ * {@link artifactStat} applies to the download routes, widened to the whole
+ * closed set. Reported by `GET /api/settings/public` so the Nodes dialog
+ * cannot advertise the install one-liner on a server that would only 404 it:
+ * a binary-only server install (GitHub release) ships an EMPTY artifacts dir,
+ * which nothing populates until `release:client` publishes to it.
+ */
+export function publishedNodeTargets(): NodeTarget[] {
+  return NODE_TARGETS.filter((target) => artifactStat(target) !== null);
+}
+
 /** Max entries in {@link shaCache} — FIFO-evicted so mtime churn can't grow it. */
 const SHA_CACHE_MAX = 16;
 /** Computed-sha cache, keyed `${binaryPath}:${binaryMtimeMs}[:${sidecarMtimeMs}]`. */

@@ -28,6 +28,13 @@ export interface PublicSettings {
    * this is never "the subshell version".
    */
   serverVersion: string;
+  /**
+   * Platform triples whose agent binary the server ACTUALLY serves under
+   * `/api/downloads/node/*`. Optional because a cached PWA can outlive its
+   * server: undefined = a server predating the field → the Nodes dialog
+   * stays silent rather than nagging about a field it cannot verify.
+   */
+  nodeArtifactTargets?: string[];
 }
 
 /**
