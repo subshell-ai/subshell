@@ -4,8 +4,10 @@ import { sql } from "kysely";
 import { usersRoutes } from "@/api/users.route.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -35,6 +37,9 @@ describe("admin user management", () => {
   let adminCookie: string;
   let memberCookie: string;
   let systemId: string;
+  /** A REAL, valid bearer key owned by the admin — see the bearer test. */
+  let adminBearerKey: string;
+  const subshellId = `um-sub-${crypto.randomUUID()}`;
 
   const users = new UsersRepository(db);
   const meta = new UserMetaRepository(db);
@@ -51,6 +56,21 @@ describe("admin user management", () => {
     memberId = await mkUser(memberEmail, "user");
     adminCookie = await signIn(adminEmail, pw);
     memberCookie = await signIn(memberEmail, pw);
+
+    // A VALID key, owned by an admin. A bogus string would be 401'd by
+    // authGuard before requireAdmin's cookie-only check ever ran, so it would
+    // assert nothing about the rule that actually matters here: a machine
+    // credential is refused even when its owner IS an admin.
+    await new SubshellsRepository(db).create({
+      id: subshellId,
+      userId: adminId,
+      profileId: "p",
+      harnessId: "claude-code",
+      name: "user-mgmt-test",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    adminBearerKey = await issueSubshellToken(subshellId, adminId);
   });
 
   beforeEach(async () => {
@@ -69,6 +89,7 @@ describe("admin user management", () => {
   });
 
   afterAll(async () => {
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const email of [adminEmail, admin2Email, memberEmail]) await deleteUserByEmailOrId(email);
   });
 
@@ -144,6 +165,34 @@ describe("admin user management", () => {
       }
     });
 
+    it("survives concurrent demotions with exactly one admin left standing", async () => {
+      // The guard's reason for existing. Two admins demoting each other must
+      // not both read "2 admins" and both succeed.
+      //
+      // It holds for a reason worth writing down: `bun:sqlite` is SYNCHRONOUS
+      // and the dialect hands out one shared connection, so the awaits inside
+      // `setRole`'s transaction never actually yield between its SELECT and
+      // its write — the transactions serialize in practice. Measured here
+      // rather than assumed: eight concurrent demotions, repeated, always
+      // leave exactly one admin and never throw. If the dialect ever becomes
+      // truly async or pooled, this test is what will notice.
+      const others = await otherAdminIds(adminId);
+      for (const id of others) await meta.upsert({ userId: id, role: "user" });
+      const ids = [adminId, admin2Id, memberId];
+      try {
+        for (const id of ids) await meta.upsert({ userId: id, role: "admin" });
+        const results = await Promise.allSettled(ids.map((id) => meta.setRole(id, "user")));
+
+        // No throws: a loser must get an orderly refusal, not a 500.
+        expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+        const refused = results.filter((r) => r.status === "fulfilled" && r.value === false);
+        expect(refused).toHaveLength(1);
+        expect(await meta.countAdmins()).toBe(1);
+      } finally {
+        for (const id of others) await meta.upsert({ userId: id, role: "admin" });
+      }
+    });
+
     it("refuses to touch the system service account", async () => {
       const res = await req("PATCH", `/${systemId}/role`, adminCookie, { role: "user" });
       expect(res.status).toBe(400);
@@ -158,9 +207,28 @@ describe("admin user management", () => {
       expect((await req("PATCH", `/${memberId}/role`, null, { role: "admin" })).status).toBe(401);
     });
 
-    it("refuses a bearer key — machine credentials never manage the instance", async () => {
-      const res = await req("PATCH", `/${memberId}/role`, null, { role: "admin" }, "subshell_anything");
-      expect([401, 403]).toContain(res.status);
+    it("refuses an ADMIN'S OWN valid bearer key with 403", async () => {
+      // The invariant: machine credentials cannot manage the instance even
+      // when the human behind them is an admin. Exactly 403 — a 401 would mean
+      // the key was merely unrecognised and the rule went untested.
+      const res = await req("PATCH", `/${memberId}/role`, null, { role: "admin" }, adminBearerKey);
+      expect(res.status).toBe(403);
+      expect(await meta.getRole(memberId)).toBe("user");
+    });
+  });
+
+  describe("create", () => {
+    it("rejects a short password without quoting it back", async () => {
+      // The pre-existing create route carried the same schema-level bound and
+      // therefore the same echo; fixed with it.
+      const rejected = "tiny";
+      const res = await req("POST", "/", adminCookie, {
+        email: `um-new-${crypto.randomUUID()}@subshell.local`,
+        password: rejected,
+        role: "user",
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).not.toContain(rejected);
     });
   });
 
@@ -211,19 +279,32 @@ describe("admin user management", () => {
       );
     });
 
-    it("rejects a password under 8 characters", async () => {
-      // 422 from Elysia's own body validation here; the app's global error
-      // handler renders that as a 400 `INPUT_VALIDATION_ERROR` in production.
-      // Either way it never reaches the handler, which is the point.
-      expect([400, 422]).toContain(
-        (await req("PATCH", `/${memberId}/password`, adminCookie, { password: "short" })).status,
-      );
+    it("rejects a password under 8 characters WITHOUT quoting it back", async () => {
+      // The bound is checked in the handler, not by the schema, for exactly
+      // this reason: Elysia renders a schema failure by putting the offending
+      // VALUE in the message, and the error handler copies that message into
+      // the response body — so a `minLength` here would echo the rejected
+      // password into every proxy log and devtools panel on the way back.
+      const rejected = "sekrit";
+      const res = await req("PATCH", `/${memberId}/password`, adminCookie, { password: rejected });
+      expect(res.status).toBe(400);
+      const body = await res.text();
+      expect(body).not.toContain(rejected);
+      expect(body).toContain("at least 8");
     });
 
-    it("never puts the password in the response", async () => {
+    it("never puts the password in the response, on success or refusal", async () => {
       const secret = "do-not-echo-this-1";
-      const res = await req("PATCH", `/${memberId}/password`, adminCookie, { password: secret });
-      expect(await res.text()).not.toContain(secret);
+      const ok = await req("PATCH", `/${memberId}/password`, adminCookie, { password: secret });
+      expect(ok.status).toBe(200);
+      expect(await ok.text()).not.toContain(secret);
+
+      // ...and on the paths that REFUSE, which is where it leaked: a refusal
+      // is exactly when something is inclined to quote the input back.
+      const onSelf = await req("PATCH", `/${adminId}/password`, adminCookie, { password: secret });
+      expect(await onSelf.text()).not.toContain(secret);
+      const onSystem = await req("PATCH", `/${systemId}/password`, adminCookie, { password: secret });
+      expect(await onSystem.text()).not.toContain(secret);
     });
 
     it("refuses a non-admin, an anonymous caller, and a bearer key", async () => {
@@ -231,8 +312,8 @@ describe("admin user management", () => {
         403,
       );
       expect((await req("PATCH", `/${memberId}/password`, null, { password: "anon-tried-11" })).status).toBe(401);
-      const bearer = await req("PATCH", `/${memberId}/password`, null, { password: "bearer-tried-1" }, "subshell_x");
-      expect([401, 403]).toContain(bearer.status);
+      const bearer = await req("PATCH", `/${memberId}/password`, null, { password: "bearer-tried-1" }, adminBearerKey);
+      expect(bearer.status).toBe(403);
     });
   });
 });

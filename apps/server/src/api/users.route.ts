@@ -19,7 +19,10 @@ const UserRowSchema = t.Object({
 
 const CreateUserBodySchema = t.Object({
   email: t.String({ description: "Email address for the new credential account" }),
-  password: t.String({ minLength: 8, description: "Initial password (min 8 chars)" }),
+  password: t.String({
+    description:
+      "Initial password, at least 8 characters. Checked in the handler, not by the schema, so a rejection cannot echo it back (see MIN_PASSWORD_LENGTH)",
+  }),
   role: t.Union([t.Literal("admin"), t.Literal("user")], {
     default: "user",
     description: "App role for the new user",
@@ -42,6 +45,30 @@ const ListUsersResponseSchema = t.Object({
   users: t.Array(UserRowSchema, { description: "All users with roles, newest first" }),
 });
 
+/**
+ * Minimum password length, enforced in the HANDLERS rather than as a
+ * `minLength` on the schema.
+ *
+ * Elysia renders a schema failure by putting the offending VALUE in the error
+ * message, and `error-handler.plugin.ts` copies that message into the response
+ * body — so a `minLength: 8` here would echo a rejected password back in the
+ * 400. It reaches only the admin who typed it, so the disclosure is small, but
+ * a password in a response body is a password in every proxy log and browser
+ * devtools panel between here and them, and this route's whole contract is
+ * that it never echoes one.
+ *
+ * The cost is that the bound is no longer in the OpenAPI schema; the field
+ * descriptions state it instead.
+ */
+const MIN_PASSWORD_LENGTH = 8;
+
+/** Refuses a too-short password WITHOUT naming it. */
+function assertPasswordLength(password: string): void {
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new UsersError("bad_request", `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`, 400);
+  }
+}
+
 const RoleBodySchema = t.Object({
   role: t.Union([t.Literal("admin"), t.Literal("user")], { description: "Role to assign" }),
 });
@@ -53,7 +80,10 @@ const RoleResponseSchema = t.Object({
 });
 
 const PasswordBodySchema = t.Object({
-  password: t.String({ minLength: 8, description: "New password (min 8 chars); never logged, echoed, or audited" }),
+  password: t.String({
+    description:
+      "New password, at least 8 characters. Never logged, echoed, or audited — the length bound is checked in the handler precisely so a rejection cannot quote it",
+  }),
 });
 
 const PasswordResponseSchema = t.Object({
@@ -90,6 +120,7 @@ const adminOnly = new Elysia()
   .post(
     "/",
     async ({ body, user }) => {
+      assertPasswordLength(body.password);
       const repo = new UsersRepository(db);
       const email = body.email.trim().toLowerCase();
       const passwordHash = await hashPassword(body.password);
@@ -182,6 +213,7 @@ const adminOnly = new Elysia()
           400,
         );
       }
+      assertPasswordLength(body.password);
       const revoked = await new UsersRepository(db).setPassword(target.id, await hashPassword(body.password));
       if (revoked === null) {
         throw new UsersError("conflict", "That user has no password login to reset.");

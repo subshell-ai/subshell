@@ -28,6 +28,16 @@ export class UserMetaRepository extends BaseRepository {
    * changes, no user creation, no system keys, no settings, recoverable only
    * through `SUBSHELL_EMERGENCY_PASSWORD` and a restart.
    *
+   * What makes one transaction SUFFICIENT here is a property of the dialect
+   * rather than of this code, so it is worth stating: `bun:sqlite` is
+   * synchronous and Kysely's dialect hands out ONE shared connection, so the
+   * awaits below never yield between the SELECT and the write, and concurrent
+   * calls serialize in practice. Measured, not assumed — the route test fires
+   * eight demotions at once and asserts exactly one admin survives and nothing
+   * throws. Should the dialect ever become genuinely async or pooled, that
+   * test fails first, and this method would then need an application-level
+   * mutex.
+   *
    * Self-demotion is allowed and deliberately not special-cased: an admin
    * stepping down while others remain is legitimate, and the last-admin rule
    * already covers the only case that matters.
