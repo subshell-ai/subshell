@@ -7,14 +7,14 @@ top-level `import` statements instead.
 
 **Do this:**
 ```typescript
-import { setConfig, getConfig } from "@/config/index.js";
 import { runMigrations } from "@/db/migrate.js";
+import { getAuth } from "@/auth.js";
 ```
 
 **Not this:**
 ```typescript
-const { setConfig } = await import("@/config/index.js");
 const { runMigrations } = await import("@/db/migrate.js");
+const { getAuth } = await import("@/auth.js");
 ```
 
 Dynamic imports break `bun build --compile` because the bundler cannot statically analyse
@@ -28,22 +28,24 @@ Break up large files into smaller, focused modules. When a file grows beyond ~30
 When the split files share a common theme, create a directory to group them:
 
 ```
-# Before: One large file
-src/services/mcp.service.ts  (700+ lines)
+# Before: one flat route module carrying every channel endpoint
+src/api/channels.route.ts
 
-# After: Directory with focused modules
-src/services/
-├── mcp.service.ts              # Main service class (thin wrapper)
-└── mcp/
-    ├── server.ts               # Server factory
-    ├── tools.ts                # Tool handlers
-    ├── resources.ts            # Resource handlers
-    ├── schemas.ts              # Validation schemas
-    ├── types.ts                # TypeScript interfaces
-    ├── definitions.ts          # Constants and definitions
-    └── __tests__/
-        └── server.test.ts
+# After: a directory, one file per endpoint
+src/api/channels/
+├── index.ts                       # aggregates the routes for routes.ts
+├── create-channel.route.ts
+├── join-channel.route.ts
+├── list-channels.route.ts
+├── list-channel-members.route.ts
+├── post-to-channel.route.ts
+├── read-channel-posts.route.ts
+├── get-channel-cursor.route.ts
+└── __tests__/
 ```
+
+`src/api/subshells/`, `src/api/workspaces/` and `src/api/nodes/` follow the same
+shape. A resource stays a single flat `*.route.ts` until it earns the directory.
 
 Guidelines:
 - Each file should have a single responsibility
@@ -55,9 +57,17 @@ Guidelines:
 
 Route files and large components should be thin orchestrators. When a route component grows beyond ~200 lines, extract concerns into separate modules:
 
-- **Data-fetching logic** → custom hooks in `src/hooks/` (e.g., `useLogsData.ts`)
-- **Reusable UI blocks** → components in `src/components/` (e.g., `LogsToolbar.tsx`)
-- **Shared types and constants** → `src/lib/` (e.g., `logs-search.ts`)
+- **Data-fetching logic** → custom hooks in `src/hooks/` (e.g. `use-admin-status.ts`,
+  `use-nodes.ts`, `use-subshell-data.ts`)
+- **Reusable UI blocks** → components in `src/components/`, grouped in a directory
+  when a route owns several (e.g. `components/admin-status/`, `components/nodes/`,
+  `components/sidebar/`)
+- **Shared types and constants** → `src/lib/` (e.g. `subshell-indicator.ts`,
+  `workspace-layout.ts`, `device-name.ts`)
+
+`routes/settings_.status.tsx` is the worked example: the route holds its admin gate
+and composition, `hooks/use-admin-status.ts` holds the query, and the cards live in
+`components/admin-status/`.
 
 Route files should only contain:
 - The route definition (`createFileRoute` + `validateSearch`)
@@ -80,37 +90,40 @@ Use TypeScript union types or enums for values with a fixed set of options inste
 
 **Do this:**
 ```typescript
-// Define shared types in api-lib/types/
-export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace";
-export type Timeframe = "1m" | "5m" | "15m" | "30m" | "1h" | "6h" | "24h" | "live";
+// src/db/types/subshell-status.ts — one definition, plus the runtime list
+/** Lifecycle status of an agent subshell. */
+export type SubshellStatus = "running" | "terminated";
+
+export const SUBSHELL_STATUSES: readonly SubshellStatus[] = ["running", "terminated"];
 
 // Use in interfaces
-interface LogInput {
-  level?: LogLevel;  // Type-safe, autocomplete-friendly
+interface SubshellTable {
+  status: SubshellStatus;  // Type-safe, autocomplete-friendly
 }
 ```
 
+Export the runtime array beside the type whenever something has to iterate or
+validate the values — one edit site instead of two that drift.
+
 **Not this:**
 ```typescript
-interface LogInput {
-  level?: string;  // Any string accepted, no validation
+interface SubshellTable {
+  status: string;  // Any string accepted, no validation
 }
 ```
 
 For Elysia route schemas, create corresponding schema definitions using Elysia's `t` module:
 ```typescript
-// In src/api-lib/types/log.type.ts
-export const LogLevelSchema = t.Union([
-  t.Literal("fatal"),
-  t.Literal("error"),
-  // ...
-]);
+// Shape to follow — in src/schema/, or beside the route that owns it
+export const SubshellStatusSchema = t.Union([t.Literal("running"), t.Literal("terminated")], {
+  description: "Lifecycle status of the subshell",
+});
 ```
 
 For MCP tool schemas, use Zod:
 ```typescript
-// In src/mcp/schemas.ts
-export const LogLevelSchema = z.enum(["fatal", "error", "warn", "info", "debug", "trace"]);
+// Shape to follow — in packages/mcp-core/src/
+export const SubshellStatusSchema = z.enum(["running", "terminated"]);
 ```
 
 ## Schema Definitions
@@ -154,23 +167,28 @@ All Elysia `t` schema properties in API routes must include a `description` fiel
 Use `import { t } from "elysia"` for all schema definitions.
 
 ```typescript
+// src/api/channels/read-channel-posts.route.ts
 import { t } from "elysia";
 
-const QueryParamsSchema = t.Object({
-  limit: t.Optional(t.Number({
-    default: 100,
-    description: "Maximum number of logs to return"
-  })),
-  offset: t.Optional(t.Number({
-    default: 0,
-    description: "Number of logs to skip for pagination"
-  })),
-  timeframe: t.Optional(TimeframeSchema),
+const PostsQuerySchema = t.Object({
+  since: t.Optional(t.Numeric({ description: "Return posts with seq > since; defaults to the stored cursor" })),
+  wait: t.Optional(t.Numeric({ default: 0, description: "Long-poll budget in seconds (clamped to 600)" })),
+  limit: t.Optional(t.Numeric({ default: 100, description: "Max posts to return (cap 500)" })),
+  mark: t.Optional(t.Numeric({ default: 0, description: "1 = advance the stored cursor to what was returned" })),
 });
 
-const ResponseSchema = t.Object({
-  logs: t.Array(LogSchema, { description: "List of log entries" }),
-  total: t.Number({ description: "Total count of matching logs" }),
+const PostsViewSchema = t.Object({
+  posts: t.Array(
+    t.Object({
+      id: t.String({ description: "Post id (uuid)" }),
+      seq: t.Number({ description: "Per-channel sequence number" }),
+      author: t.String({ description: "Author principal label (token-derived)" }),
+      envelope: t.String({ description: "General JWE JSON" }),
+      createdAt: t.String({ description: "ISO 8601 timestamp" }),
+    }),
+    { description: "Posts visible to the caller, seq ascending" },
+  ),
+  nextSince: t.Number({ description: "Cursor to pass as since on the next read" }),
 });
 ```
 
@@ -183,62 +201,56 @@ This applies to:
 
 ## Co-location of Related Definitions
 
-Keep all definitions for a single concept in the same file. When a handler/tool has associated schemas, types, and metadata definitions, define them all in the handler file rather than spreading across multiple files.
+Keep all definitions for a single concept in the same file. When a handler has
+associated schemas, types, and metadata, define them in the handler file rather
+than spreading them across a parallel "definitions" module — a central registry
+that restates what the handler already declares is two things to keep in sync.
 
-**Do this:**
+**Do this** — a route module owns its schemas, its handler, and its OpenAPI metadata:
+
 ```typescript
-// tools/query-logs.ts - everything for this tool in one place
+// src/api/channels/read-channel-posts.route.ts
 
-/** Tool definition for external discovery */
-export const QUERY_LOGS_DEFINITION: McpToolDefinition = {
-  name: "query_logs",
-  title: "Query Logs",
-  description: "Query logs with filtering options.",
-  parameters: [...],
-};
+const PostsQuerySchema = t.Object({ /* … */ });
+const PostsViewSchema = t.Object({ /* … */ });
 
-/** Schema for input */
-const QueryLogsInputSchema = z.object({...});
-
-/** Schema for output */
-const QueryLogsOutputSchema = z.object({...});
-
-export function registerQueryLogsTool(server: McpServer): void {
-  server.registerTool("query_logs", {
-    title: QUERY_LOGS_DEFINITION.title,
-    description: QUERY_LOGS_DEFINITION.description,
-    inputSchema: QueryLogsInputSchema,
-    outputSchema: QueryLogsOutputSchema,
-  }, handler);
-}
-```
-
-Aggregate exports in an index file when needed for external consumption:
-```typescript
-// tools/index.ts
-export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
-  QUERY_LOGS_DEFINITION,
-  GET_LOG_DEFINITION,
-  // ...
-];
-```
-
-**Not this:**
-```typescript
-// definitions.ts - centralized definitions far from implementation
-export const MCP_TOOL_DEFINITIONS = [
-  { name: "query_logs", ... },  // Duplicates info in handler file
-  { name: "get_log", ... },
-];
-
-// tools/query-logs.ts
-export function registerQueryLogsTool() {
-  server.registerTool("query_logs", {
-    title: "Query Logs",  // Duplicated from definitions.ts
-    ...
+export const readChannelPostsRoute = new Elysia()
+  .use(contextPlugin)
+  .use(authGuard)
+  .get("/:name/posts", handler, {
+    query: PostsQuerySchema,
+    response: { 200: PostsViewSchema, 400: "ApiErrorResponse", 401: "ApiErrorResponse" },
+    detail: { operationId: "readChannelPosts", tags: ["channels"] },
   });
-}
 ```
+
+Aggregate only for wiring, never to restate:
+
+```typescript
+// src/api/channels/index.ts — composition, not a second source of truth
+export const channelRoutes = new Elysia({ prefix: "/api/channels" })
+  .use(createChannelRoute)
+  .use(listChannelsRoute)
+  .use(joinChannelRoute)
+  .use(postToChannelRoute)
+  .use(readChannelPostsRoute);
+```
+
+**Not this** — a registry duplicating each handler's own metadata:
+
+```typescript
+// definitions.ts — centralized, far from the implementation
+export const ROUTE_DEFINITIONS = [
+  { name: "readChannelPosts", description: "…" },  // duplicates the route's `detail`
+];
+```
+
+**Known divergence.** `packages/mcp-core/src/server.ts` registers its 13 tools with
+zod schemas written *inline* in the `registerTool` call, against the "Schema
+Definitions" rule above. The schemas are one-liners and the file reads fine, so it
+has not been worth changing — but it is a divergence, not a second sanctioned
+pattern. New tools should follow the named-constant rule; do not cite `server.ts`
+as precedent for inline schemas elsewhere.
 
 ## JSDoc Comments
 
@@ -250,14 +262,19 @@ All public classes, methods, and functions should have JSDoc comments that descr
 
 ```typescript
 /**
- * Ingests a single log entry into the database.
- * @param input - The log entry data to ingest
- * @returns The created log record with generated ID and timestamp
+ * Creates a new subshell: validates the profile + working directory, records
+ * the DB row, mints the subshell's MCP token, then spawns the harness under
+ * tmux with a curated env (including the injected SUBSHELL_* credentials). When
+ * `prompt` is given, it is typed into the pane once the harness has settled.
  */
-async ingestLog(input: LogInput): Promise<LogDb> {
+async createSubshell(input: CreateSubshellInput): Promise<SubshellView> {
   // ...
 }
 ```
+
+Describe what is NOT obvious from the signature. `createSubshell` returning a
+subshell needs no `@returns`; the fact that it also mints a credential and types
+into a pane does.
 
 ## Interface Property Documentation
 
@@ -268,18 +285,25 @@ All interface properties should have JSDoc comments explaining their purpose. Th
 - Domain models
 
 ```typescript
+// src/db/types/channel-posts.db-types.ts
 /**
- * Database table schema for log entries.
+ * A post in a channel's append-only log. The envelope is a jose General JWE
+ * JSON string — the server stores and forwards it without ever parsing its
+ * ciphertext. Posts are immutable: no UPDATE/DELETE shapes exist by design.
  */
-export interface LogsTable {
-  /** Unique identifier (UUID v4) */
+export interface ChannelPostTable {
+  /** Unique post id (uuid) */
   id: string;
-  /** ISO 8601 timestamp when the log event occurred */
-  timestamp: string;
-  /** Name of the service that generated the log */
-  service: string;
-  /** JSON-serialized arbitrary metadata attached to the log */
-  metadata: string | null;
+  /** Owning channel */
+  channelId: string;
+  /** Per-channel monotonic sequence number (the read cursor) */
+  seq: number;
+  /** Author principal label, derived from the caller's token — never self-declared */
+  author: string;
+  /** General JWE JSON (opaque to the server) */
+  envelope: string;
+  /** ISO 8601 creation timestamp (DB default) */
+  createdAt: string;
 }
 ```
 
@@ -290,32 +314,33 @@ For simple, self-explanatory properties (like `id`, `name`, `createdAt`), a brie
 For expensive resources that should only be created once (servers, database connections, etc.), use a module-level singleton pattern with a factory function:
 
 ```typescript
-let instance: ExpensiveResource | null = null;
+// src/auth.ts — the better-auth handle, built once, lazily
+let instance: Auth | undefined;
 
 /**
- * Returns the singleton instance, creating it on first call.
+ * Returns the better-auth instance, constructing it on FIRST USE rather than at
+ * import. Nothing needs auth during module evaluation, so the laziness is
+ * invisible in behavior and visible only in the absence of import-time side
+ * effects — which is what lets `subshell-server mcp` run without opening SQLite.
  */
-export function createExpensiveResource(deps: Dependencies): ExpensiveResource {
-  if (instance) {
-    return instance;
-  }
-
-  instance = new ExpensiveResource(deps);
-  // ... initialization ...
-
+export function getAuth(): Auth {
+  instance ??= buildAuth();
   return instance;
 }
 
 /**
- * Resets the singleton. Only use in tests.
+ * Drops the memoized instance. Only for tests that need a fresh build.
  * @internal
  */
-export function resetExpensiveResource(): void {
-  instance = null;
+export function resetAuthForTests(): void {
+  instance = undefined;
 }
 ```
 
 Key points:
-- The factory function checks for an existing instance before creating
+- The accessor checks for an existing instance before creating
 - Provide a reset function for test isolation (marked `@internal`)
 - Tests should call reset in `beforeEach`/`afterEach` to ensure isolation
+- **Construct lazily, never at import.** A module that opens a database or binds
+  a port merely by being evaluated breaks the compiled binary's non-boot
+  subcommands. Import purity is pinned by test — see `apps/server/AGENTS.md`.
