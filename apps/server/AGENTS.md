@@ -138,12 +138,14 @@ relative-positioned frame a row out, which is the exact corruption this whole
 subsystem exists to prevent. An unconfirmed number every viewer shares beats a
 confirmed disagreement.
 
-**Still degraded on node panes:** the announced size is what tmux was asked
-for, not what it took. If it clamps the request, every viewer of that pane
-pins to a grid the pane does not have — the same for all of them, so they at
-least agree with each other. The real fix is a `pane_size` command in the
-agent protocol, at which point `RemoteLauncher.reportsPaneSize` flips to true
-and the fallback stops being reachable there.
+`reportsPaneSize()` is a METHOD, not a constant, because the node fleet is
+mixed: it answers from the agent's reported protocol version (v4 and up
+speak `pane_size`). An older agent keeps every other service and loses only
+the confirmation — the control plane then announces the size it ASKED for,
+which is right for one viewer and the best available answer for several. A
+node that is offline or pre-`ready` reads as unable to measure, which is the
+safe direction: the caller announces the request rather than mistaking a null
+for a dead pane.
 
 Anything a client must not lose in the attach race rides the **connect URL**,
 not a first frame: `handleSubshellMessage` drops frames that arrive before

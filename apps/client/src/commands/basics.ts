@@ -81,6 +81,21 @@ export async function execResize(ctx: CommandContext, cmd: Cmd<"resize">): Promi
   return { ok: true };
 }
 
+/**
+ * `pane_size` (protocol v4): the pane's REAL grid, or null when it is gone.
+ *
+ * The remote twin of the control plane's own readback. It exists because a
+ * pane serves several viewers now and is sized to the smallest of them, so a
+ * client left to size itself renders rows the pane does not have — and until
+ * this command existed the control plane could only announce the size it had
+ * ASKED for. Null is a legal answer (a vanished pane), distinct from an
+ * error; the caller announces nothing rather than a guess for either.
+ */
+export async function execPaneSize(ctx: CommandContext, cmd: Cmd<"pane_size">): Promise<CommandResult> {
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  return { ok: true, data: ctx.tmux.paneSize(socket, cmd.subshellId) };
+}
+
 /** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay). */
 export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);

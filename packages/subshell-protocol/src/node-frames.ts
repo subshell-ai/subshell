@@ -23,8 +23,12 @@ import type { JsonValue } from "./json.js";
  * frame changed, so v2 agents are NOT refused — they keep full service and
  * only folder browsing is gated (server-side feature check against
  * {@link FS_LS_MIN_PROTOCOL_VERSION}).
+ * v4 (2026-09-05): additive `pane_size` command — the readback that lets the
+ * control plane announce a node pane's CONFIRMED grid instead of the size it
+ * asked for. Additive again, so v2/v3 agents keep full service and simply
+ * fall back to the announced request ({@link PANE_SIZE_MIN_PROTOCOL_VERSION}).
  */
-export const NODE_PROTOCOL_VERSION = 3;
+export const NODE_PROTOCOL_VERSION = 4;
 
 /**
  * Oldest agent protocol the control plane still speaks. Bump ONLY when a
@@ -41,6 +45,18 @@ export const NODE_PROTOCOL_MIN_VERSION = 2;
  * a clear "node too old" 409, never a doomed command).
  */
 export const FS_LS_MIN_PROTOCOL_VERSION = 3;
+
+/**
+ * First protocol version whose agent answers `pane_size`.
+ *
+ * Below it the control plane cannot learn what a node pane actually holds, so
+ * it announces the size it ASKED for instead — right for one viewer (whose
+ * own grid is that size) and merely the best available answer for several,
+ * since a client left to size itself renders rows the pane does not have.
+ * Feature-gated rather than floor-raising: an older agent keeps every other
+ * service and only loses the confirmation.
+ */
+export const PANE_SIZE_MIN_PROTOCOL_VERSION = 4;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -176,6 +192,15 @@ export type NodeCommandBody =
       subshellId: string;
       /** Optional scrollback budget for the capture. Absent from (and stripped by) pre-replay agents. */
       lines?: number;
+    }
+  | {
+      /**
+       * The pane's REAL grid, as tmux reports it — the remote twin of the
+       * control plane's own readback. Answering null (pane gone) is a legal
+       * result, distinct from an error.
+       */
+      type: "pane_size";
+      subshellId: string;
     }
   | { type: "probe"; subshellIds: string[] }
   | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
@@ -316,6 +341,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "terminate":
     case "kill":
       return isStr(value.subshellId) ? ({ type: value.type, subshellId: value.subshellId } as NodeCommandBody) : null;
+    case "pane_size": {
+      if (typeof value.subshellId !== "string") return null;
+      return { type: "pane_size", subshellId: value.subshellId };
+    }
     case "capture": {
       if (!isStr(value.subshellId)) return null;
       // Additive optional field (protocol v1 unchanged): a positive int or

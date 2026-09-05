@@ -344,7 +344,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // announcement. `appliedFit` is null when this attach carried no size at
   // all, and then there is genuinely nothing to announce either.
   const readBack = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
-  const attachGeometry = readBack ?? (launcher.reportsPaneSize ? null : appliedFit);
+  const attachGeometry = readBack ?? (launcher.reportsPaneSize() ? null : appliedFit);
   if (attachGeometry) {
     broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }

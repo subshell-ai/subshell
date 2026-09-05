@@ -2,8 +2,10 @@ import type { HarnessPlugin } from "@internal/harnesses";
 import {
   type NodeCommandBody,
   type NodeProbeEntry,
+  PANE_SIZE_MIN_PROTOCOL_VERSION,
   parseNodeCaptureResult,
   parseNodeLogReadResult,
+  parseNodePaneSizeResult,
   parseNodeProbeEntries,
   parseNodeProbeResume,
   parseNodePromptDeliver,
@@ -293,23 +295,38 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * A node pane cannot be measured: the agent protocol has no command that
-   * reports a pane's grid (spec §6.4). Closing this needs a protocol bump
-   * plus a client release, the same bill `signalPaneWinch` is waiting on.
+   * Whether THIS node's agent can measure a pane — protocol v4 and up.
+   *
+   * Per-connection, not a constant: the fleet is mixed, and an older agent
+   * keeps every other service while losing only the confirmation. Absent
+   * facts (no `ready` yet) read as "too old", which is the safe direction —
+   * the caller then announces the size it asked for rather than treating a
+   * null readback as a dead pane.
    */
-  readonly reportsPaneSize = false;
+  reportsPaneSize(): boolean {
+    return (this.#facts()?.protocolVersion ?? 0) >= PANE_SIZE_MIN_PROTOCOL_VERSION;
+  }
 
   /**
-   * Answers null honestly rather than echoing the last requested size back as
-   * if it were confirmed — an echo would be indistinguishable from a real
-   * readback and would defeat the whole point of confirming.
+   * The pane's REAL grid, from the agent (protocol v4 `pane_size`).
    *
-   * The server does now announce the requested size to remote clients, but it
-   * does so knowing it is unconfirmed (see {@link reportsPaneSize}), which is
-   * exactly the distinction this method refuses to blur.
+   * Still answers null rather than echoing the last requested size when it
+   * cannot know — an echo would be indistinguishable from a real readback and
+   * would defeat the whole point of confirming. What changed is that the
+   * caller can now tell WHICH null it got, by asking
+   * {@link reportsPaneSize}: below v4 there was never a confirmation to be
+   * had, so the announced size is the request; at v4 a null means the pane
+   * has gone and nothing is announced at all.
    */
-  async paneSize(_socket: string, _id: string): Promise<{ cols: number; rows: number } | null> {
-    return null;
+  async paneSize(_socket: string, id: string): Promise<{ cols: number; rows: number } | null> {
+    if (!this.reportsPaneSize()) return null;
+    try {
+      return parseNodePaneSizeResult(await this.#send({ type: "pane_size", subshellId: id }));
+    } catch {
+      // The node went away mid-question. Indistinguishable from a dead pane
+      // for our purposes, and treated the same: no announcement.
+      return null;
+    }
   }
 
   /**

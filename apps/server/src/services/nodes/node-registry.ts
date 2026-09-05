@@ -66,6 +66,12 @@ export interface NodeAgentFacts {
   agentVersion: string;
   /** agent `process.execPath` (Task 1 additive field) — MCP launch spec target */
   executablePath?: string;
+  /**
+   * Protocol version from the `ready` frame, so feature gates can be decided
+   * without a DB read on a hot path. Absent means `ready` has not landed —
+   * treat as "too old for everything optional".
+   */
+  protocolVersion?: number;
 }
 
 /** Live state for exactly one node's current connection. */

@@ -134,7 +134,9 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   /** tmux answers `display-message -p '#{window_width}:#{window_height}'`. */
-  readonly reportsPaneSize = true;
+  reportsPaneSize(): boolean {
+    return true;
+  }
 
   async paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null> {
     return this.#tmux.paneSize(socket, id);

@@ -279,6 +279,10 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           capabilities: event.capabilities,
           hostname: event.hostname,
           agentVersion: event.agentVersion,
+          // Stashed here as well as on the row: per-feature gates are decided
+          // on hot paths (every pane resize asks whether this node can answer) and
+          // must not need a DB read.
+          protocolVersion: event.protocolVersion,
           ...(event.executablePath ? { executablePath: event.executablePath } : {}),
         };
       }

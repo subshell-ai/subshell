@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@internal/harnesses";
-import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
+import {
+  NODE_PROTOCOL_VERSION,
+  type NodeCommandBody,
+  type NodeEvent,
+  PANE_SIZE_MIN_PROTOCOL_VERSION,
+} from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { launcherFor, resetLauncherRegistryForTests } from "@/services/nodes/launcher-registry.js";
 import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
@@ -77,6 +82,7 @@ const testFacts: NodeAgentFacts = {
   hostname: "box",
   agentVersion: "0.2.0",
   executablePath: "/usr/bin/subshell",
+  protocolVersion: NODE_PROTOCOL_VERSION,
 };
 
 const harness = { id: "claude-code" } as unknown as HarnessPlugin;
@@ -774,5 +780,56 @@ describe("launcher-registry", () => {
     expect(launcherFor("node-2")).not.toBe(a);
     resetLauncherRegistryForTests();
     expect(launcherFor("node-1")).not.toBe(a);
+  });
+});
+
+describe("paneSize (protocol v4) — a mixed fleet answers honestly", () => {
+  it("asks the agent and returns the pane's real grid", async () => {
+    const h = makeHarness();
+    h.answer("pane_size", { cols: 132, rows: 43 });
+    expect(await h.launcher.paneSize("sock", "s1")).toEqual({ cols: 132, rows: 43 });
+    expect(h.calls.at(-1)?.cmd).toEqual({ type: "pane_size", subshellId: "s1" });
+  });
+
+  it("never asks an agent too old to answer, and says it cannot measure", async () => {
+    // The distinction is the whole point: below v4 there was never a
+    // confirmation to be had, so the CALLER announces the size it asked for.
+    // At v4 a null means the pane died and nothing is announced. Conflating
+    // them would either strand old nodes with no geometry or tell everyone to
+    // lay out a pane that has gone.
+    const h = makeHarness({ ...testFacts, protocolVersion: PANE_SIZE_MIN_PROTOCOL_VERSION - 1 });
+    expect(h.launcher.reportsPaneSize()).toBe(false);
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+    expect(h.calls.some((c) => c.cmd.type === "pane_size")).toBe(false);
+  });
+
+  it("reads an offline or pre-`ready` node as unable to measure", async () => {
+    // The safe direction: the caller then announces the size it asked for
+    // rather than reading a null as "this pane is dead".
+    const h = makeHarness(null);
+    expect(h.launcher.reportsPaneSize()).toBe(false);
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+
+  it("answers null for a pane the agent says is gone", async () => {
+    const h = makeHarness();
+    h.answer("pane_size", null);
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+
+  it("answers null rather than throwing when the node drops mid-question", async () => {
+    const h = makeHarness();
+    h.answer("pane_size", () => {
+      throw new Error("node offline");
+    });
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+
+  it("refuses a malformed grid instead of passing it on as a pane size", async () => {
+    // Every viewer pins its terminal to whatever comes back, so a zero would
+    // tell them all to lay out nothing.
+    const h = makeHarness();
+    h.answer("pane_size", { cols: 0, rows: 24 });
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
   });
 });
