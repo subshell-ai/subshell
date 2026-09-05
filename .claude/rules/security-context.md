@@ -47,6 +47,21 @@ credential kinds:
 Admin-gated routes (`/api/users`, `/api/system-keys`, `/api/admin/status`, …) **reject
 bearer keys** (403): machine credentials can never manage the instance.
 
+**Admin user management** (spec 2026-09-05): an admin may create users, assign
+roles (`PATCH /api/users/:id/role`) and **reset another user's password**
+(`PATCH /api/users/:id/password`). Four guards, all load-bearing:
+demoting the LAST admin is refused (counted and written in ONE transaction, or
+two concurrent demotions both pass and nobody can administer the instance); a
+reset REVOKES every session the target holds (a reset that leaves live cookies
+is useless against a compromised account) — but NOT passkeys, which live in
+their own table, and NOT already-connected WebSockets, which authenticate only
+at connect, so a reset is a credential rotation and not a session-kill switch
+(docs/security.md §11.5); an admin cannot reset their OWN
+password there (Account requires the current one — otherwise an unlocked laptop
+is a full takeover); and the `system` service account is untouchable. The
+password is never logged, echoed, or audited — only that a reset happened and
+how many sessions it cut. User DELETION is deliberately absent.
+
 `GET /api/admin/status` is the widest of these READS — versions, host paths, the
 resolved MCP command, instance-wide counts and the security posture in one
 body. It carries **no secret in any form**: the auth secret appears only as

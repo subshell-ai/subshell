@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import type { UserRole } from "@/db/types/user-role.js";
 
 /**
  * App-side user row shape for admin listing (auth `user` + `user_meta` join).
@@ -70,7 +71,7 @@ export class UsersRepository extends BaseRepository {
    * @throws On duplicate email (the `user.email` unique constraint fires a raw
    * SQLite error; callers map it to a 409)
    */
-  async createUser(input: { email: string; passwordHash: string; role: "admin" | "user" }): Promise<string> {
+  async createUser(input: { email: string; passwordHash: string; role: UserRole }): Promise<string> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     // user id doubles as the credential accountId (issuer local:credential),
@@ -85,5 +86,61 @@ export class UsersRepository extends BaseRepository {
     `.execute(this.db);
     await this.db.insertInto("userMeta").values({ userId: id, role: input.role }).execute();
     return id;
+  }
+
+  /**
+   * One user's id and email, or undefined when the id names nobody.
+   *
+   * Deliberately minimal: the admin surfaces that use it need to know the user
+   * EXISTS and which address to name in an audit line, and nothing else — so
+   * this cannot become the accidental route by which a password hash or a
+   * session token reaches a handler.
+   */
+  async findByIdBasic(id: string): Promise<{ id: string; email: string } | undefined> {
+    const { rows } = await sql<{ id: string; email: string }>`
+      SELECT id, email FROM user WHERE id = ${id}
+    `.execute(this.db);
+    return rows[0];
+  }
+
+  /**
+   * Overwrites a user's credential password and signs out every session they
+   * hold.
+   *
+   * The revocation is not incidental. An admin resetting a password is usually
+   * answering "this account may be compromised", and leaving the existing
+   * cookies alive means the reset changes nothing for someone already holding
+   * one. Both writes are one transaction so a password can never be replaced
+   * while the old sessions survive.
+   *
+   * Refuses a user with no credential account rather than creating one:
+   * inventing a password login for an account that deliberately had none is a
+   * different operation from resetting one, and doing it by accident is how a
+   * passwordless account silently gains a way in.
+   *
+   * @param passwordHash - already hashed by better-auth's `hashPassword`; this
+   *   method never sees a plaintext password, so it can never log one
+   * @returns the number of sessions revoked, or null when there is no
+   *   credential account to reset
+   */
+  async setPassword(userId: string, passwordHash: string): Promise<number | null> {
+    return await this.db.transaction().execute(async (trx) => {
+      const now = new Date().toISOString();
+      // `providerId = 'credential'` is the local password account better-auth
+      // writes at sign-up and `createUser` mirrors; an OAuth row must not be
+      // rewritten with a password.
+      const { rows } = await sql<{ id: string }>`
+        SELECT id FROM account WHERE userId = ${userId} AND providerId = ${"credential"}
+      `.execute(trx);
+      if (rows.length === 0) return null;
+
+      await sql`
+        UPDATE account SET password = ${passwordHash}, updatedAt = ${now}
+        WHERE userId = ${userId} AND providerId = ${"credential"}
+      `.execute(trx);
+      const revoked = await sql<{ n: number }>`SELECT COUNT(*) AS n FROM session WHERE userId = ${userId}`.execute(trx);
+      await sql`DELETE FROM session WHERE userId = ${userId}`.execute(trx);
+      return Number(revoked.rows[0]?.n ?? 0);
+    });
   }
 }

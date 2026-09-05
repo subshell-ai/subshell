@@ -1,5 +1,6 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NewUserMeta } from "@/db/types/user-meta.db-types.js";
+import type { UserRole } from "@/db/types/user-role.js";
 
 /**
  * Repository for extra user metadata (roles). The first user to register
@@ -16,6 +17,56 @@ export class UserMetaRepository extends BaseRepository {
         }),
       )
       .execute();
+  }
+
+  /**
+   * Sets a user's role, refusing to remove the LAST admin.
+   *
+   * The count and the write are one transaction, and that is the whole reason
+   * this lives in the repository rather than as a check in the route: two
+   * admins demoting each other concurrently would otherwise both read "2
+   * admins", both pass, and leave an instance nobody can administer — no role
+   * changes, no user creation, no system keys, no settings, recoverable only
+   * through `SUBSHELL_EMERGENCY_PASSWORD` and a restart.
+   *
+   * What makes one transaction SUFFICIENT here is a property of the dialect
+   * rather than of this code, so it is worth stating: `bun:sqlite` is
+   * synchronous and Kysely's dialect hands out ONE shared connection, so the
+   * awaits below never yield between the SELECT and the write, and concurrent
+   * calls serialize in practice. Measured, not assumed — the route test fires
+   * eight demotions at once and asserts exactly one admin survives and nothing
+   * throws. Should the dialect ever become genuinely async or pooled, that
+   * test fails first, and this method would then need an application-level
+   * mutex.
+   *
+   * Self-demotion is allowed and deliberately not special-cased: an admin
+   * stepping down while others remain is legitimate, and the last-admin rule
+   * already covers the only case that matters.
+   *
+   * @returns `false` when the change was refused as the last admin's demotion
+   */
+  async setRole(userId: string, role: UserRole): Promise<boolean> {
+    return await this.db.transaction().execute(async (trx) => {
+      if (role !== "admin") {
+        const current = await trx.selectFrom("userMeta").select("role").where("userId", "=", userId).executeTakeFirst();
+        // Only a demotion OF an admin can strand the instance; promoting or
+        // re-writing a non-admin's role never can.
+        if (current?.role === "admin") {
+          const { admins } = await trx
+            .selectFrom("userMeta")
+            .select((eb) => eb.fn.countAll<number>().as("admins"))
+            .where("role", "=", "admin")
+            .executeTakeFirstOrThrow();
+          if (Number(admins) <= 1) return false;
+        }
+      }
+      await trx
+        .insertInto("userMeta")
+        .values({ userId, role })
+        .onConflict((oc) => oc.column("userId").doUpdateSet({ role }))
+        .execute();
+      return true;
+    });
   }
 
   async getRole(userId: string): Promise<string | null> {

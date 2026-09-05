@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UserRowActions } from "@/components/users/user-row-actions";
 import { apiFetch, errMessage } from "@/lib/api";
+import { useCurrentUser } from "@/lib/auth";
 
 export const Route = createFileRoute("/users")({
   component: UsersPage,
@@ -19,6 +21,13 @@ interface UserRow {
   email: string;
   role: string | null;
   createdAt: string | null;
+  /**
+   * False for the `system` service account. Server-derived: the rule lives
+   * with the endpoint that enforces it, so the UI cannot offer a control that
+   * is guaranteed to be refused, and never hardcodes the service address.
+   * Optional for a payload cached before the field existed.
+   */
+  manageable?: boolean;
 }
 
 interface AuditEvent {
@@ -51,6 +60,10 @@ function UsersPage() {
   // Strict: while the envelope is loading (undefined) or for members (false),
   // the audit query stays disabled so it can never fire a doomed 403 request.
   const viewerIsAdmin = envelope?.viewerIsAdmin === true;
+  // Own id, so the row for yourself offers a role control but no password
+  // reset — that path lives under Account, where the current password is
+  // required.
+  const { data: currentUser } = useCurrentUser();
 
   const {
     data: auditEvents,
@@ -203,7 +216,8 @@ function UsersPage() {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="pr-4 pb-2 font-medium">Email</th>
                     <th className="pr-4 pb-2 font-medium">Role</th>
-                    <th className="pb-2 font-medium">Created</th>
+                    <th className="pr-4 pb-2 font-medium">Created</th>
+                    {viewerIsAdmin && <th className="pb-2 font-medium">Manage</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -218,9 +232,28 @@ function UsersPage() {
                           {u.role ?? "user"}
                         </Badge>
                       </td>
-                      <td className="py-2 text-muted-foreground">
+                      <td className="py-2 pr-4 text-muted-foreground">
                         {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
                       </td>
+                      {viewerIsAdmin && (
+                        <td className="py-2">
+                          {u.manageable === false ? (
+                            <span className="text-muted-foreground text-xs">Service account</span>
+                          ) : (
+                            <UserRowActions
+                              user={u}
+                              viewerId={currentUser?.id ?? null}
+                              onChanged={() => {
+                                void queryClient.invalidateQueries({ queryKey: ["users"] });
+                                // The audit table sits on this same page — a
+                                // role change or reset that did not refresh it
+                                // would look unrecorded.
+                                void queryClient.invalidateQueries({ queryKey: ["audit"] });
+                              }}
+                            />
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
