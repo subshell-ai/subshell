@@ -8,6 +8,7 @@ import {
   parseNodeEvent,
   parseNodeFsLsResult,
   parseNodeLogReadResult,
+  parseNodePaneSizeResult,
   parseNodeProbeEntries,
   parseNodeProbeResume,
   parseNodePromptDeliver,
@@ -117,5 +118,40 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
     expect(parseNodeEvent({ ...ready, executablePath: "/usr/local/bin/subshell" })?.type).toBe("ready");
     expect(parseNodeEvent(ready)?.type).toBe("ready"); // pre-phase-2 agent omits it
     expect(parseNodeEvent({ ...ready, executablePath: 42 })).toBeNull();
+  });
+});
+
+describe("parseNodePaneSizeResult", () => {
+  it("takes a real grid", () => {
+    expect(parseNodePaneSizeResult({ cols: 132, rows: 43 })).toEqual({ cols: 132, rows: 43 });
+  });
+
+  it("refuses everything that is not one, so a bad answer cannot become a pane size", () => {
+    // The control plane pins every viewer's terminal to whatever comes back
+    // here, so a zero, a fraction or a NaN would tell them all to lay out a
+    // grid the pane cannot have. Null is the safe answer and the caller
+    // already handles it (announce nothing rather than a guess).
+    for (const bad of [
+      null,
+      undefined,
+      "80x24",
+      {},
+      { cols: 80 },
+      { rows: 24 },
+      { cols: 0, rows: 24 },
+      { cols: 80, rows: 0 },
+      { cols: -1, rows: 24 },
+      { cols: 80.5, rows: 24 },
+      { cols: Number.NaN, rows: 24 },
+      { cols: "80", rows: "24" },
+    ]) {
+      expect(parseNodePaneSizeResult(bad)).toBeNull();
+    }
+  });
+
+  it("ignores extra members rather than refusing them", () => {
+    // Additive fields from a newer agent must not break an older control
+    // plane — the same tolerance every other result parser here shows.
+    expect(parseNodePaneSizeResult({ cols: 100, rows: 30, future: true })).toEqual({ cols: 100, rows: 30 });
   });
 });

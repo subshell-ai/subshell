@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import {
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
-  NODE_PROTOCOL_MIN_VERSION,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
 } from "@internal/subshell-protocol";
@@ -244,7 +243,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // and full service; only folder browsing is feature-gated elsewhere.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_MIN_VERSION }));
+    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_VERSION }));
     expect(ws.closed).toHaveLength(0);
     expect(h.inventoryRequests).toEqual(["n1"]);
   });
@@ -252,7 +251,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
   it("ready one below the floor (v1) → pre-rename agent refused with 4406", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_MIN_VERSION - 1 }));
+    await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: NODE_PROTOCOL_VERSION - 1 }));
     expect(ws.closed).toEqual([{ code: NODE_CLOSE_UPDATE_REQUIRED, reason: "agent update required" }]);
   });
 

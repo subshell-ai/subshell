@@ -12,35 +12,24 @@ import type { JsonValue } from "./json.js";
  */
 
 /**
- * Bumped on any frame-shape change; the control plane accepts the window
- * {@link NODE_PROTOCOL_MIN_VERSION} .. this value and closes everything else
- * with UPDATE_REQUIRED (4406).
- * v2 (2026-09-02): the sessions→subshells rename changed frozen frame keys
- * (`sessionId`→`subshellId`, `sessions_report`→`subshells_report`, …), so a
- * pre-rename agent must be refused — the backend answers `ready` with close
- * UPDATE_REQUIRED (4406) and the Nodes page shows the "agent too old" chip.
- * v3 (2026-09-03): additive `fs_ls` command (remote folder picker). No frozen
- * frame changed, so v2 agents are NOT refused — they keep full service and
- * only folder browsing is gated (server-side feature check against
- * {@link FS_LS_MIN_PROTOCOL_VERSION}).
+ * The agent protocol the control plane speaks. An agent reporting anything
+ * else is refused with UPDATE_REQUIRED (4406).
+ *
+ * EXACT match, not a window. There is no compatibility range and no
+ * per-feature gating, because the server and the agent are released together
+ * and there is no fleet of older agents to carry: every enrolled node runs
+ * the binary that shipped with the server. A version window bought the
+ * ability to add a command without a node rollout, and paid for it in
+ * branches that could not be exercised — an "is this node new enough" check
+ * per feature, a fallback path per check, and a second meaning for every
+ * null. Refusing the mismatch outright is one comparison and no dead ends.
+ *
+ * Bump this whenever a frame changes, additive or not, and release both
+ * sides. SERVER FIRST: an agent that leads the server is refused and its node
+ * goes offline, while an agent that lags is refused just as clearly — the
+ * Nodes page names it either way.
  */
-export const NODE_PROTOCOL_VERSION = 3;
-
-/**
- * Oldest agent protocol the control plane still speaks. Bump ONLY when a
- * change breaks frames already frozen at an older version (the v2 rename is
- * what put the floor at 2); additive commands raise
- * {@link FS_LS_MIN_PROTOCOL_VERSION}-style constants instead, so an in-window
- * agent degrades per-feature rather than losing its socket.
- */
-export const NODE_PROTOCOL_MIN_VERSION = 2;
-
-/**
- * First protocol version whose agent answers `fs_ls`. The control plane
- * feature-gates folder browsing on the node's reported version (below this ⇒
- * a clear "node too old" 409, never a doomed command).
- */
-export const FS_LS_MIN_PROTOCOL_VERSION = 3;
+export const NODE_PROTOCOL_VERSION = 4;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -176,6 +165,15 @@ export type NodeCommandBody =
       subshellId: string;
       /** Optional scrollback budget for the capture. Absent from (and stripped by) pre-replay agents. */
       lines?: number;
+    }
+  | {
+      /**
+       * The pane's REAL grid, as tmux reports it — the remote twin of the
+       * control plane's own readback. Answering null (pane gone) is a legal
+       * result, distinct from an error.
+       */
+      type: "pane_size";
+      subshellId: string;
     }
   | { type: "probe"; subshellIds: string[] }
   | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
@@ -316,6 +314,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "terminate":
     case "kill":
       return isStr(value.subshellId) ? ({ type: value.type, subshellId: value.subshellId } as NodeCommandBody) : null;
+    case "pane_size": {
+      if (typeof value.subshellId !== "string") return null;
+      return { type: "pane_size", subshellId: value.subshellId };
+    }
     case "capture": {
       if (!isStr(value.subshellId)) return null;
       // Additive optional field (protocol v1 unchanged): a positive int or

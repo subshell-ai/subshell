@@ -37,9 +37,6 @@ function recorder(opts: { block?: boolean } = {}): Recorder {
     release: () => {},
     fail: () => {},
     sizer: {
-      // Measurable by default — the local (tmux) launcher's case. The
-      // unmeasurable one gets its own case below.
-      confirms: true,
       apply: async (cols, rows) => {
         state.applied.push({ cols, rows });
         if (!opts.block) return;
@@ -165,9 +162,10 @@ describe("createGeometryQueue — serialize + coalesce per subshell", () => {
   it("reports nothing when the pane's size cannot be read (dead pane)", async () => {
     const rec = recorder();
     rec.readAs = null;
-    // `read` returning null on a MEASURABLE pane means the pane has died, and
-    // a dying pane gets no announcement — reporting one would tell viewers to
-    // lay out a pane that is about to take their socket with it.
+    // A null read means the pane has died, and a dying pane gets no
+    // announcement — reporting one would tell viewers to lay out a pane that
+    // is about to take their socket with it. That is the only meaning null
+    // has: every machine can measure, so there is no "cannot read" case.
     rec.sizer.read = async () => null;
     const seen: Array<{ cols: number; rows: number }> = [];
     const queue = createGeometryQueue({ onGeometry: (_k, size) => seen.push(size) });
@@ -176,26 +174,6 @@ describe("createGeometryQueue — serialize + coalesce per subshell", () => {
     await settle();
 
     expect(seen).toEqual([]);
-  });
-
-  it("announces the APPLIED size on a machine that can never measure a pane", async () => {
-    // A node pane: the agent protocol has no size command, so `read` answers
-    // null forever. Silence was safe while a pane had one viewer, whose own
-    // grid WAS the grid the pane had just been given. With several the pane
-    // takes the MINIMUM, so every larger client renders more rows than the
-    // pane holds — and a client taller than its pane does not scroll when the
-    // pane does, putting every later relative-positioned frame a row out. An
-    // unconfirmed number all viewers share beats a confirmed disagreement.
-    const rec = recorder();
-    rec.sizer.confirms = false;
-    rec.sizer.read = async () => null;
-    const seen: Array<{ cols: number; rows: number }> = [];
-    const queue = createGeometryQueue({ onGeometry: (_k, size) => seen.push(size) });
-
-    queue.request("s1", 92, 28, rec.sizer);
-    await settle();
-
-    expect(seen).toEqual([{ cols: 92, rows: 28 }]);
   });
 
   it("a release during an in-flight apply also swallows the announcement", async () => {

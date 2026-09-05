@@ -10,7 +10,7 @@
  * version went to 2 so pre-rename agents are refused at `ready`. `fs_ls`
  * (v3) arrived as an ADDITIVE command: no frozen frame changed, so the floor
  * stayed at 2 and the server feature-gates old agents instead (see
- * `FS_LS_MIN_PROTOCOL_VERSION` in `node-frames.ts`).
+ * the protocol version in `node-frames.ts`).
  *
  * `launch` / `terminate` / `kill` / `input` / `resize` / `tail_start` /
  * `tail_stop` / `remove_paths` / `inventory` / `ping` carry no data — their
@@ -230,4 +230,38 @@ export function parseNodeWriteFileResult(data: unknown): NodeWriteFileResult | n
  */
 export function parseNodeCaptureResult(data: unknown): string | null {
   return isStr(data) ? data : null;
+}
+
+/** A pane's real grid, as the agent measured it. */
+export interface NodePaneSizeResult {
+  /** Pane width in columns; always positive. */
+  cols: number;
+  /** Pane height in rows; always positive. */
+  rows: number;
+}
+
+/**
+ * Validates and narrows a `pane_size` command's `result{data}`.
+ *
+ * Three answers are all legal and mean different things, so the caller has to
+ * be able to tell them apart:
+ * - a grid — the pane holds exactly this;
+ * - `null` data — the pane is gone (tmux could not be asked);
+ * - a parse failure, also `null` here — an agent that answered nonsense.
+ *
+ * The last two collapse deliberately: both mean "no confirmed size", and the
+ * control plane's only sane response to either is to announce nothing rather
+ * than a guess. An agent too old to know the command never gets asked (see
+ * `PANE_SIZE_MIN_PROTOCOL_VERSION`).
+ *
+ * @param data - the `data` member of a successful result frame
+ * @returns the pane's grid, or null when absent/malformed
+ */
+export function parseNodePaneSizeResult(data: unknown): NodePaneSizeResult | null {
+  if (!isRecord(data)) return null;
+  const { cols, rows } = data as { cols?: unknown; rows?: unknown };
+  // `isInt` is a type predicate, so both are `number` from here — no casts.
+  if (!isInt(cols) || !isInt(rows)) return null;
+  if (cols <= 0 || rows <= 0) return null;
+  return { cols, rows };
 }

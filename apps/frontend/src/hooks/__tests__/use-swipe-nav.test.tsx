@@ -125,3 +125,32 @@ describe("useSwipeNav — a keyboard must not drive a touch swipe", () => {
     expect(view.getByTestId("zone").style.transform).toBe("");
   });
 });
+
+/** A zone whose enablement the test drives, like the route's `prev ?? next`. */
+function GatedZone({ enabled }: { enabled: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useSwipeNav(ref, { onPrev: () => {}, onNext: () => {}, enabled });
+  return <div ref={ref} data-testid="zone" />;
+}
+
+describe("useSwipeNav readiness", () => {
+  afterEach(cleanup);
+
+  it("marks the zone ready only while a swipe could actually navigate", () => {
+    // Nothing observable used to say this, and the e2e suite lost a race on
+    // it about one run in eleven: the terminal mounts long before the
+    // subshell list has loaded, so a swipe dispatched in between is silently
+    // a no-op — the page simply stays where it was. Written in the SAME
+    // effect that governs unbinding, so the attribute cannot claim ready
+    // while the gesture is not bound.
+    const view = render(<GatedZone enabled={false} />);
+    expect(view.getByTestId("zone").dataset.swipeNav).toBe("idle");
+
+    view.rerender(<GatedZone enabled={true} />);
+    expect(view.getByTestId("zone").dataset.swipeNav).toBe("ready");
+
+    // ...and back, so a subshell whose neighbours vanish stops advertising.
+    view.rerender(<GatedZone enabled={false} />);
+    expect(view.getByTestId("zone").dataset.swipeNav).toBe("idle");
+  });
+});

@@ -91,6 +91,10 @@ const ATTACH_HANDLERS = {
   resize: ok,
   tail_start: ok,
   tail_stop: ok,
+  // The agent measures its pane; the control plane announces only what comes
+  // back. A handler that answered null would mean "this pane is gone", and no
+  // geometry would be announced at all.
+  pane_size: () => ({ cols: 132, rows: 43 }),
   log_read: (cmd: NodeCommandBody) =>
     cmd.type === "log_read" && cmd.maxBytes === 1
       ? { bytes_b64: b64(LOG.slice(0, 1)), next: 1, size: LOG.length }
@@ -159,7 +163,10 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // (subscribe → capture → open), which is what lets several browsers
       // watch one node pane without two overlapping tails. `fromByte` is
       // still the pre-capture EOF, so the join stays gap-free either way.
-      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture"]);
+      // `pane_size` closes the list even though this attach carries NO size:
+      // the pane has a grid whether or not this client declared one, and the
+      // client is told it either way.
+      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_size"]);
       expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
         { type: "tail_start", subshellId: id, subId: expect.any(String), fromByte: LOG.length },
@@ -168,11 +175,10 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // Frame 1: the replay, exactly the local path's shape.
       // Terminal frames only: the socket also carries `viewers` presence now.
       const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
-      // No geometry frame: this attach carries no size (there is no `resize`
-      // on the wire above), so there is nothing the pane was asked for to
-      // announce. An attach that DOES carry one announces it before the
-      // replay — see the relay's own suite.
-      expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      // Geometry first, then the replay — the client is told the pane's
+      // CONFIRMED grid before it paints the capture onto it.
+      expect(term()[0]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
+      expect(term()[1]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
 
       // Owner access ⇒ keystrokes and geometry ride the signed RPC (the
       // geometry passthrough: launch carries no cols today, the attach's
@@ -188,15 +194,15 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // browser's `output` frame.
       // fromByte sits at the armed EOF offset — the launcher's dup-clamp
       // would (correctly) discard anything below it.
-      // The resize above went through the geometry queue, and a node pane
-      // cannot be read back — so the queue announces the size it APPLIED
-      // rather than staying silent. That is what keeps several viewers of one
-      // node pane rendering the same grid as each other and as the pane.
-      expect(term()[1]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
+      // The resize above went through the geometry queue, which reads the
+      // pane back and announces what it found — the same confirmed grid the
+      // attach announced, which is what keeps several viewers of one node
+      // pane rendering the same thing as each other and as the pane.
+      expect(term()[2]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
 
       dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
-      await until(() => term().length === 3, "output frame");
-      expect(term()[2]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
+      await until(() => term().length === 4, "output frame");
+      expect(term()[3]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     } finally {
       sim.detach();
     }

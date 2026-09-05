@@ -87,6 +87,19 @@ panel remount disposes its terminal, closes the WS, and forces a history
 replay — every panel must keep `renderer: "always"`, and every `dockview-react`
 upgrade must re-run the manual probe documented in the root `AGENTS.md`.
 
+### Swipe navigation
+
+`useSwipeNav` publishes `data-swipe-nav="ready"|"idle"` on the zone it binds
+to, from the same effect that governs binding. It exists for the e2e suite,
+whose difficulty with this feature was that nothing observable said when a
+swipe could work: the gesture is only bound once the subshell LIST has loaded
+and neighbours exist, the terminal mounts well before that, and a swipe
+dispatched in between is silently a no-op — the page just does not move, with
+no error anywhere. Waiting on `.xterm`, and later on the list response, both
+still raced (a response arriving is not the app having rendered from it).
+Anything driving a swipe should wait for this attribute; it is the fact
+itself rather than a proxy for it.
+
 ### Several devices, one pane
 
 A tmux pane has ONE grid, so every attached viewer constrains it. The rule

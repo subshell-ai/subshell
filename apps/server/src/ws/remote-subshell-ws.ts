@@ -16,6 +16,7 @@ import {
   broadcastViewers,
   paneStreams,
   persistOutputFor,
+  readPaneGeometry,
   registerViewer,
   seedPaneGeometry,
   sharedGridFor,
@@ -220,8 +221,6 @@ export async function attachRemoteSubshellWs(
     // with its own refusal if the node actually went away.
     let repainted = false;
     let nudged = false;
-    /** The grid this attach asked the pane for, for the announcement below. */
-    let appliedFit: { cols: number; rows: number } | null = null;
     if (size) {
       const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
       try {
@@ -232,7 +231,6 @@ export async function attachRemoteSubshellWs(
         // so the pane bounced between the two exactly as it did before
         // eviction was removed.
         const fit = sharedGridFor(row.id) ?? size;
-        appliedFit = fit;
         await launcher.resize(data.socket, row.id, fit.cols, fit.rows);
         // Tell the queue this fit bypassed it, or `applied` keeps naming a
         // size the pane no longer holds and the next client frame asking for
@@ -280,25 +278,14 @@ export async function attachRemoteSubshellWs(
       ws.close(4004, "subshell not running");
       return;
     }
-    // Trailing terminator stripped, no cursor restored — the local twin's
-    // reasoning (kept from b76a22f).
-    // The grid the pane was asked for, announced to EVERY viewer and BEFORE
-    // the replay — the local twin's order, and for its reason: a client told
-    // first paints the capture onto a grid it already agrees with instead of
-    // discovering the mismatch a frame later.
-    //
-    // A node pane cannot be read back (`RemoteLauncher.paneSize` answers null
-    // until the agent protocol grows a size command), and this path used to
-    // announce nothing at all on that account — remote clients sized
-    // themselves. That was sound while a pane had one viewer, whose own grid
-    // WAS the grid the pane had just been given. With several it is not: the
-    // pane takes the MINIMUM, so every larger client renders more rows than
-    // the pane holds, and a client taller than its pane does not scroll when
-    // the pane does, putting every later relative-positioned frame a row out.
-    // An unconfirmed number all viewers share beats a confirmed disagreement;
-    // `pane-geometry.ts` carries the same reasoning for the queue's path.
-    if (appliedFit) {
-      broadcastToViewers(row.id, { type: "geometry", cols: appliedFit.cols, rows: appliedFit.rows });
+    // The pane's CONFIRMED grid, announced to every viewer before the
+    // replay so the capture is painted onto a grid they already agree
+    // with. Null means the pane died between the fit and here, and a
+    // dying pane gets no announcement — there is no second meaning to
+    // disambiguate any more, because every machine can measure.
+    const attachGeometry = await readPaneGeometry(launcher, data.socket, row.id);
+    if (attachGeometry) {
+      broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
     }
 
     const painted = captureToReplayText(replay);

@@ -1,5 +1,5 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
-import { FS_LS_MIN_PROTOCOL_VERSION, parseNodeFsLsResult } from "@internal/subshell-protocol";
+import { parseNodeFsLsResult } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -58,8 +58,10 @@ function rethrowRemoteBrowseError(err: NodeRpcError): never {
     });
   }
   if (err.code === "unsupported") {
-    // The version gate below should make this unreachable; belt answer —
-    // this agent cannot do the thing either way.
+    // The agent itself says it does not know the command. Unreachable in
+    // theory — the protocol is matched exactly at `ready`, so a connected
+    // agent speaks this one — but it is the agent's own answer and the honest
+    // thing to relay: it cannot do the thing either way.
     throwApiError({
       code: BackendErrorCodes.NODE_OUTDATED,
       message: "The subshell app on this node is too old to browse folders there — update it.",
@@ -116,7 +118,7 @@ export interface RemoteExploreResult {
  * @param userId - the cookie-authenticated browser user (access-check subject)
  * @param nodeId - the node to browse (never `local`; the route checked)
  * @param rawPath - the caller's `path` param; absent/`~` ⇒ the AGENT's home
- * @throws ApiError 404 invisible/absent node; 409 NODE_OUTDATED (agent predates
+ * @throws ApiError 404 invisible/absent node; 409 NODE_OUTDATED (the agent itself refuses
  *         fs_ls), NODE_OFFLINE, NODE_UNREACHABLE; 404/403/400 mirroring the
  *         local route for the agent's ENOENT/EACCES/EINVAL answers; 500 for a
  *         malformed listing (protocol violation)
@@ -136,18 +138,6 @@ export async function exploreNodeDirectory(
   if (access === "none" || !row) {
     throwApiError({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found", doNotLog: true });
   }
-  // Feature gate: an old agent is CONNECTED and fully serviceable (the
-  // protocol floor admits it) — only this feature refuses, with the remedy
-  // in the message. A null protocolVersion means `ready` never landed: no
-  // honest answer is possible, so the same gate catches it.
-  if ((row.protocolVersion ?? 0) < FS_LS_MIN_PROTOCOL_VERSION) {
-    throwApiError({
-      code: BackendErrorCodes.NODE_OUTDATED,
-      message: `The subshell app on "${row.name}" is too old to browse folders there — update it.`,
-      doNotLog: true,
-    });
-  }
-
   // The picker spells "home" `~`; the server CANNOT expand that against a
   // filesystem it cannot see, and the agent does no tilde work by contract.
   // Empty path = the agent's home — the node user's home is the honest

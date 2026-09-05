@@ -85,8 +85,8 @@ const RecentResponseSchema = t.Object({
  *   an omitted/`~` path means the AGENT's home — the server cannot expand
  *   `~` against a filesystem it cannot see).
  * - **Feature gate**: browsing a node needs `fs_ls`, i.e. the agent's
- *   reported protocol >= 3 (`FS_LS_MIN_PROTOCOL_VERSION`); an older agent
- *   answers 409 `NODE_OUTDATED` (it stays connected for everything else).
+ *   the exact node protocol (any mismatch is refused at `ready`). An agent
+ *   that answers `unsupported` anyway surfaces as 409 `NODE_OUTDATED`.
  * - `PATCH /favorite` stars/unstars a path (the picker's Favorites section —
  *   the successor to the removed bookmarks feature); local `/explore` ships
  *   both sections so the panel needs one request per folder. Remote
@@ -184,7 +184,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         node: t.Optional(
           t.String({
             description:
-              "Node id to browse; omitted or 'local' = the control-plane host. A remote browse needs fs_ls (node protocol >= 3): older agents answer 409 NODE_OUTDATED",
+              "Node id to browse; omitted or 'local' = the control-plane host. A remote browse relays the agent's own refusals: 409 NODE_OUTDATED, NODE_OFFLINE or NODE_UNREACHABLE",
           }),
         ),
       }),

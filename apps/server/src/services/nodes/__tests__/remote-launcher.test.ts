@@ -776,3 +776,34 @@ describe("launcher-registry", () => {
     expect(launcherFor("node-1")).not.toBe(a);
   });
 });
+
+describe("paneSize — the pane's confirmed grid, or nothing", () => {
+  it("asks the agent and returns the pane's real grid", async () => {
+    const h = makeHarness();
+    h.answer("pane_size", { cols: 132, rows: 43 });
+    expect(await h.launcher.paneSize("sock", "s1")).toEqual({ cols: 132, rows: 43 });
+    expect(h.calls.at(-1)?.cmd).toEqual({ type: "pane_size", subshellId: "s1" });
+  });
+
+  it("answers null for a pane the agent says is gone", async () => {
+    const h = makeHarness();
+    h.answer("pane_size", null);
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+
+  it("answers null rather than throwing when the node drops mid-question", async () => {
+    const h = makeHarness();
+    h.answer("pane_size", () => {
+      throw new Error("node offline");
+    });
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+
+  it("refuses a malformed grid instead of passing it on as a pane size", async () => {
+    // Every viewer pins its terminal to whatever comes back, so a zero would
+    // tell them all to lay out nothing.
+    const h = makeHarness();
+    h.answer("pane_size", { cols: 0, rows: 24 });
+    expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+});

@@ -66,9 +66,30 @@ async function swipe(client: CDPSession, fromX: number, toX: number, y: number) 
  * already landed.
  */
 async function gotoSubshell(page: Page, id: string): Promise<void> {
-  const listed = page.waitForResponse((r) => r.url().includes("/api/subshells") && r.ok());
   await page.goto(`/subshells/${id}`);
-  await listed;
+  await swipeReady(page);
+}
+
+/**
+ * Waits until the pane will actually respond to a swipe.
+ *
+ * `data-swipe-nav="ready"` is set by `useSwipeNav` in the same effect that
+ * binds the gesture, so it cannot claim ready while the listeners are off.
+ * Everything softer than this raced: `.xterm` visible is true long before the
+ * subshell list has loaded (no neighbours ⇒ the gesture is not even bound),
+ * and waiting for the list RESPONSE is not the app having rendered from it —
+ * that version still lost about one run in eleven. A swipe dispatched early
+ * is silently a no-op, so the failure looks like "the page did not move",
+ * with no error anywhere.
+ */
+async function swipeReady(page: Page): Promise<void> {
+  // EXACTLY ONE ready zone. During a client-side navigation the outgoing
+  // route's zone can still be mounted while the incoming one arrives, and a
+  // bare "is one visible" would be satisfied by the zone we are leaving —
+  // the same race, just narrower. Waiting for the count to settle at one is
+  // what makes this a fact about the page rather than about whichever
+  // element the locator happened to reach first.
+  await expect(page.locator('[data-swipe-nav="ready"]')).toHaveCount(1);
   await expect(page.locator(".xterm")).toBeVisible();
 }
 
@@ -149,14 +170,20 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
     if (below) {
       await swipe(client, cx, cx - 140, cy);
       await expect(page).toHaveURL(onSubshell(below));
+      // No readiness wait here, deliberately: `below` is whatever the order
+      // puts under A — a leftover from an earlier spec, which may be EXITED
+      // and therefore renders a log panel with no terminal at all. Only the
+      // URL is the claim; the return trip does its own waiting.
       // Only above A sits B, so return to A before exercising the up-swipe.
       await gotoSubshell(page, a);
     }
     // Right swipe from A → previous = B.
     await swipe(client, cx, cx + 140, cy);
     await expect(page).toHaveURL(onSubshell(b));
-    // B's terminal attached too; left swipe from B lands back on A.
-    await expect(page.locator(".xterm")).toBeVisible();
+    // B's zone has to arm before the next swipe: this is a CLIENT-SIDE
+    // navigation, so the gesture rebinds to a new element and the old one's
+    // `.xterm` can still be on screen while it does.
+    await swipeReady(page);
     await swipe(client, cx, cx - 140, cy);
     await expect(page).toHaveURL(onSubshell(a));
 

@@ -209,37 +209,6 @@ describe("files explore ?node (remote folder picker)", () => {
     }
   });
 
-  it("a protocol-v2 agent gets 409 NODE_OUTDATED without a frame — and stays the gate's subject even while connected", async () => {
-    // The v2 agent WOULD keep its socket (the protocol floor admits it) —
-    // only this feature is refused, with the remedy in the message.
-    const scriptedV2 = attachScriptedNode(nodeV2, { fs_ls: () => LISTING });
-    try {
-      const res = await explore({ node: nodeV2, path: "/tmp" });
-      expect(res.status).toBe(409);
-      const body = (await res.json()) as { code: string; message: string };
-      expect(body.code).toBe("NODE_OUTDATED");
-      expect(body.message).toInclude("too old");
-      expect(scriptedV2.countOf("fs_ls")).toBe(0);
-    } finally {
-      scriptedV2.detach();
-    }
-  });
-
-  it("a node that never reported ready (protocolVersion null) is gated too — never a doomed command", async () => {
-    const noReady = crypto.randomUUID();
-    createdNodeIds.push(noReady);
-    await nodes.create({
-      id: noReady,
-      ownerUserId: userId,
-      name: `noready-${noReady}`,
-      kind: "agent",
-      status: "offline",
-    });
-    const res = await explore({ node: noReady });
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { code: string }).code).toBe("NODE_OUTDATED");
-  });
-
   it("invisible node -> 404 (never 403 — the picker is no node-id oracle)", async () => {
     const scripted = agent(); // a live agent behind a ghost row would answer; it must never be asked
     try {

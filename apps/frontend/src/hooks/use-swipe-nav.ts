@@ -75,9 +75,26 @@ export function useSwipeNav(
   // A gesture that never gets its `last` (e.g. SSE drops the row and
   // `enabled` flips false mid-drag, unbinding the listeners) would strand
   // the damped translateX on the element — clear it on unbind too.
+  //
+  // The element also PUBLISHES whether it is a live swipe target. Written
+  // from the same `enabled` the recognizer is configured with, in an effect
+  // that commits alongside use-gesture's own binding effect — so the two
+  // agree on every settled render. (Not a lock: within one commit the two
+  // effects still run in order, so this is "same input, same flush", not
+  // "impossible to observe apart".) It is written for
+  // the e2e suite, whose whole difficulty with this feature was that nothing
+  // observable said when a swipe could work: `enabled` is false until the
+  // subshell list has loaded and neighbours exist, the terminal mounts well
+  // before that, and a swipe dispatched in between is silently a no-op. The
+  // test waited on the terminal, then on the list response, and still lost
+  // the race about one run in eleven — because a response ARRIVING is not the
+  // app having rendered from it. This is the fact itself rather than a proxy
+  // for it.
   useEffect(() => {
-    if (enabled) return;
-    if (ref.current) ref.current.style.transform = "";
+    const el = ref.current;
+    if (!el) return;
+    el.dataset.swipeNav = enabled ? "ready" : "idle";
+    if (!enabled) el.style.transform = "";
   }, [enabled, ref]);
 
   useDrag(

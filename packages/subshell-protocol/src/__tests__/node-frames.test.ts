@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  FS_LS_MIN_PROTOCOL_VERSION,
-  NODE_PROTOCOL_MIN_VERSION,
-  NODE_PROTOCOL_VERSION,
-  parseNodeCommandBody,
-  parseNodeEvent,
-} from "../node-frames.js";
+import { NODE_PROTOCOL_VERSION, parseNodeCommandBody, parseNodeEvent } from "../node-frames.js";
 
 const launchCmd = {
   type: "launch",
@@ -117,15 +111,20 @@ describe("parseNodeCommandBody", () => {
     ).toBeNull();
   });
 
-  it("pins the protocol version constants", () => {
-    // v2: the 2026-09-02 sessions→subshells rename changed frozen frame keys;
-    // pre-rename agents are refused at `ready` (close 4406) — the floor is
-    // where that rename put it and moves only when a FROZEN frame breaks.
-    // v3 (2026-09-03): additive `fs_ls` — old agents stay connected and lose
-    // only folder browsing, gated on FS_LS_MIN_PROTOCOL_VERSION.
-    expect(NODE_PROTOCOL_VERSION).toBe(3);
-    expect(NODE_PROTOCOL_MIN_VERSION).toBe(2);
-    expect(FS_LS_MIN_PROTOCOL_VERSION).toBe(3);
+  it("pins the protocol version", () => {
+    // Matched EXACTLY: there is no compat window and no per-feature gating,
+    // because the server and the agent ship together. Bump this whenever a
+    // frame changes and release both sides.
+    expect(NODE_PROTOCOL_VERSION).toBe(4);
+  });
+
+  it("accepts pane_size and rejects a missing or non-string id", () => {
+    expect(parseNodeCommandBody({ type: "pane_size", subshellId: "s1" })).toEqual({
+      type: "pane_size",
+      subshellId: "s1",
+    });
+    expect(parseNodeCommandBody({ type: "pane_size" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "pane_size", subshellId: 7 })).toBeNull();
   });
 });
 

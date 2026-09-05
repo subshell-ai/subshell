@@ -1,4 +1,4 @@
-import { NODE_PROTOCOL_MIN_VERSION } from "@internal/subshell-protocol";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { RefreshCw, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -161,16 +161,18 @@ function NodeDetailPage() {
             <dt className="text-muted-foreground">Status</dt>
             <dd className="mt-1 flex flex-wrap items-center gap-2">
               <Badge variant={n.status === "online" ? "success" : "muted"}>{n.status}</Badge>
-              {/* Below the COMPAT FLOOR only — an in-window older agent (v2
-                  while the plane speaks v3) still connects and serves
-                  everything except fs_ls folder browsing, so it is not
-                  "too old to speak". */}
-              {n.status === "offline" && n.protocolVersion != null && n.protocolVersion < NODE_PROTOCOL_MIN_VERSION && (
+              {/* Any mismatch, either direction: the protocol is matched
+                  EXACTLY, so an agent ahead of the server is refused just as
+                  an agent behind it is. Naming which way round it is turns a
+                  bare "offline" into an actionable message. */}
+              {n.status === "offline" && n.protocolVersion != null && n.protocolVersion !== NODE_PROTOCOL_VERSION && (
                 <Badge
                   variant="warning"
-                  title={`Agent speaks node protocol v${n.protocolVersion}; this control plane needs v${NODE_PROTOCOL_MIN_VERSION} or newer`}
+                  title={`Agent speaks node protocol v${n.protocolVersion}; this control plane speaks v${NODE_PROTOCOL_VERSION}. Deploy the ${
+                    n.protocolVersion < NODE_PROTOCOL_VERSION ? "agent" : "server"
+                  } to match.`}
                 >
-                  agent too old
+                  {n.protocolVersion < NODE_PROTOCOL_VERSION ? "agent too old" : "agent too new"}
                 </Badge>
               )}
             </dd>

@@ -1,16 +1,14 @@
-import { getHarness } from "@internal/harnesses";
 import { parseClientFrame } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
-import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
+import { accessAtLeast } from "@/lib/subshell-access.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
-import { parseAttachParams } from "@/ws/attach-params.js";
+import { resolveAttach } from "@/ws/attach-resolve.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
 import type { PaneGeometry } from "@/ws/pane-geometry.js";
 import { captureStable, nudgePaneForRepaint, RESIZE_SETTLE_MS, waitForPaneRepaint } from "@/ws/pane-repaint.js";
@@ -32,7 +30,6 @@ import {
   type WsData,
   type WsSocket,
 } from "@/ws/viewers.js";
-import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
  * WebSocket attach endpoint: streams a subshell's live output to the client
@@ -66,78 +63,22 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * local attach handler for shared machinery.
  */
 export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
-  const subshellId = url.searchParams.get("subshell");
-  if (!subshellId) {
-    ws.close(4001, "missing subshell");
+  // Who is asking, may they, and about which subshell — one decision, made
+  // without touching the socket (see `attach-resolve.ts`). Refusals come back
+  // rather than closing there, so every close code is owned here.
+  const resolved = await resolveAttach({
+    url,
+    cookieHeader: ws.raw?.request?.headers.get("cookie") ?? "",
+    // `ws.data.attachUa` is stashed by the plugin's `upgrade` hook, because
+    // `ws.raw.request` is NOT populated in Elysia's WS open context (that read
+    // is the fallback for direct callers, e.g. tests).
+    attachUa: ws.data?.attachUa ?? ws.raw?.request?.headers.get("user-agent") ?? "unknown",
+  });
+  if (!resolved.ok) {
+    ws.close(resolved.code, resolved.reason);
     return;
   }
-
-  // Auth: the `token` query param is a short-lived WS token issued by
-  // POST /api/auth/ws-token (the frontend authenticates via its HttpOnly
-  // cookie on that call). Fall back to reading the session cookie when it
-  // reaches us directly (same-host WS without a proxy).
-  const tokenParam = url.searchParams.get("token");
-  const cookieHeader = ws.raw?.request?.headers.get("cookie") ?? "";
-
-  let userId: string | null = null;
-  if (tokenParam) {
-    userId = consumeWsToken(tokenParam);
-  } else {
-    // Same shared extraction as the REST guard — accepts the https
-    // `__Secure-` spelling and re-presents it under both names.
-    const session = await resolveCookieSession(cookieHeader);
-    userId = session?.user.id ?? null;
-  }
-  if (!userId) {
-    ws.close(4001, "unauthorized");
-    return;
-  }
-
-  const { repos } = getRequestlessContext();
-  // Resolve the caller's access to THIS subshell (a human browser path: admin
-  // and shared grants both count). Invisible (absent or unshared) closes with
-  // the same 4004 an owner-mismatch used to, so a stranger learns nothing.
-  const { row, access } = await loadSubshellAccess(
-    { subshells: repos.subshells, shares: repos.subshellShares, userMeta: repos.userMeta },
-    userId,
-    subshellId,
-  );
-  if (!row || !accessAtLeast(access, "view")) {
-    ws.close(4004, "subshell not found");
-    return;
-  }
-
-  // The client's fitted geometry rides the URL so the pane can be resized
-  // BEFORE the replay is captured: a capture taken at tmux's 80×24 birth size
-  // (or any stale size) re-wraps history rows against the wrong column count,
-  // which is exactly the mis-positioned garbage that used to scroll up and
-  // stay garbled. Both attach branches consume it.
-  // Every attach input, read off the URL once — see `attach-params.ts`.
-  const params = parseAttachParams(url);
-  // One line per attach makes "still jumbled" reports diagnosable from the
-  // journal alone: `geometry WxH` proves the browser's cols/rows survived
-  // proxy + plugin handoff; `geometry MISSING` names the remaining culprits
-  // (stale client bundle that sends no geometry, or a proxy stripping the
-  // WS upgrade query).
-  // The UA names the app behind the socket: `geometry MISSING` plus a plain
-  // browser UA = a stale PWA bundle that predates the geometry feature (and
-  // the paste fixes) — a reload/reinstall is the cure, not a server change.
-  // It rides `ws.data.attachUa`, stashed by the plugin's `upgrade` hook,
-  // because `ws.raw.request` is NOT populated in Elysia's WS open context
-  // (that read is the fallback for direct callers, e.g. tests).
-  const ua = ws.data?.attachUa ?? ws.raw?.request?.headers.get("user-agent") ?? "unknown";
-  // WHICH BUNDLE is asking. A cached PWA keeps running old JavaScript across
-  // any number of server deploys, and static requests are not logged, so
-  // "did the client actually load the fix" was unanswerable — the 2026-09-04
-  // session burned hours on renderer theories while the phone may never have
-  // fetched the new chunk. `build=` is the client's own asset hash, so a
-  // reload is visible as a CHANGED id; `build MISSING` is itself the answer,
-  // meaning a bundle older than this line.
-  logger.info(
-    params.size
-      ? `ws attach ${row.id}: geometry ${params.size.cols}x${params.size.rows} build=${params.build} ua="${ua.slice(0, 90)}"`
-      : `ws attach ${row.id}: geometry MISSING (stale client predates cols/rows) build=${params.build} ua="${ua.slice(0, 90)}"`,
-  );
+  const { row, access, params } = resolved;
 
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
   // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row
@@ -199,9 +140,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     detached = true;
     data.cleanup?.();
   };
-
-  const harness = row.harnessId ? getHarness(row.harnessId) : undefined;
-  void harness;
 
   // JOIN-POINT RULE (learned the hard way, twice): the client attaches at a
   // log offset taken BEFORE the resize, then gets the snapshot plus EVERY
@@ -265,7 +203,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   let repainted = false;
   let nudged = false;
   /** The grid this attach actually asked the pane for, for the announcement below. */
-  let appliedFit: PaneGeometry | null = null;
+  const _appliedFit: PaneGeometry | null = null;
   if (params.size) {
     const sizeOf = async (): Promise<number> => (await Bun.file(data.logFile).stat()).size;
     try {
@@ -274,7 +212,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       // watching must shrink the pane for both, so the capture below matches
       // the grid both of them will render.
       const fit = sharedGridFor(row.id) ?? params.size;
-      appliedFit = fit;
       await launcher.resize(row.tmuxSocket, row.id, fit.cols, fit.rows);
       // Tell the queue: this fit bypassed it, and a client frame asking for
       // the same size must not then be swallowed as already-applied.
@@ -310,41 +247,14 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // capture — the stable-grid poll is obsolete now the byte stream is
   // gap-free: a snapshot that races an animating frame is corrected by the
   // very next diff, which the client is guaranteed to receive.
-  const cap = replayLineCap(await repos.userMeta.getTerminalReplayLines(row.userId));
+  const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
   const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
-  // The trailing terminator still goes (kept from b76a22f): it would land the
-  // client one row past the pane's last row, scrolling the viewport out of
-  // step with the pane's grid. No cursor is restored — the replay ends where
-  // the last captured row ends, which is the bottom of the grid. See
-  // {@link captureToReplayText}.
-  // The pane's real grid, announced BEFORE the replay: the capture below was
-  // taken at whatever size the pane actually holds, which is not necessarily
-  // the size this client asked for on the URL (the request can be clamped, or
-  // lost). Telling the client first means it paints the capture onto a grid it
-  // already agrees with, instead of discovering the mismatch a frame later.
-  // Null (a remote pane, an unreadable pane) simply announces nothing and
-  // leaves the client sizing itself, exactly as before the readback existed.
-  //
-  // Broadcast, not a direct send: a joiner smaller than the incumbents SHRINKS
-  // the pane for all of them (the fit above is the shared grid), and this
-  // attach applies that resize DIRECTLY rather than through the queue — so the
-  // queue's own announcement never fires and the incumbents would never learn
-  // their pane had moved under them. Measured live with two tabs: the pane
-  // correctly became 122x49, the joiner rendered 49 rows, and the incumbent
-  // sat at 52 forever, which is exactly the client/pane disagreement that
-  // corrupts a relative-positioned redraw. The joiner is already registered,
-  // so this reaches it too, still before its replay.
-  // Confirmed where it can be, else the fit this attach applied — the queue's
-  // rule, and the same reasoning (see `pane-geometry.ts`): with several
-  // viewers the pane is the MINIMUM, so a client left to its own grid renders
-  // more rows than the pane holds and stops scrolling in step with it.
-  //
-  // The fallback is only for a machine that can never measure. On one that
-  // can, a null read means the pane has died, and a dying pane gets no
-  // announcement. `appliedFit` is null when this attach carried no size at
-  // all, and then there is genuinely nothing to announce either.
-  const readBack = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
-  const attachGeometry = readBack ?? (launcher.reportsPaneSize ? null : appliedFit);
+  // The pane's CONFIRMED grid, announced to every viewer before the
+  // replay so the capture is painted onto a grid they already agree
+  // with. Null means the pane died between the fit and here, and a
+  // dying pane gets no announcement — there is no second meaning to
+  // disambiguate any more, because every machine can measure.
+  const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
   if (attachGeometry) {
     broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }
@@ -382,21 +292,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   };
   if (detached) ws.data.cleanup();
 }
-
-/**
- * The client geometry a browser passed on the WS URL (`&cols=&rows=`), or
- * null when absent/malformed (older client, manual connect) — the attach then
- * skips the pre-capture resize and behaves the old way.
- */
-function _parseInitialSize(url: URL): { cols: number; rows: number } | null {
-  const cols = Number(url.searchParams.get("cols"));
-  const rows = Number(url.searchParams.get("rows"));
-  if (Number.isInteger(cols) && cols > 0 && Number.isInteger(rows) && rows > 0) return { cols, rows };
-  return null;
-}
-
-/** Longest client build id the attach line will print (an asset hash is ~8). */
-const _MAX_BUILD_ID_LEN = 24;
 
 /**
  * Client → server frame dispatch.

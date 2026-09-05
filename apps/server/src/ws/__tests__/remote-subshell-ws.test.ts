@@ -253,7 +253,10 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // `fromByte` is the pre-resize sample either way — but subscribing first
     // is what lets several viewers share ONE pump, which `NodeLauncher`'s
     // contract requires.
-    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture"]);
+    // `pane_size` closes the list: the attach reads the pane back (protocol
+    // v4) so the geometry it announces is CONFIRMED rather than the size it
+    // asked for. On a pre-v4 node the command is never sent at all.
+    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_size"]);
     expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
     // The capture carries the default replay line cap; the tail starts at the
     // probed size (7): only bytes past the snapshot ever ship.
@@ -369,7 +372,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // Collapsed: the size probes repeat on a timing cadence, order is the point.
     // The tail precedes the resize now — see the ordering note above; what
     // still matters here is that the RESIZE lands ahead of the CAPTURE.
-    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,resize,capture");
+    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,resize,capture,pane_size");
     // The scripted log never grows, so the pane reads as "never repainted"
     // and the relay nudges it (±1 col) to force a SIGWINCH — the local twin's
     // rule, and the cure for a no-op resize leaving a half-painted frame on
@@ -586,6 +589,40 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
 
     cleanupSubshellWs(phone.ws);
     cleanupSubshellWs(laptop.ws);
+  });
+
+  it("announces the CONFIRMED grid on a v4 node, not the size it asked for", async () => {
+    // The whole point of the protocol bump, and the attach is where it
+    // matters most: this is the first geometry a client receives and the one
+    // its replay is painted against. Before, only later resizes (which go
+    // through the queue) got the confirmation.
+    const sim = makeNodeSim();
+    scriptHappy(sim);
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 40);
+    // tmux took a different size than the one requested — exactly the case a
+    // readback exists to catch. Scripted repeatedly because HOW MANY times the
+    // pane is read is not part of the contract (the attach reads once, the
+    // queue reads again after its own resize), and a one-shot answer makes
+    // the test depend on that count.
+    for (let i = 0; i < 10; i += 1) sim.answer("pane_size", { cols: 132, rows: 40 });
+    const { ws, sent } = fakeBrowser();
+
+    await attachRemoteSubshellWs(
+      ws,
+      attachRow(),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams({ size: { cols: 132, rows: 43 } }),
+    );
+
+    const geometry = sent
+      .filter((f) => f.includes('"type":"geometry"'))
+      .map((f) => JSON.parse(f) as { type: string; cols: number; rows: number });
+    expect(geometry[0]).toEqual({ type: "geometry", cols: 132, rows: 40 });
+    // ...and never the request, which would be an echo dressed as a fact.
+    expect(geometry.some((g) => g.rows === 43)).toBe(false);
+
+    cleanupSubshellWs(ws);
   });
 
   it("honours `hidden` from the connect URL on a node pane too", async () => {

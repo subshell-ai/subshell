@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_MIN_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -247,7 +247,7 @@ describe("NodeDetailPage rotate-key", () => {
   });
 });
 
-describe("NodeDetailPage agent-too-old chip", () => {
+describe("NodeDetailPage protocol-mismatch chip", () => {
   it("chips an offline agent whose reported protocol predates the control plane's", async () => {
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 0 }));
     try {
@@ -260,7 +260,7 @@ describe("NodeDetailPage agent-too-old chip", () => {
   });
 
   it("stays silent for a current protocol", async () => {
-    // Rides the constant: v1 became stale with the 2026-09-02 frame rename.
+    // Rides the constant, so a bump cannot leave this asserting a literal.
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION }));
     try {
       renderDetail("agent1");
@@ -271,14 +271,16 @@ describe("NodeDetailPage agent-too-old chip", () => {
     }
   });
 
-  it("stays silent for an in-window older agent (v2 while the plane speaks v3)", async () => {
-    // v3 (fs_ls) is additive — a v2 agent still connects and serves every
-    // frame but folder browsing, so it is NOT the "too old to speak" chip.
-    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_MIN_VERSION }));
+  it("names an agent AHEAD of the server, not just one behind it", async () => {
+    // The protocol is matched exactly, so an agent newer than the control
+    // plane is refused too — and "offline" alone would send someone to
+    // upgrade the agent, which is the wrong end. There is no in-window case
+    // any more: any mismatch is a deployment out of step.
+    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION + 1 }));
     try {
       renderDetail("agent1");
       await screen.findByText("Your access");
-      expect(screen.queryByText("agent too old")).toBeNull();
+      expect(screen.getByText("agent too new")).toBeDefined();
     } finally {
       restore();
     }
