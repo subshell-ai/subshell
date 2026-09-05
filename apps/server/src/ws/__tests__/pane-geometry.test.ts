@@ -198,6 +198,24 @@ describe("createGeometryQueue — serialize + coalesce per subshell", () => {
     expect(seen).toEqual([{ cols: 92, rows: 28 }]);
   });
 
+  it("a release during an in-flight apply also swallows the announcement", async () => {
+    // The frame is fanned out BY SUBSHELL ID, not to the socket that asked,
+    // so an announcement landing after the last viewer left reaches whoever
+    // attaches NEXT — telling them to lay out a size decided for viewers who
+    // have gone.
+    const rec = recorder({ block: true });
+    const seen: Array<{ cols: number; rows: number }> = [];
+    const queue = createGeometryQueue({ onGeometry: (_k, size) => seen.push(size) });
+
+    queue.request("s1", 80, 24, rec.sizer);
+    await settle();
+    queue.release("s1"); // last viewer leaves mid-apply
+    rec.release();
+    await settle();
+
+    expect(seen).toEqual([]);
+  });
+
   it("a release during an in-flight apply drops the queued burst instead of resizing an unwatched pane", async () => {
     const rec = recorder({ block: true });
     const queue = createGeometryQueue({ onGeometry: () => {} });

@@ -166,8 +166,13 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
       // moment anyone smaller attaches, while this one is wrong only if tmux
       // clamped the request. And with ONE viewer the two are the same number,
       // so that path is unchanged.
-      if (real) options.onGeometry(key, real);
-      else if (!sizer.confirms) options.onGeometry(key, size);
+      // Nothing to say once the entry is released: the last viewer left while
+      // this round trip was in flight, and the frame is fanned out BY
+      // SUBSHELL ID rather than to the socket that asked — so a late
+      // announcement reaches whoever attaches next and tells them to lay out
+      // a size decided for viewers who have gone.
+      const announce = entry.released ? null : (real ?? (sizer.confirms ? null : size));
+      if (announce) options.onGeometry(key, announce);
     } catch (err) {
       options.onError?.(err, key);
     } finally {

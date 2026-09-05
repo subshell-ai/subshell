@@ -38,8 +38,6 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
       socket: "sock",
       subshellId,
       logFile: "/dev/null",
-      lastSize: 0,
-      lastOutputWriteAt: 0,
       canInput: opts.canInput ?? true,
       // The registry is keyed by viewerId, so a fake without one registers
       // as nothing and its resize frames reach no pane.

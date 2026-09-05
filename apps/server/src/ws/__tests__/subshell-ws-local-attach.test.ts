@@ -339,6 +339,48 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     cleanupSubshellWs(incumbent.ws);
   });
 
+  it("clears a pin when the device it names leaves", async () => {
+    // `decideSharedGrid` already falls through to auto for a pin it cannot
+    // resolve, so the pane is never wrong — but the policy still rides the
+    // presence frame, and the UI faithfully reported "pinned" plus a "Back to
+    // automatic" for a pin that had not been in effect since that tab closed.
+    // A control that lies about the state it controls is worse than none.
+    stubLauncher();
+    let paneRows = 50;
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const phone = await attach(row.userId, row.id, "&cols=100&rows=20");
+    const laptopId = (
+      JSON.parse(laptop.sent.filter((f) => f.includes('"type":"viewers"')).at(-1) ?? "{}") as {
+        you: string;
+      }
+    ).you;
+
+    handleSubshellMessage(phone.ws, JSON.stringify({ type: "set-sizing", mode: "pinned", viewerId: laptopId }));
+    await Bun.sleep(60);
+    const pinned = JSON.parse(phone.sent.filter((f) => f.includes('"type":"viewers"')).at(-1) ?? "{}") as {
+      sizing: { mode: string; pinnedViewerId: string | null };
+    };
+    expect(pinned.sizing).toEqual({ mode: "pinned", pinnedViewerId: laptopId });
+
+    cleanupSubshellWs(laptop.ws); // the pinned device closes its tab
+    await Bun.sleep(60);
+
+    const after = JSON.parse(phone.sent.filter((f) => f.includes('"type":"viewers"')).at(-1) ?? "{}") as {
+      sizing: { mode: string; pinnedViewerId: string | null };
+    };
+    expect(after.sizing).toEqual({ mode: "auto", pinnedViewerId: null });
+
+    cleanupSubshellWs(phone.ws);
+  });
+
   it("re-decides the grid once the attach is over, so a raced resize is not lost", async () => {
     // The attach resizes the pane DIRECTLY (it must be awaited before the
     // capture) and seeds the queue behind its back, so it can interleave with

@@ -49,10 +49,11 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * everything past the delegation below is the local path.
  *
  * Import note: `subshell-ws.ts` ↔ `remote-subshell-ws.ts` is a deliberate
- * cycle (the relay reuses `persistOutput`/the `WsData` shape; marker
- * stripping lives beside both in `sync-stripper.ts`); both use each other's
- * hoisted function declarations only at call time, so module evaluation order
- * never matters.
+ * cycle — the relay reuses this module's viewer registry, shared-grid
+ * decision, pump and geometry queue, and this module dispatches to the relay.
+ * Both use each other's hoisted function declarations only at call time, so
+ * module evaluation order never matters. Extracting presence + sizing into
+ * their own module would dissolve it; see the file-size note below.
  */
 export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   const subshellId = url.searchParams.get("subshell");
@@ -807,6 +808,11 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     return;
   }
   if (frame.type === "resize") {
+    // A client re-announces its capacity on every fit, and most of those
+    // repeat the value it already reported. Presence is serialized PER
+    // RECIPIENT, so forwarding an unchanged number costs every viewer a frame
+    // that says nothing.
+    const moved = data.capacity?.cols !== frame.cols || data.capacity?.rows !== frame.rows;
     // A client frame reports what THIS viewer can display; it is not an
     // instruction. The pane's size is decided from every attached viewer
     // (`resolveSharedGrid`) and applied through the queue — never straight at
@@ -815,8 +821,9 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     data.capacity = { cols: frame.cols, rows: frame.rows };
     applySharedGeometry(data.subshellId, data.launcher, data.socket);
     // The list shows each device's capacity, and it is what explains the
-    // pane's size — so a viewer resizing is a presence change too.
-    broadcastViewers(data.subshellId);
+    // pane's size — so a viewer resizing is a presence change too, when the
+    // number actually changed.
+    if (moved) broadcastViewers(data.subshellId);
     return;
   }
   // Raw terminal input, forwarded verbatim — but only for callers allowed to
@@ -868,6 +875,15 @@ export function cleanupSubshellWs(ws: WsSocket): void {
       // entry would make that request look like a no-op.
       geometryQueue.release(subshellId);
     } else if (ws.data) {
+      // The pin named THIS viewer, so it no longer names anything.
+      // `decideSharedGrid` already falls through to auto for a pin it cannot
+      // resolve, so the pane was never wrong — but the policy still rode the
+      // presence frame, and the UI faithfully reported "pinned" plus a "Back
+      // to automatic" for a pin that had not been in effect since the moment
+      // that device closed its tab. A control that lies about the state it
+      // controls is worse than no control.
+      const policy = sizingPolicies.get(subshellId);
+      if (policy?.pinnedViewerId === viewerId) sizingPolicies.delete(subshellId);
       // Someone is still watching, and the pane may have been held small on
       // this viewer's account — re-decide without it so it can grow back.
       applySharedGeometry(subshellId, ws.data.launcher, ws.data.socket);
