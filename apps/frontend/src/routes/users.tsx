@@ -21,6 +21,13 @@ interface UserRow {
   email: string;
   role: string | null;
   createdAt: string | null;
+  /**
+   * False for the `system` service account. Server-derived: the rule lives
+   * with the endpoint that enforces it, so the UI cannot offer a control that
+   * is guaranteed to be refused, and never hardcodes the service address.
+   * Optional for a payload cached before the field existed.
+   */
+  manageable?: boolean;
 }
 
 interface AuditEvent {
@@ -230,11 +237,21 @@ function UsersPage() {
                       </td>
                       {viewerIsAdmin && (
                         <td className="py-2">
-                          <UserRowActions
-                            user={u}
-                            viewerId={currentUser?.id ?? null}
-                            onChanged={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
-                          />
+                          {u.manageable === false ? (
+                            <span className="text-muted-foreground text-xs">Service account</span>
+                          ) : (
+                            <UserRowActions
+                              user={u}
+                              viewerId={currentUser?.id ?? null}
+                              onChanged={() => {
+                                void queryClient.invalidateQueries({ queryKey: ["users"] });
+                                // The audit table sits on this same page — a
+                                // role change or reset that did not refresh it
+                                // would look unrecorded.
+                                void queryClient.invalidateQueries({ queryKey: ["audit"] });
+                              }}
+                            />
+                          )}
                         </td>
                       )}
                     </tr>

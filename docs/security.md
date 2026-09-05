@@ -539,9 +539,23 @@ Recorded so they are decisions rather than surprises:
    is audited as `user.password_reset` with the session count rather than the
    password. Two guards bound it: an admin cannot reset their OWN password
    there (Account requires the current one, so an unlocked laptop is not a
-   takeover), and the `system` service account is untouchable. A reset
-   **revokes every session the target holds**, so it does evict an attacker
-   already holding a cookie.
+   takeover), and the `system` service account is untouchable.
+
+   **What a reset does and does not evict.** It deletes every row in
+   `session` for that user, so an attacker holding a session cookie loses it.
+   It does **not** revoke:
+   - **Passkeys.** `@better-auth/passkey` stores credentials in its own
+     `passkey` table, not in `account`. An attacker who enrolled a passkey
+     during the compromise re-authenticates immediately and mints a fresh
+     session — the very case the reset is reached for. Removing the target's
+     passkeys is not currently part of a reset; do it by hand, or treat a
+     suspected compromise as needing more than a password change.
+   - **Live WebSockets.** `/ws` authenticates once at connect (cookie, or a
+     30 s single-use token) and is never re-checked, so an already-attached
+     terminal keeps streaming until it disconnects.
+
+   A password reset is therefore a credential rotation, not a session-kill
+   switch for every path into the account.
 6. **System keys are bearer-equals-full-access** and long-lived. Every holder is
    effectively an operator.
 7. **No DoS protection** beyond login backoff.

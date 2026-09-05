@@ -194,8 +194,26 @@ describe("admin user management", () => {
     });
 
     it("refuses to touch the system service account", async () => {
+      // 403, not 400: the body is valid, the caller simply may not.
       const res = await req("PATCH", `/${systemId}/role`, adminCookie, { role: "user" });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(403);
+    });
+
+    it("upserts a role over a user with no user_meta row at all", async () => {
+      // `listWithRoles` returns role: null for such a user, so the state is
+      // reachable — and a bare UPDATE would silently no-op, leaving the admin
+      // believing they had granted something.
+      const orphanEmail = `um-orphan-${crypto.randomUUID()}@subshell.local`;
+      const orphanId = await mkUser(orphanEmail, "user");
+      await db.deleteFrom("userMeta").where("userId", "=", orphanId).execute();
+      expect(await meta.getRole(orphanId)).toBeNull();
+      try {
+        const res = await req("PATCH", `/${orphanId}/role`, adminCookie, { role: "admin" });
+        expect(res.status).toBe(200);
+        expect(await meta.getRole(orphanId)).toBe("admin");
+      } finally {
+        await deleteUserByEmailOrId(orphanEmail);
+      }
     });
 
     it("404s an unknown user", async () => {
@@ -229,6 +247,19 @@ describe("admin user management", () => {
       });
       expect(res.status).toBe(400);
       expect(await res.text()).not.toContain(rejected);
+    });
+  });
+
+  describe("roster", () => {
+    it("marks the system account unmanageable so the UI offers no doomed control", async () => {
+      const res = await usersRoutes.fetch(
+        new Request("http://localhost:3080/api/users", {
+          headers: { cookie: `better-auth.session_token=${adminCookie}` },
+        }),
+      );
+      const body = (await res.json()) as { users: { id: string; manageable: boolean }[] };
+      expect(body.users.find((u) => u.id === systemId)?.manageable).toBe(false);
+      expect(body.users.find((u) => u.id === memberId)?.manageable).toBe(true);
     });
   });
 
@@ -275,8 +306,46 @@ describe("admin user management", () => {
 
     it("refuses the system service account", async () => {
       expect((await req("PATCH", `/${systemId}/password`, adminCookie, { password: "nope-nope-nope" })).status).toBe(
-        400,
+        403,
       );
+    });
+
+    it("refuses a user who has no password login, rather than inventing one", async () => {
+      // Reaching this branch takes a user with a `user` row and no
+      // `account` row. Only `system` is like that in practice, and it is
+      // refused earlier — so without constructing the state deliberately the
+      // guard is unreachable, and an unreachable guard is one that rots.
+      // Inventing a credential here would give a password login to an account
+      // that deliberately had none.
+      const noPwEmail = `um-nopw-${crypto.randomUUID()}@subshell.local`;
+      const noPwId = await mkUser(noPwEmail, "user");
+      await sql`DELETE FROM account WHERE userId = ${noPwId}`.execute(db);
+      try {
+        const res = await req("PATCH", `/${noPwId}/password`, adminCookie, { password: "brand-new-pass-2" });
+        expect(res.status).toBe(409);
+        expect(await res.text()).toContain("no password login");
+        // ...and nothing was created behind it.
+        expect(await storedHash(noPwId)).toBeNull();
+      } finally {
+        await deleteUserByEmailOrId(noPwEmail);
+      }
+    });
+
+    it("keeps the password out of the AUDIT row, not just the response", async () => {
+      // The response is the obvious place to check; the audit table is the one
+      // that persists and gets read back by an admin months later.
+      const secret = "audit-should-not-hold-this-1";
+      await req("PATCH", `/${memberId}/password`, adminCookie, { password: secret });
+      const rows = await db
+        .selectFrom("auditEvents")
+        .select(["action", "metadataJson"])
+        .where("action", "=", "user.password_reset")
+        .where("targetId", "=", memberId)
+        .execute();
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row.metadataJson ?? "").not.toContain(secret);
+      // It records what it should: who, and how much was cut.
+      expect(rows.at(-1)?.metadataJson ?? "").toContain("sessionsRevoked");
     });
 
     it("rejects a password under 8 characters WITHOUT quoting it back", async () => {

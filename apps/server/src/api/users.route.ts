@@ -15,6 +15,10 @@ const UserRowSchema = t.Object({
   email: t.String({ description: "User email" }),
   role: t.Union([t.String(), t.Null()], { description: "App role (admin/user) or null when no user_meta row" }),
   createdAt: t.Union([t.String(), t.Null()], { description: "ISO 8601 creation timestamp" }),
+  manageable: t.Boolean({
+    description:
+      "False for the `system` service account, whose role and password an admin may not change. Server-derived so the UI never renders a control that is guaranteed to be refused, and never has to hardcode the service account's address",
+  }),
 });
 
 const CreateUserBodySchema = t.Object({
@@ -106,7 +110,9 @@ async function requireManageableUser(id: string): Promise<{ id: string; email: s
   const row = await new UsersRepository(db).findByIdBasic(id);
   if (!row) throw new UsersError("not_found", "User not found", 404);
   if (row.email === SYSTEM_USER_EMAIL) {
-    throw new UsersError("bad_request", "The system service account cannot be modified.", 400);
+    // 403, not 400: the body is perfectly valid, the caller simply may not do
+    // this to this account.
+    throw new UsersError("forbidden", "The system service account cannot be modified.", 403);
   }
   return row;
 }
@@ -256,7 +262,12 @@ export const usersRoutes = new Elysia({ prefix: "/api/users" })
   .get(
     "/",
     async ({ user, actor }) => {
-      const users = await new UsersRepository(db).listWithRoles();
+      const rows = await new UsersRepository(db).listWithRoles();
+      // Same rule `requireManageableUser` enforces, computed once here so the
+      // client does not restate it. The two must agree, and the only way to
+      // guarantee that is for one of them to be derived from the other's
+      // constant.
+      const users = rows.map((row) => ({ ...row, manageable: row.email !== SYSTEM_USER_EMAIL }));
       // The shared cookie-admin rule (user-utils) — same semantics as
       // requireAdmin: cookie actor AND user_meta role "admin". Anyone else
       // (member cookie, any bearer) sees the roster read-only.
