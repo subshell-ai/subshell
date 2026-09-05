@@ -113,14 +113,14 @@ on this node — it must point at the running binary.
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
 
-**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.3.0`) is the
+**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.4.0`) is the
 operator-facing statement "this server needs subshell >= X". It runs first
 precisely because it is the gate an operator can *act* on, and the close reason
 names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `4`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `5`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -204,14 +204,18 @@ and answered by exactly one `result` event.
 | `log_read` | Byte-ranged read of the pane log |
 | `tail_start` / `tail_stop` | Subscribe/unsubscribe a byte-offset tail, keyed by `subId` |
 
-**Filesystem** (all path-policy enforced agent-side)
+**Filesystem** (all path-policy enforced agent-side). `fs_ls` is deliberately
+NOT gated by the directory allowlist — browsing is not launching, and the owner
+browses through it to choose what to permit; the control plane filters listings
+instead. See `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.md`.
 
 | Command | |
 |---|---|
-| `stat_dir` | Verify a directory exists and is usable |
+| `stat_dir` | Verify a directory exists and is usable. **Also the allowlist gate**: refused when the node has directory rules and the resolved path is outside them, so the pre-launch probe answers the same way `launch` will |
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
+| `set_allowed_dirs` | Replace the node's persisted directory allowlist (v5). The node stores it at `<dataDir>/allowed-dirs.json` (0600) and checks every `launch`/`stat_dir` against its OWN copy — signing proves who sent a launch, never whether the directory is permitted. An empty array clears the rules (unrestricted). Pushed on every owner edit and again after each `ready`, which is what reconciles a node that was offline for an edit |
 
 **Status**
 

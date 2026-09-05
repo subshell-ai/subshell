@@ -1456,13 +1456,19 @@ export class DirNotAllowedError extends Error {
  *
  * An empty list means unrestricted, so an unconfigured node is unaffected.
  */
-async function assertDirAllowed(nodeId: string, resolvedDir: string): Promise<void> {
+export async function assertDirAllowed(nodeId: string, resolvedDir: string): Promise<void> {
   const dirs = await getRequestlessContext().repos.nodeAllowedDirs.listForNode(nodeId);
   if (dirAllowed(resolvedDir, dirs)) return;
   throw new DirNotAllowedError(
     `"${resolvedDir}" is outside the directories this node allows. Allowed: ${dirs.join(", ")}`,
   );
 }
+
+/**
+ * {@link assertDirAllowed} under a name that says why it is exported.
+ * @internal
+ */
+export const assertDirAllowedForTests = assertDirAllowed;
 
 /** JSON-safe subshell view (no internal fields). */
 /**

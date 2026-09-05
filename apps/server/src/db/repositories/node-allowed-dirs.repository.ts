@@ -12,6 +12,15 @@ import { BaseRepository } from "@/db/repositories/base.repository.js";
  *
  * NO ROWS means UNRESTRICTED. Read {@link listForNode}'s note before writing a
  * caller that treats an empty array as "deny".
+ *
+ * **Paths arrive ALREADY RESOLVED on their node.** This class normalizes
+ * (absolute, no `..`, no trailing slash) but cannot resolve symlinks — a rule
+ * for an agent node names a path on a filesystem this process cannot see. The
+ * PUT route does it, via the same `validateWorkingDir` the launch gate uses.
+ * A caller that writes raw operator input here reintroduces the bug that
+ * motivated it: a rule of `/tmp/work` never matches a candidate that
+ * realpath'd to `/private/tmp/work`, so the owner is refused the directory
+ * they just permitted.
  */
 export class NodeAllowedDirsRepository extends BaseRepository {
   /**

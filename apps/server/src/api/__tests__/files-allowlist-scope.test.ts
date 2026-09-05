@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
@@ -52,7 +52,11 @@ describe("local folder picker under an allowlist", () => {
     });
     cookie = await signIn(email, password);
 
-    root = mkdtempSync(join(tmpdir(), "subshell-fscope-"));
+    // realpath'd, because that is what the PUT route stores: rules are
+    // resolved on their node at write time so a rule and a launch candidate
+    // are the same string. On macOS the tmpdir is behind /private, so a raw
+    // rule here would silently test the wrong thing.
+    root = realpathSync(mkdtempSync(join(tmpdir(), "subshell-fscope-")));
     allowed = join(root, "work");
     mkdirSync(join(allowed, "project"), { recursive: true });
     mkdirSync(join(root, "secrets"), { recursive: true });

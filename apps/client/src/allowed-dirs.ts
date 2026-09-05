@@ -74,7 +74,11 @@ export function writeAllowedDirs(dataDir: string, dirs: readonly string[]): stri
   const normalized = normalizeAllowedDirs(dirs);
   const file = allowedDirsPath(dataDir);
   const body: AllowedDirsFile = { version: 1, dirs: normalized };
-  mkdirSync(dirname(file), { recursive: true });
+  // 0700, matching the data dir `identity.ts` creates: this file names the
+  // only directories that may run code on this machine. mkdir's mode is
+  // umask-clamped, so it is a floor, not a guarantee — the file's own 0600
+  // below is the one that matters and is set at creation.
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(body, null, 2), { mode: 0o600 });
   renameSync(tmp, file);

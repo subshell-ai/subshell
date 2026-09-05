@@ -108,7 +108,11 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   refreshed on every 15 s heartbeat tick; observability only, never authority).
 - **Data dir** (`--data-dir` at enroll; default under the home): `identity.json`
   (node keypair — fail-closed: a present-but-corrupt file is quarantined, never
-  silently rotated), `subshells/<id>.meta.json` + `<id>.log` per supervised
+  silently rotated), `allowed-dirs.json` (the pushed
+  directory allowlist, 0600 — fail-OPEN on a corrupt read, deliberately unlike
+  `identity.json`'s fail-closed quarantine: the list is a restriction an owner
+  opts into, not an authentication decision),
+  `subshells/<id>.meta.json` + `<id>.log` per supervised
   subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`
   per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +

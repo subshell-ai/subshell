@@ -395,15 +395,28 @@ function isAllowedRoot(
   // env root is the operator's instance-wide "show nothing outside this tree",
   // the allowlist is the node owner's "subshells may only run under these" —
   // and a path has to satisfy whichever are in force.
-  //
-  // Tested lexically here because the realpath comparison below is the
-  // boundary that matters and runs on the same value; a lexical-only pass is
-  // never the last word for an existing path.
   const inScope = opts.navigation ? dirNavigable : dirAllowed;
-  if (!inScope(resolve(path), allowedDirs)) return false;
+  const resolved = resolve(path);
+  // Cheap lexical reject first.
+  if (!inScope(resolved, allowedDirs)) return false;
+
+  // Then the SAME test against the symlink-resolved form, and — this is the
+  // part that was wrong — BEFORE the `SUBSHELL_FS_ROOT` early return, not
+  // after it. With no confinement root configured (the default) the function
+  // used to return here, leaving the allowlist lexical-only: a symlink under
+  // an allowed root would list whatever it pointed at to a constrained user.
+  // A disclosure rather than an execution hole (launching is gated
+  // separately, and the node realpaths both sides), but a real one.
+  let real: string | null = null;
+  try {
+    real = realpathSync(resolved);
+  } catch {
+    real = null; // absent or a broken symlink — handled per-branch below
+  }
+  if (real !== null && allowedDirs.length > 0 && !inScope(real, allowedDirs)) return false;
+
   const root = confinementRoot();
   if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
-  const resolved = resolve(path);
   // The cheap reject compares LIKE WITH LIKE. Testing an unresolved candidate
   // against the realpath-resolved root refused the root itself whenever the
   // root is reached through a symlink — on macOS `/tmp` IS a symlink to
@@ -412,18 +425,12 @@ function isAllowedRoot(
   // Either spelling may pass here; the realpath comparison below is the
   // security boundary and is unchanged.
   if (!isWithin(resolved, root.lexical) && !isWithin(resolved, root.real)) return false;
+  if (real !== null) return isWithin(real, root.real);
   try {
-    const real = realpathSync(resolved);
-    // Re-test the RESOLVED form: a symlink out of an allowed tree is exactly
-    // what the lexical pass above cannot see.
-    return inScope(real, allowedDirs) && isWithin(real, root.real);
+    lstatSync(resolved); // a present-but-unresolvable path (broken symlink)
+    return false; // cannot prove where it leads → refuse
   } catch {
-    try {
-      lstatSync(resolved); // a present-but-unresolvable path (broken symlink)
-      return false; // cannot prove where it leads → refuse
-    } catch {
-      return true; // nothing exists at this path → nothing to leak, 404 next
-    }
+    return true; // nothing exists at this path → nothing to leak, 404 next
   }
 }
 

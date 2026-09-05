@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { MAX_ALLOWED_DIRS, normalizeAllowedDir } from "@internal/subshell-protocol";
+import { MAX_ALLOWED_DIRS, normalizeAllowedDir, normalizeAllowedDirs } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
@@ -10,6 +10,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
+import { launcherFor } from "@/services/nodes/launcher-registry.js";
 
 /** Replacement set — the complete intended list, never a delta. */
 const AllowedDirsBodySchema = t.Object({
@@ -69,7 +70,36 @@ export const setNodeAllowedDirsRoute = new Elysia()
         );
       }
 
-      const stored = await new NodeAllowedDirsRepository(db).replaceForNode(gate.row.id, body.dirs);
+      // Resolve each rule ON ITS NODE before storing it.
+      //
+      // Without this the planes disagree: a launch candidate is always
+      // realpath'd (`validateWorkingDir`), while a rule would be stored as
+      // typed — so allowing `/tmp/work` on macOS stores `/tmp/work`, the
+      // candidate resolves to `/private/tmp/work`, and the owner is refused
+      // the directory they just permitted. Same for `/bin`, `/var/run`, or any
+      // symlinked home on Linux. It is the trap `files.route.ts` already
+      // documents for `SUBSHELL_FS_ROOT`: "locking the operator out of the
+      // directory they configured."
+      //
+      // `validateWorkingDir` is deliberately the SAME call the launch gate
+      // uses — local realpaths directly, an agent node answers `stat_dir` —
+      // so rule and candidate agree by construction rather than by two
+      // implementations staying in step.
+      const launcher = launcherFor(gate.row.id);
+      const resolved: string[] = [];
+      for (const dir of normalizeAllowedDirs(body.dirs)) {
+        try {
+          resolved.push(await launcher.validateWorkingDir(dir));
+        } catch {
+          // Unreachable node, or a directory that does not exist yet. Store
+          // what the operator typed: refusing would make an offline node
+          // unconfigurable, and a rule for a not-yet-created directory is a
+          // legitimate thing to write ahead of time. It simply matches nothing
+          // until the path exists, and is re-resolved on the next save.
+          resolved.push(dir);
+        }
+      }
+      const stored = await new NodeAllowedDirsRepository(db).replaceForNode(gate.row.id, resolved);
       // Tell the node, best-effort. The control plane enforces the same rules
       // at create time, so a node that misses this push is not a hole — it
       // re-learns them on its next `ready` (allowed-dirs-sync.ts).
