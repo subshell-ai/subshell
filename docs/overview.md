@@ -8,7 +8,9 @@ subshells spawn as tmux-backed PTYs on the machine running the app; Docker is se
 > This page is the quick orientation. The full system design — credential model,
 > encrypted-channel protocol, the `subshell mcp` contract, subshell/token choreography and the
 > invariants that bind them — lives in the **[architecture reference](architecture.md)**,
-> which is authoritative when anything here disagrees with it.
+> which is authoritative when anything here disagrees with it. Two areas have
+> their own references: **[security.md](security.md)** (threat model) and
+> **[node-protocol.md](node-protocol.md)** (the control-plane ↔ agent wire).
 
 ## Architecture
 
@@ -33,15 +35,19 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 |---|---|
 | Runtime | **Bun** exclusively (monorepo via turbo workspaces) |
 | Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/server/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
-| Subshells | **tmux 3.6+ backed, detachable** (survive browser close); pipe-pane → per-subshell log file |
+| Subshells | **tmux-backed, detachable** (survive browser close; tmux >= 3.2, per README); pipe-pane → per-subshell log file. tmux 3.6 additionally exposes `#{pane_dead_status}`, which is how a crashed pane's exit code is read — on older tmux that read degrades to `null`, never to an error |
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
-| Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 14 `subshell_*` MCP tools |
+| Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 13 MCP tools (6 channel, 7 subshell) |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/frontend/.migration/`) |
 | Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
 | Workspaces | Per-user tiling layout of subshell panes via `dockview-react`; `layout_json` holds the split tree. Below 1024px it renders as tabs and never writes the layout, so a phone visit cannot flatten a desktop arrangement |
+| Nodes | Other machines run harnesses on the control plane's behalf. Control→agent commands are JWS-signed envelopes (authenticity/freshness/target, not confidentiality); events come back unsigned on the node key. `NodeLauncher` is the ONLY local-vs-remote branch, and the browser `/ws` contract is byte-identical for remote panes — [architecture §9](architecture.md#9-nodes-remote-execution-hosts), wire contract in [node-protocol.md](node-protocol.md) |
+| Sharing | A subshell is private to its owner by default (404, never 403, so ids can't be probed). The owner grants **view** or **edit** to Everyone or named users; delete + re-share + the notification bell stay owner-only, admins included. Sharing is a browser act — bearer keys are refused on the shares routes |
+| Several viewers | A tmux pane has ONE grid, so the pane is sized to the smallest visible viewer that can type (`shared-geometry.ts` in `@internal/subshell-protocol` — the server APPLIES the rule, the browser EXPLAINS it from the same definition). Everyone attached sees everyone else's device name |
+| Distribution | Two binaries, cut by `.github/workflows/release.yml` under component-scoped tags: `subshell-server-<triple>` (SPA embedded, serves its own `mcp` subcommand) and `subshell-<triple>` (the node agent). Versions bump via changesets; the workflow owns the tags |
 | Mobile | <1024px = drawer shell + tab workspaces (`useIsWide`, `WORKSPACE_TILING_MIN_WIDTH`); ≥1024px = today's desktop shell; accessory terminal key bar sends raw WS `input` frames (same path as desktop keystrokes); PWA manifest, no service worker — spec [`superpowers/specs/2026-08-30-mobile-support-design.md`](superpowers/specs/2026-08-30-mobile-support-design.md) |
 
 ## Workspace layout
@@ -52,7 +58,13 @@ apps/server       Elysia app: api routes, ws, auth, subshell manager, tmux runne
                   `subshell-server mcp` subcommand — the stdio `subshell mcp` entry
                   (no companion compile target, never opens the app DB)
 apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
-packages/harnesses         HarnessPlugin interface + four built-in harness plugins
+apps/client       `subshell` — the node daemon: enrolls with the control plane, holds the
+                  /ws/node socket, executes signed launch/tmux/fs commands as its OS user
+apps/mobile       native companion (React Native + Expo SDK 57) — push, badge, lock-screen
+                  actions, Keychain credential; NOT a second web app
+e2e               Playwright suite (own backend on :3199, real tmux) — outside `bun run test`
+brand             wordmark/palette masters + generators (`bun run brand:generate`)
+packages/harnesses         HarnessPlugin interface + five built-in harness plugins + TmuxRunner
 packages/backend-errors    shared error handler (scaffold)
 packages/backend-client    Eden Treaty client (scaffold; types inferred from backend's `App` type)
 packages/subshell-protocol WS frame contract shared by backend + frontend
@@ -91,6 +103,9 @@ packages/tsconfig          shared TS config (scaffold)
 
 ## Security posture (explicit design)
 
+Headlines only — **[security.md](security.md)** is the authoritative threat
+model, including the accepted risks and what is deliberately not defended.
+
 - Binds loopback by default; Docker compose binds `127.0.0.1`
 - All `/api/*` except auth + setup-status requires a session (401 JSON otherwise)
 - WS attach requires a **short-lived (30s) single-use token** issued by the authenticated
@@ -117,19 +132,61 @@ packages/tsconfig          shared TS config (scaffold)
 - Type check: `bun run verify-types` (root) / `cd apps/server && bunx tsc --noEmit` (from the
   package dir, not repo root)
 - Lint: biome — `bun run lint` fixes (`--write --unsafe`), `bun run lint:check` verifies read-only
-- Hooks: lefthook runs `lint:staged` on **pre-commit** and `verify-types` + `lint:check` +
-  `test` on **pre-push**; the root `prepare` script installs them on `bun install`
+- Hooks: lefthook runs `lint:staged` (+ syncpack) on **pre-commit** and `verify-types` +
+  `lint:check` on **pre-push** — the test suite is deliberately NOT in the hook (CI owns it,
+  `.github/workflows/test.yml`); the root `prepare` script installs them on `bun install`
+- E2E: the repo-root `e2e/` Playwright suite is separate from `bun run test` — `bun run test:e2e`
+  boots its own backend on :3199 and needs a real tmux (see `e2e/AGENTS.md`)
 
-## Status (2026-08-30)
+## Status (2026-09-05)
 
-Backend fully functional; frontend pages and the WS terminal attach work E2E; single-port
-prod serving (built SPA + API + WS + docs on one port) works. **Cross-subshell comms** —
-E2EE channels and the `subshell mcp` server (channels + full subshell CRUD) — shipped: verified
-by a two-process end-to-end test (real backend + two `subshell mcp` children; ciphertext-only
-storage asserted at the byte level) and a live-browser pass over the admin key lifecycle.
-**Mobile support** shipped alongside it, proven by the Playwright suite grown to 22 green
-tests (plus one intentional device-project skip) across three projects — desktop plus two
-device projects (iPhone 15 Pro incl. landscape, iPad Pro 11 landscape); key-bar bytes are
-verified to land in a real tmux pane. **Auth experience**: chrome-free sign-in with a
-signed-out guard and return path, and an instance-wide read-only user roster (management
-stays cookie-admin-only), pinned by `e2e/tests/10-auth-experience.spec.ts`.
+`@internal/server` 1.6.0 · `@internal/client` 0.3.1 (node protocol floor
+`MIN_AGENT_VERSION` 0.3.0). Everything below is shipped and on `main`.
+
+- **Core** — single-port serving (built SPA + API + WS + `/docs`), tmux-backed
+  subshells, profiles, workspaces (tiling above 1024px, tabs below), uploads.
+- **Cross-subshell comms** — E2EE channels + the 13-tool `subshell mcp` server,
+  pinned by a two-process end-to-end test (real backend + two `subshell mcp`
+  children; ciphertext-only storage asserted at the byte level).
+- **Auth** — chrome-free sign-in with a signed-out guard and return path,
+  passkeys (WebAuthn, same session cookie — an extra credential, never a second
+  factor), and break-glass `SUBSHELL_EMERGENCY_PASSWORD` with an instance-wide
+  warning banner.
+- **Sharing** — per-subshell view/edit grants to Everyone or named users;
+  delete, re-share and the notification bell stay owner-only.
+- **Several viewers, one pane** — shared output pump, a presence/`viewers`
+  frame, a Devices list that explains the pane's size, and the smallest-visible-
+  viewer sizing rule shared between server and browser.
+- **Nodes** — remote execution hosts end to end: enrollment via single-use setup
+  keys, signed commands over `/ws/node`, per-node harness inventory, offline
+  semantics that say "node unreachable" rather than "crashed", the served
+  `/install.sh` + digest-verified binary downloads, and a background service
+  installer (systemd user unit / launchd agent).
+- **Distribution** — `subshell-server` ships as one self-contained binary per
+  triple with the SPA embedded and its own `mcp` subcommand, plus a CLI
+  (`version｜status｜init｜configure｜service install｜uninstall`); the node agent
+  ships as four. Both are cut by `.github/workflows/release.yml` under
+  `server-vX.Y.Z` / `client-vX.Y.Z`, darwin artifacts signed + notarized.
+- **Admin** — `/settings/status` renders the whole instance in one read
+  (versions, host paths, resolved MCP entrypoint, counts, security posture),
+  carrying no secret in any form.
+- **Mobile** — the responsive web shell (drawer nav, terminal key bar, tab
+  workspaces, Add to Home Screen) plus a native companion app (`apps/mobile`)
+  for the four things a web page cannot do.
+
+Browser-level coverage is the repo-root Playwright suite — 15 spec files across
+desktop and two device projects (iPhone 15 Pro incl. landscape, iPad Pro 11
+landscape), including a real `subshell` agent enrolled from source in `12-nodes`.
+Run it with `bun run test:e2e`; it is deliberately outside `bun run test`.
+
+### Known deferrals
+
+- No per-subshell cost/usage accounting.
+- Internet-grade hardening is out of scope by design: no TLS enforcement, no
+  2FA, no rate limiting beyond the login backoff. See
+  [`.claude/rules/security-context.md`](../.claude/rules/security-context.md)
+  for the checklist that would have to be worked through first.
+- Sign-in/sign-out are not audit events (session lifecycle and `user.create`
+  are).
+- The channel post bus is in-process, so a multi-process deployment would need
+  a shared wake channel.

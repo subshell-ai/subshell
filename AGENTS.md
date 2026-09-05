@@ -20,8 +20,13 @@ subshell/
 │   ├── backend-errors/             # Error emission and handling for the backend
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
 │   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits, shared-pane sizing
-│   ├── harnesses/                  # Harness plugin interface and built-in agent harness plugins
+│   ├── harnesses/                  # Harness plugin interface, built-in harness plugins, TmuxRunner
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
+├── e2e/                            # Playwright suite — its own backend on :3199, real tmux (see e2e/AGENTS.md)
+├── brand/                          # Wordmark/palette masters + generators (`bun run brand:generate`)
+├── docker/                         # Dockerfile support files (gitconfig.example, ssh-config)
+├── scripts/                        # Release + smoke scripts (macOS signing/notarization, entitlements)
+├── svc.sh                          # systemd user-service installer for a checkout-based deployment
 ├── turbo.json                      # Turbo task configuration
 ├── package.json                    # Root workspace definition
 ├── biome.json                      # Linting and formatting

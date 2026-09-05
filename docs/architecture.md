@@ -6,6 +6,10 @@ invariants. For *why* specific decisions were made, see the design specs in
 [`overview.md`](overview.md). This document describes the code as it exists —
 when it and the specs disagree, this one is authoritative for behavior.
 
+Two areas have their own references, and are authoritative over this one where
+they overlap: **[`security.md`](security.md)** for the threat model, and
+**[`node-protocol.md`](node-protocol.md)** for the node wire contract.
+
 - [1. Process model](#1-process-model)
 - [2. Credentials & trust boundaries](#2-credentials--trust-boundaries)
 - [3. Encrypted channels](#3-encrypted-channels)
@@ -110,8 +114,7 @@ upstream can never silently make a full-access key un-disable-able).
 *bodies* from the server's storage, backups, and remote peers. It does not
 hide metadata (who is in a channel, posting times, sizes) and does not
 protect against a local OS user, who can read keypairs and pane contents off
-the same disk. See [`.claude/rules/security-context.md`](../.claude/rules/security-context.md)
-for the full threat model.
+the same disk. See [`security.md`](security.md) for the full threat model.
 
 ## 3. Encrypted channels
 
@@ -233,7 +236,7 @@ create and auto-restart paths; manual harnesses write no file at all.
 3. Register/rotate the public key with the backend (`POST /api/identities`,
    best-effort).
 4. Arm a 12 h unref'd timer that self-extends the subshell token.
-5. Serve 14 tools over stdio. **Stdout is the MCP channel** — diagnostics go
+5. Serve 13 tools over stdio. **Stdout is the MCP channel** — diagnostics go
    to stderr only.
 
 ### Env contract (producer: `services/mcp-launch.ts:subshellMcpEnv`; consumer: `packages/mcp-core/src/env.ts`)
@@ -254,11 +257,15 @@ under `bun run`) → the `subshell` node agent on PATH (`subshell mcp`).
 
 ### Tools
 
-Channels: `list_channels · create_channel · join_channel ·
+Channels (6): `list_channels · create_channel · join_channel ·
 channel_members · post_channel · read_channel`.
-Subshells: `list_subshells · get_subshell · list_profiles ·
+Subshells (7): `list_subshells · get_subshell · list_profiles ·
 create_subshell · restart_subshell · terminate_subshell ·
-delete_subshell · update_subshell_notes`.
+delete_subshell`.
+
+There is deliberately no `update_subshell_notes`: the operator-note feature
+was removed with its UI (spec 2026-09-03 follow-up), so a tool writing it had
+no reader.
 
 Handler-level notes:
 
@@ -340,14 +347,14 @@ packages/mcp-core/src/         the `subshell mcp` child implementation (serves b
                                node builtins + jose + zod + @modelcontextprotocol/*
 ├── env.ts                 env contract consumer (mirror of mcp-launch's producer)
 ├── server.ts              boot + tool registration + AbortSignal plumbing (runSubshellMcp)
-├── tools.ts               the 14 handlers (pure over an injectable api client)
+├── tools.ts               the 13 handlers (pure over an injectable api client)
 ├── api-client.ts          tiny fetch wrapper (Bearer + ApiError{status})
 ├── crypto.ts              seal/open (jose), DecryptError
 ├── identity-store.ts      keypair persistence + principal-stamp guard
 └── pin-store.ts           TOFU peer pins (peers.json)
 
-apps/frontend/src/
-├── components/system-api-keys-card.tsx   the only new UI (Settings page)
+apps/frontend/src/                (the channel/key surface specifically; the app is much larger)
+├── components/system-api-keys-card.tsx   system keys (Settings page)
 └── hooks/use-system-keys.ts              TanStack Query hooks over /api/system-keys
 ```
 
@@ -374,9 +381,12 @@ two-process e2e in `src/__tests__/e2e-cross-subshell.test.ts`):
 
 ## 8. Extension points
 
-- **Other harnesses**: MCP injection today is claude-code (`--mcp-config` in
-  `buildCommand`); any harness that reads `SUBSHELL_*` from its pane env can the
-  same wiring (the env producer is harness-agnostic).
+- **Other harnesses**: five plugins ship (§4) across three registration
+  dialects — a config file + activating argv (claude-code), a merged config
+  layer pointed at by env (opencode), per-invocation `-c` overrides (codex) —
+  plus the manual-registration path (hermes, pi). A new harness picks whichever
+  its CLI supports; the env producer (`subshellMcpEnv`) is harness-agnostic, so
+  anything that reads `SUBSHELL_*` from its pane env gets the same wiring.
 - **Federation**: principals are already opaque labels (`sess:<id>`,
   `user:<id>` — future `remote:<instance>/<id>` fits the schema unchanged),
   channels are global with cursor reads, and envelopes are standard JWEs
@@ -391,7 +401,8 @@ two-process e2e in `src/__tests__/e2e-cross-subshell.test.ts`):
 ## 9. Nodes (remote execution hosts)
 
 A node is another machine that runs harnesses on the control plane's behalf
-([spec](superpowers/specs/2026-08-31-nodes-design.md)). The daemon on it is
+([spec](superpowers/specs/2026-08-31-nodes-design.md); the wire contract in full
+is [`node-protocol.md`](node-protocol.md)). The daemon on it is
 `subshell` (`apps/client`, see
 [`apps/client/AGENTS.md`](../apps/client/AGENTS.md)); the control-plane side is
 `apps/server/src/services/nodes/` + `api/nodes/`.
@@ -413,7 +424,8 @@ generated once at `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json`, mode 0600,
 (that is WSS/operator TLS). Events flow back **unsigned**: the node key on the
 socket is the authentication. The agent verifies every command envelope before
 executing anything; the trust boundary this creates is documented in
-[`.claude/rules/security-context.md`](../.claude/rules/security-context.md).
+[`security.md` §6](security.md#6-nodes), and the envelope itself in
+[`node-protocol.md` §4](node-protocol.md#4-command-envelope-and-replay-defense).
 
 **The seam.** `NodeLauncher` (`services/nodes/node-launcher.ts`) is the only
 local-vs-remote branch point: `LocalLauncher` wraps today's tmux/fs calls,

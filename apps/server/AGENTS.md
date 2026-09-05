@@ -22,6 +22,21 @@ bun run test               # bun test src (see Testing below)
 bun run verify-types       # tsc --noEmit
 ```
 
+### Dev conveniences
+
+Both scripts run from `apps/server` only — `bun run ./src/index.ts` and friends
+fail from the repo root, where workspace resolution does not apply.
+
+```bash
+bun run scripts/set-admin-password.ts <email> <new-password>   # forgotten dev admin
+bun run src/scripts/e2e-seed.ts create|token|ciphertext        # e2e fixtures
+```
+
+`set-admin-password.ts` opens `./data/subshell.db` **hard-coded** — it ignores
+`DATABASE_PATH`, so it can only ever reach the dev database, never a deployed
+one under `~/.config/subshell-server/`. For a real instance the recovery path is
+`SUBSHELL_EMERGENCY_PASSWORD` (see `.claude/rules/security-context.md`).
+
 ### Database Migrations
 
 ```bash
@@ -57,7 +72,7 @@ src/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
-├── scripts/        # One-off dev tooling (e2e seed)
+├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
 ├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node client can reuse it
 ├── utils/          # Logger and small shared helpers
 ├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
@@ -125,18 +140,25 @@ Step 1 before step 3 is the join-point rule as a subscription. It also means a
 refusal AFTER the subscription must tear it down explicitly, or a tail keeps
 running for a viewer that was never admitted.
 
-**The `geometry` frame is confirmed where it can be and asserted where it
-cannot.** `NodeLauncher.reportsPaneSize` says which: tmux answers, so a null
-read there means the pane DIED and nothing is announced; a node pane can never
-be measured (the agent protocol has no size command — the same bill
-`signalPaneWinch` is waiting on), so the size the pane was ASKED for is
-announced instead. Silence used to be right for node panes and stopped being
-right when eviction went: with several viewers the pane is the MINIMUM, so a
-client left to size itself renders more rows than the pane holds, and a client
-taller than its pane does not scroll when the pane does — putting every later
-relative-positioned frame a row out, which is the exact corruption this whole
-subsystem exists to prevent. An unconfirmed number every viewer shares beats a
-confirmed disagreement.
+**The `geometry` frame carries a CONFIRMED grid on both paths.** `paneSize()`
+is the single question — `LocalLauncher` reads tmux directly, `RemoteLauncher`
+asks the node with the `pane_size` command (protocol v4) — and it answers a
+real grid or `null`, never a guess. `resize` is a request, not a guarantee: a
+client that believes it holds a size the pane never took paints every later
+frame onto the wrong rows.
+
+This is why it matters that the answer is real. With several viewers the pane
+is the MINIMUM of what they can show, so a client left to size itself renders
+more rows than the pane holds, and a client taller than its pane does not
+scroll when the pane does — putting every later relative-positioned frame a row
+out, which is the exact corruption this whole subsystem exists to prevent.
+
+`null` means "could not be read", and nothing is announced. Usually that is the
+pane being gone; a wedged-but-connected node reaches the same answer, which is
+why `RemoteLauncher.paneSize` logs the failure at debug rather than swallowing
+it — otherwise geometry announcements for that pane would stop with nothing in
+the journal. (Before v4 there was no size command and a node pane announced the
+size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
 
 **An agent is refused by TWO gates, in this order** (`node-ws-handler.ts`,
 both closing 4406 with a reason the agent RELAYS to its own log):
@@ -164,8 +186,8 @@ else.
 The two gates are INDEPENDENT — raising the floor without a protocol bump is
 the normal case — so never infer one from the other.
 
-The pane's grid is therefore always readable: `paneSize` answers a grid or
-null, and null has ONE meaning — the pane is gone, so nothing is announced.
+Neither gate touches geometry: `paneSize` answers the same way on a local and a
+remote pane, so nothing downstream of the attach branches on where a pane runs.
 
 ### Terminal attach diagnostics
 
@@ -345,12 +367,17 @@ to the plain refusal, byte-identical to before (CI never gets asked).
 
 `service install` (`src/service.ts`) writes `subshell-server.service` under
 `~/.config/systemd/user/` — **the same unit name `svc.sh` writes; one owner
-per host** (see `docs/subshell-rollout.md`) — with `WorkingDirectory=` and
+per host**, so pick one and uninstall the other — with `WorkingDirectory=` and
 `EnvironmentFile=` pointed at the config home (systemd and the binary's own
 loader read the same file, so they cannot disagree), the installing shell's
 PATH baked (a Homebrew/Nix tmux would vanish under the manager's stock
-PATH), and `StartLimitIntervalSec=0` (Restart=always must survive an
-EADDRINUSE crash loop). macOS: launchd agent `dev.subshell.server` →
+PATH), `StartLimitIntervalSec=0` (Restart=always must survive an
+EADDRINUSE crash loop), and `KillMode=process` — the load-bearing one: each
+local subshell's tmux server is a CHILD of this unit, so the default
+control-group kill SIGKILLs every live pane on stop/restart. A host whose unit
+lacks it loses all running subshells on the next `systemctl restart`
+(measured, 2026-09-03). `src/service.ts:161` carries the reasoning; the unit
+text is pinned by test. macOS: launchd agent `dev.subshell.server` →
 `~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log`.
 
 ### MCP entrypoint resolution
