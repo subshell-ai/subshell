@@ -1,4 +1,4 @@
-import { type CDPSession, expect, test } from "@playwright/test";
+import { type CDPSession, expect, type Page, test } from "@playwright/test";
 import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -13,25 +13,28 @@ interface Row {
 }
 
 /**
- * The order the swipe walks: newest-created first, id as a total tie-break.
- * Written independently of `lib/subshell-order.ts` so this is an oracle
- * rather than an echo of the implementation.
+ * The CONTRACT the swipe walks: newest-created first. Nothing else.
  *
- * Deliberately NOT the sidebar's band order (`lib/subshell-indicator.ts`,
- * which ranks by `activity` = "produced output within the last 60s"). This
- * oracle DID model the bands, and agreed with the swipe only for as long as
- * every row sat in the same one — so a leftover subshell from an earlier spec
- * printing a line put it in a different band, the oracle named a different
- * neighbour than the swipe did, and the run failed with no bad code anywhere.
- * Navigation order has to be one that does not move on its own, which is why
- * the feature stopped using the bands; the oracle simply had not followed.
+ * Deliberately not a copy of `lib/subshell-order.ts` — an earlier version of
+ * this helper reproduced that function character for character, guard clauses
+ * and tie-break included, while claiming to be independent. A copied oracle
+ * can only ever catch a wiring mistake; it agrees with the implementation
+ * about everything else by construction, including about being wrong. So this
+ * states the one property the feature promises and leaves the rest alone: the
+ * caller asserts there are no `createdAt` ties, so the test never depends on
+ * how ties are broken and cannot silently encode that rule either.
+ *
+ * It is also deliberately not the SIDEBAR's band order
+ * (`lib/subshell-indicator.ts`, which ranks by `activity` = "produced output
+ * within the last 60s"). This helper did model the bands, and agreed with the
+ * swipe only for as long as every row sat in the same one — so a leftover
+ * subshell from an earlier spec printing a line put it in a different band,
+ * the helper named a different neighbour than the swipe walked to, and the
+ * run failed with no bad code anywhere. Navigation order must not move on its
+ * own, which is why the feature left the bands; this had not followed.
  */
-function ordering(rows: readonly Row[]): Row[] {
-  return [...rows].sort((x, y) => {
-    const byTime = Date.parse(y.createdAt) - Date.parse(x.createdAt);
-    if (byTime !== 0 && Number.isFinite(byTime)) return byTime;
-    return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
-  });
+function newestFirst(rows: readonly Row[]): Row[] {
+  return [...rows].sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt));
 }
 
 /** Dispatch a horizontal touch drag through CDP — the only way to deliver
@@ -45,6 +48,28 @@ async function swipe(client: CDPSession, fromX: number, toX: number, y: number) 
     await new Promise((r) => setTimeout(r, 15));
   }
   await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+
+/**
+ * Navigate to a subshell and wait until a SWIPE there can actually do
+ * something.
+ *
+ * `.xterm` appearing is not that signal. The gesture's target is computed
+ * from the subshell LIST (`useSwipeOrderedSubshells`), and on a fresh page
+ * load that query has to come back before prev/next exist at all — until
+ * then a swipe is silently a no-op, because `findNeighbors` has nothing to
+ * offer. The terminal mounts first, so waiting on it races the thing the test
+ * is about: measured here, the right-swipe did nothing and the page sat on
+ * the subshell it started from, roughly two runs in five.
+ *
+ * The response waiter is armed BEFORE `goto`, or it can miss a fetch that has
+ * already landed.
+ */
+async function gotoSubshell(page: Page, id: string): Promise<void> {
+  const listed = page.waitForResponse((r) => r.url().includes("/api/subshells") && r.ok());
+  await page.goto(`/subshells/${id}`);
+  await listed;
+  await expect(page.locator(".xterm")).toBeVisible();
 }
 
 /**
@@ -87,7 +112,11 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
   // No snapshot race any more — creation order cannot change between this
   // fetch and the swipe, whatever the other rows are doing.
   const rows = (await (await page.request.get("/api/subshells")).json()) as Row[];
-  const ordered = ordering(rows);
+  // No two rows share a creation instant, so the order below is total without
+  // the test having to model how the app breaks ties.
+  const stamps = rows.map((r) => Date.parse(r.createdAt));
+  expect(new Set(stamps).size, "createdAt ties would make the expected order ambiguous").toBe(stamps.length);
+  const ordered = newestFirst(rows);
   const ia = ordered.findIndex((r) => r.id === a);
   expect(ia).toBeGreaterThan(-1);
   expect(ordered[ia - 1]?.id).toBe(b);
@@ -106,9 +135,8 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
       predicate: (w) => w.url().includes("/ws?subshell="),
       timeout: SPAWN_TIMEOUT,
     });
-    await page.goto(`/subshells/${a}`);
+    await gotoSubshell(page, a);
     await socket;
-    await expect(page.locator(".xterm")).toBeVisible();
 
     const client = await page.context().newCDPSession(page);
     const vp = page.viewportSize();
@@ -122,8 +150,7 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
       await swipe(client, cx, cx - 140, cy);
       await expect(page).toHaveURL(onSubshell(below));
       // Only above A sits B, so return to A before exercising the up-swipe.
-      await page.goto(`/subshells/${a}`);
-      await expect(page.locator(".xterm")).toBeVisible();
+      await gotoSubshell(page, a);
     }
     // Right swipe from A → previous = B.
     await swipe(client, cx, cx + 140, cy);

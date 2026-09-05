@@ -13,7 +13,7 @@ import {
 import { resolveResult } from "@/services/nodes/node-rpc.js";
 import { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { readSubshellLogTail } from "@/services/subshell-manager.service.js";
-import type { AttachParams } from "@/ws/attach-params.js";
+import { type AttachParams, UNNAMED_DEVICE } from "@/ws/attach-params.js";
 import { attachRemoteSubshellWs, type RemoteAttachRow } from "@/ws/remote-subshell-ws.js";
 import { cleanupSubshellWs, handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { paneStreams, resetLiveViewersForTests, sharedGridFor, type WsSocket } from "@/ws/viewers.js";
@@ -181,7 +181,7 @@ const OWNER_UID = "u-relay-owner";
  * the point of the struct: adding an input cannot silently skip a call site.
  */
 function attachParams(over: Partial<AttachParams> = {}): AttachParams {
-  return { size: null, deviceLabel: "Unnamed device", hidden: false, build: "MISSING", ...over };
+  return { size: null, deviceLabel: UNNAMED_DEVICE, hidden: false, build: "MISSING", ...over };
 }
 
 function attachRow(over: Partial<RemoteAttachRow> = {}): RemoteAttachRow {

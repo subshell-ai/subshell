@@ -178,7 +178,10 @@ export function SubshellPane({
    * clickable through the empty area around the button.
    */
   const devices = (
-    <div className="pointer-events-none absolute top-1 right-1 z-10">
+    // Inset past xterm's scrollbar track (14px, `scrollbarReserve`): the
+    // overlay is only present with two devices attached, but while it is, a
+    // button sitting on the track would eat drags meant for the scrollbar.
+    <div className="pointer-events-none absolute top-1 right-4 z-10">
       <div className="pointer-events-auto rounded-md bg-terminal-strip/85 backdrop-blur-sm">
         <SubshellDevices state={viewers} onSizing={(mode, viewerId) => handlesRef.current?.setSizing(mode, viewerId)} />
       </div>

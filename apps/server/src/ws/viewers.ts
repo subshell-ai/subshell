@@ -57,10 +57,10 @@ export interface WsData {
    */
   hidden?: boolean;
   /**
-   * Set by {@link cleanupSubshellWs} when the socket closed before the attach
+   * Set by `cleanupSubshellWs` when the socket closed before the attach
    * had assigned anything to `ws.data`. The attach reads it the moment it
    * assigns, and abandons instead of registering a viewer nothing can ever
-   * remove. See the check in {@link handleSubshellWs}.
+   * remove. See the check in `handleSubshellWs`.
    */
   detachedEarly?: boolean;
   /** Human name for the device, from the connect URL (already normalized). */
@@ -393,13 +393,12 @@ export function registerViewer(ws: WsSocket, subshellId: string): void {
  * steps was, at some point, the thing that was forgotten.
  *
  * @param ws - The socket that closed
- * @returns True when a registered viewer was actually removed
  */
-export function detachViewer(ws: WsSocket): boolean {
+export function detachViewer(ws: WsSocket): void {
   const subshellId = ws.data?.subshellId;
   const viewerId = ws.data?.viewerId;
   const viewers = subshellId ? liveViewers.get(subshellId) : undefined;
-  if (!subshellId || !viewerId || !viewers?.delete(viewerId)) return false;
+  if (!subshellId || !viewerId || !viewers?.delete(viewerId)) return;
 
   if (viewers.size === 0) {
     liveViewers.delete(subshellId);
@@ -413,10 +412,10 @@ export function detachViewer(ws: WsSocket): boolean {
     // pane may have been resized by anything in between), and holding the
     // entry would make that request look like a no-op.
     geometryQueue.release(subshellId);
-    return true;
+    return;
   }
 
-  if (!ws.data) return true;
+  if (!ws.data) return;
   // The pin named THIS viewer, so it no longer names anything.
   // `decideSharedGrid` already falls through to auto for a pin it cannot
   // resolve, so the pane was never wrong — but the policy still rode the
@@ -430,5 +429,4 @@ export function detachViewer(ws: WsSocket): boolean {
   // viewer's account — re-decide without it so it can grow back.
   applySharedGeometry(subshellId, ws.data.launcher, ws.data.socket);
   broadcastViewers(subshellId);
-  return true;
 }

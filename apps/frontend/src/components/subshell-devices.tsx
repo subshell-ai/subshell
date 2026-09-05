@@ -48,7 +48,13 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
   // Sizing changes what everyone sees, so it is an `edit` act like typing. A
   // `view` grantee gets the list and inert rows; the server refuses the frame
   // either way, and this keeps the buttons honest about it.
-  const mayResize = state.viewers.find((v) => v.id === state.you)?.canInput === false ? undefined : onSizing;
+  //
+  // Reads `=== true`, so an entry that is missing or says nothing leaves the
+  // control INERT. The server is the authority and would refuse the frame
+  // regardless, so either direction is safe — but a control that quietly does
+  // nothing is a better failure than one that looks disabled for an owner.
+  const me = state.viewers.find((v) => v.id === state.you);
+  const mayResize = me?.canInput === true ? onSizing : undefined;
 
   return (
     <DropdownMenu>
