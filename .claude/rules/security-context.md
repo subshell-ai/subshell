@@ -105,6 +105,48 @@ trusted-network posture below — a share makes a subshell's full pane output (p
 secrets on screen) and, at `edit`, its keystroke stream visible to the audience. Revoke by
 clearing the grant (the sharing dialog or an empty `PUT`).
 
+## Pane logs (the session transcript on disk)
+
+Every subshell's pane is streamed by `tmux pipe-pane` into
+`<SUBSHELL_SERVER_DATA_DIR>/subshells/<id>.log` (on the NODE's disk for a remote
+subshell). A terminal echoes, so this file holds what the operator TYPED as
+well as what the commands printed — pasted tokens included. It is the most
+sensitive thing the app writes, and it is deliberately **not encrypted**: the
+key would sit on the same host under the same OS user that can already read the
+log, so permissions and retention are the real controls.
+
+- Files are **0600**, created that way by the `umask 077` inside the pipe-pane
+  command (`TmuxRunner.pipePane`) — tmux's shell creates the file, so there is
+  no mode argument and no chmod without a window. The directory is **0700**
+  (`LocalLauncher`). Boot repairs both for logs written before this
+  (`services/pane-log-hygiene.ts`).
+- Logs of non-running subshells are swept after `SUBSHELL_LOG_RETENTION_DAYS`
+  (default 30; `0` = keep forever) by an hourly pass. Deleting a subshell still
+  unlinks its log at once. **A running subshell's log is never swept** — it is
+  the live replay buffer.
+- Typed input also transits **argv** (`send-keys -l -- <input>`), one process
+  per frame, so a paste is one argv element and `ps`-visible. Same accepted
+  risk class as the bearer token.
+
+Do not add a code path that copies pane content anywhere else (a log line, a
+notification body, a diagnostic dump) without deciding its lifetime first.
+`SUBSHELL_ATTACH_DEBUG=1` is the one exception and it is off by default.
+
+## Trust disclosure in the UI
+
+Two exposures are invisible from looking at a terminal, so the UI states them:
+a subshell running on an **agent node the viewer does not own**, and a
+subshell that is **shared**. Both render a permanent amber icon in the
+subshell's chrome (`components/trust-indicators.tsx`, reason on hover) and a
+one-time banner (`components/trust-notice-banner.tsx`, 5 s then fades, keyed by
+the exposure so widening a share re-raises it).
+
+The banner is dismissible and has a per-device off switch; **the icon is not
+suppressible**. Keep that split — silencing an interruption is a legitimate
+preference, silencing the disclosure is not. The `local` node deliberately does
+NOT raise the node notice (every non-admin has `edit` on it via the Everyone
+grant, so it would fire always and be learned as noise).
+
 ## Encrypted channels (cross-subshell comms)
 
 Channel posts are sealed per-recipient with ECDH-ES + A256GCM (`jose`) to each subshell's

@@ -110,6 +110,27 @@ export const SUBSHELL_SERVER_DATA_DIR = IS_TEST
   : resolve(env.get("SUBSHELL_SERVER_DATA_DIR").default(defaultSubshellServerDataDir()).asString());
 
 /**
+ * Days a terminated subshell's pane log is kept before the retention sweep
+ * unlinks it (`services/pane-log-hygiene.ts`). `0` disables the sweep.
+ *
+ * A pane log is the verbatim transcript of a session — typed secrets and all —
+ * and before this existed it was unlinked only when the subshell was DELETED,
+ * so a terminated-but-kept subshell held its transcript forever. The default
+ * is a compromise: long enough that "what did that agent do last week?" is
+ * still answerable, short enough that the plaintext does not accumulate for
+ * the life of the instance. Running subshells are never swept.
+ */
+export const DEFAULT_LOG_RETENTION_DAYS = 30;
+
+/** Configured retention window; see {@link DEFAULT_LOG_RETENTION_DAYS}. */
+// `asInt`, not `asIntPositive`: 0 is the documented opt-out and would be
+// rejected as non-positive. The sweep treats anything <= 0 as keep-forever.
+export const SUBSHELL_LOG_RETENTION_DAYS = env
+  .get("SUBSHELL_LOG_RETENTION_DAYS")
+  .default(DEFAULT_LOG_RETENTION_DAYS)
+  .asInt();
+
+/**
  * Directory `GET /api/downloads/node/*` serves the prebuilt `subshell`
  * binaries from (spec 2026-08-31 §8): files named `subshell-<target>`
  * (plus an optional `subshell-<target>.sha256` sidecar). The build pipeline

@@ -1492,6 +1492,11 @@ export function toSubshellView(
     endedAt: row.endedAt,
     lastOutputAt: row.lastOutputAt,
     activity: computeActivity(row.lastOutputAt, status),
+    // The manager is OWNER-KEYED and knows nothing about grants, so it reports
+    // the private shape. `subshells.service.ts` — the sharing-aware layer that
+    // already loads the grant map to resolve `access` — overrides both.
+    shareCount: 0,
+    sharedWithEveryone: false,
     // The subshell's current screen, captured by the caller (see
     // SubshellManagerService#preview). Passed in rather than read here so this
     // stays a pure mapping and the tmux call has one home.

@@ -35,6 +35,13 @@ export function SharingDialog({
       onOpenChange={onOpenChange}
       title="Share subshell"
       description="Let others see or use this subshell. Sharing is private by default."
+      warning={
+        // The non-obvious half, and the reason this note exists: a grant is
+        // not "from now on". It hands over the scrollback that is already on
+        // screen — including anything typed into it before the share.
+        "Anyone you add can read this terminal's full output, including the history from before you shared it. " +
+        "Edit access also lets them type into it and see what you type."
+      }
       isLoading={shares.isLoading}
       serverGrants={serverGrants}
       roster={roster.data ?? []}

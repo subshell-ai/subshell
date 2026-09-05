@@ -18,7 +18,7 @@ import { getHarness } from "@internal/harnesses";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
 import { isCliEngaged } from "@/cli.js";
-import { assertProdAuthSecret, DATABASE_PATH, HOST, SERVER_PORT } from "@/constants.js";
+import { assertProdAuthSecret, DATABASE_PATH, HOST, SERVER_PORT, SUBSHELL_LOG_RETENTION_DAYS } from "@/constants.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
@@ -32,6 +32,7 @@ import { listOnline } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
+import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { BANNER_GROUP, getLogger } from "@/utils/logger.js";
@@ -148,6 +149,26 @@ async function bootServer(): Promise<void> {
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).
   await manager.reconcileAll();
+
+  // Pane logs hold the verbatim transcript of every session, typed secrets
+  // included. New ones are created 0600 by the pipe-pane umask, but logs
+  // written before that fix are 0644 on disk and nothing else revisits them —
+  // so the repair runs at every boot (idempotent, cheap).
+  tightenPaneLogModes();
+  // ...and they no longer live forever. Hourly rather than on the 60s sweep:
+  // a retention window measured in days gains nothing from a fast tick, and
+  // this one walks the directory.
+  const sweepPaneLogs = async (): Promise<void> => {
+    const running = await subshells.listRunning();
+    sweepExpiredPaneLogs({
+      retentionDays: SUBSHELL_LOG_RETENTION_DAYS,
+      runningIds: new Set(running.map((row) => row.id)),
+    });
+  };
+  await sweepPaneLogs();
+  setInterval(() => {
+    void sweepPaneLogs().catch((err: unknown) => getLogger().withError(err).warn("pane log sweep failed"));
+  }, 3_600_000);
   setInterval(() => {
     sweepWsTokens();
     void manager.reconcileAll();

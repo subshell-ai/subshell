@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +50,7 @@ export function SharingDialogCore({
   saving,
   onSave,
   canManage = true,
+  warning,
 }: {
   /** Whether the dialog is shown */
   open: boolean;
@@ -67,6 +68,13 @@ export function SharingDialogCore({
   roster: RosterUser[];
   /** True while the PUT is in flight */
   saving: boolean;
+  /**
+   * Amber note under the description, for what a grant DISCLOSES rather than
+   * what it permits. Optional because the two callers disclose different
+   * things: a subshell share hands over a live terminal's contents, a node
+   * share hands over a machine.
+   */
+  warning?: ReactNode;
   /** PUTs the complete replacement set; rejects with the failure to surface */
   onSave: (grants: ShareDraft[]) => Promise<unknown>;
   /** False renders everything read-only (no add/remove/level/Save) */
@@ -122,6 +130,14 @@ export function SharingDialogCore({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+
+        {/* Before the grant rows, not after: the disclosure has to be read
+            while deciding, not discovered under the Save button. */}
+        {warning != null && (
+          <p className="rounded-md border border-amber-500/70 px-3 py-2 text-amber-600 text-xs dark:text-amber-400">
+            {warning}
+          </p>
+        )}
 
         <div className="space-y-3">
           {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}

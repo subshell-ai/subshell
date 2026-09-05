@@ -229,14 +229,30 @@ export class TmuxRunner {
     }
   }
 
-  /** Redirects all pane output to a file (live streaming). */
+  /**
+   * Redirects all pane output to a file (live streaming).
+   *
+   * The file is created 0600. This is not incidental: the pane log is the
+   * plaintext transcript of everything the terminal rendered, and a tty
+   * echoes, so every key the operator typed — a pasted API token, an
+   * `export SECRET=…` — is in it, alongside whatever the commands printed
+   * back. tmux's shell is what CREATES the file (`cat >>`), so there is no
+   * mode argument to pass and no post-hoc chmod that closes the window
+   * between creation and tightening; `umask 077` in the command itself is
+   * the only way the file is never world-readable, not even briefly.
+   * Callers still own the DIRECTORY's mode (see LocalLauncher).
+   */
   pipePane(socket: string, subshellName: string, outputFile: string): void {
     // The command runs in tmux's shell (`sh -c`), so the path must be
     // POSIX-single-quoted. The previous JSON.stringify-based escaping did
     // NOT neutralize `$`, backticks or `;` — JSON string escaping and shell
     // quoting are different languages. shellQuote is the same quoter the
     // pane commands are baked with (canonical source: @internal/harnesses).
-    this.run(["-L", socket, "pipe-pane", "-t", subshellName, "-o", `cat >> ${shellQuote(outputFile)}`], {});
+    //
+    // The subshell parentheses scope the umask to this `cat`, so nothing else
+    // tmux's shell may go on to run inherits it.
+    const append = `(umask 077; cat >> ${shellQuote(outputFile)})`;
+    this.run(["-L", socket, "pipe-pane", "-t", subshellName, "-o", append], {});
   }
 
   /**

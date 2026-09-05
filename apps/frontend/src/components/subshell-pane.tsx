@@ -5,9 +5,12 @@ import { LogTail } from "@/components/log-tail";
 import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
+import { TrustIndicators } from "@/components/trust-indicators";
 import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
+import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */
@@ -81,6 +84,11 @@ export function SubshellPane({
    * header. It renders itself away below two devices, which is almost always.
    */
   const [viewers, setViewers] = useState<ViewersState | null>(null);
+  // The pane row carries only a summary join, not the sharing/node fields the
+  // disclosure needs — so read the live list (already mounted app-wide and
+  // cached; no extra request) and pick this pane's subshell out of it.
+  const { subshells } = useLiveSubshells();
+  const trustNotices = useTrustNotices(subshells.find((row) => row.id === pane.subshellId));
   const handleReady = useCallback(
     (handles: SubshellTerminalHandles) => {
       handlesRef.current = handles;
@@ -181,7 +189,18 @@ export function SubshellPane({
     // Inset past xterm's scrollbar track (14px, `scrollbarReserve`): the
     // overlay is only present with two devices attached, but while it is, a
     // button sitting on the track would eat drags meant for the scrollbar.
-    <div className="pointer-events-none absolute top-1 right-4 z-10">
+    <div className="pointer-events-none absolute top-1 right-4 z-10 flex items-center gap-1.5">
+      {/* Beside Devices, in the same overlay: dockview owns this panel's
+          frame, so there is no header of ours to put them in — and a pane in
+          a workspace is exactly where someone forgets whose machine they are
+          typing on. The banner is deliberately NOT here (a transient strip
+          over a tiled pane covers the output it warns about); the detail page
+          carries that, and these icons carry the fact permanently. */}
+      {trustNotices.length > 0 && (
+        <div className="pointer-events-auto rounded-md bg-terminal-strip/85 px-1.5 py-1 backdrop-blur-sm">
+          <TrustIndicators notices={trustNotices} />
+        </div>
+      )}
       <div className="pointer-events-auto rounded-md bg-terminal-strip/85 backdrop-blur-sm">
         <SubshellDevices state={viewers} onSizing={(mode, viewerId) => handlesRef.current?.setSizing(mode, viewerId)} />
       </div>
