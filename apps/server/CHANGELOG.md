@@ -1,5 +1,103 @@
 # @internal/server
 
+## 1.6.0
+
+### Minor Changes
+
+- [`e779e95`](https://github.com/subshell-ai/subshell/commit/e779e954061e8b186fdefadcd2622e2791bd65c2) Thanks [@theogravity](https://github.com/theogravity)! - Add an admin-only Server status page (`/settings/status`) backed by a new
+  `GET /api/admin/status`.
+  
+  One read answers "is this instance healthy, and what is it running":
+  
+  - **Versions** — server, Bun runtime, node protocol, and the minimum agent
+    version, plus the enrolled agents that fall below that floor. A refused
+    agent otherwise reads as a plain offline node with nothing anywhere saying
+    why; this names them and links to each.
+  - **Runtime** — uptime, memory, host, listen address, SPA source
+    (disk vs embedded), database path and size, tmux, resolved MCP entrypoint.
+    The last two are badged as failures rather than merely printed: no tmux
+    means every local pane launch fails, and an unresolved MCP entrypoint means
+    every subshell create 500s, and both stay invisible until a user hits them.
+  - **Inventory** — users/admins, subshells, nodes, workspaces, profiles,
+    channels, counted server-side across every user.
+  - **Security posture** — registrations, break-glass login, whether the auth
+    secret is still the placeholder, and how many system API keys are active.
+  
+  Cookie-admin only, and bearer keys are refused even when their owner is an
+  admin. The body carries no secret in any form — the auth secret and the
+  break-glass password appear as booleans, and a test scans the serialized
+  response for the real values so a field added later cannot regress that.
+
+- [`87e58d0`](https://github.com/subshell-ai/subshell/commit/87e58d02709ed79ea4e87504b31d9a95f4a9aa25) Thanks [@theogravity](https://github.com/theogravity)! - Enforce a minimum agent version on `/ws/node`.
+  
+  `MIN_AGENT_VERSION` (currently `0.3.0`) is checked at `ready`, BEFORE the
+  existing exact-protocol match, and an agent below it is closed with 4406 and a
+  reason naming both the required and the reported version. The agent relays that
+  reason to its own log, so the person on that host reads what to do rather than
+  a generic "protocol mismatch" naming a number that was not the problem.
+  
+  **This can stop a previously working node from connecting.** An agent older
+  than 0.3.0 that speaks the current protocol used to be accepted and now is not.
+  Update the agent on that host (`subshell version` reports what it is running).
+  
+  The two gates are independent: the floor states "this server needs newer agent
+  BEHAVIOUR" and moves on its own schedule, while the protocol match states "these
+  two ship together". A refused agent still has its identity persisted, so it
+  appears on the Nodes page with a "below minimum" badge, and Settings → Status
+  lists every enrolled agent under the floor in one place — a refusal happens at
+  connect, so such a node otherwise looks like an ordinary offline one.
+
+### Patch Changes
+
+- [`8bb0da3`](https://github.com/subshell-ai/subshell/commit/8bb0da3f1ff09d2db252de7b1475cee53c546997) Thanks [@theogravity](https://github.com/theogravity)! - Print the `/subshell` wordmark at boot, above the version line.
+  
+  Plain ASCII — `#` draws `/sub`, `+` draws `shell`, so the wordmark's two-tone
+  split survives a journal, a piped log, or a terminal without truecolor. In a
+  terminal it additionally carries the brand's own colours, read from
+  `brand/src/wordmark.svg`: the slash's gradient, then `sub`, then `shell`.
+  
+  Colour is emitted **only when stdout is a TTY**. Under systemd or launchd it is
+  not, and escape codes committed to a journal are something an operator has to
+  read around forever.
+  
+  It reaches stdout through a LogLayer group bound to its own unprefixed
+  transport, so the banner is not stamped with `[time] INFO` — which would shear
+  the top row off the letterforms — without putting an unmanaged `console` writer
+  back into a codebase that routes everything through LogLayer.
+  
+  Also fixes `bun run brand:generate`, which looked for the licensed font only at
+  `~/fonts/acherus` (one maintainer's Linux layout) and so refused to run for
+  anyone who had installed the family the normal way for their OS. It now
+  searches the platform's real font directories, with `SUBSHELL_BRAND_FONTS_DIR`
+  still overriding.
+
+- [`a0b4377`](https://github.com/subshell-ai/subshell/commit/a0b4377301afcde5bd6d97492cf5cda75dc59c1b) Thanks [@theogravity](https://github.com/theogravity)! - Make the running version answerable everywhere it is asked.
+  
+  - `subshell --version` / `-v` now work. They alias the `version` subcommand,
+    but only in the command slot: argv[0] IS the command in this parser, so
+    `subshell status --version` remains an unknown flag, because it is a typo
+    rather than a request for the version.
+  - The server LOGS its version as the first line of boot, before anything can
+    fail. After a restart, which build came up decides how to read every line
+    beneath it — and the service manager restarts whatever binary sits at the
+    unit's ExecStart path, which is not always the one you assume.
+  - `subshell-server status` opens with the same `subshell-server <version>`
+    line the `version` subcommand prints. "Which build is this host running?"
+    is the question that decides whether the rest of the output is even
+    relevant, and status could not answer it.
+  - `GET /api/meta/status` reported a hardcoded `appVersion: "1.0.0"` while the
+    server was at 1.5.0. It now derives from `SERVER_VERSION`, with a test that
+    compares the two so the drift cannot recur.
+  - `GET /api/settings/public` gains `serverVersion`, and Preferences gains an
+    About section showing it beside the bundle build id. The two version
+    independently, and a bug report needs the pair.
+  
+  No `--version` flag on `subshell-server`: a leading `-` there is the boot path
+  by contract (svc.sh and systemd pass flags, never subcommand words), so the
+  flag would have to carve an exception out of the one rule that keeps the
+  service deployment byte-identical. `subshell-server version` and now `status`
+  both answer instead.
+
 ## 1.5.0
 
 ### Minor Changes
