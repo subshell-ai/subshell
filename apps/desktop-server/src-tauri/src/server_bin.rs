@@ -541,7 +541,7 @@ mod sidecar_spec_tests {
     // both strip it on copy, so anything looking for the STAGED filename inside
     // a built app finds nothing. Pinned here rather than in the shared crate
     // because it is this app's shipped name, and it has to agree with
-    // `BUNDLED_SIDECAR_NAME` in `packages/subshell-protocol/src/paths.ts` and
+    // `SERVER_SIDECAR_NAME` in `packages/subshell-protocol/src/paths.ts` and
     // with `externalBin` in `tauri.conf.json`.
     #[test]
     fn bundled_name_carries_no_target_triple() {

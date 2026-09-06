@@ -365,6 +365,20 @@ pub struct Probe {
     pub tmux: Option<String>,
     /// The closed set of paths the window may name.
     pub paths: NodePaths,
+    /// Whether rewriting the service definition takes the RUNNING agent down
+    /// on the way.
+    ///
+    /// `service install` is the remedy the CLI itself suggests for a definition
+    /// that would kill live panes, and on Linux it is free: the unit is
+    /// rewritten, `daemon-reload` re-reads it for the running unit, and `enable
+    /// --now` leaves an already-active one alone. launchd has no reload —
+    /// `installService` boots the old job OUT and bootstraps the new plist —
+    /// and booting out a job whose loaded definition predates
+    /// `AbandonProcessGroup` takes its whole process group with it, which is
+    /// every pane on this machine. So the platform where the remedy is free
+    /// and the platform where it costs exactly what it is repairing are
+    /// opposite, and the page cannot know which it is on.
+    pub rewrite_tears_down: bool,
 }
 
 impl Default for Probe {
@@ -380,6 +394,7 @@ impl Default for Probe {
             error: None,
             tmux: None,
             paths: NodePaths::default(),
+            rewrite_tears_down: cfg!(target_os = "macos"),
         }
     }
 }
@@ -558,21 +573,112 @@ impl From<Run> for ActionResult {
     }
 }
 
+/// Why an install must not proceed, or `None` when it may.
+///
+/// The one refusal is the DOWNGRADE, and it is stated here because nothing
+/// downstream states it: [`decide_agent`]'s rule is that a newer bundled agent
+/// is OFFERED and a newer installed one is ADOPTED — never overwritten, never
+/// even offered — but `sidecar::already_installed` compares size and version
+/// for EQUALITY, not order, so an older bundled binary would cheerfully
+/// overwrite a newer installed one. A node agent speaks a versioned wire
+/// protocol to the control plane and owns state the plane pushes to it, so that
+/// trade buys a node which enrolls, comes up ONLINE and then refuses every
+/// launch.
+///
+/// The page does not offer the install in this case either, but the page's
+/// probe is a snapshot: an agent installed from a terminal a moment ago is
+/// newer than anything the open window knows about. This runs BEFORE the
+/// service is stopped or a byte is copied.
+///
+/// Decided against the RESOLVED agent rather than read off `Probe::agent_choice`
+/// — that field is deliberately narrowed to the copy this app manages, because
+/// an upgrade OFFER for an agent the service does not run would change nothing
+/// and repeat forever. The guard has to be wider than the offer: `~/.local/bin`
+/// outranks the login PATH and the well-known directories, so writing an older
+/// binary there is a downgrade of what this app drives even when it never
+/// installed the newer one.
+pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option<String> {
+    // Both versions are readable by construction: an agent that cannot state
+    // one never resolves, and `decide_agent` reaches AdoptInstalled only when
+    // it has two to compare.
+    if decide_agent(bundled, installed) != AgentChoice::AdoptInstalled {
+        return None;
+    }
+    let (bundled, installed) = (bundled?, installed?);
+    Some(format!(
+        "the agent already installed on this machine ({installed}) is newer than the one this app ships \
+         ({bundled}), so installing would downgrade it — an agent older than the control plane expects enrolls, \
+         comes up online and then refuses every launch. Nothing was changed, and the installed agent is the one \
+         this app drives."
+    ))
+}
+
+/// What to say about the service this install took down, if it took one down.
+fn stop_note(stop: Option<&Run>) -> &'static str {
+    match stop {
+        None => "",
+        // Say that the service is down, because this is the one action that
+        // stops it without being asked to.
+        Some(r) if r.ok() => " The service was stopped so the file could be replaced — start it again.",
+        // The copy goes ahead whatever the stop did, so the honest report is
+        // that the file changed underneath a daemon still running the old one.
+        Some(_) => {
+            " The service could NOT be stopped and the file was replaced anyway — what is running is still the old \
+             agent until it is restarted."
+        }
+    }
+}
+
+/// Two blocks of CLI output in the order they happened.
+fn joined(first: &str, second: &str) -> String {
+    let (a, b) = (first.trim(), second.trim());
+    match (a.is_empty(), b.is_empty()) {
+        (true, _) => b.to_string(),
+        (_, true) => a.to_string(),
+        _ => format!("{a}\n\n{b}"),
+    }
+}
+
+/// Fold the stop's own words into the install's result.
+///
+/// The stop is a CLI invocation with things to say: "subshell stopped." when it
+/// worked, and — the one that matters — the pane warning when the installed
+/// definition predates the pane-sparing directive, which is the sentence naming
+/// every subshell it just took down. Discarding it made this the one action
+/// that could end every pane on the machine and print nothing about it.
+fn with_stop_output(result: ActionResult, stop: Option<Run>) -> ActionResult {
+    let Some(stop) = stop else { return result };
+    let stop = ActionResult::from(stop);
+    ActionResult {
+        // A stop that failed leaves the manager running the binary that was
+        // just replaced, so the machine is not in the state the success line
+        // describes — a failure, whatever the copy managed to do.
+        ok: result.ok && stop.ok,
+        stdout: joined(&stop.stdout, &result.stdout),
+        stderr: joined(&stop.stderr, &result.stderr),
+    }
+}
+
 /// Materialise the bundled agent at `~/.local/bin/subshell`.
 #[tauri::command(async)]
 pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref());
+    if let Some(reason) = install_refusal(
+        version.as_deref(),
+        probe.agent.as_ref().and_then(|a| a.version.as_deref()),
+    ) {
+        return Ok(ActionResult::refused(reason));
+    }
     // Only tear the service down when we are actually replacing the binary it
     // runs. Stopping one that points somewhere else would end every subshell's
     // supervision on this machine for no upgrade at all.
     //
-    // `stop`, never `restart --force`: the installed definition carries
-    // `KillMode=process` / `AbandonProcessGroup=true`, so stopping the daemon
-    // leaves every live subshell's tmux server running — and the CLI's own
-    // pane guard is what decides that, which is why this goes through the CLI
-    // rather than through systemctl.
+    // `stop`, never `restart --force`: the CLI's own pane guard is what decides
+    // what a teardown costs — it warns rather than refusing on `stop`, and the
+    // warning is the only thing that will say which panes went down — which is
+    // why this goes through the CLI rather than through systemctl.
     let stop_target = probe
         .managed
         .then(|| {
@@ -585,26 +691,27 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
             )
         })
         .flatten();
-    let stop = || {
+    // KEPT, not discarded: see `with_stop_output`.
+    let mut stopped: Option<Run> = None;
+    let outcome = sidecar::install_bundled(&AGENT_SIDECAR, version.as_deref(), || {
         if let Some(cmd) = stop_target {
-            let _ = run(&cmd, ACTION_TIMEOUT);
+            stopped = Some(run(&cmd, ACTION_TIMEOUT));
         }
-    };
-    match sidecar::install_bundled(&AGENT_SIDECAR, version.as_deref(), stop)? {
+    })?;
+    match outcome {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
+        // Nothing was stopped on this path: `install_bundled` answers before it
+        // calls the stop at all.
         sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
         sidecar::InstallOutcome::Installed => {
             let where_ = sidecar::install_path(&AGENT_SIDECAR)
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
-            // Say that the service is down, because this is the one action
-            // that stops it without being asked to.
-            let note = if probe.managed {
-                " The service was stopped so the file could be replaced — start it again."
-            } else {
-                ""
-            };
-            Ok(ActionResult::said(format!("Installed subshell to {where_}.{note}")))
+            let note = stop_note(stopped.as_ref());
+            Ok(with_stop_output(
+                ActionResult::said(format!("Installed subshell to {where_}.{note}")),
+                stopped,
+            ))
         }
     }
 }
@@ -1388,9 +1495,180 @@ mod probe_tests {
             "error",
             "tmux",
             "paths",
+            "rewriteTearsDown",
         ] {
             assert!(v.get(key).is_some(), "missing {key} in {v}");
         }
+    }
+}
+
+#[cfg(test)]
+mod install_policy_tests {
+    use super::*;
+
+    fn run_with(code: Option<i32>, stdout: &str, stderr: &str) -> Run {
+        Run {
+            code,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            timed_out: false,
+        }
+    }
+
+    // The invariant `agent_bin` states in its own words: a newer installed
+    // agent is ADOPTED, never overwritten. Nothing downstream enforces it —
+    // `already_installed` compares versions for equality, not order — so an
+    // older bundled binary would otherwise overwrite a newer installed one and
+    // buy a node that enrolls, reports online and refuses every launch.
+    #[test]
+    fn a_newer_installed_agent_is_never_overwritten() {
+        let refusal = install_refusal(Some("1.9.0"), Some("2.0.0")).expect("a downgrade must be refused");
+        assert!(refusal.contains("2.0.0"), "{refusal}");
+        assert!(refusal.contains("1.9.0"), "{refusal}");
+        assert!(refusal.contains("downgrade"), "{refusal}");
+        // Numeric, not lexical — the comparison `decide_agent` already owns.
+        assert!(install_refusal(Some("1.9.0"), Some("1.10.0")).is_some());
+    }
+
+    // …and every other case installs. In particular "nothing installed", which
+    // is the whole point of the button on a machine with no agent.
+    #[test]
+    fn every_other_case_may_install() {
+        for (bundled, installed) in [
+            (Some("2.0.0"), Some("1.9.0")), // an upgrade
+            (Some("1.9.0"), Some("1.9.0")), // already the same
+            (Some("1.9.0"), None),          // nothing installed
+            (None, Some("2.0.0")),          // nothing to install
+            (None, None),
+        ] {
+            assert_eq!(
+                install_refusal(bundled, installed),
+                None,
+                "refused bundled={bundled:?} installed={installed:?}"
+            );
+        }
+    }
+
+    // The guard is deliberately WIDER than the upgrade offer. `agent_choice`
+    // is narrowed to the copy this app manages — an offer for an agent the
+    // service does not run would change nothing and repeat forever — but
+    // `~/.local/bin` outranks the login PATH and the well-known directories,
+    // so writing an older binary there downgrades what this app drives even
+    // when it never installed the newer one.
+    #[test]
+    fn an_agent_this_app_does_not_manage_is_not_downgraded_either() {
+        let mut p = Probe {
+            bundled_version: Some("1.9.0".into()),
+            agent: Some(AgentBinary {
+                argv: vec!["/usr/local/bin/subshell".into()],
+                source: crate::agent_bin::AgentSource::WellKnown,
+                version: Some("2.0.0".into()),
+            }),
+            managed: false,
+            ..Default::default()
+        };
+        p.decide();
+        // Nothing is OFFERED here…
+        assert_eq!(p.agent_choice, AgentChoice::UpToDate);
+        // …and if the command is reached anyway, it still refuses.
+        assert!(install_refusal(
+            p.bundled_version.as_deref(),
+            p.agent.as_ref().and_then(|a| a.version.as_deref())
+        )
+        .is_some());
+    }
+
+    // The one action that stops the service without being asked to. On a stale
+    // definition that stop is what ends every pane on the machine, and the
+    // CLI's warning is the only thing that says so.
+    #[test]
+    fn the_stops_own_words_reach_the_page() {
+        let warning = "subshell: warning: /Users/u/Library/LaunchAgents/dev.subshell.client.plist predates \
+                       AbandonProcessGroup=true, so stop kills every running subshell's tmux server";
+        let result = with_stop_output(
+            ActionResult::said("Installed subshell to /home/u/.local/bin/subshell."),
+            Some(run_with(Some(0), "subshell stopped.", warning)),
+        );
+        assert!(result.ok);
+        assert!(
+            result.stderr.contains("kills every running subshell"),
+            "{}",
+            result.stderr
+        );
+        assert!(result.stdout.contains("subshell stopped."), "{}", result.stdout);
+        assert!(result.stdout.contains("Installed subshell"), "{}", result.stdout);
+    }
+
+    // A stop that failed leaves the manager running the file that was just
+    // replaced: the success line describes a machine this one is not.
+    #[test]
+    fn a_failed_stop_makes_the_whole_install_a_failure() {
+        let result = with_stop_output(
+            ActionResult::said("Installed subshell to /home/u/.local/bin/subshell."),
+            Some(run_with(
+                Some(1),
+                "",
+                "systemctl --user stop subshell.service failed (exit 1): no such unit",
+            )),
+        );
+        assert!(!result.ok);
+        assert!(result.stderr.contains("no such unit"), "{}", result.stderr);
+    }
+
+    // A silent failure — a deadline or a spawn error — still has to say
+    // something, or the install reads as clean.
+    #[test]
+    fn a_stop_that_said_nothing_still_reports_itself() {
+        let result = with_stop_output(
+            ActionResult::said("Installed."),
+            Some(Run {
+                code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                timed_out: true,
+            }),
+        );
+        assert!(!result.ok);
+        assert_eq!(result.stderr, "timed out");
+    }
+
+    // Nothing was stopped (an unmanaged agent, or nothing installed), so
+    // nothing is claimed about a service.
+    #[test]
+    fn with_no_stop_the_result_is_untouched() {
+        let result = with_stop_output(ActionResult::said("Installed."), None);
+        assert!(result.ok);
+        assert_eq!(result.stdout, "Installed.");
+        assert_eq!(result.stderr, "");
+        assert_eq!(stop_note(None), "");
+    }
+
+    // The note describes what actually happened to the service, not what the
+    // app intended: "start it again" over a stop that failed sends the user to
+    // a button that will report the service is already running.
+    #[test]
+    fn the_note_follows_the_stop_that_actually_ran() {
+        assert!(stop_note(Some(&run_with(Some(0), "subshell stopped.", ""))).contains("start it again"));
+        let failed = stop_note(Some(&run_with(Some(1), "", "boom")));
+        assert!(failed.contains("could NOT be stopped"), "{failed}");
+        assert!(!failed.contains("start it again"), "{failed}");
+    }
+
+    #[test]
+    fn output_blocks_never_run_together_or_leave_a_blank_gap() {
+        assert_eq!(joined("a", "b"), "a\n\nb");
+        assert_eq!(joined("", "b"), "b");
+        assert_eq!(joined("a", ""), "a");
+        assert_eq!(joined("  ", "\n"), "");
+    }
+
+    // The page decides whether to confirm the rewrite from this fact, and it
+    // is a platform fact: launchd has no reload, so `service install` boots the
+    // stale job out — which is what kills the panes the rewrite exists to
+    // protect. systemd re-reads the unit under a running daemon.
+    #[test]
+    fn only_launchd_pays_for_rewriting_the_definition() {
+        assert_eq!(Probe::default().rewrite_tears_down, cfg!(target_os = "macos"));
     }
 }
 

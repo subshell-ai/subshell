@@ -96,17 +96,28 @@ export function linuxServiceStub(over: Record<string, string> = {}): Stub {
   return s;
 }
 
-/** A darwin stub: `plutil` answers `abandon`, `launchctl print` answers loaded/not. */
-export function darwinServiceStub({ abandon = true, loaded = true, pid = 5150 } = {}): Stub {
+/**
+ * A darwin stub: `plutil` answers `abandon`, `launchctl print` answers
+ * loaded/not — and, when loaded, running or idle.
+ *
+ * `loaded` and `running` are two facts, not one. A launchd job that is
+ * bootstrapped but has no process makes `print` exit 0 with no `pid` line:
+ * still loaded (so `KeepAlive`/`RunAtLoad` can start it and a fresh
+ * `bootstrap` refuses), yet not running. `loaded: false` is the only shape
+ * where `print` itself fails.
+ */
+export function darwinServiceStub({ abandon = true, loaded = true, running = true, pid = 5150 } = {}): Stub {
   const s = serviceStub({
     platform: "darwin",
     respond: (cmd) => {
       if (cmd[0] === "plutil")
         return abandon ? { code: 0, out: "true\n", err: "" } : { code: 1, out: "", err: "No value at that key path" };
-      if (cmd[1] === "print")
-        return loaded
+      if (cmd[1] === "print") {
+        if (!loaded) return { code: 113, out: "", err: "" };
+        return running
           ? { code: 0, out: `\tstate = running\n\tpid = ${pid}\n`, err: "" }
-          : { code: 113, out: "", err: "" };
+          : { code: 0, out: "\tstate = not running\n", err: "" };
+      }
       return { code: 0, out: "", err: "" };
     },
   });

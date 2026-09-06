@@ -306,9 +306,21 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     argv1: process.argv[1] ?? "",
     hasConfig,
     async runCmd(cmd) {
-      const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-      const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      return { code: await proc.exited, out, err };
+      try {
+        const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+        const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+        // Typed `number`, but a signal-killed/never-started child can still
+        // surface null — treat it as failure(ish) so callers quote whatever
+        // output came back, rather than letting it read as a clean exit 0.
+        const exited: number | null = await proc.exited;
+        return { code: exited === null ? 1 : exited, out, err };
+      } catch (err) {
+        // A missing manager binary (no systemctl/launchctl on PATH) surfaces
+        // as a spawn THROW, not an exit code — report it as a failed command
+        // so `queryService` degrades to `unknown` and `service status`, which
+        // must always exit 0, still answers with a state instead of a stack.
+        return { code: 127, out: "", err: `spawn failed: ${(err as Error).message}` };
+      }
     },
     // The unit/plist directories (~/.config/systemd/user, ~/Library/LaunchAgents)
     // are ours to create; mkdir-recursive first so a fresh box installs cleanly.
@@ -386,6 +398,16 @@ export interface ServiceState {
   pid: number | null;
   /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad`). `null` when unknown. */
   enabled: boolean | null;
+  /**
+   * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact
+   * `launchctl print` states by exiting 0 at all. It is NOT the run state: a
+   * job can be loaded and idle (no pid), and while it stays loaded
+   * `KeepAlive`/`RunAtLoad` can start it again and a later `bootstrap` fails
+   * with "service already loaded". `stop` therefore gates its no-op on THIS,
+   * never on {@link ServiceState.state}. Absent on systemd, whose own `stop`
+   * is idempotent.
+   */
+  loaded?: boolean;
   /**
    * Whether a teardown keeps live panes — `null` only when nothing is installed.
    *
@@ -582,15 +604,27 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
   if (res.code !== 0) {
     // Not loaded in this domain. With a plist ON DISK that is exactly
     // "installed but stopped" — the state `bootout` leaves behind.
-    return { installed: true, definitionPath, state: "stopped", pid: null, enabled, paneSafety, detail: "" };
+    return {
+      installed: true,
+      definitionPath,
+      state: "stopped",
+      pid: null,
+      enabled,
+      loaded: false,
+      paneSafety,
+      detail: "",
+    };
   }
   const { running, pid } = parseLaunchctlPrint(res.out);
+  // `print` answered, so the job IS bootstrapped — even when it reports no pid.
+  // That is the loaded-but-idle case, which is stopped and loaded at once.
   return {
     installed: true,
     definitionPath,
     state: running ? "running" : "stopped",
     pid,
     enabled,
+    loaded: true,
     paneSafety,
     detail: "",
   };
@@ -677,8 +711,14 @@ export async function controlService(
   const target = `gui/${deps.uid}/${LAUNCHD_LABEL}`;
   if (verb === "stop") {
     // Idempotent like the systemd verb: `bootout` on an unloaded job exits
-    // non-zero, which would make a second stop look like a failure.
-    if (state.state === "stopped") return { code: 0, out: "subshell is already stopped.\n", err: "" };
+    // non-zero, which would make a second stop look like a failure. The fact
+    // that licenses the no-op is NOT-LOADED, never "not running": a launchd
+    // job can be loaded and idle (`print` answers, no pid), and in that state
+    // it is still bootstrapped — `KeepAlive`/`RunAtLoad` can start it again
+    // and a later `bootstrap` fails with "service already loaded". Gating on
+    // the run state reported success on exactly that job and booted out
+    // nothing.
+    if (state.loaded === false) return { code: 0, out: "subshell is already stopped.\n", err: "" };
     // `bootout`, not a kill: KeepAlive is true, so launchd restarts anything
     // that merely dies. Unloading the job is the only thing that stays stopped.
     const res = await deps.runCmd(["launchctl", "bootout", target]);

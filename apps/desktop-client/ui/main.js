@@ -43,7 +43,16 @@ let probe = null;
 let prefs = null;
 /** True while a command is in flight; every control is disabled meanwhile. */
 let busy = false;
-/** Why the last action or probe failed, in the CLI's (or Rust's) words. */
+/**
+ * Why the last action or probe failed, in the CLI's (or Rust's) words.
+ *
+ * Written in exactly one place — {@link guard} — from two sources, and the
+ * ACTION's failure wins. Assigning it from the re-probe as well is how every
+ * rejected command became a silent no-op: `node_open_path` rejects with the
+ * `journalctl` line to run instead, `node_set_agent_bin` with "that does not
+ * look like a subshell agent", and both were overwritten before anything
+ * rendered.
+ */
 let problem = "";
 /**
  * A step the USER chose rather than one the machine implies — today only
@@ -202,9 +211,22 @@ const pathActions = () => [
   ["Open the agent log", openPath("agent-log")],
 ];
 
-/** The non-destructive remedy for a definition that would kill live panes. */
-const rewriteAction = () =>
-  paneRisk(probe) ? [["Rewrite the service definition", service("install", { settle: true })]] : [];
+/** The remedy for a definition that would kill live panes — see {@link doRewrite}. */
+const rewriteAction = () => (paneRisk(probe) ? [["Rewrite the service definition", doRewrite]] : []);
+
+/**
+ * Whether rewriting the definition would itself cost the panes it is repairing.
+ *
+ * True on macOS only, and the asymmetry is launchd's: systemd re-reads a
+ * rewritten unit under the running daemon (`daemon-reload`, then an `enable
+ * --now` that leaves an active unit alone), where launchd has no reload at all
+ * — `service install` boots the loaded job OUT and bootstraps the new plist.
+ * Booting out a job whose LOADED definition predates `AbandonProcessGroup`
+ * takes its whole process group, which is every pane on this machine. The Rust
+ * side reports the platform half as `rewriteTearsDown`; the pane half is the
+ * same fact the other teardown actions read.
+ */
+const rewriteKillsPanes = () => paneRisk(probe) && probe?.rewriteTearsDown === true;
 
 const reenrollAction = () => [["Re-enroll this machine…", showEnroll]];
 
@@ -237,7 +259,14 @@ const STEPS = Object.assign(Object.create(null), {
           ],
     actions: () => {
       const out = [];
-      if (probe?.bundledVersion) out.push(["Install the agent", act("node_install_agent"), !probe?.agent]);
+      // The unconfirmed install is for a machine with NO agent: nothing to
+      // stop, nothing to overwrite, nothing to downgrade. When an agent WAS
+      // resolved — this step is also reached when `status --json` merely failed
+      // — the same command stops the service and replaces the binary it runs,
+      // which is what {@link doUpdateAgent} exists to ask about first. So no
+      // install is offered here; a newer bundled agent is still offered by
+      // `renderStep`, with its confirmation.
+      if (probe?.bundledVersion && !probe?.agent) out.push(["Install the agent", act("node_install_agent"), true]);
       if (probe?.agent) out.push(["Retry", act(null), true]);
       out.push(["Choose an existing agent…", pickBinary]);
       if (prefs?.agentBinPath) out.push(["Forget the chosen binary", clearBinary]);
@@ -359,10 +388,19 @@ function renderStep() {
   el("step-body").textContent = text(step.body);
   el("step-hint").textContent = text(step.hint);
 
-  // The upgrade offer rides alongside whatever step is showing, so it belongs
-  // in the rebuild key: a probe that newly discovers a newer bundled agent has
-  // to be able to add the button without the step itself changing.
-  const rebuildKey = `${key}|${probe?.agentChoice ?? ""}|${prefs?.agentBinPath ?? ""}`;
+  // Everything the action row and the notes read, beyond the step itself — a
+  // stale row is a button that acts on a machine that has moved on. The upgrade
+  // offer rides alongside whatever step is showing; the rewrite button appears
+  // and disappears with the pane-safety fact ALONE, which is exactly what
+  // happens when the rewrite succeeds; and `no-agent` shows a different body,
+  // notes and action set depending on whether an agent resolved at all.
+  const rebuildKey = [
+    key,
+    probe?.agentChoice ?? "",
+    probe?.agent ? "agent" : "no-agent",
+    paneRisk(probe),
+    prefs?.agentBinPath ?? "",
+  ].join("|");
   if (renderedStep !== rebuildKey) {
     renderedStep = rebuildKey;
 
@@ -486,12 +524,20 @@ function render() {
   renderPrefs();
 }
 
+/**
+ * Re-read the machine's state, and RETURN the probe's own failure text.
+ *
+ * Returned rather than assigned to {@link problem}: every guarded action ends
+ * by re-probing, so a refresh that wrote `problem` destroyed the refusal the
+ * action had just put there — before a single render. The caller decides which
+ * message wins.
+ */
 async function refresh() {
   probe = await invoke("node_probe");
+  prefs = await invoke("node_settings");
   // The Rust side reports the CLI's own failure text rather than letting a
   // failed `status` masquerade as an unregistered machine.
-  problem = probe.error ?? "";
-  prefs = await invoke("node_settings");
+  return probe.error ?? "";
 }
 
 /**
@@ -506,24 +552,31 @@ function guard(fn) {
     pending = null;
     show(null);
     render();
+    // Held rather than written straight to `problem`, because the re-probe
+    // below is what used to overwrite it — see {@link refresh}.
+    let failure = "";
     try {
       const result = await fn();
       if (result) show(result);
       // A refusal that raised its own confirmation is explained by that panel;
       // saying "that did not work" over the top of it reads as a dead end.
       if (result && result.ok === false && pending === null) {
-        problem = "That did not work — see the output below.";
+        failure = "That did not work — see the output below.";
       }
     } catch (err) {
       // A command that rejects (or a Rust `Err`) must not strand the window.
       // These messages are actionable sentences — on Linux, "open the agent
       // log" rejects with the `journalctl` command to run instead.
-      problem = String(err?.message ?? err);
+      failure = String(err?.message ?? err);
     }
     try {
-      await refresh();
+      // The action's own refusal answers what was clicked, so it outranks a
+      // probe error, which is background weather. With nothing to report, a
+      // fresh probe error still lands here — which is what shows it on load
+      // and on Refresh, where there is no action to lose.
+      problem = failure || (await refresh());
     } catch (err) {
-      problem = problem || `Could not read this machine's state: ${String(err?.message ?? err)}`;
+      problem = failure || `Could not read this machine's state: ${String(err?.message ?? err)}`;
     }
     busy = false;
     render();
@@ -560,13 +613,43 @@ const act = (cmd, args) => guard(() => (cmd ? invoke(cmd, args) : null));
  * One `service` verb. `force` is never passed here — the CLI accepts it only
  * on `restart`, and that one path goes through {@link doRestart} so its
  * refusal is read out loud before the override is offered.
+ *
+ * UNGUARDED, so a confirmed action can run it from inside its own guard: every
+ * caller either wraps it in {@link service} or is already inside one.
  */
-const service = (verb, opts = {}) =>
-  guard(async () => {
-    const result = await invoke("node_service", { verb, force: false });
-    if (result.ok && opts.settle) await settle();
-    return result;
+async function runService(verb, opts = {}) {
+  const result = await invoke("node_service", { verb, force: false });
+  if (result.ok && opts.settle) await settle();
+  return result;
+}
+
+const service = (verb, opts = {}) => guard(() => runService(verb, opts));
+
+/**
+ * Rewrite the service definition, asking first where the rewrite costs panes.
+ *
+ * The repair for a definition that would SIGKILL every subshell on a teardown,
+ * and on Linux it is free — which is why the restart refusal points at it. On
+ * macOS the same `service install` is bootout + bootstrap, so it pays the exact
+ * price it is buying off, once. Nothing destructive happens on one click here,
+ * and "kills nothing" is not said on the platform where it does.
+ */
+const doRewrite = guard(() => {
+  if (!rewriteKillsPanes()) return runService("install", { settle: true });
+  ask({
+    title: "Rewriting the definition restarts the agent",
+    messages: [
+      "A launchd job cannot be reloaded in place: the loaded one is booted out and the new definition is " +
+        "bootstrapped. The definition currently loaded does not spare live panes, so booting it out kills every " +
+        "subshell running on this machine.",
+      "It is the last time that happens. The definition this writes spares panes, so every stop, restart and " +
+        "uninstall after it is free.",
+    ],
+    acceptLabel: "Rewrite the definition",
+    run: () => runService("install", { settle: true }),
   });
+  return null;
+});
 
 const openPath = (target) =>
   guard(async () => {
@@ -680,8 +763,12 @@ const doRestart = guard(async () => {
     title: "This restart would kill every subshell running on this machine",
     messages: [
       first.stderr.trim(),
-      'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it fixes this for ' +
-        "good and kills nothing. Forcing the restart loses every session running on this machine right now.",
+      rewriteKillsPanes()
+        ? 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion and it fixes ' +
+          "this for good — but launchd has no reload, so it boots the stale job out to load the new one and costs " +
+          "the same sessions this restart would, once. Forcing the restart loses them and repairs nothing."
+        : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it fixes this ' +
+          "for good and kills nothing. Forcing the restart loses every session running on this machine right now.",
     ],
     acceptLabel: "Restart anyway (--force)",
     run: async () => {

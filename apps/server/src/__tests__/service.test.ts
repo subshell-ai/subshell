@@ -488,17 +488,28 @@ function linuxStub(over: Record<string, string> = {}) {
   return s;
 }
 
-/** A darwin stub: `plutil` answers `abandon`, `launchctl print` answers loaded/not. */
-function darwinStub({ abandon = true, loaded = true, pid = 5150 } = {}) {
+/**
+ * A darwin stub: `plutil` answers `abandon`, `launchctl print` answers
+ * loaded/not — and, when loaded, running or idle.
+ *
+ * `loaded` and `running` are two facts, not one. A launchd job that is
+ * bootstrapped but has no process makes `print` exit 0 with no `pid` line:
+ * still loaded (so `KeepAlive`/`RunAtLoad` can start it and a fresh
+ * `bootstrap` refuses), yet not running. `loaded: false` is the only shape
+ * where `print` itself fails.
+ */
+function darwinStub({ abandon = true, loaded = true, running = true, pid = 5150 } = {}) {
   const s = stub({
     platform: "darwin",
     respond: (cmd) => {
       if (cmd[0] === "plutil")
         return abandon ? { code: 0, out: "true\n", err: "" } : { code: 1, out: "", err: "No value at that key path" };
-      if (cmd[1] === "print")
-        return loaded
+      if (cmd[1] === "print") {
+        if (!loaded) return { code: 113, out: "", err: "" };
+        return running
           ? { code: 0, out: `\tstate = running\n\tpid = ${pid}\n`, err: "" }
-          : { code: 113, out: "", err: "" };
+          : { code: 0, out: "\tstate = not running\n", err: "" };
+      }
       return { code: 0, out: "", err: "" };
     },
   });
@@ -663,6 +674,20 @@ describe("queryService", () => {
     });
   });
 
+  // Loadedness is carried APART from the run state, because a job can be
+  // bootstrapped and idle at once — `print` answers (exit 0) with no pid. That
+  // job is stopped AND loaded, and only the second fact says whether a
+  // `bootout` is still owed.
+  test("darwin: `loaded` is whether print answered, not whether a pid came back", () => {
+    expect(queryService(darwinStub().deps)).toMatchObject({ state: "running", loaded: true });
+    expect(queryService(darwinStub({ running: false }).deps)).toMatchObject({
+      state: "stopped",
+      pid: null,
+      loaded: true,
+    });
+    expect(queryService(darwinStub({ loaded: false }).deps)).toMatchObject({ state: "stopped", loaded: false });
+  });
+
   // plutil, not a regex: a binary1 plist that sets the key would read as
   // "kills" under any text-shaped predicate.
   test("darwin: the pane answer comes from plutil", () => {
@@ -812,6 +837,19 @@ describe("controlService", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("already stopped");
     expect(s.calls.some((c) => c[1] === "bootout")).toBe(false);
+  });
+
+  // The job launchd disagrees about: `print` answers, no pid, and the job is
+  // STILL bootstrapped — KeepAlive/RunAtLoad can start it again and a later
+  // `bootstrap` fails with "service already loaded". Short-circuiting on the
+  // run state reported "already stopped" and booted out nothing.
+  test("darwin: a LOADED but idle job is still booted out, never called already-stopped", () => {
+    const s = darwinStub({ running: false });
+    const r = controlService(s.deps, "stop");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(DONE.stop);
+    expect(r.out).not.toContain("already stopped");
+    expect(s.calls.at(-1)).toEqual(["launchctl", "bootout", "gui/1000/dev.subshell.server"]);
   });
 
   test("darwin: restart of a running job is kickstart -k (the README's own line)", () => {

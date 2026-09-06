@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {
   controlService,
+  DEFAULT_DEPS,
   DONE,
   execLine,
   installService,
@@ -486,6 +487,23 @@ describe("queryService", () => {
     });
   });
 
+  // Loadedness is carried APART from the run state, because a job can be
+  // bootstrapped and idle at once — `print` answers (exit 0) with no pid. That
+  // job is stopped AND loaded, and only the second fact says whether a
+  // `bootout` is still owed.
+  test("darwin: `loaded` is whether print answered, not whether a pid came back", async () => {
+    expect(await queryService(darwinServiceStub().deps)).toMatchObject({ state: "running", loaded: true });
+    expect(await queryService(darwinServiceStub({ running: false }).deps)).toMatchObject({
+      state: "stopped",
+      pid: null,
+      loaded: true,
+    });
+    expect(await queryService(darwinServiceStub({ loaded: false }).deps)).toMatchObject({
+      state: "stopped",
+      loaded: false,
+    });
+  });
+
   // plutil, not a regex: a binary1 plist that sets the key would read as
   // "kills" under any text-shaped predicate.
   test("darwin: the pane answer comes from plutil", async () => {
@@ -640,6 +658,19 @@ describe("controlService", () => {
     expect(s.calls.some((c) => c[1] === "bootout")).toBe(false);
   });
 
+  // The job launchd disagrees about: `print` answers, no pid, and the job is
+  // STILL bootstrapped — KeepAlive/RunAtLoad can start it again and a later
+  // `bootstrap` fails with "service already loaded". Short-circuiting on the
+  // run state reported "already stopped" and booted out nothing.
+  test("darwin: a LOADED but idle job is still booted out, never called already-stopped", async () => {
+    const s = darwinServiceStub({ running: false });
+    const r = await controlService(s.deps, "stop");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(DONE.stop);
+    expect(r.out).not.toContain("already stopped");
+    expect(s.calls.at(-1)).toEqual(["launchctl", "bootout", TARGET]);
+  });
+
   test("darwin: restart of a running job is kickstart -k", async () => {
     const s = darwinServiceStub();
     const r = await controlService(s.deps, "restart");
@@ -704,6 +735,32 @@ describe("controlService", () => {
     expect(msgLine(r.err)).toContain("bootstrap broke");
     expect(msgLine(r.err)).toContain("kickstart broke");
     expect(msgLine(r.err)).toContain("launchctl enable");
+  });
+});
+
+/**
+ * The one suite that does NOT run against the stub. `DEFAULT_DEPS` is where
+ * the real `Bun.spawn` lives, and an injected `runCmd` — what every case above
+ * uses — can never exercise it, so the spawn guard has to be driven directly
+ * with a command name that cannot exist on any machine.
+ */
+describe("DEFAULT_DEPS.runCmd", () => {
+  const deps = DEFAULT_DEPS(async () => true);
+
+  // Bun.spawn THROWS on ENOENT ("Executable not found in $PATH"). Unguarded,
+  // that escapes through queryService and turns `service status` — documented
+  // to always exit 0 with a state — into a stack-shaped exit 1 on any box
+  // without systemctl/launchctl.
+  test("a manager binary that is not on PATH is a failed command, not a throw", async () => {
+    const res = await deps.runCmd(["subshell-no-such-service-manager-9f3a", "--version"]);
+    expect(res.code).toBe(127);
+    expect(res.out).toBe("");
+    expect(res.err).toContain("spawn failed");
+  });
+
+  test("a real command still reports its own exit code and both streams", async () => {
+    const res = await deps.runCmd(["/bin/sh", "-c", "printf hello; printf oops 1>&2; exit 3"]);
+    expect(res).toEqual({ code: 3, out: "hello", err: "oops" });
   });
 });
 

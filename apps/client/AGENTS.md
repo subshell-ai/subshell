@@ -42,7 +42,9 @@ subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--
 subshell run                       # foreground daemon (what the service unit runs)
 subshell service install|uninstall # systemd user unit / launchd agent
 subshell service status [--json]   # what the service MANAGER reports; always exits 0
-subshell service start|stop|restart [--force]   # drive an installed service; never installs one
+subshell service start|stop         # drive an installed service; never installs one
+subshell service restart [--force]  # --force overrides the refusal to restart a
+                                     # definition that would SIGKILL live panes
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
