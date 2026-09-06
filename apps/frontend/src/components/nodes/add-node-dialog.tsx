@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { NODE_TARGETS } from "@internal/subshell-protocol";
+import { useEffect, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +55,14 @@ export function AddNodeDialog({
   nodeCount: number;
 }) {
   const create = useCreateSetupKey();
-  const { data: publicSettings } = usePublicSettings();
+  // refetch-on-open: the shared query is 30 s fresh, but the warning's whole
+  // job is tracking a fact the OPERATOR changes (publishing artifacts) and
+  // then immediately re-checking by reopening this dialog — a stale verdict
+  // here is the bug this field exists to prevent, in the other direction.
+  const { data: publicSettings, isPending, isError, refetch } = usePublicSettings();
+  useEffect(() => {
+    if (open) void refetch();
+  }, [open, refetch]);
   const [name, setName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   // The one-time reveal: set after a successful create, cleared on close.
@@ -104,6 +112,33 @@ export function AddNodeDialog({
   // ?setup_key= (downloads route); origin is the pre-load fallback.
   const baseUrl = publicSettings?.appBaseUrl ?? window.location.origin;
   const installCommand = created ? `curl -fsSL "${baseUrl}/install.sh?setup_key=${created.key}" | bash` : "";
+  // The dialog cannot know the NEW machine's platform, so it judges the
+  // one-liner by what the server can serve: a target missing from
+  // nodeArtifactTargets 404s the download on that machine (the fresh
+  // binary-only-install bug — an empty artifacts dir until release:client
+  // runs). `undefined` = a server predating the field → stay silent.
+  const targets = publicSettings?.nodeArtifactTargets;
+  const missingTargets = targets ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
+  const enrollCommand = created ? `subshell enroll --server "${baseUrl}" --key "${created.key}"` : "";
+  // Rendered in BOTH steps: the operator should learn the one-liner cannot
+  // work BEFORE minting a single-use key they would then watch it 404 and
+  // have to re-mint. The paragraph only reads nodeArtifactTargets, which is
+  // loaded by the time step 1 is on screen; the enroll-command row (which
+  // needs the key) stays a step-2 thing.
+  const missingNote = missingTargets.length > 0 && (
+    <p className="text-amber-600 text-xs dark:text-amber-400">
+      This server has no agent binary published for: {missingTargets.join(", ")} — the install command 404s on those
+      machines. Publish the binaries on the server (run <code className="font-mono">bun run release:client</code> from a
+      checkout, or copy the client's GitHub Release binaries into its node-artifacts dir), or install the subshell agent
+      another way and enroll directly.
+    </p>
+  );
+  // Settings neither loaded nor errored ⇒ no verdict exists; say so instead
+  // of silently showing the 404-bound command (undefined field on a LOADED
+  // older server is a different case, and stays silent by design).
+  const unknownNote = (isPending || isError) && (
+    <p className="text-muted-foreground text-xs">Could not check whether this server publishes agent binaries.</p>
+  );
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
@@ -123,6 +158,13 @@ export function AddNodeDialog({
               </Button>
             </div>
             <CopyCommandRow text={installCommand} />
+            {missingNote && (
+              <div className="space-y-2">
+                {missingNote}
+                <CopyCommandRow text={enrollCommand} />
+              </div>
+            )}
+            {unknownNote}
             {isLoopbackUrl(baseUrl) && (
               <p className="text-amber-600 text-xs dark:text-amber-400">
                 APP_BASE_URL points at loopback ({baseUrl}) — a remote node cannot dial this machine from itself;
@@ -158,6 +200,9 @@ export function AddNodeDialog({
                 onChange={(e) => setName(e.target.value)}
               />
               {formError && <p className="text-destructive text-xs">{formError}</p>}
+              {/* The verdict needs no key — do not make the operator mint
+                  (and burn) one to discover the one-liner cannot work. */}
+              {missingNote}
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={close}>

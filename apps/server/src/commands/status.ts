@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { DEFAULT_DATABASE_PATH } from "@internal/subshell-protocol";
+import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
 import { resolveConfig } from "@/config-env.js";
+import { NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, serviceArtifactPath } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -72,6 +74,16 @@ export interface StatusView {
   listen: { host: string; port: number | null; portRaw: string; portValid: boolean; listening: boolean };
   /** The DEFINITION-on-disk check only. `service status` answers what the manager is doing. */
   service: { definitionPath: string | null; installed: boolean };
+  /**
+   * How many agent binaries this host can actually serve.
+   *
+   * The enroll one-liner (`/install.sh`) can only hand out what sits on this
+   * disk, and a binary-only install ships NONE of them — so the Nodes page
+   * fails at the user's terminal until someone runs `release:client`. Same
+   * class of deploy-time fact as tmux and the MCP rung: print it before
+   * anyone has to discover it.
+   */
+  nodeArtifacts: { published: number; total: number; dir: string };
 }
 
 /** Gather the whole `status` picture. Reads only — no writes, no boot, no mutation of `process.env`. */
@@ -134,6 +146,11 @@ export function collectStatus(deps: StatusDeps): StatusView {
     mcpError: mcpProbe.spec ? null : mcpProbe.error,
     listen: { host: dialHost, port: portValid ? portNum : null, portRaw, portValid, listening },
     service: { definitionPath: svc, installed: svc !== null && existsSync(svc) },
+    nodeArtifacts: {
+      published: publishedNodeTargets().length,
+      total: NODE_TARGETS.length,
+      dir: NODE_ARTIFACTS_DIR,
+    },
   };
 }
 
@@ -163,6 +180,11 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
     v.mcp
       ? `mcp entrypoint       = ${[v.mcp.command, ...v.mcp.args].join(" ")}  (via ${v.mcp.source})`
       : `mcp entrypoint       = UNRESOLVED — subshell create will fail; ${v.mcpError}`,
+  );
+  const { published, total, dir } = v.nodeArtifacts;
+  log(
+    `node artifacts       = ${published}/${total} published (${dir})` +
+      (published < total ? " — install.sh 404s for the rest" : ""),
   );
   log(`port ${v.listen.portRaw} on ${v.listen.host}: ${v.listen.listening ? "likely running" : "not listening"}`);
   // Service DEFINITION on disk — not a liveness line (`service status` is the

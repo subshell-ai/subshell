@@ -5,6 +5,7 @@ import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { audit } from "@/services/audit.js";
 import { SERVER_VERSION } from "@/version.js";
 
@@ -55,6 +56,15 @@ const PublicSettingsSchema = t.Object({
     description:
       "Version of the SERVER app (apps/server package.json). Per-app, not instance-wide — the agent and frontend version independently",
   }),
+  // The enroll-UX honesty field: a binary-only server install ships an EMPTY
+  // node-artifacts dir, so the Nodes dialog's install one-liner would 404 on
+  // every machine (the exact bug this reports). Rides the shared public read
+  // like serverVersion — 4 stat calls, and every signed-in page already
+  // holds this payload.
+  nodeArtifactTargets: t.Array(t.String(), {
+    description:
+      "Platform triples whose agent binary THIS server actually serves under /api/downloads/node/* (empty on a fresh binary-only install until release:client publishes artifacts); the Nodes dialog shows a manual-enroll fallback when it is incomplete",
+  }),
 });
 
 /**
@@ -78,6 +88,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         // false even when their owner is an admin.
         viewerIsAdmin: await isCookieAdmin(user, actor),
         serverVersion: SERVER_VERSION,
+        nodeArtifactTargets: publishedNodeTargets(),
       } as const;
     },
     {

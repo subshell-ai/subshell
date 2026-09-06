@@ -1,12 +1,11 @@
-import { type Stats, statSync } from "node:fs";
-import { join } from "node:path";
+import { statSync } from "node:fs";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
+import { artifactPath, artifactStat } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 
@@ -60,29 +59,6 @@ function unauthorized() {
     code: BackendErrorCodes.INVALID_CREDENTIALS,
     message: "Download requires a signed-in session cookie or a valid ?setup_key=.",
   } as const;
-}
-
-/** Absolute path of a target's binary. `target` is {@link isNodeTarget}-gated upstream. */
-function artifactPath(target: NodeTarget): string {
-  return join(NODE_ARTIFACTS_DIR, nodeArtifactFileName(target));
-}
-
-/**
- * The single published-artifact rule shared by the binary route and
- * {@link artifactSha}: a build is published only when a regular, NON-EMPTY
- * file sits at the target's path — a zero-length artifact (partial write,
- * deliberate stub) is unpublished, never served as a 200 and never digested
- * as the sha of "". Both routes therefore 404 identically for the same
- * on-disk state.
- * @returns the file's stat, or null when unpublished (missing / not a file / empty)
- */
-function artifactStat(target: NodeTarget): Stats | null {
-  try {
-    const stat = statSync(artifactPath(target));
-    return stat.isFile() && stat.size > 0 ? stat : null;
-  } catch {
-    return null; // ENOENT/ENOTDIR → unpublished → 404 upstream
-  }
 }
 
 /** Max entries in {@link shaCache} — FIFO-evicted so mtime churn can't grow it. */

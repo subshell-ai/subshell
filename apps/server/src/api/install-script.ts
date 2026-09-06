@@ -98,25 +98,76 @@ case "$OS/$ARCH" in
 esac
 
 echo "==> downloading subshell ($TARGET) from $SERVER"
-curl --fail --silent --show-error --location \\
+# Download to a temp path and only REPLACE $DEST after verification: curl
+# --fail leaves an existing output file byte-intact, so the historical
+# fetch-straight-into-$DEST made a failed re-run in an installed agent's
+# directory a clobber-or-delete of a WORKING binary. The HTTP code is
+# inspected rather than curl's exit status alone — "404, this server has no
+# artifact" and "401, your key is spent" need different advice (bare curl(22)
+# said neither, and an exit-status-only guard says 404 for both, and for
+# every network failure too).
+TMP="$DEST.part"
+if ! HTTP="$(curl --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
-  --output "$DEST"
+  --output "$TMP" --write-out '%{http_code}')"; then
+  rm -f "$TMP" 2>/dev/null || true
+  echo "subshell: could not reach $SERVER — nothing was installed ($DEST untouched)." >&2
+  exit 1
+fi
+case "$HTTP" in
+  200) ;;
+  401)
+    rm -f "$TMP" 2>/dev/null || true
+    echo "subshell: the setup key was rejected — invalid, expired, or already used." >&2
+    echo "    Mint a fresh one (Nodes → Add node in the web UI) and rerun the install command." >&2
+    exit 1
+    ;;
+  404)
+    rm -f "$TMP" 2>/dev/null || true
+    echo "subshell: this server has no $TARGET agent binary published." >&2
+    echo "    Publish it on the server host — 'bun run release:client' from a checkout, or (a" >&2
+    echo "    binary-only install has no checkout) copy the 'subshell-$TARGET' asset from the" >&2
+    echo "    client's GitHub Release into the server's node-artifacts dir — or install the" >&2
+    echo "    agent for this machine another way and enroll directly:" >&2
+    echo "      subshell enroll --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
+    exit 1
+    ;;
+  *)
+    rm -f "$TMP" 2>/dev/null || true
+    echo "subshell: server answered HTTP $HTTP for the agent download — nothing installed ($DEST untouched)." >&2
+    exit 1
+    ;;
+esac
 
-# Verify the digest BEFORE the file is ever executed. The endpoint answers
-# with the bare 64-hex; sha256sum -c / shasum -a 256 -c both take the
-# "<hash>  <file>" spelling.
-EXPECTED="$(curl --fail --silent --show-error --location \\
-  "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"
-printf '%s  %s\\n' "$EXPECTED" "$DEST" > "$DEST.sha256"
+# Verify the digest on the temp file BEFORE it can be executed or replace
+# $DEST. The endpoint answers with the bare 64-hex; sha256sum -c /
+# shasum -a 256 -c both take the "<hash>  <file>" spelling. A mismatch is a
+# corrupt download or a server serving a stale sidecar — either way the old
+# $DEST survives.
+if ! EXPECTED="$(curl --fail --silent --show-error --location \\
+  "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"; then
+  rm -f "$TMP" 2>/dev/null || true
+  echo "subshell: could not fetch the checksum — nothing was installed ($DEST untouched)." >&2
+  exit 1
+fi
+printf '%s  %s\\n' "$EXPECTED" "$TMP" > "$TMP.sha256"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum -c "$DEST.sha256"
+  VERIFY="sha256sum -c"
 elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 -c "$DEST.sha256"
+  VERIFY="shasum -a 256 -c"
 else
+  rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
   echo "subshell: need sha256sum or shasum to verify the download" >&2
   exit 1
 fi
-rm -f "$DEST.sha256"
+if ! $VERIFY "$TMP.sha256"; then
+  rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
+  echo "subshell: checksum mismatch — corrupt download or inconsistent server artifacts;" >&2
+  echo "    nothing was installed ($DEST untouched)." >&2
+  exit 1
+fi
+rm -f "$TMP.sha256"
+mv -f "$TMP" "$DEST"
 
 chmod +x "$DEST"
 

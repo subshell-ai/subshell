@@ -83,7 +83,18 @@ The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries from
 `NODE_ARTIFACTS_DIR` (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
 `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:client`,
-see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous;
+see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
+A binary-only server install ships that dir EMPTY, so the install one-liner
+404s until someone publishes — three surfaces know this instead of letting
+users discover it: the published set (`lib/node-artifacts.ts:publishedNodeTargets`,
+the same regular-non-empty-file rule the download routes 404 on) rides
+`GET /api/settings/public → nodeArtifactTargets` for the dialog, prints as
+`node artifacts = N/4 published` in `subshell-server status`, and the
+rendered `install.sh` downloads to a temp path, inspects the HTTP code
+(404 → publish guidance naming the GitHub Release asset; 401 → mint a fresh
+key; network → says so), verifies the digest BEFORE the temp file may
+`mv`-replace `$DEST`, and can therefore never clobber an installed agent on
+a failed download;
 and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
 every enrolled node.

@@ -121,6 +121,86 @@ describe("AddNodeDialog", () => {
     }
   });
 
+  it("warns and offers the enroll fallback when the server publishes no agent binaries", async () => {
+    // The fresh binary-only-install bug: install.sh would 404 the download,
+    // so the dialog must say so and hand over the manual enroll command.
+    const { restore } = mockFetch({ appBaseUrl: "https://subshell.example", nodeArtifactTargets: [] });
+    try {
+      renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      expect(await screen.findByText(/no agent binary published/i)).toBeDefined();
+      expect(screen.getByText('subshell enroll --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
+      // The one-liner stays visible — it still works once artifacts exist.
+      expect(screen.getByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("names only the MISSING targets when artifacts are published for some", async () => {
+    const { restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-arm64"],
+    });
+    try {
+      renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      const hint = await screen.findByText(/no agent binary published/i);
+      expect(hint.textContent).toContain("darwin-x64");
+      expect(hint.textContent).not.toContain("linux-x64");
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent when every target is published", async () => {
+    // Two shapes, TWO its: a loop here would keep iteration 1's dialog
+    // mounted (cleanup is an afterEach hook), so iteration 2's findByText
+    // resolves against the stale tree — a false green either way.
+    const { restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"],
+    });
+    try {
+      renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+      expect(screen.queryByText(/no agent binary published/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays silent when the server predates the field ({} — a cached PWA must not nag)", async () => {
+    const { restore } = mockFetch({});
+    try {
+      renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+      expect(screen.queryByText(/no agent binary published/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows the missing-artifacts warning already in step 1, before any key is minted", async () => {
+    // The paragraph reads only /settings/public — making the operator burn a
+    // single-use key to learn the one-liner 404s was the review finding.
+    const { calls, restore } = mockFetch({ appBaseUrl: "https://subshell.example", nodeArtifactTargets: [] });
+    try {
+      renderDialog();
+      expect(await screen.findByText(/no agent binary published/i)).toBeDefined();
+      // And no key was minted by merely opening the dialog.
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
   it("flips to the enrolled hint when the node count rose past the baseline", async () => {
     const { restore } = mockFetch();
     try {
