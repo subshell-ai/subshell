@@ -388,7 +388,12 @@ jobs:
               pkg-config --exists ayatana-appindicator3-0.1 \
                 || { echo "missing libayatana-appindicator3-dev (tauri panics without it)"; exit 1; }
               dpkg-deb --version >/dev/null || { echo "no dpkg-deb — wrong image?"; exit 1; }
-              ldd --version | head -1   # records the glibc floor in the log
+              # NOT `ldd --version | head -1`: ldd is a shell script, head exits
+              # after one line, and the SIGPIPE that follows is exit 141 — which
+              # `set -o pipefail` turns into a failed release. It is a race on
+              # the pipe buffer, so it fails intermittently (run 34022233821).
+              glibc_banner="$(ldd --version)"
+              echo "${glibc_banner%%$'\n'*}"   # records the glibc floor in the log
               ;;
             darwin-*)
               for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD \
