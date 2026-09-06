@@ -232,12 +232,27 @@ jobs:
     # Empty string = no container. Set only for the linux desktop shard, so the
     # app's minimum glibc is a deliberate choice; every other shard is bare.
     container: ${{ matrix.container }}
+    defaults:
+      run:
+        # A CONTAINER job defaults to `sh`, not bash, and every step here is
+        # bash: `set -o pipefail`, `${!var}` indirection. Without this the
+        # container shard dies on "Illegal option -o pipefail".
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` itself, whose root `prepare` script runs
+      # `lefthook install`. The image sets this too, but a container job
+      # overrides HOME to /github/home, where that config is not.
+      - name: Trust the bind-mounted workspace
+        if: matrix.container != ''
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # Deterministic floor: mac-builder carries bun 1.3.14 (measured) — BELOW
       # the 1.4.0 bytecode floor both release scripts assert — so setup-bun is
