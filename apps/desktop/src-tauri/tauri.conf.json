@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Subshell",
+  "version": "../package.json",
+  "identifier": "dev.subshell.desktop",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "externalBin": ["binaries/subshell-server-bundled"],
+    "targets": ["app", "deb"],
+    "category": "DeveloperTool",
+    "shortDescription": "Run and manage a local Subshell control plane",
+    "longDescription": "Subshell Desktop installs, runs and manages a subshell-server on this machine, and gives it a native window, menu bar and tray.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "10.15"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libc6 (>= 2.39)"]
+      }
+    }
+  }
+}
