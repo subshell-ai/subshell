@@ -12,7 +12,8 @@
     "lint:check": "biome check src ui",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src ui",
     "test": "bun test src",
-    "verify-types": "tsc --project tsconfig.json --noEmit"
+    "verify-types": "tsc --project tsconfig.json --noEmit",
+    "compile:release": "bun run src/scripts/release.ts"
   },
   "dependencies": {
     "@internal/subshell-protocol": "workspace:*"

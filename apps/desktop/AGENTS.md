@@ -33,9 +33,11 @@ The Rust half runs in CI as its own `desktop-rust` job in
 `.github/workflows/test.yml` — it cannot ride `bun run test`, which runs on a
 plain `ubuntu-latest` with no Rust toolchain and none of Tauri's system deps.
 
-There is no `compile:release` yet: the release pipeline lands with the CI
-wiring, and a script name in `package.json` that resolves to nothing is worse
-than its absence.
+`bun run compile:release` (`src/scripts/release.ts`) is the release pipeline:
+it builds the SERVER first and stages it as the sidecar, then bundles, asserts
+the exact bundle set, digests and publishes into `dist-rel/`. CI drives it per
+shard from `.github/workflows/release.yml`; the root `AGENTS.md` carries the
+operator-facing version.
 
 **There is deliberately no `build` script.** `bun run build` runs on hosted
 `ubuntu-latest` in both `test.yml` and `lint.yml`, where there is no Rust

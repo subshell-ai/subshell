@@ -43,7 +43,7 @@ on:
       app:
         description: "Which deployable to cut"
         type: choice
-        options: [server, client, both]
+        options: [server, client, desktop, all, both]
         default: both
       version:
         description: "Version override — blank = read apps/<app>/package.json (applies to every app in `app`)"
@@ -122,9 +122,13 @@ jobs:
             exit 0
           fi
           case "$APP_INPUT" in
-            server) apps="server" ;;
-            client) apps="client" ;;
-            both)   apps="server client" ;;
+            server)  apps="server" ;;
+            client)  apps="client" ;;
+            desktop) apps="desktop" ;;
+            all)     apps="server client desktop" ;;
+            # Deprecated alias, kept so a dispatch typed from an older doc still
+            # cuts what it used to. `all` is the one that includes desktop.
+            both)    apps="server client" ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           LINUX='["self-hosted","Linux","X64"]'
@@ -156,6 +160,11 @@ jobs:
             case "$app" in
               server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
               client) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
+              # No linux-arm64: there is no native arm64 Linux runner, and a
+              # file(1) magic check cannot see a GUI's characteristic failure,
+              # which is an invisible window. No darwin-x64: a desktop build
+              # bundles a server, and SERVER_TARGETS has none.
+              desktop) triples="linux-x64 darwin-arm64" ;;
             esac
             for triple in $triples; do
               case "$triple" in
@@ -167,8 +176,21 @@ jobs:
                 darwin-x64) smoke="rosetta" ;;            # arch -x86_64, degrade to magic
                 *) smoke="magic" ;;                       # linux-arm64: cross-built, never exec'd here
               esac
+              # The desktop artifact is a BUNDLE, not a bare binary, so it gets
+              # its own smoke: digests, the nested sidecar, Debian deps, and on
+              # macOS the whole signing chain including the staple.
+              container=""
+              if [ "$app" = "desktop" ]; then
+                smoke="bundle"
+                # A container, so the app's minimum glibc is chosen rather than
+                # inherited from whatever the runner was last re-imaged with.
+                # Job-level (not `docker run` in a step) because the smoke has
+                # to EXEC what it just built, and a glibc-2.39 binary cannot run
+                # on the host outside it.
+                [ "${triple%%-*}" = "linux" ] && container="ghcr.io/subshell-ai/desktop-builder:ubuntu24.04"
+              fi
               [ -z "$entries" ] || entries="$entries,"
-              entries="$entries{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\"}"
+              entries="$entries{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\",\"container\":\"$container\"}"
             done
           done
           echo "matrix=[${entries}]" >> "$GITHUB_OUTPUT"
@@ -189,8 +211,13 @@ jobs:
     if: needs.plan.outputs.matrix != '[]'
     # One sign+notarize round trip per darwin artifact again — the mcp
     # companion is retired (the server binary serves its own `mcp` subcommand).
-    timeout-minutes: 45
+    # A desktop shard additionally compiles ~500 Rust crates and builds a
+    # server binary to bundle, so it gets its own budget.
+    timeout-minutes: ${{ matrix.app == 'desktop' && 90 || 45 }}
     runs-on: ${{ matrix.runner }}
+    # Empty string = no container. Set only for the linux desktop shard, so the
+    # app's minimum glibc is a deliberate choice; every other shard is bare.
+    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
@@ -219,6 +246,7 @@ jobs:
       - run: bun run build
 
       - name: Release build (scoped to ${{ matrix.triple }})
+        if: matrix.app != 'desktop'
         env:
           APP: ${{ matrix.app }}
           TRIPLE: ${{ matrix.triple }}
@@ -280,6 +308,67 @@ jobs:
             SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:client
           fi
 
+      - name: Desktop release build (scoped to ${{ matrix.triple }})
+        if: matrix.app == 'desktop'
+        env:
+          TRIPLE: ${{ matrix.triple }}
+          DEST: ${{ github.workspace }}/dist-rel
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEST"
+
+          command -v cargo >/dev/null || { echo "no cargo on this runner/image"; exit 1; }
+          cargo --version; rustc --version
+          # NOT `bunx tauri --version`: npm has a real, deprecated package named
+          # `tauri` that bunx will happily fetch, so that probe can never fail.
+          ./apps/desktop/node_modules/.bin/tauri --version >/dev/null \
+            || { echo "@tauri-apps/cli is not installed in the workspace"; exit 1; }
+
+          case "$TRIPLE" in
+            linux-*)
+              # The nested release:server ends in `git checkout` to restore the
+              # embedded-web stub, as root, over a runner-owned workspace.
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
+              pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
+              pkg-config --exists ayatana-appindicator3-0.1 \
+                || { echo "missing libayatana-appindicator3-dev (tauri panics without it)"; exit 1; }
+              dpkg-deb --version >/dev/null || { echo "no dpkg-deb — wrong image?"; exit 1; }
+              ldd --version | head -1   # records the glibc floor in the log
+              ;;
+            darwin-*)
+              for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD \
+                       NOTARY_API_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+                [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
+              done
+              CI_TMP="$(mktemp -d)"; trap 'rm -rf "$CI_TMP"' EXIT
+              printf '%s' "$NOTARY_API_KEY_P8_BASE64" | base64 -d > "$CI_TMP/notary.p8"
+              # Tauri builds its OWN throwaway keychain from APPLE_CERTIFICATE
+              # and pins --keychain on every codesign call. The repo's
+              # hand-rolled keychain block is deliberately NOT run here: two
+              # keychain owners is the identity ambiguity tauri#11992 traces to.
+              export APPLE_CERTIFICATE="$MACOS_CERT_P12_BASE64"
+              export APPLE_CERTIFICATE_PASSWORD="$MACOS_CERT_PASSWORD"
+              export APPLE_SIGNING_IDENTITY="Developer ID Application: Disaresta, LLC (DVRYX6BV6J)"
+              export APPLE_TEAM_ID="DVRYX6BV6J"
+              export APPLE_API_KEY="$NOTARY_KEY_ID"
+              export APPLE_API_ISSUER="$NOTARY_ISSUER_ID"
+              export APPLE_API_KEY_PATH="$CI_TMP/notary.p8"
+              ;;
+          esac
+
+          # NEVER on a desktop shard: the nested release:server would sign and
+          # notarize a binary the .app is about to re-seal with --force.
+          unset SUBSHELL_RELEASE_SIGN_CMD || true
+
+          SUBSHELL_DESKTOP_RELEASE_TRIPLES="$TRIPLE" \
+          SUBSHELL_DESKTOP_RELEASE_DIR="$DEST" \
+            bun run release:desktop
+
       - name: Smoke
         env:
           APP: ${{ matrix.app }}
@@ -288,6 +377,12 @@ jobs:
           SMOKE: ${{ matrix.smoke }}
         run: |
           set -euo pipefail
+          # A desktop artifact is a BUNDLE, not a bare binary — different
+          # checks entirely, so it exits before the binary smoke below.
+          if [ "$APP" = "desktop" ]; then
+            bash scripts/smoke-desktop-bundle.sh "$TRIPLE" "$VERSION" dist-rel
+            exit 0
+          fi
           if [ "$APP" = "server" ]; then
             BIN="dist-rel/subshell-server-$TRIPLE"
           else
@@ -388,6 +483,12 @@ jobs:
           name: ${{ matrix.app }}-${{ matrix.triple }}
           path: dist-rel/*
           if-no-files-found: error
+
+      # A container writes as root onto a PERSISTENT self-hosted workspace, so
+      # without this the next job on this runner fails on files it cannot touch.
+      - name: Un-root the workspace
+        if: always() && matrix.container != ''
+        run: chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" || true
 
   publish:
     name: Release ${{ matrix.app }}

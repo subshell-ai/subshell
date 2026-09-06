@@ -197,6 +197,39 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   (`init`/`configure`/`status`/`service install|uninstall|status|start|stop|restart`)
   and config.env.
 
+### Publishing the desktop app
+
+```bash
+bunx turbo build                          # 1. apps/frontend/dist — the embed preflight
+bun run release:desktop                   # 2. stage the sidecar, then `tauri build`
+```
+
+`release:desktop` (`apps/desktop/src/scripts/release.ts`) builds the SERVER
+first and stages it as the Tauri sidecar, then bundles. Three rules about that
+staged binary, each with a failure that only appears on a user's machine:
+
+- **`compile:release`, never `compile`** — only the release build embeds the
+  SPA, and a stub-shipping binary throws at boot where there is no
+  `apps/frontend/dist`.
+- **Never pre-signed or separately notarized** — Tauri re-signs nested binaries
+  with `--force` under the bundle's identity, so a prior ticket binds to a
+  cdhash that no longer exists. The shard clears
+  `SUBSHELL_RELEASE_SIGN_CMD` for the nested build.
+- **Its `.sha256` is deleted** — it describes pre-seal bytes. Digests are never
+  comparable between the bare-binary channel and this one.
+
+Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`) — narrower than
+`SERVER_TARGETS` and for a different reason: there is no native arm64 Linux
+runner, and `file(1)` cannot see a GUI's characteristic failure, which is an
+invisible window. Artifacts are `Subshell.app.tar.gz` (no DMG: Tauri signs one
+but neither notarizes nor staples it) and `Subshell_<version>_amd64.deb` (no
+AppImage: `linuxdeploy` cannot cross-compile and downloads at build time).
+
+The Linux shard runs in `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`
+(`docker/desktop-builder.Dockerfile`), so the app's minimum glibc is **2.39 by
+choice** rather than by accident of the runner image — which excludes Ubuntu
+22.04 and Debian 12, and is the one lever if that has to change.
+
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
 The same two pipelines run sharded in CI and ship as **GitHub Releases**
@@ -243,7 +276,7 @@ cut tags by hand.
   secrets or a chain-less identity fail the shard loudly. Entitlements: Bun's
   JIT keys from `scripts/macos-entitlements.plist`.
 - **The cut is an explicit dispatch:**
-  `gh workflow run release.yml -f app=both` (or `app=server|client`,
+  `gh workflow run release.yml -f app=all` (or `app=server|client|desktop`,
   optional `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`).
   The plan job pushes the missing tag(s) FIRST, then one build shard per
   app×triple on the self-hosted fleet (linux on `[self-hosted, Linux,
@@ -253,6 +286,9 @@ cut tags by hand.
   BOOT on a temp DB with `apps/frontend/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.
+- **A desktop cut re-ships a server.** `apps/desktop` bundles the server built
+  from the same commit, so a server-only fix does NOT reach desktop users until
+  a desktop cut. Dispatch a security-relevant server release as `app=all`.
 - **Retry:** a mid-flight failure leaves a tag without a release —
   re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
   requires deleting the release and its tag first.

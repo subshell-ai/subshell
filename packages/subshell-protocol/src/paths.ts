@@ -60,6 +60,98 @@ export function serverArtifactFileName(target: string): string {
   return `subshell-server-${target}`;
 }
 
+/** One {@link DESKTOP_TARGETS} entry. */
+export type DesktopTarget = (typeof DESKTOP_TARGETS)[number];
+
+/**
+ * The closed set of platform triples `apps/desktop` is published for.
+ *
+ * NARROWER than {@link SERVER_TARGETS}, and for a different reason than the
+ * server's own narrowing:
+ *
+ * - No `linux-arm64`. There is no native arm64 Linux runner, and every
+ *   existing arm64 artifact in this repo is cross-built with a `file(1)` magic
+ *   check as its only proof. That is defensible for a headless Bun binary and
+ *   indefensible for a GTK/WebKit GUI whose characteristic failure is an
+ *   INVISIBLE WINDOW — the one thing a magic check cannot see.
+ * - No `darwin-x64`, because {@link SERVER_TARGETS} has none. A desktop build
+ *   ships a server; a triple with no server to bundle cannot be built at all.
+ *
+ * Every entry here must therefore also be a {@link ServerTarget}.
+ */
+export const DESKTOP_TARGETS = ["linux-x64", "darwin-arm64"] as const satisfies readonly ServerTarget[];
+
+/**
+ * The Rust target triple for a repo triple.
+ *
+ * Tauri's `externalBin` names its staged files with the RUST triple, which is
+ * a different vocabulary from the one this repo publishes under. Two producers
+ * (the release script writing the file, `tauri.conf.json` declaring the stem)
+ * and two consumers (the smoke grepping inside the bundle, the app resolving
+ * the copy source) have to agree on names whose drift is invisible until
+ * `cargo build` says "binary not found".
+ *
+ * Refuses an unknown triple rather than guessing — the same discipline
+ * {@link parseScope} applies to its own scope.
+ *
+ * @param target - a {@link DesktopTarget}
+ * @returns the Rust target triple
+ * @throws when `target` is not a desktop target
+ */
+export function rustTargetTriple(target: string): string {
+  const triple = RUST_TARGET_TRIPLES[target as DesktopTarget];
+  if (!triple) {
+    throw new Error(`no Rust target triple for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);
+  }
+  return triple;
+}
+
+const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
+  "linux-x64": "x86_64-unknown-linux-gnu",
+  "darwin-arm64": "aarch64-apple-darwin",
+};
+
+/**
+ * The in-bundle name of the server binary `apps/desktop` ships.
+ *
+ * Tauri STRIPS the `-<rust triple>` suffix when it copies an `externalBin`, so
+ * this is NOT the name of the staged file — see {@link desktopSidecarFileName}.
+ * Anything looking for the staged name inside a built bundle finds nothing,
+ * 100% of the time.
+ *
+ * The `-bundled` suffix keeps it distinct from a hand-installed
+ * `subshell-server`: Tauri puts `externalBin` in `/usr/bin` on Debian, so a
+ * sidecar named `subshell-server` would own a system-wide binary on every
+ * user's PATH and collide with any future official server package.
+ */
+export const BUNDLED_SIDECAR_NAME = "subshell-server-bundled";
+
+/**
+ * The name the release script STAGES the sidecar under, which carries the Rust
+ * triple. Its stripped form is {@link BUNDLED_SIDECAR_NAME}.
+ *
+ * @param target - a {@link DesktopTarget}
+ */
+export function desktopSidecarFileName(target: string): string {
+  return `${BUNDLED_SIDECAR_NAME}-${rustTargetTriple(target)}`;
+}
+
+/**
+ * The artifact a desktop build publishes for a target.
+ *
+ * macOS ships `Subshell.app.tar.gz` — not a DMG, which Tauri signs but neither
+ * notarizes nor staples. Linux ships the `.deb` Tauri names from `productName`
+ * and the version.
+ *
+ * @param target - a {@link DesktopTarget}
+ * @param version - the app version, for the Debian file name
+ */
+export function desktopArtifactFileName(target: string, version: string): string {
+  if (target === "darwin-arm64") return "Subshell.app.tar.gz";
+  if (target === "linux-x64") return `Subshell_${version}_amd64.deb`;
+  throw new Error(`no desktop artifact name for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);
+}
+
 /** Fallback SQLite path when `DATABASE_PATH` is unset — the data dir derives from it. */
 export const DEFAULT_DATABASE_PATH = "./data/subshell.db";
 
