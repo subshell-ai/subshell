@@ -2,6 +2,7 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
@@ -14,6 +15,7 @@ import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
+import { isDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";
 import { shellGate } from "@/lib/shell-gate";
 
@@ -69,6 +71,10 @@ const NAVIGATE_TO_SETUP = <Navigate to="/setup" />;
  */
 function Shell() {
   const wide = useIsWide();
+  // Read from the User-Agent, so it is settled before first paint — no IPC
+  // handshake to race, and it survives the hard navigations at sign-out and
+  // after sign-in.
+  const desktop = isDesktop();
   const insets = useVisualViewportInsets();
   const { data: user, isLoading } = useCurrentUser();
   const offline = useServerOffline();
@@ -133,7 +139,13 @@ function Shell() {
           enabled gate keeps its token POST away from /login and /setup. */}
         <LiveSubshellsFeedProvider enabled={!!user && !bare}>
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            {wide && !bare && <AppSidebar />}
+            {/* One branch, deliberately: everything else in this frame —
+              the banners, the feed provider, the viewport pinning, the outlet
+              — is identical in both shells, and the rail differs only in
+              chrome (see components/desktop/desktop-sidebar.tsx). The desktop
+              window's min width is 1024, so `wide` is always true there and
+              MobileTopBar never mounts. */}
+            {wide && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
             <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
               <Outlet />
             </div>

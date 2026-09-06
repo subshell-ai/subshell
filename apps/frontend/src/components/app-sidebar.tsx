@@ -97,7 +97,9 @@ export function AppSidebar({
   forceExpanded = false,
   className,
   headerEnd,
+  footerEnd,
   onQuickAdd,
+  variant = "web",
 }: {
   forceExpanded?: boolean;
   className?: string;
@@ -108,6 +110,28 @@ export function AppSidebar({
   /** Called after a quick-add + opens its dialog; the drawer host uses it to
    * dismiss the sheet so the dialog is never a second stacked modal. */
   onQuickAdd?: () => void;
+  /**
+   * Rendered above the user menu, INSIDE the footer. The desktop shell puts
+   * its server pill here.
+   *
+   * A render prop rather than a node (unlike {@link headerEnd}) because
+   * `collapsed` is private state: an outer wrapper cannot see it, and a footer
+   * row that does not know the rail is 56px wide renders its label into a
+   * clipped column. Handing it down is the only way it can be right in both.
+   */
+  footerEnd?: (ctx: { collapsed: boolean }) => ReactNode;
+  /**
+   * Which chrome this rail is wearing.
+   *
+   * `desktop` changes ONLY presentation — the width, the brand row (a web
+   * wordmark reads wrong under an OS titlebar) and the room the macOS traffic
+   * lights need. Every behaviour stays put: the `application/x-subshell-id`
+   * drag payload, the status precedence, both context menus, the quick-add
+   * dialogs mounted at shell root, and the single SSE feed that keeps
+   * `["subshells"]` current. A second rail would lose all of it silently and
+   * then drift.
+   */
+  variant?: "web" | "desktop";
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -144,6 +168,7 @@ export function AppSidebar({
   // Inside the mobile drawer the rail is always expanded and the collapse
   // control is meaningless (the sheet IS the expander).
   const collapsed = forceExpanded ? false : collapsedState;
+  const desktop = variant === "desktop";
 
   function toggle() {
     setCollapsed((prev) => {
@@ -161,7 +186,7 @@ export function AppSidebar({
     <aside
       className={cn(
         "relative flex shrink-0 flex-col border-border border-r bg-card transition-[width] duration-200",
-        collapsed ? "w-14" : "w-56",
+        collapsed ? "w-14" : desktop ? "w-60" : "w-56",
         className,
       )}
     >
@@ -316,6 +341,7 @@ export function AppSidebar({
       </nav>
 
       <div className="border-border border-t p-2">
+        {footerEnd?.({ collapsed })}
         <UserMenu
           name={user?.name ?? ""}
           email={user?.email ?? ""}

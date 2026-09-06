@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { safeRedirect } from "@/lib/redirect";
+import { passkeysSupported } from "@/lib/webauthn";
 
 export const Route = createFileRoute("/login")({
   // The signed-out guard (__root) sends visitors here with the path they
@@ -102,21 +103,26 @@ function LoginPage() {
               {busy ? "Signing in…" : "Sign in"}
             </Button>
           </form>
-          <div className="mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={busy}
-              onClick={() => void signInWithPasskey()}
-            >
-              Sign in with a passkey
-            </Button>
-            <p className="mt-2 text-muted-foreground text-xs">
-              Passkeys are tied to this device and to the address this instance serves from. If you reached this page
-              from a different address, passkey sign-in won&apos;t find them — use your password.
-            </p>
-          </div>
+          {/* Hidden where WebAuthn does not exist — an embedded webview has no
+            platform authenticator, so the button could only ever fail. The
+            note goes with it: it explains a control that is not there. */}
+          {passkeysSupported() && (
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={busy}
+                onClick={() => void signInWithPasskey()}
+              >
+                Sign in with a passkey
+              </Button>
+              <p className="mt-2 text-muted-foreground text-xs">
+                Passkeys are tied to this device and to the address this instance serves from. If you reached this page
+                from a different address, passkey sign-in won&apos;t find them — use your password.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </main>

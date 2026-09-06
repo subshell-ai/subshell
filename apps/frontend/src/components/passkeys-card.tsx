@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { passkeysSupported } from "@/lib/webauthn";
 
 /** A registered passkey as returned by better-auth's list endpoint. */
 interface PasskeyRow {
@@ -66,6 +67,8 @@ export function PasskeysCard() {
     }
   }
 
+  const supported = passkeysSupported();
+
   return (
     <Card>
       <CardHeader>
@@ -76,20 +79,30 @@ export function PasskeysCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex items-end gap-2">
-          <div className="flex-1 space-y-2">
-            <Label htmlFor="passkey-name">Passkey name</Label>
-            <Input
-              id="passkey-name"
-              value={name}
-              placeholder="e.g. MacBook Touch ID"
-              onChange={(e) => setName(e.target.value)}
-            />
+        {/* The LIST stays either way: passkeys registered from a browser are
+          still this account's, and still worth being able to remove from
+          here. Only registration needs an authenticator this engine lacks. */}
+        {supported ? (
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="passkey-name">Passkey name</Label>
+              <Input
+                id="passkey-name"
+                value={name}
+                placeholder="e.g. MacBook Touch ID"
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <Button onClick={() => void addPasskey()} disabled={busy}>
+              {busy ? "Waiting for device…" : "Add passkey"}
+            </Button>
           </div>
-          <Button onClick={() => void addPasskey()} disabled={busy}>
-            {busy ? "Waiting for device…" : "Add passkey"}
-          </Button>
-        </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            This app can&apos;t register passkeys — its browser engine has no authenticator. Add one from a browser on
+            this device; it will work here for signing in.
+          </p>
+        )}
         {listError ? (
           <ErrorBanner
             message="Couldn't load passkeys."

@@ -76,6 +76,29 @@ describe("normalizeDeviceLabel (shared with the server)", () => {
   });
 });
 
+describe("deviceNameFromUserAgent — the desktop shell", () => {
+  const UA = (p: string) =>
+    `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15 SubshellDesktop/1.2.3 (${p}; p=1)`;
+
+  // The webview's own UA still says Safari underneath, so without the marker
+  // branch every desktop viewer of a shared subshell shows up as a browser —
+  // and this name is visible to everyone the subshell is shared with.
+  it("names the shell, not the embedded engine", () => {
+    expect(deviceNameFromUserAgent(UA("macos"))).toBe("Subshell Desktop on macOS");
+    expect(deviceNameFromUserAgent(UA("linux"))).toBe("Subshell Desktop on Linux");
+  });
+
+  it("leaves ordinary browsers exactly as they were", () => {
+    const safari = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15";
+    expect(deviceNameFromUserAgent(safari)).toBe("Safari on macOS");
+  });
+
+  it("ignores a malformed marker rather than naming a half-parsed shell", () => {
+    const broken = "Mozilla/5.0 (Macintosh) Safari/605.1.15 SubshellDesktop/1.2.3 (windows; p=1)";
+    expect(deviceNameFromUserAgent(broken)).toBe("Safari on macOS");
+  });
+});
+
 describe("deviceName / setDeviceName", () => {
   afterEach(() => {
     try {
