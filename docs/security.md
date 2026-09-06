@@ -459,14 +459,22 @@ Passkey sign-in is deliberately **not** behind this backoff — it carries no em
 to attribute failures to, and the physical authenticator is the gate. No other
 endpoint is rate-limited.
 
-## 8b. The desktop app
+## 8b. The desktop apps
 
-`apps/desktop-server` is a Tauri v2 shell that installs, runs and manages a
-`subshell-server` on the user's own machine. It adds no server surface — every
-privileged thing it does goes through the `subshell-server` CLI as the same
-local user — but it does introduce one boundary that did not exist before.
+Two Tauri v2 shells, each a GUI over one of the CLIs. `apps/desktop-server`
+installs, runs and manages a `subshell-server`; `apps/desktop-client`
+("Subshell Node") registers the machine as a node and manages its `subshell`
+agent. Neither adds a server surface — every privileged thing they do goes
+through their CLI as the same local user — but the first introduces a boundary
+that did not exist before, and both inherit the entitlement and
+executes-what-it-finds properties below.
 
-### The window that loads the server's page
+`apps/desktop-client` has ONE window and it loads the app's own bundled page,
+because a node serves nothing. That makes the remote-content section below
+specific to `apps/desktop-server`: the node app has no remote origin, so its
+`csp` in `tauri.conf.json` governs every page it shows.
+
+### The window that loads the server's page (`apps/desktop-server` only)
 
 The app window (`main`) loads `http://127.0.0.1:<port>` — the SPA, served by
 the server it manages — and that window holds Tauri's IPC globals. It is
@@ -491,11 +499,14 @@ whatever CSP the server sends, so an XSS in the SPA reaches those three
 commands. And the app's ACL manifest is what makes any of this apply at all:
 Tauri leaves app commands ungated for local windows when no manifest exists.
 
-### Entitlements are shared with the bundled server
+### Entitlements are shared with the bundled binary
 
 Tauri applies ONE entitlements file to every signed target in the bundle, so
-whatever the Bun-compiled server needs is also granted to the GUI process that
-holds the session cookie. The set was trimmed to `allow-jit` and
+whatever the Bun-compiled binary needs is also granted to the GUI process — in
+`apps/desktop-server`'s case, the process that holds the session cookie. Both
+apps bundle a Bun-compiled binary and so carry the same list, in two separate
+files: sharing one plist between the two pipelines would silently widen
+whichever was not being edited, and a test in each app pins that separation. The set was trimmed to `allow-jit` and
 `allow-unsigned-executable-memory`, pinned by test; the three that the
 bare-binary channel carries — `disable-library-validation`,
 `allow-dyld-environment-variables`, `disable-executable-page-protection` — are
@@ -508,14 +519,31 @@ ID identity before the first signed release.
 
 ### It executes what it finds
 
-The resolution ladder runs `<candidate> version` on files it locates on the
-login PATH and in well-known directories, and the copy it installs at
-`~/.local/bin/subshell-server` is executed on every launch from a user-writable
-directory. On this posture that is not an escalation — the same OS user already
+Each app's resolution ladder runs `<candidate> version` on files it locates on
+the login PATH and in well-known directories, and the copy it installs — at
+`~/.local/bin/subshell-server` or `~/.local/bin/subshell` — is executed on every
+launch from a user-writable directory. On this posture that is not an escalation — the same OS user already
 runs the server and can already write there — but it is why a hand-chosen
 binary is validated before it is persisted, and why every spawn carries a
 deadline. The login-shell PATH probe runs the user's own shell profile, which
 is arbitrary code by construction, on every launch.
+
+### A setup key typed into the node app is `ps`-visible
+
+`apps/desktop-client` passes the pasted key to `subshell enroll --key <nsk_…>`,
+so it is one argv element for the life of that process and readable by any
+local process that can see the process table. This is the same exposure the CLI
+path already has (§8: the key also lands in shell history, and in a URL query
+string on `/install.sh` and the download routes), and it is bounded — the key is
+single-use, expires in 24 hours, is consumed by the enroll it is being used for,
+and confers only the ability to register one node. It is nonetheless the one new
+place the GUI puts a credential where the CLI put it too, and the fix, if it is
+ever wanted, is a CLI change (read the key from stdin or an env var), not a GUI
+one.
+
+The node key that enroll returns is never surfaced: it is written 0600 by the
+CLI, and `enroll --json` deliberately omits it, so the GUI cannot display or log
+what it never receives.
 
 ### Notifications stay owner-targeted
 

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Subshell Node</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <h1>Subshell Node</h1>
+    <p class="sub">Register this machine with a Subshell control plane, and keep its agent running.</p>
+
+    <div class="card">
+      <div class="row">
+        <span class="chip"><span class="dot" id="dot"></span><span id="state">Checking…</span></span>
+        <button type="button" id="refresh">Refresh</button>
+      </div>
+      <dl class="facts" id="facts"></dl>
+    </div>
+
+    <div class="card" id="step-card">
+      <p class="problem" id="problem"></p>
+      <p class="step-body" id="step-body"></p>
+      <div id="step-notes"></div>
+      <div id="step-form"></div>
+      <div class="actions" id="step-actions"></div>
+      <div class="hint" id="step-hint"></div>
+      <div id="confirm"></div>
+    </div>
+
+    <div class="card" id="prefs-card" hidden>
+      <label class="switch">
+        <input type="checkbox" id="close-to-tray" />
+        <span>Keep running in the menu bar when the window is closed</span>
+      </label>
+    </div>
+
+    <pre id="output" aria-live="polite"></pre>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

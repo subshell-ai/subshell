@@ -32,6 +32,7 @@
     "release:client": "bun run --cwd apps/client compile:release",
     "release:server": "bun run --cwd apps/server compile:release",
     "release:desktop-server": "bun run --cwd apps/desktop-server compile:release",
+    "release:desktop-client": "bun run --cwd apps/desktop-client compile:release",
     "changeset": "changeset",
     "version-packages": "changeset version"
   },

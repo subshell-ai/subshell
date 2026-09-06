@@ -47,6 +47,17 @@
         "typescript": "7.0.2",
       },
     },
+    "apps/desktop-client": {
+      "name": "@internal/desktop-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@internal/subshell-protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@tauri-apps/cli": "2.11.4",
+      },
+    },
     "apps/desktop-server": {
       "name": "@internal/desktop-server",
       "version": "0.2.0",
@@ -752,6 +763,8 @@
     "@internal/brand": ["@internal/brand@workspace:brand"],
 
     "@internal/client": ["@internal/client@workspace:apps/client"],
+
+    "@internal/desktop-client": ["@internal/desktop-client@workspace:apps/desktop-client"],
 
     "@internal/desktop-server": ["@internal/desktop-server@workspace:apps/desktop-server"],
 
