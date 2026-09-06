@@ -2,6 +2,9 @@
 
 mod bridge;
 mod control;
+// macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
+// Linux has none — and a module compiled there would be entirely dead code.
+#[cfg(target_os = "macos")]
 mod menu;
 mod proc;
 mod server_bin;
@@ -112,12 +115,11 @@ pub fn run() {
             // Hiding the last window is still "no windows left", and the
             // default answer to that is to quit — so close-to-tray would close
             // to a tray and then exit. Closing the CONSOLE hit the same path.
-            tauri::RunEvent::ExitRequested { api, .. } => {
+            tauri::RunEvent::ExitRequested { api, .. }
                 if app.state::<settings::SettingsState>().get().close_to_tray
-                    && app.get_webview_window("main").is_some()
-                {
-                    api.prevent_exit();
-                }
+                    && app.get_webview_window("main").is_some() =>
+            {
+                api.prevent_exit();
             }
             // macOS: clicking the Dock icon of an app with no visible window.
             // Without this a window closed to the tray cannot be brought back

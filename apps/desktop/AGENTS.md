@@ -33,6 +33,24 @@ The Rust half runs in CI as its own `desktop-rust` job in
 `.github/workflows/test.yml` — it cannot ride `bun run test`, which runs on a
 plain `ubuntu-latest` with no Rust toolchain and none of Tauri's system deps.
 
+**Verify Linux-only lints in a container, not by reasoning.** Half this crate
+is `#[cfg]`-gated, so `cargo clippy` on a Mac cannot see what Linux compiles —
+a module gated at its CALL SITE rather than at the module is entirely dead code
+there, and a `match` whose only other arm is `#[cfg(macos)]` collapses to one
+arm plus a wildcard. Both failed CI after passing locally:
+
+```bash
+docker build -f docker/desktop-builder.Dockerfile -t desktop-builder:local .
+docker run --rm -v "$PWD":/w -w /w/apps/desktop/src-tauri desktop-builder:local bash -c '
+  rustup component add rustfmt clippy
+  install -m 755 /dev/null "binaries/subshell-server-bundled-$(rustc --print host-tuple)"
+  export CARGO_TARGET_DIR=/tmp/target
+  cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
+```
+
+`--platform linux/arm64` on Apple silicon runs natively and answers the same
+question: `#[cfg(target_os)]` does not care about the architecture.
+
 **A clean checkout cannot compile this crate without a staged sidecar.**
 `tauri-build` refuses to build when an `externalBin` file is missing, and
 `binaries/*` is gitignored — so `cargo test` on a fresh clone fails with

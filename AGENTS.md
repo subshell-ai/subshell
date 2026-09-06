@@ -232,21 +232,34 @@ choice** rather than by accident of the runner image — which excludes Ubuntu
 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
-The same two pipelines run sharded in CI and ship as **GitHub Releases**
-under component-scoped tags: `server-vX.Y.Z` (three
-`subshell-server-<triple>` binaries + `.sha256` sidecars) and
-`client-vX.Y.Z` (4 + 4). Tagging/releasing is OWNED BY THE WORKFLOW — never
-cut tags by hand.
+The three pipelines run sharded in CI and ship as **GitHub Releases** under
+component-scoped tags: `server-vX.Y.Z` (three `subshell-server-<triple>`
+binaries + `.sha256` sidecars), `client-vX.Y.Z` (4 + 4) and `desktop-vX.Y.Z`
+(2 + 2). Tagging/releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
+
+`apps/desktop` is a releasable component on exactly the same terms as the other
+two: its own changesets package, its own tag prefix, its own CHANGELOG sliced
+into the release body, and shards in the same `build`/`publish` jobs. The only
+thing that differs is the SHAPE of what it publishes — a bundle rather than a
+bare binary — which is why it has its own smoke.
 
 - **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
   `subshell-server-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
   install that ONE file (triple suffix dropped). The 1.3.x companion-binary
-  era is retired.
+  era is retired. `desktop-vX.Y.Z` carries `Subshell.app.tar.gz`
+  (darwin-arm64, signed + notarized + stapled) and
+  `Subshell_<version>_amd64.deb` (linux-x64), each with a `.sha256` — no DMG
+  (Tauri signs one but neither notarizes nor staples it) and no AppImage
+  (`linuxdeploy` cannot cross-compile and downloads at build time). Each bundle
+  SHIPS the matching `subshell-server` inside it, so a desktop cut re-releases
+  a server: a server-only fix does not reach desktop users until a desktop cut,
+  which is why a security-relevant server release should be dispatched as
+  `app=all`.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
-  changes to `apps/server`/`apps/client` → a version PR ("chore: release
-  package(s)") maintained on every push to main; merging it bumps the app's
-  `package.json` + CHANGELOG. Merging does NOT cut a release.
+  changes to `apps/server`/`apps/client`/`apps/desktop` → a version PR ("chore:
+  release package(s)") maintained on every push to main; merging it bumps the
+  app's `package.json` + CHANGELOG. Merging does NOT cut a release.
 - **Release notes live in the GitHub Release.** The publish job slices this
   version's section out of `apps/<app>/CHANGELOG.md` and passes it as the
   release body, so the page a user lands on says what changed instead of
