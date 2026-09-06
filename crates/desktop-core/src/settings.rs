@@ -50,7 +50,12 @@ impl SettingsPaths {
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     /// An explicit binary chosen by the user; outranks every discovery rung but the env override.
-    pub server_bin_path: Option<String>,
+    ///
+    /// The alias is not decoration: `apps/desktop-server` shipped this key as
+    /// `serverBinPath` in 0.2.0, and dropping it would silently forget the
+    /// binary an upgrading user had chosen by hand.
+    #[serde(alias = "serverBinPath")]
+    pub binary_path: Option<String>,
     /// Whether closing the window hides it to the tray instead of quitting.
     ///
     /// Defaults OFF on Linux: a stock GNOME has no AppIndicator host, so the
@@ -138,12 +143,12 @@ mod tests {
     #[test]
     fn round_trips_through_json() {
         let s = Settings {
-            server_bin_path: Some("/x/subshell-server".into()),
+            binary_path: Some("/x/subshell-server".into()),
             close_to_tray: true,
             open_at_login: false,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
-        assert_eq!(back.server_bin_path.as_deref(), Some("/x/subshell-server"));
+        assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);
     }
 
@@ -152,7 +157,7 @@ mod tests {
     fn tolerates_unknown_and_missing_keys() {
         let s: Settings = serde_json::from_str(r#"{"closeToTray":true,"somethingNew":42}"#).unwrap();
         assert!(s.close_to_tray);
-        assert!(s.server_bin_path.is_none());
+        assert!(s.binary_path.is_none());
     }
 
     // The parameterization is only worth anything if the identity it is given

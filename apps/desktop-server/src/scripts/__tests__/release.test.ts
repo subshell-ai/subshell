@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { DESKTOP_TARGETS, desktopSidecarFileName, serverArtifactFileName } from "@internal/subshell-protocol";
+import {
+  DESKTOP_TARGETS,
+  desktopSidecarFileName,
+  SERVER_SIDECAR_NAME,
+  serverArtifactFileName,
+} from "@internal/subshell-protocol";
 import {
   assertBundleSet,
   bundleKind,
@@ -92,7 +97,7 @@ describe("stageSidecar", () => {
     expect(s.moves).toEqual([
       [
         join(SIDECAR_DIR, serverArtifactFileName("darwin-arm64")),
-        join(SIDECAR_DIR, desktopSidecarFileName("darwin-arm64")),
+        join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, "darwin-arm64")),
       ],
     ]);
   });

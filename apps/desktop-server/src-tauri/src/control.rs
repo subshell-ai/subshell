@@ -235,7 +235,7 @@ fn bundled_version() -> Option<String> {
 /// Look at the machine and report what it would take to reach a running server.
 #[tauri::command(async)]
 pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
-    probe_now(settings.get().server_bin_path.as_deref())
+    probe_now(settings.get().binary_path.as_deref())
 }
 
 fn probe_now(configured: Option<&str>) -> Probe {
@@ -300,7 +300,7 @@ impl From<Run> for ActionResult {
 /// Materialise the bundled server at `~/.local/bin/subshell-server`.
 #[tauri::command(async)]
 pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
-    let configured = settings.get().server_bin_path;
+    let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref());
     // Only tear down a service we are actually replacing. Stopping one that
@@ -337,7 +337,7 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
 /// `subshell-server init --yes` with the operator's port/host.
 #[tauri::command(async)]
 pub fn desktop_init(settings: State<'_, SettingsState>, port: String, host: String) -> ActionResult {
-    let server = server_bin::resolve(settings.get().server_bin_path.as_deref());
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
     let Some(mut cmd) = server_cmd(&server, &["init", "--yes"]) else {
         return ActionResult {
             ok: false,
@@ -385,7 +385,7 @@ impl ServiceCommand {
 /// One `service` verb, straight through. The server decides whether to refuse.
 #[tauri::command(async)]
 pub fn desktop_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
-    let server = server_bin::resolve(settings.get().server_bin_path.as_deref());
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
     let Some(mut cmd) = server_cmd(&server, &["service", verb.as_str()]) else {
         return ActionResult {
             ok: false,
@@ -421,7 +421,7 @@ pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<S
             Some(p)
         }
     };
-    settings.update(|s| s.server_bin_path = cleaned)
+    settings.update(|s| s.binary_path = cleaned)
 }
 
 /// The desktop app's own preferences, for the console to render.
@@ -457,7 +457,7 @@ pub fn desktop_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bo
 /// Open (or focus) the window that shows the server's own UI.
 #[tauri::command(async)]
 pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
-    let probe = probe_now(settings.get().server_bin_path.as_deref());
+    let probe = probe_now(settings.get().binary_path.as_deref());
     let origin = probe
         .origin()
         .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;

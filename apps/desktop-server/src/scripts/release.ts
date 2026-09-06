@@ -30,9 +30,11 @@ import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  SERVER_SIDECAR_NAME,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
 import {
@@ -115,7 +117,7 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
   }
   // The sidecar digest describes pre-seal bytes; keeping it publishes a lie.
   await deps.remove(`${built}.sha256`);
-  await deps.move(built, join(SIDECAR_DIR, desktopSidecarFileName(triple)));
+  await deps.move(built, join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, triple)));
   return true;
 }
 
@@ -223,7 +225,7 @@ async function main(): Promise<void> {
     // staged files — `binaries/.gitkeep` is tracked, and wiping the directory
     // deleted it on every successful build.
     for (const target of DESKTOP_TARGETS) {
-      await rm(join(SIDECAR_DIR, desktopSidecarFileName(target)), { force: true });
+      await rm(join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, target)), { force: true });
     }
   }
 
@@ -256,7 +258,7 @@ async function collectArtifact(
   triple: string,
   version: string,
 ): Promise<string> {
-  const name = desktopArtifactFileName(triple, version);
+  const name = desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, triple, version);
   if (triple === "linux-x64") return join(bundleRoot, "deb", name);
   const appDir = join(bundleRoot, "macos", "Subshell.app");
   const out = join(bundleRoot, "macos", name);

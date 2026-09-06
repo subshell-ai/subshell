@@ -74,8 +74,10 @@ export {
   verifyCommand,
 } from "./node-signing.js";
 export {
-  BUNDLED_SIDECAR_NAME,
+  AGENT_SIDECAR_NAME,
   DEFAULT_DATABASE_PATH,
+  DESKTOP_CLIENT_PRODUCT,
+  DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   type DesktopTarget,
   defaultSubshellServerDataDir,
@@ -87,6 +89,7 @@ export {
   nodeArtifactFileName,
   resolveNodeArtifactsDir,
   rustTargetTriple,
+  SERVER_SIDECAR_NAME,
   SERVER_TARGETS,
   type ServerTarget,
   serverArtifactFileName,
