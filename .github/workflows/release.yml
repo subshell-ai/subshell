@@ -53,6 +53,11 @@ on:
 
 permissions:
   contents: write
+  # The desktop Linux shard pulls ghcr.io/subshell-ai/desktop-builder, which
+  # inherits this repo's visibility. Without this the runner's docker pull is
+  # denied by the registry and the job dies in "Initialize containers", before
+  # a single step runs.
+  packages: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -316,6 +321,27 @@ jobs:
           else
             SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:client
           fi
+
+      # The mac-builder carries no Rust, and asking an operator to keep a
+      # toolchain installed on a fleet by hand is the kind of state that is
+      # only ever wrong at 2am. The Linux shard skips this: its container
+      # already ships a pinned toolchain.
+      - name: Use Rust
+        if: matrix.app == 'desktop' && startsWith(matrix.triple, 'darwin')
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        if: matrix.app == 'desktop'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
 
       - name: Desktop release build (scoped to ${{ matrix.triple }})
         if: matrix.app == 'desktop'
