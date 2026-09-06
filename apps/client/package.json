@@ -1,7 +1,7 @@
 {
   "name": "@internal/client",
   "description": "subshell — node client daemon: enrolls with the control plane and executes signed commands",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "type": "module",
   "private": true,
   "main": "dist/index.js",
