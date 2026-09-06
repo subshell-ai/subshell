@@ -78,6 +78,12 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
 
     let allowed = url.origin();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+        // Created HIDDEN and shown by `shell_ready` (or by the fallback below).
+        // The chrome-less title bar cannot be chosen before the page loads: an
+        // SPA that predates the desktop chrome under an Overlay title bar is an
+        // UNMOVABLE window, and the only thing that knows whether this SPA has
+        // it is the SPA. So the window negotiates instead of guessing.
+        .visible(false)
         // The page is the SERVER's, and this window holds Tauri globals. A
         // navigation away from the server's own origin — a redirect, an href
         // in rendered content, an injected script — must not carry those
@@ -91,11 +97,55 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // events, which would silently break both drag-a-subshell-into-a-
         // workspace (the `application/x-subshell-id` payload) and the
         // terminal's own file-drop uploads.
-        .disable_drag_drop_handler();
+        .disable_drag_drop_handler()
+        // Created HIDDEN and shown by `shell_ready` (or by the fallback
+        // below). The chrome-less title bar cannot be chosen before the page
+        // loads: an SPA that predates the desktop chrome under an Overlay
+        // title bar is an UNMOVABLE window, and the only thing that knows
+        // whether this SPA has that chrome is the SPA. So the window
+        // negotiates rather than guessing — no version constant to keep in
+        // step with a release it cannot see.
+        .visible(false);
 
-    builder
+    let window = builder
         .build()
         .map_err(|e| format!("could not open the main window: {e}"))?;
+
+    // An SPA that never answers — an older server, or a page that failed to
+    // boot — must still get a window. Showing it decorated is the safe
+    // outcome: the user sees the app, with an ordinary title bar.
+    let fallback = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(READY_GRACE);
+        if !fallback.is_visible().unwrap_or(true) {
+            let _ = fallback.show();
+            let _ = fallback.set_focus();
+        }
+    });
+    Ok(())
+}
+
+/// How long to wait for the page to say it can draw its own chrome.
+const READY_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// The page has rendered desktop chrome: take the title bar away and show it.
+///
+/// Called once by the SPA's desktop sidebar. An old SPA never calls it, which
+/// is exactly the point.
+pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("no main window to ready".into());
+    };
+    #[cfg(target_os = "macos")]
+    if overlay {
+        // Traffic lights then float over the sidebar's top strip, which is why
+        // the rail reserves room for them and starts an OS drag on pointer-down.
+        let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = overlay;
+    let _ = window.show();
+    let _ = window.set_focus();
     Ok(())
 }
 

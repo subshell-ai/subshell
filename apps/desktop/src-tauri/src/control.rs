@@ -397,6 +397,38 @@ pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<S
     guard.save()
 }
 
+/// The desktop app's own preferences, for the console to render.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopSettings {
+    pub close_to_tray: bool,
+    /// Whether closing to the tray is even offered here.
+    ///
+    /// False on Linux: `TrayIconEvent` is never emitted there and a stock
+    /// GNOME has no StatusNotifier host, so the icon can be silently invisible
+    /// — and a window hidden to an icon that is not there is unreachable.
+    /// Offering the switch anyway would be offering a way to lose the app.
+    pub tray_supported: bool,
+}
+
+/// Read the desktop app's own preferences.
+#[tauri::command(async)]
+pub fn desktop_settings(settings: State<'_, SettingsState>) -> DesktopSettings {
+    DesktopSettings {
+        close_to_tray: settings.get().close_to_tray,
+        tray_supported: cfg!(target_os = "macos"),
+    }
+}
+
+/// Choose whether closing the window hides it to the tray.
+#[tauri::command(async)]
+pub fn desktop_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bool) -> Result<(), String> {
+    let mut guard = settings.0.lock().unwrap_or_else(|e| e.into_inner());
+    // Never persist `true` where the tray may not exist — see `tray_supported`.
+    guard.close_to_tray = enabled && cfg!(target_os = "macos");
+    guard.save()
+}
+
 /// Open (or focus) the window that shows the server's own UI.
 #[tauri::command(async)]
 pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
@@ -411,6 +443,18 @@ pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> 
 #[tauri::command(async)]
 pub fn desktop_open_console(app: AppHandle) -> Result<(), String> {
     crate::windows::open_console(&app).map(|_| ())
+}
+
+/// The SPA has rendered its desktop chrome and the window can lose its title bar.
+///
+/// The negotiation exists because the chrome ships inside the SERVER's embedded
+/// SPA, so a desktop build can meet an instance that has never heard of it.
+/// A version floor would have to be kept in step with a release it cannot see;
+/// asking the page is a fact rather than a guess, and an old page simply never
+/// answers.
+#[tauri::command(async)]
+pub fn desktop_shell_ready(app: AppHandle, overlay: bool) -> Result<(), String> {
+    crate::windows::shell_ready(&app, overlay)
 }
 
 #[cfg(test)]

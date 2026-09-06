@@ -4,8 +4,17 @@
   "description": "The window showing the server's own SPA. Its page is served by the subshell-server this app manages, so it is treated as REMOTE content: it may ask to show the console window and to drag its own window, and nothing else. Every command that touches the CLI is absent by construction, not by convention.",
   "local": false,
   "remote": {
-    "urls": ["http://localhost:*", "http://127.0.0.1:*"]
+    "urls": [
+      "http://localhost:*",
+      "http://127.0.0.1:*"
+    ]
   },
-  "windows": ["main"],
-  "permissions": ["core:window:allow-start-dragging", "allow-desktop-open-console"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "allow-desktop-open-console",
+    "allow-desktop-shell-ready"
+  ]
 }

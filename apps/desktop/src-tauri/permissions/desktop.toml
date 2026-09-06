@@ -46,3 +46,18 @@ commands.allow = ["desktop_open_main"]
 identifier = "allow-desktop-open-console"
 description = "Open the server console window. Safe for the server-origin page to call: it shows a window and nothing else."
 commands.allow = ["desktop_open_console"]
+
+[[permission]]
+identifier = "allow-desktop-shell-ready"
+description = "The SPA reporting that it has rendered desktop chrome, so the window can drop its title bar. Safe for the server-origin page: it changes this app's own window and nothing else."
+commands.allow = ["desktop_shell_ready"]
+
+[[permission]]
+identifier = "allow-desktop-settings"
+description = "Read the desktop app's own preferences."
+commands.allow = ["desktop_settings"]
+
+[[permission]]
+identifier = "allow-desktop-set-close-to-tray"
+description = "Choose whether closing the window hides it to the tray."
+commands.allow = ["desktop_set_close_to_tray"]

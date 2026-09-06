@@ -1,5 +1,8 @@
+import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DesktopServerPill } from "@/components/desktop/desktop-server-pill";
+import { desktopInvoke, desktopPlatform, startWindowDrag } from "@/lib/desktop";
+import { cn } from "@/lib/utils";
 
 /**
  * The rail the desktop shell renders instead of the web one.
@@ -10,13 +13,49 @@ import { DesktopServerPill } from "@/components/desktop/desktop-server-pill";
  * the collapse preference, all riding one SSE feed. A second rail would lose
  * every one of those silently and then drift, so this changes the chrome and
  * keeps the machine.
- *
- * Today that difference is small — a wider rail and a server row in the
- * footer. The window is still decorated: an overlay title bar has to be
- * negotiated with the shell (an old SPA under a chrome-less window is an
- * UNMOVABLE window), so it lands together with the menu bar and tray rather
- * than ahead of them.
  */
 export function DesktopSidebar() {
-  return <AppSidebar variant="desktop" footerEnd={({ collapsed }) => <DesktopServerPill collapsed={collapsed} />} />;
+  const macos = desktopPlatform() === "macos";
+
+  // Telling the shell the desktop chrome is up is what LETS it drop the title
+  // bar. It is deliberately a handshake rather than a version check: this
+  // chrome ships inside the server's embedded SPA, so a desktop build can meet
+  // an instance that has never heard of it — and an old SPA under a chrome-less
+  // window is an unmovable window. An old SPA simply never sends this, and the
+  // shell shows a decorated window instead.
+  useEffect(() => {
+    void desktopInvoke("desktop_shell_ready", { overlay: true });
+  }, []);
+
+  return (
+    <AppSidebar
+      variant="desktop"
+      // Room for the traffic lights, which now float over the rail's top strip.
+      className={cn(macos && "[&>div:nth-child(2)]:pt-7")}
+      headerAbove={macos ? <DragStrip /> : undefined}
+      footerEnd={({ collapsed }) => <DesktopServerPill collapsed={collapsed} />}
+    />
+  );
+}
+
+/**
+ * The rail's top edge, which with no title bar is the window's title bar.
+ *
+ * `startWindowDrag` rather than `data-tauri-drag-region`: that attribute only
+ * works on the element it is applied to directly, and this sits above a tree
+ * of nested elements that would each need it.
+ */
+function DragStrip() {
+  return (
+    <div
+      // Presentation only — not focusable and not announced. The window can
+      // still be moved by its other edges, and a screen reader has nothing to
+      // say about a drag handle it cannot use.
+      aria-hidden
+      onPointerDown={(e) => {
+        if (e.button === 0) startWindowDrag();
+      }}
+      className="absolute inset-x-0 top-0 z-10 h-7"
+    />
+  );
 }

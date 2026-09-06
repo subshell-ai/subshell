@@ -355,6 +355,28 @@ const pickBinary = guard(async () => {
   return { ok: true, stdout: `Using ${chosen}` };
 });
 
+/**
+ * The tray preference, and why it is not always offered.
+ *
+ * On Linux `TrayIconEvent` is never emitted and a stock GNOME has no
+ * StatusNotifier host, so the icon can be silently invisible — a window hidden
+ * to an icon that is not there is unreachable, with nothing to explain it. The
+ * Rust side reports whether the switch is safe to show, and refuses to persist
+ * `true` where it is not; the console just does not draw it.
+ */
+async function loadPrefs() {
+  const prefs = await invoke("desktop_settings");
+  const card = el("prefs-card");
+  card.hidden = !prefs.traySupported;
+  if (!prefs.traySupported) return;
+  const box = el("close-to-tray");
+  box.checked = prefs.closeToTray;
+  box.addEventListener("change", () => {
+    void invoke("desktop_set_close_to_tray", { enabled: box.checked });
+  });
+}
+
 el("refresh").addEventListener("click", act(null));
 render();
 void act(null)();
+void loadPrefs();

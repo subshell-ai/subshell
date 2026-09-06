@@ -87,6 +87,7 @@ export function AppSidebar({
   forceExpanded = false,
   className,
   headerEnd,
+  headerAbove,
   footerEnd,
   onQuickAdd,
   variant = "web",
@@ -97,6 +98,15 @@ export function AppSidebar({
    * its close button here so it can never float over a nav row (see
    * SheetContent's `showClose`). */
   headerEnd?: ReactNode;
+  /**
+   * Rendered as the rail's FIRST child, above the brand row.
+   *
+   * Exists for the desktop shell's drag strip, which has to span the rail and
+   * only the rail: with the title bar gone the rail's top edge IS the title
+   * bar, and a strip positioned from outside would have to guess a width that
+   * changes when the rail collapses.
+   */
+  headerAbove?: ReactNode;
   /** Called after a quick-add + opens its dialog; the drawer host uses it to
    * dismiss the sheet so the dialog is never a second stacked modal. */
   onQuickAdd?: () => void;
@@ -197,6 +207,7 @@ export function AppSidebar({
         className,
       )}
     >
+      {headerAbove}
       {/* Brand — collapsed: a centered /s mark that expands the rail */}
       <div className="flex items-center justify-between px-3 py-4">
         {collapsed ? (

@@ -3,7 +3,9 @@
   "identifier": "console",
   "description": "The bundled server-control page, and the ONLY surface allowed to drive the subshell-server CLI. That is why it is a separate window from the one showing the server's own SPA: the boundary is the window and its origin, not a convention.",
   "local": true,
-  "windows": ["console"],
+  "windows": [
+    "console"
+  ],
   "permissions": [
     "core:default",
     "dialog:allow-open",
@@ -14,6 +16,8 @@
     "allow-desktop-service",
     "allow-desktop-set-server-bin",
     "allow-desktop-open-main",
-    "allow-desktop-open-console"
+    "allow-desktop-open-console",
+    "allow-desktop-settings",
+    "allow-desktop-set-close-to-tray"
   ]
 }

@@ -19,7 +19,7 @@
     "targets": ["app", "deb"],
     "category": "DeveloperTool",
     "shortDescription": "Run and manage a local Subshell control plane",
-    "longDescription": "Subshell Desktop installs, runs and manages a subshell-server on this machine, and gives it a native window and menu bar.",
+    "longDescription": "Subshell Desktop installs, runs and manages a subshell-server on this machine, and gives it a native window, menu bar and tray.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
     "macOS": {
       "entitlements": "entitlements.plist",

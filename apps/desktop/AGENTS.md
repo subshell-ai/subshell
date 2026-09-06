@@ -121,6 +121,40 @@ gates, because the window holds privileged globals.
 The console has a real CSP (`script-src 'self'`), which is why its logic lives
 in `ui/main.js` rather than inline.
 
+## Native chrome
+
+| Surface | macOS | Linux |
+| --- | --- | --- |
+| Menu bar | full `NSMenu` | none — a GTK menu bar is per-window chrome, not a system bar |
+| Tray | icon + menu, click opens | icon + menu only; **click events are never emitted** |
+| Title bar | Overlay, negotiated (below) | ordinary |
+| Close to tray | offered, default off | **not offered at all** |
+
+`PredefinedMenuItem::{cut,copy,paste,select_all}` come FIRST in the Edit menu
+and are not decoration: without them ⌘C/⌘V do not work at all in a Tauri macOS
+webview, because the shortcuts go to the menu bar and nothing claims them. In a
+terminal app that is a correctness bug.
+
+Close-to-tray is not offered on Linux and the Rust side refuses to persist it
+there. `TrayIconEvent` is never emitted on Linux and a stock GNOME has no
+StatusNotifier host, so the icon can be **silently invisible** — a window
+hidden to an icon that is not there is unreachable, with nothing to explain it.
+Every tray action therefore also exists in the window UI or the menu bar; the
+tray is a shortcut, never the only route.
+
+### The title-bar negotiation
+
+The main window is created HIDDEN with an ordinary title bar. The SPA's desktop
+sidebar calls `desktop_shell_ready({overlay: true})` on mount; the shell then
+switches to `TitleBarStyle::Overlay` and shows the window. A six-second
+fallback shows it decorated regardless.
+
+It is a handshake rather than a version check because the desktop chrome ships
+inside the SERVER's embedded SPA, so a desktop build can meet an instance that
+has never heard of it — and an old SPA under a chrome-less window is an
+UNMOVABLE window. A version floor would have to be kept in step with a release
+it cannot see; asking the page is a fact. An old SPA simply never answers.
+
 ## Things that will bite
 
 - **A GUI app's PATH is `/usr/bin:/bin:/usr/sbin:/sbin`.** No `/opt/homebrew/bin`,

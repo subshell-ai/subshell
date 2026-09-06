@@ -180,3 +180,19 @@ pre:empty {
 .output-bad {
   border-color: var(--bad);
 }
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.switch input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--primary);
+}
+[hidden] {
+  display: none;
+}

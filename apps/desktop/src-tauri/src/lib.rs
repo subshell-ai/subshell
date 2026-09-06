@@ -1,11 +1,14 @@
 //! Subshell Desktop — a native shell around a locally managed `subshell-server`.
 
+mod bridge;
 mod control;
+mod menu;
 mod proc;
 mod server_bin;
 mod settings;
 mod shell_env;
 mod sidecar;
+mod tray;
 mod version;
 mod windows;
 
@@ -51,9 +54,43 @@ pub fn run() {
             control::desktop_set_server_bin,
             control::desktop_open_main,
             control::desktop_open_console,
+            control::desktop_shell_ready,
+            control::desktop_settings,
+            control::desktop_set_close_to_tray,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Close-to-tray is opt-in and OFF by default on Linux, where a
+                // stock desktop has no StatusNotifier host and the icon is
+                // silently invisible — hiding there would make the window
+                // unreachable with nothing to explain it.
+                let hide = window.label() == "main"
+                    && window
+                        .app_handle()
+                        .state::<settings::SettingsState>()
+                        .get()
+                        .close_to_tray;
+                if hide {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
-            windows::open_console(&app.handle().clone())?;
+            let handle = app.handle().clone();
+            // macOS only: a GTK menu bar is per-window chrome rather than a
+            // system bar, and everything here is also on the tray.
+            #[cfg(target_os = "macos")]
+            {
+                app.set_menu(menu::build(&handle)?)?;
+                app.on_menu_event(|app, event| menu::on_event(app, event.id.as_ref()));
+            }
+            // A tray that fails to build is not fatal — every action it offers
+            // exists in the window UI too.
+            if let Err(err) = tray::build(&handle) {
+                eprintln!("subshell: could not create the tray icon: {err}");
+            }
+            windows::open_console(&handle)?;
             Ok(())
         })
         .run(tauri::generate_context!())
