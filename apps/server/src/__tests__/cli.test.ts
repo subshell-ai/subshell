@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
@@ -366,5 +366,281 @@ describe("dispatchCli — status names the build", () => {
     expect(status.out[0]).toBe(version.out[0]);
     expect(status.err).toEqual([]);
     expect(status.exits).toEqual([0]);
+  });
+});
+
+/**
+ * `status --json` and the `service` verbs. The two rules worth pinning here:
+ * a valid `status` invocation always exits 0 (a script must not have to
+ * distinguish "not running" from "the call failed"), and the JSON must never
+ * carry the auth secret in any form — the same scan `/api/admin/status`
+ * already runs on its own serialized response.
+ */
+describe("dispatchCli — status --json", () => {
+  const SECRET = "totally-real-secret-value-do-not-leak-8f3a";
+
+  test("emits parseable JSON carrying the same facts as the text view", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), `SERVER_PORT=4321\nHOST=127.0.0.1\nBETTER_AUTH_SECRET=${SECRET}\n`);
+    const { deps, out, err, exits } = collectingDeps({
+      probePort: () => false,
+      platform: "linux",
+      home: "/home/nobody",
+    });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SERVER_PORT: undefined, HOST: undefined }, async () => {
+      expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
+    });
+    expect(err).toEqual([]);
+    expect(exits).toEqual([0]);
+    expect(out).toHaveLength(1);
+    const v = JSON.parse(out[0] as string);
+    expect(v.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(v.configEnv).toMatchObject({ path: join(dir, "config.env"), exists: true });
+    expect(v.settings.SERVER_PORT).toEqual({ value: "4321", source: "config.env" });
+    // A machine consumer gets a NUMBER; the raw text stays available so a
+    // malformed value can still be quoted back at the operator.
+    expect(v.listen).toMatchObject({ host: "127.0.0.1", port: 4321, portRaw: "4321", portValid: true });
+    expect(v.service.definitionPath).toContain("subshell-server.service");
+  });
+
+  // The auth secret is the one value in the whole view that must never be
+  // renderable. A field added later cannot regress this without failing here.
+  test("NEVER serializes the auth secret — only its two-state presence", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), `BETTER_AUTH_SECRET=${SECRET}\n`);
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, BETTER_AUTH_SECRET: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    const raw = out[0] as string;
+    expect(raw).not.toContain(SECRET);
+    expect(JSON.parse(raw).authSecret).toMatchObject({ state: "set" });
+  });
+
+  // parseInt("3080abc") is 3080, but the boot path refuses it — reporting it
+  // valid would promise a boot that fails.
+  test("a malformed SERVER_PORT is portValid:false with a null port", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), "SERVER_PORT=3080abc\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, SERVER_PORT: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    expect(JSON.parse(out[0] as string).listen).toMatchObject({
+      port: null,
+      portRaw: "3080abc",
+      portValid: false,
+      listening: false,
+    });
+  });
+
+  test("a missing secret reads as missing, still without a value field", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, BETTER_AUTH_SECRET: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    expect(JSON.parse(out[0] as string).authSecret.state).toBe("missing");
+  });
+
+  // Silently ignoring extras would hand a typo'd `--jsonn` prose that no
+  // script can parse — the failure a machine consumer can least afford.
+  test("an unknown flag is a usage error, not silently ignored", async () => {
+    const { deps, out, err, exits } = collectingDeps();
+    expect(await dispatchCli(["status", "--jsonn"], deps)).toBe(true);
+    expect(out).toEqual([]);
+    expect(err[0]).toContain("unexpected argument '--jsonn'");
+    expect(exits).toEqual([1]);
+  });
+});
+
+describe("dispatchCli — service verbs", () => {
+  test("every verb is accepted; an unknown one is a usage error naming the set", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["service", "frobnicate"], deps)).toBe(true);
+    expect(err[0]).toContain("unknown service command 'frobnicate'");
+    expect(exits).toEqual([1]);
+
+    const bare = collectingDeps();
+    expect(await dispatchCli(["service"], bare.deps)).toBe(true);
+    expect(bare.err[0]).toContain("install");
+    expect(bare.err[0]).toContain("restart");
+    expect(bare.exits).toEqual([1]);
+  });
+
+  test("service status is a VIEW — exit 0 even with nothing installed", async () => {
+    const { deps, out, err, exits } = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+    expect(await dispatchCli(["service", "status"], deps)).toBe(true);
+    expect(err).toEqual([]);
+    expect(exits).toEqual([0]);
+    expect(out.join("\n")).toContain("not installed");
+  });
+
+  test("service status --json emits the ServiceState object", async () => {
+    const { deps, out, exits } = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+    expect(await dispatchCli(["service", "status", "--json"], deps)).toBe(true);
+    expect(exits).toEqual([0]);
+    const state = JSON.parse(out[0] as string);
+    expect(state).toMatchObject({ installed: false, state: "not-installed" });
+    expect(state.definitionPath).toContain("subshell-server.service");
+  });
+
+  test("start/stop/restart refuse when no definition exists", async () => {
+    for (const verb of ["start", "stop", "restart"]) {
+      const { deps, err, exits } = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+      expect(await dispatchCli(["service", verb], deps)).toBe(true);
+      expect(err.join("\n")).toContain("nothing installed");
+      expect(exits).toEqual([1]);
+    }
+  });
+
+  // Flags are per-verb: --force means something only for restart, and --json
+  // only where there is structured state to emit.
+  test("--force is accepted by restart and refused everywhere else", async () => {
+    const ok = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+    await dispatchCli(["service", "restart", "--force"], ok.deps);
+    expect(ok.err.join("\n")).toContain("nothing installed");
+
+    const bad = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+    await dispatchCli(["service", "start", "--force"], bad.deps);
+    expect(bad.err[0]).toContain("unexpected argument '--force'");
+    expect(bad.exits).toEqual([1]);
+  });
+
+  // Every test above drives paths that reach DEFAULT_DEPS. Without an injected
+  // runCmd a regression would silently shell out to the REAL systemctl on a
+  // developer's machine, so these pin that nothing spawns.
+  test("nothing spawns a manager command when no definition exists", async () => {
+    const calls: string[][] = [];
+    const { deps, exits } = collectingDeps({
+      platform: "linux",
+      home: "/home/nobody-here",
+      runCmd: (cmd) => {
+        calls.push(cmd);
+        return { code: 0, out: "", err: "" };
+      },
+    });
+    for (const verb of ["status", "start", "stop", "restart"]) {
+      await dispatchCli(["service", verb], deps);
+    }
+    expect(calls).toEqual([]);
+    expect(exits).toEqual([0, 1, 1, 1]);
+  });
+
+  test("install still refuses stray arguments", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["service", "install", "--json"], deps)).toBe(true);
+    expect(err[0]).toContain("unexpected argument '--json'");
+    expect(exits).toEqual([1]);
+  });
+});
+
+/**
+ * End-to-end through `dispatchCli` with a REAL unit file on disk (the
+ * `readFile`/`fileExists` seams live in DEFAULT_DEPS, not CliDeps, so a temp
+ * home is the only way to drive them) and a recording `runCmd`. This is the
+ * only place the CLI's `--force` plumbing and the installed branch of
+ * `serviceStateLines` are exercised.
+ */
+describe("dispatchCli — service against a real definition on disk", () => {
+  /** A temp HOME carrying a systemd user unit with the given body. */
+  function homeWithUnit(body: string): string {
+    const home = mkdtempSync(join(tmpdir(), `subshell-svc-test-${process.pid}-`));
+    const dir = join(home, ".config", "systemd", "user");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "subshell-server.service"), body);
+    return home;
+  }
+
+  /** collectingDeps plus a recording runCmd that answers `systemctl show` with `props`. */
+  function linuxDeps(home: string, props: Record<string, string>) {
+    const calls: string[][] = [];
+    const base = collectingDeps({
+      platform: "linux",
+      home,
+      runCmd: (cmd) => {
+        calls.push(cmd);
+        if (cmd.includes("show")) {
+          return {
+            code: 0,
+            out: Object.entries(props)
+              .map(([k, v]) => `${k}=${v}`)
+              .join("\n"),
+            err: "",
+          };
+        }
+        return { code: 0, out: "", err: "" };
+      },
+    });
+    return { ...base, calls };
+  }
+
+  const SAFE = {
+    ActiveState: "active",
+    SubState: "running",
+    UnitFileState: "enabled",
+    MainPID: "99",
+    KillMode: "process",
+  };
+  const LETHAL = { ...SAFE, KillMode: "control-group" };
+
+  test("service status renders the installed branch, including the pane verdict", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+    const { deps, out, exits } = linuxDeps(home, SAFE);
+    expect(await dispatchCli(["service", "status"], deps)).toBe(true);
+    const text = out.join("\n");
+    expect(text).toContain("definition installed");
+    expect(text).toContain("state                = running (pid 99)");
+    expect(text).toContain("starts at login      = yes");
+    expect(text).toContain("teardown keeps panes = yes");
+    expect(exits).toEqual([0]);
+  });
+
+  test("service status names a lethal definition in plain words", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+    const { deps, out } = linuxDeps(home, LETHAL);
+    await dispatchCli(["service", "status"], deps);
+    const text = out.join("\n");
+    expect(text).toContain("teardown keeps panes = NO");
+    expect(text).toContain("reinstall it before stopping or restarting");
+  });
+
+  test("service status --json carries the same verdict as a field", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+    const { deps, out } = linuxDeps(home, LETHAL);
+    await dispatchCli(["service", "status", "--json"], deps);
+    expect(JSON.parse(out[0] as string)).toMatchObject({ installed: true, state: "running", paneSafety: "kills" });
+  });
+
+  test("restart is refused on a lethal definition, and --force carries through the CLI", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+    const refused = linuxDeps(home, LETHAL);
+    expect(await dispatchCli(["service", "restart"], refused.deps)).toBe(true);
+    expect(refused.err.join("\n")).toContain("refusing to restart");
+    expect(refused.exits).toEqual([1]);
+    expect(refused.calls.flat()).not.toContain("restart");
+
+    const forced = linuxDeps(home, LETHAL);
+    expect(await dispatchCli(["service", "restart", "--force"], forced.deps)).toBe(true);
+    expect(forced.exits).toEqual([0]);
+    expect(forced.calls.at(-1)).toEqual(["systemctl", "--user", "restart", "subshell-server.service"]);
+  });
+
+  // stop is as lethal as restart but is not refused — it must still say so.
+  test("stop warns on stderr and still exits 0", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+    const { deps, err, exits, calls } = linuxDeps(home, LETHAL);
+    expect(await dispatchCli(["service", "stop"], deps)).toBe(true);
+    expect(err.join("\n")).toContain("warning");
+    expect(exits).toEqual([0]);
+    expect(calls.at(-1)).toEqual(["systemctl", "--user", "stop", "subshell-server.service"]);
+  });
+
+  test("a pane-safe definition drives the verbs with no warning at all", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+    const { deps, err, exits } = linuxDeps(home, SAFE);
+    await dispatchCli(["service", "restart"], deps);
+    expect(err).toEqual([]);
+    expect(exits).toEqual([0]);
   });
 });

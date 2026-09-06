@@ -193,7 +193,8 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — a
   local drop dir to scp/deploy; there is no data-dir ladder here. See
   `apps/server/AGENTS.md` ("Standalone binary & CLI") for the CLI
-  (`init`/`configure`/`status`/`service install|uninstall`) and config.env.
+  (`init`/`configure`/`status`/`service install|uninstall|status|start|stop|restart`)
+  and config.env.
 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 

@@ -1,12 +1,19 @@
-import { existsSync, readFileSync, readSync, writeSync } from "node:fs";
+import { readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { runSubshellMcp } from "@internal/mcp-core";
-import { DEFAULT_DATABASE_PATH } from "@internal/subshell-protocol";
 import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { runInit } from "@/commands/init.js";
-import { resolveConfig, serverConfigDir } from "@/config-env.js";
-import { DEFAULT_DEPS, installService, serviceArtifactPath, uninstallService } from "@/service.js";
-import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
+import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
+import { serverConfigDir } from "@/config-env.js";
+import {
+  controlService,
+  DEFAULT_DEPS,
+  installService,
+  queryService,
+  SERVICE_VERBS,
+  uninstallService,
+} from "@/service.js";
+import type { McpResolveIo } from "@/services/mcp-resolve.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -118,11 +125,15 @@ const USAGE = `subshell-server — the Subshell control plane
 usage:
   subshell-server                run the server (boot path: no subcommand)
   subshell-server version        print the version and exit
-  subshell-server status         print the resolved config view and exit
+  subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server service install    background the server (systemd user unit / launchd agent)
   subshell-server service uninstall  stop it and remove the service definition
+  subshell-server service status     what the service manager reports (--json for machine output)
+  subshell-server service start      start the installed service
+  subshell-server service stop       stop it (the definition stays installed)
+  subshell-server service restart    restart it (--force to override the live-pane refusal)
   subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
@@ -171,10 +182,23 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       log(`subshell-server ${SERVER_VERSION}`);
       exit(0);
       return true;
-    case "status":
-      runStatus(log, deps);
+    case "status": {
+      // Flags are validated (unlike the pre-2026-09-05 behaviour of silently
+      // ignoring extras): a typo'd `--jsonn` that fell through to human text
+      // would hand a script prose it cannot parse. The exit code stays 0 for
+      // every VALID invocation — status reflects state, it does not judge it.
+      const bad = argv.slice(1).find((f) => f !== "--json");
+      if (bad !== undefined) {
+        error(`subshell-server: unexpected argument '${bad}'`);
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      if (argv.includes("--json")) log(JSON.stringify(collectStatus(deps), null, 2));
+      else runStatus(log, deps);
       exit(0);
       return true;
+    }
     // The pane-spawned MCP stdio server (spec 2026-09-03): the ONLY
     // long-running command — legal because the graph evaluates IO-free (lazy
     // getAuth) and `isCliEngaged()` (set above, synchronously) keeps the boot
@@ -233,22 +257,26 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       return true;
     }
     case "service": {
-      // `service install|uninstall` (client cli.ts UX: an unknown verb is a
-      // usage error). The verb is the ONLY positional; anything else is the
-      // same "unexpected argument" refusal the config flags use.
+      // `service <verb> [flags]` (client cli.ts UX: an unknown verb is a
+      // usage error). Flags are per-verb and deliberately few — `--force`
+      // exists only to override the restart refusal, `--json` only where
+      // there is structured state worth emitting.
       const verb = argv[1];
-      if (verb !== "install" && verb !== "uninstall") {
+      if (verb === undefined || !isServiceCommand(verb)) {
         error(
           verb === undefined
-            ? "subshell-server: service requires 'install' or 'uninstall'"
+            ? `subshell-server: service requires one of ${SERVICE_COMMANDS.join(", ")}`
             : `subshell-server: unknown service command '${verb}'`,
         );
         error(USAGE);
         exit(1);
         return true;
       }
-      if (argv.length > 2) {
-        error(`subshell-server: unexpected argument '${argv[2] as string}'`);
+      const allowed = SERVICE_FLAGS[verb] ?? NO_FLAGS;
+      const flags = argv.slice(2);
+      const bad = flags.find((f) => !allowed.has(f));
+      if (bad !== undefined) {
+        error(`subshell-server: unexpected argument '${bad}'`);
         error(USAGE);
         exit(1);
         return true;
@@ -279,7 +307,28 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         },
       });
       if (deps.runCmd) sdeps.runCmd = deps.runCmd;
-      const result = verb === "install" ? installService(sdeps) : uninstallService(sdeps);
+
+      // `status` is a VIEW, not a command: it always exits 0 (same rule as
+      // top-level `status`) so a script can read state without branching on
+      // an exit code that would also mean "the call itself failed".
+      if (verb === "status") {
+        const state = queryService(sdeps);
+        if (flags.includes("--json")) log(JSON.stringify(state, null, 2));
+        else for (const line of serviceStateLines(state)) log(line);
+        exit(0);
+        return true;
+      }
+
+      // `verb` narrows to a ServiceVerb by exclusion here: `status` returned
+      // above, and the two authoring verbs are handled first — so a new member
+      // of SERVICE_COMMANDS that nothing handles is a compile error, not a
+      // silent fall into controlService.
+      const result =
+        verb === "install"
+          ? installService(sdeps)
+          : verb === "uninstall"
+            ? uninstallService(sdeps)
+            : controlService(sdeps, verb, { force: flags.includes("--force") });
       // out/err arrive pre-newline-terminated; log/error append their own.
       if (result.out !== "") log(result.out.replace(/\n+$/, ""));
       if (result.err !== "") error(result.err.replace(/\n+$/, ""));
@@ -293,6 +342,25 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       return true;
   }
 }
+
+/**
+ * Every word `service` accepts: the two authoring verbs, the read-only view,
+ * and the control verbs — the last spread from `service.ts` so a new verb
+ * there cannot be silently unreachable here.
+ */
+const SERVICE_COMMANDS = ["install", "uninstall", "status", ...SERVICE_VERBS] as const;
+type ServiceCommand = (typeof SERVICE_COMMANDS)[number];
+const isServiceCommand = (word: string): word is ServiceCommand =>
+  (SERVICE_COMMANDS as readonly string[]).includes(word);
+
+/** Per-verb flag allowlist — anything else is the same "unexpected argument" refusal the config flags use. */
+const SERVICE_FLAGS: Partial<Record<ServiceCommand, ReadonlySet<string>>> = {
+  status: new Set(["--json"]),
+  restart: new Set(["--force"]),
+};
+
+/** Shared empty allowlist for the verbs that take no flags at all. */
+const NO_FLAGS: ReadonlySet<string> = new Set();
 
 /** Value-taking flags of `init`/`configure` (client `cli.ts` pattern — no flag library). */
 const CONFIG_VALUE_FLAGS = new Set(["--port", "--host", "--base-url", "--db-path"]);
@@ -394,137 +462,4 @@ export function promptLineSync(question: string, def: string): string | null {
     if (one[0] === 0x0a) return decodeLine(bytes);
     bytes.push(one[0] as number);
   }
-}
-
-/**
- * `status` — the operator's "what WOULD this boot with" view, printed
- * SYNCHRONOUSLY (invariant 1): the config.env path + existence, the
- * env-derived settings as they resolve through
- * `process env > config.env > default` (the same precedence `loadConfigEnv`
- * implements, read purely via `resolveConfig` — nothing is mutated), the
- * auth secret as masked-or-missing (its VALUE is never echoed, client
- * `status` precedent), tmux presence, and whether the resolved port already
- * has a listener.
- *
- * NOTE: this is the three-layer view only. The repo `.env`-via-dotenvx layer
- * is applied at `constants.ts` import time by the BOOT path, which `status`
- * deliberately never evaluates (see invariant 3 above) — and
- * under `bun run`/compiled binaries Bun itself preloads `.env` before ANY
- * user code, so a `.env` key is already "process env" by dispatch time.
- */
-function runStatus(log: (line: string) => void, deps: CliDeps): void {
-  const cfg = resolveConfig();
-  // Layer attribution. The prelude applies config.env to process.env BEFORE
-  // dispatch (the boot path needs it), so a file-sourced key is already
-  // indistinguishable by presence — match the value against the file instead.
-  // A real env var that happens to equal its config.env line reports as
-  // config.env: harmless, both layers agree.
-  const tag = (key: string): string => {
-    if (process.env[key] === undefined) return cfg.values[key] !== undefined ? "config.env" : "default";
-    if (cfg.values[key] === process.env[key]) return "config.env";
-    return "process env";
-  };
-  const field = (key: string, value: string): void => {
-    log(`${key.padEnd(20)} = ${value}  (${tag(key)})`);
-  };
-
-  // Names the BUILD first — "which version is this host running" is the
-  // question status exists to answer and could not, and the byte-identical
-  // string the `version` subcommand prints means one fact with one spelling.
-  log(`subshell-server ${SERVER_VERSION}`);
-  log(`config.env: ${cfg.path} (${cfg.exists ? "present" : "missing"})`);
-  // Mirrors of constants.ts defaults (imported by the boot path only; kept in
-  // sync deliberately — importing constants here would run dotenvx in a CLI
-  // process). SERVER_PORT/HOST/APP_BASE_URL defaults live there.
-  const port = cfg.get("SERVER_PORT") ?? "3080";
-  const host = cfg.get("HOST") ?? "127.0.0.1";
-  field("SERVER_PORT", port);
-  field("HOST", host);
-  field("APP_BASE_URL", cfg.get("APP_BASE_URL") ?? `http://localhost:${port}`);
-  field("DATABASE_PATH", cfg.get("DATABASE_PATH") ?? DEFAULT_DATABASE_PATH);
-  // Never echo the secret — masked/missing is all status reveals.
-  const secret = cfg.get("BETTER_AUTH_SECRET");
-  log(`BETTER_AUTH_SECRET   = ${secret !== undefined ? "set (masked)" : "MISSING"}  (${tag("BETTER_AUTH_SECRET")})`);
-
-  const tmux = Bun.which("tmux");
-  log(`tmux                 = ${tmux ?? "NOT FOUND — install tmux (apt install tmux / brew install tmux)"}`);
-
-  // Can THIS process spawn `subshell mcp`? Every subshell create registers it
-  // into the harness config, so an unresolvable entrypoint means create 500s
-  // — rare now that binaries self-resolve: the remaining miss is a
-  // bun-interpreted run with no usable argv[1] and no `subshell` agent on
-  // PATH (or an exotic execPath), and it hides until a user clicks create.
-  // The probe reads the merged env (the prelude applied config.env before
-  // dispatch), so SUBSHELL_MCP_COMMAND from the file counts.
-  const mcpProbe = probeMcpLaunch(process.env, deps.mcpIo ?? {});
-  log(
-    mcpProbe.spec
-      ? `mcp entrypoint       = ${[mcpProbe.spec.command, ...mcpProbe.spec.args].join(" ")}  (via ${mcpProbe.source})`
-      : `mcp entrypoint       = UNRESOLVED — subshell create will fail; ${mcpProbe.error}`,
-  );
-
-  // Liveness: is something already listening on the resolved port? A bind
-  // there would EADDRINUSE the boot, so "likely running" is the actionable
-  // half of this line. 0.0.0.0/:: are bind addresses, never dial targets —
-  // the LISTEN-table check uses them as-is only for reporting.
-  const dialHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-  const portNum = Number.parseInt(port, 10);
-  const valid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
-  const up = valid ? ((deps.probePort ?? syncPortListening)(dialHost, portNum) ?? false) : false;
-  log(`port ${port} on ${dialHost}: ${up ? "likely running" : "not listening"}`);
-
-  // Service definition on disk: the existsSync truth of where
-  // `service install` writes (a DEFINITION line, not a liveness line — the
-  // port probe above covers "is it running"; a unit can be installed and
-  // stopped). Cheap + sync, per invariant 1.
-  const svc = serviceArtifactPath(deps.platform ?? process.platform, deps.home ?? homedir());
-  if (svc === null) {
-    log("service              = n/a (no per-user service manager on this platform)");
-  } else {
-    log(`service              = ${existsSync(svc) ? `definition installed (${svc})` : `not installed (${svc})`}`);
-  }
-}
-
-/**
- * Synchronous "is anything LISTENing on this port" check. A TCP connect is
- * the obvious probe but it is inherently async — and async suspends the
- * entry mid-command (see invariant 1 in this module) — so status reads the
- * kernel's listener tables instead: `/proc/net/tcp{,6}` on Linux (state 0A
- * = LISTEN), `netstat -an -p tcp` on macOS, plain `netstat -tnl` elsewhere.
- * Returns null when no source is available (degrades to "not listening" —
- * same as before, this is a hint line, not an oracle).
- */
-export function syncPortListening(_host: string, port: number): boolean | null {
-  if (process.platform === "linux") {
-    let sawAny = false;
-    for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
-      let text: string;
-      try {
-        text = readFileSync(table, "utf8");
-      } catch {
-        continue;
-      }
-      sawAny = true;
-      for (const line of text.split("\n").slice(1)) {
-        const f = line.trim().split(/\s+/);
-        // sl local_address rem_address st tx_queue… — local is HEXIP:HEXPORT
-        if (f[3] === "0A" && Number.parseInt(f[1]?.split(":")[1] ?? "", 16) === port) return true;
-      }
-    }
-    if (sawAny) return false; // tables readable and silent — genuinely nobody listens
-  }
-  const args = process.platform === "darwin" ? ["-an", "-p", "tcp"] : ["-tnl"];
-  const res = Bun.spawnSync({ cmd: ["netstat", ...args], stdout: "pipe", stderr: "ignore", timeout: 1000 });
-  if (res.exitCode !== 0) return null; // no netstat — no answer available
-  // Shared column layout on both spellings:
-  //   Proto Recv-Q Send-Q Local-Address Foreign State  → f[3] local, f[5] LISTEN.
-  // macOS separates the port with "." (127.0.0.1.3080), Linux with ":3080".
-  for (const line of res.stdout.toString().split("\n")) {
-    const f = line.trim().split(/\s+/);
-    if (f.length < 6 || f[5] !== "LISTEN") continue;
-    const local = f[3] ?? "";
-    const sep = Math.max(local.lastIndexOf(":"), local.lastIndexOf("."));
-    if (Number.parseInt(local.slice(sep + 1), 10) === port) return true;
-  }
-  return false;
 }

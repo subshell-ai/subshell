@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { syncPortListening } from "../cli.js";
+import { syncPortListening } from "../commands/status.js";
 import { parseEnvFile } from "../config-env.js";
 import { sqliteLitter, walkTree } from "../test-helpers/fs-litter.js";
 

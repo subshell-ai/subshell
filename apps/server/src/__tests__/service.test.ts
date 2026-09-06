@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
-import { execLine, installService, type ServiceDeps, uninstallService } from "../service.js";
+import {
+  controlService,
+  DONE,
+  execLine,
+  installService,
+  queryService,
+  SERVICE_VERBS,
+  type ServiceDeps,
+  type ServiceRunState,
+  uninstallService,
+} from "../service.js";
 
 /**
  * Everything here runs against stub deps — no systemd, no launchd, no real
@@ -59,6 +69,7 @@ function stub(over: Partial<ServiceDeps> & { respond?: Responder } = {}): Stub {
       files.delete(path);
     },
     fileExists: (path) => files.has(path),
+    readFile: (path) => files.get(path) ?? null,
     ...depsOver,
   };
   return { deps, calls, files, removed };
@@ -438,5 +449,434 @@ describe("uninstallService — guards", () => {
 
     expect(res.code).toBe(1);
     expect(s.removed.length).toBe(0);
+  });
+});
+
+/**
+ * `queryService` reads; `controlService` drives. Both run against the same
+ * stub disk/argv recorder as the install suite above, and the most valuable
+ * cases are where the WRITER and the READER meet: the definition
+ * `installService` writes must satisfy the pane check `controlService` gates
+ * on, or the guard fires on our own unit.
+ *
+ * Two platform facts these pin, both measured on real tools rather than
+ * assumed: systemd's EFFECTIVE `KillMode` comes from `systemctl show` (a unit
+ * file grep cannot see drop-ins), and launchd state comes from
+ * `launchctl print gui/<uid>/…` (legacy `launchctl list` resolves an IMPLICIT
+ * domain and reports a running gui job as absent over SSH).
+ */
+
+/** A `show` responder: merge overrides onto a healthy, pane-safe unit. */
+const showOut = (over: Record<string, string> = {}): string =>
+  Object.entries({
+    ActiveState: "active",
+    SubState: "running",
+    UnitFileState: "enabled",
+    MainPID: "4242",
+    KillMode: "process",
+    ...over,
+  })
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+
+/** A linux stub whose `show` answers with `over` merged in, and whose unit file exists. */
+function linuxStub(over: Record<string, string> = {}) {
+  const s = stub({
+    respond: (cmd) => (cmd.includes("show") ? { code: 0, out: showOut(over), err: "" } : { code: 0, out: "", err: "" }),
+  });
+  s.files.set(UNIT, "[Service]\nKillMode=process\n");
+  return s;
+}
+
+/** A darwin stub: `plutil` answers `abandon`, `launchctl print` answers loaded/not. */
+function darwinStub({ abandon = true, loaded = true, pid = 5150 } = {}) {
+  const s = stub({
+    platform: "darwin",
+    respond: (cmd) => {
+      if (cmd[0] === "plutil")
+        return abandon ? { code: 0, out: "true\n", err: "" } : { code: 1, out: "", err: "No value at that key path" };
+      if (cmd[1] === "print")
+        return loaded
+          ? { code: 0, out: `\tstate = running\n\tpid = ${pid}\n`, err: "" }
+          : { code: 113, out: "", err: "" };
+      return { code: 0, out: "", err: "" };
+    },
+  });
+  s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/><key>RunAtLoad</key><true/>");
+  return s;
+}
+
+describe("queryService", () => {
+  test("no definition on disk is not-installed — and no manager command runs", () => {
+    const s = stub();
+    const state = queryService(s.deps);
+    expect(state).toMatchObject({ installed: false, state: "not-installed", definitionPath: UNIT, paneSafety: null });
+    expect(s.calls).toEqual([]);
+  });
+
+  test("a platform with no per-user manager reports not-installed with a reason", () => {
+    const s = stub({ platform: "win32" });
+    const state = queryService(s.deps);
+    expect(state.definitionPath).toBeNull();
+    expect(state.detail).toContain("win32");
+    expect(s.calls).toEqual([]);
+  });
+
+  test("linux: ONE systemctl show carries every property, KillMode included", () => {
+    const s = linuxStub();
+    const state = queryService(s.deps);
+    expect(s.calls).toEqual([
+      [
+        "systemctl",
+        "--user",
+        "show",
+        "subshell-server.service",
+        "--property=ActiveState,SubState,UnitFileState,MainPID,KillMode",
+      ],
+    ]);
+    expect(state).toMatchObject({ installed: true, state: "running", pid: 4242, enabled: true, paneSafety: "keeps" });
+  });
+
+  // The whole reason KillMode is asked of systemd rather than grepped: a
+  // drop-in under <unit>.d/ overrides the file, and the file cannot see it.
+  test("linux: the EFFECTIVE KillMode wins over the unit file's text", () => {
+    const s = linuxStub({ KillMode: "control-group" });
+    // The file on disk still says process — a grep would answer "keeps".
+    expect(s.files.get(UNIT)).toContain("KillMode=process");
+    expect(queryService(s.deps).paneSafety).toBe("kills");
+  });
+
+  test("linux: KillMode=none also spares the panes", () => {
+    expect(queryService(linuxStub({ KillMode: "none" }).deps).paneSafety).toBe("keeps");
+  });
+
+  const ACTIVE_STATES: [string, ServiceRunState][] = [
+    ["active", "running"],
+    ["activating", "running"],
+    ["reloading", "running"],
+    ["refreshing", "running"],
+    ["deactivating", "stopping"],
+    ["inactive", "stopped"],
+    ["failed", "stopped"],
+    ["maintenance", "stopped"],
+    ["banana", "unknown"],
+  ];
+  test.each(ACTIVE_STATES)("linux: ActiveState=%s maps to %s", (active, expected) => {
+    expect(queryService(linuxStub({ ActiveState: active }).deps).state).toBe(expected);
+  });
+
+  test("linux: MainPID=0 is no pid", () => {
+    expect(queryService(linuxStub({ ActiveState: "inactive", MainPID: "0" }).deps).pid).toBeNull();
+  });
+
+  test("linux: enabled-runtime still starts at login; disabled does not", () => {
+    expect(queryService(linuxStub({ UnitFileState: "enabled-runtime" }).deps).enabled).toBe(true);
+    expect(queryService(linuxStub({ UnitFileState: "disabled" }).deps).enabled).toBe(false);
+  });
+
+  // A masked unit refuses every control verb — say it once rather than letting
+  // the operator discover it one command at a time.
+  test("linux: a masked unit is called out in detail", () => {
+    expect(queryService(linuxStub({ UnitFileState: "masked" }).deps).detail).toContain("masked");
+  });
+
+  test("linux: a failed unit quotes its SubState", () => {
+    const state = queryService(linuxStub({ ActiveState: "failed", SubState: "exit-code" }).deps);
+    expect(state.state).toBe("stopped");
+    expect(state.detail).toContain("exit-code");
+  });
+
+  // A manager that cannot answer must not read as "stopped" — that would put a
+  // Start button in front of a service that may well be running.
+  test("linux: a failing show is unknown, and falls back to the file for the pane answer", () => {
+    const s = stub({ respond: () => ({ code: 1, out: "", err: "Failed to connect to bus\n" }) });
+    s.files.set(UNIT, "[Service]\nKillMode=process\n");
+    const state = queryService(s.deps);
+    expect(state.state).toBe("unknown");
+    expect(state.detail).toContain("Failed to connect to bus");
+    expect(state.paneSafety).toBe("keeps");
+  });
+
+  test("linux: show failed AND the file unreadable is an honest unknown", () => {
+    const s = stub({
+      respond: () => ({ code: 1, out: "", err: "no bus\n" }),
+      readFile: () => null,
+      fileExists: () => true,
+    });
+    expect(queryService(s.deps).paneSafety).toBe("unknown");
+  });
+
+  // systemd's own rule is last-wins, so the fallback grep must agree with it.
+  test("linux fallback: the LAST KillMode assignment wins", () => {
+    const s = stub({ respond: () => ({ code: 1, out: "", err: "no bus\n" }) });
+    s.files.set(UNIT, "[Service]\nKillMode=process\nKillMode=control-group\n");
+    expect(queryService(s.deps).paneSafety).toBe("kills");
+  });
+
+  test("linux fallback: a commented-out directive does not count", () => {
+    const s = stub({ respond: () => ({ code: 1, out: "", err: "no bus\n" }) });
+    s.files.set(UNIT, "[Service]\n#KillMode=process\n");
+    expect(queryService(s.deps).paneSafety).toBe("kills");
+  });
+
+  test("linux: the unit installService ACTUALLY writes reports KillMode=process to systemd", () => {
+    const s = stub({
+      respond: (cmd) =>
+        cmd.includes("show") ? { code: 1, out: "", err: "forced fallback" } : { code: 0, out: "", err: "" },
+    });
+    expect(installService(s.deps).code).toBe(0);
+    // Read back through the FALLBACK grep, which is what parses the real text.
+    expect(queryService(s.deps).paneSafety).toBe("keeps");
+  });
+
+  // `launchctl list` resolves an implicit domain; every write here targets
+  // gui/<uid> explicitly, so the read must too or they disagree over SSH.
+  test("darwin: state comes from `launchctl print` in the EXPLICIT gui domain", () => {
+    const s = darwinStub();
+    const state = queryService(s.deps);
+    expect(
+      s.calls.some((c) => c[0] === "launchctl" && c[1] === "print" && c[2] === "gui/1000/dev.subshell.server"),
+    ).toBe(true);
+    expect(s.calls.some((c) => c[1] === "list")).toBe(false);
+    expect(state).toMatchObject({ installed: true, state: "running", pid: 5150, enabled: true, paneSafety: "keeps" });
+  });
+
+  // `launchctl print` nests `state = active` lines under endpoints; only the
+  // single-tab top-level one describes the job.
+  test("darwin: nested endpoint `state` lines do not confuse the parse", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 0, out: "true\n", err: "" }
+          : { code: 0, out: "\tstate = running\n\tpid = 77\n\tendpoints = {\n\t\tstate = active\n\t}\n", err: "" },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/>");
+    expect(queryService(s.deps)).toMatchObject({ state: "running", pid: 77 });
+  });
+
+  test("darwin: a plist on disk with the label unloaded is installed-but-stopped", () => {
+    expect(queryService(darwinStub({ loaded: false }).deps)).toMatchObject({
+      installed: true,
+      state: "stopped",
+      pid: null,
+    });
+  });
+
+  // plutil, not a regex: a binary1 plist that sets the key would read as
+  // "kills" under any text-shaped predicate.
+  test("darwin: the pane answer comes from plutil", () => {
+    expect(queryService(darwinStub({ abandon: true }).deps).paneSafety).toBe("keeps");
+    expect(queryService(darwinStub({ abandon: false }).deps).paneSafety).toBe("kills");
+  });
+
+  test("darwin: no plutil at all falls back to the text form", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil" ? { code: 127, out: "", err: "spawn failed" } : { code: 113, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key>\n<true></true>");
+    expect(queryService(s.deps).paneSafety).toBe("keeps");
+  });
+
+  test("darwin: the plist installService ACTUALLY writes satisfies the text fallback", () => {
+    const s = stub({
+      platform: "darwin",
+      // No plutil, and the job is not loaded — but the INSTALL's own
+      // bootstrap must still succeed or this proves nothing.
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 127, out: "", err: "spawn failed" }
+          : cmd[1] === "print"
+            ? { code: 113, out: "", err: "" }
+            : { code: 0, out: "", err: "" },
+    });
+    expect(installService(s.deps).code).toBe(0);
+    expect(queryService(s.deps).paneSafety).toBe("keeps");
+  });
+});
+
+describe("controlService", () => {
+  test("refuses every verb when nothing is installed — and runs no manager command", () => {
+    for (const verb of SERVICE_VERBS) {
+      const s = stub();
+      const r = controlService(s.deps, verb);
+      expect(r.code).toBe(1);
+      expect(msgLine(r.err)).toContain("nothing installed");
+      expect(s.calls).toEqual([]);
+    }
+  });
+
+  test("unsupported platform refuses before touching anything", () => {
+    const r = controlService(stub({ platform: "win32" }).deps, "start");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("win32");
+  });
+
+  test("linux: each verb maps to the plain systemctl verb, and says which it did", () => {
+    for (const verb of SERVICE_VERBS) {
+      const s = linuxStub(verb === "start" ? { ActiveState: "inactive", MainPID: "0" } : {});
+      const r = controlService(s.deps, verb);
+      expect(r.code).toBe(0);
+      // The success line is the ONLY feedback the manager gives; pin it.
+      expect(r.out.trim()).toBe(DONE[verb]);
+      expect(s.calls[1]).toEqual(["systemctl", "--user", verb, "subshell-server.service"]);
+      expect(s.calls).toHaveLength(2);
+    }
+  });
+
+  // `disable --now` is uninstall's job: an operator who stops a service still
+  // expects it back after a reboot.
+  test("linux: stop does NOT disable the unit", () => {
+    const s = linuxStub();
+    controlService(s.deps, "stop");
+    expect(s.calls.flat()).not.toContain("disable");
+  });
+
+  test("linux: a failing systemctl verb is quoted and exits 1", () => {
+    const s = stub({
+      respond: (cmd) =>
+        cmd.includes("show") ? { code: 0, out: showOut(), err: "" } : { code: 5, out: "", err: "Job failed\n" },
+    });
+    s.files.set(UNIT, "[Service]\nKillMode=process\n");
+    const r = controlService(s.deps, "restart");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("Job failed");
+  });
+
+  test("restart REFUSES on a definition that would kill live panes", () => {
+    const s = linuxStub({ KillMode: "control-group" });
+    const r = controlService(s.deps, "restart");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("KillMode=process");
+    expect(msgLine(r.err)).toContain("--force");
+    // The refusal must land BEFORE the manager is asked to do anything.
+    expect(s.calls.flat()).not.toContain("restart");
+  });
+
+  // An unreadable definition is not evidence of safety.
+  test("restart REFUSES on an unknown pane answer, not just a known-bad one", () => {
+    const s = stub({
+      respond: () => ({ code: 1, out: "", err: "no bus\n" }),
+      readFile: () => null,
+      fileExists: () => true,
+    });
+    const r = controlService(s.deps, "restart");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("could not determine");
+  });
+
+  test("--force overrides the refusal", () => {
+    const s = linuxStub({ KillMode: "control-group" });
+    const r = controlService(s.deps, "restart", { force: true });
+    expect(r.code).toBe(0);
+    expect(s.calls[1]).toEqual(["systemctl", "--user", "restart", "subshell-server.service"]);
+  });
+
+  // stop is as lethal as restart, but refusing it would only push the operator
+  // to `systemctl`, which warns about nothing. So it warns and proceeds.
+  test("stop WARNS on a lethal definition but still stops (exit 0)", () => {
+    const s = linuxStub({ KillMode: "control-group" });
+    const r = controlService(s.deps, "stop");
+    expect(r.code).toBe(0);
+    expect(r.err).toContain("warning");
+    expect(r.err).toContain("kills every running subshell");
+    expect(s.calls[1]).toEqual(["systemctl", "--user", "stop", "subshell-server.service"]);
+  });
+
+  test("stop is silent when the definition is pane-safe", () => {
+    expect(controlService(linuxStub().deps, "stop").err).toBe("");
+  });
+
+  test("start is never gated on the pane answer", () => {
+    const s = linuxStub({ ActiveState: "inactive", MainPID: "0", KillMode: "control-group" });
+    const r = controlService(s.deps, "start");
+    expect(r.code).toBe(0);
+    expect(r.err).toBe("");
+  });
+
+  test("darwin: stop unloads the job (KeepAlive undoes a mere kill)", () => {
+    const s = darwinStub();
+    const r = controlService(s.deps, "stop");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(DONE.stop);
+    expect(s.calls.at(-1)).toEqual(["launchctl", "bootout", "gui/1000/dev.subshell.server"]);
+  });
+
+  // bootout on an unloaded job exits non-zero; a second stop must not look
+  // like a failure when the systemd verb is idempotent.
+  test("darwin: stop is idempotent — an already-stopped job is exit 0, no command", () => {
+    const s = darwinStub({ loaded: false });
+    const r = controlService(s.deps, "stop");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("already stopped");
+    expect(s.calls.some((c) => c[1] === "bootout")).toBe(false);
+  });
+
+  test("darwin: restart of a running job is kickstart -k (the README's own line)", () => {
+    const s = darwinStub();
+    const r = controlService(s.deps, "restart");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(DONE.restart);
+    expect(s.calls.at(-1)).toEqual(["launchctl", "kickstart", "-k", "gui/1000/dev.subshell.server"]);
+  });
+
+  test("darwin: restart of a STOPPED job bootstraps it — kickstart needs a loaded job", () => {
+    const s = darwinStub({ loaded: false });
+    const r = controlService(s.deps, "restart");
+    expect(r.code).toBe(0);
+    expect(s.calls.at(-1)).toEqual(["launchctl", "bootstrap", "gui/1000", PLIST]);
+  });
+
+  test("darwin: start on an already-running job is a no-op success", () => {
+    const s = darwinStub();
+    const before = s.calls.length;
+    const r = controlService(s.deps, "start");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("already running");
+    // Only the query's own calls (plutil + print) — nothing was driven.
+    expect(s.calls.slice(before).some((c) => c[1] === "bootstrap" || c[1] === "kickstart")).toBe(false);
+  });
+
+  // A bare `kickstart` on a RUNNING job exits 0 and changes nothing (measured
+  // on macOS 26.6.2), so the fallback must carry -k or a restart can report
+  // success having restarted nothing.
+  test("darwin: the bootstrap fallback uses kickstart -k, never a bare kickstart", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 0, out: "true\n", err: "" }
+          : cmd[1] === "print"
+            ? { code: 113, out: "", err: "" }
+            : cmd[1] === "bootstrap"
+              ? { code: 5, out: "", err: "service already bootstrapped\n" }
+              : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/>");
+    const r = controlService(s.deps, "start");
+    expect(r.code).toBe(0);
+    expect(s.calls.at(-1)).toEqual(["launchctl", "kickstart", "-k", "gui/1000/dev.subshell.server"]);
+  });
+
+  // Exit 5 is launchd's generic EIO — already-bootstrapped, disabled and an
+  // unreadable plist all land there, so the message names the candidates.
+  test("darwin: bootstrap AND kickstart failing is one error quoting both, plus the likely causes", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 0, out: "true\n", err: "" }
+          : cmd[1] === "print"
+            ? { code: 113, out: "", err: "" }
+            : { code: 5, out: "", err: `${cmd[1]} broke\n` },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/>");
+    const r = controlService(s.deps, "start");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("bootstrap broke");
+    expect(msgLine(r.err)).toContain("kickstart broke");
+    expect(msgLine(r.err)).toContain("launchctl enable");
   });
 });

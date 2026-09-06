@@ -222,9 +222,27 @@ bun apps/server/src/index.ts init
 bun apps/server/src/index.ts service install
 ```
 
-Ordinary `systemctl --user start|stop|restart|status subshell-server.service`
-drives it from there (`launchctl kickstart -k gui/$(id -u)/dev.subshell.server`
-on macOS).
+The CLI drives it from there, on both platforms:
+
+```bash
+subshell-server service status    # what the manager reports (--json for scripts)
+subshell-server service start
+subshell-server service stop      # the definition stays installed
+subshell-server service restart
+```
+
+`systemctl --user` / `launchctl` still work if you prefer them, with one
+caveat that is the reason these verbs exist: each local subshell's tmux server
+is a **child** of the service, so a definition written before 2026-09-03 takes
+every running subshell down with it — on **stop** as much as on restart, since
+a restart is a stop followed by a start. The CLI is the only thing that says
+so. `service restart` refuses on such a host (`--force` overrides), `service
+stop` warns and proceeds, and `service status` reports the fact up front as
+`teardown keeps panes`. A bare `systemctl --user stop` tells you nothing.
+
+On Linux the check asks systemd for the **effective** `KillMode`, so a drop-in
+under `subshell-server.service.d/` is seen; on macOS it reads
+`AbandonProcessGroup` out of the plist with `plutil`.
 
 Configuration lives in `~/.config/subshell-server/config.env` (0600), which the
 unit loads as its `EnvironmentFile` — the binary's own loader reads the same
