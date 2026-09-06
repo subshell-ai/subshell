@@ -36,9 +36,13 @@ bun run verify-types     # tsc --noEmit
 ## CLI (`src/cli.ts` — hand-rolled parser, no flag library)
 
 ```
-subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
+subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
+                                   # --json prints {nodeId,serverUrl,name,dataDir,configPath}
+                                   # (never the nodeKey) so a GUI need not scrape the human line
 subshell run                       # foreground daemon (what the service unit runs)
 subshell service install|uninstall # systemd user unit / launchd agent
+subshell service status [--json]   # what the service MANAGER reports; always exits 0
+subshell service start|stop|restart [--force]   # drive an installed service; never installs one
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
@@ -87,6 +91,28 @@ is still found when the service manager — which starts units with a stock PATH
 runs the daemon; spaced paths are quoted in the systemd `ExecStart=`.
 Everything is DI'd through `ServiceDeps` (`src/service.ts`) so tests pin the
 exact unit/plist text and command sequences without touching systemd.
+
+`queryService`/`controlService` (ported from `apps/server/src/service.ts`,
+2026-09-05 — async here, since every seam in this module is) are what
+`service status|start|stop|restart` run on. Two platform facts they encode:
+the EFFECTIVE systemd `KillMode` comes from `systemctl show` (a unit-file grep
+cannot see a drop-in under `subshell.service.d/`), and launchd state comes from
+`launchctl print gui/<uid>/<label>` — the legacy `launchctl list` resolves an
+IMPLICIT domain and reports a running gui job as absent over SSH, while every
+write here targets `gui/<uid>` explicitly. Start is `bootstrap` falling back to
+`kickstart -k`; restart is `kickstart -k` (a bare `kickstart` on a running job
+changes nothing); stop is `bootout` (KeepAlive undoes a mere kill), and on
+Linux `stop`, never `disable --now` — un-enabling is what uninstall is for.
+
+**The pane guard is the reason those live here rather than in the caller.**
+This node's subshells run their tmux servers as CHILDREN of the daemon, so a
+definition lacking `KillMode=process` / `AbandonProcessGroup=true` SIGKILLs
+every live pane on the machine when the daemon is stopped OR restarted. The
+current templates carry both, but a host that installed an older agent has a
+stale definition on disk — so `restart` REFUSES without `--force`, `stop` warns
+and proceeds (refusing would only push the operator to `systemctl`, which warns
+about nothing), and both fail CLOSED on an unreadable definition. `service
+status` reports it as `teardown keeps panes`.
 
 ## Exit watch
 

@@ -1,12 +1,12 @@
-//! The `subshell-server` this app ships, and putting it somewhere the service
+//! The binary a desktop app ships, and putting it somewhere the service
 //! manager can point at.
 //!
 //! The bundle is signature-sealed and disappears when the app is uninstalled,
-//! while `apps/server/src/service.ts` writes an ABSOLUTE `ExecStart=` /
+//! while the CLI it installs writes an ABSOLUTE `ExecStart=` /
 //! `ProgramArguments` into the unit or plist. A service pointing inside
 //! `Subshell.app` would break the moment the app is moved, replaced or
-//! removed — so the shipped binary is materialised at a stable path the
-//! server owns, and the service points there.
+//! removed — so the shipped binary is materialised at a stable path outside
+//! the bundle, and the service points there.
 //!
 //! Three things make the copy less trivial than it looks, and all three only
 //! bite on the UPGRADE path, which is the one that matters:
@@ -23,37 +23,72 @@
 //!
 //! Hence: stop the service, write a temp file in the SAME directory, chmod,
 //! `rename(2)` over the target, then strip the xattr.
+//!
+//! All of that is true of any binary an app of this shape ships. The NAMES are
+//! not, so they arrive in a [`SidecarSpec`].
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::proc::{run, PROBE_TIMEOUT, QUERY_TIMEOUT};
-use crate::server_bin::parse_server_version;
 use crate::shell_env::home_dir;
 
-/// The sidecar's name inside the bundle. Tauri STRIPS the `-<target-triple>`
-/// suffix that the staged file carries, so this is not the same string as the
-/// one the release script writes — see `desktopSidecarFileName` in
-/// `packages/subshell-protocol/src/paths.ts`.
-pub const BUNDLED_SIDECAR_NAME: &str = "subshell-server-bundled";
+/// What one app's shipped binary is called, and how it announces itself.
+///
+/// Every field is a string the install dance would otherwise hard-code, and
+/// each is per-app: `apps/desktop-server` ships a `subshell-server`,
+/// `apps/desktop-client` a `subshell` node agent.
+#[derive(Debug, Clone, Copy)]
+pub struct SidecarSpec {
+    /// The sidecar's name INSIDE the bundle.
+    ///
+    /// Tauri strips the `-<target-triple>` suffix that the staged file carries,
+    /// so this is not the same string as the one the release script writes —
+    /// see `desktopSidecarFileName` in `packages/subshell-protocol/src/paths.ts`.
+    /// Anything grepping for the staged name inside a built bundle finds
+    /// nothing, 100% of the time.
+    pub bundled_name: &'static str,
+    /// The file name the bundled binary is installed under in `~/.local/bin`.
+    pub installed_name: &'static str,
+    /// What the binary's `version` line starts with, including its trailing
+    /// space — `"subshell-server "` for the server, `"subshell "` for the node
+    /// agent, whose line then continues `(node protocol vN)`.
+    pub version_prefix: &'static str,
+}
 
-/// Where the bundled server sits at runtime.
+/// The version out of a `<binary> version` line.
+///
+/// One parser, every caller (a resolution ladder, the bundled probe, the
+/// already-installed check). They were three subtly different string dances,
+/// one of which was an `ends_with` that would accept `11.8.0` for `1.8.0`.
+///
+/// The FIRST whitespace-delimited token after the prefix, not the rest of the
+/// line: `subshell-server 1.8.0` and `subshell 1.8.0 (node protocol v1)` both
+/// have to answer `1.8.0`, and a version carrying a parenthetical is not a
+/// version anything can compare or display.
+pub fn parse_version_line(stdout: &str, prefix: &str) -> Option<String> {
+    let line = stdout.lines().next()?.trim();
+    let rest = line.strip_prefix(prefix)?;
+    rest.split_whitespace().next().map(str::to_string)
+}
+
+/// Where the bundled binary sits at runtime.
 ///
 /// `externalBin` lands beside the app executable on both targets we ship:
 /// `Subshell.app/Contents/MacOS/` on macOS and `/usr/bin/` in the `.deb`
 /// (NOT `/usr/lib/<product>/`, which is where `resources` go). In
 /// `tauri dev` it is beside the debug binary. One sibling rule covers all three,
 /// which is why this needs no path-resolution API and no shell plugin.
-pub fn bundled_path() -> Option<PathBuf> {
+pub fn bundled_path(spec: &SidecarSpec) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let candidate = dir.join(BUNDLED_SIDECAR_NAME);
+    let candidate = dir.join(spec.bundled_name);
     candidate.is_file().then_some(candidate)
 }
 
-/// The stable path the bundled server is installed to.
-pub fn install_path() -> Option<PathBuf> {
-    home_dir().map(|h| PathBuf::from(h).join(".local/bin/subshell-server"))
+/// The stable path the bundled binary is installed to.
+pub fn install_path(spec: &SidecarSpec) -> Option<PathBuf> {
+    home_dir().map(|h| PathBuf::from(h).join(format!(".local/bin/{}", spec.installed_name)))
 }
 
 /// Why an install was or was not needed.
@@ -73,7 +108,7 @@ pub enum InstallOutcome {
 /// ~100 MB and this runs on every cold start, where a full hash would be a
 /// visible pause for an answer that is almost always "yes". Size catches every
 /// real version change, and the version string catches a same-size rebuild.
-fn already_installed(bundled: &Path, dest: &Path, bundled_version: Option<&str>) -> bool {
+fn already_installed(spec: &SidecarSpec, bundled: &Path, dest: &Path, bundled_version: Option<&str>) -> bool {
     let (Ok(a), Ok(b)) = (fs::metadata(bundled), fs::metadata(dest)) else {
         return false;
     };
@@ -87,23 +122,27 @@ fn already_installed(bundled: &Path, dest: &Path, bundled_version: Option<&str>)
         Some(want) => {
             let out = run(&[dest.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
             // `==`, not `ends_with`: the latter accepts "11.8.0" for "1.8.0".
-            out.ok() && parse_server_version(&out.stdout).as_deref() == Some(want)
+            out.ok() && parse_version_line(&out.stdout, spec.version_prefix).as_deref() == Some(want)
         }
     }
 }
 
-/// Copy the bundled server to its stable path, atomically.
+/// Copy the bundled binary to its stable path, atomically.
 ///
 /// `stop_first` is invoked before the swap when an install is actually needed —
 /// the caller passes something that takes the service down, because replacing a
 /// running binary is the failure this function exists to avoid.
-pub fn install_bundled(bundled_version: Option<&str>, stop_first: impl FnOnce()) -> Result<InstallOutcome, String> {
-    let Some(bundled) = bundled_path() else {
+pub fn install_bundled(
+    spec: &SidecarSpec,
+    bundled_version: Option<&str>,
+    stop_first: impl FnOnce(),
+) -> Result<InstallOutcome, String> {
+    let Some(bundled) = bundled_path(spec) else {
         return Ok(InstallOutcome::NoSidecar);
     };
-    let dest = install_path().ok_or_else(|| "no HOME to install into".to_string())?;
+    let dest = install_path(spec).ok_or_else(|| "no HOME to install into".to_string())?;
 
-    if already_installed(&bundled, &dest, bundled_version) {
+    if already_installed(spec, &bundled, &dest, bundled_version) {
         return Ok(InstallOutcome::UpToDate);
     }
 
@@ -114,7 +153,7 @@ pub fn install_bundled(bundled_version: Option<&str>, stop_first: impl FnOnce())
 
     // Temp file in the SAME directory: rename(2) is only atomic within one
     // filesystem, and /tmp is frequently a different one.
-    let tmp = dir.join(format!("subshell-server.tmp-{}", std::process::id()));
+    let tmp = dir.join(format!("{}.tmp-{}", spec.installed_name, std::process::id()));
     let _ = fs::remove_file(&tmp);
     fs::copy(&bundled, &tmp).map_err(|e| format!("could not stage {}: {e}", tmp.display()))?;
     set_executable(&tmp)?;
@@ -170,28 +209,38 @@ fn strip_quarantine(path: &Path) {
 mod tests {
     use super::*;
 
+    const TEST_SPEC: SidecarSpec = SidecarSpec {
+        bundled_name: "example-bundled",
+        installed_name: "example",
+        version_prefix: "example ",
+    };
+
     #[test]
     fn install_path_is_under_local_bin() {
-        if let Some(p) = install_path() {
-            assert!(p.ends_with(".local/bin/subshell-server"), "{}", p.display());
+        if let Some(p) = install_path(&TEST_SPEC) {
+            assert!(p.ends_with(".local/bin/example"), "{}", p.display());
         }
     }
 
-    // The in-bundle name has NO triple suffix: tauri-build and tauri-bundler
-    // both strip it on copy, so anything looking for the staged filename inside
-    // a built app finds nothing.
+    // Two apps installing under one name would each overwrite the other's
+    // binary — the reason the name is a parameter rather than a constant.
     #[test]
-    fn bundled_name_carries_no_target_triple() {
-        assert_eq!(BUNDLED_SIDECAR_NAME, "subshell-server-bundled");
-        assert!(!BUNDLED_SIDECAR_NAME.contains("apple-darwin"));
-        assert!(!BUNDLED_SIDECAR_NAME.contains("unknown-linux"));
+    fn different_specs_install_to_different_paths() {
+        let other = SidecarSpec {
+            installed_name: "other",
+            ..TEST_SPEC
+        };
+        let (Some(a), Some(b)) = (install_path(&TEST_SPEC), install_path(&other)) else {
+            return;
+        };
+        assert_ne!(a, b);
     }
 
     #[test]
     fn a_build_with_no_sidecar_is_not_an_error() {
-        if bundled_path().is_none() {
+        if bundled_path(&TEST_SPEC).is_none() {
             let mut stopped = false;
-            let outcome = install_bundled(None, || stopped = true).expect("must not error");
+            let outcome = install_bundled(&TEST_SPEC, None, || stopped = true).expect("must not error");
             assert_eq!(outcome, InstallOutcome::NoSidecar);
             // Nothing was torn down for an install that never happened.
             assert!(!stopped);
@@ -205,7 +254,7 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         fs::write(&a, b"aaaa").unwrap();
         fs::write(&b, b"aa").unwrap();
-        assert!(!already_installed(&a, &b, Some("1.8.0")));
+        assert!(!already_installed(&TEST_SPEC, &a, &b, Some("1.8.0")));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -218,7 +267,7 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         fs::write(&a, b"same").unwrap();
         fs::write(&b, b"same").unwrap();
-        assert!(!already_installed(&a, &b, None));
+        assert!(!already_installed(&TEST_SPEC, &a, &b, None));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -228,7 +277,56 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let a = dir.join("a");
         fs::write(&a, b"same").unwrap();
-        assert!(!already_installed(&a, &dir.join("nope"), Some("1.8.0")));
+        assert!(!already_installed(&TEST_SPEC, &a, &dir.join("nope"), Some("1.8.0")));
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod version_line_tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_version_off_the_first_line() {
+        assert_eq!(
+            parse_version_line("subshell-server 1.8.0\n", "subshell-server "),
+            Some("1.8.0".into())
+        );
+        assert_eq!(
+            parse_version_line("subshell-server 1.8.0", "subshell-server "),
+            Some("1.8.0".into())
+        );
+    }
+
+    // The node agent prints `subshell <version> (node protocol vN)`. Returning
+    // the rest of the line would make the "version" a sentence — comparable to
+    // nothing and displayable nowhere.
+    #[test]
+    fn stops_at_the_version_token() {
+        assert_eq!(
+            parse_version_line("subshell 1.2.3 (node protocol v1)\n", "subshell "),
+            Some("1.2.3".into())
+        );
+    }
+
+    #[test]
+    fn refuses_anything_that_is_not_that_line() {
+        assert_eq!(parse_version_line("", "subshell-server "), None);
+        assert_eq!(parse_version_line("subshell 1.8.0", "subshell-server "), None);
+        assert_eq!(parse_version_line("subshell-server ", "subshell-server "), None);
+        assert_eq!(parse_version_line("bash: command not found", "subshell-server "), None);
+    }
+
+    // The two apps' prefixes overlap — every `subshell-server` line also starts
+    // with `subshell` — so the trailing space in a prefix is load-bearing, not
+    // formatting. Without it `subshell` matches `subshell-server 1.8.0` and the
+    // "version" comes back as `-server`.
+    #[test]
+    fn the_trailing_space_in_a_prefix_is_load_bearing() {
+        assert_eq!(parse_version_line("subshell-server 1.8.0", "subshell "), None);
+        assert_eq!(
+            parse_version_line("subshell-server 1.8.0", "subshell"),
+            Some("-server".into())
+        );
     }
 }

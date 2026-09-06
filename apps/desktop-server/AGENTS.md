@@ -27,11 +27,20 @@ bun run compile             # tauri build --debug
 bun run test                # bun test src   (the TS half)
 cd src-tauri && cargo test  # the Rust half — the ladder, the parsers, the policy
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+
+# the shared half, and it needs no webview, no display and no Tauri system deps
+cd ../../crates/desktop-core && cargo fmt --check \
+  && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
 The Rust half runs in CI as its own `desktop-rust` job in
 `.github/workflows/test.yml` — it cannot ride `bun run test`, which runs on a
 plain `ubuntu-latest` with no Rust toolchain and none of Tauri's system deps.
+`crates/desktop-core` has neither constraint and is the half worth running
+first: it compiles in seconds and carries the regression tests for every
+measured bug below. **Its tests are a separate `cargo test` run** — the app's
+does not reach a path dependency, so `cd src-tauri && cargo test` compiles the
+shared crate without running a single one of its tests.
 
 **Verify Linux-only lints in a container, not by reasoning.** Half this crate
 is `#[cfg]`-gated, so `cargo clippy` on a Mac cannot see what Linux compiles —
@@ -41,10 +50,13 @@ arm plus a wildcard. Both failed CI after passing locally:
 
 ```bash
 docker build -f docker/desktop-builder.Dockerfile -t desktop-builder:local .
-docker run --rm -v "$PWD":/w -w /w/apps/desktop-server/src-tauri desktop-builder:local bash -c '
+docker run --rm -v "$PWD":/w -w /w desktop-builder:local bash -euc '
   rustup component add rustfmt clippy
-  install -m 755 /dev/null "binaries/subshell-server-bundled-$(rustc --print host-tuple)"
   export CARGO_TARGET_DIR=/tmp/target
+  cd /w/crates/desktop-core
+  cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+  cd /w/apps/desktop-server/src-tauri
+  install -m 755 /dev/null "binaries/subshell-server-bundled-$(rustc --print host-tuple)"
   cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
 ```
 
@@ -77,7 +89,8 @@ otherwise launch a Tauri window for everyone.
 `bundle.externalBin` is `binaries/subshell-server-bundled`. The staged file
 carries the **Rust** triple (`…-aarch64-apple-darwin`); Tauri **strips** that
 suffix on copy, so inside the bundle — and beside the dev binary — it is just
-`subshell-server-bundled` (`BUNDLED_SIDECAR_NAME` in `src-tauri/src/sidecar.rs`).
+`subshell-server-bundled` (`SERVER_SIDECAR.bundled_name` in
+`src-tauri/src/server_bin.rs`).
 Those are two different strings and both are needed: anything grepping for the
 staged name inside a built bundle finds nothing, 100% of the time.
 
@@ -116,16 +129,38 @@ src-tauri/src/
 ├── lib.rs         # plugins, command registration, setup (opens `console` FIRST)
 ├── windows.rs     # the two windows, the 1024px floor, the UA marker
 ├── control.rs     # the tauri commands — argument-poor wrappers over the CLI
-├── server_bin.rs  # the resolution ladder, ExecStart parsing, bundled-vs-installed policy
-├── sidecar.rs     # the shipped server, and installing it atomically
-├── proc.rs        # every spawn: login PATH + a deadline
-├── shell_env.rs   # the PATH a GUI app does not have
-├── settings.rs    # three fields, one JSON file
-├── version.rs     # semverLt, mirrored from the protocol package
+├── server_bin.rs  # the ladder, ExecStart parsing, bundled-vs-installed policy, SERVER_SIDECAR
 ├── bridge.rs      # the DesktopAction enum and the eval dispatch
 ├── menu.rs        # the macOS menu bar
 └── tray.rs        # the tray icon and its menu
 ```
+
+Everything that is NOT `tauri`-typed lives outside the app, in
+`crates/desktop-core` (`subshell-desktop-core`), shared with
+`apps/desktop-client`:
+
+```
+crates/desktop-core/src/
+├── proc.rs        # every spawn: login PATH + a deadline
+├── shell_env.rs   # the PATH a GUI app does not have
+├── settings.rs    # three fields, one JSON file, path keyed by SettingsPaths
+├── sidecar.rs     # installing a shipped binary atomically, named by SidecarSpec
+└── version.rs     # semverLt, mirrored from the protocol package
+```
+
+Two things stay behind on purpose. `server_bin.rs` is a ladder for
+`subshell-server` specifically, down to the unit file it reads and the plist it
+parses. `control.rs`/`windows.rs`/`tray.rs`/`menu.rs`/`bridge.rs` are
+`tauri`-typed and label-driven, and the client app's window model is genuinely
+different — duplication there is cheaper than an abstraction designed against
+one real consumer and one guess.
+
+The two per-app parameters are the ones that touch a SHIPPED user's disk:
+`SETTINGS_PATHS` in `lib.rs` (`dev.subshell.desktop` / `subshell-desktop`) and
+`SERVER_SIDECAR` in `server_bin.rs` (the bundled name, the installed name, and
+the `"subshell-server "` prefix its `version` line starts with). Both are
+pinned by test, because changing either does not fail — it silently starts
+every existing user from scratch.
 
 ## The IPC boundary
 
@@ -211,9 +246,9 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
 - **A GUI app's PATH is `/usr/bin:/bin:/usr/sbin:/sbin`.** No `/opt/homebrew/bin`,
   no `~/.local/bin`. `service install` runs a tmux preflight through an injected
   `which`, AND bakes `Environment=PATH=` from the installing process — so
-  without `shell_env.rs` you get either a refusal or, worse, a service that
-  installs cleanly and then cannot launch a single pane. Every spawn goes
-  through `proc::run`, which injects the login PATH.
+  without `desktop-core`'s `shell_env` you get either a refusal or, worse, a
+  service that installs cleanly and then cannot launch a single pane. Every
+  spawn goes through `proc::run`, which injects the login PATH.
 - **`execLine()` records two tokens for a dev-form install.**
   `ExecStart=/path/to/bun /repo/apps/server/src/index.ts`. Anything reading a
   service definition must carry both or it runs bun with nothing to run.
@@ -238,7 +273,7 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   command into a 3 s "timeout" with the child SIGKILLed, and a command leaving
   a backgrounded descendant held the pipe open so a 2 s deadline returned after
   8 s with `timed_out: false`. Both are regression tests now.
-- **Nothing in `shell_env.rs` may use `Command::output()`.** It runs the user's
+- **Nothing in `desktop-core`'s `shell_env` may use `Command::output()`.** It runs the user's
   own login profile — arbitrary code, on every launch — inside the `OnceLock`
   that every spawn waits on. It uses `proc::run_with_path` with a bootstrap
   PATH, because `proc::run` would recurse into the lock it is filling.

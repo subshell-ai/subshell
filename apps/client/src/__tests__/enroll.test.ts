@@ -86,6 +86,61 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   expect(`${res.out}${res.err}`).not.toInclude("nsk_test_");
 });
 
+test("enroll --json emits the config facts a GUI needs — and never the node key", async () => {
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run([...enrollArgv(url), "--json"]);
+
+  expect(res.code).toBe(0);
+  const body = JSON.parse(res.out) as Record<string, unknown>;
+  // The exact contract a desktop GUI reads instead of screen-scraping the
+  // human line — nothing more, and in particular no credential.
+  expect(Object.keys(body).sort()).toEqual(["configPath", "dataDir", "name", "nodeId", "serverUrl"]);
+  expect(body).toEqual({
+    nodeId: CANNED.nodeId,
+    serverUrl: url,
+    name: hostname(),
+    dataDir,
+    configPath: configPath(),
+  });
+
+  // The key IS persisted — the 0600 file is simply its only home, --json included.
+  expect((await loadConfig()).nodeKey).toBe(CANNED.nodeKey);
+  const serialized = `${res.out}${res.err}`;
+  expect(serialized).not.toInclude(CANNED.nodeKey);
+  expect(serialized).not.toInclude("nodeKey");
+  expect(serialized).not.toInclude("nsk_test_");
+  expect(res.out).not.toInclude("Enrolled as"); // machine output only, no prose to parse around
+});
+
+test("the --json body reports RESOLVED values, not what was typed", async () => {
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run([
+    "enroll",
+    "--server",
+    `${url}/`, // trailing slash: normalized away before it is persisted
+    "--key",
+    "nsk_test_0123456789",
+    "--data-dir",
+    dataDir,
+    "--name",
+    "  boxy  ", // trimmed by enroll
+    "--json",
+  ]);
+  expect(res.code).toBe(0);
+  const body = JSON.parse(res.out) as { serverUrl: string; name: string };
+  expect(body.serverUrl).toBe(url);
+  expect(body.name).toBe("boxy");
+  const cfg = await loadConfig();
+  expect([cfg.serverUrl, cfg.name]).toEqual([body.serverUrl, body.name]); // the file and the JSON cannot disagree
+});
+
+test("without --json the human line is byte-identical to what it always was", async () => {
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run(enrollArgv(url));
+  expect(res.out).toBe(`Enrolled as ${CANNED.nodeId} — next: subshell run\n`);
+  expect(res.err).toBe("");
+});
+
 test("a pre-17c server response (no wsUrl) still enrolls; config carries no nodeWsUrl", async () => {
   const { wsUrl: _drop, ...oldShape } = CANNED;
   const url = fakeControlPlane(() => Response.json(oldShape, { status: 201 }));

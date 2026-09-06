@@ -3313,12 +3313,21 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "subshell-desktop-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
+]
+
+[[package]]
+name = "subshell-desktop-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "wait-timeout",
 ]
 

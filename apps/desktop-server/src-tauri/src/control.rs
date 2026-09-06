@@ -16,10 +16,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use tauri::{AppHandle, State};
 
-use crate::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
-use crate::server_bin::{self, decide_server, parse_server_version, ServerBinary, ServerChoice};
-use crate::settings::SettingsState;
-use crate::sidecar;
+use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::settings::SettingsState;
+use subshell_desktop_core::sidecar;
+
+use crate::server_bin::{self, decide_server, parse_server_version, ServerBinary, ServerChoice, SERVER_SIDECAR};
 
 /// The single next action the console should offer.
 ///
@@ -224,7 +225,7 @@ static BUNDLED_VERSION: OnceLock<Option<String>> = OnceLock::new();
 fn bundled_version() -> Option<String> {
     BUNDLED_VERSION
         .get_or_init(|| {
-            let path = sidecar::bundled_path()?;
+            let path = sidecar::bundled_path(&SERVER_SIDECAR)?;
             let out = run(&[path.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
             out.ok().then(|| parse_server_version(&out.stdout)).flatten()
         })
@@ -239,7 +240,7 @@ pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
 
 fn probe_now(configured: Option<&str>) -> Probe {
     let server = server_bin::resolve(configured);
-    let managed = match (&server, sidecar::install_path()) {
+    let managed = match (&server, sidecar::install_path(&SERVER_SIDECAR)) {
         (Some(s), Some(managed_path)) => s.argv.first().map(|p| p.as_str()) == managed_path.to_str(),
         _ => false,
     };
@@ -247,7 +248,7 @@ fn probe_now(configured: Option<&str>) -> Probe {
         bundled_version: bundled_version(),
         server,
         managed,
-        tmux: crate::shell_env::which("tmux"),
+        tmux: subshell_desktop_core::shell_env::which("tmux"),
         ..Default::default()
     };
 
@@ -313,7 +314,7 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
             let _ = run(&cmd, ACTION_TIMEOUT);
         }
     };
-    match sidecar::install_bundled(version.as_deref(), stop)? {
+    match sidecar::install_bundled(&SERVER_SIDECAR, version.as_deref(), stop)? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no server binary".into()),
         sidecar::InstallOutcome::UpToDate => Ok(ActionResult {
             ok: true,
@@ -321,7 +322,7 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
             stderr: String::new(),
         }),
         sidecar::InstallOutcome::Installed => {
-            let where_ = sidecar::install_path()
+            let where_ = sidecar::install_path(&SERVER_SIDECAR)
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
             Ok(ActionResult {
@@ -420,9 +421,7 @@ pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<S
             Some(p)
         }
     };
-    let mut guard = settings.0.lock().unwrap_or_else(|e| e.into_inner());
-    guard.server_bin_path = cleaned;
-    guard.save()
+    settings.update(|s| s.server_bin_path = cleaned)
 }
 
 /// The desktop app's own preferences, for the console to render.
@@ -451,10 +450,8 @@ pub fn desktop_settings(settings: State<'_, SettingsState>) -> DesktopSettings {
 /// Choose whether closing the window hides it to the tray.
 #[tauri::command(async)]
 pub fn desktop_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bool) -> Result<(), String> {
-    let mut guard = settings.0.lock().unwrap_or_else(|e| e.into_inner());
     // Never persist `true` where the tray may not exist — see `tray_supported`.
-    guard.close_to_tray = enabled && cfg!(target_os = "macos");
-    guard.save()
+    settings.update(|s| s.close_to_tray = enabled && cfg!(target_os = "macos"))
 }
 
 /// Open (or focus) the window that shows the server's own UI.

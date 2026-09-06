@@ -6,16 +6,22 @@ mod control;
 // Linux has none — and a module compiled there would be entirely dead code.
 #[cfg(target_os = "macos")]
 mod menu;
-mod proc;
 mod server_bin;
-mod settings;
-mod shell_env;
-mod sidecar;
 mod tray;
-mod version;
 mod windows;
 
+use subshell_desktop_core::settings::{SettingsPaths, SettingsState};
 use tauri::Manager;
+
+/// Where this app's settings file lives.
+///
+/// Both strings are SHIPPED: users already have a file at these paths, and
+/// changing either silently forgets every preference they set. They are also
+/// what keeps this app's settings distinct from `apps/desktop-client`'s.
+const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
+    macos_bundle_id: "dev.subshell.desktop",
+    linux_dir: "subshell-desktop",
+};
 
 /// Build and run the app.
 ///
@@ -59,7 +65,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(settings::SettingsState::new())
+        .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::ShellReady::new())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
@@ -80,12 +86,7 @@ pub fn run() {
                 // stock desktop has no StatusNotifier host and the icon is
                 // silently invisible — hiding there would make the window
                 // unreachable with nothing to explain it.
-                let hide = window.label() == "main"
-                    && window
-                        .app_handle()
-                        .state::<settings::SettingsState>()
-                        .get()
-                        .close_to_tray;
+                let hide = window.label() == "main" && window.app_handle().state::<SettingsState>().get().close_to_tray;
                 if hide {
                     api.prevent_close();
                     let _ = window.hide();
@@ -116,8 +117,7 @@ pub fn run() {
             // default answer to that is to quit — so close-to-tray would close
             // to a tray and then exit. Closing the CONSOLE hit the same path.
             tauri::RunEvent::ExitRequested { api, .. }
-                if app.state::<settings::SettingsState>().get().close_to_tray
-                    && app.get_webview_window("main").is_some() =>
+                if app.state::<SettingsState>().get().close_to_tray && app.get_webview_window("main").is_some() =>
             {
                 api.prevent_exit();
             }
@@ -138,4 +138,29 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The settings file is SHIPPED state. Moving it — by renaming the bundle
+    /// id or the Linux directory — does not fail, it silently starts every
+    /// existing user from defaults, so the two strings are pinned here rather
+    /// than only living at their use site.
+    #[test]
+    fn the_settings_identity_is_the_one_users_already_have() {
+        assert_eq!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.desktop");
+        assert_eq!(SETTINGS_PATHS.linux_dir, "subshell-desktop");
+        let Some(file) = SETTINGS_PATHS.file() else { return };
+        let shown = file.to_string_lossy().into_owned();
+        if cfg!(target_os = "macos") {
+            assert!(
+                shown.ends_with("/Library/Application Support/dev.subshell.desktop/settings.json"),
+                "{shown}"
+            );
+        } else {
+            assert!(shown.ends_with("/.config/subshell-desktop/settings.json"), "{shown}");
+        }
+    }
 }

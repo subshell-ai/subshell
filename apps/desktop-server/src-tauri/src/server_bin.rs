@@ -1,11 +1,12 @@
 //! Finding a `subshell-server` to talk to.
 //!
-//! The app SHIPS one (see `sidecar.rs`), but it must never assume the shipped
-//! copy is the one in charge: the user may already run a server this app knows
-//! nothing about, and its service definition is the authority on which binary
-//! is installed. So resolution is a ladder, each rung named the way
-//! `services/mcp-resolve.ts` names its own, and the answer carries WHERE it
-//! came from so the UI can say so.
+//! The app SHIPS one (`subshell_desktop_core::sidecar`, driven from here through
+//! `SERVER_SIDECAR`), but it must never assume the shipped copy is the one in
+//! charge: the user may already run a server this app knows nothing about, and
+//! its service definition is the authority on which binary is installed. So
+//! resolution is a ladder, each rung named the way `services/mcp-resolve.ts`
+//! names its own, and the answer carries WHERE it came from so the UI can say
+//! so.
 //!
 //! The trap worth knowing about is `execLine()` in `apps/server/src/service.ts`:
 //! a compiled binary is recorded alone, but a dev-form install records
@@ -17,8 +18,22 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::proc::{run, QUERY_TIMEOUT};
-use crate::shell_env::home_dir;
+use subshell_desktop_core::proc::{run, QUERY_TIMEOUT};
+use subshell_desktop_core::shell_env::{home_dir, login_path};
+use subshell_desktop_core::sidecar::{self, SidecarSpec};
+use subshell_desktop_core::version::version_lt;
+
+/// What THIS app's shipped binary is called, and how it announces itself.
+///
+/// The install dance itself is generic (`subshell_desktop_core::sidecar`);
+/// these three strings are the server-specific half of it, and they live here
+/// beside the ladder for the same reason: this module is where "what a
+/// subshell-server is called" is written down.
+pub const SERVER_SIDECAR: SidecarSpec = SidecarSpec {
+    bundled_name: "subshell-server-bundled",
+    installed_name: "subshell-server",
+    version_prefix: "subshell-server ",
+};
 
 /// Which rung of the ladder answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -50,13 +65,12 @@ pub struct ServerBinary {
 
 /// The version out of a `subshell-server version` line.
 ///
-/// One parser, three callers (the ladder, the bundled probe, the
-/// already-installed check). They were three subtly different string dances,
-/// one of which was a `ends_with` that would accept `11.8.0` for `1.8.0`.
+/// The shared parser, bound to this app's prefix — one dance for the ladder,
+/// the bundled probe and the already-installed check alike. They were three
+/// subtly different ones, one of which was an `ends_with` that would accept
+/// `11.8.0` for `1.8.0`.
 pub fn parse_server_version(stdout: &str) -> Option<String> {
-    let line = stdout.lines().next()?.trim();
-    let version = line.strip_prefix("subshell-server ")?.trim();
-    (!version.is_empty()).then(|| version.to_string())
+    sidecar::parse_version_line(stdout, SERVER_SIDECAR.version_prefix)
 }
 
 /// systemd word-splits `ExecStart=` itself (it is NOT run through a shell), so
@@ -165,10 +179,10 @@ fn exists(path: &str) -> bool {
     Path::new(path).is_file()
 }
 
-/// Where `sidecar.rs` installs the bundled server, and the first place to look
-/// for one this app installed on an earlier run.
+/// Where the sidecar install lands, and the first place to look for a server
+/// this app installed on an earlier run.
 pub fn managed_install_path() -> Option<String> {
-    home_dir().map(|h| format!("{h}/.local/bin/subshell-server"))
+    sidecar::install_path(&SERVER_SIDECAR).map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Walk the ladder and return the first rung that yields a binary which can
@@ -205,7 +219,7 @@ pub fn candidates(configured: Option<&str>) -> Vec<(ServerSource, Vec<String>)> 
     // Homebrew/asdf install the user has — while every spawn we make already
     // runs with the login PATH. Searching a narrower PATH than we execute with
     // is the inconsistency that makes "it works in my terminal" true.
-    for dir in crate::shell_env::login_path().split(':').filter(|d| !d.is_empty()) {
+    for dir in login_path().split(':').filter(|d| !d.is_empty()) {
         out.push((ServerSource::Path, vec![format!("{dir}/subshell-server")]));
     }
     for dir in ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"] {
@@ -339,8 +353,8 @@ pub fn decide_server(bundled: Option<&str>, installed: Option<&str>) -> ServerCh
         // An installed server that cannot state its version never resolves in
         // the first place, so "absent" and "unparseable" are already one case.
         (Some(_), None) => ServerChoice::InstallBundled,
-        (Some(b), Some(i)) if crate::version::version_lt(i, b) => ServerChoice::UpgradeAvailable,
-        (Some(b), Some(i)) if crate::version::version_lt(b, i) => ServerChoice::AdoptInstalled,
+        (Some(b), Some(i)) if version_lt(i, b) => ServerChoice::UpgradeAvailable,
+        (Some(b), Some(i)) if version_lt(b, i) => ServerChoice::AdoptInstalled,
         _ => ServerChoice::UpToDate,
     }
 }
@@ -491,7 +505,7 @@ mod ladder_tests {
             .filter(|(s, _)| *s == ServerSource::Path)
             .map(|(_, a)| a[0].clone())
             .collect();
-        for dir in crate::shell_env::login_path().split(':').filter(|d| !d.is_empty()) {
+        for dir in login_path().split(':').filter(|d| !d.is_empty()) {
             assert!(
                 paths.contains(&format!("{dir}/subshell-server")),
                 "login PATH entry {dir} not searched"
@@ -516,6 +530,37 @@ mod version_parse_tests {
         assert_eq!(parse_server_version("subshell 1.8.0"), None);
         assert_eq!(parse_server_version("subshell-server "), None);
         assert_eq!(parse_server_version("bash: command not found"), None);
+    }
+}
+
+#[cfg(test)]
+mod sidecar_spec_tests {
+    use super::*;
+
+    // The in-bundle name has NO triple suffix: tauri-build and tauri-bundler
+    // both strip it on copy, so anything looking for the STAGED filename inside
+    // a built app finds nothing. Pinned here rather than in the shared crate
+    // because it is this app's shipped name, and it has to agree with
+    // `BUNDLED_SIDECAR_NAME` in `packages/subshell-protocol/src/paths.ts` and
+    // with `externalBin` in `tauri.conf.json`.
+    #[test]
+    fn bundled_name_carries_no_target_triple() {
+        assert_eq!(SERVER_SIDECAR.bundled_name, "subshell-server-bundled");
+        assert!(!SERVER_SIDECAR.bundled_name.contains("apple-darwin"));
+        assert!(!SERVER_SIDECAR.bundled_name.contains("unknown-linux"));
+    }
+
+    // The ladder's `LocalBin` rung and the sidecar's install target are the
+    // same file; two spellings of it would let the app install a server it then
+    // refuses to find.
+    #[test]
+    fn the_local_bin_rung_is_the_path_the_sidecar_installs_to() {
+        let Some(managed) = managed_install_path() else { return };
+        assert!(managed.ends_with("/.local/bin/subshell-server"), "{managed}");
+        assert_eq!(
+            Some(managed),
+            sidecar::install_path(&SERVER_SIDECAR).map(|p| p.to_string_lossy().into_owned())
+        );
     }
 }
 
