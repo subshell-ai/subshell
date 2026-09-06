@@ -61,3 +61,8 @@ commands.allow = ["desktop_settings"]
 identifier = "allow-desktop-set-close-to-tray"
 description = "Choose whether closing the window hides it to the tray."
 commands.allow = ["desktop_set_close_to_tray"]
+
+[[permission]]
+identifier = "allow-desktop-notify"
+description = "Show one native notification. The shape is fixed here — a title and a body, nothing schedulable or enumerable — so the server-origin page never receives the notification plugin itself."
+commands.allow = ["desktop_notify"]

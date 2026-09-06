@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/api";
+import { isDesktop } from "@/lib/desktop";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
 
 /**
@@ -19,6 +20,17 @@ const STATE_HELP: Partial<Record<PushState, string>> = {
   unconfigured: "This instance cannot issue push keys (data directory not writable).",
   unsupported: "This browser does not support push notifications.",
 };
+
+/**
+ * The desktop app reaches "unsupported" for a reason that is not a limitation:
+ * it needs no push at all.
+ *
+ * Web push is a service worker plus VAPID, and no embedded webview ships a
+ * `PushManager` — so the honest answer there is not "your browser cannot do
+ * this" but "this app already does it another way". The shell notifies
+ * natively off the SSE feed the app is already reading.
+ */
+const DESKTOP_HELP = "The desktop app notifies you natively — no push subscription needed.";
 
 /** iOS Safari only delivers web push from a home-screen-installed PWA. */
 function isIOS(): boolean {
@@ -90,9 +102,9 @@ export function NotificationsCard({
         {/* role=status: the button can DISAPPEAR when a click lands in
             blocked/unconfigured — sighted users see the helper line appear,
             screen readers need it announced. */}
-        {state && STATE_HELP[state] && (
+        {state && (isDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]) && (
           <p role="status" className="text-muted-foreground text-sm">
-            {STATE_HELP[state]}
+            {isDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]}
           </p>
         )}
         {state === "unsupported" && isIOS() && (

@@ -144,6 +144,21 @@ hidden to an icon that is not there is unreachable, with nothing to explain it.
 Every tray action therefore also exists in the window UI or the menu bar; the
 tray is a shortcut, never the only route.
 
+### Notifications
+
+The web path is VAPID push through a service worker, and
+`apps/frontend/src/lib/notifications.ts` gates on `PushManager` — which neither
+WKWebView nor WebKitGTK has. A tray-resident window with no way to say an agent
+is waiting undercuts the point of a tray, so the desktop notifies natively off
+the SSE feed the app is ALREADY reading: no server work, no VAPID keys, and one
+`desktop_notify` command rather than granting the server-origin page the whole
+notification plugin.
+
+Edge-triggered, deliberately: `use-desktop-notifications.ts` holds the previous
+waiting set and starts it `undefined`, so a subshell that was already waiting
+when the window opened is not news. Without that, opening the app fires one
+notification per idle agent.
+
 ### The title-bar negotiation
 
 The main window is created HIDDEN with an ordinary title bar. The SPA's desktop

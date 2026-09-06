@@ -439,6 +439,29 @@ pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> 
     crate::windows::open_main(&app, &origin)
 }
 
+/// Show a native notification, and focus the app when it is clicked.
+///
+/// A dedicated command rather than granting the server-origin page the whole
+/// `notification` plugin: this way the shape is ours (one title, one body, no
+/// arbitrary payload), and the page cannot schedule, replace or enumerate
+/// anything. The web path this replaces is VAPID push through a service
+/// worker, which no webview has — `lib/notifications.ts` gates on
+/// `PushManager`, so the desktop app would otherwise report "unsupported".
+#[tauri::command(async)]
+pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    // Truncated rather than refused: the source is the SPA's own subshell
+    // titles, and a long one should be a short notification, not none.
+    let title: String = title.chars().take(120).collect();
+    let body: String = body.chars().take(400).collect();
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| format!("could not show a notification: {e}"))
+}
+
 /// Open (or focus) the server console. Called from the SPA's own footer.
 #[tauri::command(async)]
 pub fn desktop_open_console(app: AppHandle) -> Result<(), String> {
