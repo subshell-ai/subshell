@@ -43,7 +43,7 @@ on:
       app:
         description: "Which deployable to cut"
         type: choice
-        options: [server, client, desktop, all, both]
+        options: [server, client, desktop-server, desktop-client, all, both, desktop]
         default: both
       version:
         description: "Version override — blank = read apps/<app>/package.json (applies to every app in `app`)"
@@ -129,13 +129,31 @@ jobs:
           case "$APP_INPUT" in
             server)  apps="server" ;;
             client)  apps="client" ;;
-            desktop) apps="desktop" ;;
-            all)     apps="server client desktop" ;;
-            # Deprecated alias, kept so a dispatch typed from an older doc still
-            # cuts what it used to. `all` is the one that includes desktop.
+            desktop-server) apps="desktop-server" ;;
+            desktop-client) apps="desktop-client" ;;
+            all)     apps="server client desktop-server desktop-client" ;;
+            # Deprecated aliases, kept so a dispatch typed from an older doc
+            # still cuts what it used to. `all` is the one that includes both
+            # desktop apps. `desktop` predates the desktop-client app, when
+            # there was only one desktop app and it wrapped the server.
             both)    apps="server client" ;;
+            desktop) apps="desktop-server" ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
+          # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
+          # so an app name that is a PREFIX of another absorbs that app's
+          # assets into its own release. `fail_on_unmatched_files: true` cannot
+          # catch it — it only fires on too FEW files, never too many. Assert
+          # the property here rather than discover it on an `all` cut.
+          ALL_APPS="server client desktop-server desktop-client"
+          for a in $ALL_APPS; do
+            for b in $ALL_APPS; do
+              [ "$a" = "$b" ] && continue
+              case "$b" in
+                "$a"-*) echo "::error::app name '$a' is a prefix of '$b' — the publish artifact glob would mix their releases"; exit 1 ;;
+              esac
+            done
+          done
           LINUX='["self-hosted","Linux","X64"]'
           MAC='["self-hosted","macOS","ARM64"]'
           entries=""
@@ -178,12 +196,17 @@ jobs:
               # file(1) magic check cannot see a GUI's characteristic failure,
               # which is an invisible window. No darwin-x64: a desktop build
               # bundles a server, and SERVER_TARGETS has none.
-              desktop) triples="linux-x64 darwin-arm64" ;;
+              desktop-server|desktop-client) triples="linux-x64 darwin-arm64" ;;
+              # $triples is an ordinary shell variable that OUTLIVES the loop
+              # iteration. Without this arm a new app silently inherits the
+              # PREVIOUS app's triples instead of failing.
+              *) echo "::error::no triples defined for app '$app'"; exit 1 ;;
             esac
             for triple in $triples; do
               case "$triple" in
                 linux-*) runner="$LINUX" ;;
                 darwin-*) runner="$MAC" ;;
+                *) echo "::error::no runner for triple '$triple'"; exit 1 ;;
               esac
               case "$triple" in
                 linux-x64|darwin-arm64) smoke="exec" ;;   # native on its runner
@@ -194,7 +217,7 @@ jobs:
               # its own smoke: digests, the nested sidecar, Debian deps, and on
               # macOS the whole signing chain including the staple.
               container=""
-              if [ "$app" = "desktop" ]; then
+              case "$app" in desktop-server|desktop-client)
                 smoke="bundle"
                 # A container, so the app's minimum glibc is CHOSEN rather than
                 # inherited from whatever the runner was last re-imaged with.
@@ -202,7 +225,8 @@ jobs:
                 # the image's own toolchain — dpkg-deb, objdump, file — and
                 # execs the extracted sidecar, which is built to that floor.
                 [ "${triple%%-*}" = "linux" ] && container="ghcr.io/subshell-ai/desktop-builder:ubuntu24.04"
-              fi
+                ;;
+              esac
               [ -z "$entries" ] || entries="$entries,"
               entries="$entries{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\",\"container\":\"$container\"}"
             done
@@ -227,7 +251,7 @@ jobs:
     # companion is retired (the server binary serves its own `mcp` subcommand).
     # A desktop shard additionally compiles ~500 Rust crates and builds a
     # server binary to bundle, so it gets its own budget.
-    timeout-minutes: ${{ matrix.app == 'desktop' && 90 || 45 }}
+    timeout-minutes: ${{ startsWith(matrix.app, 'desktop-') && 90 || 45 }}
     runs-on: ${{ matrix.runner }}
     # Empty string = no container. Set only for the linux desktop shard, so the
     # app's minimum glibc is a deliberate choice; every other shard is bare.
@@ -275,7 +299,7 @@ jobs:
       - run: bun run build
 
       - name: Release build (scoped to ${{ matrix.triple }})
-        if: matrix.app != 'desktop'
+        if: contains(fromJSON('["server","client"]'), matrix.app)
         env:
           APP: ${{ matrix.app }}
           TRIPLE: ${{ matrix.triple }}
@@ -331,36 +355,39 @@ jobs:
               export SUBSHELL_RELEASE_SIGN_CMD="$GITHUB_WORKSPACE/scripts/macos-sign-notarize.sh"
               ;;
           esac
-          if [ "$APP" = "server" ]; then
-            SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server
-          else
-            SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:client
-          fi
+          case "$APP" in
+            server) SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server ;;
+            client) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:client ;;
+            # Never an `else`: a new app reaching here would build and publish
+            # the NODE binary under its own tag rather than failing.
+            *) echo "::error::no bare-binary pipeline for app '$APP'"; exit 1 ;;
+          esac
 
       # The mac-builder carries no Rust, and asking an operator to keep a
       # toolchain installed on a fleet by hand is the kind of state that is
       # only ever wrong at 2am. The Linux shard skips this: its container
       # already ships a pinned toolchain.
       - name: Use Rust
-        if: matrix.app == 'desktop' && startsWith(matrix.triple, 'darwin')
+        if: startsWith(matrix.app, 'desktop-') && startsWith(matrix.triple, 'darwin')
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
 
       - name: Cache cargo
-        if: matrix.app == 'desktop'
+        if: startsWith(matrix.app, 'desktop-')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-release-
+            apps/${{ matrix.app }}/src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.app), 'crates/desktop-core/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-cargo-release-${{ matrix.app }}-
 
       - name: Desktop release build (scoped to ${{ matrix.triple }})
-        if: matrix.app == 'desktop'
+        if: startsWith(matrix.app, 'desktop-')
         env:
+          APP: ${{ matrix.app }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
@@ -376,7 +403,7 @@ jobs:
           cargo --version; rustc --version
           # NOT `bunx tauri --version`: npm has a real, deprecated package named
           # `tauri` that bunx will happily fetch, so that probe can never fail.
-          ./apps/desktop/node_modules/.bin/tauri --version >/dev/null \
+          "./apps/$APP/node_modules/.bin/tauri" --version >/dev/null \
             || { echo "@tauri-apps/cli is not installed in the workspace"; exit 1; }
 
           case "$TRIPLE" in
@@ -422,7 +449,7 @@ jobs:
 
           SUBSHELL_DESKTOP_RELEASE_TRIPLES="$TRIPLE" \
           SUBSHELL_DESKTOP_RELEASE_DIR="$DEST" \
-            bun run release:desktop
+            bun run "release:$APP"
 
       - name: Smoke
         env:
@@ -434,15 +461,17 @@ jobs:
           set -euo pipefail
           # A desktop artifact is a BUNDLE, not a bare binary — different
           # checks entirely, so it exits before the binary smoke below.
-          if [ "$APP" = "desktop" ]; then
-            bash scripts/smoke-desktop-bundle.sh "$TRIPLE" "$VERSION" dist-rel
-            exit 0
-          fi
-          if [ "$APP" = "server" ]; then
-            BIN="dist-rel/subshell-server-$TRIPLE"
-          else
-            BIN="dist-rel/subshell-$TRIPLE"
-          fi
+          case "$APP" in
+            desktop-*)
+              bash scripts/smoke-desktop-bundle.sh "$APP" "$TRIPLE" "$VERSION" dist-rel
+              exit 0
+              ;;
+          esac
+          case "$APP" in
+            server) BIN="dist-rel/subshell-server-$TRIPLE" ;;
+            client) BIN="dist-rel/subshell-$TRIPLE" ;;
+            *) echo "no binary smoke for app '$APP'"; exit 1 ;;
+          esac
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
           test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
           # `file` magic sanity applies to every mode; the arch hint doubles as

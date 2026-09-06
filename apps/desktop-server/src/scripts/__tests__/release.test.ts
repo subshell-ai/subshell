@@ -19,7 +19,7 @@ import {
  * found" pointing at a path that looks right), a signing hook inherited from
  * the CI shard (wall-clock spent signing bytes Tauri re-seals, plus a digest
  * that matches nothing), a relative publish dir (resolved in the CHILD's cwd,
- * so it lands in apps/server/apps/desktop/…), and a surplus bundle (which the
+ * so it lands in apps/server/apps/desktop-server/…), and a surplus bundle (which the
  * publish glob would ship).
  *
  * `tauri build`'s own argv is deliberately NOT pinned — that is Tauri's
@@ -61,7 +61,7 @@ describe("stageSidecar", () => {
   });
 
   // resolveArtifactsDir() on the server side resolves in the CHILD's cwd, so a
-  // relative override would land in apps/server/apps/desktop/…
+  // relative override would land in apps/server/apps/desktop-server/…
   test("passes an ABSOLUTE publish directory", async () => {
     const s = stub();
     await stageSidecar(s.deps, "darwin-arm64");

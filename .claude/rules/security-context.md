@@ -241,7 +241,7 @@ shares and subshell shares are two independent axes:
   ish, a remote node dutifully dials the wrong machine — the enroll flow and
   Nodes page surface the resolved URL and warn on loopback.
 
-## The desktop app (`apps/desktop`)
+## The desktop app (`apps/desktop-server`)
 
 A Tauri v2 shell that installs, runs and manages a `subshell-server` on the
 user's own machine. Three things about it are security-relevant:

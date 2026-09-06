@@ -14,7 +14,7 @@ subshell/
 │   ├── server/                     # ElysiaJS API server; also serves the built SPA in prod
 │   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
 │   ├── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
-│   ├── desktop/                    # Tauri v2 shell that installs/runs/manages a local server (see apps/desktop/AGENTS.md)
+│   ├── desktop-server/             # Tauri v2 shell that installs/runs/manages a local server (see apps/desktop-server/AGENTS.md)
 │   └── client/                     # subshell — node daemon; enrolls and runs signed commands (see apps/client/AGENTS.md)
 ├── packages/
 │   ├── tsconfig/                   # Shared TypeScript configuration
@@ -35,7 +35,7 @@ subshell/
 
 ### Technology Stack
 
-- **Runtime**: Bun (>= 1.4.0); Rust (stable) for `apps/desktop` only
+- **Runtime**: Bun (>= 1.4.0); Rust (stable) for `apps/desktop-server` only
 - **Backend Framework**: ElysiaJS
 - **Frontend**: React 19, Vite, TanStack Router, TanStack Query, Tailwind CSS
 - **Database**: SQLite via `bun:sqlite` with Kysely (type-safe query builder); dialect from [`kysely-bun-sqlite-dialect`](https://www.npmjs.com/package/kysely-bun-sqlite-dialect)
@@ -204,7 +204,7 @@ bunx turbo build                          # 1. apps/frontend/dist — the embed 
 bun run release:desktop                   # 2. stage the sidecar, then `tauri build`
 ```
 
-`release:desktop` (`apps/desktop/src/scripts/release.ts`) builds the SERVER
+`release:desktop` (`apps/desktop-server/src/scripts/release.ts`) builds the SERVER
 first and stages it as the Tauri sidecar, then bundles. Three rules about that
 staged binary, each with a failure that only appears on a user's machine:
 
@@ -237,7 +237,7 @@ component-scoped tags: `server-vX.Y.Z` (three `subshell-server-<triple>`
 binaries + `.sha256` sidecars), `client-vX.Y.Z` (4 + 4) and `desktop-vX.Y.Z`
 (2 + 2). Tagging/releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
 
-`apps/desktop` is a releasable component on exactly the same terms as the other
+`apps/desktop-server` is a releasable component on exactly the same terms as the other
 two: its own changesets package, its own tag prefix, its own CHANGELOG sliced
 into the release body, and shards in the same `build`/`publish` jobs. The only
 thing that differs is the SHAPE of what it publishes — a bundle rather than a
@@ -257,7 +257,7 @@ bare binary — which is why it has its own smoke.
   which is why a security-relevant server release should be dispatched as
   `app=all`.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
-  changes to `apps/server`/`apps/client`/`apps/desktop` → a version PR ("chore:
+  changes to `apps/server`/`apps/client`/`apps/desktop-server` → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
   app's `package.json` + CHANGELOG. Merging does NOT cut a release.
 - **Release notes live in the GitHub Release.** The publish job slices this
@@ -299,7 +299,7 @@ bare binary — which is why it has its own smoke.
   BOOT on a temp DB with `apps/frontend/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.
-- **A desktop cut re-ships a server.** `apps/desktop` bundles the server built
+- **A desktop cut re-ships a server.** `apps/desktop-server` bundles the server built
   from the same commit, so a server-only fix does NOT reach desktop users until
   a desktop cut. Dispatch a security-relevant server release as `app=all`.
 - **Retry:** a mid-flight failure leaves a tag without a release —

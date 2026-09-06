@@ -461,7 +461,7 @@ endpoint is rate-limited.
 
 ## 8b. The desktop app
 
-`apps/desktop` is a Tauri v2 shell that installs, runs and manages a
+`apps/desktop-server` is a Tauri v2 shell that installs, runs and manages a
 `subshell-server` on the user's own machine. It adds no server surface — every
 privileged thing it does goes through the `subshell-server` CLI as the same
 local user — but it does introduce one boundary that did not exist before.

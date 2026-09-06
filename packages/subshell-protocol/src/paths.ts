@@ -64,7 +64,7 @@ export function serverArtifactFileName(target: string): string {
 export type DesktopTarget = (typeof DESKTOP_TARGETS)[number];
 
 /**
- * The closed set of platform triples `apps/desktop` is published for.
+ * The closed set of platform triples `apps/desktop-server` is published for.
  *
  * NARROWER than {@link SERVER_TARGETS}, and for a different reason than the
  * server's own narrowing:
@@ -112,7 +112,7 @@ const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
 };
 
 /**
- * The in-bundle name of the server binary `apps/desktop` ships.
+ * The in-bundle name of the server binary `apps/desktop-server` ships.
  *
  * Tauri STRIPS the `-<rust triple>` suffix when it copies an `externalBin`, so
  * this is NOT the name of the staged file — see {@link desktopSidecarFileName}.

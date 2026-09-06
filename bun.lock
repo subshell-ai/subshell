@@ -47,9 +47,9 @@
         "typescript": "7.0.2",
       },
     },
-    "apps/desktop": {
-      "name": "@internal/desktop",
-      "version": "0.1.0",
+    "apps/desktop-server": {
+      "name": "@internal/desktop-server",
+      "version": "0.2.0",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
       },
@@ -144,7 +144,7 @@
     },
     "apps/server": {
       "name": "@internal/server",
-      "version": "1.8.0",
+      "version": "1.9.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -753,7 +753,7 @@
 
     "@internal/client": ["@internal/client@workspace:apps/client"],
 
-    "@internal/desktop": ["@internal/desktop@workspace:apps/desktop"],
+    "@internal/desktop-server": ["@internal/desktop-server@workspace:apps/desktop-server"],
 
     "@internal/e2e": ["@internal/e2e@workspace:e2e"],
 

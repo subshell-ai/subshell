@@ -1,4 +1,4 @@
-# @internal/desktop
+# @internal/desktop-server
 
 ## 0.2.0
 

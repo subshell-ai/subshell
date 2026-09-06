@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke one published apps/desktop bundle.
+# Smoke one published apps/desktop-server bundle.
 #
 # Usage: scripts/smoke-desktop-bundle.sh <triple> <version> <dist-dir>
 #

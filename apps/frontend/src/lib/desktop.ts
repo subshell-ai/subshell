@@ -2,7 +2,7 @@
  * Is this the desktop shell, and how do we talk to it?
  *
  * The SPA is served by the server and rendered in both a browser and
- * `apps/desktop`'s webview. It has to know which, before first paint, so the
+ * `apps/desktop-server`'s webview. It has to know which, before first paint, so the
  * desktop window does not flash web chrome — and it has to keep working when
  * the answer is "browser", which is the overwhelming majority of the time.
  *
@@ -73,7 +73,7 @@ export function desktopShell(): DesktopShell | null {
   return cached;
 }
 
-/** Whether the app is running inside `apps/desktop`. */
+/** Whether the app is running inside `apps/desktop-server`. */
 export function isDesktop(): boolean {
   return desktopShell() !== null;
 }

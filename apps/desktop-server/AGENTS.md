@@ -1,6 +1,6 @@
 # Desktop AGENTS.md
 
-`apps/desktop` (`@internal/desktop`) — a **Tauri v2** shell that installs, runs
+`apps/desktop-server` (`@internal/desktop-server`) — a **Tauri v2** shell that installs, runs
 and manages a `subshell-server` on this machine, so a user never has to touch a
 CLI binary.
 
@@ -41,7 +41,7 @@ arm plus a wildcard. Both failed CI after passing locally:
 
 ```bash
 docker build -f docker/desktop-builder.Dockerfile -t desktop-builder:local .
-docker run --rm -v "$PWD":/w -w /w/apps/desktop/src-tauri desktop-builder:local bash -c '
+docker run --rm -v "$PWD":/w -w /w/apps/desktop-server/src-tauri desktop-builder:local bash -c '
   rustup component add rustfmt clippy
   install -m 755 /dev/null "binaries/subshell-server-bundled-$(rustc --print host-tuple)"
   export CARGO_TARGET_DIR=/tmp/target
@@ -85,9 +85,9 @@ To stage one by hand for `tauri dev`:
 
 ```bash
 SUBSHELL_SERVER_RELEASE_TRIPLES=darwin-arm64 \
-SUBSHELL_SERVER_RELEASE_DIR="$PWD/apps/desktop/src-tauri/binaries" \
+SUBSHELL_SERVER_RELEASE_DIR="$PWD/apps/desktop-server/src-tauri/binaries" \
   bun run release:server
-cd apps/desktop/src-tauri/binaries \
+cd apps/desktop-server/src-tauri/binaries \
   && mv subshell-server-darwin-arm64 subshell-server-bundled-aarch64-apple-darwin \
   && rm -f subshell-server-darwin-arm64.sha256
 ```

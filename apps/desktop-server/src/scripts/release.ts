@@ -1,5 +1,5 @@
 /**
- * `bun run compile:release` — the release pipeline for `apps/desktop`.
+ * `bun run compile:release` — the release pipeline for `apps/desktop-server`.
  *
  * Mirrors `apps/server/src/scripts/release.ts` beat for beat (assertBunFloor →
  * parseScope → preflight → build → assert → digest → publish, all-or-nothing,
@@ -44,7 +44,7 @@ import {
 } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-/** `apps/desktop` — the cwd every tauri invocation runs in. */
+/** `apps/desktop-server` — the cwd every tauri invocation runs in. */
 export const DESKTOP_DIR = resolve(SCRIPT_DIR, "..", "..");
 /** The monorepo root — where the nested server build is driven from. */
 export const REPO_ROOT = resolve(DESKTOP_DIR, "..", "..");
@@ -93,7 +93,7 @@ export interface DesktopReleaseDeps {
  *
  * The publish dir MUST be absolute: `resolveArtifactsDir()` on the server side
  * calls `resolve()` in the CHILD's cwd (`apps/server`), so a relative override
- * would land in `apps/server/apps/desktop/…` and the build would then fail
+ * would land in `apps/server/apps/desktop-server/…` and the build would then fail
  * with "binary not found" pointing at a path that looks right.
  */
 export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
@@ -148,7 +148,7 @@ export function hostTarget(platform: string = process.platform, arch: string = p
   if (platform === "darwin" && arch === "arm64") return "darwin-arm64";
   if (platform === "linux" && arch === "x64") return "linux-x64";
   throw new Error(
-    `apps/desktop cannot be built on ${platform}-${arch} (buildable here: ${DESKTOP_TARGETS.join(", ")})`,
+    `apps/desktop-server cannot be built on ${platform}-${arch} (buildable here: ${DESKTOP_TARGETS.join(", ")})`,
   );
 }
 
@@ -162,7 +162,8 @@ export function resolveReleaseDir(env: Record<string, string | undefined> = proc
 export async function readVersion(): Promise<string> {
   const pkg = await Bun.file(join(DESKTOP_DIR, "package.json")).json();
   const version = String(pkg.version ?? "");
-  if (!/^\d+\.\d+\.\d+/.test(version)) throw new Error(`apps/desktop/package.json has no usable version: '${version}'`);
+  if (!/^\d+\.\d+\.\d+/.test(version))
+    throw new Error(`apps/desktop-server/package.json has no usable version: '${version}'`);
   return version;
 }
 

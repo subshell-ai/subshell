@@ -16,12 +16,39 @@ updates:
         patterns:
           - "*"
 
-  # apps/desktop's Rust dependencies. Unlike the JS ones, these are NOT covered
-  # by syncpack — there is one crate manifest and nothing to keep in sync
-  # across the workspace — and a Tauri app carries the webview and the security
-  # boundary, so a stale tauri is a stale ACL implementation.
+  # The Rust dependencies. Unlike the JS ones, these are NOT covered by
+  # syncpack — each crate has its own manifest and there is nothing to keep in
+  # sync across the workspace — and a Tauri app carries the webview and the
+  # security boundary, so a stale tauri is a stale ACL implementation.
+  #
+  # One entry per manifest: dependabot does not walk a directory tree, and the
+  # two apps carry INDEPENDENT lockfiles on purpose (crates/desktop-core is a
+  # path dependency, not a workspace member), so a bump to one says nothing
+  # about the other.
   - package-ecosystem: cargo
-    directory: /apps/desktop/src-tauri
+    directory: /apps/desktop-server/src-tauri
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: /apps/desktop-client/src-tauri
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: /crates/desktop-core
     schedule:
       interval: monthly
     commit-message:

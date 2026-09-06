@@ -27,7 +27,7 @@ function entitlementKeys(): string[] {
 describe("macOS entitlements", () => {
   // Measured 2026-09-05: a `bun build --compile` server signed ad-hoc with
   // `--options runtime` and ONLY these two boots, serves /docs, serves the
-  // embedded SPA and answers on its port. See apps/desktop/AGENTS.md for the
+  // embedded SPA and answers on its port. See apps/desktop-server/AGENTS.md for the
   // caveat that this was ad-hoc rather than Developer ID.
   test("grants exactly the two keys Bun's JIT needs", () => {
     expect(entitlementKeys().sort()).toEqual([
