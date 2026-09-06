@@ -13,8 +13,9 @@
 //!
 //! So every `subshell-server` spawn gets a login shell's PATH, resolved once.
 
-use std::process::Command;
 use std::sync::OnceLock;
+
+use crate::proc::{run_with_path, PROBE_TIMEOUT};
 
 static LOGIN_PATH: OnceLock<String> = OnceLock::new();
 
@@ -30,22 +31,44 @@ const FLOOR: &[&str] = &[
     "/sbin",
 ];
 
+/// A PATH good enough to FIND the probes that discover the real PATH.
+///
+/// Every probe here runs through `run_with_path` with this rather than through
+/// `run`, which would consult `login_path()` — the `OnceLock` this function is
+/// in the middle of filling. That is a deadlock, not a slow path.
+fn bootstrap_path() -> String {
+    FLOOR.join(":")
+}
+
 /// The user's login shell, from the password database rather than `$SHELL`
 /// (which a GUI launch does not necessarily set).
+///
+/// Both lookups are bounded: `dscl` is the classic hang on a Mac bound to a
+/// directory service that is not answering, and a hang here would take the
+/// whole app with it.
 fn login_shell() -> String {
-    if let Ok(out) = Command::new("dscl")
-        .args([".", "-read", &format!("/Users/{}", whoami()), "UserShell"])
-        .output()
-    {
-        if out.status.success() {
-            if let Some(sh) = String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1) {
+    let user = whoami();
+    if !user.is_empty() {
+        let boot = bootstrap_path();
+        let dscl = run_with_path(
+            &[
+                "/usr/bin/dscl".into(),
+                ".".into(),
+                "-read".into(),
+                format!("/Users/{user}"),
+                "UserShell".into(),
+            ],
+            PROBE_TIMEOUT,
+            &boot,
+        );
+        if dscl.ok() {
+            if let Some(sh) = dscl.stdout.split_whitespace().nth(1) {
                 return sh.to_string();
             }
         }
-    }
-    if let Ok(out) = Command::new("getent").args(["passwd", &whoami()]).output() {
-        if out.status.success() {
-            if let Some(sh) = String::from_utf8_lossy(&out.stdout).trim_end().rsplit(':').next() {
+        let getent = run_with_path(&["getent".into(), "passwd".into(), user], PROBE_TIMEOUT, &boot);
+        if getent.ok() {
+            if let Some(sh) = getent.stdout.trim_end().rsplit(':').next() {
                 if !sh.is_empty() {
                     return sh.to_string();
                 }
@@ -62,13 +85,22 @@ fn whoami() -> String {
 }
 
 /// Ask a login shell what PATH it would give an interactive session.
+///
+/// Bounded, because the thing being executed is the user's own login profile —
+/// arbitrary code by construction, run on every launch. A profile that
+/// backgrounds a process without closing its stdio holds the pipe open, which
+/// is precisely the case `proc::run` abandons rather than waits on.
 fn probe_login_path() -> Option<String> {
     let shell = login_shell();
-    let out = Command::new(&shell).args(["-l", "-c", "printf %s \"$PATH\""]).output().ok()?;
-    if !out.status.success() {
+    let out = run_with_path(
+        &[shell, "-l".into(), "-c".into(), "printf %s \"$PATH\"".into()],
+        PROBE_TIMEOUT,
+        &bootstrap_path(),
+    );
+    if !out.ok() {
         return None;
     }
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let path = out.stdout.trim().to_string();
     if path.is_empty() {
         None
     } else {

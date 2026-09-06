@@ -7,11 +7,10 @@
   "scripts": {
     "clean": "rm -rf src-tauri/target src-tauri/binaries/subshell-server-bundled-*",
     "compile": "tauri build --debug",
-    "compile:release": "bun run src/scripts/release.ts",
     "dev:app": "tauri dev",
     "lint": "biome check --write --unsafe src ui",
     "lint:check": "biome check src ui",
-    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src ui",
     "test": "bun test src",
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },

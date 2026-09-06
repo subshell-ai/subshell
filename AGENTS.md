@@ -14,6 +14,7 @@ subshell/
 │   ├── server/                     # ElysiaJS API server; also serves the built SPA in prod
 │   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
 │   ├── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
+│   ├── desktop/                    # Tauri v2 shell that installs/runs/manages a local server (see apps/desktop/AGENTS.md)
 │   └── client/                     # subshell — node daemon; enrolls and runs signed commands (see apps/client/AGENTS.md)
 ├── packages/
 │   ├── tsconfig/                   # Shared TypeScript configuration
@@ -34,7 +35,7 @@ subshell/
 
 ### Technology Stack
 
-- **Runtime**: Bun (>= 1.4.0)
+- **Runtime**: Bun (>= 1.4.0); Rust (stable) for `apps/desktop` only
 - **Backend Framework**: ElysiaJS
 - **Frontend**: React 19, Vite, TanStack Router, TanStack Query, Tailwind CSS
 - **Database**: SQLite via `bun:sqlite` with Kysely (type-safe query builder); dialect from [`kysely-bun-sqlite-dialect`](https://www.npmjs.com/package/kysely-bun-sqlite-dialect)

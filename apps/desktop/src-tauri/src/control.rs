@@ -1,19 +1,48 @@
 //! The commands the console window calls.
 //!
-//! Every one of them is an argument-poor wrapper around the `subshell-server`
-//! CLI: the server owns each decision (what a valid port is, whether a restart
-//! would kill live panes, what to tell the operator), and this layer only
-//! routes. That is why `--json` exists on the CLI at all — nothing here parses
-//! prose, and nothing here re-implements a rule that has a home in
-//! `apps/server`.
+//! Every one is an argument-poor wrapper around the `subshell-server` CLI: the
+//! server owns each decision (what a valid port is, whether a restart would
+//! kill live panes, what to tell the operator), and this layer only routes.
+//! That is why `--json` exists on the CLI at all — nothing here parses prose,
+//! and nothing here re-implements a rule that has a home in `apps/server`.
+//!
+//! **Every command is `async`.** They are not async internally — the CLI is
+//! synchronous by contract — but a plain `#[tauri::command]` runs on the main
+//! thread, and `ACTION_TIMEOUT` is 90 seconds. A blocking command there does
+//! not merely delay the answer: it freezes both windows, so the console cannot
+//! even paint the "Working…" state it set before calling.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use tauri::{AppHandle, State};
 
 use crate::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
-use crate::server_bin::{self, decide_server, ServerBinary, ServerChoice};
+use crate::server_bin::{self, decide_server, parse_server_version, ServerBinary, ServerChoice};
 use crate::settings::SettingsState;
 use crate::sidecar;
+
+/// The single next action the console should offer.
+///
+/// An enum rather than a string so a step the page does not handle is a
+/// compile-time question on this side and an explicit fallback on the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProbeStep {
+    /// No server, and this build ships none.
+    NoServer,
+    /// No server, but one is bundled.
+    InstallServer,
+    /// A server exists but did not answer. NOT the same as "unconfigured".
+    Unreachable,
+    /// A server with no `config.env`.
+    Init,
+    /// Configured, but not installed as a service.
+    InstallService,
+    /// Installed and not running.
+    Start,
+    /// Running.
+    Ready,
+}
 
 /// Everything the console needs to decide what to offer, in one round trip.
 #[derive(Debug, Serialize)]
@@ -23,15 +52,17 @@ pub struct Probe {
     pub bundled_version: Option<String>,
     /// The server that would actually run, and which rung found it.
     pub server: Option<ServerBinary>,
-    /// `status --json`, verbatim. `null` when no server resolved.
+    /// Whether that server is the copy THIS APP installed and can replace.
+    pub managed: bool,
+    /// `status --json`, verbatim. `null` when it did not answer.
     pub status: Option<serde_json::Value>,
-    /// `service status --json`, verbatim. `null` when no server resolved.
+    /// `service status --json`, verbatim. `null` when it did not answer.
     pub service: Option<serde_json::Value>,
     /// What to do about the shipped server versus the installed one.
     pub server_choice: ServerChoice,
-    /// What the console should offer next; see {@link Probe::decide}.
-    pub next: String,
-    /// Populated when a step failed rather than merely being pending.
+    /// The single next action.
+    pub next: ProbeStep,
+    /// The CLI's own words when a step failed rather than merely being pending.
     pub error: Option<String>,
 }
 
@@ -40,18 +71,23 @@ impl Default for Probe {
         Probe {
             bundled_version: None,
             server: None,
+            managed: false,
             status: None,
             service: None,
             server_choice: ServerChoice::NoBundled,
-            next: String::new(),
+            next: ProbeStep::NoServer,
             error: None,
         }
     }
 }
 
-/// Read a dotted path out of a `--json` payload.
+/// Read a top-level field out of a `--json` payload.
 fn field<'a>(v: &'a Option<serde_json::Value>, key: &str) -> Option<&'a serde_json::Value> {
     v.as_ref()?.get(key)
+}
+
+fn is_true(v: &Option<serde_json::Value>, key: &str) -> bool {
+    field(v, key) == Some(&serde_json::Value::Bool(true))
 }
 
 impl Probe {
@@ -61,46 +97,68 @@ impl Probe {
     /// server, edited config.env or stopped the service in a terminal while
     /// this window was open, and a remembered step would be wrong.
     fn decide(&mut self) {
-        self.server_choice =
-            decide_server(self.bundled_version.as_deref(), self.server.as_ref().and_then(|s| s.version.as_deref()));
+        // A newer INSTALLED server is adopted, so the upgrade offer only makes
+        // sense against the copy this app owns. Offering it for a server the
+        // user installed elsewhere would write ~/.local/bin, change nothing
+        // about what the service runs, and offer again forever.
+        let comparable = if self.managed || self.server.is_none() {
+            self.server.as_ref().and_then(|s| s.version.as_deref())
+        } else {
+            self.bundled_version.as_deref() // nothing to offer: treat as up to date
+        };
+        self.server_choice = decide_server(self.bundled_version.as_deref(), comparable);
+
         self.next = if self.server.is_none() {
             if self.bundled_version.is_some() {
-                "install-server"
+                ProbeStep::InstallServer
             } else {
-                "no-server"
+                ProbeStep::NoServer
             }
-        } else if field(&self.status, "configEnv").and_then(|c| c.get("exists")) != Some(&serde_json::Value::Bool(true)) {
-            "init"
-        } else if field(&self.service, "installed") != Some(&serde_json::Value::Bool(true)) {
-            "install-service"
+        } else if self.status.is_none() {
+            // The binary ran `version` but not `status`. Treating that as
+            // "unconfigured" would offer `init`, which REWRITES config.env —
+            // destroying a working configuration to fix a transient failure.
+            ProbeStep::Unreachable
+        } else if field(&self.status, "configEnv").and_then(|c| c.get("exists")) != Some(&serde_json::Value::Bool(true))
+        {
+            ProbeStep::Init
+        } else if self.service.is_none() {
+            ProbeStep::Unreachable
+        } else if !is_true(&self.service, "installed") {
+            ProbeStep::InstallService
         } else if field(&self.service, "state").and_then(|s| s.as_str()) == Some("running") {
-            "ready"
+            ProbeStep::Ready
         } else {
-            "start"
-        }
-        .to_string();
+            ProbeStep::Start
+        };
     }
 
-    /// The origin the main window should load, from the server's own
-    /// `APP_BASE_URL` when that is loopback.
+    /// The origin the main window should load.
     ///
-    /// Never a guess: better-auth derives the passkey rpID from
-    /// `APP_BASE_URL`'s hostname and cookie jars are per-host, so opening
-    /// `127.0.0.1` against a server configured for `localhost` silently splits
-    /// the session in two.
+    /// Built from the server's own `APP_BASE_URL` HOST when that host is
+    /// loopback, and from the validated port — never from the base URL's own
+    /// scheme or port. better-auth derives the passkey rpID from that hostname
+    /// and cookie jars are per-host, so opening `127.0.0.1` against a server
+    /// configured for `localhost` silently splits the session in two; but the
+    /// rest of the URL is config we should not trust into a window that holds
+    /// privileged globals.
     pub fn origin(&self) -> Option<String> {
-        let status = self.status.as_ref()?;
-        let settings = status.get("settings")?;
-        let port = settings.get("SERVER_PORT")?.get("value")?.as_str()?;
-        let base = settings.get("APP_BASE_URL")?.get("value")?.as_str().unwrap_or("");
-        let host = url_host(base);
-        match host.as_deref() {
-            Some(h) if is_loopback(h) => Some(base.trim_end_matches('/').to_string()),
-            // A non-loopback base URL is not reachable as itself from here and,
-            // on macOS, plain http to a named host is refused by ATS. Fall back
-            // to loopback and let the UI say passkeys will not work.
-            _ => Some(format!("http://127.0.0.1:{port}")),
+        let listen = self.status.as_ref()?.get("listen")?;
+        if listen.get("portValid")? != &serde_json::Value::Bool(true) {
+            return None;
         }
+        let port = listen.get("port")?.as_u64()?;
+        let base = self
+            .status
+            .as_ref()
+            .and_then(|s| s.get("settings")?.get("APP_BASE_URL")?.get("value")?.as_str())
+            .unwrap_or("");
+        let host = url_host(base)
+            .filter(|h| is_loopback(h))
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        // Bracket a literal IPv6 host so the result parses as a URL.
+        let host = if host.contains(':') { format!("[{host}]") } else { host };
+        Some(format!("http://{host}:{port}"))
     }
 }
 
@@ -115,7 +173,8 @@ fn url_host(url: &str) -> Option<String> {
     Some(host.split(':').next()?.to_string())
 }
 
-fn is_loopback(host: &str) -> bool {
+/// The hosts `localOriginsFor()` on the server side always trusts.
+pub fn is_loopback(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "::1" | "0:0:0:0:0:0:0:1")
 }
 
@@ -131,32 +190,55 @@ fn json_of(out: &Run) -> Option<serde_json::Value> {
     out.ok().then(|| serde_json::from_str(out.stdout.trim()).ok()).flatten()
 }
 
+static BUNDLED_VERSION: OnceLock<Option<String>> = OnceLock::new();
+
+/// What the shipped binary says it is. Memoized — it cannot change under a
+/// running app, and probing it spawns a ~110 MB binary.
+fn bundled_version() -> Option<String> {
+    BUNDLED_VERSION
+        .get_or_init(|| {
+            let path = sidecar::bundled_path()?;
+            let out = run(&[path.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
+            out.ok().then(|| parse_server_version(&out.stdout)).flatten()
+        })
+        .clone()
+}
+
 /// Look at the machine and report what it would take to reach a running server.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
-    let configured = settings.get().server_bin_path;
+    probe_now(settings.get().server_bin_path.as_deref())
+}
+
+fn probe_now(configured: Option<&str>) -> Probe {
+    let server = server_bin::resolve(configured);
+    let managed = match (&server, sidecar::install_path()) {
+        (Some(s), Some(managed_path)) => s.argv.first().map(|p| p.as_str()) == managed_path.to_str(),
+        _ => false,
+    };
     let mut p = Probe {
-        bundled_version: sidecar::bundled_path().and_then(|_| bundled_version()),
-        server: server_bin::resolve(configured.as_deref()),
+        bundled_version: bundled_version(),
+        server,
+        managed,
         ..Default::default()
     };
+
     if let Some(cmd) = server_cmd(&p.server, &["status", "--json"]) {
-        p.status = json_of(&run(&cmd, QUERY_TIMEOUT));
+        let out = run(&cmd, QUERY_TIMEOUT);
+        p.status = json_of(&out);
+        if p.status.is_none() {
+            p.error = Some(format!("`status --json` failed: {}", out.detail()));
+        }
     }
     if let Some(cmd) = server_cmd(&p.server, &["service", "status", "--json"]) {
-        p.service = json_of(&run(&cmd, QUERY_TIMEOUT));
+        let out = run(&cmd, QUERY_TIMEOUT);
+        p.service = json_of(&out);
+        if p.service.is_none() && p.error.is_none() {
+            p.error = Some(format!("`service status --json` failed: {}", out.detail()));
+        }
     }
     p.decide();
     p
-}
-
-/// What the shipped binary says it is.
-fn bundled_version() -> Option<String> {
-    let path = sidecar::bundled_path()?;
-    let out = run(&[path.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
-    out.ok()
-        .then(|| out.stdout.lines().next()?.trim().strip_prefix("subshell-server ").map(str::to_string))
-        .flatten()
 }
 
 /// Result of anything that changes the machine — the CLI's own words, verbatim.
@@ -173,80 +255,162 @@ impl From<Run> for ActionResult {
         // A failure with nothing on stderr is the one that reads as success in
         // a UI — a spawn error or a deadline leaves both streams empty, so fall
         // back to whatever the run can say about itself.
-        let stderr = if r.ok() || !r.stderr.trim().is_empty() { r.stderr.clone() } else { r.detail() };
-        ActionResult { ok: r.ok(), stdout: r.stdout, stderr }
+        let stderr = if r.ok() || !r.stderr.trim().is_empty() {
+            r.stderr.clone()
+        } else {
+            r.detail()
+        };
+        ActionResult {
+            ok: r.ok(),
+            stdout: r.stdout,
+            stderr,
+        }
     }
 }
 
 /// Materialise the bundled server at `~/.local/bin/subshell-server`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
     let configured = settings.get().server_bin_path;
     let version = bundled_version();
-    // Stop whatever is running from the target path first — replacing a live
-    // binary is ETXTBSY on Linux and a SIGKILL on macOS.
+    let probe = probe_now(configured.as_deref());
+    // Only tear down a service we are actually replacing. Stopping one that
+    // points somewhere else would be an outage for no upgrade.
+    let stop_target = probe
+        .managed
+        .then(|| server_cmd(&probe.server, &["service", "stop"]))
+        .flatten();
     let stop = || {
-        if let Some(cmd) = server_cmd(&server_bin::resolve(configured.as_deref()), &["service", "stop"]) {
+        if let Some(cmd) = stop_target {
             let _ = run(&cmd, ACTION_TIMEOUT);
         }
     };
     match sidecar::install_bundled(version.as_deref(), stop)? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no server binary".into()),
-        sidecar::InstallOutcome::UpToDate => {
-            Ok(ActionResult { ok: true, stdout: "The bundled server is already installed.".into(), stderr: String::new() })
-        }
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult {
+            ok: true,
+            stdout: "The bundled server is already installed.".into(),
+            stderr: String::new(),
+        }),
         sidecar::InstallOutcome::Installed => {
-            let where_ = sidecar::install_path().map(|p| p.display().to_string()).unwrap_or_default();
-            Ok(ActionResult { ok: true, stdout: format!("Installed subshell-server to {where_}"), stderr: String::new() })
+            let where_ = sidecar::install_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            Ok(ActionResult {
+                ok: true,
+                stdout: format!("Installed subshell-server to {where_}"),
+                stderr: String::new(),
+            })
         }
     }
 }
 
 /// `subshell-server init --yes` with the operator's port/host.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn desktop_init(settings: State<'_, SettingsState>, port: String, host: String) -> ActionResult {
     let server = server_bin::resolve(settings.get().server_bin_path.as_deref());
     let Some(mut cmd) = server_cmd(&server, &["init", "--yes"]) else {
-        return ActionResult { ok: false, stdout: String::new(), stderr: "no subshell-server found".into() };
+        return ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "no subshell-server found".into(),
+        };
     };
-    // `--yes` is what keeps this non-interactive; a GUI spawn has no TTY, so
-    // the CLI would refuse to prompt anyway, but saying so is the contract.
-    cmd.extend(["--port".into(), port, "--host".into(), host]);
+    // An empty field must not become an empty flag value: the CLI would refuse
+    // it, where omitting the flag correctly falls back to its own default.
+    if !port.trim().is_empty() {
+        cmd.extend(["--port".into(), port]);
+    }
+    if !host.trim().is_empty() {
+        cmd.extend(["--host".into(), host]);
+    }
     run(&cmd, ACTION_TIMEOUT).into()
 }
 
-/// One `service` verb, straight through. The server decides whether to refuse.
-#[tauri::command]
-pub fn desktop_service(settings: State<'_, SettingsState>, verb: String, force: bool) -> ActionResult {
-    const ALLOWED: [&str; 5] = ["install", "uninstall", "start", "stop", "restart"];
-    if !ALLOWED.contains(&verb.as_str()) {
-        return ActionResult { ok: false, stdout: String::new(), stderr: format!("unknown service verb '{verb}'") };
+/// The `service` verbs the console may drive.
+///
+/// A deserialized enum rather than a hand-written allowlist: an unknown verb is
+/// then refused by Tauri's own argument handling, before any code here runs.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceCommand {
+    Install,
+    Uninstall,
+    Start,
+    Stop,
+    Restart,
+}
+
+impl ServiceCommand {
+    fn as_str(self) -> &'static str {
+        match self {
+            ServiceCommand::Install => "install",
+            ServiceCommand::Uninstall => "uninstall",
+            ServiceCommand::Start => "start",
+            ServiceCommand::Stop => "stop",
+            ServiceCommand::Restart => "restart",
+        }
     }
+}
+
+/// One `service` verb, straight through. The server decides whether to refuse.
+#[tauri::command(async)]
+pub fn desktop_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
     let server = server_bin::resolve(settings.get().server_bin_path.as_deref());
-    let Some(mut cmd) = server_cmd(&server, &["service", &verb]) else {
-        return ActionResult { ok: false, stdout: String::new(), stderr: "no subshell-server found".into() };
+    let Some(mut cmd) = server_cmd(&server, &["service", verb.as_str()]) else {
+        return ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "no subshell-server found".into(),
+        };
     };
     // Only `restart` takes it; the CLI refuses the flag anywhere else.
-    if force && verb == "restart" {
+    if force && matches!(verb, ServiceCommand::Restart) {
         cmd.push("--force".into());
     }
     run(&cmd, ACTION_TIMEOUT).into()
 }
 
 /// Remember an explicitly chosen server binary.
-#[tauri::command]
+///
+/// Validated before it is persisted: this path is EXECUTED on every launch, so
+/// accepting whatever a file dialog returned would let one mis-click wedge the
+/// app on a file that is not a server.
+#[tauri::command(async)]
 pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<String>) -> Result<(), String> {
-    let mut guard = settings.0.lock().map_err(|_| "settings lock poisoned".to_string())?;
-    guard.server_bin_path = path.filter(|p| !p.is_empty());
+    let cleaned = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+        None => None,
+        Some(p) => {
+            if !std::path::Path::new(&p).is_absolute() {
+                return Err(format!("{p} is not an absolute path"));
+            }
+            if server_bin::probe_version(std::slice::from_ref(&p)).is_none() {
+                return Err(format!(
+                    "{p} does not look like a subshell-server — it could not report a version"
+                ));
+            }
+            Some(p)
+        }
+    };
+    let mut guard = settings.0.lock().unwrap_or_else(|e| e.into_inner());
+    guard.server_bin_path = cleaned;
     guard.save()
 }
 
 /// Open (or focus) the window that shows the server's own UI.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
-    let probe = desktop_probe(settings);
-    let origin = probe.origin().ok_or_else(|| "the server has not reported a base URL yet".to_string())?;
+    let probe = probe_now(settings.get().server_bin_path.as_deref());
+    let origin = probe
+        .origin()
+        .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
     crate::windows::open_main(&app, &origin)
+}
+
+/// Open (or focus) the server console. Called from the SPA's own footer.
+#[tauri::command(async)]
+pub fn desktop_open_console(app: AppHandle) -> Result<(), String> {
+    crate::windows::open_console(&app).map(|_| ())
 }
 
 #[cfg(test)]
@@ -254,95 +418,208 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn probe_with(status: serde_json::Value, service: serde_json::Value, has_server: bool) -> Probe {
+    fn probe_with(status: Option<serde_json::Value>, service: Option<serde_json::Value>, has_server: bool) -> Probe {
         let mut p = Probe {
             bundled_version: Some("1.8.0".into()),
-            server: has_server
-                .then(|| ServerBinary { argv: vec!["/x/subshell-server".into()], source: "path".into(), version: Some("1.8.0".into()) }),
-            status: Some(status),
-            service: Some(service),
+            server: has_server.then(|| ServerBinary {
+                argv: vec!["/x/subshell-server".into()],
+                source: server_bin::ServerSource::Path,
+                version: Some("1.8.0".into()),
+            }),
+            managed: true,
+            status,
+            service,
             ..Default::default()
         };
         p.decide();
         p
     }
 
-    const CONFIGURED: fn() -> serde_json::Value = || json!({"configEnv": {"exists": true}, "settings": {}});
+    fn configured() -> serde_json::Value {
+        json!({"configEnv": {"exists": true}, "settings": {}, "listen": {"portValid": true, "port": 3080}})
+    }
 
     #[test]
     fn with_no_server_the_first_step_is_installing_the_bundled_one() {
-        let p = probe_with(json!({}), json!({}), false);
-        assert_eq!(p.next, "install-server");
+        assert_eq!(probe_with(None, None, false).next, ProbeStep::InstallServer);
     }
 
     #[test]
     fn a_build_with_no_sidecar_and_no_server_says_so() {
         let mut p = Probe::default();
         p.decide();
-        assert_eq!(p.next, "no-server");
+        assert_eq!(p.next, ProbeStep::NoServer);
+    }
+
+    // The dangerous one: a binary that runs `version` but whose `status`
+    // failed used to read as "unconfigured", which offers `init` — and `init`
+    // REWRITES config.env. A transient failure would destroy a working setup.
+    #[test]
+    fn a_server_that_did_not_answer_is_unreachable_not_unconfigured() {
+        let p = probe_with(None, None, true);
+        assert_eq!(p.next, ProbeStep::Unreachable);
+        assert_ne!(p.next, ProbeStep::Init);
+    }
+
+    #[test]
+    fn a_service_status_that_did_not_answer_is_also_unreachable() {
+        assert_eq!(probe_with(Some(configured()), None, true).next, ProbeStep::Unreachable);
     }
 
     #[test]
     fn a_server_without_config_needs_init() {
-        let p = probe_with(json!({"configEnv": {"exists": false}}), json!({"installed": false}), true);
-        assert_eq!(p.next, "init");
+        let p = probe_with(
+            Some(json!({"configEnv": {"exists": false}})),
+            Some(json!({"installed": false})),
+            true,
+        );
+        assert_eq!(p.next, ProbeStep::Init);
     }
 
     #[test]
     fn a_configured_server_with_no_service_offers_the_install() {
-        let p = probe_with(CONFIGURED(), json!({"installed": false, "state": "not-installed"}), true);
-        assert_eq!(p.next, "install-service");
+        let p = probe_with(
+            Some(configured()),
+            Some(json!({"installed": false, "state": "not-installed"})),
+            true,
+        );
+        assert_eq!(p.next, ProbeStep::InstallService);
     }
 
     #[test]
     fn an_installed_but_stopped_service_offers_start() {
-        let p = probe_with(CONFIGURED(), json!({"installed": true, "state": "stopped"}), true);
-        assert_eq!(p.next, "start");
+        let p = probe_with(
+            Some(configured()),
+            Some(json!({"installed": true, "state": "stopped"})),
+            true,
+        );
+        assert_eq!(p.next, ProbeStep::Start);
     }
 
     #[test]
     fn a_running_service_is_ready() {
-        let p = probe_with(CONFIGURED(), json!({"installed": true, "state": "running"}), true);
-        assert_eq!(p.next, "ready");
+        let p = probe_with(
+            Some(configured()),
+            Some(json!({"installed": true, "state": "running"})),
+            true,
+        );
+        assert_eq!(p.next, ProbeStep::Ready);
     }
 
-    // `unknown` is the manager failing to answer — it must not read as ready.
     #[test]
     fn an_unknown_manager_state_is_not_ready() {
-        let p = probe_with(CONFIGURED(), json!({"installed": true, "state": "unknown"}), true);
-        assert_eq!(p.next, "start");
+        let p = probe_with(
+            Some(configured()),
+            Some(json!({"installed": true, "state": "unknown"})),
+            true,
+        );
+        assert_eq!(p.next, ProbeStep::Start);
+    }
+
+    // Installing to ~/.local/bin cannot change what a service pointing
+    // somewhere else runs, so offering the upgrade would repeat forever.
+    #[test]
+    fn no_upgrade_is_offered_for_a_server_this_app_does_not_manage() {
+        let mut p = Probe {
+            bundled_version: Some("2.0.0".into()),
+            server: Some(ServerBinary {
+                argv: vec!["/usr/local/bin/subshell-server".into()],
+                source: server_bin::ServerSource::Service,
+                version: Some("1.8.0".into()),
+            }),
+            managed: false,
+            ..Default::default()
+        };
+        p.decide();
+        assert_eq!(p.server_choice, ServerChoice::UpToDate);
     }
 
     #[test]
-    fn origin_prefers_the_servers_own_loopback_base_url() {
+    fn an_upgrade_is_offered_for_the_managed_copy() {
+        let mut p = Probe {
+            bundled_version: Some("2.0.0".into()),
+            server: Some(ServerBinary {
+                argv: vec!["/home/u/.local/bin/subshell-server".into()],
+                source: server_bin::ServerSource::LocalBin,
+                version: Some("1.8.0".into()),
+            }),
+            managed: true,
+            ..Default::default()
+        };
+        p.decide();
+        assert_eq!(p.server_choice, ServerChoice::UpgradeAvailable);
+    }
+
+    #[test]
+    fn origin_prefers_the_servers_own_loopback_spelling() {
         let p = probe_with(
-            json!({"configEnv": {"exists": true}, "settings": {"SERVER_PORT": {"value": "3080"}, "APP_BASE_URL": {"value": "http://localhost:3080"}}}),
-            json!({"installed": true, "state": "running"}),
+            Some(json!({
+                "configEnv": {"exists": true},
+                "settings": {"APP_BASE_URL": {"value": "http://localhost:3080"}},
+                "listen": {"portValid": true, "port": 3080}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
             true,
         );
         assert_eq!(p.origin().as_deref(), Some("http://localhost:3080"));
     }
 
-    // Guessing the loopback spelling splits the cookie jar and breaks passkeys,
-    // so the server's own spelling wins whenever it is loopback.
+    // The port comes from the VALIDATED field, never from the base URL — a
+    // config value must not be able to point a privileged window elsewhere.
     #[test]
-    fn origin_keeps_the_127_spelling_when_that_is_what_the_server_says() {
+    fn origin_ignores_the_base_urls_own_port_and_scheme() {
         let p = probe_with(
-            json!({"configEnv": {"exists": true}, "settings": {"SERVER_PORT": {"value": "9000"}, "APP_BASE_URL": {"value": "http://127.0.0.1:9000"}}}),
-            json!({"installed": true, "state": "running"}),
+            Some(json!({
+                "configEnv": {"exists": true},
+                "settings": {"APP_BASE_URL": {"value": "https://localhost:9999"}},
+                "listen": {"portValid": true, "port": 3080}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
             true,
         );
-        assert_eq!(p.origin().as_deref(), Some("http://127.0.0.1:9000"));
+        assert_eq!(p.origin().as_deref(), Some("http://localhost:3080"));
     }
 
     #[test]
     fn origin_falls_back_to_loopback_for_a_named_host() {
         let p = probe_with(
-            json!({"configEnv": {"exists": true}, "settings": {"SERVER_PORT": {"value": "3080"}, "APP_BASE_URL": {"value": "https://box.tail1234.ts.net"}}}),
-            json!({"installed": true, "state": "running"}),
+            Some(json!({
+                "configEnv": {"exists": true},
+                "settings": {"APP_BASE_URL": {"value": "http://evil.example.com:3080"}},
+                "listen": {"portValid": true, "port": 3080}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
             true,
         );
         assert_eq!(p.origin().as_deref(), Some("http://127.0.0.1:3080"));
+    }
+
+    #[test]
+    fn origin_refuses_an_invalid_port_rather_than_guessing() {
+        let p = probe_with(
+            Some(json!({
+                "configEnv": {"exists": true},
+                "settings": {"APP_BASE_URL": {"value": "http://localhost:3080"}},
+                "listen": {"portValid": false, "port": null}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
+            true,
+        );
+        assert_eq!(p.origin(), None);
+    }
+
+    #[test]
+    fn origin_brackets_a_literal_ipv6_host() {
+        let p = probe_with(
+            Some(json!({
+                "configEnv": {"exists": true},
+                "settings": {"APP_BASE_URL": {"value": "http://[::1]:3080"}},
+                "listen": {"portValid": true, "port": 3080}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
+            true,
+        );
+        assert_eq!(p.origin().as_deref(), Some("http://[::1]:3080"));
     }
 
     #[test]
@@ -358,5 +635,17 @@ mod tests {
             assert!(is_loopback(h), "{h}");
         }
         assert!(!is_loopback("example.com"));
+    }
+
+    #[test]
+    fn probe_steps_serialize_as_kebab_case_for_the_console() {
+        assert_eq!(
+            serde_json::to_string(&ProbeStep::InstallService).unwrap(),
+            "\"install-service\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ProbeStep::Unreachable).unwrap(),
+            "\"unreachable\""
+        );
     }
 }

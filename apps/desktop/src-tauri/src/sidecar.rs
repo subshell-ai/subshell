@@ -26,9 +26,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use crate::proc::run;
+use crate::proc::{run, PROBE_TIMEOUT, QUERY_TIMEOUT};
+use crate::server_bin::parse_server_version;
 use crate::shell_env::home_dir;
 
 /// The sidecar's name inside the bundle. Tauri STRIPS the `-<target-triple>`
@@ -81,10 +81,13 @@ fn already_installed(bundled: &Path, dest: &Path, bundled_version: Option<&str>)
         return false;
     }
     match bundled_version {
-        None => true,
+        // Cannot verify what we would be installing, so do not claim the
+        // installed copy matches it.
+        None => false,
         Some(want) => {
-            let out = run(&[dest.to_string_lossy().into_owned(), "version".into()], Duration::from_secs(15));
-            out.ok() && out.stdout.trim().ends_with(want)
+            let out = run(&[dest.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
+            // `==`, not `ends_with`: the latter accepts "11.8.0" for "1.8.0".
+            out.ok() && parse_server_version(&out.stdout).as_deref() == Some(want)
         }
     }
 }
@@ -94,10 +97,7 @@ fn already_installed(bundled: &Path, dest: &Path, bundled_version: Option<&str>)
 /// `stop_first` is invoked before the swap when an install is actually needed —
 /// the caller passes something that takes the service down, because replacing a
 /// running binary is the failure this function exists to avoid.
-pub fn install_bundled(
-    bundled_version: Option<&str>,
-    stop_first: impl FnOnce(),
-) -> Result<InstallOutcome, String> {
+pub fn install_bundled(bundled_version: Option<&str>, stop_first: impl FnOnce()) -> Result<InstallOutcome, String> {
     let Some(bundled) = bundled_path() else {
         return Ok(InstallOutcome::NoSidecar);
     };
@@ -118,9 +118,16 @@ pub fn install_bundled(
     let _ = fs::remove_file(&tmp);
     fs::copy(&bundled, &tmp).map_err(|e| format!("could not stage {}: {e}", tmp.display()))?;
     set_executable(&tmp)?;
-    // Strip quarantine BEFORE the rename so the file is never briefly live and
-    // quarantined at the path launchd is about to exec.
+    // Strip quarantine BEFORE the fsync and the rename, so the file is never
+    // briefly live and quarantined at the path launchd is about to exec.
     strip_quarantine(&tmp);
+    // rename(2) makes the swap atomic against a CONCURRENT reader, but not
+    // against a crash: without this, a power loss between the rename and the
+    // writeback can leave the new name pointing at a zero-length file, which
+    // is an unbootable server that looks installed.
+    fs::File::open(&tmp)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| format!("could not flush {}: {e}", tmp.display()))?;
     fs::rename(&tmp, &dest).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         format!("could not install {}: {e}", dest.display())
@@ -148,8 +155,13 @@ fn set_executable(_path: &Path) -> Result<(), String> {
 fn strip_quarantine(path: &Path) {
     if cfg!(target_os = "macos") {
         let _ = run(
-            &["/usr/bin/xattr".into(), "-d".into(), "com.apple.quarantine".into(), path.to_string_lossy().into_owned()],
-            Duration::from_secs(10),
+            &[
+                "/usr/bin/xattr".into(),
+                "-d".into(),
+                "com.apple.quarantine".into(),
+                path.to_string_lossy().into_owned(),
+            ],
+            PROBE_TIMEOUT,
         );
     }
 }
@@ -193,10 +205,30 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         fs::write(&a, b"aaaa").unwrap();
         fs::write(&b, b"aa").unwrap();
+        assert!(!already_installed(&a, &b, Some("1.8.0")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // Not knowing what we would install is not evidence that it is already
+    // installed — the answer must be "reinstall", not "skip".
+    #[test]
+    fn an_unverifiable_bundled_version_is_never_up_to_date() {
+        let dir = std::env::temp_dir().join(format!("subshell-sidecar-unver-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        fs::write(&a, b"same").unwrap();
+        fs::write(&b, b"same").unwrap();
         assert!(!already_installed(&a, &b, None));
-        // Same bytes, no version demanded -> nothing to do.
-        fs::write(&b, b"aaaa").unwrap();
-        assert!(already_installed(&a, &b, None));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_destination_is_never_up_to_date() {
+        let dir = std::env::temp_dir().join(format!("subshell-sidecar-missing-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a");
+        fs::write(&a, b"same").unwrap();
+        assert!(!already_installed(&a, &dir.join("nope"), Some("1.8.0")));
         let _ = fs::remove_dir_all(&dir);
     }
 }

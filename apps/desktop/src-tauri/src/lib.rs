@@ -4,8 +4,8 @@ mod control;
 mod proc;
 mod server_bin;
 mod settings;
-mod sidecar;
 mod shell_env;
+mod sidecar;
 mod version;
 mod windows;
 
@@ -27,7 +27,10 @@ pub fn run() {
         // to a hidden window.
         builder = builder
             .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-                if let Some(w) = app.get_webview_window("main").or_else(|| app.get_webview_window("console")) {
+                if let Some(w) = app
+                    .get_webview_window("main")
+                    .or_else(|| app.get_webview_window("console"))
+                {
                     let _ = w.show();
                     let _ = w.unminimize();
                     let _ = w.set_focus();
@@ -47,6 +50,7 @@ pub fn run() {
             control::desktop_service,
             control::desktop_set_server_bin,
             control::desktop_open_main,
+            control::desktop_open_console,
         ])
         .setup(|app| {
             windows::open_console(&app.handle().clone())?;

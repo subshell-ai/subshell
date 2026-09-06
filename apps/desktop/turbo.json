@@ -1,11 +1,32 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "clean": {},
-    "lint": { "inputs": ["src/**", "*.json"] },
-    "lint:check": { "inputs": ["src/**", "*.json"] },
-    "test": { "cache": false },
-    "verify-types": { "inputs": ["src/**", "*.json"] }
+    "lint": {
+      "inputs": [
+        "src/**",
+        "ui/**",
+        "*.json"
+      ]
+    },
+    "lint:check": {
+      "inputs": [
+        "src/**",
+        "ui/**",
+        "*.json"
+      ]
+    },
+    "test": {
+      "cache": false
+    },
+    "verify-types": {
+      "inputs": [
+        "src/**",
+        "*.json"
+      ]
+    }
   }
 }

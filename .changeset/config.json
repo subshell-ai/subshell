@@ -12,6 +12,7 @@
     "@internal/backend-client",
     "@internal/backend-errors",
     "@internal/brand",
+    "@internal/desktop",
     "@internal/e2e",
     "@internal/frontend",
     "@internal/harnesses",

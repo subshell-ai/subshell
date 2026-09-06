@@ -1,0 +1,182 @@
+/* Dreamframe (Castorice) — the same ground and accents apps/frontend
+   paints, hand-copied because this page deliberately ships no framework
+   and no design-system dependency: it must render with the server down. */
+:root {
+  --bg: oklch(0.224 0.035 296);
+  --card: oklch(0.264 0.038 298);
+  --border: oklch(0.34 0.04 300);
+  --fg: oklch(0.94 0.01 300);
+  --muted: oklch(0.68 0.03 300);
+  --primary: oklch(0.72 0.13 330);
+  --primary-fg: oklch(0.18 0.04 300);
+  --ok: oklch(0.74 0.14 155);
+  --warn: oklch(0.8 0.14 80);
+  --bad: oklch(0.68 0.19 20);
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  padding: 22px 24px 28px;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    13px / 1.55 ui-sans-serif,
+    -apple-system,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+}
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 2px;
+  letter-spacing: 0.01em;
+}
+.sub {
+  color: var(--muted);
+  margin: 0 0 18px;
+  font-size: 12px;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+  word-break: break-all;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.dot.ok {
+  background: var(--ok);
+}
+.dot.warn {
+  background: var(--warn);
+}
+.dot.bad {
+  background: var(--bad);
+}
+button {
+  font: inherit;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: transparent;
+  font-weight: 600;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+input {
+  font: inherit;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+pre {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font:
+    11.5px / 1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+pre:empty {
+  display: none;
+}
+.warn-text {
+  color: var(--warn);
+}
+.bad-text {
+  color: var(--bad);
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.problem {
+  margin: 0 0 10px;
+  color: var(--warn);
+  font-size: 12px;
+}
+.problem:empty {
+  display: none;
+}
+.output-bad {
+  border-color: var(--bad);
+}

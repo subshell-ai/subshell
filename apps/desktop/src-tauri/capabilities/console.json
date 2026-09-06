@@ -1,14 +1,19 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "console",
-  "description": "The bundled server-control page. It is the ONLY surface allowed to drive the subshell-server CLI, which is why it is a separate window from the one showing the server's own SPA.",
+  "description": "The bundled server-control page, and the ONLY surface allowed to drive the subshell-server CLI. That is why it is a separate window from the one showing the server's own SPA: the boundary is the window and its origin, not a convention.",
+  "local": true,
   "windows": ["console"],
   "permissions": [
     "core:default",
-    "core:window:allow-start-dragging",
     "dialog:allow-open",
     "dialog:allow-message",
-    "opener:allow-open-url",
-    "opener:allow-reveal-item-in-dir"
+    "allow-desktop-probe",
+    "allow-desktop-install-server",
+    "allow-desktop-init",
+    "allow-desktop-service",
+    "allow-desktop-set-server-bin",
+    "allow-desktop-open-main",
+    "allow-desktop-open-console"
   ]
 }

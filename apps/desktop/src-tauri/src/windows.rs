@@ -10,6 +10,8 @@
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+use crate::control::is_loopback;
+
 /// Below this the SPA renders its PHONE drawer — `useIsWide()` is
 /// `matchMedia("(min-width: 1024px)")` and `WORKSPACE_TILING_MIN_WIDTH` is
 /// 1024. Tauri's own 800x600 default would ship the desktop app in the exact
@@ -50,17 +52,37 @@ pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 /// Create (or focus) the window that shows the server's SPA at `origin`.
 pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
+    let url: tauri::Url = origin
+        .parse()
+        .map_err(|e| format!("the server reported an unusable base URL '{origin}': {e}"))?;
+    // Belt and braces over `Probe::origin`, which already builds this from a
+    // validated port and a loopback host: this window carries privileged
+    // globals, so the last thing between a config value and pointing it at an
+    // arbitrary host should be a refusal, not a comment.
+    if !url.host_str().map(is_loopback).unwrap_or(false) {
+        return Err(format!("refusing to open a non-loopback origin: {origin}"));
+    }
+
     if let Some(w) = app.get_webview_window("main") {
+        // The server may have been reconfigured to another port since this
+        // window opened. Focusing a window pointed at a dead origin looks like
+        // the app is broken; navigating it is the whole fix.
+        if w.url().map(|u| u.origin() != url.origin()).unwrap_or(false) {
+            let _ = w.navigate(url);
+        }
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
         return Ok(());
     }
-    let url = origin
-        .parse()
-        .map_err(|e| format!("the server reported an unusable base URL '{origin}': {e}"))?;
 
+    let allowed = url.origin();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+        // The page is the SERVER's, and this window holds Tauri globals. A
+        // navigation away from the server's own origin — a redirect, an href
+        // in rendered content, an injected script — must not carry those
+        // anywhere else. Same-origin navigation is the SPA doing its job.
+        .on_navigation(move |u| u.origin() == allowed)
         .title("Subshell")
         .inner_size(1280.0, 860.0)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
@@ -71,7 +93,9 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // terminal's own file-drop uploads.
         .disable_drag_drop_handler();
 
-    builder.build().map_err(|e| format!("could not open the main window: {e}"))?;
+    builder
+        .build()
+        .map_err(|e| format!("could not open the main window: {e}"))?;
     Ok(())
 }
 

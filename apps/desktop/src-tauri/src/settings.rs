@@ -37,14 +37,12 @@ impl Settings {
     }
 
     pub fn load() -> Self {
-        let mut s: Settings = Self::path()
+        // `#[serde(default)]` already gives an absent file and an absent field
+        // the same answer, which is what the Linux default below relies on.
+        Self::path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
-        if !cfg!(target_os = "macos") && !Self::path().map(|p| p.exists()).unwrap_or(false) {
-            s.close_to_tray = false;
-        }
-        s
+            .unwrap_or_default()
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -63,8 +61,14 @@ impl SettingsState {
     pub fn new() -> Self {
         Self(Mutex::new(Settings::load()))
     }
+    /// Recovers from a poisoned lock rather than discarding the settings.
+    ///
+    /// `unwrap_or_default()` here would silently forget the user's chosen
+    /// server binary the first time any thread panicked while holding this —
+    /// and `Settings` is plain data with no invariant a panic could have left
+    /// half-applied, so the value is still good.
     pub fn get(&self) -> Settings {
-        self.0.lock().map(|g| g.clone()).unwrap_or_default()
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -81,7 +85,11 @@ mod tests {
 
     #[test]
     fn round_trips_through_json() {
-        let s = Settings { server_bin_path: Some("/x/subshell-server".into()), close_to_tray: true, open_at_login: false };
+        let s = Settings {
+            server_bin_path: Some("/x/subshell-server".into()),
+            close_to_tray: true,
+            open_at_login: false,
+        };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.server_bin_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);

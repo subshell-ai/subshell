@@ -22,12 +22,20 @@ so serving the SPA ourselves would mean an auth rework, not a build change.
 ## Commands
 
 ```bash
-bun run dev:app            # tauri dev (needs a staged sidecar — see below)
-bun run compile            # tauri build --debug
-bun run compile:release    # the release pipeline (src/scripts/release.ts)
-bun run test               # bun test src   (the TS half)
+bun run dev:app             # tauri dev (needs a staged sidecar — see below)
+bun run compile             # tauri build --debug
+bun run test                # bun test src   (the TS half)
 cd src-tauri && cargo test  # the Rust half — the ladder, the parsers, the policy
+cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
+
+The Rust half runs in CI as its own `desktop-rust` job in
+`.github/workflows/test.yml` — it cannot ride `bun run test`, which runs on a
+plain `ubuntu-latest` with no Rust toolchain and none of Tauri's system deps.
+
+There is no `compile:release` yet: the release pipeline lands with the CI
+wiring, and a script name in `package.json` that resolves to nothing is worse
+than its absence.
 
 **There is deliberately no `build` script.** `bun run build` runs on hosted
 `ubuntu-latest` in both `test.yml` and `lint.yml`, where there is no Rust
@@ -41,8 +49,9 @@ otherwise launch a Tauri window for everyone.
 `bundle.externalBin` is `binaries/subshell-server-bundled`. The staged file
 carries the **Rust** triple (`…-aarch64-apple-darwin`); Tauri **strips** that
 suffix on copy, so inside the bundle — and beside the dev binary — it is just
-`subshell-server-bundled`. Those are two different strings and both are needed;
-see `BUNDLED_SIDECAR_NAME` in `src-tauri/src/sidecar.rs`.
+`subshell-server-bundled` (`BUNDLED_SIDECAR_NAME` in `src-tauri/src/sidecar.rs`).
+Those are two different strings and both are needed: anything grepping for the
+staged name inside a built bundle finds nothing, 100% of the time.
 
 To stage one by hand for `tauri dev`:
 
@@ -87,6 +96,31 @@ src-tauri/src/
 └── version.rs     # semverLt, mirrored from the protocol package
 ```
 
+## The IPC boundary
+
+`src-tauri/permissions/desktop.toml` is the app's own ACL manifest, and its
+**existence** is the boundary — not just its contents. Tauri gates an app
+command when `plugin_command.is_some() || has_app_acl_manifest || !is_local`
+(tauri 2.11.5, `webview/mod.rs`). Without that file every app command is
+ungated for every LOCAL window, so any window added later would silently
+inherit the ability to drive the CLI.
+
+With it, the split is enforced:
+
+| Window | Gets |
+| --- | --- |
+| `console` | all seven commands — it is the control surface |
+| `main` | `desktop_open_console` and window dragging, over loopback only |
+
+`main`'s page is served by the subshell-server this app manages, so it is
+treated as remote content. `capabilities/main.json` carries `remote.urls`
+scoped to loopback, and `open_main` additionally refuses a non-loopback origin
+and pins `on_navigation` to the origin it was opened with — three independent
+gates, because the window holds privileged globals.
+
+The console has a real CSP (`script-src 'self'`), which is why its logic lives
+in `ui/main.js` rather than inline.
+
 ## Things that will bite
 
 - **A GUI app's PATH is `/usr/bin:/bin:/usr/sbin:/sbin`.** No `/opt/homebrew/bin`,
@@ -112,3 +146,24 @@ src-tauri/src/
 - **Icons** are generated with `tauri icon` from
   `apps/frontend/public/icons/icon-512.png`, itself a `brand/` output. Regenerate
   them from the brand master, never by hand.
+
+- **`proc::run` drains both pipes on threads, and that is not tidiness.**
+  Waiting for exit and reading afterwards is the classic pipe deadlock, and it
+  failed in both directions here (measured): 128 KiB of stdout turned a 5 ms
+  command into a 3 s "timeout" with the child SIGKILLed, and a command leaving
+  a backgrounded descendant held the pipe open so a 2 s deadline returned after
+  8 s with `timed_out: false`. Both are regression tests now.
+- **Nothing in `shell_env.rs` may use `Command::output()`.** It runs the user's
+  own login profile — arbitrary code, on every launch — inside the `OnceLock`
+  that every spawn waits on. It uses `proc::run_with_path` with a bootstrap
+  PATH, because `proc::run` would recurse into the lock it is filling.
+- **A `status --json` that does not answer is `Unreachable`, never `Init`.**
+  `init` REWRITES `config.env`, so reading a transient failure as "unconfigured"
+  would destroy a working configuration to fix nothing.
+- **The upgrade offer compares against the MANAGED copy.** Installing to
+  `~/.local/bin` cannot change what a service pointing elsewhere runs, so
+  offering it for a server the user installed themselves would repeat forever.
+- **`minimumSystemVersion` is 13.0 because the SIDECAR says so.** `otool -l`
+  reports `minos 13.0` for the Bun-compiled server and 11.0 for the Rust
+  binary; the bundle floor is the max of the two, and getting it wrong means an
+  app that installs and then cannot start its own server.

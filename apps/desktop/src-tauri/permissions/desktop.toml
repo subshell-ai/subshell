@@ -1,0 +1,48 @@
+# The app's own ACL manifest.
+#
+# Its EXISTENCE is the security boundary, not just its contents. Tauri gates an
+# app command when `plugin_command.is_some() || has_app_acl_manifest ||
+# !is_local` (tauri 2.11.5, webview/mod.rs). Without this file, every app
+# command is ungated for every LOCAL window — so any window added later would
+# silently inherit the ability to drive the CLI. With it, each command is
+# granted deliberately, per window.
+#
+# The split that matters: `console` gets all of them; `main` — whose page comes
+# from the SERVER — gets exactly one, and only over loopback.
+
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-desktop-probe"
+description = "Read what it would take to reach a running server. Read-only."
+commands.allow = ["desktop_probe"]
+
+[[permission]]
+identifier = "allow-desktop-install-server"
+description = "Install the bundled subshell-server to ~/.local/bin, stopping the managed service first."
+commands.allow = ["desktop_install_server"]
+
+[[permission]]
+identifier = "allow-desktop-init"
+description = "Write config.env via `subshell-server init --yes`. Destructive: it rewrites an existing configuration."
+commands.allow = ["desktop_init"]
+
+[[permission]]
+identifier = "allow-desktop-service"
+description = "Drive one `subshell-server service` verb. Includes stop and restart, which can end running subshells."
+commands.allow = ["desktop_service"]
+
+[[permission]]
+identifier = "allow-desktop-set-server-bin"
+description = "Remember an explicitly chosen server binary. The path is executed on every launch."
+commands.allow = ["desktop_set_server_bin"]
+
+[[permission]]
+identifier = "allow-desktop-open-main"
+description = "Open the window showing the server's own UI."
+commands.allow = ["desktop_open_main"]
+
+[[permission]]
+identifier = "allow-desktop-open-console"
+description = "Open the server console window. Safe for the server-origin page to call: it shows a window and nothing else."
+commands.allow = ["desktop_open_console"]

@@ -16,6 +16,21 @@ updates:
         patterns:
           - "*"
 
+  # apps/desktop's Rust dependencies. Unlike the JS ones, these are NOT covered
+  # by syncpack — there is one crate manifest and nothing to keep in sync
+  # across the workspace — and a Tauri app carries the webview and the security
+  # boundary, so a stale tauri is a stale ACL implementation.
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
 # Note: JS dependencies are deliberately not managed here. They are pinned exactly
 # and updated together via `bun run syncpack:update`, which keeps versions in sync
 # across the workspace — something per-package Dependabot PRs would fight with.

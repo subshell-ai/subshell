@@ -18,7 +18,7 @@ pre-commit:
       tags:
         - package-lint
     "lint staged":
-      glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}"
+      glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,html,css}"
       run: turbo run lint:staged
       stage_fixed: true
       tags:

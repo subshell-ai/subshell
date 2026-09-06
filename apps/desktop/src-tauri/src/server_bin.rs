@@ -20,15 +20,43 @@ use std::time::Duration;
 use crate::proc::{run, QUERY_TIMEOUT};
 use crate::shell_env::home_dir;
 
+/// Which rung of the ladder answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServerSource {
+    /// `SUBSHELL_SERVER_BIN`.
+    Env,
+    /// A path the user chose by hand.
+    Configured,
+    /// The installed unit/plist — the AUTHORITY on what this machine runs.
+    Service,
+    /// `~/.local/bin/subshell-server`, where this app installs the bundled one.
+    LocalBin,
+    /// Somewhere on the login PATH.
+    Path,
+    /// A conventional install directory.
+    WellKnown,
+}
+
 /// A resolved server, plus the rung it was found on.
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerBinary {
     /// The command prefix to invoke — one token for a compiled binary, two for a dev-form install.
     pub argv: Vec<String>,
-    /// Which rung answered: `env`, `configured`, `service`, `local-bin`, `path`, `well-known`.
-    pub source: String,
+    pub source: ServerSource,
     /// `<argv> version` output, when it ran and looked like a version.
     pub version: Option<String>,
+}
+
+/// The version out of a `subshell-server version` line.
+///
+/// One parser, three callers (the ladder, the bundled probe, the
+/// already-installed check). They were three subtly different string dances,
+/// one of which was a `ends_with` that would accept `11.8.0` for `1.8.0`.
+pub fn parse_server_version(stdout: &str) -> Option<String> {
+    let line = stdout.lines().next()?.trim();
+    let version = line.strip_prefix("subshell-server ")?.trim();
+    (!version.is_empty()).then(|| version.to_string())
 }
 
 /// systemd word-splits `ExecStart=` itself (it is NOT run through a shell), so
@@ -83,7 +111,7 @@ fn from_systemd_unit() -> Option<Vec<String>> {
     let line = text
         .lines()
         .filter_map(|l| l.trim().strip_prefix("ExecStart="))
-        .last()?;
+        .next_back()?;
     let argv = parse_systemd_exec(line);
     if argv.is_empty() {
         None
@@ -103,7 +131,15 @@ fn from_launchd_plist() -> Option<Vec<String>> {
         return None;
     }
     let out = run(
-        &["plutil".into(), "-extract".into(), "ProgramArguments".into(), "json".into(), "-o".into(), "-".into(), path],
+        &[
+            "plutil".into(),
+            "-extract".into(),
+            "ProgramArguments".into(),
+            "json".into(),
+            "-o".into(),
+            "-".into(),
+            path,
+        ],
         Duration::from_secs(5),
     );
     if !out.ok() {
@@ -118,21 +154,11 @@ fn from_launchd_plist() -> Option<Vec<String>> {
 }
 
 /// Ask a candidate what it is. A candidate that cannot answer is not a server.
-fn probe_version(argv: &[String]) -> Option<String> {
+pub fn probe_version(argv: &[String]) -> Option<String> {
     let mut cmd = argv.to_vec();
     cmd.push("version".into());
     let out = run(&cmd, QUERY_TIMEOUT);
-    if !out.ok() {
-        return None;
-    }
-    // `subshell-server 1.8.0`
-    let line = out.stdout.lines().next()?.trim();
-    let version = line.strip_prefix("subshell-server ")?.trim();
-    if version.is_empty() {
-        None
-    } else {
-        Some(version.to_string())
-    }
+    out.ok().then(|| parse_server_version(&out.stdout)).flatten()
 }
 
 fn exists(path: &str) -> bool {
@@ -151,45 +177,68 @@ pub fn managed_install_path() -> Option<String> {
 /// `configured` is the path the user picked by hand, if any — it outranks
 /// everything except an explicit environment override.
 pub fn resolve(configured: Option<&str>) -> Option<ServerBinary> {
-    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
+    resolve_with(&candidates(configured), probe_version, exists)
+}
+
+/// The ladder, in order, as (rung, argv) pairs. Pure apart from the
+/// environment it reads, so its ORDER is testable without a filesystem.
+pub fn candidates(configured: Option<&str>) -> Vec<(ServerSource, Vec<String>)> {
+    let mut out: Vec<(ServerSource, Vec<String>)> = Vec::new();
     if let Ok(explicit) = std::env::var("SUBSHELL_SERVER_BIN") {
         if !explicit.is_empty() {
-            candidates.push(("env".into(), vec![explicit]));
+            out.push((ServerSource::Env, vec![explicit]));
         }
     }
     if let Some(path) = configured.filter(|p| !p.is_empty()) {
-        candidates.push(("configured".into(), vec![path.to_string()]));
+        out.push((ServerSource::Configured, vec![path.to_string()]));
     }
     // The service definition is the AUTHORITY on what is installed: whatever
     // the manager starts is the server this machine actually runs.
     if let Some(argv) = from_systemd_unit().or_else(from_launchd_plist) {
-        candidates.push(("service".into(), argv));
+        out.push((ServerSource::Service, argv));
     }
     if let Some(managed) = managed_install_path() {
-        candidates.push(("local-bin".into(), vec![managed]));
+        out.push((ServerSource::LocalBin, vec![managed]));
     }
-    if let Ok(path_var) = std::env::var("PATH").or_else(|_| Ok::<_, std::env::VarError>(crate::shell_env::login_path().to_string())) {
-        for dir in path_var.split(':').filter(|d| !d.is_empty()) {
-            candidates.push(("path".into(), vec![format!("{dir}/subshell-server")]));
-        }
+    // The LOGIN path, not the process's. A GUI app inherits
+    // `/usr/bin:/bin:/usr/sbin:/sbin`, so searching that would miss exactly the
+    // Homebrew/asdf install the user has — while every spawn we make already
+    // runs with the login PATH. Searching a narrower PATH than we execute with
+    // is the inconsistency that makes "it works in my terminal" true.
+    for dir in crate::shell_env::login_path().split(':').filter(|d| !d.is_empty()) {
+        out.push((ServerSource::Path, vec![format!("{dir}/subshell-server")]));
     }
     for dir in ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"] {
-        candidates.push(("well-known".into(), vec![format!("{dir}/subshell-server")]));
+        out.push((ServerSource::WellKnown, vec![format!("{dir}/subshell-server")]));
     }
+    out
+}
 
-    let mut seen: Vec<Vec<String>> = Vec::new();
+/// Walk `candidates` and return the first rung that yields a binary which can
+/// state its own version. The two effects are injected so the ORDER and the
+/// skip rules can be tested without executing anything.
+pub fn resolve_with(
+    candidates: &[(ServerSource, Vec<String>)],
+    mut probe: impl FnMut(&[String]) -> Option<String>,
+    file_exists: impl Fn(&str) -> bool,
+) -> Option<ServerBinary> {
+    let mut seen: Vec<&Vec<String>> = Vec::new();
     for (source, argv) in candidates {
-        if seen.contains(&argv) {
+        if argv.is_empty() || seen.contains(&argv) {
             continue;
         }
-        seen.push(argv.clone());
+        seen.push(argv);
         // A two-token dev-form entry names an interpreter, so only the first
         // token is a file we can check cheaply.
-        if !exists(&argv[0]) {
+        if !file_exists(&argv[0]) {
             continue;
         }
-        if let Some(version) = probe_version(&argv) {
-            return Some(ServerBinary { argv, source, version: Some(version) });
+        if let Some(version) = probe(argv) {
+            return Some(ServerBinary {
+                argv: argv.clone(),
+                source: *source,
+                version: Some(version),
+            });
         }
     }
     None
@@ -201,7 +250,10 @@ mod tests {
 
     #[test]
     fn a_compiled_binary_is_one_token() {
-        assert_eq!(parse_systemd_exec("/usr/local/bin/subshell-server"), vec!["/usr/local/bin/subshell-server"]);
+        assert_eq!(
+            parse_systemd_exec("/usr/local/bin/subshell-server"),
+            vec!["/usr/local/bin/subshell-server"]
+        );
     }
 
     // The execLine() trap: a dev-form install records interpreter + script, and
@@ -226,13 +278,22 @@ mod tests {
 
     #[test]
     fn unpicks_escaped_characters() {
-        assert_eq!(parse_systemd_exec(r#""/opt/a\"b/subshell-server""#), vec!["/opt/a\"b/subshell-server"]);
-        assert_eq!(parse_systemd_exec(r#"/opt/a\ b/subshell-server"#), vec!["/opt/a b/subshell-server"]);
+        assert_eq!(
+            parse_systemd_exec(r#""/opt/a\"b/subshell-server""#),
+            vec!["/opt/a\"b/subshell-server"]
+        );
+        assert_eq!(
+            parse_systemd_exec(r#"/opt/a\ b/subshell-server"#),
+            vec!["/opt/a b/subshell-server"]
+        );
     }
 
     #[test]
     fn collapses_runs_of_whitespace() {
-        assert_eq!(parse_systemd_exec("  /bin/bun   /repo/index.ts  "), vec!["/bin/bun", "/repo/index.ts"]);
+        assert_eq!(
+            parse_systemd_exec("  /bin/bun   /repo/index.ts  "),
+            vec!["/bin/bun", "/repo/index.ts"]
+        );
     }
 
     #[test]
@@ -285,6 +346,180 @@ pub fn decide_server(bundled: Option<&str>, installed: Option<&str>) -> ServerCh
 }
 
 #[cfg(test)]
+mod ladder_tests {
+    use super::*;
+
+    fn rung(source: ServerSource, path: &str) -> (ServerSource, Vec<String>) {
+        (source, vec![path.to_string()])
+    }
+
+    /// A probe that answers for a named set of paths and refuses everything else.
+    fn probe_for(known: &'static [&'static str]) -> impl Fn(&[String]) -> Option<String> {
+        move |argv| known.contains(&argv[0].as_str()).then(|| "1.8.0".to_string())
+    }
+
+    #[test]
+    fn takes_the_first_rung_that_answers() {
+        let c = vec![
+            rung(ServerSource::Env, "/env/subshell-server"),
+            rung(ServerSource::Service, "/svc/subshell-server"),
+        ];
+        let found = resolve_with(&c, probe_for(&["/env/subshell-server", "/svc/subshell-server"]), |_| {
+            true
+        })
+        .unwrap();
+        assert_eq!(found.source, ServerSource::Env);
+    }
+
+    // A file can exist and still not be a server — a shim, a wrapper, an old
+    // build. Existence alone must never end the search.
+    #[test]
+    fn a_file_that_exists_but_is_not_a_server_is_skipped() {
+        let c = vec![
+            rung(ServerSource::Configured, "/not/a/server"),
+            rung(ServerSource::LocalBin, "/good/subshell-server"),
+        ];
+        let found = resolve_with(&c, probe_for(&["/good/subshell-server"]), |_| true).unwrap();
+        assert_eq!(found.source, ServerSource::LocalBin);
+        assert_eq!(found.version.as_deref(), Some("1.8.0"));
+    }
+
+    #[test]
+    fn a_missing_file_is_never_probed() {
+        let mut probed: Vec<String> = Vec::new();
+        let c = vec![rung(ServerSource::Path, "/gone/subshell-server")];
+        let found = resolve_with(
+            &c,
+            |argv| {
+                probed.push(argv[0].clone());
+                Some("1.8.0".into())
+            },
+            |_| false,
+        );
+        assert!(found.is_none());
+        assert!(probed.is_empty(), "probed a file that does not exist: {probed:?}");
+    }
+
+    // The ladder repeats paths (a PATH entry can also be a well-known dir), and
+    // each probe spawns a ~110 MB binary.
+    #[test]
+    fn a_repeated_path_is_probed_only_once() {
+        let mut count = 0;
+        let c = vec![
+            rung(ServerSource::Path, "/usr/local/bin/subshell-server"),
+            rung(ServerSource::WellKnown, "/usr/local/bin/subshell-server"),
+        ];
+        let found = resolve_with(
+            &c,
+            |_| {
+                count += 1;
+                None
+            },
+            |_| true,
+        );
+        assert!(found.is_none());
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn nothing_anywhere_is_none_not_a_panic() {
+        assert!(resolve_with(&[], |_| Some("1.8.0".into()), |_| true).is_none());
+    }
+
+    // The dev-form install records [interpreter, script]; only the first token
+    // is a file to check, and BOTH must reach the probe.
+    #[test]
+    fn a_two_token_dev_form_entry_survives_intact() {
+        let c = vec![(
+            ServerSource::Service,
+            vec!["/bin/bun".to_string(), "/repo/index.ts".to_string()],
+        )];
+        let found = resolve_with(
+            &c,
+            |argv| (argv.len() == 2).then(|| "1.8.0".to_string()),
+            |p| p == "/bin/bun",
+        )
+        .unwrap();
+        assert_eq!(found.argv, vec!["/bin/bun", "/repo/index.ts"]);
+    }
+
+    // The service definition outranks the copy this app installs: whatever the
+    // manager starts is what this machine actually runs.
+    //
+    // Asserted as a SUBSEQUENCE, because which rungs exist depends on the
+    // machine — a host with no installed unit contributes no `Service` rung at
+    // all, and a positional comparison there silently inverts (`None` sorts
+    // below `Some`) into a test that passes for the wrong reason.
+    #[test]
+    fn the_real_ladder_keeps_its_documented_order() {
+        const CANONICAL: [ServerSource; 6] = [
+            ServerSource::Env,
+            ServerSource::Configured,
+            ServerSource::Service,
+            ServerSource::LocalBin,
+            ServerSource::Path,
+            ServerSource::WellKnown,
+        ];
+        let mut seen: Vec<ServerSource> = candidates(Some("/chosen/subshell-server"))
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect();
+        seen.dedup();
+        let mut expected = CANONICAL.iter().copied().peekable();
+        for source in &seen {
+            while expected.peek().is_some_and(|c| c != source) {
+                expected.next();
+            }
+            assert_eq!(
+                expected.next().as_ref(),
+                Some(source),
+                "rung {source:?} is out of order in {seen:?}"
+            );
+        }
+        // The one rung that is always present, and the configured path must
+        // outrank it or a hand-picked binary would be ignored.
+        assert!(seen.contains(&ServerSource::Configured));
+        assert!(seen.contains(&ServerSource::WellKnown));
+    }
+
+    // Every spawn already runs with the login PATH; searching a narrower one
+    // would let the ladder fail to FIND a server it could perfectly well run.
+    #[test]
+    fn the_path_rung_searches_the_login_path() {
+        let paths: Vec<String> = candidates(None)
+            .into_iter()
+            .filter(|(s, _)| *s == ServerSource::Path)
+            .map(|(_, a)| a[0].clone())
+            .collect();
+        for dir in crate::shell_env::login_path().split(':').filter(|d| !d.is_empty()) {
+            assert!(
+                paths.contains(&format!("{dir}/subshell-server")),
+                "login PATH entry {dir} not searched"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod version_parse_tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_version_off_the_first_line() {
+        assert_eq!(parse_server_version("subshell-server 1.8.0\n"), Some("1.8.0".into()));
+        assert_eq!(parse_server_version("subshell-server 1.8.0"), Some("1.8.0".into()));
+    }
+
+    #[test]
+    fn refuses_anything_that_is_not_that_line() {
+        assert_eq!(parse_server_version(""), None);
+        assert_eq!(parse_server_version("subshell 1.8.0"), None);
+        assert_eq!(parse_server_version("subshell-server "), None);
+        assert_eq!(parse_server_version("bash: command not found"), None);
+    }
+}
+
+#[cfg(test)]
 mod choice_tests {
     use super::*;
 
@@ -306,20 +541,35 @@ mod choice_tests {
 
     #[test]
     fn a_newer_bundled_server_is_offered() {
-        assert_eq!(decide_server(Some("1.9.0"), Some("1.8.0")), ServerChoice::UpgradeAvailable);
+        assert_eq!(
+            decide_server(Some("1.9.0"), Some("1.8.0")),
+            ServerChoice::UpgradeAvailable
+        );
     }
 
     // Forward-only migrations: an older bundled binary against a migrated
     // database is data loss, so this must never even be presented as a choice.
     #[test]
     fn a_newer_installed_server_is_adopted_never_downgraded() {
-        assert_eq!(decide_server(Some("1.8.0"), Some("1.9.0")), ServerChoice::AdoptInstalled);
-        assert_eq!(decide_server(Some("1.8.0"), Some("2.0.0")), ServerChoice::AdoptInstalled);
+        assert_eq!(
+            decide_server(Some("1.8.0"), Some("1.9.0")),
+            ServerChoice::AdoptInstalled
+        );
+        assert_eq!(
+            decide_server(Some("1.8.0"), Some("2.0.0")),
+            ServerChoice::AdoptInstalled
+        );
     }
 
     #[test]
     fn comparison_is_numeric_not_lexical() {
-        assert_eq!(decide_server(Some("1.10.0"), Some("1.9.0")), ServerChoice::UpgradeAvailable);
-        assert_eq!(decide_server(Some("1.9.0"), Some("1.10.0")), ServerChoice::AdoptInstalled);
+        assert_eq!(
+            decide_server(Some("1.10.0"), Some("1.9.0")),
+            ServerChoice::UpgradeAvailable
+        );
+        assert_eq!(
+            decide_server(Some("1.9.0"), Some("1.10.0")),
+            ServerChoice::AdoptInstalled
+        );
     }
 }
