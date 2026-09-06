@@ -33,6 +33,14 @@ The Rust half runs in CI as its own `desktop-rust` job in
 `.github/workflows/test.yml` — it cannot ride `bun run test`, which runs on a
 plain `ubuntu-latest` with no Rust toolchain and none of Tauri's system deps.
 
+**A clean checkout cannot compile this crate without a staged sidecar.**
+`tauri-build` refuses to build when an `externalBin` file is missing, and
+`binaries/*` is gitignored — so `cargo test` on a fresh clone fails with
+`resource path … doesn't exist` before a single test runs. CI stages a
+zero-byte STUB, which is all `tauri-build` checks for and all the Rust tests
+need (none of them executes the sidecar). Locally, stage a real one with the
+recipe below if you also want to run the app.
+
 `bun run compile:release` (`src/scripts/release.ts`) is the release pipeline:
 it builds the SERVER first and stages it as the sidecar, then bundles, asserts
 the exact bundle set, digests and publishes into `dist-rel/`. CI drives it per

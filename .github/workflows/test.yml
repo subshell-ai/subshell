@@ -115,8 +115,24 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # `tauri-build` reads tauri.conf.json, which points `frontendDist` at
-      # ../ui — a directory of static files, so nothing needs building first.
+      # `tauri-build` REFUSES TO BUILD when an `externalBin` file is missing,
+      # and the staged sidecar is a gitignored ~110 MB build input — so a clean
+      # checkout cannot compile this crate at all without one.
+      #
+      # A stub is the right answer here rather than a real server build. This
+      # job tests the Rust logic — the resolution ladder, the ExecStart parser,
+      # the install policy, the process runner — none of which executes the
+      # sidecar; and `tauri-build` only checks that the path EXISTS. The real
+      # bundle, with a real server inside it, is proven by
+      # `scripts/smoke-desktop-bundle.sh` on the release shards.
+      - name: Stage a stub sidecar
+        working-directory: apps/desktop/src-tauri
+        run: |
+          set -euo pipefail
+          triple="$(rustc --print host-tuple)"
+          install -m 755 /dev/null "binaries/subshell-server-bundled-$triple"
+          echo "staged a STUB sidecar for $triple (the release pipeline stages a real one)"
+
       - name: Format, lint and test
         working-directory: apps/desktop/src-tauri
         run: |
