@@ -2,6 +2,7 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { DesktopBridge } from "@/components/desktop/desktop-bridge";
 import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
@@ -125,6 +126,10 @@ function Shell() {
 
   return (
     <QuickAddProvider>
+      {/* Inside the provider on purpose — the bridge opens the quick-add
+        dialogs, and a hook called in this component's own body would sit
+        above the context it needs. */}
+      {desktop && <DesktopBridge />}
       <div
         className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
         style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}

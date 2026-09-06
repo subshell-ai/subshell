@@ -11,7 +11,7 @@ import {
   TerminalSquare,
   Users,
 } from "lucide-react";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,8 @@ import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
-import { useCurrentUser } from "@/lib/auth";
-import { authClient } from "@/lib/auth-client";
+import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
+import { onDesktopAction } from "@/lib/desktop";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { cn } from "@/lib/utils";
@@ -71,16 +71,6 @@ function recentClass(active: boolean): string {
       ? "font-medium text-accent-foreground"
       : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
   );
-}
-
-/** Logout: better-auth sign-out, clear the query cache, land on /login. */
-async function signOut() {
-  try {
-    await authClient.signOut();
-  } catch {
-    // expired session — still clear client state and redirect
-  }
-  window.location.href = "/login";
 }
 
 /**
@@ -152,6 +142,7 @@ export function AppSidebar({
   // (no server call — the list is already client-side). Same predicate as
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
+  const filterRef = useRef<HTMLInputElement>(null);
   const q = subshellQuery.trim();
   // Sorted by liveness BEFORE the recents slice (band order documented in
   // use-ordered-subshells), so a pile of old ended sessions can never crowd a
@@ -170,7 +161,10 @@ export function AppSidebar({
   const collapsed = forceExpanded ? false : collapsedState;
   const desktop = variant === "desktop";
 
-  function toggle() {
+  // Stable across renders: the effect below subscribes ONCE, so a toggle
+  // recreated on every render would re-subscribe on each of them. The
+  // functional setter is what lets this close over nothing.
+  const toggle = useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev;
       try {
@@ -180,7 +174,20 @@ export function AppSidebar({
       }
       return next;
     });
-  }
+  }, []);
+
+  // The desktop shell's View menu can collapse the rail and focus its filter.
+  // Handled HERE rather than in the bridge because both touch state that is
+  // private to this component — exporting it just to drive a menu item would
+  // be a wider seam than the feature is worth.
+  useEffect(
+    () =>
+      onDesktopAction((action) => {
+        if (action === "toggle-sidebar") toggle();
+        else if (action === "focus-filter") filterRef.current?.focus();
+      }),
+    [toggle],
+  );
 
   return (
     <aside
@@ -297,6 +304,7 @@ export function AppSidebar({
               {!collapsed && item.to === "/" && (
                 <div className="px-2 pt-1 pb-2">
                   <Input
+                    ref={filterRef}
                     value={subshellQuery}
                     onChange={(e) => setSubshellQuery(e.target.value)}
                     placeholder="Filter subshells…"
@@ -348,7 +356,7 @@ export function AppSidebar({
           collapsed={collapsed}
           onPreferences={() => void navigate({ to: "/preferences" })}
           onAccountSettings={() => void navigate({ to: "/account" })}
-          onSignOut={() => void signOut()}
+          onSignOut={() => void signOutAndRedirect()}
         />
       </div>
     </aside>
