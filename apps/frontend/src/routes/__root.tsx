@@ -2,18 +2,23 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { DesktopBridge } from "@/components/desktop/desktop-bridge";
+import { DesktopNotifications } from "@/components/desktop/desktop-notifications";
+import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
 import { RouteError } from "@/components/route-error";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { useDesktopShellReady } from "@/hooks/use-desktop-shell-ready";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
+import { isDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";
 import { shellGate } from "@/lib/shell-gate";
 
@@ -69,6 +74,16 @@ const NAVIGATE_TO_SETUP = <Navigate to="/setup" />;
  */
 function Shell() {
   const wide = useIsWide();
+  // Read from the User-Agent, so it is settled before first paint — no IPC
+  // handshake to race, and it survives the hard navigations at sign-out and
+  // after sign-in.
+  const desktop = isDesktop();
+  // Tells the shell it may drop the title bar and SHOW the window. It has to
+  // run before every gate below: `/login` and `/setup` are `bare`, so they
+  // render no sidebar at all — and those are exactly the routes a first launch
+  // lands on. Hooks run before the early returns, which is what makes this the
+  // right home for it.
+  useDesktopShellReady(desktop);
   const insets = useVisualViewportInsets();
   const { data: user, isLoading } = useCurrentUser();
   const offline = useServerOffline();
@@ -119,6 +134,10 @@ function Shell() {
 
   return (
     <QuickAddProvider>
+      {/* Inside the provider on purpose — the bridge opens the quick-add
+        dialogs, and a hook called in this component's own body would sit
+        above the context it needs. */}
+      {desktop && <DesktopBridge />}
       <div
         className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
         style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
@@ -132,8 +151,18 @@ function Shell() {
           pickers — for the whole signed-in session (spec 2026-09-03 §6). The
           enabled gate keeps its token POST away from /login and /setup. */}
         <LiveSubshellsFeedProvider enabled={!!user && !bare}>
+          {/* Inside the feed and behind the same gate: it reads the live
+            subshell list, and above them it would fire an unauthenticated
+            /api/subshells on the login screen. */}
+          {desktop && !!user && !bare && <DesktopNotifications />}
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            {wide && !bare && <AppSidebar />}
+            {/* One branch, deliberately: everything else in this frame —
+              the banners, the feed provider, the viewport pinning, the outlet
+              — is identical in both shells, and the rail differs only in
+              chrome (see components/desktop/desktop-sidebar.tsx). The desktop
+              window's min width is 1024, so `wide` is always true there and
+              MobileTopBar never mounts. */}
+            {wide && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
             <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
               <Outlet />
             </div>

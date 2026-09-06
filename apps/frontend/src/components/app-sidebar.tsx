@@ -11,7 +11,7 @@ import {
   TerminalSquare,
   Users,
 } from "lucide-react";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,8 @@ import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
-import { useCurrentUser } from "@/lib/auth";
-import { authClient } from "@/lib/auth-client";
+import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
+import { onDesktopAction } from "@/lib/desktop";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { cn } from "@/lib/utils";
@@ -73,16 +73,6 @@ function recentClass(active: boolean): string {
   );
 }
 
-/** Logout: better-auth sign-out, clear the query cache, land on /login. */
-async function signOut() {
-  try {
-    await authClient.signOut();
-  } catch {
-    // expired session — still clear client state and redirect
-  }
-  window.location.href = "/login";
-}
-
 /**
  * Persistent left navigation for the app shell, rendered in the root layout
  * beside the page outlet. Collapses to an icon rail (chevron in the top
@@ -97,7 +87,10 @@ export function AppSidebar({
   forceExpanded = false,
   className,
   headerEnd,
+  headerAbove,
+  footerEnd,
   onQuickAdd,
+  variant = "web",
 }: {
   forceExpanded?: boolean;
   className?: string;
@@ -105,9 +98,45 @@ export function AppSidebar({
    * its close button here so it can never float over a nav row (see
    * SheetContent's `showClose`). */
   headerEnd?: ReactNode;
+  /**
+   * Rendered as the rail's FIRST child, above the brand row.
+   *
+   * Exists for the desktop shell's drag strip, which has to span the rail and
+   * only the rail: with the title bar gone the rail's top edge IS the title
+   * bar, and a strip positioned from outside would have to guess a width that
+   * changes when the rail collapses.
+   */
+  headerAbove?: ReactNode;
   /** Called after a quick-add + opens its dialog; the drawer host uses it to
    * dismiss the sheet so the dialog is never a second stacked modal. */
   onQuickAdd?: () => void;
+  /**
+   * Rendered above the user menu, INSIDE the footer. The desktop shell puts
+   * its server pill here.
+   *
+   * A render prop rather than a node (unlike {@link headerEnd}) because
+   * `collapsed` is private state: an outer wrapper cannot see it, and a footer
+   * row that does not know the rail is 56px wide renders its label into a
+   * clipped column. Handing it down is the only way it can be right in both.
+   */
+  footerEnd?: (ctx: { collapsed: boolean }) => ReactNode;
+  /**
+   * Which chrome this rail is wearing.
+   *
+   * Narrow on purpose: `desktop` widens the expanded rail from 14rem to 15rem
+   * and nothing else. The rest of the desktop chrome — the traffic-light
+   * inset, the drag strip, the server row — is supplied by the CALLER through
+   * `className`, `headerAbove` and `footerEnd` (see
+   * `components/desktop/desktop-sidebar.tsx`), so this component stays one
+   * rail with one set of behaviours.
+   *
+   * That reuse is the point. This rail is the `application/x-subshell-id` drag
+   * source, the live-status surface, the host of two context menus, the
+   * quick-add trigger and the only consumer of the collapse preference, all
+   * riding one SSE feed. A second implementation would lose every one of those
+   * silently and then drift.
+   */
+  variant?: "web" | "desktop";
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -128,6 +157,7 @@ export function AppSidebar({
   // (no server call — the list is already client-side). Same predicate as
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
+  const filterRef = useRef<HTMLInputElement>(null);
   const q = subshellQuery.trim();
   // Sorted by liveness BEFORE the recents slice (band order documented in
   // use-ordered-subshells), so a pile of old ended sessions can never crowd a
@@ -144,8 +174,12 @@ export function AppSidebar({
   // Inside the mobile drawer the rail is always expanded and the collapse
   // control is meaningless (the sheet IS the expander).
   const collapsed = forceExpanded ? false : collapsedState;
+  const desktop = variant === "desktop";
 
-  function toggle() {
+  // Stable across renders: the effect below subscribes ONCE, so a toggle
+  // recreated on every render would re-subscribe on each of them. The
+  // functional setter is what lets this close over nothing.
+  const toggle = useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev;
       try {
@@ -155,16 +189,48 @@ export function AppSidebar({
       }
       return next;
     });
-  }
+  }, []);
+
+  // The desktop shell's View menu can collapse the rail and focus its filter.
+  // Handled HERE rather than in the bridge because both touch state that is
+  // private to this component — exporting it just to drive a menu item would
+  // be a wider seam than the feature is worth.
+  // Set by `focus-filter` when the rail is collapsed: the input does not exist
+  // until the expanded branch renders, so the focus has to wait for it.
+  const [focusFilterWhenOpen, setFocusFilterWhenOpen] = useState(false);
+
+  useEffect(
+    () =>
+      onDesktopAction((action) => {
+        if (action === "toggle-sidebar") toggle();
+        else if (action === "focus-filter") {
+          if (filterRef.current) filterRef.current.focus();
+          // ⌘F was a silent no-op on a collapsed rail — the one state where a
+          // user is most likely to reach for it.
+          else {
+            setFocusFilterWhenOpen(true);
+            setCollapsed(false);
+          }
+        }
+      }),
+    [toggle],
+  );
+
+  useEffect(() => {
+    if (!focusFilterWhenOpen || !filterRef.current) return;
+    filterRef.current.focus();
+    setFocusFilterWhenOpen(false);
+  }, [focusFilterWhenOpen]);
 
   return (
     <aside
       className={cn(
         "relative flex shrink-0 flex-col border-border border-r bg-card transition-[width] duration-200",
-        collapsed ? "w-14" : "w-56",
+        collapsed ? "w-14" : desktop ? "w-60" : "w-56",
         className,
       )}
     >
+      {headerAbove}
       {/* Brand — collapsed: a centered /s mark that expands the rail */}
       <div className="flex items-center justify-between px-3 py-4">
         {collapsed ? (
@@ -272,6 +338,7 @@ export function AppSidebar({
               {!collapsed && item.to === "/" && (
                 <div className="px-2 pt-1 pb-2">
                   <Input
+                    ref={filterRef}
                     value={subshellQuery}
                     onChange={(e) => setSubshellQuery(e.target.value)}
                     placeholder="Filter subshells…"
@@ -316,13 +383,14 @@ export function AppSidebar({
       </nav>
 
       <div className="border-border border-t p-2">
+        {footerEnd?.({ collapsed })}
         <UserMenu
           name={user?.name ?? ""}
           email={user?.email ?? ""}
           collapsed={collapsed}
           onPreferences={() => void navigate({ to: "/preferences" })}
           onAccountSettings={() => void navigate({ to: "/account" })}
-          onSignOut={() => void signOut()}
+          onSignOut={() => void signOutAndRedirect()}
         />
       </div>
     </aside>

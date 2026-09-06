@@ -78,6 +78,52 @@ jobs:
           if printf '%s' "$status_out" | grep -q "via self"; then echo "renamed compiled binary self-resolved its mcp entrypoint"; exit 1; fi
           echo "compiled-binary smoke OK: version + clean mcp refusal + renamed-artifact fall-through"
 
+  # apps/desktop's Rust half. Deliberately its OWN job rather than part of
+  # `bun run test`: that command runs on a plain ubuntu-latest with no Rust
+  # toolchain (and none of Tauri's system deps), which is exactly why cargo is
+  # kept out of the turbo build graph. Without this job the 68 Rust tests were
+  # reachable only by hand.
+  desktop-rust:
+    name: Desktop (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Tauri links against the system webview at BUILD time, so even
+      # `cargo test --lib` needs these.
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            build-essential curl wget file libxdo-dev libssl-dev pkg-config
+
+      - name: Use Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # `tauri-build` reads tauri.conf.json, which points `frontendDist` at
+      # ../ui — a directory of static files, so nothing needs building first.
+      - name: Format, lint and test
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest

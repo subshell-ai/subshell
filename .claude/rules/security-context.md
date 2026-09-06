@@ -241,6 +241,45 @@ shares and subshell shares are two independent axes:
   ish, a remote node dutifully dials the wrong machine — the enroll flow and
   Nodes page surface the resolved URL and warn on loopback.
 
+## The desktop app (`apps/desktop`)
+
+A Tauri v2 shell that installs, runs and manages a `subshell-server` on the
+user's own machine. Three things about it are security-relevant:
+
+- **The app window loads the SERVER's page**, at `http://127.0.0.1:<port>` or
+  `http://localhost:<port>`, and that window holds Tauri's IPC globals. It is
+  therefore treated as REMOTE content: `capabilities/main.json` scopes it to
+  loopback URLs and grants only commands that cannot touch the CLI, the config,
+  the service or the filesystem (show an existing window, drop this app's own
+  title bar, display one fixed-shape notification). `open_main` independently
+  refuses a non-loopback origin, and `on_navigation` pins the window to the
+  origin it was opened with. The CLI-driving commands live on a SEPARATE
+  window whose page is bundled. **The `csp` in `tauri.conf.json` applies only
+  to that bundled console** — the app window's page carries whatever CSP the
+  server sends, so an XSS in the SPA reaches those three commands.
+- **The bundled server is signed with the app's entitlements.** Tauri has ONE
+  entitlements slot for the whole bundle, so whatever the Bun-compiled server
+  needs is also granted to the GUI process holding the session cookie. That set
+  was trimmed to `allow-jit` + `allow-unsigned-executable-memory` and is pinned
+  by test; `disable-library-validation` and `allow-dyld-environment-variables`
+  — the pair that turns a signed app into a code-injection host — are
+  deliberately absent. The trim was measured under an AD-HOC signature, which
+  cannot exercise library validation; re-probe under Developer ID before the
+  first signed release.
+- **It executes what it finds.** The resolution ladder runs `<candidate>
+  version` on files it locates, and the copy it installs at
+  `~/.local/bin/subshell-server` is executed on every launch from a
+  user-writable directory. That is not an escalation on this posture — the same
+  user already runs the server and can already write there — but it is why the
+  chosen-binary path is validated before it is persisted, and why every spawn
+  is bounded. The login-shell PATH probe runs the user's own profile, which is
+  arbitrary code by construction, on every launch.
+
+Notifications follow the same owner-targeted rule as push: the desktop watcher
+filters to `access === "owner"` and the per-subshell bell, and honours the
+account-wide master switch. The list it reads is much wider than that — for an
+admin it is every subshell on the instance — so the filter is load-bearing.
+
 ## CORS
 
 Permissive CORS is acceptable **only** because the service is not exposed to the public

@@ -300,11 +300,13 @@ it, so never make a bare invocation mean anything else.
 | Command | |
 | --- | --- |
 | `version` | print `subshell-server <version>` and exit |
-| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, port liveness, service definition on disk; reads only, never boots |
+| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`) |
 | `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
 | `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --db-path --yes` |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
+| `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
+| `service start\|stop\|restart` | drive an already-installed service. Never installs one — `start` must not become a way to background a server whose config was never checked |
 | `mcp` | serve the pane-spawned stdio MCP server (the self rung of MCP resolution below); the one long-running command — spawned by harnesses, not typed by humans |
 
 An unknown word exits 1 with usage. **Sync-exit design** (house style for
@@ -391,9 +393,16 @@ PATH), `StartLimitIntervalSec=0` (Restart=always must survive an
 EADDRINUSE crash loop), and `KillMode=process` — the load-bearing one: each
 local subshell's tmux server is a CHILD of this unit, so the default
 control-group kill SIGKILLs every live pane on stop/restart. A host whose unit
-lacks it loses all running subshells on the next `systemctl restart`
-(measured, 2026-09-03). `src/service.ts:161` carries the reasoning; the unit
-text is pinned by test. macOS: launchd agent `dev.subshell.server` →
+lacks it loses all running subshells on the next `systemctl restart` — and on
+a plain `systemctl stop`, since a restart is a stop plus a start (measured,
+2026-09-03). `src/service.ts` carries the reasoning; the unit text is pinned by
+test. Since 2026-09-05 that hazard is ENFORCED rather than merely documented:
+`queryService` asks systemd for the EFFECTIVE `KillMode` (a unit-file grep
+cannot see drop-ins under `subshell-server.service.d/`), `service restart`
+refuses on a host whose definition would kill panes (`--force` overrides),
+`service stop` warns and proceeds, and `service status` reports it as
+`teardown keeps panes`. Both destructive verbs fail CLOSED on an unreadable
+definition — `unknown` is not evidence of safety. macOS: launchd agent `dev.subshell.server` →
 `~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log`.
 
 ### MCP entrypoint resolution

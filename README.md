@@ -35,6 +35,40 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 - **Ships as a binary** — `subshell-server` is one self-contained file per platform
   with the SPA embedded: no Bun, no checkout, no separate frontend build.
 
+## Desktop app
+
+If you would rather not touch a CLI, **Subshell Desktop** installs and runs the
+server for you: a native window, menu bar and tray, with the server's install,
+start, stop and restart behind buttons.
+
+**Install `tmux` first.** Every subshell runs in a tmux pane, so the app cannot
+get past its setup screen without it — `brew install tmux` on macOS,
+`apt install tmux` on Debian/Ubuntu.
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| macOS (Apple silicon) | `Subshell.app.tar.gz` from the `desktop-vX.Y.Z` release | Signed and notarized; macOS 13+ |
+| Linux (x86_64) | `Subshell_X.Y.Z_amd64.deb` | Ubuntu 24.04+ / Debian 13+ (glibc 2.39) |
+
+The app ships the server inside it — nothing is downloaded on first run. On
+first launch it offers to install `subshell-server` to `~/.local/bin`, write a
+`config.env`, register it as a service (a systemd user unit on Linux, a launchd
+agent on macOS) and start it. After that the window is the same Subshell UI a
+browser shows, because it is served by that same local server.
+
+Two platform differences worth knowing:
+
+- **Closing to the tray is macOS-only.** On Linux, `TrayIconEvent` is never
+  emitted and a stock GNOME has no StatusNotifier host, so the icon can be
+  silently invisible — hiding a window behind one that may not be there is how
+  you lose an app. The setting is not offered there.
+- **Passkeys do not work in the app window.** No embedded webview ships a
+  platform authenticator. Sign in with your password; a passkey registered in a
+  browser still works there.
+
+Intel Macs and arm64 Linux are not built. There is no native arm64 Linux runner
+to smoke a GUI on, and `SERVER_TARGETS` has no darwin-x64 server to bundle.
+
 ## Requirements
 
 - [Bun](https://bun.sh/) >= 1.4
@@ -222,9 +256,27 @@ bun apps/server/src/index.ts init
 bun apps/server/src/index.ts service install
 ```
 
-Ordinary `systemctl --user start|stop|restart|status subshell-server.service`
-drives it from there (`launchctl kickstart -k gui/$(id -u)/dev.subshell.server`
-on macOS).
+The CLI drives it from there, on both platforms:
+
+```bash
+subshell-server service status    # what the manager reports (--json for scripts)
+subshell-server service start
+subshell-server service stop      # the definition stays installed
+subshell-server service restart
+```
+
+`systemctl --user` / `launchctl` still work if you prefer them, with one
+caveat that is the reason these verbs exist: each local subshell's tmux server
+is a **child** of the service, so a definition written before 2026-09-03 takes
+every running subshell down with it — on **stop** as much as on restart, since
+a restart is a stop followed by a start. The CLI is the only thing that says
+so. `service restart` refuses on such a host (`--force` overrides), `service
+stop` warns and proceeds, and `service status` reports the fact up front as
+`teardown keeps panes`. A bare `systemctl --user stop` tells you nothing.
+
+On Linux the check asks systemd for the **effective** `KillMode`, so a drop-in
+under `subshell-server.service.d/` is seen; on macOS it reads
+`AbandonProcessGroup` out of the plist with `plutil`.
 
 Configuration lives in `~/.config/subshell-server/config.env` (0600), which the
 unit loads as its `EnvironmentFile` — the binary's own loader reads the same

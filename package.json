@@ -31,6 +31,7 @@
     "test:e2e:install": "turbo run install-browsers",
     "release:client": "bun run --cwd apps/client compile:release",
     "release:server": "bun run --cwd apps/server compile:release",
+    "release:desktop": "bun run --cwd apps/desktop compile:release",
     "changeset": "changeset",
     "version-packages": "changeset version"
   },
