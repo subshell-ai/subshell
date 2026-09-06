@@ -49,19 +49,24 @@ trap 'rm -rf "$WORK"' EXIT
 if [ "$TRIPLE" = "linux-x64" ]; then
   echo "smoke: inspecting the .deb"
   dpkg-deb -c "$DIST/$ARTIFACT" >"$WORK/contents"
-  # A bare "not found" is not actionable — the useful question is always "then
-  # what IS in there", and the answer is three lines away.
-  if ! grep -q "/usr/bin/$SIDECAR\$" "$WORK/contents"; then
-    echo "--- everything the package installs under /usr/bin ---" >&2
-    grep '/usr/bin/' "$WORK/contents" >&2 || echo "(nothing under /usr/bin at all)" >&2
+  # Match on the LAST field rather than with a path regex. `dpkg-deb -c` prints
+  # members as `usr/bin/x` on some versions and `./usr/bin/x` on others, and a
+  # pattern anchored with a leading slash silently matches neither — which
+  # reads as "the sidecar is missing" for a package that is perfectly correct.
+  entry="$(awk -v p="usr/bin/$SIDECAR" '$NF == p || $NF == "./" p' "$WORK/contents")"
+  if [ -z "$entry" ]; then
+    # A bare "not found" is not actionable — the next question is always "then
+    # what IS in there".
     echo "--- the package's full contents ---" >&2
     cat "$WORK/contents" >&2
-    fail "the sidecar is not at /usr/bin/$SIDECAR"
+    fail "the sidecar is not at usr/bin/$SIDECAR"
   fi
   # A sidecar staged from a zip artifact loses its mode and ships 0644, which
   # dies EACCES at exec — invisible until first run.
-  grep -E "^-rwxr-xr-x .*/usr/bin/$SIDECAR\$" "$WORK/contents" >/dev/null \
-    || fail "the sidecar is not 0755 in the package"
+  case "$entry" in
+    -rwxr-xr-x*) ;;
+    *) fail "the sidecar is not 0755 in the package: $entry" ;;
+  esac
 
   DEPENDS="$(dpkg-deb -f "$DIST/$ARTIFACT" Depends)"
   echo "smoke: Depends: $DEPENDS"
