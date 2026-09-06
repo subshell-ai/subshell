@@ -137,6 +137,21 @@ export function assertBundleSet(present: readonly string[], triple: string): voi
   }
 }
 
+/**
+ * The one target this machine can actually build.
+ *
+ * `tauri build` links against the host webview, so a cross-build is not a slow
+ * path — it is not a path. CI scopes every shard explicitly; a local run gets
+ * the host.
+ */
+export function hostTarget(platform: string = process.platform, arch: string = process.arch): string {
+  if (platform === "darwin" && arch === "arm64") return "darwin-arm64";
+  if (platform === "linux" && arch === "x64") return "linux-x64";
+  throw new Error(
+    `apps/desktop cannot be built on ${platform}-${arch} (buildable here: ${DESKTOP_TARGETS.join(", ")})`,
+  );
+}
+
 /** Where finished bundles are published: the env override, else `<repo>/dist-rel`. */
 export function resolveReleaseDir(env: Record<string, string | undefined> = process.env): string {
   const explicit = env[DESKTOP_RELEASE_DIR_ENV];
@@ -170,7 +185,10 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
 async function main(): Promise<void> {
   assertBunFloor("1.4.0");
   const scope = parseScope(process.env[DESKTOP_RELEASE_TRIPLES_ENV], DESKTOP_TARGETS, DESKTOP_RELEASE_TRIPLES_ENV);
-  const targets = scope ?? [...DESKTOP_TARGETS];
+  // Unlike the bun pipelines, `tauri build` cannot cross-compile: it links
+  // against the host's own webview. So the unscoped default is the HOST triple,
+  // not the full set — a default nobody can run is not a default.
+  const targets = scope ?? [hostTarget()];
   const version = await readVersion();
   const deps = DEFAULT_DEPS;
 
@@ -186,22 +204,26 @@ async function main(): Promise<void> {
   try {
     for (const triple of targets) {
       if (!(await stageSidecar(deps, triple))) {
-        console.error(`the server sidecar for ${triple} failed to build — nothing published`);
-        process.exit(1);
-      }
-      if ((await deps.run(["./node_modules/.bin/tauri", ...tauriBuildArgs(triple).slice(1)], DESKTOP_DIR)) !== 0) {
-        console.error(`tauri build failed for ${triple} — nothing published`);
-        process.exit(1);
+        throw new Error(`the server sidecar for ${triple} failed to build — nothing published`);
       }
       const bundleRoot = join(DESKTOP_DIR, "src-tauri", "target", "release", "bundle");
+      // A previous target's output would otherwise make `assertBundleSet` fail
+      // a perfectly good build, and its message name a bundler that did not run.
+      await rm(bundleRoot, { recursive: true, force: true });
+      if ((await deps.run(["./node_modules/.bin/tauri", ...tauriBuildArgs(triple).slice(1)], DESKTOP_DIR)) !== 0) {
+        throw new Error(`tauri build failed for ${triple} — nothing published`);
+      }
       assertBundleSet(await listDirs(bundleRoot), triple);
       const path = await collectArtifact(deps, bundleRoot, triple, version);
       artifacts.set(triple, { path, digest: await digestFile(path) });
     }
   } finally {
-    // The staged sidecar is a ~110 MB build input, never a leftover.
-    await rm(SIDECAR_DIR, { recursive: true, force: true });
-    await mkdir(SIDECAR_DIR, { recursive: true });
+    // The staged sidecar is a ~110 MB build input, never a leftover. Only the
+    // staged files — `binaries/.gitkeep` is tracked, and wiping the directory
+    // deleted it on every successful build.
+    for (const target of DESKTOP_TARGETS) {
+      await rm(join(SIDECAR_DIR, desktopSidecarFileName(target)), { force: true });
+    }
   }
 
   const dest = resolveReleaseDir();
@@ -248,5 +270,10 @@ async function collectArtifact(
 }
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 }

@@ -459,6 +459,72 @@ Passkey sign-in is deliberately **not** behind this backoff — it carries no em
 to attribute failures to, and the physical authenticator is the gate. No other
 endpoint is rate-limited.
 
+## 8b. The desktop app
+
+`apps/desktop` is a Tauri v2 shell that installs, runs and manages a
+`subshell-server` on the user's own machine. It adds no server surface — every
+privileged thing it does goes through the `subshell-server` CLI as the same
+local user — but it does introduce one boundary that did not exist before.
+
+### The window that loads the server's page
+
+The app window (`main`) loads `http://127.0.0.1:<port>` — the SPA, served by
+the server it manages — and that window holds Tauri's IPC globals. It is
+treated as **remote content**:
+
+| Gate | What it does |
+| --- | --- |
+| `capabilities/main.json` | scopes the window to loopback URLs and grants only `desktop_open_console`, `desktop_shell_ready`, `desktop_notify` and window dragging |
+| `Probe::origin` | builds the URL from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
+| `open_main` | refuses a non-loopback origin outright |
+| `on_navigation` | pins the window to the origin it was opened with |
+
+The three granted commands are chosen for what they cannot do: show a window
+that already exists, drop this app's own title bar, and display one
+fixed-shape notification. Everything that touches the CLI, config.env, the
+service manager or the filesystem lives on a **separate window** whose page is
+bundled with the app.
+
+Two limits worth stating rather than implying. The `csp` in `tauri.conf.json`
+applies to the bundled console **only** — the app window's page carries
+whatever CSP the server sends, so an XSS in the SPA reaches those three
+commands. And the app's ACL manifest is what makes any of this apply at all:
+Tauri leaves app commands ungated for local windows when no manifest exists.
+
+### Entitlements are shared with the bundled server
+
+Tauri applies ONE entitlements file to every signed target in the bundle, so
+whatever the Bun-compiled server needs is also granted to the GUI process that
+holds the session cookie. The set was trimmed to `allow-jit` and
+`allow-unsigned-executable-memory`, pinned by test; the three that the
+bare-binary channel carries — `disable-library-validation`,
+`allow-dyld-environment-variables`, `disable-executable-page-protection` — are
+deliberately absent, because the first two together are what turns a signed app
+into a code-injection host.
+
+**Accepted risk:** that trim was measured under an ad-hoc signature, which
+cannot exercise library validation. It must be re-probed under a real Developer
+ID identity before the first signed release.
+
+### It executes what it finds
+
+The resolution ladder runs `<candidate> version` on files it locates on the
+login PATH and in well-known directories, and the copy it installs at
+`~/.local/bin/subshell-server` is executed on every launch from a user-writable
+directory. On this posture that is not an escalation — the same OS user already
+runs the server and can already write there — but it is why a hand-chosen
+binary is validated before it is persisted, and why every spawn carries a
+deadline. The login-shell PATH probe runs the user's own shell profile, which
+is arbitrary code by construction, on every launch.
+
+### Notifications stay owner-targeted
+
+The desktop watcher reads `GET /api/subshells`, which returns every subshell
+the caller can SEE — for an admin, every subshell on the instance. It therefore
+applies the same three gates the push path applies (§5): owner only, the
+per-subshell bell, and the account-wide master switch. Sharing widens who can
+see and act on a subshell; it never widens who gets notified about it.
+
 ## 9. Input handling and untrusted data
 
 **PTY output is untrusted.** It reaches the browser as bytes and is rendered only

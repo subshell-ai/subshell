@@ -95,7 +95,10 @@ src-tauri/src/
 ├── proc.rs        # every spawn: login PATH + a deadline
 ├── shell_env.rs   # the PATH a GUI app does not have
 ├── settings.rs    # three fields, one JSON file
-└── version.rs     # semverLt, mirrored from the protocol package
+├── version.rs     # semverLt, mirrored from the protocol package
+├── bridge.rs      # the DesktopAction enum and the eval dispatch
+├── menu.rs        # the macOS menu bar
+└── tray.rs        # the tray icon and its menu
 ```
 
 ## The IPC boundary
@@ -111,8 +114,13 @@ With it, the split is enforced:
 
 | Window | Gets |
 | --- | --- |
-| `console` | all seven commands — it is the control surface |
-| `main` | `desktop_open_console` and window dragging, over loopback only |
+| `console` | every command — it is the control surface |
+| `main` | `desktop_open_console`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
+
+`main`'s three are chosen for what they cannot do: show a window that already
+exists, drop this app's own title bar, and display one notification with a
+fixed shape. Nothing that touches the CLI, the config, the service or the
+filesystem is reachable from a page the server serves.
 
 `main`'s page is served by the subshell-server this app manages, so it is
 treated as remote content. `capabilities/main.json` carries `remote.urls`

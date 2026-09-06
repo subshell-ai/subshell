@@ -1,7 +1,6 @@
-import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DesktopServerPill } from "@/components/desktop/desktop-server-pill";
-import { desktopInvoke, desktopPlatform, startWindowDrag } from "@/lib/desktop";
+import { desktopPlatform, startWindowDrag } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,16 +15,6 @@ import { cn } from "@/lib/utils";
  */
 export function DesktopSidebar() {
   const macos = desktopPlatform() === "macos";
-
-  // Telling the shell the desktop chrome is up is what LETS it drop the title
-  // bar. It is deliberately a handshake rather than a version check: this
-  // chrome ships inside the server's embedded SPA, so a desktop build can meet
-  // an instance that has never heard of it — and an old SPA under a chrome-less
-  // window is an unmovable window. An old SPA simply never sends this, and the
-  // shell shows a decorated window instead.
-  useEffect(() => {
-    void desktopInvoke("desktop_shell_ready", { overlay: true });
-  }, []);
 
   return (
     <AppSidebar

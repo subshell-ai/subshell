@@ -17,15 +17,13 @@
  */
 
 import { normalizeDeviceLabel } from "@internal/subshell-protocol";
+import { parseDesktopUA } from "@/lib/desktop";
 
 /** localStorage key holding this device's chosen name. */
 export const DEVICE_NAME_KEY = "subshell.deviceName";
 
 /** What a device is called when nothing can be derived at all. */
 export const DEVICE_NAME_FALLBACK = "This device";
-
-/** The desktop shell's own product token — see `lib/desktop.ts`. */
-const DESKTOP_MARKER = /\bSubshellDesktop\/\S+\s+\((macos|linux);/;
 
 /** Browser families worth naming, longest-match first (Chrome's UA says Safari). */
 const BROWSERS: ReadonlyArray<readonly [pattern: RegExp, name: string]> = [
@@ -64,8 +62,8 @@ export function deviceNameFromUserAgent(userAgent: string): string {
   // viewer of a shared subshell shows up as an ordinary browser. The name is
   // visible to everyone the subshell is shared with, so it lands as a
   // deliberate label rather than as a coincidence of the embedded engine.
-  const desktop = DESKTOP_MARKER.exec(userAgent);
-  if (desktop) return `Subshell Desktop on ${desktop[1] === "macos" ? "macOS" : "Linux"}`;
+  const desktop = parseDesktopUA(userAgent);
+  if (desktop) return `Subshell Desktop on ${desktop.platform === "macos" ? "macOS" : "Linux"}`;
   const browser = BROWSERS.find(([pattern]) => pattern.test(userAgent))?.[1];
   const platform = PLATFORMS.find(([pattern]) => pattern.test(userAgent))?.[1];
   if (browser && platform) return `${browser} on ${platform}`;

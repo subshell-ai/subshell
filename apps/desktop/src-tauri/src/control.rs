@@ -64,6 +64,14 @@ pub struct Probe {
     pub next: ProbeStep,
     /// The CLI's own words when a step failed rather than merely being pending.
     pub error: Option<String>,
+    /// tmux's path on the LOGIN path, or `null`.
+    ///
+    /// Resolved here rather than read off `status`, because it has to be
+    /// answerable before there is a server to ask: tmux is a hard stop on both
+    /// `init` and `service install` (every local pane launches through it), and
+    /// on a clean machine the console reaches those steps with `status` still
+    /// null. Learning about it at the refusal is learning too late.
+    pub tmux: Option<String>,
 }
 
 impl Default for Probe {
@@ -77,6 +85,7 @@ impl Default for Probe {
             server_choice: ServerChoice::NoBundled,
             next: ProbeStep::NoServer,
             error: None,
+            tmux: None,
         }
     }
 }
@@ -126,11 +135,20 @@ impl Probe {
             ProbeStep::Unreachable
         } else if !is_true(&self.service, "installed") {
             ProbeStep::InstallService
-        } else if field(&self.service, "state").and_then(|s| s.as_str()) == Some("running") {
+        } else if field(&self.service, "state").and_then(|s| s.as_str()) == Some("running") && self.listening() {
+            // `active` from the manager only means the process was started.
+            // A server mid-boot, or one that died on EADDRINUSE and is inside
+            // its RestartSec window, is `active` with nothing on the port —
+            // and opening the window then lands on a connection refused.
             ProbeStep::Ready
         } else {
             ProbeStep::Start
         };
+    }
+
+    /// Whether something is actually answering on the resolved port.
+    fn listening(&self) -> bool {
+        field(&self.status, "listen").and_then(|l| l.get("listening")) == Some(&serde_json::Value::Bool(true))
     }
 
     /// The origin the main window should load.
@@ -173,9 +191,18 @@ fn url_host(url: &str) -> Option<String> {
     Some(host.split(':').next()?.to_string())
 }
 
-/// The hosts `localOriginsFor()` on the server side always trusts.
+/// The loopback spellings this app will open a window on.
+///
+/// Deliberately NARROWER than the server's own `localOriginsFor()`, which also
+/// trusts `::1`. `capabilities/main.json` has to name the same origins, and a
+/// bracketed IPv6 host is not expressible in the URL patterns Tauri matches —
+/// so accepting `[::1]` here produced a window that loaded fine and whose every
+/// IPC call was then silently refused: no title-bar handshake, no server pill,
+/// no notifications, all with no error anywhere. Falling back to `127.0.0.1`
+/// for an IPv6 base URL loses the hostname's cookie jar, which is visible and
+/// recoverable, where the alternative was invisible.
 pub fn is_loopback(host: &str) -> bool {
-    matches!(host, "localhost" | "127.0.0.1" | "::1" | "0:0:0:0:0:0:0:1")
+    matches!(host, "localhost" | "127.0.0.1")
 }
 
 /// `<server> <args…>`, or `None` when nothing resolved.
@@ -220,6 +247,7 @@ fn probe_now(configured: Option<&str>) -> Probe {
         bundled_version: bundled_version(),
         server,
         managed,
+        tmux: crate::shell_env::which("tmux"),
         ..Default::default()
     };
 
@@ -503,7 +531,7 @@ mod tests {
     }
 
     fn configured() -> serde_json::Value {
-        json!({"configEnv": {"exists": true}, "settings": {}, "listen": {"portValid": true, "port": 3080}})
+        json!({"configEnv": {"exists": true}, "settings": {}, "listen": {"portValid": true, "port": 3080, "listening": true}})
     }
 
     #[test]
@@ -573,6 +601,22 @@ mod tests {
         assert_eq!(p.next, ProbeStep::Ready);
     }
 
+    // The manager saying `active` only means the process was started. A server
+    // mid-boot, or one crash-looping inside RestartSec, is `active` with
+    // nothing on the port — and opening the window then lands on a refused
+    // connection with no explanation.
+    #[test]
+    fn a_running_unit_with_a_dead_port_is_not_ready() {
+        let p = probe_with(
+            Some(
+                json!({"configEnv": {"exists": true}, "settings": {}, "listen": {"portValid": true, "port": 3080, "listening": false}}),
+            ),
+            Some(json!({"installed": true, "state": "running"})),
+            true,
+        );
+        assert_eq!(p.next, ProbeStep::Start);
+    }
+
     #[test]
     fn an_unknown_manager_state_is_not_ready() {
         let p = probe_with(
@@ -623,7 +667,7 @@ mod tests {
             Some(json!({
                 "configEnv": {"exists": true},
                 "settings": {"APP_BASE_URL": {"value": "http://localhost:3080"}},
-                "listen": {"portValid": true, "port": 3080}
+                "listen": {"portValid": true, "port": 3080, "listening": true}
             })),
             Some(json!({"installed": true, "state": "running"})),
             true,
@@ -639,7 +683,7 @@ mod tests {
             Some(json!({
                 "configEnv": {"exists": true},
                 "settings": {"APP_BASE_URL": {"value": "https://localhost:9999"}},
-                "listen": {"portValid": true, "port": 3080}
+                "listen": {"portValid": true, "port": 3080, "listening": true}
             })),
             Some(json!({"installed": true, "state": "running"})),
             true,
@@ -653,7 +697,7 @@ mod tests {
             Some(json!({
                 "configEnv": {"exists": true},
                 "settings": {"APP_BASE_URL": {"value": "http://evil.example.com:3080"}},
-                "listen": {"portValid": true, "port": 3080}
+                "listen": {"portValid": true, "port": 3080, "listening": true}
             })),
             Some(json!({"installed": true, "state": "running"})),
             true,
@@ -675,18 +719,21 @@ mod tests {
         assert_eq!(p.origin(), None);
     }
 
+    // An IPv6 base URL falls back to 127.0.0.1 rather than producing an origin
+    // `capabilities/main.json` cannot name — a window whose every IPC call is
+    // then silently refused is worse than a split cookie jar.
     #[test]
-    fn origin_brackets_a_literal_ipv6_host() {
+    fn origin_falls_back_for_an_ipv6_base_url() {
         let p = probe_with(
             Some(json!({
                 "configEnv": {"exists": true},
                 "settings": {"APP_BASE_URL": {"value": "http://[::1]:3080"}},
-                "listen": {"portValid": true, "port": 3080}
+                "listen": {"portValid": true, "port": 3080, "listening": true}
             })),
             Some(json!({"installed": true, "state": "running"})),
             true,
         );
-        assert_eq!(p.origin().as_deref(), Some("http://[::1]:3080"));
+        assert_eq!(p.origin().as_deref(), Some("http://127.0.0.1:3080"));
     }
 
     #[test]
@@ -698,10 +745,12 @@ mod tests {
 
     #[test]
     fn loopback_covers_every_spelling_local_origins_trusts() {
-        for h in ["localhost", "127.0.0.1", "::1"] {
+        for h in ["localhost", "127.0.0.1"] {
             assert!(is_loopback(h), "{h}");
         }
         assert!(!is_loopback("example.com"));
+        // Not expressible in the capability's URL patterns — see is_loopback.
+        assert!(!is_loopback("::1"));
     }
 
     #[test]

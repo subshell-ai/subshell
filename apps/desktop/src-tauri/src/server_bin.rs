@@ -132,7 +132,7 @@ fn from_launchd_plist() -> Option<Vec<String>> {
     }
     let out = run(
         &[
-            "plutil".into(),
+            "/usr/bin/plutil".into(),
             "-extract".into(),
             "ProgramArguments".into(),
             "json".into(),

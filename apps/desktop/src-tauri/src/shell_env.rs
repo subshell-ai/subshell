@@ -66,7 +66,7 @@ fn login_shell() -> String {
                 return sh.to_string();
             }
         }
-        let getent = run_with_path(&["getent".into(), "passwd".into(), user], PROBE_TIMEOUT, &boot);
+        let getent = run_with_path(&["/usr/bin/getent".into(), "passwd".into(), user], PROBE_TIMEOUT, &boot);
         if getent.ok() {
             if let Some(sh) = getent.stdout.trim_end().rsplit(':').next() {
                 if !sh.is_empty() {
@@ -139,6 +139,22 @@ fn build_path() -> String {
 /// spawning a login shell is not free, and the answer cannot change underneath us.
 pub fn login_path() -> &'static str {
     LOGIN_PATH.get_or_init(build_path)
+}
+
+/// Find an executable on the LOGIN path.
+///
+/// Not `Bun.which`'s job and not the server's: the console has to be able to
+/// say "tmux is missing" BEFORE a server exists to ask, because tmux is a hard
+/// stop on `init` and `service install` and there is nothing to run `status`
+/// on yet.
+pub fn which(name: &str) -> Option<String> {
+    for dir in login_path().split(':').filter(|d| !d.is_empty()) {
+        let candidate = std::path::Path::new(dir).join(name);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
 }
 
 /// `$HOME`, or `None` when the environment does not name one.

@@ -75,8 +75,10 @@ function renderFacts() {
   }
   if (st?.configEnv) fact(dl, "config.env", `${st.configEnv.path} (${st.configEnv.exists ? "present" : "missing"})`);
   if (st?.settings?.APP_BASE_URL) fact(dl, "base URL", st.settings.APP_BASE_URL.value);
-  if (st?.tmux !== undefined) {
-    fact(dl, "tmux", st.tmux ?? "NOT FOUND — every local pane needs it", st.tmux ? null : "bad-text");
+  // From the PROBE, not from `status` — tmux is a hard stop on `init` and
+  // `service install`, and on a clean machine there is no server to ask yet.
+  if (probe) {
+    fact(dl, "tmux", probe.tmux ?? "NOT FOUND — install it before continuing", probe.tmux ? null : "bad-text");
   }
   // An unresolved MCP entrypoint means every subshell create 500s. It is the
   // one status fact that predicts a failure the user would otherwise meet
@@ -154,9 +156,29 @@ const STEPS = Object.assign(Object.create(null), {
       ["Open Subshell", openMain, true],
       ["Restart", doRestart],
       ["Stop", doStop],
+      ["Change port or host…", showConfigure],
+    ],
+  },
+  // Reached from `ready`, not from the probe: this is an edit of a working
+  // configuration, so it is something the user asks for rather than something
+  // the machine's state implies.
+  configure: {
+    body: "Change the port or host this server listens on.",
+    hint: "config.env is rewritten. The running server keeps its current settings until it restarts.",
+    form: true,
+    actions: () => [
+      ["Save and restart", doConfigure, true],
+      ["Cancel", cancelConfigure],
     ],
   },
 });
+
+/**
+ * `configure` is a step the USER chooses, so it cannot come from the probe —
+ * which reports what the machine implies. Held beside `probe.next` and cleared
+ * whenever the flow moves on.
+ */
+let override = null;
 
 /** What to show before the first probe lands, or for a step this build predates. */
 function fallbackStep() {
@@ -170,7 +192,7 @@ function fallbackStep() {
 }
 
 function renderStep() {
-  const key = probe?.next ?? null;
+  const key = override ?? probe?.next ?? null;
   const step = (key !== null && STEPS[key]) || fallbackStep();
   const actions = el("step-actions");
 
@@ -331,7 +353,11 @@ const doUpdateServer = guard(async () => {
  */
 const doRestart = guard(async () => {
   const first = await invoke("desktop_service", { verb: "restart", force: false });
-  const refused = !first.ok && (probe?.service?.paneSafety !== "keeps" || first.stderr.includes("refusing to restart"));
+  // The CLI's refusal is the only thing that means "refused". Treating any
+  // failure on a `kills` host as the pane refusal offered "restart anyway" for
+  // a masked unit, a dead D-Bus, or a permission error — none of which --force
+  // can help, and all of which then failed a second time.
+  const refused = !first.ok && first.stderr.includes("refusing to restart");
   if (first.ok || !refused) return first;
   const proceed = await dialog().ask(`${first.stderr.trim()}\n\nRestart anyway and lose those sessions?`, {
     title: "This will kill running subshells",
@@ -345,6 +371,37 @@ const doRestart = guard(async () => {
 const doStop = guard(async () => {
   const result = await invoke("desktop_service", { verb: "stop", force: false });
   return result;
+});
+
+/** Open the configure form, seeded from what the server currently reports. */
+function showConfigure() {
+  const settings = probe?.status?.settings ?? {};
+  form.port = settings.SERVER_PORT?.value ?? "";
+  form.host = settings.HOST?.value ?? "";
+  override = "configure";
+  renderedStep = null;
+  render();
+}
+
+function cancelConfigure() {
+  override = null;
+  renderedStep = null;
+  render();
+}
+
+/**
+ * Rewrite config.env, then restart so the change takes effect.
+ *
+ * `configure` only writes the file — `constants.ts` reads every value once at
+ * import, so a running server keeps its old settings until it is restarted.
+ * Doing both here is what makes the button mean what it says.
+ */
+const doConfigure = guard(async () => {
+  const written = await invoke("desktop_init", { port: form.port, host: form.host });
+  if (!written.ok) return written;
+  override = null;
+  const restarted = await invoke("desktop_service", { verb: "restart", force: false });
+  return restarted.ok ? restarted : { ...restarted, stdout: `${written.stdout}\n${restarted.stdout}` };
 });
 
 /** The Rust side validates the chosen file and returns an Err for anything that is not a server. */

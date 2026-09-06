@@ -136,8 +136,17 @@ jobs:
           entries=""
           appsjson=""
           for app in $apps; do
-            version="$VERSION_INPUT"
-            [ -n "$version" ] || version=$(jq -r .version "apps/$app/package.json")
+            pkgversion=$(jq -r .version "apps/$app/package.json")
+            version="${VERSION_INPUT:-$pkgversion}"
+            # A `-f version=` that disagrees with package.json would tag one
+            # version and BUILD another: every pipeline reads the version from
+            # package.json, and the desktop artifact carries it in its filename,
+            # so the smoke then looks for a file that was never produced. Fail
+            # before any tag is pushed rather than half-way through a build.
+            if [ "$version" != "$pkgversion" ]; then
+              echo "::error::-f version=$version disagrees with apps/$app/package.json ($pkgversion) — merge the changesets version PR first, or drop the override"
+              exit 1
+            fi
             tag="$app-v$version"
             if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
               if curl -fsS -o /dev/null -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -182,11 +191,11 @@ jobs:
               container=""
               if [ "$app" = "desktop" ]; then
                 smoke="bundle"
-                # A container, so the app's minimum glibc is chosen rather than
+                # A container, so the app's minimum glibc is CHOSEN rather than
                 # inherited from whatever the runner was last re-imaged with.
-                # Job-level (not `docker run` in a step) because the smoke has
-                # to EXEC what it just built, and a glibc-2.39 binary cannot run
-                # on the host outside it.
+                # Job-level (not `docker run` in a step) because the smoke needs
+                # the image's own toolchain — dpkg-deb, objdump, file — and
+                # execs the extracted sidecar, which is built to that floor.
                 [ "${triple%%-*}" = "linux" ] && container="ghcr.io/subshell-ai/desktop-builder:ubuntu24.04"
               fi
               [ -z "$entries" ] || entries="$entries,"
@@ -486,9 +495,18 @@ jobs:
 
       # A container writes as root onto a PERSISTENT self-hosted workspace, so
       # without this the next job on this runner fails on files it cannot touch.
+      #
+      # This step runs INSIDE the container, as root — so `id -u` is 0 and
+      # chowning to it is a no-op. The host's uid/gid is readable from
+      # $RUNNER_WORKSPACE, the runner-created parent of the checkout, which
+      # keeps its host ownership inside the mount.
       - name: Un-root the workspace
         if: always() && matrix.container != ''
-        run: chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" || true
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
 
   publish:
     name: Release ${{ matrix.app }}

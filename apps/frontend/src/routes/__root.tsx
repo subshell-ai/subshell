@@ -3,6 +3,7 @@ import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-
 import { useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DesktopBridge } from "@/components/desktop/desktop-bridge";
+import { DesktopNotifications } from "@/components/desktop/desktop-notifications";
 import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
@@ -10,6 +11,7 @@ import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
 import { RouteError } from "@/components/route-error";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { useDesktopShellReady } from "@/hooks/use-desktop-shell-ready";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useServerOffline } from "@/hooks/use-server-offline";
@@ -76,6 +78,12 @@ function Shell() {
   // handshake to race, and it survives the hard navigations at sign-out and
   // after sign-in.
   const desktop = isDesktop();
+  // Tells the shell it may drop the title bar and SHOW the window. It has to
+  // run before every gate below: `/login` and `/setup` are `bare`, so they
+  // render no sidebar at all — and those are exactly the routes a first launch
+  // lands on. Hooks run before the early returns, which is what makes this the
+  // right home for it.
+  useDesktopShellReady(desktop);
   const insets = useVisualViewportInsets();
   const { data: user, isLoading } = useCurrentUser();
   const offline = useServerOffline();
@@ -143,6 +151,10 @@ function Shell() {
           pickers — for the whole signed-in session (spec 2026-09-03 §6). The
           enabled gate keeps its token POST away from /login and /setup. */}
         <LiveSubshellsFeedProvider enabled={!!user && !bare}>
+          {/* Inside the feed and behind the same gate: it reads the live
+            subshell list, and above them it would fire an unauthenticated
+            /api/subshells on the login screen. */}
+          {desktop && !!user && !bare && <DesktopNotifications />}
           <div className="flex min-h-0 flex-1 overflow-hidden">
             {/* One branch, deliberately: everything else in this frame —
               the banners, the feed provider, the viewport pinning, the outlet

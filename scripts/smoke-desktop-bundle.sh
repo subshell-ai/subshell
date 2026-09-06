@@ -62,7 +62,14 @@ if [ "$TRIPLE" = "linux-x64" ]; then
   done
 
   dpkg-deb -x "$DIST/$ARTIFACT" "$WORK/root"
-  file "$WORK/root/usr/bin/$SIDECAR" | grep -q 'ELF 64-bit.*x86-64' || fail "the sidecar is not an x86-64 ELF"
+  # Capture, then match. `grep -q` exits at the first hit and SIGPIPEs the
+  # producer, which under `set -o pipefail` fails a check that just passed.
+  magic="$(file "$WORK/root/usr/bin/$SIDECAR")"
+  case "$magic" in *"ELF 64-bit"*"x86-64"*) ;; *) fail "the sidecar is not an x86-64 ELF: $magic" ;; esac
+  # It is the whole point of the bundle — a sidecar that cannot run makes every
+  # other check here decoration.
+  ver="$("$WORK/root/usr/bin/$SIDECAR" version || true)"
+  case "$ver" in "subshell-server "*) ;; *) fail "the bundled sidecar cannot report a version: $ver" ;; esac
   # The glibc floor the container chose is the app's minimum supported Linux.
   # Recording it makes a silent floor bump visible in the log.
   if command -v objdump >/dev/null 2>&1; then
@@ -81,20 +88,20 @@ APP="$WORK/Subshell.app"
 # An AppleDouble member that survives into the archive breaks the extracted
 # bundle's signature, and the failure looks like a signing bug rather than a
 # packaging one.
-if tar tzf "$DIST/$ARTIFACT" | grep -q '/\._'; then
-  fail "the archive carries AppleDouble (._) members"
-fi
+members="$(tar tzf "$DIST/$ARTIFACT")"
+case "$members" in *"/._"*) fail "the archive carries AppleDouble (._) members" ;; esac
 
 [ -x "$APP/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"
-"$APP/Contents/MacOS/$SIDECAR" version | grep -q '^subshell-server ' || fail "the bundled sidecar cannot report a version"
+ver="$("$APP/Contents/MacOS/$SIDECAR" version || true)"
+case "$ver" in "subshell-server "*) ;; *) fail "the bundled sidecar cannot report a version: $ver" ;; esac
 
 echo "smoke: verifying the signature chain"
 codesign --verify --deep --strict --verbose=2 "$APP" || fail "codesign --verify failed"
 # The sidecar must carry the hardened runtime too, or its entitlements are inert.
-codesign -dvv "$APP/Contents/MacOS/$SIDECAR" 2>&1 | grep -q 'flags=.*runtime' \
-  || fail "the sidecar is not signed with the hardened runtime"
-spctl -a -vvv -t exec "$APP" 2>&1 | grep -q 'source=Notarized Developer ID' \
-  || fail "Gatekeeper does not see a notarized Developer ID app"
+sig="$(codesign -dvv "$APP/Contents/MacOS/$SIDECAR" 2>&1 || true)"
+case "$sig" in *"flags="*"runtime"*) ;; *) fail "the sidecar is not signed with the hardened runtime" ;; esac
+assess="$(spctl -a -vvv -t exec "$APP" 2>&1 || true)"
+case "$assess" in *"source=Notarized Developer ID"*) ;; *) fail "Gatekeeper does not see a notarized Developer ID app: $assess" ;; esac
 # Tauri's staple_app calls .output() and never inspects the exit status, so a
 # stapling failure is SILENT and the build still reports success.
 xcrun stapler validate "$APP" || fail "the notarization ticket is not stapled"

@@ -8,7 +8,9 @@
 # granted deliberately, per window.
 #
 # The split that matters: `console` gets all of them; `main` — whose page comes
-# from the SERVER — gets exactly one, and only over loopback.
+# from the SERVER — gets only the ones that cannot touch the CLI, the config,
+# the service or the filesystem, and only over loopback. See
+# `capabilities/main.json` for the current list.
 
 "$schema" = "schemas/schema.json"
 

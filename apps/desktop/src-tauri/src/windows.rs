@@ -8,6 +8,8 @@
 //! and a WebSocket URL built from `window.location.host`. A `tauri://` page
 //! could not carry the `SameSite=Lax` session cookie to any of them.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::control::is_loopback;
@@ -78,12 +80,6 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
 
     let allowed = url.origin();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-        // Created HIDDEN and shown by `shell_ready` (or by the fallback below).
-        // The chrome-less title bar cannot be chosen before the page loads: an
-        // SPA that predates the desktop chrome under an Overlay title bar is an
-        // UNMOVABLE window, and the only thing that knows whether this SPA has
-        // it is the SPA. So the window negotiates instead of guessing.
-        .visible(false)
         // The page is the SERVER's, and this window holds Tauri globals. A
         // navigation away from the server's own origin — a redirect, an href
         // in rendered content, an injected script — must not carry those
@@ -114,10 +110,15 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     // An SPA that never answers — an older server, or a page that failed to
     // boot — must still get a window. Showing it decorated is the safe
     // outcome: the user sees the app, with an ordinary title bar.
+    //
+    // Gated on the handshake flag rather than on visibility: by the time this
+    // fires the user may have closed the window to the tray, and a thread that
+    // re-opened it six seconds later would be a window that will not stay shut.
     let fallback = window.clone();
+    let ready = app.state::<ShellReady>().0.clone();
     std::thread::spawn(move || {
         std::thread::sleep(READY_GRACE);
-        if !fallback.is_visible().unwrap_or(true) {
+        if !ready.load(Ordering::SeqCst) {
             let _ = fallback.show();
             let _ = fallback.set_focus();
         }
@@ -125,22 +126,46 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether the page has completed the title-bar handshake.
+///
+/// Managed state rather than a local flag because two things read it: the
+/// fallback thread (which must not re-show a tray-hidden window) and
+/// {@link shell_ready} itself (which must be idempotent — the SPA can remount).
+pub struct ShellReady(pub std::sync::Arc<AtomicBool>);
+
+impl ShellReady {
+    pub fn new() -> Self {
+        Self(std::sync::Arc::new(AtomicBool::new(false)))
+    }
+}
+
 /// How long to wait for the page to say it can draw its own chrome.
 const READY_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// The page has rendered desktop chrome: take the title bar away and show it.
 ///
-/// Called once by the SPA's desktop sidebar. An old SPA never calls it, which
-/// is exactly the point.
+/// Called from the SPA's shell root, so it fires on EVERY route — including
+/// `/login` and `/setup`, which render no sidebar and are exactly where a first
+/// launch lands. An old SPA never calls it at all, which is the point.
+///
+/// Idempotent: the SPA can remount (a hard navigation at sign-out, a route
+/// change), and a second call must not yank a window the user has since closed
+/// to the tray back onto the screen.
 pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
     let Some(window) = app.get_webview_window("main") else {
         return Err("no main window to ready".into());
     };
+    if app.state::<ShellReady>().0.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
     #[cfg(target_os = "macos")]
     if overlay {
         // Traffic lights then float over the sidebar's top strip, which is why
         // the rail reserves room for them and starts an OS drag on pointer-down.
         let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
+        // An Overlay title bar is transparent, not absent — the TITLE is still
+        // drawn, over the page's own content.
+        let _ = window.set_title("");
     }
     #[cfg(not(target_os = "macos"))]
     let _ = overlay;

@@ -1,5 +1,4 @@
 import { useDesktopBridge } from "@/hooks/use-desktop-bridge";
-import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 
 /**
  * Mounts the native-chrome action listener.
@@ -10,6 +9,5 @@ import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
  */
 export function DesktopBridge() {
   useDesktopBridge();
-  useDesktopNotifications();
   return null;
 }

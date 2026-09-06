@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useState } from "react";
+import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialog";
 import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
 
@@ -34,13 +34,16 @@ export function useQuickAdd(): QuickAddApi {
 export function QuickAddProvider({ children }: { children: ReactNode }): ReactNode {
   const [launchOpen, setLaunchOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  // A fresh object here would be a new context value on every render of this
+  // provider, which re-runs every consumer effect that depends on it — the
+  // desktop bridge re-subscribed its listener on each one. Setters are stable,
+  // so the empty dependency list is honest.
+  const api = useMemo<QuickAddApi>(
+    () => ({ openLaunch: () => setLaunchOpen(true), openNewWorkspace: () => setWorkspaceOpen(true) }),
+    [],
+  );
   return (
-    <QuickAddContext.Provider
-      value={{
-        openLaunch: () => setLaunchOpen(true),
-        openNewWorkspace: () => setWorkspaceOpen(true),
-      }}
-    >
+    <QuickAddContext.Provider value={api}>
       {children}
       <LaunchSubshellDialog open={launchOpen} onOpenChange={setLaunchOpen} />
       <NewWorkspaceDialog open={workspaceOpen} onOpenChange={setWorkspaceOpen} />

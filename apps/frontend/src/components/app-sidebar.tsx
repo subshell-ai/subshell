@@ -123,13 +123,18 @@ export function AppSidebar({
   /**
    * Which chrome this rail is wearing.
    *
-   * `desktop` changes ONLY presentation — the width, the brand row (a web
-   * wordmark reads wrong under an OS titlebar) and the room the macOS traffic
-   * lights need. Every behaviour stays put: the `application/x-subshell-id`
-   * drag payload, the status precedence, both context menus, the quick-add
-   * dialogs mounted at shell root, and the single SSE feed that keeps
-   * `["subshells"]` current. A second rail would lose all of it silently and
-   * then drift.
+   * Narrow on purpose: `desktop` widens the expanded rail from 14rem to 15rem
+   * and nothing else. The rest of the desktop chrome — the traffic-light
+   * inset, the drag strip, the server row — is supplied by the CALLER through
+   * `className`, `headerAbove` and `footerEnd` (see
+   * `components/desktop/desktop-sidebar.tsx`), so this component stays one
+   * rail with one set of behaviours.
+   *
+   * That reuse is the point. This rail is the `application/x-subshell-id` drag
+   * source, the live-status surface, the host of two context menus, the
+   * quick-add trigger and the only consumer of the collapse preference, all
+   * riding one SSE feed. A second implementation would lose every one of those
+   * silently and then drift.
    */
   variant?: "web" | "desktop";
 }) {
@@ -190,14 +195,32 @@ export function AppSidebar({
   // Handled HERE rather than in the bridge because both touch state that is
   // private to this component — exporting it just to drive a menu item would
   // be a wider seam than the feature is worth.
+  // Set by `focus-filter` when the rail is collapsed: the input does not exist
+  // until the expanded branch renders, so the focus has to wait for it.
+  const [focusFilterWhenOpen, setFocusFilterWhenOpen] = useState(false);
+
   useEffect(
     () =>
       onDesktopAction((action) => {
         if (action === "toggle-sidebar") toggle();
-        else if (action === "focus-filter") filterRef.current?.focus();
+        else if (action === "focus-filter") {
+          if (filterRef.current) filterRef.current.focus();
+          // ⌘F was a silent no-op on a collapsed rail — the one state where a
+          // user is most likely to reach for it.
+          else {
+            setFocusFilterWhenOpen(true);
+            setCollapsed(false);
+          }
+        }
       }),
     [toggle],
   );
+
+  useEffect(() => {
+    if (!focusFilterWhenOpen || !filterRef.current) return;
+    filterRef.current.focus();
+    setFocusFilterWhenOpen(false);
+  }, [focusFilterWhenOpen]);
 
   return (
     <aside

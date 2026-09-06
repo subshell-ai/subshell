@@ -39,14 +39,25 @@ pub fn run() {
                     let _ = w.set_focus();
                 }
             }))
-            .plugin(tauri_plugin_window_state::Builder::default().build());
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    // NOT VISIBLE: `main` is created hidden on purpose and shown
+                    // only by the title-bar handshake. Restoring saved
+                    // visibility would show it decorated before the page can
+                    // ask for the overlay, which is the flash the handshake
+                    // exists to avoid.
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE,
+                    )
+                    .build(),
+            );
     }
 
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
         .manage(settings::SettingsState::new())
+        .manage(windows::ShellReady::new())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
             control::desktop_install_server,
@@ -95,6 +106,34 @@ pub fn run() {
             windows::open_console(&handle)?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running subshell desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building subshell desktop")
+        .run(|app, event| match event {
+            // Hiding the last window is still "no windows left", and the
+            // default answer to that is to quit — so close-to-tray would close
+            // to a tray and then exit. Closing the CONSOLE hit the same path.
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if app.state::<settings::SettingsState>().get().close_to_tray
+                    && app.get_webview_window("main").is_some()
+                {
+                    api.prevent_exit();
+                }
+            }
+            // macOS: clicking the Dock icon of an app with no visible window.
+            // Without this a window closed to the tray cannot be brought back
+            // from the Dock, only from the tray — and on a desktop where the
+            // tray is invisible that is nowhere.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                let window = app
+                    .get_webview_window("main")
+                    .or_else(|| app.get_webview_window("console"));
+                if let Some(w) = window {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            }
+            _ => {}
+        });
 }

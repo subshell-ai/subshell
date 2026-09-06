@@ -6,6 +6,7 @@ import {
   bundleKind,
   DESKTOP_RELEASE_DIR_ENV,
   type DesktopReleaseDeps,
+  hostTarget,
   resolveReleaseDir,
   SIDECAR_DIR,
   stageSidecar,
@@ -170,5 +171,29 @@ describe("resolveReleaseDir", () => {
 
   test("an empty override is not an override", () => {
     expect(resolveReleaseDir({ [DESKTOP_RELEASE_DIR_ENV]: "" })).toBe(resolveReleaseDir({}));
+  });
+});
+
+describe("hostTarget", () => {
+  // `tauri build` links against the host webview, so a cross-build is not a
+  // slow path — it is not a path. A default nobody can run is not a default.
+  test("names the one target this machine can build", () => {
+    expect(hostTarget("darwin", "arm64")).toBe("darwin-arm64");
+    expect(hostTarget("linux", "x64")).toBe("linux-x64");
+  });
+
+  test("refuses a host with no buildable target rather than picking one", () => {
+    expect(() => hostTarget("darwin", "x64")).toThrow(/cannot be built on darwin-x64/);
+    expect(() => hostTarget("win32", "x64")).toThrow(/cannot be built/);
+    expect(() => hostTarget("linux", "arm64")).toThrow(/cannot be built/);
+  });
+
+  test("every host target is a real desktop target", () => {
+    for (const [platform, arch] of [
+      ["darwin", "arm64"],
+      ["linux", "x64"],
+    ] as const) {
+      expect(DESKTOP_TARGETS).toContain(hostTarget(platform, arch) as never);
+    }
   });
 });
