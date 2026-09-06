@@ -49,7 +49,15 @@ trap 'rm -rf "$WORK"' EXIT
 if [ "$TRIPLE" = "linux-x64" ]; then
   echo "smoke: inspecting the .deb"
   dpkg-deb -c "$DIST/$ARTIFACT" >"$WORK/contents"
-  grep -q "/usr/bin/$SIDECAR\$" "$WORK/contents" || fail "the sidecar is not at /usr/bin/$SIDECAR"
+  # A bare "not found" is not actionable — the useful question is always "then
+  # what IS in there", and the answer is three lines away.
+  if ! grep -q "/usr/bin/$SIDECAR\$" "$WORK/contents"; then
+    echo "--- everything the package installs under /usr/bin ---" >&2
+    grep '/usr/bin/' "$WORK/contents" >&2 || echo "(nothing under /usr/bin at all)" >&2
+    echo "--- the package's full contents ---" >&2
+    cat "$WORK/contents" >&2
+    fail "the sidecar is not at /usr/bin/$SIDECAR"
+  fi
   # A sidecar staged from a zip artifact loses its mode and ships 0644, which
   # dies EACCES at exec — invisible until first run.
   grep -E "^-rwxr-xr-x .*/usr/bin/$SIDECAR\$" "$WORK/contents" >/dev/null \
