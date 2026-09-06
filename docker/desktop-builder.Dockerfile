@@ -1,4 +1,4 @@
-# The Linux build environment for apps/desktop.
+# The Linux build environment for apps/desktop-server.
 #
 # A CONTAINER rather than the runner's own image, so the app's minimum
 # supported Linux is a deliberate choice instead of an accident of whatever the

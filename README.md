@@ -35,26 +35,41 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 - **Ships as a binary** — `subshell-server` is one self-contained file per platform
   with the SPA embedded: no Bun, no checkout, no separate frontend build.
 
-## Desktop app
+## Desktop apps
 
-If you would rather not touch a CLI, **Subshell Desktop** installs and runs the
-server for you: a native window, menu bar and tray, with the server's install,
-start, stop and restart behind buttons.
+If you would rather not touch a CLI, there are two apps — one for each end.
+
+**Subshell Desktop** installs and runs the *server*: a native window, menu bar
+and tray, with the server's install, start, stop and restart behind buttons.
+
+**Subshell Node** registers *this machine* as a node so agents can be launched
+on it from the browser. Paste the server's address and a setup key (Settings →
+Nodes → Add node mints one, and it is single-use and good for 24 hours), and it
+enrols, installs the agent as a background service and shows you its state.
 
 **Install `tmux` first.** Every subshell runs in a tmux pane, so the app cannot
 get past its setup screen without it — `brew install tmux` on macOS,
 `apt install tmux` on Debian/Ubuntu.
 
-| Platform | Download | Notes |
+| App | macOS (Apple silicon) | Linux (x86_64) |
 | --- | --- | --- |
-| macOS (Apple silicon) | `Subshell.app.tar.gz` from the `desktop-vX.Y.Z` release | Signed and notarized; macOS 13+ |
-| Linux (x86_64) | `Subshell_X.Y.Z_amd64.deb` | Ubuntu 24.04+ / Debian 13+ (glibc 2.39) |
+| Subshell Desktop | `Subshell.app.tar.gz` from `desktop-server-vX.Y.Z` | `Subshell_X.Y.Z_amd64.deb` |
+| Subshell Node | `SubshellNode.app.tar.gz` from `desktop-client-vX.Y.Z` | `SubshellNode_X.Y.Z_amd64.deb` |
 
-The app ships the server inside it — nothing is downloaded on first run. On
-first launch it offers to install `subshell-server` to `~/.local/bin`, write a
-`config.env`, register it as a service (a systemd user unit on Linux, a launchd
-agent on macOS) and start it. After that the window is the same Subshell UI a
-browser shows, because it is served by that same local server.
+macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
+Ubuntu 24.04+ / Debian 13+ (glibc 2.39). Releases cut before 2026-09-06, when
+there was only one desktop app, are tagged `desktop-vX.Y.Z`.
+
+Each app ships the binary it manages inside it — nothing is downloaded on first
+run. Subshell Desktop offers to install `subshell-server` to `~/.local/bin`,
+write a `config.env`, register it as a service (a systemd user unit on Linux, a
+launchd agent on macOS) and start it; after that the window is the same Subshell
+UI a browser shows, because it is served by that same local server. Subshell
+Node does the same for the `subshell` agent, and its window stays its own — a
+node has no web UI of its own to show.
+
+The two can live on one machine, and often should: the machine running the
+control plane is usually also a machine you want to launch agents on.
 
 Two platform differences worth knowing:
 
@@ -180,7 +195,7 @@ and whether a service definition is on disk. Config lives in
 config.env > `.env` > built-in defaults**.
 
 Cutting a release is a workflow dispatch, never a hand-made tag —
-`gh workflow run release.yml -f app=both`. See root
+`gh workflow run release.yml -f app=all`. See root
 [`AGENTS.md`](AGENTS.md) for the full pipeline.
 
 ## Production (single port)

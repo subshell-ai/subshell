@@ -469,6 +469,16 @@ export interface ServiceState {
   /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad`). `null` when unknown. */
   enabled: boolean | null;
   /**
+   * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact
+   * `launchctl print` states by exiting 0 at all. It is NOT the run state: a
+   * job can be loaded and idle (no pid), and while it stays loaded
+   * `KeepAlive`/`RunAtLoad` can start it again and a later `bootstrap` fails
+   * with "service already loaded". `stop` therefore gates its no-op on THIS,
+   * never on {@link ServiceState.state}. Absent on systemd, whose own `stop`
+   * is idempotent.
+   */
+  loaded?: boolean;
+  /**
    * Whether a teardown keeps live panes — `null` only when nothing is installed.
    *
    * Each local subshell's tmux server is a CHILD of the service, so the answer
@@ -653,15 +663,27 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
   if (res.code !== 0) {
     // Not loaded in this domain. With a plist ON DISK that is exactly
     // "installed but stopped" — the state `bootout` leaves behind.
-    return { installed: true, definitionPath, state: "stopped", pid: null, enabled, paneSafety, detail: "" };
+    return {
+      installed: true,
+      definitionPath,
+      state: "stopped",
+      pid: null,
+      enabled,
+      loaded: false,
+      paneSafety,
+      detail: "",
+    };
   }
   const { running, pid } = parseLaunchctlPrint(res.out);
+  // `print` answered, so the job IS bootstrapped — even when it reports no pid.
+  // That is the loaded-but-idle case, which is stopped and loaded at once.
   return {
     installed: true,
     definitionPath,
     state: running ? "running" : "stopped",
     pid,
     enabled,
+    loaded: true,
     paneSafety,
     detail: "",
   };
@@ -737,8 +759,14 @@ export function controlService(deps: ServiceDeps, verb: ServiceVerb, opts: { for
   const target = `gui/${deps.uid}/${LAUNCHD_LABEL}`;
   if (verb === "stop") {
     // Idempotent like the systemd verb: `bootout` on an unloaded job exits
-    // non-zero, which would make a second stop look like a failure.
-    if (state.state === "stopped") return { code: 0, out: "subshell-server is already stopped.\n", err: "" };
+    // non-zero, which would make a second stop look like a failure. The fact
+    // that licenses the no-op is NOT-LOADED, never "not running": a launchd
+    // job can be loaded and idle (`print` answers, no pid), and in that state
+    // it is still bootstrapped — `KeepAlive`/`RunAtLoad` can start it again
+    // and a later `bootstrap` fails with "service already loaded". Gating on
+    // the run state reported success on exactly that job and booted out
+    // nothing.
+    if (state.loaded === false) return { code: 0, out: "subshell-server is already stopped.\n", err: "" };
     // `bootout`, not a kill: KeepAlive is true, so launchd restarts anything
     // that merely dies. Unloading the job is the only thing that stays stopped.
     const res = deps.runCmd(["launchctl", "bootout", target]);

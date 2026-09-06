@@ -241,44 +241,67 @@ shares and subshell shares are two independent axes:
   ish, a remote node dutifully dials the wrong machine — the enroll flow and
   Nodes page surface the resolved URL and warn on loopback.
 
-## The desktop app (`apps/desktop`)
+## The desktop apps (`apps/desktop-server`, `apps/desktop-client`)
 
-A Tauri v2 shell that installs, runs and manages a `subshell-server` on the
-user's own machine. Three things about it are security-relevant:
+Two Tauri v2 shells, one per CLI. `apps/desktop-server` installs, runs and
+manages a `subshell-server`; `apps/desktop-client` ("Subshell Node") registers
+the machine as a node and manages its `subshell` agent. Neither adds a server
+surface — everything privileged goes through its CLI as the same local user.
 
-- **The app window loads the SERVER's page**, at `http://127.0.0.1:<port>` or
-  `http://localhost:<port>`, and that window holds Tauri's IPC globals. It is
-  therefore treated as REMOTE content: `capabilities/main.json` scopes it to
-  loopback URLs and grants only commands that cannot touch the CLI, the config,
-  the service or the filesystem (show an existing window, drop this app's own
-  title bar, display one fixed-shape notification). `open_main` independently
-  refuses a non-loopback origin, and `on_navigation` pins the window to the
-  origin it was opened with. The CLI-driving commands live on a SEPARATE
-  window whose page is bundled. **The `csp` in `tauri.conf.json` applies only
-  to that bundled console** — the app window's page carries whatever CSP the
-  server sends, so an XSS in the SPA reaches those three commands.
-- **The bundled server is signed with the app's entitlements.** Tauri has ONE
-  entitlements slot for the whole bundle, so whatever the Bun-compiled server
-  needs is also granted to the GUI process holding the session cookie. That set
-  was trimmed to `allow-jit` + `allow-unsigned-executable-memory` and is pinned
-  by test; `disable-library-validation` and `allow-dyld-environment-variables`
-  — the pair that turns a signed app into a code-injection host — are
-  deliberately absent. The trim was measured under an AD-HOC signature, which
-  cannot exercise library validation; re-probe under Developer ID before the
-  first signed release.
-- **It executes what it finds.** The resolution ladder runs `<candidate>
-  version` on files it locates, and the copy it installs at
-  `~/.local/bin/subshell-server` is executed on every launch from a
-  user-writable directory. That is not an escalation on this posture — the same
-  user already runs the server and can already write there — but it is why the
-  chosen-binary path is validated before it is persisted, and why every spawn
-  is bounded. The login-shell PATH probe runs the user's own profile, which is
-  arbitrary code by construction, on every launch.
+The first bullet below is specific to `apps/desktop-server`. The node app has
+ONE window and it loads the app's own bundled page, because a node serves
+nothing to load; its `csp` therefore governs every page it shows. The rest
+applies to both.
 
-Notifications follow the same owner-targeted rule as push: the desktop watcher
-filters to `access === "owner"` and the per-subshell bell, and honours the
-account-wide master switch. The list it reads is much wider than that — for an
-admin it is every subshell on the instance — so the filter is load-bearing.
+- **The server app's main window loads the SERVER's page**, at
+  `http://127.0.0.1:<port>` or `http://localhost:<port>`, and that window holds
+  Tauri's IPC globals. It is therefore treated as REMOTE content:
+  `capabilities/main.json` scopes it to loopback URLs and grants only commands
+  that cannot touch the CLI, the config, the service or the filesystem (show an
+  existing window, drop this app's own title bar, display one fixed-shape
+  notification). `open_main` independently refuses a non-loopback origin, and
+  `on_navigation` pins the window to the origin it was opened with. The
+  CLI-driving commands live on a SEPARATE window whose page is bundled. **The
+  `csp` in `tauri.conf.json` applies only to that bundled console** — the app
+  window's page carries whatever CSP the server sends, so an XSS in the SPA
+  reaches those three commands.
+- **Each app's ACL manifest is load-bearing BY EXISTENCE.** Tauri gates an app
+  command only when `plugin_command.is_some() || has_app_acl_manifest ||
+  !is_local`, so deleting `permissions/desktop.toml` leaves every command
+  ungated for every local window. The node app has one local window and grants
+  it everything today; the file is what stops a second window added later from
+  inheriting the whole CLI surface silently.
+- **The bundled binary is signed with the app's entitlements.** Tauri has ONE
+  entitlements slot for the whole bundle, so whatever the Bun-compiled binary
+  needs is also granted to the GUI process — which, in the server app, is the
+  process holding the session cookie. That set was trimmed to `allow-jit` +
+  `allow-unsigned-executable-memory` and is pinned by test in each app;
+  `disable-library-validation` and `allow-dyld-environment-variables` — the pair
+  that turns a signed app into a code-injection host — are deliberately absent.
+  The two apps keep SEPARATE plists: one shared file would silently widen
+  whichever pipeline was not being edited.
+- **They execute what they find.** Each resolution ladder runs `<candidate>
+  version` on files it locates, and the copy it installs — at
+  `~/.local/bin/subshell-server` or `~/.local/bin/subshell` — is executed on
+  every launch from a user-writable directory. That is not an escalation on
+  this posture — the same user already runs these programs and can already write
+  there — but it is why a chosen-binary path is validated before it is
+  persisted, and why every spawn is bounded. The login-shell PATH probe runs the
+  user's own profile, which is arbitrary code by construction, on every launch.
+- **A setup key pasted into the node app is `ps`-visible**: it is passed to
+  `subshell enroll --key <nsk_…>` as an argv element, the same exposure the CLI
+  path already has. Bounded — single-use, 24 h, consumed by that enroll, and it
+  confers only the right to register one node. The node key enroll returns is
+  never surfaced: the CLI writes it 0600 and `enroll --json` omits it.
+- **Enrolling twice is destructive**, so the node app spawns nothing until the
+  caller confirms: `enroll` overwrites `config.json`, mints a SECOND node row on
+  the control plane, and discards the previous node key whose only home was that
+  file.
+
+Notifications follow the same owner-targeted rule as push: the server app's
+watcher filters to `access === "owner"` and the per-subshell bell, and honours
+the account-wide master switch. The list it reads is much wider than that — for
+an admin it is every subshell on the instance — so the filter is load-bearing.
 
 ## CORS
 

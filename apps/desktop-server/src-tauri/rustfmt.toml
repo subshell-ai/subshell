@@ -1,0 +1,2 @@
+# Match biome's line width so the two halves of this app read the same.
+max_width = 120

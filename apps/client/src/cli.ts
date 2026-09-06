@@ -1,11 +1,21 @@
 import { readMcpEnv } from "@internal/mcp-core";
 import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
-import { type AgentConfig, loadConfig } from "./config.js";
+import { type AgentConfig, configPath, loadConfig } from "./config.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, readLock } from "./lock.js";
 import { runAgentMcp } from "./mcp/main.js";
-import { DEFAULT_DEPS, installService, uninstallService } from "./service.js";
+import {
+  controlService,
+  DEFAULT_DEPS,
+  installService,
+  isServiceVerb,
+  queryService,
+  SERVICE_VERBS,
+  type ServiceDeps,
+  serviceStateLines,
+  uninstallService,
+} from "./service.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -29,9 +39,11 @@ export interface CliResult {
 const USAGE = `subshell — node agent daemon
 
 usage:
-  subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
+  subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
   subshell run
   subshell service install|uninstall   (systemd user unit / launchd agent)
+  subshell service status [--json]     (what the service manager reports)
+  subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell status [--json] [--probe]
   subshell version        (also --version, -v)
   subshell mcp            (stdio MCP server for a subshell pane — internal)
@@ -53,9 +65,23 @@ const COMMAND_ALIASES: Record<string, string> = {
   "--version": "version",
   "-v": "version",
 };
-/** Command → bare subtoken accepted in its FIRST positional slot (validated there). */
+/**
+ * Command → bare subtoken accepted in its FIRST positional slot (validated
+ * there). The manager verbs are spread from `service.ts` so a verb added there
+ * cannot be silently unreachable here.
+ */
 const SUBCOMMANDS: Record<string, string[]> = {
-  service: ["install", "uninstall"],
+  service: ["install", "uninstall", "status", ...SERVICE_VERBS],
+};
+/**
+ * Command → subtoken → the flags THAT subtoken accepts. `service` is the only
+ * command whose flags are per-subcommand: `--json` is a view's flag and
+ * `--force` only ever overrides the restart refusal, so accepting either
+ * everywhere under `service` would make `service install --force` read as
+ * meaningful.
+ */
+const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
+  service: { status: ["--json"], restart: ["--force"] },
 };
 /** Known flag → does it take a value? */
 const FLAGS: Record<string, boolean> = {
@@ -65,12 +91,19 @@ const FLAGS: Record<string, boolean> = {
   "--data-dir": true,
   "--json": false,
   "--probe": false,
+  "--force": false,
 };
+/** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
+const subcommandFlagUnion = (command: string): string[] => [
+  ...new Set(Object.values(SUBCOMMAND_FLAGS[command] ?? {}).flat()),
+];
 const COMMAND_FLAGS: Record<string, string[]> = {
-  enroll: ["--server", "--key", "--name", "--data-dir"],
+  enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
   run: [],
-  service: [], // the subtoken is positional; no flags
+  // Derived, never hand-listed: the command-level check is the union and the
+  // per-subtoken check below is what actually decides.
+  service: subcommandFlagUnion("service"),
   status: ["--json", "--probe"],
   version: [],
 };
@@ -87,7 +120,7 @@ export interface ParsedArgs {
   flags: Record<string, string>;
 }
 
-/** Hand-rolled flag map (precedent: backend mcp entry) — no dependency needed for 5 flags. */
+/** Hand-rolled flag map (precedent: backend mcp entry) — no dependency needed for a handful of flags. */
 export function parseArgs(argv: string[]): ParsedArgs {
   const [first, ...rest] = argv;
   if (!first) throw new UsageError("no command given");
@@ -102,6 +135,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   // through to the flag arm below and dies as `unknown flag`.
   const subcommands = SUBCOMMANDS[command];
   let sub: string | undefined;
+  // Raw tokens as typed (`flags` is camelCased and lossy) — the per-subtoken
+  // check below reports the flag the way the operator wrote it.
+  const used: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     if (subcommands && sub === undefined && !rest[i].startsWith("--")) {
       if (!subcommands.includes(rest[i])) {
@@ -120,6 +156,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const inlineValue = eq === -1 ? undefined : rest[i].slice(eq + 1);
     if (!(tok in FLAGS)) throw new UsageError(`unknown flag '${tok}'`);
     if (!allowed.has(tok)) throw new UsageError(`flag '${tok}' is not valid for '${command}'`);
+    used.push(tok);
     if (!FLAGS[tok]) {
       if (inlineValue !== undefined) throw new UsageError(`flag '${tok}' takes no value`);
       flags[flagKey(tok)] = "1";
@@ -137,14 +174,45 @@ export function parseArgs(argv: string[]): ParsedArgs {
   if (subcommands && sub === undefined) {
     throw new UsageError(`${command} requires ${subcommands.join(" or ")}`);
   }
+  if (sub !== undefined) assertSubcommandFlags(command, sub, used);
   return { command, sub, flags };
+}
+
+/**
+ * Rejects a flag that the COMMAND accepts but this SUBTOKEN does not
+ * (`service install --json`), naming the subcommand that does accept it —
+ * without that hint the refusal reads as "this flag does not exist".
+ * @throws UsageError (exit 2) on the first stray flag
+ */
+function assertSubcommandFlags(command: string, sub: string, used: string[]): void {
+  const perSub = SUBCOMMAND_FLAGS[command];
+  if (!perSub) return;
+  const allowed = new Set(perSub[sub] ?? []);
+  const stray = used.find((tok) => !allowed.has(tok));
+  if (stray === undefined) return;
+  const owners = Object.entries(perSub)
+    .filter(([, list]) => list.includes(stray))
+    .map(([name]) => `'${command} ${name}'`);
+  const hint = owners.length > 0 ? ` — only ${owners.join(" and ")} accepts it` : "";
+  throw new UsageError(`flag '${stray}' is not valid for '${command} ${sub}'${hint}`);
+}
+
+/**
+ * Injectable effects for {@link run} — empty in production, where every field
+ * falls back to the live process. The CLI tests use it to drive `service …`
+ * against stubbed manager/filesystem seams instead of the real systemd or
+ * launchd on whatever machine the suite happens to run on.
+ */
+export interface RunDeps {
+  /** Service-manager + filesystem seams for `service` (default: {@link DEFAULT_DEPS}). */
+  service?: ServiceDeps;
 }
 
 /**
  * Runs one CLI invocation and returns what to print + the exit code.
  * Never throws for expected failures; the messages are operator-actionable.
  */
-export async function run(argv: string[]): Promise<CliResult> {
+export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult> {
   let parsed: ParsedArgs;
   try {
     parsed = parseArgs(argv);
@@ -183,11 +251,32 @@ export async function run(argv: string[]): Promise<CliResult> {
         return { code: 0, out: "", err: "" }; // unreachable: runDaemon never resolves (test seam only)
       }
       case "service": {
-        // Backgrounding via the platform service manager (spec §11). parseArgs
-        // already pinned `sub` to install|uninstall; the real deps wire the
-        // config check to loadConfig() so service.ts stays config-import-free.
-        const deps = DEFAULT_DEPS(configExists);
-        return parsed.sub === "install" ? await installService(deps) : await uninstallService(deps);
+        // Backgrounding via the platform service manager (spec §11), plus the
+        // manager-driving verbs a GUI needs. parseArgs already pinned `sub` to
+        // a SUBCOMMANDS.service member; the real deps wire the config check to
+        // loadConfig() so service.ts stays config-import-free.
+        const sdeps = deps.service ?? DEFAULT_DEPS(configExists);
+        if (parsed.sub === "install") return await installService(sdeps);
+        if (parsed.sub === "uninstall") return await uninstallService(sdeps);
+        if (parsed.sub === "status") {
+          // A VIEW, not a command: it always exits 0 (the `subshell-server
+          // service status` rule) so a caller polling it — the desktop GUI —
+          // never has to tell "the daemon is not running" apart from "the call
+          // itself failed". Nothing here can echo the node key: the state is
+          // read from the service manager, which has never seen it.
+          const state = await queryService(sdeps);
+          const out = parsed.flags.json
+            ? `${JSON.stringify(state, null, 2)}\n`
+            : `${serviceStateLines(state).join("\n")}\n`;
+          return { code: 0, out, err: "" };
+        }
+        // Narrowed by exclusion — install/uninstall/status returned above — so
+        // a SUBCOMMANDS.service entry that nothing handles lands on the usage
+        // error below instead of silently restarting the daemon.
+        if (parsed.sub !== undefined && isServiceVerb(parsed.sub)) {
+          return await controlService(sdeps, parsed.sub, { force: parsed.flags.force === "1" });
+        }
+        throw new UsageError(`unknown service subcommand '${parsed.sub ?? ""}'`);
       }
       case "enroll": {
         const server = parsed.flags.server;
@@ -196,13 +285,26 @@ export async function run(argv: string[]): Promise<CliResult> {
         if (!server) missing.push("--server <url>");
         if (!key) missing.push("--key <nsk_…>");
         if (missing.length > 0) throw new UsageError(`enroll requires ${missing.join(" and ")}`);
-        const { nodeId } = await runEnroll({
+        const enrolled = await runEnroll({
           server,
           setupKey: key,
           name: parsed.flags.name,
           dataDir: parsed.flags.dataDir,
         });
-        return { code: 0, out: `Enrolled as ${nodeId} — next: subshell run\n`, err: "" };
+        if (parsed.flags.json) {
+          // What a GUI would otherwise screen-scrape off the human line, plus
+          // the two paths it cannot derive. The nodeKey is NEVER here: the
+          // 0600 config file is its only home (same rule as `status --json`).
+          const body = {
+            nodeId: enrolled.nodeId,
+            serverUrl: enrolled.serverUrl,
+            name: enrolled.name,
+            dataDir: enrolled.dataDir,
+            configPath: configPath(),
+          };
+          return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
+        }
+        return { code: 0, out: `Enrolled as ${enrolled.nodeId} — next: subshell run\n`, err: "" };
       }
       case "status": {
         // NON-DESTRUCTIVE by default (fix wave 1): a live `daemon.lock` (pid alive, same

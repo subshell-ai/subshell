@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BUNDLED_SIDECAR_NAME,
+  AGENT_SIDECAR_NAME,
+  DESKTOP_CLIENT_PRODUCT,
+  DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
   rustTargetTriple,
+  SERVER_SIDECAR_NAME,
   SERVER_TARGETS,
 } from "../paths.js";
 
@@ -50,30 +53,52 @@ describe("sidecar naming", () => {
   // The staged file carries the Rust triple; Tauri strips it on copy. Two
   // different strings, both needed.
   test("the staged name carries the Rust triple and the in-bundle name does not", () => {
-    expect(desktopSidecarFileName("darwin-arm64")).toBe("subshell-server-bundled-aarch64-apple-darwin");
-    expect(desktopSidecarFileName("linux-x64")).toBe("subshell-server-bundled-x86_64-unknown-linux-gnu");
-    expect(BUNDLED_SIDECAR_NAME).toBe("subshell-server-bundled");
+    expect(desktopSidecarFileName(SERVER_SIDECAR_NAME, "darwin-arm64")).toBe(
+      "subshell-server-bundled-aarch64-apple-darwin",
+    );
+    expect(desktopSidecarFileName(SERVER_SIDECAR_NAME, "linux-x64")).toBe(
+      "subshell-server-bundled-x86_64-unknown-linux-gnu",
+    );
+    expect(SERVER_SIDECAR_NAME).toBe("subshell-server-bundled");
     for (const target of DESKTOP_TARGETS) {
-      expect(desktopSidecarFileName(target).startsWith(`${BUNDLED_SIDECAR_NAME}-`)).toBe(true);
-      expect(desktopSidecarFileName(target)).not.toBe(BUNDLED_SIDECAR_NAME);
+      expect(desktopSidecarFileName(SERVER_SIDECAR_NAME, target).startsWith(`${SERVER_SIDECAR_NAME}-`)).toBe(true);
+      expect(desktopSidecarFileName(SERVER_SIDECAR_NAME, target)).not.toBe(SERVER_SIDECAR_NAME);
     }
   });
 
   // Tauri puts externalBin in /usr/bin on Debian. A sidecar named
   // `subshell-server` would own a system-wide binary on every user's PATH.
   test("the sidecar never claims the plain server name", () => {
-    expect(BUNDLED_SIDECAR_NAME).not.toBe("subshell-server");
-    expect(BUNDLED_SIDECAR_NAME.startsWith("subshell-server-")).toBe(true);
+    expect(SERVER_SIDECAR_NAME).not.toBe("subshell-server");
+    expect(SERVER_SIDECAR_NAME.startsWith("subshell-server-")).toBe(true);
+    // Same rule for the node agent, and for the same reason: Debian puts an
+    // externalBin in /usr/bin, so a sidecar named `subshell` would own that
+    // name system-wide on every machine the node app is installed on.
+    expect(AGENT_SIDECAR_NAME).not.toBe("subshell");
+    expect(AGENT_SIDECAR_NAME.startsWith("subshell-")).toBe(true);
+    // The two apps can be installed side by side, so nothing they place in
+    // /usr/bin may collide.
+    expect(AGENT_SIDECAR_NAME).not.toBe(SERVER_SIDECAR_NAME);
+    expect(DESKTOP_CLIENT_PRODUCT).not.toBe(DESKTOP_SERVER_PRODUCT);
+    // A space in productName makes the Debian package name and the .deb
+    // filename a guess only the Linux bundler can settle.
+    for (const product of [DESKTOP_SERVER_PRODUCT, DESKTOP_CLIENT_PRODUCT]) {
+      expect(product).not.toMatch(/\s/);
+    }
   });
 });
 
 describe("published artifacts", () => {
   test("macOS ships a tarball, Linux a versioned deb", () => {
-    expect(desktopArtifactFileName("darwin-arm64", "1.2.3")).toBe("Subshell.app.tar.gz");
-    expect(desktopArtifactFileName("linux-x64", "1.2.3")).toBe("Subshell_1.2.3_amd64.deb");
+    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toBe("Subshell.app.tar.gz");
+    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe("Subshell_1.2.3_amd64.deb");
+    expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "darwin-arm64", "0.1.0")).toBe("SubshellNode.app.tar.gz");
+    expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "linux-x64", "0.1.0")).toBe("SubshellNode_0.1.0_amd64.deb");
   });
 
   test("an unknown target has no artifact name", () => {
-    expect(() => desktopArtifactFileName("windows-x64", "1.0.0")).toThrow(/no desktop artifact name/);
+    expect(() => desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "windows-x64", "1.0.0")).toThrow(
+      /no desktop artifact name/,
+    );
   });
 });

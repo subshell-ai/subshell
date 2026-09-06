@@ -32,6 +32,24 @@ export interface EnrollOptions {
   dataDir?: string;
 }
 
+/**
+ * What a completed enrollment persisted. Everything here is a fact the enroll
+ * RESOLVED (the normalized server URL, the defaulted name, the defaulted data
+ * dir) rather than what the caller passed, so `subshell enroll --json` can
+ * report the config without re-deriving any of it — and deliberately WITHOUT
+ * the nodeKey, which the 0600 config file is the only home for.
+ */
+export interface EnrollResult {
+  /** Server-assigned node id (uuid). */
+  nodeId: string;
+  /** Control-plane base URL as normalized and persisted. */
+  serverUrl: string;
+  /** Node display name actually used (the trimmed `--name`, else the hostname). */
+  name: string;
+  /** Data dir the identity keypair and runtime state live in. */
+  dataDir: string;
+}
+
 const ENROLL_TIMEOUT_MS = 30_000;
 
 /** Mirrors the `name` maxLength of EnrollBodySchema (apps/server/src/api/nodes/enroll.route.ts). */
@@ -43,7 +61,7 @@ const MAX_NAME_LEN = 64;
  * on any failure; on failure NOTHING is persisted as config (the identity file
  * is allowed to pre-exist — it is only created, never overwritten, here).
  */
-export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }> {
+export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   assertTmux(); // BEFORE any network call — an unenrollable box shouldn't burn a setup key
   const serverUrl = normalizeServer(opts.server);
   const name = opts.name?.trim() || hostname();
@@ -99,7 +117,7 @@ export async function runEnroll(opts: EnrollOptions): Promise<{ nodeId: string }
   const nodeWsUrl = typeof ok?.wsUrl === "string" && ok.wsUrl !== "" ? ok.wsUrl : undefined;
 
   await saveConfig({ serverUrl, nodeId, nodeKey, controlPublicKey, dataDir, name, nodeWsUrl });
-  return { nodeId };
+  return { nodeId, serverUrl, name, dataDir };
 }
 
 /** The node can't run anything without tmux — refuse before touching the network. */

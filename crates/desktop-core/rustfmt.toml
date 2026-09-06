@@ -1,0 +1,2 @@
+# Match biome's line width, the same rule both desktop apps' Rust halves use.
+max_width = 120

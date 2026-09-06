@@ -5,7 +5,7 @@
  * embedded webview — neither WKWebView (macOS) nor WebKitGTK (Linux) ships a
  * platform authenticator, so `authClient.signIn.passkey()` there fails with a
  * message about the ceremony rather than about the missing capability. It
- * surfaced with `apps/desktop`, but it was already wrong in any in-app browser
+ * surfaced with `apps/desktop-server`, but it was already wrong in any in-app browser
  * a user might follow a link into.
  *
  * Deliberately a CAPABILITY check, not a shell check: gating on "is this the

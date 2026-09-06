@@ -64,7 +64,7 @@ export function serverArtifactFileName(target: string): string {
 export type DesktopTarget = (typeof DESKTOP_TARGETS)[number];
 
 /**
- * The closed set of platform triples `apps/desktop` is published for.
+ * The closed set of platform triples `apps/desktop-server` is published for.
  *
  * NARROWER than {@link SERVER_TARGETS}, and for a different reason than the
  * server's own narrowing:
@@ -112,43 +112,65 @@ const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
 };
 
 /**
- * The in-bundle name of the server binary `apps/desktop` ships.
+ * The in-bundle name of the binary each desktop app ships.
  *
  * Tauri STRIPS the `-<rust triple>` suffix when it copies an `externalBin`, so
- * this is NOT the name of the staged file — see {@link desktopSidecarFileName}.
- * Anything looking for the staged name inside a built bundle finds nothing,
- * 100% of the time.
+ * these are NOT the names of the staged files — see
+ * {@link desktopSidecarFileName}. Anything looking for the staged name inside a
+ * built bundle finds nothing, 100% of the time.
  *
- * The `-bundled` suffix keeps it distinct from a hand-installed
- * `subshell-server`: Tauri puts `externalBin` in `/usr/bin` on Debian, so a
- * sidecar named `subshell-server` would own a system-wide binary on every
- * user's PATH and collide with any future official server package.
+ * The `-bundled` suffix keeps each distinct from a hand-installed binary of the
+ * same lineage: Tauri puts `externalBin` in `/usr/bin` on Debian, so a sidecar
+ * named `subshell-server` (or `subshell`) would own a system-wide binary on
+ * every user's PATH and collide with any future official package. It is also
+ * what keeps "the binary this app SHIPS" and "the binary the user has
+ * INSTALLED" two separate files, which the version policy depends on.
  */
-export const BUNDLED_SIDECAR_NAME = "subshell-server-bundled";
+export const SERVER_SIDECAR_NAME = "subshell-server-bundled";
+
+/** The in-bundle name of the node agent `apps/desktop-client` ships. */
+export const AGENT_SIDECAR_NAME = "subshell-node-bundled";
 
 /**
- * The name the release script STAGES the sidecar under, which carries the Rust
- * triple. Its stripped form is {@link BUNDLED_SIDECAR_NAME}.
+ * The name a release script STAGES a sidecar under, which carries the Rust
+ * triple. Its stripped form is the `sidecarName` it was given.
  *
+ * @param sidecarName - {@link SERVER_SIDECAR_NAME} or {@link AGENT_SIDECAR_NAME}
  * @param target - a {@link DesktopTarget}
  */
-export function desktopSidecarFileName(target: string): string {
-  return `${BUNDLED_SIDECAR_NAME}-${rustTargetTriple(target)}`;
+export function desktopSidecarFileName(sidecarName: string, target: string): string {
+  return `${sidecarName}-${rustTargetTriple(target)}`;
 }
+
+/**
+ * The macOS/Debian product name of each desktop app.
+ *
+ * Tauri derives BOTH the `.app` directory name and the `.deb` file name from
+ * `productName`, so this is the one string that has to agree across
+ * `tauri.conf.json`, the release script's artifact collection, the smoke and
+ * the published asset name. Single tokens deliberately: a space would make the
+ * Debian package name and filename a guess that only the Linux bundler can
+ * settle.
+ */
+export const DESKTOP_SERVER_PRODUCT = "Subshell";
+
+/** The product name of `apps/desktop-client` — the node agent's GUI. */
+export const DESKTOP_CLIENT_PRODUCT = "SubshellNode";
 
 /**
  * The artifact a desktop build publishes for a target.
  *
- * macOS ships `Subshell.app.tar.gz` — not a DMG, which Tauri signs but neither
+ * macOS ships `<product>.app.tar.gz` — not a DMG, which Tauri signs but neither
  * notarizes nor staples. Linux ships the `.deb` Tauri names from `productName`
  * and the version.
  *
+ * @param product - {@link DESKTOP_SERVER_PRODUCT} or {@link DESKTOP_CLIENT_PRODUCT}
  * @param target - a {@link DesktopTarget}
  * @param version - the app version, for the Debian file name
  */
-export function desktopArtifactFileName(target: string, version: string): string {
-  if (target === "darwin-arm64") return "Subshell.app.tar.gz";
-  if (target === "linux-x64") return `Subshell_${version}_amd64.deb`;
+export function desktopArtifactFileName(product: string, target: string, version: string): string {
+  if (target === "darwin-arm64") return `${product}.app.tar.gz`;
+  if (target === "linux-x64") return `${product}_${version}_amd64.deb`;
   throw new Error(`no desktop artifact name for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);
 }
 

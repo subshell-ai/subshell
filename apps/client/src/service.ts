@@ -1,4 +1,4 @@
-import { access, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
+import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { CliResult } from "./cli.js";
@@ -32,6 +32,12 @@ export interface ServiceDeps {
   removeFile(path: string): Promise<void>;
   /** Existence check for the unit/plist path (drives reinstall bootout + uninstall no-op). */
   fileExists(path: string): Promise<boolean>;
+  /**
+   * Read a file's text, or `null` when it is absent/unreadable. Added for
+   * {@link queryService}, which must inspect the INSTALLED definition (not the
+   * one this process would write) to answer whether a teardown keeps panes.
+   */
+  readFile(path: string): Promise<string | null>;
   /**
    * PATH to bake into the service (systemd `Environment=PATH=` / launchd
    * `EnvironmentVariables`). Service managers start units with a stock PATH,
@@ -300,9 +306,21 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     argv1: process.argv[1] ?? "",
     hasConfig,
     async runCmd(cmd) {
-      const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-      const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      return { code: await proc.exited, out, err };
+      try {
+        const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+        const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+        // Typed `number`, but a signal-killed/never-started child can still
+        // surface null — treat it as failure(ish) so callers quote whatever
+        // output came back, rather than letting it read as a clean exit 0.
+        const exited: number | null = await proc.exited;
+        return { code: exited === null ? 1 : exited, out, err };
+      } catch (err) {
+        // A missing manager binary (no systemctl/launchctl on PATH) surfaces
+        // as a spawn THROW, not an exit code — report it as a failed command
+        // so `queryService` degrades to `unknown` and `service status`, which
+        // must always exit 0, still answers with a state instead of a stack.
+        return { code: 127, out: "", err: `spawn failed: ${(err as Error).message}` };
+      }
     },
     // The unit/plist directories (~/.config/systemd/user, ~/Library/LaunchAgents)
     // are ours to create; mkdir-recursive first so a fresh box installs cleanly.
@@ -321,8 +339,460 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
         return false;
       }
     },
+    async readFile(path) {
+      try {
+        return await fsReadFile(path, "utf8");
+      } catch {
+        return null;
+      }
+    },
     // The installing shell's PATH, baked into the unit/plist so the daemon
     // finds the same tmux the enroll preflight found (see ServiceDeps).
     servicePath: process.env.PATH,
   };
+}
+
+/**
+ * Manager verbs `service` accepts beyond install/uninstall. Ported from
+ * `apps/server/src/service.ts` (2026-09-05) — same guard, same vocabulary,
+ * async here because this module's seams are async by design.
+ */
+export type ServiceVerb = "start" | "stop" | "restart";
+
+/** The runtime list beside the type — cli.ts validates argv against THIS, so the two cannot drift. */
+export const SERVICE_VERBS: readonly ServiceVerb[] = ["start", "stop", "restart"];
+
+/** Narrow an arbitrary argv word to a {@link ServiceVerb}. */
+export function isServiceVerb(word: string): word is ServiceVerb {
+  return (SERVICE_VERBS as readonly string[]).includes(word);
+}
+
+/** The service manager's view of the unit. `unknown` means the manager answered in a shape we do not parse. */
+export type ServiceRunState = "running" | "stopping" | "stopped" | "not-installed" | "unknown";
+
+/**
+ * Whether taking the daemon DOWN — stop, restart, or uninstall — leaves live
+ * panes running.
+ *
+ * `unknown` is not a shrug: the definition exists but could not be read or the
+ * manager could not be asked, so the destructive verbs fail CLOSED on it. Only
+ * a positive `keeps` clears them.
+ */
+export type PaneSafety = "keeps" | "kills" | "unknown";
+
+/**
+ * What {@link queryService} could learn about the installed service WITHOUT
+ * starting anything. Every field is either a fact read off disk or a fact the
+ * platform's manager reported — nothing here is inferred from `daemon.lock`,
+ * which `subshell status` reads and which answers a different question ("is a
+ * daemon process alive", which may be a foreground `subshell run`).
+ */
+export interface ServiceState {
+  /** Whether a unit/plist exists on disk. The DEFINITION question. */
+  installed: boolean;
+  /** Where that definition lives (or would), `null` on a platform with no per-user manager. */
+  definitionPath: string | null;
+  /** The manager's view of the process. */
+  state: ServiceRunState;
+  /** Main PID when the manager reports one, else `null`. */
+  pid: number | null;
+  /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad`). `null` when unknown. */
+  enabled: boolean | null;
+  /**
+   * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact
+   * `launchctl print` states by exiting 0 at all. It is NOT the run state: a
+   * job can be loaded and idle (no pid), and while it stays loaded
+   * `KeepAlive`/`RunAtLoad` can start it again and a later `bootstrap` fails
+   * with "service already loaded". `stop` therefore gates its no-op on THIS,
+   * never on {@link ServiceState.state}. Absent on systemd, whose own `stop`
+   * is idempotent.
+   */
+  loaded?: boolean;
+  /**
+   * Whether a teardown keeps live panes — `null` only when nothing is installed.
+   *
+   * Each subshell launched on THIS node runs its tmux server as a CHILD of the
+   * daemon, so the answer is one directive and it differs per platform:
+   * systemd `KillMode=process` (or `none`) and launchd
+   * `AbandonProcessGroup=true`. Without it the default kill takes every pane on
+   * this machine with it — on STOP as much as on restart, since a restart is a
+   * stop followed by a start.
+   *
+   * On Linux this is the EFFECTIVE value systemd reports, not a grep of the
+   * unit file: drop-ins under `<unit>.d/` and un-reloaded edits both make the
+   * file disagree with what `systemctl restart` will actually do.
+   */
+  paneSafety: PaneSafety | null;
+  /** Manager output worth quoting when something answered oddly; empty when it did not. */
+  detail: string;
+}
+
+/**
+ * Where THIS platform's per-user service definition lives (or would live).
+ * `null` on platforms without a service manager.
+ */
+function serviceArtifactPath(platform: NodeJS.Platform, home: string): string | null {
+  if (platform === "linux") return unitPath(home);
+  if (platform === "darwin") return plistPath(home);
+  return null;
+}
+
+/** systemd `show` emits `KEY=value` lines; absent properties come back empty, so "" and "missing" are one case. */
+function parseShowProperties(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const eq = line.indexOf("=");
+    if (eq > 0) out[line.slice(0, eq)] = line.slice(eq + 1).trim();
+  }
+  return out;
+}
+
+/**
+ * The systemd kill modes that spare the unit's children.
+ * `process` kills only the main process; `none` kills nothing at all.
+ */
+const PANE_SPARING_KILL_MODES = new Set(["process", "none"]);
+
+/**
+ * Fallback pane check for when the manager cannot be asked: grep the unit file.
+ *
+ * Inferior to `systemctl show` on purpose — it cannot see drop-ins, and a unit
+ * edited but not `daemon-reload`ed reads as its file rather than as what would
+ * run. Used only when `show` itself failed, where the alternative is `unknown`.
+ * Takes the LAST assignment, because systemd's own rule is last-wins.
+ */
+function killModeFromUnitText(text: string): PaneSafety {
+  const matches = [...text.matchAll(/^[ \t]*KillMode[ \t]*=[ \t]*([A-Za-z-]+)/gm)];
+  const last = matches.at(-1)?.[1];
+  if (last === undefined) return "kills"; // absent ⇒ systemd's default control-group
+  return PANE_SPARING_KILL_MODES.has(last.toLowerCase()) ? "keeps" : "kills";
+}
+
+/**
+ * Read `AbandonProcessGroup` out of a launchd plist.
+ *
+ * Uses `plutil` rather than a regex because the plist may legally be XML
+ * (self-closing `<true/>` or long-form `<true></true>`) or binary1 — a
+ * text-shaped predicate silently answers "kills" for a binary plist that
+ * actually sets the key. The regex survives only as the no-plutil fallback.
+ */
+async function abandonProcessGroup(deps: ServiceDeps, path: string, text: string | null): Promise<PaneSafety> {
+  const res = await deps.runCmd(["plutil", "-extract", "AbandonProcessGroup", "raw", "-o", "-", path]);
+  if (res.code === 0) return res.out.trim() === "true" ? "keeps" : "kills";
+  // plutil exits non-zero both for "key absent" (a real answer: kills) and for
+  // "no plutil"/unreadable (no answer). Only the text tells them apart.
+  if (/No value at that key path|invalid key path/i.test(res.err)) return "kills";
+  if (text === null) return "unknown";
+  return /<key>\s*AbandonProcessGroup\s*<\/key>\s*(<true\s*\/>|<true>\s*<\/true>)/.test(text) ? "keeps" : "kills";
+}
+
+/** `launchctl print`'s top-level `state`/`pid` lines sit at ONE tab; nested endpoint blocks repeat `state` deeper. */
+function parseLaunchctlPrint(text: string): { running: boolean; pid: number | null } {
+  const state = text.match(/^\tstate = (\S+)/m)?.[1];
+  const pidRaw = text.match(/^\tpid = (\d+)/m)?.[1];
+  const pid = pidRaw === undefined ? null : Number.parseInt(pidRaw, 10);
+  return { running: state === "running" || pid !== null, pid: Number.isInteger(pid) && (pid ?? 0) > 0 ? pid : null };
+}
+
+/** Assemble the `detail` string from whatever notes a query accumulated. */
+const notes = (...parts: (string | null)[]): string => parts.filter((p) => p !== null && p !== "").join("; ");
+
+/**
+ * Read-only service state. Never writes, never starts anything, and never
+ * throws: an unreachable or missing manager degrades to `unknown` with the
+ * reason in {@link ServiceState.detail}, because every caller (`service
+ * status`, the desktop app's poll) wants a picture rather than an exception.
+ */
+export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
+  const definitionPath = serviceArtifactPath(deps.platform, deps.home);
+  if (definitionPath === null) {
+    return {
+      installed: false,
+      definitionPath: null,
+      state: "not-installed",
+      pid: null,
+      enabled: null,
+      paneSafety: null,
+      detail: `no per-user service manager on '${deps.platform}'`,
+    };
+  }
+  if (!(await deps.fileExists(definitionPath))) {
+    return {
+      installed: false,
+      definitionPath,
+      state: "not-installed",
+      pid: null,
+      enabled: null,
+      paneSafety: null,
+      detail: "",
+    };
+  }
+
+  return deps.platform === "linux" ? querySystemd(deps, definitionPath) : queryLaunchd(deps, definitionPath);
+}
+
+async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<ServiceState> {
+  // ONE call for every property: separate round trips to systemctl would be
+  // separate chances to disagree with each other about the same instant.
+  // KillMode rides along because the EFFECTIVE value is the only one that
+  // predicts what `systemctl stop` will do to the panes.
+  const res = await deps.runCmd([
+    "systemctl",
+    "--user",
+    "show",
+    SYSTEMD_UNIT_NAME,
+    "--property=ActiveState,SubState,UnitFileState,MainPID,KillMode",
+  ]);
+  if (res.code !== 0) {
+    const text = await deps.readFile(definitionPath);
+    return {
+      installed: true,
+      definitionPath,
+      state: "unknown",
+      pid: null,
+      enabled: null,
+      // Degraded but better than nothing: the file cannot see drop-ins, so a
+      // `keeps` here is weaker evidence than a `keeps` from `show`.
+      paneSafety: text === null ? "unknown" : killModeFromUnitText(text),
+      detail: `systemctl --user show failed (exit ${res.code}): ${cmdDetail(res)}`,
+    };
+  }
+  const props = parseShowProperties(res.out);
+  const active = props.ActiveState ?? "";
+  const unitFileState = props.UnitFileState ?? "";
+  const mainPid = Number.parseInt(props.MainPID ?? "0", 10);
+  // `activating`/`reloading`/`refreshing` are all documented as ACTIVE: a unit
+  // mid-start is not stopped, and reporting it so makes a Start button appear
+  // in the middle of a restart. `deactivating` gets its own value rather than
+  // collapsing to stopped, which would print the contradiction "stopped (pid N)".
+  const state: ServiceRunState =
+    active === "active" || active === "activating" || active === "reloading" || active === "refreshing"
+      ? "running"
+      : active === "deactivating"
+        ? "stopping"
+        : active === "inactive" || active === "failed" || active === "maintenance"
+          ? "stopped"
+          : "unknown";
+  const killMode = (props.KillMode ?? "").toLowerCase();
+  return {
+    installed: true,
+    definitionPath,
+    state,
+    pid: Number.isInteger(mainPid) && mainPid > 0 ? mainPid : null,
+    // `enabled-runtime` starts at login too, for this boot.
+    enabled: unitFileState === "" ? null : unitFileState.startsWith("enabled"),
+    paneSafety: killMode === "" ? "unknown" : PANE_SPARING_KILL_MODES.has(killMode) ? "keeps" : "kills",
+    detail: notes(
+      active === "failed" ? `unit is failed (SubState=${props.SubState ?? "?"})` : null,
+      // A masked unit refuses every control verb; say it once here rather than
+      // letting the operator discover it one command at a time.
+      unitFileState.startsWith("masked") ? `unit is ${unitFileState} — systemctl will refuse start/stop/restart` : null,
+    ),
+  };
+}
+
+async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<ServiceState> {
+  const text = await deps.readFile(definitionPath);
+  const paneSafety = await abandonProcessGroup(deps, definitionPath, text);
+  const enabled = text === null ? null : /<key>\s*RunAtLoad\s*<\/key>\s*(<true\s*\/>|<true>\s*<\/true>)/.test(text);
+  // `launchctl print gui/<uid>/<label>`, NOT the legacy `launchctl list`:
+  // `list` resolves an IMPLICIT domain, so over SSH (where the session is
+  // "Background", not "Aqua") it reports a running gui/<uid> job as absent —
+  // and every write here targets gui/<uid> explicitly. Asking the same domain
+  // we write to is the only way the two can agree.
+  const res = await deps.runCmd(["launchctl", "print", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
+  if (res.code !== 0) {
+    // Not loaded in this domain. With a plist ON DISK that is exactly
+    // "installed but stopped" — the state `bootout` leaves behind.
+    return {
+      installed: true,
+      definitionPath,
+      state: "stopped",
+      pid: null,
+      enabled,
+      loaded: false,
+      paneSafety,
+      detail: "",
+    };
+  }
+  const { running, pid } = parseLaunchctlPrint(res.out);
+  // `print` answered, so the job IS bootstrapped — even when it reports no pid.
+  // That is the loaded-but-idle case, which is stopped and loaded at once.
+  return {
+    installed: true,
+    definitionPath,
+    state: running ? "running" : "stopped",
+    pid,
+    enabled,
+    loaded: true,
+    paneSafety,
+    detail: "",
+  };
+}
+
+/** The remedy for a definition that would take live panes down with it. */
+const STALE_DEFINITION = "run `subshell service install` to rewrite the definition, or pass --force";
+
+/** The directive whose absence makes a teardown lethal, per platform. */
+const PANE_DIRECTIVE: Record<string, string> = { linux: "KillMode=process", darwin: "AbandonProcessGroup=true" };
+
+/** One sentence naming what a teardown will do to live panes on this host. */
+function paneWarning(deps: ServiceDeps, state: ServiceState, verb: ServiceVerb): string {
+  const directive = PANE_DIRECTIVE[deps.platform] ?? "the pane-sparing directive";
+  return state.paneSafety === "unknown"
+    ? `could not determine whether ${verb} keeps live panes: ${state.definitionPath} is unreadable`
+    : `${state.definitionPath} predates ${directive}, so ${verb} kills every running subshell's tmux server`;
+}
+
+/** Success lines, one per verb — the manager is silent on success, so this is the only feedback. */
+export const DONE: Record<ServiceVerb, string> = {
+  start: "subshell started.",
+  stop: "subshell stopped.",
+  restart: "subshell restarted.",
+};
+
+/**
+ * Drive the platform's service manager for an ALREADY-INSTALLED service.
+ *
+ * Deliberately narrower than install/uninstall: it refuses when no definition
+ * exists rather than writing one, because "start" must never become a way to
+ * install a service whose enrolled config was never checked.
+ *
+ * The pane guard is the reason this exists rather than callers shelling out.
+ * This node's subshells run their tmux servers as CHILDREN of the daemon, so a
+ * teardown on a definition without the pane-sparing directive SIGKILLs every
+ * pane on this machine, and neither `systemctl` nor `launchctl` says so. The
+ * two destructive verbs are treated differently on purpose:
+ *
+ * - `restart` REFUSES without `--force`. Its whole promise is that the daemon
+ *   comes back, so silently losing every pane violates what was asked for.
+ * - `stop` WARNS and proceeds. The operator asked for it down; refusing would
+ *   only push them to `systemctl` — which warns about nothing — and it would
+ *   contradict `uninstall`, which deliberately gates on nothing so a stranded
+ *   unit can always come down.
+ *
+ * Both fail CLOSED on `unknown`: an unreadable definition is not evidence of
+ * safety.
+ */
+export async function controlService(
+  deps: ServiceDeps,
+  verb: ServiceVerb,
+  opts: { force?: boolean } = {},
+): Promise<CliResult> {
+  if (deps.platform !== "linux" && deps.platform !== "darwin") {
+    return errLine(unsupported(verb, deps.platform));
+  }
+  const state = await queryService(deps);
+  if (!state.installed) {
+    return errLine(
+      `nothing installed — no service definition at ${state.definitionPath} (run \`subshell service install\` first)`,
+    );
+  }
+  const lethal = state.paneSafety !== "keeps";
+  if (verb === "restart" && lethal && opts.force !== true) {
+    return errLine(`refusing to restart: ${paneWarning(deps, state, "restart")} — ${STALE_DEFINITION}`);
+  }
+  // Rides along on the SUCCESS result: `stop` is not refused, but it must
+  // never be silent about what it took down.
+  const warning = verb === "stop" && lethal ? `subshell: warning: ${paneWarning(deps, state, "stop")}\n` : "";
+  const done = (line: string): CliResult => ({ code: 0, out: `${line}\n`, err: warning });
+
+  if (deps.platform === "linux") {
+    // `stop`, never `disable --now`: un-enabling is what uninstall does, and
+    // an operator who stops the daemon still expects it back after a reboot.
+    const res = await deps.runCmd(["systemctl", "--user", verb, SYSTEMD_UNIT_NAME]);
+    if (res.code !== 0) {
+      return errLine(`systemctl --user ${verb} ${SYSTEMD_UNIT_NAME} failed (exit ${res.code}): ${cmdDetail(res)}`);
+    }
+    return done(DONE[verb]);
+  }
+
+  // darwin
+  const target = `gui/${deps.uid}/${LAUNCHD_LABEL}`;
+  if (verb === "stop") {
+    // Idempotent like the systemd verb: `bootout` on an unloaded job exits
+    // non-zero, which would make a second stop look like a failure. The fact
+    // that licenses the no-op is NOT-LOADED, never "not running": a launchd
+    // job can be loaded and idle (`print` answers, no pid), and in that state
+    // it is still bootstrapped — `KeepAlive`/`RunAtLoad` can start it again
+    // and a later `bootstrap` fails with "service already loaded". Gating on
+    // the run state reported success on exactly that job and booted out
+    // nothing.
+    if (state.loaded === false) return { code: 0, out: "subshell is already stopped.\n", err: "" };
+    // `bootout`, not a kill: KeepAlive is true, so launchd restarts anything
+    // that merely dies. Unloading the job is the only thing that stays stopped.
+    const res = await deps.runCmd(["launchctl", "bootout", target]);
+    if (res.code !== 0) return errLine(`launchctl bootout failed (exit ${res.code}): ${cmdDetail(res)}`);
+    return done(DONE.stop);
+  }
+  if (verb === "restart") {
+    // `kickstart -k` is the documented restart; it needs the job LOADED, so a
+    // stopped service is bootstrapped instead.
+    if (state.state === "stopped") return bootstrapDarwin(deps, target, DONE.restart, warning);
+    const res = await deps.runCmd(["launchctl", "kickstart", "-k", target]);
+    if (res.code !== 0) return errLine(`launchctl kickstart -k failed (exit ${res.code}): ${cmdDetail(res)}`);
+    return done(DONE.restart);
+  }
+  // start
+  if (state.state === "running") return { code: 0, out: "subshell is already running.\n", err: "" };
+  return bootstrapDarwin(deps, target, DONE.start, warning);
+}
+
+/**
+ * Load a launchd job, falling back to `kickstart -k` when it turns out to be
+ * loaded already. `-k` is deliberate: a bare `kickstart` on a job that IS
+ * running exits 0 and changes nothing (measured on macOS 26.6.2 — same pid
+ * before and after), so a restart would report success having restarted
+ * nothing. On a loaded-but-idle job `-k` simply starts it.
+ */
+async function bootstrapDarwin(deps: ServiceDeps, target: string, done: string, warning: string): Promise<CliResult> {
+  const path = plistPath(deps.home);
+  const boot = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+  if (boot.code === 0) return { code: 0, out: `${done}\n`, err: warning };
+  const kick = await deps.runCmd(["launchctl", "kickstart", "-k", target]);
+  if (kick.code !== 0) {
+    // Exit 5 is launchd's generic EIO: already-bootstrapped, a disabled
+    // service and an unreadable plist all land here, so name the candidates
+    // rather than asserting one.
+    return errLine(
+      `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` +
+        `kickstart also failed (exit ${kick.code}): ${cmdDetail(kick)} — the plist may be invalid, ` +
+        `or the service disabled (launchctl enable ${target})`,
+    );
+  }
+  return { code: 0, out: `${done}\n`, err: warning };
+}
+
+/**
+ * The human-readable `service status` view — the same facts as the `--json`
+ * body, in the aligned key = value shape `subshell status` already uses.
+ * Returns lines WITHOUT trailing newlines; the caller joins them.
+ */
+export function serviceStateLines(state: ServiceState): string[] {
+  if (state.definitionPath === null) {
+    return ["service              = n/a (no per-user service manager on this platform)"];
+  }
+  if (!state.installed) {
+    return [
+      `service              = not installed (${state.definitionPath})`,
+      "run `subshell service install` to background the daemon",
+    ];
+  }
+  const lines = [
+    `service              = definition installed (${state.definitionPath})`,
+    `state                = ${state.state}${state.pid !== null ? ` (pid ${state.pid})` : ""}`,
+    `starts at login      = ${state.enabled === null ? "unknown" : state.enabled ? "yes" : "no"}`,
+  ];
+  // The one line an operator cannot get out of systemctl/launchctl, and the
+  // one that decides whether stopping or restarting here costs them every live
+  // pane on this node.
+  const pane =
+    state.paneSafety === "keeps"
+      ? "yes"
+      : state.paneSafety === "kills"
+        ? "NO — this definition predates the fix; reinstall it before stopping or restarting"
+        : "unknown — the definition could not be read";
+  lines.push(`teardown keeps panes = ${pane}`);
+  if (state.detail !== "") lines.push(`detail               = ${state.detail}`);
+  return lines;
 }
