@@ -14,8 +14,11 @@ subshell/
 │   ├── server/                     # ElysiaJS API server; also serves the built SPA in prod
 │   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
 │   ├── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
-│   ├── desktop-server/             # Tauri v2 shell that installs/runs/manages a local server (see apps/desktop-server/AGENTS.md)
-│   └── client/                     # subshell — node daemon; enrolls and runs signed commands (see apps/client/AGENTS.md)
+│   ├── client/                     # subshell — node daemon; enrolls and runs signed commands (see apps/client/AGENTS.md)
+│   ├── desktop-server/             # Tauri v2 GUI for apps/server — installs/runs/manages a local control plane
+│   └── desktop-client/             # Tauri v2 GUI for apps/client — registers this machine as a node
+├── crates/
+│   └── desktop-core/               # The tauri-free Rust both desktop apps share (spawning, login PATH, sidecar install)
 ├── packages/
 │   ├── tsconfig/                   # Shared TypeScript configuration
 │   ├── backend-errors/             # Error emission and handling for the backend
@@ -33,9 +36,28 @@ subshell/
 └── lefthook.yml                    # Git hooks
 ```
 
+**How the six apps pair up.** Each desktop app is a GUI wrapper around the CLI
+directly above it, and bundles that CLI's binary as a Tauri sidecar:
+
+| the thing | its CLI/service | its GUI |
+|---|---|---|
+| the control plane | `apps/server` (`subshell-server`) | `apps/desktop-server` (Subshell) |
+| a node agent | `apps/client` (`subshell`) | `apps/desktop-client` (Subshell Node) |
+| the web UI the server serves | `apps/frontend` | — |
+| the phone companion | — | `apps/mobile` |
+
+`apps/frontend` is the SERVER's SPA and nothing else's: the two desktop apps
+each carry their own small bundled page under `<app>/ui/`, framework-free and
+with no build step, because those pages must render with nothing installed and
+no server running. Two renames are worth doing and are deliberately NOT done
+yet: `apps/frontend` → `apps/web` (mechanical — commit 28f1cea did the same
+operation for `apps/backend` → `apps/server` in 89 insertions), and
+`apps/client` → `apps/node`, which is the one that would actually retire the
+"client" ambiguity but moves a published tag prefix.
+
 ### Technology Stack
 
-- **Runtime**: Bun (>= 1.4.0); Rust (stable) for `apps/desktop-server` only
+- **Runtime**: Bun (>= 1.4.0); Rust (stable) for the two desktop apps and `crates/desktop-core`
 - **Backend Framework**: ElysiaJS
 - **Frontend**: React 19, Vite, TanStack Router, TanStack Query, Tailwind CSS
 - **Database**: SQLite via `bun:sqlite` with Kysely (type-safe query builder); dialect from [`kysely-bun-sqlite-dialect`](https://www.npmjs.com/package/kysely-bun-sqlite-dialect)
@@ -197,67 +219,105 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   (`init`/`configure`/`status`/`service install|uninstall|status|start|stop|restart`)
   and config.env.
 
-### Publishing the desktop app
+### Publishing the desktop apps
 
 ```bash
-bunx turbo build                          # 1. apps/frontend/dist — the embed preflight
-bun run release:desktop                   # 2. stage the sidecar, then `tauri build`
+bunx turbo build                          # 1. workspace dists — the embed/bundle preflight
+bun run release:desktop-server            # 2. stage the SERVER sidecar, then `tauri build`
+bun run release:desktop-client            #    or stage the AGENT sidecar instead
 ```
 
-`release:desktop` (`apps/desktop-server/src/scripts/release.ts`) builds the SERVER
-first and stages it as the Tauri sidecar, then bundles. Three rules about that
-staged binary, each with a failure that only appears on a user's machine:
+Each script (`apps/<app>/src/scripts/release.ts`) builds the CLI its app wraps,
+stages it as the Tauri sidecar, and bundles. Three rules about that staged
+binary, each with a failure that only appears on a user's machine:
 
-- **`compile:release`, never `compile`** — only the release build embeds the
-  SPA, and a stub-shipping binary throws at boot where there is no
-  `apps/frontend/dist`.
+- **`compile:release`, never `compile`** — for the server, only the release
+  build embeds the SPA, and a stub-shipping binary throws at boot where there is
+  no `apps/frontend/dist`.
 - **Never pre-signed or separately notarized** — Tauri re-signs nested binaries
   with `--force` under the bundle's identity, so a prior ticket binds to a
-  cdhash that no longer exists. The shard clears
-  `SUBSHELL_RELEASE_SIGN_CMD` for the nested build.
+  cdhash that no longer exists. The shard clears `SUBSHELL_RELEASE_SIGN_CMD`
+  for the nested build.
 - **Its `.sha256` is deleted** — it describes pre-seal bytes. Digests are never
   comparable between the bare-binary channel and this one.
 
 Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`) — narrower than
 `SERVER_TARGETS` and for a different reason: there is no native arm64 Linux
 runner, and `file(1)` cannot see a GUI's characteristic failure, which is an
-invisible window. Artifacts are `Subshell.app.tar.gz` (no DMG: Tauri signs one
-but neither notarizes nor staples it) and `Subshell_<version>_amd64.deb` (no
-AppImage: `linuxdeploy` cannot cross-compile and downloads at build time).
+invisible window. Artifacts are `<product>.app.tar.gz` (no DMG: Tauri signs one
+but neither notarizes nor staples it) and `<product>_<version>_amd64.deb` (no
+AppImage: `linuxdeploy` cannot cross-compile and downloads at build time), where
+`<product>` is `Subshell` or `SubshellNode`.
 
-The Linux shard runs in `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`
-(`docker/desktop-builder.Dockerfile`), so the app's minimum glibc is **2.39 by
+**The two apps' identities are four-way distinct on purpose** — crate name,
+bundle identifier, `productName`, and sidecar stem. Both can be installed on one
+machine, both put a binary in `/usr/bin` on Debian, and both keep a settings
+file keyed by their identifier. Changing `dev.subshell.desktop` or
+`dev.subshell.node` after a release orphans that app's users' settings and their
+macOS permission grants; treat those two strings as frozen.
+
+`productName` is a single token in both cases because Tauri derives BOTH the
+`.app` directory name and the `.deb` filename from it, and the Debian
+package-name sanitizer cannot be exercised without running the Linux bundler.
+The window title, tray tooltip and menu titles read "Subshell Node"; those are
+free-form strings and are not `productName`.
+
+The Linux shards run in `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`
+(`docker/desktop-builder.Dockerfile`), so the apps' minimum glibc is **2.39 by
 choice** rather than by accident of the runner image — which excludes Ubuntu
 22.04 and Debian 12, and is the one lever if that has to change.
 
+Shared Rust lives in `crates/desktop-core`: process spawning with a login PATH
+and a deadline, the login-shell PATH probe, semver comparison, the settings
+file, and the atomic sidecar install. It is a standalone package with a `path`
+dependency from each app, NOT a cargo workspace — two apps, two `Cargo.lock`s,
+two `target/`s, and no change to how either app builds. Deliberately outside it:
+each app's `control.rs`, its binary-resolution ladder, and the whole
+tauri-typed window/tray/menu layer, because the two window models genuinely
+differ and an abstraction over one real consumer and one guess is worse than
+the duplication.
+
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
-The three pipelines run sharded in CI and ship as **GitHub Releases** under
+The four pipelines run sharded in CI and ship as **GitHub Releases** under
 component-scoped tags: `server-vX.Y.Z` (three `subshell-server-<triple>`
-binaries + `.sha256` sidecars), `client-vX.Y.Z` (4 + 4) and `desktop-vX.Y.Z`
-(2 + 2). Tagging/releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
+binaries + `.sha256` sidecars), `client-vX.Y.Z` (4 + 4),
+`desktop-server-vX.Y.Z` (2 + 2) and `desktop-client-vX.Y.Z` (2 + 2). Tagging
+and releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
 
-`apps/desktop-server` is a releasable component on exactly the same terms as the other
-two: its own changesets package, its own tag prefix, its own CHANGELOG sliced
-into the release body, and shards in the same `build`/`publish` jobs. The only
-thing that differs is the SHAPE of what it publishes — a bundle rather than a
-bare binary — which is why it has its own smoke.
+The tag prefix IS the directory name under `apps/` IS the dispatch option IS
+the artifact-name prefix — one string, four jobs, no indirection table. Which
+is why the plan job asserts that no app name is a prefix of another: the publish
+job downloads `<app>-*`, so `desktop` and `desktop-client` as siblings would
+have mixed two releases, and `fail_on_unmatched_files` could not have seen it
+(it only fires on too FEW files).
+
+Both desktop apps are releasable components on exactly the same terms as the
+other two: their own changesets package, tag prefix, CHANGELOG sliced into the
+release body, and shards in the same `build`/`publish` jobs. The only thing that
+differs is the SHAPE of what they publish — a bundle rather than a bare binary —
+which is why they share their own smoke, parameterized by app id.
+
+**Releases before 2026-09-06 used the tag prefix `desktop-v`**, when there was
+one desktop app and it wrapped the server. `desktop-v0.2.0` and its release are
+history and stay as they are.
 
 - **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
   `subshell-server-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
   install that ONE file (triple suffix dropped). The 1.3.x companion-binary
-  era is retired. `desktop-vX.Y.Z` carries `Subshell.app.tar.gz`
+  era is retired. `desktop-server-vX.Y.Z` carries `Subshell.app.tar.gz`
   (darwin-arm64, signed + notarized + stapled) and
-  `Subshell_<version>_amd64.deb` (linux-x64), each with a `.sha256` — no DMG
-  (Tauri signs one but neither notarizes nor staples it) and no AppImage
-  (`linuxdeploy` cannot cross-compile and downloads at build time). Each bundle
-  SHIPS the matching `subshell-server` inside it, so a desktop cut re-releases
-  a server: a server-only fix does not reach desktop users until a desktop cut,
-  which is why a security-relevant server release should be dispatched as
+  `Subshell_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z` carries
+  `SubshellNode.app.tar.gz` and `SubshellNode_<version>_amd64.deb`. Each with a
+  `.sha256` — no DMG (Tauri signs one but neither notarizes nor staples it) and
+  no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
+  Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a
+  server-only or agent-only fix does not reach desktop users until the matching
+  desktop cut, which is why a security-relevant release should be dispatched as
   `app=all`.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
-  changes to `apps/server`/`apps/client`/`apps/desktop-server` → a version PR ("chore:
+  changes to any of the four releasable apps → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
   app's `package.json` + CHANGELOG. Merging does NOT cut a release.
 - **Release notes live in the GitHub Release.** The publish job slices this
@@ -289,8 +349,12 @@ bare binary — which is why it has its own smoke.
   secrets or a chain-less identity fail the shard loudly. Entitlements: Bun's
   JIT keys from `scripts/macos-entitlements.plist`.
 - **The cut is an explicit dispatch:**
-  `gh workflow run release.yml -f app=all` (or `app=server|client|desktop`,
-  optional `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`).
+  `gh workflow run release.yml -f app=all` (or
+  `app=server|client|desktop-server|desktop-client`, optional
+  `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`). `desktop` is
+  kept as a deprecated alias for `desktop-server`, and `both` for
+  `server client`, so a dispatch typed from an older doc still cuts what it
+  used to.
   The plan job pushes the missing tag(s) FIRST, then one build shard per
   app×triple on the self-hosted fleet (linux on `[self-hosted, Linux,
   X64]` — linux-arm64 cross-built there, `file` magic check only, never
@@ -299,9 +363,10 @@ bare binary — which is why it has its own smoke.
   BOOT on a temp DB with `apps/frontend/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.
-- **A desktop cut re-ships a server.** `apps/desktop-server` bundles the server built
-  from the same commit, so a server-only fix does NOT reach desktop users until
-  a desktop cut. Dispatch a security-relevant server release as `app=all`.
+- **A desktop cut re-ships a CLI.** Each desktop app bundles the binary it
+  wraps, built from the same commit, so a fix to `apps/server` or `apps/client`
+  does NOT reach desktop users until the matching desktop cut. Dispatch a
+  security-relevant release as `app=all`.
 - **Retry:** a mid-flight failure leaves a tag without a release —
   re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
   requires deleting the release and its tag first.
