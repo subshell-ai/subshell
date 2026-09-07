@@ -169,6 +169,8 @@ alive when a panel is hidden.
 ```bash
 bun run lint               # Lint all packages, writing fixes
 bun run lint:check         # Lint read-only — fails instead of fixing (what pre-push runs)
+bun run lint:packages      # syncpack: dependency versions agree across packages
+bun run lint:lockfile      # bun.lock's workspace versions match their package.json
 bun run verify-types       # Type check all packages
 
 # Format specific files
@@ -386,7 +388,9 @@ which is why they share their own smoke, parameterized by app id.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
   changes to any of the four releasable apps → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
-  app's `package.json` + CHANGELOG. Merging does NOT cut a release.
+  app's `package.json` + CHANGELOG. Merging does NOT cut a release. The
+  Action commits those bumps itself, which is why `version-packages` also
+  resyncs `bun.lock` — see "The one thing `bun install` will not fix".
 - **Release notes live in the GitHub Release.** The publish job slices this
   version's section out of `apps/<dir>/CHANGELOG.md` and passes it as the
   release body, so the page a user lands on says what changed instead of
@@ -457,4 +461,31 @@ Keep dependencies in sync across packages:
 bun run syncpack:update    # Update all dependencies
 bun run syncpack:format    # Format package.json files
 bun run syncpack:lint      # Check for version mismatches
+bun run lint:lockfile      # Check bun.lock's recorded workspace versions
+bun run lint:lockfile:fix  # ...and resync them
 ```
+
+### The one thing `bun install` will not fix
+
+`bun.lock` records a `version` for every workspace, and **bun writes it once
+and never resyncs it**. Measured on bun 1.4.0 against a workspace bumped in its
+package.json while the lockfile stayed behind: `bun install`, `--force`,
+`--lockfile-only` and `--lockfile-only --force` all leave the stale value, and
+`bun install --frozen-lockfile` exits **0** rather than objecting. Only deleting
+the lockfile and resolving from scratch fixes it — which on this repo also
+moves `lockfileVersion` 1 → 2 and floats ~550 lines of transitive dependencies,
+so it is a dependency upgrade, not a lockfile repair, and must never run
+unattended.
+
+This bit once: the changesets Action runs `changeset version` and commits the
+bumps ITSELF, so lefthook's local "update bun lockfile" hook never fires, and
+`bun.lock` trailed a whole release before anyone noticed. `version-packages`
+therefore ends with `lint:lockfile:fix`, and `lint.yml` runs `lint:lockfile` —
+a fix with no detector silently rots.
+
+`scripts/lockfile-workspace-versions.ts` rewrites the one `version` field
+inside a workspace's own entry and nothing else. That is not the hand-editing
+the pinned-versions rule forbids: it resolves nothing, adds nothing, reorders
+nothing, and every replacement is anchored to its workspace path and asserted
+to match exactly once. If you need anything more than that field changed, run
+`bun install` — not this.
