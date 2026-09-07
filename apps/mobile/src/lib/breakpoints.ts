@@ -1,6 +1,6 @@
 /**
  * The one layout breakpoint, mirroring `WORKSPACE_TILING_MIN_WIDTH` in
- * `apps/frontend/src/lib/breakpoints.ts`.
+ * `apps/server/web/src/lib/breakpoints.ts`.
  *
  * The web app flips sidebar↔drawer and dock↔tabs on this single number, and the
  * mobile spec inherited it rather than inventing a second rule. The consequence

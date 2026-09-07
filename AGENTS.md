@@ -8,15 +8,22 @@ This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration.
 
 ### Directory Structure
 
+The tree under `apps/` IS the taxonomy: one grouping directory per side of the
+product, and the pieces of that side nested inside it. `apps/server/` and
+`apps/client/` are plain directories with no `package.json` of their own —
+grouping, not packages.
+
 ```
 subshell/
 ├── apps/
-│   ├── server/                     # ElysiaJS API server; also serves the built SPA in prod
-│   ├── frontend/                   # React frontend (Vite, TanStack Router, TanStack Query, Tailwind CSS)
-│   ├── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
-│   ├── client/                     # subshell — node daemon; enrolls and runs signed commands (see apps/client/AGENTS.md)
-│   ├── desktop-server/             # Tauri v2 GUI for apps/server — installs/runs/manages a local control plane
-│   └── desktop-client/             # Tauri v2 GUI for apps/client — registers this machine as a node
+│   ├── server/                     # the control-plane side (grouping dir, not a package)
+│   │   ├── api/                    # ElysiaJS API server; also serves the built SPA in prod
+│   │   ├── web/                    # React SPA the server serves (Vite, TanStack Router/Query, Tailwind)
+│   │   └── desktop/                # Tauri v2 GUI for apps/server/api — installs/runs/manages a local control plane
+│   ├── client/                     # the node-agent side (grouping dir, not a package)
+│   │   ├── agent/                  # subshell — node daemon; enrolls and runs signed commands (see apps/client/agent/AGENTS.md)
+│   │   └── desktop/                # Tauri v2 GUI for apps/client/agent — registers this machine as a node
+│   └── mobile/                     # Native companion app (React Native + Expo; see apps/mobile/AGENTS.md)
 ├── crates/
 │   └── desktop-core/               # The tauri-free Rust both desktop apps share (spawning, login PATH, sidecar install)
 ├── packages/
@@ -36,24 +43,33 @@ subshell/
 └── lefthook.yml                    # Git hooks
 ```
 
-**How the six apps pair up.** Each desktop app is a GUI wrapper around the CLI
-directly above it, and bundles that CLI's binary as a Tauri sidecar:
+**How the six apps pair up.** Each `desktop/` is a GUI wrapper around the CLI
+beside it, and bundles that CLI's binary as a Tauri sidecar:
 
 | the thing | its CLI/service | its GUI |
 |---|---|---|
-| the control plane | `apps/server` (`subshell-server`) | `apps/desktop-server` (Subshell Server) |
-| a node agent | `apps/client` (`subshell`) | `apps/desktop-client` (Subshell Client) |
-| the web UI the server serves | `apps/frontend` | — |
+| the control plane | `apps/server/api` (`subshell-server`) | `apps/server/desktop` (Subshell Server) |
+| a node agent | `apps/client/agent` (`subshell`) | `apps/client/desktop` (Subshell Client) |
+| the web UI the server serves | `apps/server/web` | — |
 | the phone companion | — | `apps/mobile` |
 
-`apps/frontend` is the SERVER's SPA and nothing else's: the two desktop apps
-each carry their own small bundled page under `<app>/ui/`, framework-free and
-with no build step, because those pages must render with nothing installed and
-no server running. Two renames are worth doing and are deliberately NOT done
-yet: `apps/frontend` → `apps/web` (mechanical — commit 28f1cea did the same
-operation for `apps/backend` → `apps/server` in 89 insertions), and
-`apps/client` → `apps/node`, which is the one that would actually retire the
-"client" ambiguity but moves a published tag prefix.
+`apps/server/web` is the SERVER's SPA and nothing else's — which is what the
+nesting now says out loud, and is why it is `web` under `server/` rather than
+the old top-level `apps/frontend`. The two desktop apps each carry their own
+small bundled page under `<app>/ui/`, framework-free and with no build step,
+because those pages must render with nothing installed and no server running.
+
+**Directory names moved; component IDS did not.** `server`, `client`,
+`desktop-server` and `desktop-client` remain the release-component ids — the
+git tag prefixes (`server-v1.9.0`, `client-v0.5.0`, `desktop-server-v0.4.0`,
+`desktop-client-v0.2.0` are published releases), the `release.yml` dispatch
+options, the artifact names and the root `release:*` script names. Only the
+paths changed. See "GitHub Releases" below for the id → directory table.
+Package names are also unchanged apart from `@internal/frontend` →
+`@internal/server-web`, which was exactly as ambiguous as its directory;
+`@internal/server`, `@internal/client`, `@internal/desktop-server` and
+`@internal/desktop-client` stay as they are (two of them are
+changeset-versioned against published tags).
 
 ### Technology Stack
 
@@ -126,8 +142,8 @@ bun run db:migrate:create  # Scaffold a new migration file
 bun run db:migrate:undo    # Roll the last migration back
 ```
 
-A new migration must be **both** created in `apps/server/src/db/migrations/` and registered
-in the provider map in `apps/server/src/db/migrate.ts` — the CLI scans the folder, but the
+A new migration must be **both** created in `apps/server/api/src/db/migrations/` and registered
+in the provider map in `apps/server/api/src/db/migrate.ts` — the CLI scans the folder, but the
 app's boot-time migrator reads the static map (a dynamic import would break
 `bun build --compile`). The file name and the map key must match.
 
@@ -188,25 +204,25 @@ bun run release:client                    # 2. compile:release — cross-build +
 systemctl --user restart subshell-server.service     # 3. the server serves the new files
 ```
 
-- `release:client` runs `apps/client`'s `compile:release` (`src/scripts/release.ts`):
+- `release:client` runs `apps/client/agent`'s `compile:release` (`src/scripts/release.ts`):
   the four served triples (`linux|darwin × x64|arm64`), each cross-built WITH
   `--bytecode` (uniform since spec 2026-09-03 §5) — `SUBSHELL_RELEASE_TRIPLES`
   scopes a subset (CI uses this); each digested and published as
   `subshell-<triple>` + a fresh `.sha256` sidecar via temp-file + `rename()`
   (the atomic swap the downloads route's mtime-keyed cache requires). See
-  `apps/client/AGENTS.md` for the app itself.
+  `apps/client/agent/AGENTS.md` for the app itself.
 - Publish destination: `SUBSHELL_NODE_ARTIFACTS_DIR`, else
   `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — the same default the server resolves.
   From a plain shell none of those vars are set (the service gets them from its
   unit/`EnvironmentFile`), so the ladder silently publishes to
-  `apps/client/data/node-artifacts` where the server never looks — pass
+  `apps/client/agent/data/node-artifacts` where the server never looks — pass
   `SUBSHELL_NODE_ARTIFACTS_DIR` explicitly when deploying from a terminal.
 - Cross builds download their target's bun runtime on first use; every target
   ships `--bytecode` (risk #9 retired at bun 1.4.0 — spec 2026-09-03 §5; the
   pipeline refuses older bun). A failed target exits non-zero and publishes
   NOTHING — never a half set.
-- `turbo build` wipes the compiled `apps/client/dist/subshell` dev binary;
-  re-create it with `cd apps/client && bun run compile`.
+- `turbo build` wipes the compiled `apps/client/agent/dist/subshell` dev binary;
+  re-create it with `cd apps/client/agent && bun run compile`.
 - Separately, `bun run release:server` builds the **control-plane** binary
   (not a Nodes download artifact): the three `SERVER_TARGETS` triples
   (`linux-x64`, `linux-arm64`, `darwin-arm64`), each `--bytecode`, with the
@@ -215,7 +231,7 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   the tracked `embedded-web.ts` stub). Published atomically to
   `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — a
   local drop dir to scp/deploy; there is no data-dir ladder here. See
-  `apps/server/AGENTS.md` ("Standalone binary & CLI") for the CLI
+  `apps/server/api/AGENTS.md` ("Standalone binary & CLI") for the CLI
   (`init`/`configure`/`status`/`service install|uninstall|status|start|stop|restart`)
   and config.env.
 
@@ -227,13 +243,13 @@ bun run release:desktop-server            # 2. stage the SERVER sidecar, then `t
 bun run release:desktop-client            #    or stage the AGENT sidecar instead
 ```
 
-Each script (`apps/<app>/src/scripts/release.ts`) builds the CLI its app wraps,
+Each script (`apps/<dir>/src/scripts/release.ts`) builds the CLI its app wraps,
 stages it as the Tauri sidecar, and bundles. Three rules about that staged
 binary, each with a failure that only appears on a user's machine:
 
 - **`compile:release`, never `compile`** — for the server, only the release
   build embeds the SPA, and a stub-shipping binary throws at boot where there is
-  no `apps/frontend/dist`.
+  no `apps/server/web/dist`.
 - **Never pre-signed or separately notarized** — Tauri re-signs nested binaries
   with `--force` under the bundle's identity, so a prior ticket binds to a
   cdhash that no longer exists. The shard clears `SUBSHELL_RELEASE_SIGN_CMD`
@@ -276,8 +292,8 @@ file keyed by their identifier, so a shared string is a collision:
 
 **Those Linux directory names are not the CLIs'**, and that asymmetry is the
 point: `~/.config/subshell-server` is where the SERVER CLI keeps `config.env`
-(`apps/server/src/config-env.ts`) and `~/.config/subshell` is the node agent's
-own config home (`apps/client/src/config.ts`). A desktop app dropping
+(`apps/server/api/src/config-env.ts`) and `~/.config/subshell` is the node agent's
+own config home (`apps/client/agent/src/config.ts`). A desktop app dropping
 `settings.json` into either would put two different programs' state in one
 directory, so each app prefixes `subshell-desktop-`. An identifier is an
 identity rather than a label — it keys the macOS settings directory, the
@@ -289,8 +305,9 @@ Cargo crate names (`subshell-desktop`, `subshell-desktop-client` — also the
 `/usr/bin` binary names in the debs) and sidecar stems
 (`subshell-server-bundled`, `subshell-node-bundled` — they name the binary each
 app WRAPS, not the app) are deliberately NOT renamed in step with the products,
-as are the `desktop-server-v` / `desktop-client-v` tag prefixes, which follow
-the directory name.
+and neither are the `desktop-server-v` / `desktop-client-v` tag prefixes: those
+are the component ids, which used to be read off the directory name and are now
+mapped to it explicitly (see "GitHub Releases").
 
 Window titles, tray tooltips and menu titles read "Subshell Server" /
 "Subshell Client"; those are free-form strings and are not `productName`. Keep
@@ -321,12 +338,29 @@ binaries + `.sha256` sidecars), `client-vX.Y.Z` (4 + 4),
 `desktop-server-vX.Y.Z` (2 + 2) and `desktop-client-vX.Y.Z` (2 + 2). Tagging
 and releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
 
-The tag prefix IS the directory name under `apps/` IS the dispatch option IS
-the artifact-name prefix — one string, four jobs, no indirection table. Which
-is why the plan job asserts that no app name is a prefix of another: the publish
-job downloads `<app>-*`, so `desktop` and `desktop-client` as siblings would
+**An app has two names, and the workflow keeps them apart.** It used to be one
+string — tag prefix = directory = dispatch option = artifact prefix. Nesting
+the apps broke that (`server/api-v1.9.0` is not a usable tag), so the plan job
+now carries an explicit table and emits BOTH names in every matrix entry:
+
+| id (`matrix.app`) | directory (`matrix.dir`) |
+|---|---|
+| `server` | `server/api` |
+| `client` | `client/agent` |
+| `desktop-server` | `server/desktop` |
+| `desktop-client` | `client/desktop` |
+
+- **id** — the git tag (`tag="$app-v$version"`), the `upload-artifact` name,
+  the publish job's download pattern and file glob, the dispatch option, and
+  every `matrix.app == …` condition. These are PUBLISHED; they do not move.
+- **directory** — `apps/$dir/package.json` for the version read,
+  `repo/apps/$DIR/CHANGELOG.md` for the release-notes slice, and every
+  `--cwd`/`working-directory`/cargo path. Nothing else.
+
+The plan job still asserts that no **id** is a prefix of another: the publish
+job downloads `<id>-*`, so `desktop` and `desktop-client` as siblings would
 have mixed two releases, and `fail_on_unmatched_files` could not have seen it
-(it only fires on too FEW files).
+(it only fires on too FEW files). The guard is about ids, not directories.
 
 Both desktop apps are releasable components on exactly the same terms as the
 other two: their own changesets package, tag prefix, CHANGELOG sliced into the
@@ -354,9 +388,9 @@ which is why they share their own smoke, parameterized by app id.
   release package(s)") maintained on every push to main; merging it bumps the
   app's `package.json` + CHANGELOG. Merging does NOT cut a release.
 - **Release notes live in the GitHub Release.** The publish job slices this
-  version's section out of `apps/<app>/CHANGELOG.md` and passes it as the
+  version's section out of `apps/<dir>/CHANGELOG.md` and passes it as the
   release body, so the page a user lands on says what changed instead of
-  listing six assets. Treat `apps/<app>/CHANGELOG.md` as a BUILD ARTIFACT, not
+  listing six assets. Treat `apps/<dir>/CHANGELOG.md` as a BUILD ARTIFACT, not
   a document to read or hand-edit: changesets renders it from the
   `.changeset/*.md` files (which it then deletes), and the release body is
   derived from it, so the two cannot disagree. This is the same mechanism
@@ -384,7 +418,7 @@ which is why they share their own smoke, parameterized by app id.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
   `app=server|client|desktop-server|desktop-client`, optional
-  `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`). `all` is the
+  `-f version=X.Y.Z`; blank = read `apps/<dir>/package.json`). `all` is the
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
   The plan job pushes the missing tag(s) FIRST, then one build shard per
@@ -392,11 +426,11 @@ which is why they share their own smoke, parameterized by app id.
   X64]` — linux-arm64 cross-built there, `file` magic check only, never
   exec'd; darwin on mac-builder `[self-hosted, macOS, ARM64]` — darwin-x64
   smoke under Rosetta). Native shards exec `version`; server shards also
-  BOOT on a temp DB with `apps/frontend/dist` hidden (the embedded-SPA
+  BOOT on a temp DB with `apps/server/web/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.
 - **A desktop cut re-ships a CLI.** Each desktop app bundles the binary it
-  wraps, built from the same commit, so a fix to `apps/server` or `apps/client`
+  wraps, built from the same commit, so a fix to `apps/server/api` or `apps/client/agent`
   does NOT reach desktop users until the matching desktop cut. Dispatch a
   security-relevant release as `app=all`.
 - **Retry:** a mid-flight failure leaves a tag without a release —
@@ -408,10 +442,10 @@ which is why they share their own smoke, parameterized by app id.
 The Turbo pipeline ensures correct build order:
 
 1. `@internal/backend-errors`, `@internal/subshell-protocol`, and `@internal/mcp-core` build first (no internal deps)
-2. `@internal/server` (`apps/server`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core
+2. `@internal/server` (`apps/server/api`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core
 3. `@internal/backend-client` depends on server (imports the `App` type for Eden Treaty)
-4. `apps/frontend` depends on backend-client and subshell-protocol
-5. `@internal/client` (`apps/client`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:client` (and the reverse hazard: the build wipes `apps/client/dist/subshell`)
+4. `apps/server/web` depends on backend-client and subshell-protocol
+5. `@internal/client` (`apps/client/agent`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:client` (and the reverse hazard: the build wipes `apps/client/agent/dist/subshell`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 

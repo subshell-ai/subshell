@@ -15,7 +15,7 @@ import { buildIco } from "./ico";
 
 const BRAND_DIR = import.meta.dir;
 const SRC_DIR = path.join(BRAND_DIR, "src");
-const ICONS_DIR = path.join(BRAND_DIR, "../apps/frontend/public/icons");
+const ICONS_DIR = path.join(BRAND_DIR, "../apps/server/web/public/icons");
 const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
 const APPS_DIR = path.join(BRAND_DIR, "../apps");
 
@@ -96,13 +96,13 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
 /**
  * The desktop apps' icon backgrounds — the ONE thing that differs between them.
  *
- * Two Tauri apps ship side by side (`apps/desktop-server` = Subshell Server,
- * `apps/desktop-client` = Subshell Client) and they used to carry byte-identical
+ * Two Tauri apps ship side by side (`apps/server/desktop` = Subshell Server,
+ * `apps/client/desktop` = Subshell Client) and they used to carry byte-identical
  * icons, which made them indistinguishable in a Dock, a launcher and a menu
  * bar. The mark stays the same — it is one product — so the background carries
  * the difference.
  *
- * Both colours come off the UI palette in `apps/frontend/src/styles.css` rather
+ * Both colours come off the UI palette in `apps/server/web/src/styles.css` rather
  * than being picked by eye: the server takes `--background` (the product
  * ground, oklch 0.224 0.035 296) and the client app the accent hue at a mid
  * lightness (oklch 0.38 0.13 322). They differ in BOTH hue and lightness,
@@ -114,9 +114,10 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
  * own `bun run icons` — see the note printed at the end of this script.
  */
 const DESKTOP_ICON_SIZE = 1024;
+/** Keyed by `apps/`-relative directory — used both as a path and as a `--cwd`. */
 const DESKTOP_APPS: { app: string; background: string }[] = [
-  { app: "desktop-server", background: "#1d182a" },
-  { app: "desktop-client", background: "#61246a" },
+  { app: "server/desktop", background: "#1d182a" },
+  { app: "client/desktop", background: "#61246a" },
 ];
 
 /**

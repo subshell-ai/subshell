@@ -56,7 +56,7 @@ jobs:
       - name: Compiled binary smoke
         run: |
           set -euo pipefail
-          cd apps/server
+          cd apps/server/api
           bun run compile
           bin="$PWD/dist/subshell-server"
           expected="subshell-server $(jq -r .version package.json)"
@@ -64,7 +64,7 @@ jobs:
           [ "$actual" = "$expected" ] || { echo "version mismatch: got '$actual', want '$expected'"; exit 1; }
           # The `mcp` refusal contract (clean-env refusal + no CWD litter)
           # lives in ONE script, shared with the release shards.
-          bash ../../scripts/smoke-mcp-refusal.sh "$bin"
+          bash ../../../scripts/smoke-mcp-refusal.sh "$bin"
           # Real-bytes pin for the renamed-artifact guard (7d5d6f4): the unit
           # tests fake the compiled argv[1]; this asserts against a REAL
           # compiled copy under a foreign name that the self rung never
@@ -122,10 +122,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `app` is the component id (also the release tag prefix); `dir` is
+        # where it lives under apps/. The two diverged when the apps became
+        # nested — see release.yml's plan job for the same table.
         include:
           - app: desktop-server
+            dir: server/desktop
             sidecar: subshell-server-bundled
           - app: desktop-client
+            dir: client/desktop
             sidecar: subshell-node-bundled
     steps:
       - name: Checkout Repository
@@ -152,8 +157,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/${{ matrix.app }}/src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.app), 'crates/desktop-core/**/*.rs') }}
+            apps/${{ matrix.dir }}/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
           restore-keys: ${{ runner.os }}-cargo-${{ matrix.app }}-
 
       # `tauri-build` REFUSES TO BUILD when an `externalBin` file is missing,
@@ -167,7 +172,7 @@ jobs:
       # with a real binary inside it, is proven by
       # `scripts/smoke-desktop-bundle.sh` on the release shards.
       - name: Stage a stub sidecar
-        working-directory: apps/${{ matrix.app }}/src-tauri
+        working-directory: apps/${{ matrix.dir }}/src-tauri
         env:
           SIDECAR: ${{ matrix.sidecar }}
         run: |
@@ -177,7 +182,7 @@ jobs:
           echo "staged a STUB sidecar for $triple (the release pipeline stages a real one)"
 
       - name: Format, lint and test
-        working-directory: apps/${{ matrix.app }}/src-tauri
+        working-directory: apps/${{ matrix.dir }}/src-tauri
         run: |
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings

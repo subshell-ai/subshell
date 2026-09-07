@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The app's only window, showing its own bundled page. Unlike apps/server/desktop there is no second window holding remote content — the node agent has no web UI — so there is exactly one origin here and it is local. That is what lets this capability be broad; it is not a licence to add a window that loads something else.",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-message",
+    "opener:allow-reveal-item-in-dir",
+    "allow-node-probe",
+    "allow-node-install-agent",
+    "allow-node-enroll",
+    "allow-node-service",
+    "allow-node-set-agent-bin",
+    "allow-node-open-path",
+    "allow-node-settings",
+    "allow-node-set-close-to-tray"
+  ]
+}

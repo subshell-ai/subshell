@@ -46,10 +46,10 @@ every install with `bunx syncpack fix && bun install`.
 
 **⚠️ `bunx syncpack fix` is repo-wide and will edit the *other* apps.** Adding
 `@tanstack/react-query@5.102.8` here caused it to bump
-`apps/frontend/package.json` from 5.101.4 to match. Either pin the new dep to the
+`apps/server/web/package.json` from 5.101.4 to match. Either pin the new dep to the
 version the web app already uses (what this app does now — 5.101.4), or
 `git checkout` the collateral file. Never commit a drive-by dependency bump to
-`@internal/frontend` from mobile work.
+`@internal/server-web` from mobile work.
 
 Two things were verified rather than assumed, and both were luckier than
 expected: the repo's `react@19.2.8` satisfies RN 0.86's `^19.2.3` (Expo did not

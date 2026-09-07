@@ -241,14 +241,14 @@ shares and subshell shares are two independent axes:
   ish, a remote node dutifully dials the wrong machine — the enroll flow and
   Nodes page surface the resolved URL and warn on loopback.
 
-## The desktop apps (`apps/desktop-server`, `apps/desktop-client`)
+## The desktop apps (`apps/server/desktop`, `apps/client/desktop`)
 
-Two Tauri v2 shells, one per CLI. `apps/desktop-server` installs, runs and
-manages a `subshell-server`; `apps/desktop-client` ("Subshell Client") registers
+Two Tauri v2 shells, one per CLI. `apps/server/desktop` installs, runs and
+manages a `subshell-server`; `apps/client/desktop` ("Subshell Client") registers
 the machine as a node and manages its `subshell` agent. Neither adds a server
 surface — everything privileged goes through its CLI as the same local user.
 
-The first bullet below is specific to `apps/desktop-server`. The node app has
+The first bullet below is specific to `apps/server/desktop`. The node app has
 ONE window and it loads the app's own bundled page, because a node serves
 nothing to load; its `csp` therefore governs every page it shows. The rest
 applies to both.

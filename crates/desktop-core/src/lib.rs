@@ -1,7 +1,7 @@
 //! Plumbing shared by the Subshell desktop apps.
 //!
-//! There are two Tauri apps in this repo — `apps/desktop-server`, which manages
-//! a `subshell-server`, and `apps/desktop-client`, which manages a `subshell`
+//! There are two Tauri apps in this repo — `apps/server/desktop`, which manages
+//! a `subshell-server`, and `apps/client/desktop`, which manages a `subshell`
 //! node agent. They are different products with different windows, different
 //! commands and different CLIs, but underneath both is the same short list of
 //! things a GUI has to get right before it can drive a binary at all. Every
@@ -39,7 +39,7 @@
 //! the two apps' window models are genuinely different — an abstraction
 //! designed against one real consumer and one guess costs more than the
 //! duplication it removes. `server_bin.rs` likewise stays in
-//! `apps/desktop-server`: a resolution ladder for `subshell-server`
+//! `apps/server/desktop`: a resolution ladder for `subshell-server`
 //! specifically, down to the unit file it reads and the plist it parses.
 //!
 //! Each app's `tray.rs` is the ICON — a `TrayIconBuilder`, a menu, ids — and

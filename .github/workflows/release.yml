@@ -4,12 +4,15 @@
 #   changesets  — on every push to main, maintain the version PR
 #                 ("chore: release package(s)"). Private packages: changesets
 #                 creates NO tags/releases for them — the version PR only bumps
-#                 apps/server + apps/client package.jsons + CHANGELOGs.
+#                 the FOUR releasable apps' package.jsons + CHANGELOGs:
+#                 apps/server/api, apps/client/agent, apps/server/desktop and
+#                 apps/client/desktop. `.changeset/config.json` ignores the
+#                 other ten workspaces.
 #   plan        — push events emit an EMPTY matrix (the merge of a version PR
 #                 does NOT auto-cut; the first-cut path is an explicit
 #                 workflow_dispatch — simpler and honest). A dispatch computes
-#                 {app, version, tag} entries (version blank = read from
-#                 apps/<app>/package.json, tag = <app>-v<version>), SKIPS apps
+#                 {app, dir, version, tag} entries (version blank = read from
+#                 apps/<dir>/package.json, tag = <app>-v<version>), SKIPS apps
 #                 whose tag already exists, and PUSHES the missing tags before
 #                 any build starts (spec §7.2: no tag race downstream).
 #   build       — matrix over app×triple, pinned to hardware per triple:
@@ -28,6 +31,27 @@
 #                 second softprops invocation flips the draft live. Any build
 #                 failure ⇒ no release. softprops/action-gh-release because
 #                 the Linux self-hosted runners have NO gh CLI (measured).
+#
+# An app has TWO names, and confusing them is the failure mode this workflow is
+# now shaped around:
+#
+#   app (the id)  `server` | `client` | `desktop-server` | `desktop-client`.
+#                 The git tag prefix, the upload-artifact name, the publish
+#                 download pattern and file glob, the dispatch option, and
+#                 every `matrix.app == …` condition. These are PUBLISHED —
+#                 `server-v1.9.0`, `client-v0.5.0`, `desktop-server-v0.4.0`
+#                 and `desktop-client-v0.2.0` all exist as releases — so they
+#                 are frozen regardless of where the code lives.
+#   dir           where the app lives under `apps/`, now NESTED:
+#                 `server/api`, `client/agent`, `server/desktop`,
+#                 `client/desktop`. Used for `apps/<dir>/package.json`,
+#                 `apps/<dir>/CHANGELOG.md`, `--cwd`/`working-directory` and
+#                 the cargo cache paths — and for nothing else.
+#
+# The mapping is the `app_dir` table in the plan job below, which emits `dir`
+# in every matrix entry so no downstream job re-derives it. The two names used
+# to be one string; nesting split them, because `server/api-v1.9.0` is not a
+# usable tag and the ids were already published.
 #
 # Retry semantics: a mid-flight failure leaves the tag (and maybe a draft
 # release). Re-dispatching COMPLETES the half-cut (plan treats tag-without-
@@ -50,7 +74,7 @@ on:
         # whole set makes the safe cut the one you get by pressing Run.
         default: all
       version:
-        description: "Version override — blank = read apps/<app>/package.json (applies to every app in `app`)"
+        description: "Version override — blank = read apps/<dir>/package.json (applies to every app in `app`)"
         type: string
         required: false
         default: ""
@@ -139,25 +163,44 @@ jobs:
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
-          # so an app name that is a PREFIX of another absorbs that app's
+          # so an app ID that is a PREFIX of another absorbs that app's
           # assets into its own release. `fail_on_unmatched_files: true` cannot
           # catch it — it only fires on too FEW files, never too many. Assert
           # the property here rather than discover it on an `all` cut.
+          #
+          # This is a property of the IDS, not of the directories: the ids are
+          # what the tags and the artifact names are built from.
           ALL_APPS="server client desktop-server desktop-client"
           for a in $ALL_APPS; do
             for b in $ALL_APPS; do
               [ "$a" = "$b" ] && continue
               case "$b" in
-                "$a"-*) echo "::error::app name '$a' is a prefix of '$b' — the publish artifact glob would mix their releases"; exit 1 ;;
+                "$a"-*) echo "::error::app id '$a' is a prefix of '$b' — the publish artifact glob would mix their releases"; exit 1 ;;
               esac
             done
           done
+          # id → directory under apps/. The ONLY place this mapping lives; every
+          # job downstream reads `dir` out of the matrix instead of deriving it.
+          # See the header comment for which consumer takes which name.
+          app_dir() {
+            case "$1" in
+              server)         echo "server/api" ;;
+              client)         echo "client/agent" ;;
+              desktop-server) echo "server/desktop" ;;
+              desktop-client) echo "client/desktop" ;;
+              # Never a fall-through to "$1": a new id without a directory
+              # would silently read apps/<id>/package.json, which does not
+              # exist, and fail three steps later with a jq error.
+              *) echo "::error::no apps/ directory mapped for app id '$1'" >&2; return 1 ;;
+            esac
+          }
           LINUX='["self-hosted","Linux","X64"]'
           MAC='["self-hosted","macOS","ARM64"]'
           entries=""
           appsjson=""
           for app in $apps; do
-            pkgversion=$(jq -r .version "apps/$app/package.json")
+            dir="$(app_dir "$app")"
+            pkgversion=$(jq -r .version "apps/$dir/package.json")
             version="${VERSION_INPUT:-$pkgversion}"
             # A `-f version=` that disagrees with package.json would tag one
             # version and BUILD another: every pipeline reads the version from
@@ -165,7 +208,7 @@ jobs:
             # so the smoke then looks for a file that was never produced. Fail
             # before any tag is pushed rather than half-way through a build.
             if [ "$version" != "$pkgversion" ]; then
-              echo "::error::-f version=$version disagrees with apps/$app/package.json ($pkgversion) — merge the changesets version PR first, or drop the override"
+              echo "::error::-f version=$version disagrees with apps/$dir/package.json ($pkgversion) — merge the changesets version PR first, or drop the override"
               exit 1
             fi
             tag="$app-v$version"
@@ -186,7 +229,7 @@ jobs:
               git push origin "$tag"
             fi
             [ -z "$appsjson" ] || appsjson="$appsjson,"
-            appsjson="$appsjson{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\"}"
+            appsjson="$appsjson{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\"}"
             case "$app" in
               server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
               client) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
@@ -226,7 +269,7 @@ jobs:
                 ;;
               esac
               [ -z "$entries" ] || entries="$entries,"
-              entries="$entries{\"app\":\"$app\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\",\"container\":\"$container\"}"
+              entries="$entries{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\",\"container\":\"$container\"}"
             done
           done
           echo "matrix=[${entries}]" >> "$GITHUB_OUTPUT"
@@ -293,7 +336,7 @@ jobs:
       - run: bun install --frozen-lockfile
 
       # Both release scripts preflight the workspace dist outputs (the client
-      # bundles packages/*, the server embeds apps/frontend/dist).
+      # bundles packages/*, the server embeds apps/server/web/dist).
       - run: bun run build
 
       - name: Release build (scoped to ${{ matrix.triple }})
@@ -378,14 +421,24 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/${{ matrix.app }}/src-tauri/target
-          key: ${{ runner.os }}-cargo-release-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.app), 'crates/desktop-core/**/*.rs') }}
-          restore-keys: ${{ runner.os }}-cargo-release-${{ matrix.app }}-
+            apps/${{ matrix.dir }}/src-tauri/target
+          # The `-v2-` is a deliberate one-time invalidation. The apps moved
+          # (apps/desktop-server -> apps/server/desktop) while this key stayed
+          # byte-identical — it is keyed on the component ID and on a Cargo.lock
+          # whose content did not change, since a path dependency records no
+          # path. So the first post-move run would take an EXACT-key hit on a
+          # target/ tree whose .fingerprint entries point at source paths that
+          # no longer exist, and actions/cache skips its save on an exact hit,
+          # so the stale tree would persist until Cargo.lock next changed.
+          key: ${{ runner.os }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-cargo-release-v2-${{ matrix.app }}-
 
       - name: Desktop release build (scoped to ${{ matrix.triple }})
         if: startsWith(matrix.app, 'desktop-')
         env:
           APP: ${{ matrix.app }}
+          # The app's directory under apps/ — see the plan job's `app_dir` table.
+          DIR: ${{ matrix.dir }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
@@ -401,7 +454,7 @@ jobs:
           cargo --version; rustc --version
           # NOT `bunx tauri --version`: npm has a real, deprecated package named
           # `tauri` that bunx will happily fetch, so that probe can never fail.
-          "./apps/$APP/node_modules/.bin/tauri" --version >/dev/null \
+          "./apps/$DIR/node_modules/.bin/tauri" --version >/dev/null \
             || { echo "@tauri-apps/cli is not installed in the workspace"; exit 1; }
 
           case "$TRIPLE" in
@@ -510,14 +563,14 @@ jobs:
 
           boot_smoke() {
             # Prove the EMBEDDED SPA serves: the compiled binary prefers an
-            # on-disk apps/frontend/dist at its BAKED build-time path (AGENTS
+            # on-disk apps/server/web/dist at its BAKED build-time path (AGENTS
             # caveat), so hide that dir for the boot.
             local dbdir cfgdir port pid hdrs i
             dbdir=$(mktemp -d)
             cfgdir=$(mktemp -d)
             port=$((20000 + RANDOM % 20000))
-            mv apps/frontend/dist "$dbdir/frontend-dist-hidden"
-            restore() { mv "$dbdir/frontend-dist-hidden" apps/frontend/dist 2>/dev/null || true; }
+            mv apps/server/web/dist "$dbdir/frontend-dist-hidden"
+            restore() { mv "$dbdir/frontend-dist-hidden" apps/server/web/dist 2>/dev/null || true; }
             DATABASE_PATH="$dbdir/subshell.db" \
             SUBSHELL_SERVER_CONFIG_DIR="$cfgdir" \
             BETTER_AUTH_SECRET="$(head -c 32 /dev/urandom | base64)" \
@@ -612,10 +665,13 @@ jobs:
       - id: notes
         env:
           APP: ${{ matrix.app }}
+          # The CHANGELOG lives with the code, so this one reads `dir`; the
+          # release NAME, tag and asset glob below all read `app`.
+          DIR: ${{ matrix.dir }}
           VERSION: ${{ matrix.version }}
         run: |
           set -euo pipefail
-          changelog="repo/apps/$APP/CHANGELOG.md"
+          changelog="repo/apps/$DIR/CHANGELOG.md"
           out="$RUNNER_TEMP/release-notes-$APP.md"
           if [ -f "$changelog" ]; then
             awk -v want="$VERSION" '

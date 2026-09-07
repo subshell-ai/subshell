@@ -343,4 +343,4 @@ Key points:
 - Tests should call reset in `beforeEach`/`afterEach` to ensure isolation
 - **Construct lazily, never at import.** A module that opens a database or binds
   a port merely by being evaluated breaks the compiled binary's non-boot
-  subcommands. Import purity is pinned by test — see `apps/server/AGENTS.md`.
+  subcommands. Import purity is pinned by test — see `apps/server/api/AGENTS.md`.

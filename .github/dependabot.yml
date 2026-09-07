@@ -26,7 +26,7 @@ updates:
   # path dependency, not a workspace member), so a bump to one says nothing
   # about the other.
   - package-ecosystem: cargo
-    directory: /apps/desktop-server/src-tauri
+    directory: /apps/server/desktop/src-tauri
     schedule:
       interval: monthly
     commit-message:
@@ -37,7 +37,7 @@ updates:
           - "*"
 
   - package-ecosystem: cargo
-    directory: /apps/desktop-client/src-tauri
+    directory: /apps/client/desktop/src-tauri
     schedule:
       interval: monthly
     commit-message:

@@ -14,7 +14,7 @@ export const RECONNECT_DELAY_MS = 1500;
 /**
  * 4xxx = server rejection (attach failed / unauthorized / not running):
  * retrying cannot succeed. Everything below is a transient drop. Mirrors
- * `apps/frontend/src/lib/use-subshell-ws.ts` close handling.
+ * `apps/server/web/src/lib/use-subshell-ws.ts` close handling.
  */
 export function shouldReconnectAfterClose(code: number): boolean {
   return code < 4000;

@@ -4,8 +4,8 @@ node_modules
 *.log
 dist
 .turbo
-apps/server/data
-apps/frontend/node_modules
-apps/server/node_modules
+apps/server/api/data
+apps/server/web/node_modules
+apps/server/api/node_modules
 packages/*/node_modules
 packages/*/dist

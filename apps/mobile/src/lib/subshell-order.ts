@@ -2,7 +2,7 @@ import type { SubshellView } from "@/types/subshell";
 
 /**
  * Sectioning rules for the Subshells screen — the web grouping ported, not
- * re-invented: the predicate mirrors `apps/frontend/src/lib/subshell-order.ts:18-20`
+ * re-invented: the predicate mirrors `apps/server/web/src/lib/subshell-order.ts:18-20`
  * and the buckets mirror `subshell-filter.ts:39-43` (spec §Testing: "mirroring
  * the tested lib/subshell-order.ts predicate"). The Waiting bucket is hoisted
  * out of Running here because the tab badge and the sections must agree on

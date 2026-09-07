@@ -1,6 +1,6 @@
 /**
  * Hand-written mirrors of the API response shapes, matching the frontend's
- * convention (`apps/frontend/AGENTS.md`: `src/types/` = hand-written mirrors).
+ * convention (`apps/server/web/AGENTS.md`: `src/types/` = hand-written mirrors).
  *
  * `@internal/backend-client` is deliberately NOT used at runtime: its
  * package.json carries `elysia` as a *dependency*, so importing the Treaty
@@ -8,7 +8,7 @@
  * be imported with `import type { App } from "@internal/backend-client"` if a
  * later milestone wants inference instead of these mirrors.
  *
- * Field list tracks `SubshellSchema` in `apps/server/src/api/models.ts:29-53`.
+ * Field list tracks `SubshellSchema` in `apps/server/api/src/api/models.ts:29-53`.
  */
 
 /** Lifecycle status persisted on the subshell row. */

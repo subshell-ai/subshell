@@ -3,13 +3,13 @@ import type { Readable } from "node:stream";
 import { BASE_URL } from "../ports";
 
 /**
- * The agent CLI as SOURCE (`bun <root>/apps/client/src/main.ts …`), not the
+ * The agent CLI as SOURCE (`bun <root>/apps/client/agent/src/main.ts …`), not the
  * compiled binary — the Phase-3 plan's deviation #1: zero drift with the
  * daemon under test, real crypto, no `bun run compile` gate on the suite.
  * Resolved from `import.meta.url` like `ADMIN_STATE`, so the CWD the run is
  * launched from never matters.
  */
-export const AGENT_MAIN = new URL("../../apps/client/src/main.ts", import.meta.url).pathname;
+export const AGENT_MAIN = new URL("../../apps/client/agent/src/main.ts", import.meta.url).pathname;
 
 /** The e2e stub `pi` harness — the agent's inventory reports it (via PI_PATH). */
 export const STUB_PI = new URL("./pi", import.meta.url).pathname;

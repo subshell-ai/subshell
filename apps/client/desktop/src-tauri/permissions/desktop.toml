@@ -1,0 +1,57 @@
+# The app's own ACL manifest.
+#
+# Its EXISTENCE is the security boundary, not just its contents. Tauri gates an
+# app command when `plugin_command.is_some() || has_app_acl_manifest ||
+# !is_local` (tauri 2.11.5, webview/mod.rs). Without this file, every app
+# command is ungated for every LOCAL window — so any window added later would
+# silently inherit the ability to drive the CLI. With it, each command is
+# granted deliberately, per window.
+#
+# This app has ONE window and it loads a page from the bundle, so today every
+# command is granted to it. The file still earns its place: the moment a second
+# window exists — a webview onto a control plane, say, to let a user mint their
+# own setup key — that window starts ungated unless this file is here to say
+# otherwise. See `apps/server/desktop/src-tauri/permissions/desktop.toml` for
+# what that split looks like once it is needed.
+
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-node-probe"
+description = "Read what it would take to get this machine registered and its agent running. Read-only, and never uses `subshell status --probe`, which supersede-kicks a live agent."
+commands.allow = ["node_probe"]
+
+[[permission]]
+identifier = "allow-node-install-agent"
+description = "Install the bundled subshell agent to ~/.local/bin, stopping the managed service first."
+commands.allow = ["node_install_agent"]
+
+[[permission]]
+identifier = "allow-node-enroll"
+description = "Register this machine as a node via `subshell enroll`. Destructive: it overwrites an existing config.json, mints a SECOND node row on the control plane, and discards the old node key — whose only home was that file."
+commands.allow = ["node_enroll"]
+
+[[permission]]
+identifier = "allow-node-service"
+description = "Drive one `subshell service` verb. Includes stop and restart, which end every subshell running on this machine unless the installed unit keeps them."
+commands.allow = ["node_service"]
+
+[[permission]]
+identifier = "allow-node-set-agent-bin"
+description = "Remember an explicitly chosen agent binary. The path is executed on every launch."
+commands.allow = ["node_set_agent_bin"]
+
+[[permission]]
+identifier = "allow-node-open-path"
+description = "Reveal one of a fixed set of the app's own directories or log files in the OS file manager. The set is closed in Rust; the page names a member, never a path."
+commands.allow = ["node_open_path"]
+
+[[permission]]
+identifier = "allow-node-settings"
+description = "Read the app's own preferences."
+commands.allow = ["node_settings"]
+
+[[permission]]
+identifier = "allow-node-set-close-to-tray"
+description = "Choose whether closing the window hides it to the tray."
+commands.allow = ["node_set_close_to_tray"]

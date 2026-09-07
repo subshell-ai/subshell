@@ -5,14 +5,14 @@ its scripts are named `make`/`check` so `turbo run test|generate` never picks th
 up. Root aliases: `bun run brand:generate`, `bun run brand:test`.
 
 `bun run brand:generate` rasterizes `src/*.svg` masters into the committed PNGs
-(`apps/frontend/public/icons/`, `docs/assets/`, and each desktop app's
+(`apps/server/web/public/icons/`, `docs/assets/`, and each desktop app's
 `src-tauri/icons/app-icon.png`).
 
 **The two desktop apps differ only in their icon background**, and that is a
 table in `generate.ts` (`DESKTOP_APPS`), not two copies of the artwork: one mark,
 one geometry, one colour per app, swapped into the `<rect id="bg">` of
 `tile-rounded.svg`. Both colours are taken off the UI palette in
-`apps/frontend/src/styles.css` rather than picked by eye — the server uses
+`apps/server/web/src/styles.css` rather than picked by eye — the server uses
 `--background` and the node app the accent hue at a mid lightness, so they differ
 in hue AND lightness and stay apart when scaled to a 22pt menu-bar icon.
 
@@ -21,8 +21,8 @@ sized PNGs) is cut from it by tauri, which each app runs itself:
 
 ```bash
 bun run brand:generate                       # the masters
-bun run --cwd apps/desktop-server icons      # the icon sets
-bun run --cwd apps/desktop-client icons
+bun run --cwd apps/server/desktop icons      # the icon sets
+bun run --cwd apps/client/desktop icons
 ```
 
 Those `icons` scripts also delete the Windows, iOS and Android assets
