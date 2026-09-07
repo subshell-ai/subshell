@@ -207,6 +207,18 @@ function waitForReady(h: Harness): Promise<NodeEvent> {
   return waitFor(h, (e) => e.type === "ready", "ready frame");
 }
 
+/**
+ * Poll a plain condition, for the cases where the thing being waited on is a
+ * side effect rather than a plane event.
+ */
+async function waitUntil(cond: () => boolean, what: string, timeoutMs = 4000): Promise<void> {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error(`timed out waiting for ${what}`);
+    await sleep(5);
+  }
+}
+
 async function signAndSend(
   h: Harness,
   cmd: NodeCommandBody,
@@ -739,6 +751,19 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
   } as unknown as SubshellMetaStore;
   const h = await startDaemon({ tmux: fakeTmux, meta: slowMeta });
   const jtiT = await signAndSend(h, { type: "terminate", subshellId: HEX_A }, { jti: "ser-t", seq: 1 });
+  // Send the second only once the first is PROVABLY executing — it is parked
+  // inside `slowMeta.get`'s 60 ms sleep at this point, so input still arrives
+  // mid-flight and the interleaving this test exists to catch is unchanged.
+  //
+  // Firing both back-to-back made the test depend on them landing on the same
+  // socket in the same order, which is not something it means to assert: this
+  // case failed twice on CI (2026-09-07) with `order` holding ONLY
+  // "input:start", i.e. the terminate never reached its handler at all while
+  // the input did. Not reproducible locally — six full-suite runs under CPU
+  // load stayed green — so this removes the dependency rather than claiming a
+  // diagnosis, and if the terminate is still lost the failure is now a named
+  // timeout here instead of a mystifying order mismatch below.
+  await waitUntil(() => order.includes("terminate:start"), "the terminate command to start");
   const jtiI = await signAndSend(h, { type: "input", subshellId: HEX_B, data: "x" }, { jti: "ser-i", seq: 2 });
   await waitFor(h, (e) => e.type === "result" && e.ref === jtiI, "input result");
   // The second's start FOLLOWS the first's end — strict serial, arrival order.
