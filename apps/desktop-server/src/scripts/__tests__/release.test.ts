@@ -1,14 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  DESKTOP_CLIENT_PRODUCT,
+  DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
+  desktopArtifactFileName,
   desktopSidecarFileName,
   SERVER_SIDECAR_NAME,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
 import {
   assertBundleSet,
+  bundleArtifact,
   bundleKind,
+  collectArtifact,
   DESKTOP_RELEASE_DIR_ENV,
   type DesktopReleaseDeps,
   hostTarget,
@@ -24,20 +30,22 @@ import {
  * found" pointing at a path that looks right), a signing hook inherited from
  * the CI shard (wall-clock spent signing bytes Tauri re-seals, plus a digest
  * that matches nothing), a relative publish dir (resolved in the CHILD's cwd,
- * so it lands in apps/server/apps/desktop-server/…), and a surplus bundle (which the
- * publish glob would ship).
+ * so it lands in apps/server/apps/desktop-server/…), a surplus bundle (which the
+ * publish glob would ship), and the emitted-bundle → published-name mapping,
+ * which is the piece a Tauri upgrade moves.
  *
  * `tauri build`'s own argv is deliberately NOT pinned — that is Tauri's
  * contract, not ours, and a test of it only breaks on upgrades.
  */
 
 /** A recording stub: every effect captured, nothing executed. */
-function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean } = {}) {
+function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean; listing?: string[] } = {}) {
   const runs: { argv: string[]; cwd: string; env?: Record<string, string> }[] = [];
   const removed: string[] = [];
   const moves: [string, string][] = [];
   const logs: string[] = [];
-  const { built = true, ...rest } = over;
+  const listed: string[] = [];
+  const { built = true, listing = [], ...rest } = over;
   const deps: DesktopReleaseDeps = {
     run: async (argv, cwd, env) => {
       runs.push({ argv, cwd, env });
@@ -50,10 +58,16 @@ function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean } = {}) {
     move: async (a, b) => {
       moves.push([a, b]);
     },
+    // What `tauri build` left behind, as the pipeline would read it — the
+    // artifact name is DISCOVERED here, never predicted.
+    list: async (dir) => {
+      listed.push(dir);
+      return listing;
+    },
     log: (l) => logs.push(l),
     ...rest,
   };
-  return { deps, runs, removed, moves, logs };
+  return { deps, runs, removed, moves, logs, listed };
 }
 
 describe("stageSidecar", () => {
@@ -125,9 +139,9 @@ describe("stageSidecar", () => {
 });
 
 describe("bundle selection", () => {
-  test("each target names one bundler and one output directory", () => {
-    expect(bundleKind("darwin-arm64")).toEqual({ bundles: "app", dir: "macos" });
-    expect(bundleKind("linux-x64")).toEqual({ bundles: "deb", dir: "deb" });
+  test("each target names one bundler, one output directory and one extension", () => {
+    expect(bundleKind("darwin-arm64")).toEqual({ bundles: "app", dir: "macos", suffix: ".app" });
+    expect(bundleKind("linux-x64")).toEqual({ bundles: "deb", dir: "deb", suffix: ".deb" });
   });
 
   test("an unknown target has no bundler", () => {
@@ -200,5 +214,128 @@ describe("hostTarget", () => {
     ] as const) {
       expect(DESKTOP_TARGETS).toContain(hostTarget(platform, arch) as never);
     }
+  });
+});
+
+describe("bundleArtifact", () => {
+  const ROOT = "/w/apps/desktop-server/src-tauri/target/release/bundle";
+
+  // The bundler's own name is passed IN (globbed), because Tauri derives it
+  // from productName and the Debian one goes through a package-name sanitizer.
+  // What is pinned here is the mapping onto the name this repo publishes.
+  test("maps the emitted .app to the tarball this repo publishes", () => {
+    expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", "Subshell Server.app")).toEqual({
+      source: `${ROOT}/macos/Subshell Server.app`,
+      artifact: `${ROOT}/macos/Subshell-Server.app.tar.gz`,
+      archive: true,
+    });
+  });
+
+  test("maps the emitted .deb onto the canonical package name", () => {
+    expect(bundleArtifact(ROOT, "linux-x64", "1.2.3", "Subshell Server_1.2.3_amd64.deb")).toEqual({
+      source: `${ROOT}/deb/Subshell Server_1.2.3_amd64.deb`,
+      artifact: `${ROOT}/deb/subshell-server_1.2.3_amd64.deb`,
+      archive: false,
+    });
+  });
+
+  // Whatever the bundler called it, the published name is ours — that is the
+  // point of the glob, and the reason productName may contain a space.
+  test("the published name never depends on what the bundler emitted", () => {
+    for (const emitted of ["Subshell Server.app", "subshell-server.app", "Whatever.app"]) {
+      expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", emitted).artifact).toBe(
+        `${ROOT}/macos/Subshell-Server.app.tar.gz`,
+      );
+    }
+  });
+
+  // The two desktop apps publish into ONE GitHub release directory per cut.
+  test("names the server product, never the client app's", () => {
+    for (const target of DESKTOP_TARGETS) {
+      const { artifact } = bundleArtifact(ROOT, target, "1.2.3", `emitted${bundleKind(target).suffix}`);
+      expect(artifact).toContain(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, target, "1.2.3"));
+      expect(artifact).not.toContain(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, target, "1.2.3"));
+    }
+  });
+
+  test("has no mapping for a target this app does not build", () => {
+    expect(() => bundleArtifact(ROOT, "linux-arm64", "1.2.3", "x.deb")).toThrow(/no bundler/);
+  });
+});
+
+describe("collectArtifact", () => {
+  const ROOT = "/w/bundle";
+
+  // An AppleDouble `._` member surviving into the archive breaks the extracted
+  // bundle's signature, and the failure then reads as a signing bug. The
+  // spaced `.app` name is one argv element, so nothing has to quote it.
+  test("archives the emitted .app with --no-mac-metadata, from its own directory", async () => {
+    const s = stub({ listing: ["Subshell Server.app"] });
+    const out = await collectArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3");
+    expect(s.listed).toEqual([`${ROOT}/macos`]);
+    expect(out).toBe(`${ROOT}/macos/Subshell-Server.app.tar.gz`);
+    expect(s.runs).toHaveLength(1);
+    expect(s.runs[0]?.argv).toEqual([
+      "tar",
+      "--no-mac-metadata",
+      "-czf",
+      `${ROOT}/macos/Subshell-Server.app.tar.gz`,
+      "-C",
+      `${ROOT}/macos`,
+      "Subshell Server.app",
+    ]);
+  });
+
+  // The .deb is renamed rather than re-wrapped: one file already, published
+  // under the space-free name the smoke and the install docs know.
+  test("renames the emitted .deb onto the published name, archiving nothing", async () => {
+    const s = stub({ listing: ["Subshell Server_1.2.3_amd64.deb"] });
+    const out = await collectArtifact(s.deps, ROOT, "linux-x64", "1.2.3");
+    expect(out).toBe(`${ROOT}/deb/subshell-server_1.2.3_amd64.deb`);
+    expect(s.moves).toEqual([[`${ROOT}/deb/Subshell Server_1.2.3_amd64.deb`, out]]);
+    expect(s.runs).toEqual([]);
+  });
+
+  // The deb staging tree Tauri leaves beside the package is not a candidate.
+  test("ignores everything without the bundler's own extension", async () => {
+    const s = stub({ listing: ["Subshell Server_1.2.3_amd64", "Subshell Server_1.2.3_amd64.deb"] });
+    expect(await collectArtifact(s.deps, ROOT, "linux-x64", "1.2.3")).toBe(
+      `${ROOT}/deb/subshell-server_1.2.3_amd64.deb`,
+    );
+  });
+
+  // Zero and many are BOTH refusals: publishing an arbitrary bundle under a
+  // canonical name is indistinguishable from a correct cut.
+  test("refuses an empty or ambiguous bundle directory rather than guessing", async () => {
+    const empty = stub({ listing: [] });
+    await expect(collectArtifact(empty.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/no \.app in/);
+    const many = stub({ listing: ["One.app", "Two.app"] });
+    await expect(collectArtifact(many.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/expected exactly one/);
+    expect(many.runs).toEqual([]);
+  });
+
+  test("a failed archive is a failed target", async () => {
+    const s = stub({ listing: ["Subshell Server.app"], run: async () => 2 });
+    await expect(collectArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/could not archive/);
+  });
+});
+
+describe("productName", () => {
+  const CONF = JSON.parse(readFileSync(join(import.meta.dir, "../../../src-tauri/tauri.conf.json"), "utf8"));
+
+  // The bundler names the `.app` directory from `productName`, and this
+  // pipeline tars whatever it finds — so a drift here would not break the
+  // build. It would publish `Subshell-Server.app.tar.gz` containing an `.app`
+  // called something else, which is a worse failure: a silent one.
+  test("is the product name the release contract publishes under", () => {
+    expect(CONF.productName).toBe(DESKTOP_SERVER_PRODUCT);
+  });
+
+  // The identifier is IDENTITY, not a label: it keys the macOS settings
+  // directory, the notification grant, the single-instance lock and the window
+  // state. It stays what shipped users already have, even now that the product
+  // name has changed.
+  test("the bundle identifier is untouched by the rename", () => {
+    expect(CONF.identifier).toBe("dev.subshell.desktop");
   });
 });

@@ -1,8 +1,13 @@
 # Desktop client AGENTS.md
 
-`apps/desktop-client` (`@internal/desktop-client`) — **Subshell Node**, a
+`apps/desktop-client` (`@internal/desktop-client`) — **Subshell Client**, a
 **Tauri v2** shell that registers this machine as a node and keeps its
 `subshell` agent running, so a user never has to touch a CLI binary.
+
+The app was called **Subshell Node** until 2026-09-06. The word "node" is still
+correct everywhere it names the control-plane CONCEPT — the machine this app
+registers IS a node, the `node_*` commands act on it, the server's Nodes page
+lists it. Only the APP's name changed.
 
 It is the sibling of `apps/desktop-server`, one layer down the stack: that app
 wraps the control plane, this one wraps a node. Read that app's `AGENTS.md`
@@ -116,8 +121,10 @@ its own.
 | --- | --- | --- |
 | Cargo crate | `subshell-desktop` | `subshell-desktop-client` |
 | bundle identifier | `dev.subshell.desktop` | `dev.subshell.node` |
-| `productName` | `Subshell` | `SubshellNode` |
+| `productName` | `Subshell Server` | `Subshell Client` |
 | sidecar stem | `subshell-server-bundled` | `subshell-node-bundled` |
+| published `.app.tar.gz` | `Subshell-Server.app.tar.gz` | `Subshell-Client.app.tar.gz` |
+| published `.deb` | `subshell-server_<v>_amd64.deb` | `subshell-client_<v>_amd64.deb` |
 
 Both packages can be installed on one machine and both put a binary in
 `/usr/bin` on Debian, so a shared string is a file conflict. The identifier is
@@ -125,11 +132,29 @@ additionally the macOS settings directory and the single-instance key, so
 changing it after a release silently starts every existing user from defaults
 and drops their notification permission.
 
-`productName` is one token because Tauri derives BOTH the `.app` directory name
-and the `.deb` filename from it, and the Debian package-name sanitizer cannot be
-exercised without running the Linux bundler. The window title, tray tooltip and
-menu titles read "Subshell Node" — those are free-form and are not
-`productName`.
+**The identifier says `node` while the product name says Client, and that is
+deliberate — do not "fix" it.** An identifier is an identity, not a label: it
+keys the macOS settings directory (`crates/desktop-core`'s `SettingsPaths`),
+the notification permission grant, the single-instance lock and the
+window-state store, and macOS tracks an app BY it — which is exactly why a
+renamed `.app` with the same identifier upgrades in place instead of arriving
+as a stranger. It is also not even wrong: this app wraps the node agent. The
+Cargo crate name is the same class of decision (it is the `/usr/bin` binary
+name in the `.deb`), and so is the sidecar stem, which names the binary this
+app WRAPS rather than the app. `src/scripts/__tests__/release.test.ts` pins
+both halves of the divergence.
+
+`productName` may contain a space since 2026-09-06: Tauri derives the `.app`
+directory name and the `.deb` file name from it, and the Debian one goes
+through a package-name sanitizer nobody can predict without running the Linux
+bundler — so the release script no longer predicts it. It globs
+`bundle/<dir>` for the ONE artifact that appeared and publishes it under the
+name `desktopArtifactFileName` chooses (space-free: these are download URLs
+and shell arguments). The `.app` inside that tarball is `Subshell Client.app`,
+space included, which is why the tar call and the smoke quote their paths.
+
+The window title, tray tooltip and menu titles read "Subshell Client" — those
+are free-form and are not `productName`.
 
 ## Where things live
 
@@ -153,8 +178,11 @@ src/scripts/       the release script (TS) — `bun run compile:release`
 
 Shared with `apps/desktop-server` via `crates/desktop-core`: process spawning
 with a login PATH and a deadline, the login-shell PATH probe, semver
-comparison, the settings file, and the atomic sidecar install. Do not
-re-implement any of those here.
+comparison, the settings file, the atomic sidecar install, and the tray
+capability probe that gates close-to-tray. Do not re-implement any of those
+here. (`src-tauri/src/tray.rs` is the ICON — builder, menu, ids;
+`desktop-core`'s `tray.rs` is the different question of whether an icon is
+drawn on this desktop at all.)
 
 ## The IPC boundary
 
@@ -217,10 +245,22 @@ about permissions, not a compile error.
   `KillMode=process` / `AbandonProcessGroup` takes them all down. The CLI
   refuses such a restart without `--force`; surface the refusal and make the
   override a separate, labelled action.
-- **The Linux tray may be silently invisible.** `TrayIconEvent` is never emitted
-  there and a stock GNOME has no StatusNotifier host. Close-to-tray defaults OFF
-  on Linux, the Rust side refuses to persist `true` there, and the page does not
-  draw the switch — three guards, all deliberate.
+- **The Linux tray may be silently invisible — so it is PROBED, not assumed.**
+  `TrayIconEvent` is never emitted there, and the icon is drawn only where a
+  StatusNotifier **host** is registered on the session bus (KDE yes, stock
+  GNOME no until the AppIndicator extension). `crates/desktop-core/src/tray.rs`
+  asks, by shelling out to
+  `busctl --user get-property … IsStatusNotifierHostRegistered`, and every
+  non-affirmative outcome — no bus, no watcher, no tool, a timeout — means "no
+  tray". Close-to-tray still defaults OFF; `node_set_close_to_tray` refuses
+  `true` where none answered; `node_settings` clamps the stored value on READ
+  too; and the window-close handler **re-probes**, which is the guard that
+  actually protects the user — the setting may have been made on a session that
+  had a tray. The probe is deliberately not memoized for that reason, and the
+  page draws the switch DISABLED with the reason plus a re-check (never hidden)
+  when `trayStatus` is `not-detected`, because naming the extension is
+  actionable and an absent control is not. It is a false negative on the older
+  XEmbed tray, which is why every string says "none was detected".
 - **The icon is currently the same mark as `apps/desktop-server`.** The brand
   generator needs a licensed font that is not in the repo, so a distinct node
   badge is a design task, not a code one. Two identical Dock icons is a real

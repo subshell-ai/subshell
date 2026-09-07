@@ -1,4 +1,4 @@
-//! Subshell Desktop — a native shell around a locally managed `subshell-server`.
+//! Subshell Server — a native shell around a locally managed `subshell-server`.
 
 mod bridge;
 mod control;
@@ -82,11 +82,15 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Close-to-tray is opt-in and OFF by default on Linux, where a
-                // stock desktop has no StatusNotifier host and the icon is
-                // silently invisible — hiding there would make the window
-                // unreachable with nothing to explain it.
-                let hide = window.label() == "main" && window.app_handle().state::<SettingsState>().get().close_to_tray;
+                // Close-to-tray is opt-in, and the check RE-PROBES the desktop
+                // here rather than trusting the stored preference: where no
+                // StatusNotifier host is registered the icon is silently
+                // invisible, and hiding into it would make the window
+                // unreachable with nothing to explain it. This is the guard
+                // that actually protects the user — the setting may have been
+                // made on a session that had a tray.
+                let hide = window.label() == "main"
+                    && control::close_to_tray_now(&window.app_handle().state::<SettingsState>());
                 if hide {
                     api.prevent_close();
                     let _ = window.hide();
@@ -116,8 +120,12 @@ pub fn run() {
             // Hiding the last window is still "no windows left", and the
             // default answer to that is to quit — so close-to-tray would close
             // to a tray and then exit. Closing the CONSOLE hit the same path.
+            // The same fresh probe as the hide itself, so the two can never
+            // disagree: a window that was NOT hidden because no tray answered
+            // must be allowed to take the app down with it.
             tauri::RunEvent::ExitRequested { api, .. }
-                if app.state::<SettingsState>().get().close_to_tray && app.get_webview_window("main").is_some() =>
+                if control::close_to_tray_now(&app.state::<SettingsState>())
+                    && app.get_webview_window("main").is_some() =>
             {
                 api.prevent_exit();
             }

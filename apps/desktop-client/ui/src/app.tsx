@@ -1,5 +1,5 @@
 /**
- * Subshell Node's only page.
+ * Subshell Client's only page.
  *
  * The whole product is one sentence: paste a server URL and a setup key, and
  * this machine becomes a node that agents can be launched on, without ever
@@ -26,7 +26,9 @@ import type { StepKey, UserStep } from "@/lib/steps";
 
 export function App() {
   const runner = useActionRunner();
-  const { probe, settings, firstProbePending, readError } = useNodeState(runner.busy);
+  const { probe, settings, firstProbePending, readError, recheckSettings, settingsFetching } = useNodeState(
+    runner.busy,
+  );
   const form = useEnrollForm();
 
   /**
@@ -68,7 +70,7 @@ export function App() {
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-3 px-6 pt-5 pb-7">
       <header>
-        <h1 className="font-semibold text-[15px] tracking-tight">Subshell Node</h1>
+        <h1 className="font-semibold text-[15px] tracking-tight">Subshell Client</h1>
         <p className="mt-0.5 text-muted-foreground text-xs">
           Register this machine with a Subshell control plane, and keep its agent running.
         </p>
@@ -109,7 +111,13 @@ export function App() {
         onCancel={runner.cancel}
       />
 
-      <PrefsCard settings={settings} busy={runner.busy} onCloseToTrayChange={commands.setCloseToTray} />
+      <PrefsCard
+        settings={settings}
+        busy={runner.busy}
+        rechecking={settingsFetching}
+        onCloseToTrayChange={commands.setCloseToTray}
+        onRecheckTray={recheckSettings}
+      />
 
       <OutputBlock result={runner.output} />
     </main>

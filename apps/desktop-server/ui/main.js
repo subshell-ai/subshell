@@ -153,7 +153,7 @@ const STEPS = Object.assign(Object.create(null), {
   ready: {
     body: "The server is running.",
     actions: () => [
-      ["Open Subshell", openMain, true],
+      ["Open Subshell Server", openMain, true],
       ["Restart", doRestart],
       ["Stop", doStop],
       ["Change port or host…", showConfigure],
@@ -413,25 +413,72 @@ const pickBinary = guard(async () => {
 });
 
 /**
- * The tray preference, and why it is not always offered.
+ * Why the switch is disabled, in words that stay true for a user who can see
+ * their own tray icon while reading them — the probe is a false negative on
+ * the older XEmbed tray, so it says DETECTED, never "there is none".
+ */
+const TRAY_NOT_DETECTED =
+  "No system tray was detected on this desktop, so a hidden window would have nowhere to go. GNOME needs an " +
+  "AppIndicator extension; KDE and most others have one already. Some older trays cannot be detected at all, so " +
+  "an icon may still appear — install one, then check again.";
+
+/**
+ * The tray preference, and why it is sometimes offered but not live.
  *
- * On Linux `TrayIconEvent` is never emitted and a stock GNOME has no
- * StatusNotifier host, so the icon can be silently invisible — a window hidden
- * to an icon that is not there is unreachable, with nothing to explain it. The
- * Rust side reports whether the switch is safe to show, and refuses to persist
- * `true` where it is not; the console just does not draw it.
+ * On Linux the icon is drawn only where a StatusNotifier host is registered on
+ * the session bus: KDE has one, a stock GNOME needs the AppIndicator
+ * extension, and where none is registered the icon is silently invisible — so
+ * a window hidden into it is unreachable. The Rust side answers that with a
+ * real probe rather than a platform check and reports both halves:
+ * `traySupported` for whether the switch is live, `trayStatus` for whether an
+ * absent tray is worth explaining.
+ *
+ * - `supported` — the switch works.
+ * - `not-detected` — DISABLED, with the reason and a re-check. Deliberately
+ *   not hidden: naming the extension is actionable, an absent control is not,
+ *   and installing it flips the answer without restarting the app.
+ * - `unsupported` — no tray on this platform at all, so the card is not drawn.
  */
 async function loadPrefs() {
-  const prefs = await invoke("desktop_settings");
-  const card = el("prefs-card");
-  card.hidden = !prefs.traySupported;
-  if (!prefs.traySupported) return;
+  let prefs;
+  try {
+    prefs = await invoke("desktop_settings");
+  } catch (err) {
+    // Never leaves the card mid-state or the rejection unhandled: this is also
+    // the re-check button's path, and a refused command there must say so.
+    problem = String(err?.message ?? err);
+    render();
+    return;
+  }
+  el("prefs-card").hidden = prefs.trayStatus === "unsupported";
   const box = el("close-to-tray");
   box.checked = prefs.closeToTray;
-  box.addEventListener("change", () => {
-    void invoke("desktop_set_close_to_tray", { enabled: box.checked });
-  });
+  box.disabled = !prefs.traySupported;
+  el("tray-missing").hidden = prefs.traySupported;
+  el("tray-reason").textContent = prefs.traySupported ? "" : TRAY_NOT_DETECTED;
 }
+
+/**
+ * Not through `guard()`: it re-probes, and a checkbox is not worth two CLI
+ * spawns of something it cannot change. It still surfaces a refusal — the
+ * Rust side rejects `true` where no tray answered — and it re-reads the
+ * preference afterwards, so the box shows what was actually stored rather than
+ * what was clicked.
+ */
+el("close-to-tray").addEventListener("change", async () => {
+  try {
+    await invoke("desktop_set_close_to_tray", { enabled: el("close-to-tray").checked });
+    problem = "";
+  } catch (err) {
+    problem = String(err?.message ?? err);
+  }
+  await loadPrefs();
+  render();
+});
+
+el("tray-recheck").addEventListener("click", () => {
+  void loadPrefs();
+});
 
 el("refresh").addEventListener("click", act(null));
 render();

@@ -198,12 +198,24 @@ export interface EnrollOutcome {
   confirmations: EnrollConfirmation[];
 }
 
+/**
+ * Whether closing a window to the tray is safe here. `TraySupport`, kebab-case.
+ *
+ * `not-detected` is a Linux desktop with no StatusNotifier host on the session
+ * bus (a stock GNOME, until the AppIndicator extension is installed) — not
+ * permanent, and not even certain: the probe cannot see the older XEmbed tray.
+ * `unsupported` is a platform with no tray at all.
+ */
+export type TrayStatus = "supported" | "not-detected" | "unsupported";
+
 /** The app's own preferences. `NodeSettings`. */
 export interface NodeSettings {
   agentBinPath: string | null;
   closeToTray: boolean;
-  /** False on Linux, where the tray icon can be silently invisible. */
+  /** Whether the switch is live — the tray probe's answer at this call. */
   traySupported: boolean;
+  /** And when it is not, why: the difference between hiding the control and explaining it. */
+  trayStatus: TrayStatus;
 }
 
 /** The directories and files the window may ask to reveal. `OpenTarget`, kebab-case. */
@@ -225,7 +237,13 @@ export function nodeProbe(): Promise<Probe> {
   return invoke<Probe>("node_probe");
 }
 
-/** Read the app's own preferences. In-process — no spawn. */
+/**
+ * Read the app's own preferences.
+ *
+ * One `busctl` spawn on Linux — the tray probe, deliberately re-run on every
+ * call rather than memoized, which is what makes the re-check button mean
+ * something. Nothing to poll for otherwise; refetched after every action.
+ */
 export function nodeSettings(): Promise<NodeSettings> {
   return invoke<NodeSettings>("node_settings");
 }
@@ -291,7 +309,12 @@ export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
   return invoke<void>("node_open_path", args);
 }
 
-/** Choose whether closing the window hides it to the tray. Refused on Linux. */
+/**
+ * Choose whether closing the window hides it to the tray.
+ *
+ * Rejects with a string where no tray was detected — the switch is drawn
+ * disabled there, so this is the belt to that braces.
+ */
 export function nodeSetCloseToTray(args: { enabled: boolean }): Promise<void> {
   return invoke<void>("node_set_close_to_tray", args);
 }

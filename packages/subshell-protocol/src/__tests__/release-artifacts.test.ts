@@ -11,6 +11,7 @@ import {
   parseScope,
   publishArtifacts,
   runSignHook,
+  selectBundleOutput,
 } from "../release-artifacts.js";
 import { semverLt } from "../versions.js";
 
@@ -145,5 +146,45 @@ describe("runSignHook (SUBSHELL_RELEASE_SIGN_CMD, darwin release signing)", () =
     expect(await runSignHook(bin, { SUBSHELL_RELEASE_SIGN_CMD: "test -f" })).toBe(true);
     expect(await runSignHook(join(workDir, "ghost"), { SUBSHELL_RELEASE_SIGN_CMD: "test -f" })).toBe(false);
     expect(await runSignHook(bin, { SUBSHELL_RELEASE_SIGN_CMD: "exit 7" })).toBe(false);
+  });
+});
+
+/**
+ * The glob that replaced a prediction. Both desktop `productName`s were single
+ * tokens only because the `.deb` name Tauri derives from them goes through
+ * Debian's sanitizer — unknowable without running the Linux bundler. Reading
+ * the directory answers it; the only rule that matters is that an ambiguous
+ * answer is a refusal, because publishing an arbitrary bundle under a canonical
+ * name looks exactly like a success.
+ */
+describe("selectBundleOutput", () => {
+  test("finds the one artifact, spaces and all", () => {
+    expect(selectBundleOutput(["Subshell Client.app"], ".app", "bundle/macos")).toBe("Subshell Client.app");
+    expect(
+      selectBundleOutput(["subshell-client_0.1.0_amd64", "Subshell Client_0.1.0_amd64.deb"], ".deb", "bundle/deb"),
+    ).toBe("Subshell Client_0.1.0_amd64.deb");
+  });
+
+  // The tarball this pipeline writes lands beside the .app it was made from,
+  // so a re-entrant collect must not see two candidates.
+  test("the tarball beside the .app is not a second .app", () => {
+    expect(selectBundleOutput(["Subshell Server.app", "Subshell-Server.app.tar.gz"], ".app", "d")).toBe(
+      "Subshell Server.app",
+    );
+  });
+
+  test("nothing matching is a refusal that says what WAS there", () => {
+    expect(() => selectBundleOutput(["rpm", "appimage"], ".deb", "bundle/deb")).toThrow(
+      /no \.deb in bundle\/deb — the bundler wrote: rpm, appimage/,
+    );
+    expect(() => selectBundleOutput([], ".app", "bundle/macos")).toThrow(/\(empty\)/);
+  });
+
+  // Never the first of several: an arbitrary artifact published under a
+  // canonical name is indistinguishable from a correct cut.
+  test("more than one match is a refusal, never a pick", () => {
+    expect(() => selectBundleOutput(["a_1_amd64.deb", "b_1_amd64.deb"], ".deb", "bundle/deb")).toThrow(
+      /2 \.deb bundles in bundle\/deb, expected exactly one/,
+    );
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@internal/desktop-client",
-  "description": "Subshell Node \u2014 a Tauri shell that registers this machine as a subshell node and manages its agent",
+  "description": "Subshell Client \u2014 a Tauri shell that registers this machine as a subshell node and manages its agent",
   "version": "0.1.0",
   "type": "module",
   "private": true,

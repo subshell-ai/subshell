@@ -35,9 +35,10 @@ use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
-use subshell_desktop_core::settings::SettingsState;
+use subshell_desktop_core::settings::{Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
 use subshell_desktop_core::sidecar;
+use subshell_desktop_core::tray::{effective_close_to_tray, tray_support, TraySupport};
 
 use crate::agent_bin::{self, decide_agent, AgentBinary, AgentChoice, AGENT_SIDECAR};
 
@@ -998,21 +999,17 @@ pub fn node_enroll(
 // Preferences and paths
 // ---------------------------------------------------------------------------
 
-/// Whether a stored close-to-tray preference should be honoured HERE.
+/// The stored close-to-tray preference against a FRESH tray probe. The one
+/// thing `lib.rs`'s window and exit handlers ask.
 ///
-/// The clamp is on READ as well as on write. [`node_set_close_to_tray`] refuses
-/// to persist `true` on Linux and the UI does not draw the switch there, but a
-/// settings file is a file: one copied from a Mac, or written by a build that
-/// predates the refusal, would otherwise hide the window into an icon a stock
-/// GNOME never renders — and relaunching is then the only way back.
-pub fn effective_close_to_tray(stored: bool) -> bool {
-    stored && cfg!(target_os = "macos")
-}
-
-/// [`effective_close_to_tray`] against the live settings. The one thing
-/// `lib.rs`'s window and exit handlers ask.
-pub fn close_to_tray(settings: &SettingsState) -> bool {
-    effective_close_to_tray(settings.get().close_to_tray)
+/// Deliberately re-probed rather than read off the last answer: the setting
+/// may have been made on a desktop that had a tray, and this is the moment the
+/// window would disappear. A StatusNotifier host that has gone away since —
+/// an extension disabled, a different session type logged into — means the
+/// window closes normally instead of vanishing into an icon nothing draws.
+/// `subshell_desktop_core::tray` holds no state, so every call is that probe.
+pub fn close_to_tray_now(settings: &SettingsState) -> bool {
+    effective_close_to_tray(settings.get().close_to_tray, tray_support())
 }
 
 /// Remember an explicitly chosen agent binary.
@@ -1041,6 +1038,13 @@ pub fn node_set_agent_bin(settings: State<'_, SettingsState>, path: Option<Strin
     settings.update(|s| s.binary_path = cleaned)
 }
 
+/// What the page is told when the tray switch cannot be honoured.
+///
+/// "Detected", not "does not exist": the probe is a false negative on the
+/// older XEmbed tray, so the sentence has to be true for a user who can see
+/// their own tray icon while reading it.
+const NO_TRAY: &str = "no system tray was detected on this desktop, so a hidden window would have nowhere to go";
+
 /// The app's own preferences, for the window to render.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1048,34 +1052,53 @@ pub struct NodeSettings {
     /// The agent binary the user picked by hand, if any.
     pub agent_bin_path: Option<String>,
     pub close_to_tray: bool,
-    /// Whether closing to the tray is even offered here.
-    ///
-    /// False on Linux: `TrayIconEvent` is never emitted there and a stock
-    /// GNOME has no StatusNotifier host, so the icon can be silently invisible
-    /// — and a window hidden to an icon that is not there is unreachable.
-    /// Offering the switch anyway would be offering a way to lose the app.
+    /// Whether the switch is LIVE — the tray probe's answer at this call.
     pub tray_supported: bool,
+    /// And when it is not, why.
+    ///
+    /// The page needs the difference between the two "no"s: `unsupported` is a
+    /// fact about the platform and the control is not drawn at all, while
+    /// `not-detected` is a fact about this desktop SESSION — so the switch is
+    /// drawn disabled, with the reason and a way to look again, because an
+    /// absent control explains nothing and a GNOME user can fix this in a
+    /// minute.
+    pub tray_status: TraySupport,
+}
+
+/// Build the payload from the stored settings and one probe answer.
+///
+/// Both tray fields come from the SAME [`TraySupport`] here, so
+/// `tray_supported` cannot disagree with `tray_status`, and the stored
+/// preference is clamped on the way out — what the app will ACT on, not what
+/// the file happens to say. A switch showing the file's value where the tray
+/// is gone would be a switch that lies.
+fn settings_view(current: Settings, support: TraySupport) -> NodeSettings {
+    NodeSettings {
+        agent_bin_path: current.binary_path,
+        close_to_tray: effective_close_to_tray(current.close_to_tray, support),
+        tray_supported: support.supported(),
+        tray_status: support,
+    }
 }
 
 /// Read the app's own preferences.
 #[tauri::command(async)]
 pub fn node_settings(settings: State<'_, SettingsState>) -> NodeSettings {
-    let current = settings.get();
-    NodeSettings {
-        agent_bin_path: current.binary_path,
-        // What the app will ACT on, not what the file happens to say — the two
-        // differ on Linux, and a switch showing the file's value would be a
-        // switch that lies.
-        close_to_tray: effective_close_to_tray(current.close_to_tray),
-        tray_supported: cfg!(target_os = "macos"),
-    }
+    settings_view(settings.get(), tray_support())
 }
 
 /// Choose whether closing the window hides it to the tray.
+///
+/// Refused, with a reason, where no tray answered — an `Err` rather than a
+/// silent `false`, so the page can say why instead of showing a switch that
+/// springs back. Turning it OFF is always allowed: that direction can only
+/// ever make the window easier to reach.
 #[tauri::command(async)]
 pub fn node_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bool) -> Result<(), String> {
-    // Never persist `true` where the tray may not exist — see `tray_supported`.
-    settings.update(|s| s.close_to_tray = enabled && cfg!(target_os = "macos"))
+    if enabled && !tray_support().supported() {
+        return Err(NO_TRAY.to_string());
+    }
+    settings.update(|s| s.close_to_tray = enabled)
 }
 
 /// The directories and files the window may ask to reveal.
@@ -2085,14 +2108,49 @@ mod path_tests {
         assert!(serde_json::from_str::<OpenTarget>("\"/etc/passwd\"").is_err());
     }
 
-    // Three guards keep a Linux window from hiding into an icon that may not
-    // render: the default is off, the setter refuses to persist true, and the
-    // UI does not draw the switch. This is the fourth, and the only one that
-    // survives a settings file arriving from somewhere else.
+    fn stored(close_to_tray: bool) -> Settings {
+        Settings {
+            binary_path: None,
+            close_to_tray,
+            open_at_login: false,
+        }
+    }
+
+    // The clamp is on READ as well as on write, and it is the only guard that
+    // survives a settings file arriving from somewhere else — copied from a
+    // Mac, or written on a desktop that had a tray before an extension was
+    // disabled.
     #[test]
     fn close_to_tray_is_clamped_on_read_not_only_on_write() {
-        assert_eq!(effective_close_to_tray(true), cfg!(target_os = "macos"));
-        assert!(!effective_close_to_tray(false));
+        assert!(settings_view(stored(true), TraySupport::Supported).close_to_tray);
+        assert!(!settings_view(stored(true), TraySupport::NotDetected).close_to_tray);
+        assert!(!settings_view(stored(true), TraySupport::Unsupported).close_to_tray);
+        assert!(!settings_view(stored(false), TraySupport::Supported).close_to_tray);
+    }
+
+    // The page branches on both fields, so they must come from one answer:
+    // `traySupported` says whether the switch is live, `trayStatus` says
+    // whether an absent tray is worth explaining.
+    #[test]
+    fn the_payload_reports_whether_and_why() {
+        for (support, supported, status) in [
+            (TraySupport::Supported, true, "supported"),
+            (TraySupport::NotDetected, false, "not-detected"),
+            (TraySupport::Unsupported, false, "unsupported"),
+        ] {
+            let view = settings_view(stored(false), support);
+            assert_eq!(view.tray_supported, supported);
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(json["traySupported"], serde_json::json!(supported));
+            assert_eq!(json["trayStatus"], serde_json::json!(status));
+        }
+    }
+
+    // A refusal the page can show, and one that does not claim the tray is
+    // absent — only that none was detected.
+    #[test]
+    fn the_tray_refusal_says_detected() {
+        assert!(NO_TRAY.contains("detected"));
     }
 
     #[test]

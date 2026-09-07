@@ -143,34 +143,51 @@ export function desktopSidecarFileName(sidecarName: string, target: string): str
 }
 
 /**
- * The macOS/Debian product name of each desktop app.
+ * The macOS/Debian product name of each desktop app — the name a user sees.
  *
  * Tauri derives BOTH the `.app` directory name and the `.deb` file name from
- * `productName`, so this is the one string that has to agree across
- * `tauri.conf.json`, the release script's artifact collection, the smoke and
- * the published asset name. Single tokens deliberately: a space would make the
- * Debian package name and filename a guess that only the Linux bundler can
- * settle.
+ * `productName`, so this is what the bundler EMITS: `Subshell Server.app`,
+ * spaces and all. It is deliberately NOT what this repo publishes — see
+ * {@link desktopArtifactFileName} — because the emitted `.deb` name goes
+ * through Debian's own package-name sanitizer, which no amount of reading can
+ * settle without running the Linux bundler. The pipelines therefore GLOB the
+ * bundle directory for the one artifact that appeared and rename it, rather
+ * than predicting its name.
+ *
+ * Must equal `productName` in each app's `tauri.conf.json` (pinned by test in
+ * both apps): that is the string the release script tars and the smoke looks
+ * for inside the tarball.
  */
-export const DESKTOP_SERVER_PRODUCT = "Subshell";
+export const DESKTOP_SERVER_PRODUCT = "Subshell Server";
 
 /** The product name of `apps/desktop-client` — the node agent's GUI. */
-export const DESKTOP_CLIENT_PRODUCT = "SubshellNode";
+export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 
 /**
- * The artifact a desktop build publishes for a target.
+ * The name this repo PUBLISHES a desktop artifact under — chosen here, never
+ * read off the bundler's output.
  *
- * macOS ships `<product>.app.tar.gz` — not a DMG, which Tauri signs but neither
- * notarizes nor staples. Linux ships the `.deb` Tauri names from `productName`
- * and the version.
+ * These are download URLs and shell arguments, so they are space-free: the
+ * product name's whitespace becomes `-`, and the Debian name is lowercased on
+ * top of that (a `.deb` file name is conventionally the package name, which
+ * Debian requires to be lowercase). `Subshell Server` therefore publishes as
+ * `Subshell-Server.app.tar.gz` and `subshell-server_<version>_amd64.deb`.
+ *
+ * The `.app` INSIDE the tarball keeps its real, spaced name — that is what the
+ * user installs and what the bundle identifier belongs to — so anything
+ * handling that path has to quote it.
+ *
+ * macOS ships a tarball rather than a DMG, which Tauri signs but neither
+ * notarizes nor staples.
  *
  * @param product - {@link DESKTOP_SERVER_PRODUCT} or {@link DESKTOP_CLIENT_PRODUCT}
  * @param target - a {@link DesktopTarget}
  * @param version - the app version, for the Debian file name
  */
 export function desktopArtifactFileName(product: string, target: string, version: string): string {
-  if (target === "darwin-arm64") return `${product}.app.tar.gz`;
-  if (target === "linux-x64") return `${product}_${version}_amd64.deb`;
+  const slug = product.trim().replace(/\s+/g, "-");
+  if (target === "darwin-arm64") return `${slug}.app.tar.gz`;
+  if (target === "linux-x64") return `${slug.toLowerCase()}_${version}_amd64.deb`;
   throw new Error(`no desktop artifact name for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);
 }
 

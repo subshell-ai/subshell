@@ -1,8 +1,10 @@
 # Desktop AGENTS.md
 
-`apps/desktop-server` (`@internal/desktop-server`) — a **Tauri v2** shell that installs, runs
-and manages a `subshell-server` on this machine, so a user never has to touch a
-CLI binary.
+`apps/desktop-server` (`@internal/desktop-server`) — **Subshell Server**, a
+**Tauri v2** shell that installs, runs and manages a `subshell-server` on this
+machine, so a user never has to touch a CLI binary. (The app was called
+**Subshell** until 2026-09-06; see "Names" below for what did NOT change with
+it.)
 
 ## The two windows, and why they are two
 
@@ -73,8 +75,9 @@ recipe below if you also want to run the app.
 
 `bun run compile:release` (`src/scripts/release.ts`) is the release pipeline:
 it builds the SERVER first and stages it as the sidecar, then bundles, asserts
-the exact bundle set, digests and publishes into `dist-rel/`. CI drives it per
-shard from `.github/workflows/release.yml`; the root `AGENTS.md` carries the
+the exact bundle set, GLOBS that bundle directory for the one artifact Tauri
+wrote, digests and publishes into `dist-rel/`. CI drives it per shard from
+`.github/workflows/release.yml`; the root `AGENTS.md` carries the
 operator-facing version.
 
 **There is deliberately no `build` script.** `bun run build` runs on hosted
@@ -122,6 +125,42 @@ Three rules about that binary:
 
 `binaries/*` is gitignored — it is a ~110 MB build input.
 
+## Names
+
+| | this app |
+| --- | --- |
+| `productName` (the `.app` a user installs) | `Subshell Server` — `Subshell Server.app`, space included |
+| published macOS asset | `Subshell-Server.app.tar.gz` |
+| published Debian asset | `subshell-server_<version>_amd64.deb` |
+| bundle identifier | `dev.subshell.desktop` — FROZEN |
+| Cargo crate / `/usr/bin` binary | `subshell-desktop` |
+| sidecar stem | `subshell-server-bundled` |
+
+Three things about that table are load-bearing:
+
+- **The published names are this repo's choice, not the bundler's.**
+  `desktopArtifactFileName` (`@internal/subshell-protocol`) picks them, and
+  they are space-free because they are download URLs and shell arguments. What
+  Tauri emits is DISCOVERED: `collectArtifact` globs `bundle/<dir>` for the one
+  `.deb`/`.app` present (`selectBundleOutput`; zero or several is a refusal,
+  never a pick) and renames or tars it. Until 2026-09-06 that name was
+  predicted from `productName`, which is the only reason this app was called
+  `Subshell` in one token — the `.deb` name goes through Debian's own
+  package-name sanitizer, unknowable without running the Linux bundler.
+- **The `.app` inside the tarball keeps its space.** A space in a bundle path
+  is a real case now: the release script's `tar` hands it to `Bun.spawn` as one
+  argv element, and `scripts/smoke-desktop-bundle.sh` quotes every path it
+  builds from `PRODUCT`.
+- **`dev.subshell.desktop` did not change with the name, and must not.** An
+  identifier is an identity, not a label — it keys the macOS settings
+  directory, the notification permission grant, the single-instance lock and
+  the window-state store, and macOS tracks an app BY it, which is what makes a
+  renamed `.app` an in-place upgrade rather than a stranger. Same reasoning for
+  the crate name (it is the `/usr/bin` binary in the `.deb`, beside
+  `apps/desktop-client`'s) and the sidecar stem, which names the binary this
+  app WRAPS. `src/scripts/__tests__/release.test.ts` pins `productName` against
+  the protocol constant and the identifier against its shipped value.
+
 ## Where things live
 
 ```
@@ -145,6 +184,7 @@ crates/desktop-core/src/
 ├── shell_env.rs   # the PATH a GUI app does not have
 ├── settings.rs    # three fields, one JSON file, path keyed by SettingsPaths
 ├── sidecar.rs     # installing a shipped binary atomically, named by SidecarSpec
+├── tray.rs        # is a tray icon actually drawn here? (the close-to-tray gate)
 └── version.rs     # semverLt, mirrored from the protocol package
 ```
 
@@ -199,19 +239,47 @@ in `ui/main.js` rather than inline.
 | Menu bar | full `NSMenu` | none — a GTK menu bar is per-window chrome, not a system bar |
 | Tray | icon + menu, click opens | icon + menu only; **click events are never emitted** |
 | Title bar | Overlay, negotiated (below) | ordinary |
-| Close to tray | offered, default off | **not offered at all** |
+| Close to tray | offered, default off | offered where a tray is **detected**, default off |
 
 `PredefinedMenuItem::{cut,copy,paste,select_all}` come FIRST in the Edit menu
 and are not decoration: without them ⌘C/⌘V do not work at all in a Tauri macOS
 webview, because the shortcuts go to the menu bar and nothing claims them. In a
 terminal app that is a correctness bug.
 
-Close-to-tray is not offered on Linux and the Rust side refuses to persist it
-there. `TrayIconEvent` is never emitted on Linux and a stock GNOME has no
-StatusNotifier host, so the icon can be **silently invisible** — a window
-hidden to an icon that is not there is unreachable, with nothing to explain it.
-Every tray action therefore also exists in the window UI or the menu bar; the
-tray is a shortcut, never the only route.
+Close-to-tray is gated on a **capability probe, not on the platform**
+(`crates/desktop-core/src/tray.rs`, shared with `apps/desktop-client`). On
+Linux the icon is drawn only where a StatusNotifier **host** is registered on
+the session bus — KDE has one, a stock GNOME does not until the AppIndicator
+extension is installed — and where none is, the icon is **silently invisible**:
+no error, no event, and a window hidden into it is unreachable. So the app
+asks, by shelling out to `busctl --user get-property
+org.kde.StatusNotifierWatcher /StatusNotifierWatcher
+org.kde.StatusNotifierWatcher IsStatusNotifierHostRegistered` (`gdbus` as a
+fallback where it happens to exist; never a dependency — webkit2gtk pulls
+`libglib2.0-0t64`, not `libglib2.0-bin`). Every non-affirmative outcome — no
+bus, no watcher, no tool, a timeout, an unrecognised answer — means "no tray".
+
+Three consequences, all load-bearing:
+
+- `desktop_settings` reports `traySupported` (is the switch live) **and**
+  `trayStatus` (`supported` / `not-detected` / `unsupported`), both derived
+  from one probe answer. `not-detected` draws the switch **disabled** with the
+  reason and a re-check rather than hiding it — naming the extension is
+  actionable, an absent control is not.
+- `desktop_set_close_to_tray` **refuses** `true` where no tray answered, and
+  the preference is clamped on READ as well, because a settings file copied
+  from a machine that had one must not strand anyone.
+- The window-close handler **re-probes**, and that is the check that actually
+  protects the user: a host that has gone away since the setting was made means
+  the window closes normally instead of vanishing. The probe is therefore
+  deliberately **not memoized** — installing the extension flips the answer
+  with the app already running.
+
+It is a false NEGATIVE on the older XEmbed tray (some XFCE/MATE), where
+libayatana-appindicator can still fall back to `GtkStatusIcon`; that is why
+every string says "none was detected" rather than "there is none". And every
+tray action also exists in the window UI or the menu bar regardless — the tray
+is a shortcut, never the only route.
 
 ### Notifications
 

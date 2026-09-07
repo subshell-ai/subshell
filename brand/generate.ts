@@ -96,15 +96,15 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
 /**
  * The desktop apps' icon backgrounds — the ONE thing that differs between them.
  *
- * Two Tauri apps ship side by side (`apps/desktop-server` = Subshell,
- * `apps/desktop-client` = Subshell Node) and they used to carry byte-identical
+ * Two Tauri apps ship side by side (`apps/desktop-server` = Subshell Server,
+ * `apps/desktop-client` = Subshell Client) and they used to carry byte-identical
  * icons, which made them indistinguishable in a Dock, a launcher and a menu
  * bar. The mark stays the same — it is one product — so the background carries
  * the difference.
  *
  * Both colours come off the UI palette in `apps/frontend/src/styles.css` rather
  * than being picked by eye: the server takes `--background` (the product
- * ground, oklch 0.224 0.035 296) and the node app the accent hue at a mid
+ * ground, oklch 0.224 0.035 296) and the client app the accent hue at a mid
  * lightness (oklch 0.38 0.13 322). They differ in BOTH hue and lightness,
  * which is what survives being scaled to a 22pt menu-bar icon, and each keeps
  * the `#e6dbef` glyph above 8:1 contrast.

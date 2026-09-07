@@ -16,6 +16,8 @@
 //!   two apps from sharing (or clobbering) each other's settings.
 //! - [`sidecar`] — installing a shipped binary over one that may be running,
 //!   quarantined, or half-written when the power goes.
+//! - [`tray`] — a tray icon that is drawn on one desktop and silently
+//!   invisible on the next, and the window that gets hidden into it.
 //!
 //! **This crate does not depend on `tauri`, and must not start.** That is the
 //! whole point of the boundary: it keeps the shared half a thirty-second CI
@@ -40,6 +42,12 @@
 //! `apps/desktop-server`: a resolution ladder for `subshell-server`
 //! specifically, down to the unit file it reads and the plist it parses.
 //!
+//! Each app's `tray.rs` is the ICON — a `TrayIconBuilder`, a menu, ids — and
+//! stays there. This crate's [`tray`] is the different question underneath it:
+//! whether an icon would be DRAWN on this desktop at all, which decides
+//! whether a window may be hidden into one. That half needs no `tauri` type
+//! and is identical in both apps, so there is exactly one of it.
+//!
 //! ## What is parameterized, and why not more
 //!
 //! [`settings::SettingsPaths`] and [`sidecar::SidecarSpec`] carry the two
@@ -53,4 +61,5 @@ pub mod proc;
 pub mod settings;
 pub mod shell_env;
 pub mod sidecar;
+pub mod tray;
 pub mod version;

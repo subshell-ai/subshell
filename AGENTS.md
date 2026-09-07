@@ -41,8 +41,8 @@ directly above it, and bundles that CLI's binary as a Tauri sidecar:
 
 | the thing | its CLI/service | its GUI |
 |---|---|---|
-| the control plane | `apps/server` (`subshell-server`) | `apps/desktop-server` (Subshell) |
-| a node agent | `apps/client` (`subshell`) | `apps/desktop-client` (Subshell Node) |
+| the control plane | `apps/server` (`subshell-server`) | `apps/desktop-server` (Subshell Server) |
+| a node agent | `apps/client` (`subshell`) | `apps/desktop-client` (Subshell Client) |
 | the web UI the server serves | `apps/frontend` | — |
 | the phone companion | — | `apps/mobile` |
 
@@ -244,10 +244,28 @@ binary, each with a failure that only appears on a user's machine:
 Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`) — narrower than
 `SERVER_TARGETS` and for a different reason: there is no native arm64 Linux
 runner, and `file(1)` cannot see a GUI's characteristic failure, which is an
-invisible window. Artifacts are `<product>.app.tar.gz` (no DMG: Tauri signs one
-but neither notarizes nor staples it) and `<product>_<version>_amd64.deb` (no
-AppImage: `linuxdeploy` cannot cross-compile and downloads at build time), where
-`<product>` is `Subshell` or `SubshellNode`.
+invisible window. Artifacts are `Subshell-Server.app.tar.gz` /
+`Subshell-Client.app.tar.gz` (no DMG: Tauri signs one but neither notarizes nor
+staples it) and `subshell-server_<version>_amd64.deb` /
+`subshell-client_<version>_amd64.deb` (no AppImage: `linuxdeploy` cannot
+cross-compile and downloads at build time).
+
+**Those published names are chosen HERE, not read off the bundler**
+(`desktopArtifactFileName` in `@internal/subshell-protocol`), and they are
+space-free because they are download URLs and shell arguments. What Tauri
+emits is discovered instead: each pipeline asserts exactly one bundle
+directory, then GLOBS it for the one `.deb` / `.app` that appeared
+(`selectBundleOutput` — zero or several is a refusal, never a pick) and renames
+or tars it into the published name. Before 2026-09-06 the name was PREDICTED
+from `productName`, which is the only reason both apps were called in single
+tokens: the `.deb` name goes through Debian's own package-name sanitizer, and
+that is not knowable without running the Linux bundler.
+
+The `.app` INSIDE the tarball keeps its real name — `Subshell Server.app`,
+space and all — because that is what the user installs and what the bundle
+identifier belongs to. A space in a bundle path is therefore a real case: the
+release script's `tar` passes it as one `Bun.spawn` argv element, and
+`scripts/smoke-desktop-bundle.sh` quotes every path built from `PRODUCT`.
 
 **The two apps' identities are four-way distinct on purpose** — crate name,
 bundle identifier, `productName`, and sidecar stem. Both can be installed on one
@@ -256,11 +274,26 @@ file keyed by their identifier. Changing `dev.subshell.desktop` or
 `dev.subshell.node` after a release orphans that app's users' settings and their
 macOS permission grants; treat those two strings as frozen.
 
-`productName` is a single token in both cases because Tauri derives BOTH the
-`.app` directory name and the `.deb` filename from it, and the Debian
-package-name sanitizer cannot be exercised without running the Linux bundler.
-The window title, tray tooltip and menu titles read "Subshell Node"; those are
-free-form strings and are not `productName`.
+**The client's identifier says `node` while its product name says Client, and
+that divergence is deliberate.** An identifier is an identity, not a label: it
+keys the macOS settings directory, the notification permission grant, the
+single-instance lock and the window-state store, and macOS tracks an app BY it,
+so a renamed `.app` with the same identifier upgrades in place. Renaming it to
+match the product would silently restart every installed user from defaults.
+The app also wraps the node agent, which the control plane calls a node. Two
+tests pin it (`productName` in each app's `release.test.ts`) so nobody
+"fixes" it. Cargo crate names (`subshell-desktop`, `subshell-desktop-client` —
+also the `/usr/bin` binary names in the debs) and sidecar stems
+(`subshell-server-bundled`, `subshell-node-bundled` — they name the binary each
+app WRAPS, not the app) stay for the same class of reason, as do the
+`desktop-server-v` / `desktop-client-v` tag prefixes, which follow the
+directory name.
+
+Window titles, tray tooltips and menu titles read "Subshell Server" /
+"Subshell Client"; those are free-form strings and are not `productName`. Keep
+the word "node" wherever it names the control-plane CONCEPT rather than this
+app — "register this machine as a node", the Nodes page, the `node_*` command
+names, `NODE_TARGETS`.
 
 The Linux shards run in `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`
 (`docker/desktop-builder.Dockerfile`), so the apps' minimum glibc is **2.39 by
@@ -300,16 +333,18 @@ which is why they share their own smoke, parameterized by app id.
 
 **Releases before 2026-09-06 used the tag prefix `desktop-v`**, when there was
 one desktop app and it wrapped the server. `desktop-v0.2.0` and its release are
-history and stay as they are.
+history and stay as they are — as are the asset names from before the apps were
+renamed from Subshell/SubshellNode on the same date.
 
 - **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
   `subshell-server-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
   install that ONE file (triple suffix dropped). The 1.3.x companion-binary
-  era is retired. `desktop-server-vX.Y.Z` carries `Subshell.app.tar.gz`
+  era is retired. `desktop-server-vX.Y.Z` carries `Subshell-Server.app.tar.gz`
   (darwin-arm64, signed + notarized + stapled) and
-  `Subshell_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z` carries
-  `SubshellNode.app.tar.gz` and `SubshellNode_<version>_amd64.deb`. Each with a
+  `subshell-server_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z`
+  carries `Subshell-Client.app.tar.gz` and
+  `subshell-client_<version>_amd64.deb`. Each with a
   `.sha256` — no DMG (Tauri signs one but neither notarizes nor staples it) and
   no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a

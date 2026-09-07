@@ -10,6 +10,10 @@
  * Lives here beside NODE_TARGETS for the same reason — the apps never
  * import each other. Node builtins only (like the rest of this module), so it
  * stays OFF the Metro-safe barrel; pipelines import the subpath.
+ *
+ * {@link selectBundleOutput} joins them for the two desktop pipelines: the
+ * bundle directory is GLOBBED for the one artifact Tauri wrote, rather than
+ * that name being predicted from `productName`.
  */
 
 import { createHash } from "node:crypto";
@@ -138,4 +142,38 @@ export function assertBunFloor(minimum: string, version: string = process.versio
   if (semverLt(version, minimum)) {
     throw new Error(`release builds need bun ${minimum} or newer (bytecode cross-compiles); found ${version}`);
   }
+}
+
+/**
+ * Pick the ONE artifact a Tauri bundler emitted into a bundle directory.
+ *
+ * The desktop pipelines used to PREDICT this name from `productName`, which is
+ * why both product names were single tokens: Tauri derives the `.deb` file
+ * name from `productName` through Debian's own package-name sanitizer, so any
+ * name that needed sanitizing was a guess only the Linux bundler could settle.
+ * Discovering the name instead retires the guess — and with it the constraint
+ * on what the apps may be called.
+ *
+ * Exactly one match, or a refusal: zero means the bundler wrote something this
+ * code does not recognise (a Tauri upgrade moving the layout), and more than
+ * one means the choice is ambiguous. Picking the first of several would publish
+ * an arbitrary artifact under a canonical name — the one outcome worse than
+ * failing the cut, because it looks like a success.
+ *
+ * @param entries - directory entry names of `bundle/<dir>` (as read, unsorted)
+ * @param suffix - what the artifact's name ends with: `.deb` or `.app`
+ * @param where - the directory, named in the refusal so an operator can look
+ * @returns the single matching entry name, verbatim (spaces included)
+ */
+export function selectBundleOutput(entries: readonly string[], suffix: string, where: string): string {
+  const matches = entries.filter((e) => e.endsWith(suffix));
+  if (matches.length === 1) return matches[0] as string;
+  const listing = entries.length > 0 ? entries.join(", ") : "(empty)";
+  if (matches.length === 0) {
+    throw new Error(`no ${suffix} in ${where} — the bundler wrote: ${listing}`);
+  }
+  throw new Error(
+    `${matches.length} ${suffix} bundles in ${where}, expected exactly one: ${matches.join(", ")}` +
+      " — refusing to publish an arbitrary one",
+  );
 }

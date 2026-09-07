@@ -30,18 +30,39 @@ fail() {
 # Debian 13+.
 GLIBC_FLOOR="2.39"
 
-# Everything that differs between the two bundles, in one table. The in-bundle
-# sidecar name has NO triple suffix — Tauri strips it on copy, so anything
-# grepping for the STAGED name finds nothing 100% of the time.
+# Everything that differs between the two bundles, in one table.
+#
+# Three names per app, and they are deliberately three:
+#
+#   PRODUCT  `productName` — what the bundler CALLS the `.app` INSIDE the
+#            tarball, spaces included. That is the app the user installs and
+#            what the bundle identifier belongs to, so every path built from it
+#            is quoted here.
+#   TARBALL  the PUBLISHED macOS asset name. Space-free, because it is a
+#            download URL and a shell argument, and chosen by the repo
+#            (`desktopArtifactFileName`) rather than read off the bundler.
+#   PKG      the PUBLISHED Debian package/file name — lowercase, as a Debian
+#            package name has to be.
+#
+# The release script globs the bundle directory for whatever Tauri emitted and
+# renames it to the published name, which is why these two do not have to be
+# guessable from PRODUCT.
+#
+# The in-bundle sidecar name has NO triple suffix — Tauri strips it on copy, so
+# anything grepping for the STAGED name finds nothing 100% of the time.
 case "$APP" in
   desktop-server)
-    PRODUCT="Subshell"
+    PRODUCT="Subshell Server"
+    TARBALL="Subshell-Server.app.tar.gz"
+    PKG="subshell-server"
     SIDECAR="subshell-server-bundled"
     SIDECAR_PREFIX="subshell-server "
     MAIN_BIN="subshell-desktop"
     ;;
   desktop-client)
-    PRODUCT="SubshellNode"
+    PRODUCT="Subshell Client"
+    TARBALL="Subshell-Client.app.tar.gz"
+    PKG="subshell-client"
     SIDECAR="subshell-node-bundled"
     SIDECAR_PREFIX="subshell "
     MAIN_BIN="subshell-desktop-client"
@@ -50,8 +71,8 @@ case "$APP" in
 esac
 
 case "$TRIPLE" in
-  linux-x64) ARTIFACT="${PRODUCT}_${VERSION}_amd64.deb" ;;
-  darwin-arm64) ARTIFACT="${PRODUCT}.app.tar.gz" ;;
+  linux-x64) ARTIFACT="${PKG}_${VERSION}_amd64.deb" ;;
+  darwin-arm64) ARTIFACT="$TARBALL" ;;
   *) fail "unknown triple '$TRIPLE'" ;;
 esac
 
@@ -143,8 +164,10 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "smoke: extracting the app bundle"
 tar xzf "$DIST/$ARTIFACT" -C "$WORK"
+# The published tarball is space-free; the `.app` inside it is NOT — it carries
+# the product name a user sees. Every path derived from it is quoted.
 APP_BUNDLE="$WORK/$PRODUCT.app"
-[ -d "$APP_BUNDLE" ] || fail "the tarball does not contain $PRODUCT.app"
+[ -d "$APP_BUNDLE" ] || fail "the tarball does not contain '$PRODUCT.app'"
 
 # An AppleDouble member that survives into the archive breaks the extracted
 # bundle's signature, and the failure looks like a signing bug rather than a

@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { App } from "@/app";
+import { TRAY_NOT_DETECTED } from "@/components/prefs-card";
 import { SETTLE_ATTEMPTS, SETTLE_DELAY_MS } from "@/hooks/use-action-runner";
 import { PROBE_POLL_MS } from "@/hooks/use-node-state";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe, makeSettings, renderApp } from "./harness";
@@ -589,10 +590,9 @@ describe("teardown confirmations", () => {
 // ---------------------------------------------------------------------------
 
 describe("the close-to-tray switch", () => {
-  // On Linux `TrayIconEvent` is never emitted and a stock GNOME has no
-  // StatusNotifier host, so a window hidden to the icon is unreachable.
-  it("is absent where the tray is not supported", async () => {
-    await boot({ settings: makeSettings({ traySupported: false }) });
+  // No tray on this platform at all: nothing to offer and nothing to explain.
+  it("is absent where the platform has no tray", async () => {
+    await boot({ settings: makeSettings({ traySupported: false, trayStatus: "unsupported" }) });
     expect(screen.queryByRole("switch")).toBeNull();
   });
 
@@ -600,6 +600,45 @@ describe("the close-to-tray switch", () => {
     await boot({ settings: makeSettings({ traySupported: true, closeToTray: true }) });
     const toggle = screen.getByRole("switch");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
+    // Live: nothing to explain, so no reason and no re-check.
+    expect(screen.queryByText(TRAY_NOT_DETECTED)).toBeNull();
+    expect(buttonOrNull("Check again")).toBeNull();
+  });
+
+  // The case the platform check used to swallow: a Linux desktop where no
+  // StatusNotifier host answered. Hiding the control would leave a GNOME user
+  // with no way to learn that an AppIndicator extension is all this needs.
+  it("is offered DISABLED, with the reason, where no host was detected", async () => {
+    const fake = await boot({ settings: makeSettings({ traySupported: false, trayStatus: "not-detected" }) });
+    const toggle = screen.getByRole("switch");
+    expect(toggle.getAttribute("data-disabled")).not.toBeNull();
+    expect(screen.getByText(TRAY_NOT_DETECTED)).not.toBeNull();
+
+    // And it cannot be turned on from there. One tick, so a command that was
+    // going to fire has fired.
+    fireEvent.click(toggle);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.callsTo("node_set_close_to_tray").length).toBe(0);
+  });
+
+  // The reason has to stay true for a user looking at their own tray icon:
+  // the probe is a false negative on the older XEmbed tray.
+  it("never claims the tray does not exist, only that none was detected", async () => {
+    await boot({ settings: makeSettings({ traySupported: false, trayStatus: "not-detected" }) });
+    expect(screen.getByText(TRAY_NOT_DETECTED).textContent).toContain("detected");
+    expect(screen.getByText(TRAY_NOT_DETECTED).textContent).toContain("AppIndicator");
+  });
+
+  // Installing the extension flips the answer with the app already running,
+  // and the Rust side holds no cached answer — so a re-read is the re-check.
+  it("re-reads the machine when asked to check again", async () => {
+    const fake = await boot({ settings: makeSettings({ traySupported: false, trayStatus: "not-detected" }) });
+    const before = fake.callsTo("node_settings").length;
+    fireEvent.click(button("Check again"));
+    await waitFor(() => expect(fake.callsTo("node_settings").length).toBeGreaterThan(before));
+    // Only the settings: the tray says nothing about the machine's state, and
+    // a re-check is not worth two CLI spawns.
+    expect(fake.callsTo("node_probe").length).toBe(1);
   });
 });
 

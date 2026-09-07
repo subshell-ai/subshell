@@ -85,7 +85,10 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // in rendered content, an injected script — must not carry those
         // anywhere else. Same-origin navigation is the SPA doing its job.
         .on_navigation(move |u| u.origin() == allowed)
-        .title("Subshell")
+        // The app's own name, which the console window carries too: they are
+        // two windows of one app, and this one's title is hidden under the
+        // Overlay title bar the handshake below negotiates.
+        .title("Subshell Server")
         .inner_size(1280.0, 860.0)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         .user_agent(&user_agent(app))

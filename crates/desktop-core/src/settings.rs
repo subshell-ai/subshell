@@ -58,9 +58,13 @@ pub struct Settings {
     pub binary_path: Option<String>,
     /// Whether closing the window hides it to the tray instead of quitting.
     ///
-    /// Defaults OFF on Linux: a stock GNOME has no AppIndicator host, so the
-    /// tray icon is silently invisible and closing-to-tray would make the app
-    /// unreachable with no error to explain it.
+    /// Defaults OFF everywhere, and it is only ever HONOURED where
+    /// [`crate::tray::tray_support`] says an icon would actually be drawn —
+    /// this field is a stored preference, never a capability. On a desktop
+    /// with no StatusNotifier host the icon is silently invisible, so hiding
+    /// into it would make the app unreachable with no error to explain it;
+    /// `crate::tray::effective_close_to_tray` is the clamp that stops a
+    /// settings file from carrying that preference onto such a machine.
     pub close_to_tray: bool,
     /// Reserved for Phase 4; persisted now so the file shape does not change later.
     pub open_at_login: bool,

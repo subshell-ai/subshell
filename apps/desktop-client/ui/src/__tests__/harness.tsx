@@ -61,8 +61,23 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
   };
 }
 
+/**
+ * Default settings for a machine with no tray at all.
+ *
+ * `trayStatus` follows `traySupported` unless a test says otherwise, mirroring
+ * the Rust side, where both fields come from one probe answer and cannot
+ * disagree. Pass `trayStatus: "not-detected"` for the Linux-without-a-host
+ * case, which is the one where the switch is drawn but not live.
+ */
 export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSettings {
-  return { agentBinPath: null, closeToTray: false, traySupported: false, ...overrides };
+  const traySupported = overrides.traySupported ?? false;
+  return {
+    agentBinPath: null,
+    closeToTray: false,
+    traySupported,
+    trayStatus: traySupported ? "supported" : "unsupported",
+    ...overrides,
+  };
 }
 
 export interface FakeIpc {

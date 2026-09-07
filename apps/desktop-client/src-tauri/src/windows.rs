@@ -37,7 +37,7 @@ pub fn open_main(app: &AppHandle) -> Result<WebviewWindow, String> {
         return Ok(w);
     }
     WebviewWindowBuilder::new(app, MAIN_LABEL, WebviewUrl::App("index.html".into()))
-        .title("Subshell Node")
+        .title("Subshell Client")
         .inner_size(760.0, 720.0)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         .resizable(true)

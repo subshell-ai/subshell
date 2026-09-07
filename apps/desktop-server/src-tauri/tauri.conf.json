@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Subshell",
+  "productName": "Subshell Server",
   "version": "../package.json",
   "identifier": "dev.subshell.desktop",
   "build": {
@@ -24,7 +24,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Run and manage a local Subshell control plane",
-    "longDescription": "Subshell Desktop installs, runs and manages a subshell-server on this machine, and gives it a native window, menu bar and tray.",
+    "longDescription": "Subshell Server installs, runs and manages a subshell-server on this machine, and gives it a native window, menu bar and tray.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

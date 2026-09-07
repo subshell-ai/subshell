@@ -193,6 +193,21 @@ pre:empty {
   margin: 0;
   accent-color: var(--primary);
 }
+/* A disabled switch is the tray-not-detected case: the control stays visible
+   because the reason beside it is the actionable part. */
+.switch input:disabled {
+  cursor: default;
+}
+.switch:has(input:disabled) {
+  color: var(--muted);
+  cursor: default;
+}
+#tray-missing {
+  align-items: flex-start;
+}
+#tray-recheck {
+  flex: none;
+}
 [hidden] {
   display: none;
 }

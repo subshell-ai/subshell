@@ -21,7 +21,7 @@ use tauri::{AppHandle, Wry};
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let app_menu = Submenu::with_items(
         app,
-        "Subshell Node",
+        "Subshell Client",
         true,
         &[
             &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,

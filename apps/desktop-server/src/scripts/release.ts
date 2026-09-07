@@ -2,9 +2,10 @@
  * `bun run compile:release` — the release pipeline for `apps/desktop-server`.
  *
  * Mirrors `apps/server/src/scripts/release.ts` beat for beat (assertBunFloor →
- * parseScope → preflight → build → assert → digest → publish, all-or-nothing,
- * CLI entry behind `import.meta.main`), with one step neither other pipeline
- * has: it BUILDS THE SERVER FIRST and stages it as the Tauri sidecar.
+ * parseScope → preflight → build → assert → glob the one artifact the bundler
+ * wrote → digest → publish, all-or-nothing, CLI entry behind
+ * `import.meta.main`), with one step neither other pipeline has: it BUILDS THE
+ * SERVER FIRST and stages it as the Tauri sidecar.
  *
  * Three rules about that server binary, each of which has a failure mode that
  * only shows up on a user's machine:
@@ -27,7 +28,7 @@
 
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DESKTOP_SERVER_PRODUCT,
@@ -43,6 +44,7 @@ import {
   digestFile,
   parseScope,
   publishArtifacts,
+  selectBundleOutput,
 } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -58,10 +60,18 @@ export const DESKTOP_RELEASE_TRIPLES_ENV = "SUBSHELL_DESKTOP_RELEASE_TRIPLES";
 /** Where finished bundles are published. */
 export const DESKTOP_RELEASE_DIR_ENV = "SUBSHELL_DESKTOP_RELEASE_DIR";
 
-/** The Tauri bundler to run for a triple, and the directory it writes into. */
-export function bundleKind(triple: string): { bundles: string; dir: string } {
-  if (triple === "darwin-arm64") return { bundles: "app", dir: "macos" };
-  if (triple === "linux-x64") return { bundles: "deb", dir: "deb" };
+/**
+ * The Tauri bundler to run for a triple, the directory it writes into, and
+ * what the thing it writes there is called at the end.
+ *
+ * `suffix` is what the pipeline GLOBS for. The bundler's own name for its
+ * output is not predictable — `productName` reaches the `.deb` file name
+ * through Debian's package-name sanitizer — so the only durable fact is the
+ * extension.
+ */
+export function bundleKind(triple: string): { bundles: string; dir: string; suffix: string } {
+  if (triple === "darwin-arm64") return { bundles: "app", dir: "macos", suffix: ".app" };
+  if (triple === "linux-x64") return { bundles: "deb", dir: "deb", suffix: ".deb" };
   throw new Error(`no bundler for '${triple}' (known: ${DESKTOP_TARGETS.join(", ")})`);
 }
 
@@ -87,6 +97,8 @@ export interface DesktopReleaseDeps {
   remove: (path: string) => Promise<void>;
   /** Rename a file. */
   move: (from: string, to: string) => Promise<void>;
+  /** Entry names directly under a directory — how the bundler's output is FOUND. */
+  list: (dir: string) => Promise<string[]>;
   log: (line: string) => void;
 }
 
@@ -182,6 +194,7 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
     await rm(path, { force: true });
   },
   move: rename,
+  list: (dir) => readdir(dir),
   log: (line) => console.log(line),
 };
 
@@ -244,32 +257,78 @@ async function listDirs(root: string): Promise<string[]> {
   }
 }
 
+/** What `tauri build` wrote for a triple, and the ONE file that is published. */
+export interface BundleArtifact {
+  /**
+   * What the bundler produced, under ITS OWN name: a `.deb` FILE, or — on
+   * macOS — a `.app` DIRECTORY called `Subshell Server.app`, space included.
+   */
+  source: string;
+  /** The single file handed to `digestFile`/`publishArtifacts`, under this repo's name for it. */
+  artifact: string;
+  /** True when `source` is a directory and has to be archived into `artifact`. */
+  archive: boolean;
+}
+
+/**
+ * Map what the bundler actually wrote to the file this pipeline publishes.
+ *
+ * `emitted` is DISCOVERED (globbed by {@link collectArtifact}), never
+ * predicted: Tauri derives the `.app` directory name and the `.deb` file name
+ * from `productName`, and the Debian one goes through a package-name sanitizer
+ * that cannot be reasoned about without running the Linux bundler. Predicting
+ * it is what forced both apps to be named in single tokens.
+ *
+ * The published name is this repo's own choice
+ * ({@link desktopArtifactFileName}) and is space-free, because it is a
+ * download URL and a shell argument. The `.app` inside the tarball keeps its
+ * spaced name — that is what the user installs.
+ */
+export function bundleArtifact(bundleRoot: string, triple: string, version: string, emitted: string): BundleArtifact {
+  const { dir } = bundleKind(triple);
+  return {
+    source: join(bundleRoot, dir, emitted),
+    artifact: join(bundleRoot, dir, desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, triple, version)),
+    archive: triple !== "linux-x64",
+  };
+}
+
 /**
  * Reduce a built bundle to ONE publishable file.
  *
- * macOS produces a `.app` DIRECTORY, which `digestFile`/`publishArtifacts`
- * cannot handle — it is tarred here. The `.app`'s stapled ticket is an ordinary
- * file inside it and survives the archive, which is what makes an offline first
- * launch work.
+ * Finds the bundler's output by globbing `bundle/<dir>` for the one entry with
+ * the right extension — exactly one, or a refusal (see
+ * {@link selectBundleOutput}) — then renames the `.deb` into place, or tars
+ * the `.app`, which `digestFile`/`publishArtifacts` cannot handle as a
+ * directory. The `.app`'s stapled ticket is an ordinary file inside it and
+ * survives the archive, which is what makes an offline first launch work.
+ *
+ * `--no-mac-metadata` keeps AppleDouble `._` members out; a member that
+ * survives into the archive breaks the extracted bundle's signature. The
+ * `.app`'s name carries a space, and it rides `Bun.spawn`'s argv as ONE
+ * element — no shell, so nothing has to quote it.
  */
-async function collectArtifact(
+export async function collectArtifact(
   deps: DesktopReleaseDeps,
   bundleRoot: string,
   triple: string,
   version: string,
 ): Promise<string> {
-  const name = desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, triple, version);
-  if (triple === "linux-x64") return join(bundleRoot, "deb", name);
-  const appDir = join(bundleRoot, "macos", "Subshell.app");
-  const out = join(bundleRoot, "macos", name);
-  // `--no-mac-metadata` keeps AppleDouble `._` members out; a member that
-  // survives into the archive breaks the extracted bundle's signature.
+  const { dir, suffix } = bundleKind(triple);
+  const bundleDir = join(bundleRoot, dir);
+  const emitted = selectBundleOutput(await deps.list(bundleDir), suffix, bundleDir);
+  const { source, artifact, archive } = bundleArtifact(bundleRoot, triple, version, emitted);
+  if (!archive) {
+    // The bundler's `.deb` name is Tauri's; the published one is ours.
+    if (source !== artifact) await deps.move(source, artifact);
+    return artifact;
+  }
   const code = await deps.run(
-    ["tar", "--no-mac-metadata", "-czf", out, "-C", join(bundleRoot, "macos"), "Subshell.app"],
+    ["tar", "--no-mac-metadata", "-czf", artifact, "-C", dirname(source), basename(source)],
     DESKTOP_DIR,
   );
-  if (code !== 0) throw new Error(`could not archive ${appDir}`);
-  return out;
+  if (code !== 0) throw new Error(`could not archive ${source}`);
+  return artifact;
 }
 
 if (import.meta.main) {

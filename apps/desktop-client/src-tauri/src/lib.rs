@@ -1,4 +1,4 @@
-//! Subshell Node — a native shell around this machine's `subshell` node agent.
+//! Subshell Client — a native shell around this machine's `subshell` node agent.
 //!
 //! The whole product is one sentence: paste a server URL and a setup key, and
 //! this machine becomes a node that agents can be launched on — without ever
@@ -103,12 +103,15 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Close-to-tray is opt-in and refused outright on Linux, where
-                // a stock desktop has no StatusNotifier host and the icon is
-                // silently invisible — hiding there would make the window
-                // unreachable with nothing to explain it.
+                // Close-to-tray is opt-in, and the check RE-PROBES the desktop
+                // here rather than trusting the stored preference: where no
+                // StatusNotifier host is registered the icon is silently
+                // invisible, and hiding into it would make the window
+                // unreachable with nothing to explain it. This is the guard
+                // that actually protects the user — the setting may have been
+                // made on a session that had a tray.
                 let hide = window.label() == windows::MAIN_LABEL
-                    && control::close_to_tray(&window.app_handle().state::<SettingsState>());
+                    && control::close_to_tray_now(&window.app_handle().state::<SettingsState>());
                 if hide {
                     api.prevent_close();
                     let _ = window.hide();
@@ -128,13 +131,16 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building Subshell Node")
+        .expect("error while building Subshell Client")
         .run(|app, event| match event {
             // Hiding the last window is still "no windows left", and the
             // default answer to that is to quit — so close-to-tray would close
-            // to a tray and then exit.
+            // to a tray and then exit. The same fresh probe as the hide
+            // itself, so the two can never disagree: a window that was NOT
+            // hidden because no tray answered must be allowed to take the app
+            // down with it.
             tauri::RunEvent::ExitRequested { api, .. }
-                if control::close_to_tray(&app.state::<SettingsState>())
+                if control::close_to_tray_now(&app.state::<SettingsState>())
                     && app.get_webview_window(windows::MAIN_LABEL).is_some() =>
             {
                 api.prevent_exit();

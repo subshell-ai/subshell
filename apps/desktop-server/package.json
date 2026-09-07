@@ -1,6 +1,6 @@
 {
   "name": "@internal/desktop-server",
-  "description": "Subshell Desktop \u2014 a Tauri shell that installs, runs and manages a local subshell-server",
+  "description": "Subshell Server \u2014 a Tauri shell that installs, runs and manages a local subshell-server",
   "version": "0.3.0",
   "type": "module",
   "private": true,

@@ -39,10 +39,10 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 
 If you would rather not touch a CLI, there are two apps — one for each end.
 
-**Subshell Desktop** installs and runs the *server*: a native window, menu bar
+**Subshell Server** installs and runs the *server*: a native window, menu bar
 and tray, with the server's install, start, stop and restart behind buttons.
 
-**Subshell Node** registers *this machine* as a node so agents can be launched
+**Subshell Client** registers *this machine* as a node so agents can be launched
 on it from the browser. Paste the server's address and a setup key (Settings →
 Nodes → Add node mints one, and it is single-use and good for 24 hours), and it
 enrols, installs the agent as a background service and shows you its state.
@@ -53,19 +53,22 @@ get past its setup screen without it — `brew install tmux` on macOS,
 
 | App | macOS (Apple silicon) | Linux (x86_64) |
 | --- | --- | --- |
-| Subshell Desktop | `Subshell.app.tar.gz` from `desktop-server-vX.Y.Z` | `Subshell_X.Y.Z_amd64.deb` |
-| Subshell Node | `SubshellNode.app.tar.gz` from `desktop-client-vX.Y.Z` | `SubshellNode_X.Y.Z_amd64.deb` |
+| Subshell Server | `Subshell-Server.app.tar.gz` from `desktop-server-vX.Y.Z` | `subshell-server_X.Y.Z_amd64.deb` |
+| Subshell Client | `Subshell-Client.app.tar.gz` from `desktop-client-vX.Y.Z` | `subshell-client_X.Y.Z_amd64.deb` |
 
 macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
 Ubuntu 24.04+ / Debian 13+ (glibc 2.39). Releases cut before 2026-09-06, when
-there was only one desktop app, are tagged `desktop-vX.Y.Z`.
+there was only one desktop app, are tagged `desktop-vX.Y.Z`. The two apps were
+called Subshell and SubshellNode until 2026-09-06, and releases from before
+then carry the old asset names; a rename does not disturb an installed app,
+which macOS tracks by bundle identifier rather than by name.
 
 Each app ships the binary it manages inside it — nothing is downloaded on first
-run. Subshell Desktop offers to install `subshell-server` to `~/.local/bin`,
+run. Subshell Server offers to install `subshell-server` to `~/.local/bin`,
 write a `config.env`, register it as a service (a systemd user unit on Linux, a
 launchd agent on macOS) and start it; after that the window is the same Subshell
 UI a browser shows, because it is served by that same local server. Subshell
-Node does the same for the `subshell` agent, and its window stays its own — a
+Client does the same for the `subshell` agent, and its window stays its own — a
 node has no web UI of its own to show.
 
 The two can live on one machine, and often should: the machine running the
