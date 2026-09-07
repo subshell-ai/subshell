@@ -1,5 +1,21 @@
 # @internal/desktop-server
 
+## 0.5.0
+
+### Minor Changes
+
+- [`383158e`](https://github.com/subshell-ai/subshell/commit/383158ecd814437a018fed47d8b4476e6eefc3c0) Thanks [@theogravity](https://github.com/theogravity)! - Published artifacts now say **Desktop** in their names:
+  `Subshell-Server-Desktop.app.tar.gz` and
+  `subshell-server-desktop_<version>_amd64.deb`.
+  
+  Both CLIs ship from the same repo, so the old names sat in a downloads folder
+  next to `subshell-server-cli-<triple>` — the bare server binary — with nothing to
+  say which was the application.
+  
+  The suffix is on the file name only. The installed app is still
+  `Subshell Server.app`, with the same window title, menu bar and bundle
+  identifier, so an existing install upgrades in place.
+
 ## 0.4.0
 
 ### Minor Changes

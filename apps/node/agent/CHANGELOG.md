@@ -1,5 +1,81 @@
 # @internal/node
 
+## 0.6.0
+
+### Minor Changes
+
+- [`55448dc`](https://github.com/subshell-ai/subshell/commit/55448dcd0ce2b879ab2e0384ca2682b1bee0318c) Thanks [@theogravity](https://github.com/theogravity)! - **Intel Macs are no longer a published target.** The agent's `darwin-x64` build
+  is dropped, leaving `linux-x64`, `linux-arm64` and `darwin-arm64`.
+  
+  It was the last Intel build in the repo — the server CLI and both desktop apps
+  never had one — so keeping it meant paying for a cross-build and a release
+  shard every cut for a platform Apple is winding down.
+  
+  `install.sh` now refuses an Intel Mac **by name** rather than resolving a target
+  that 404s: "no binary published for your platform" would read as "the operator
+  has not published one yet", which is a different problem with a different fix.
+  Running the agent from a checkout is the remaining path. Note that
+  `darwin-arm64` is not a fallback — an arm64 binary does not run on Intel, and
+  Rosetta only translates the other direction.
+
+- [`55448dc`](https://github.com/subshell-ai/subshell/commit/55448dcd0ce2b879ab2e0384ca2682b1bee0318c) Thanks [@theogravity](https://github.com/theogravity)! - Published agent binaries now say **cli** in their names:
+  `subshell-node-cli-<triple>` (with the `.sha256` sidecar following the binary's name,
+  as always). These are both the `node-vX.Y.Z` release assets and the files
+  `GET /api/downloads/node/*` serves to the enroll one-liner.
+  
+  It is the counterpart of the `Desktop` suffix the desktop apps just took. All
+  four artifacts ship from the same repo and land side by side in a downloads
+  folder, where `subshell-darwin-arm64` next to
+  `Subshell-Client-Desktop.app.tar.gz` said nothing about which was the bare CLI.
+  
+  The suffix is on the artifact name only. The installed binary is still
+  `subshell` — the install script still writes `./subshell`, and no CLI command,
+  data dir or service name changes.
+  
+  **An existing instance must republish its node artifacts** (`bun run
+  release:node` with `SUBSHELL_NODE_ARTIFACTS_DIR` pointed at the directory the
+  server serves). Until it does, every agent download 404s: the server now looks
+  for `subshell-node-cli-<triple>` and the old files are still on disk under the old
+  names.
+
+- [`00abae8`](https://github.com/subshell-ai/subshell/commit/00abae82d4299f52433ba5f88694e42500aeabaf) Thanks [@theogravity](https://github.com/theogravity)! - **The node agent is released as `node`, not `client`.** Its git tag prefix is
+  now `node-vX.Y.Z`, its published binaries are `subshell-node-cli-<triple>`, its
+  dispatch option is `node`, and the root script is `bun run release:node`.
+  
+  `client` used to mean two things — the node-agent side of the product, and the
+  thing a person points at a control plane — so the `client-v*` tag published the
+  agent while the actual clients carried no client branding at all. Three words
+  now name one thing each: a **server** is a control plane, a **node** is a
+  machine that runs agents, a **client** is a person's interface to a control
+  plane.
+  
+  Nothing about the agent itself moves: the installed binary is still `subshell`,
+  with the same commands, the same `~/.config/subshell`, the same service unit and
+  the same node protocol.
+  
+  **An existing instance must republish its node artifacts** (`bun run
+  release:node` with `SUBSHELL_NODE_ARTIFACTS_DIR` pointed at the directory the
+  server serves). Until it does, every agent download 404s: the server now looks
+  for `subshell-node-cli-<triple>` and the old files are on disk under the old
+  names. `bun run prune:node-artifacts <dir> --delete` clears them afterwards.
+
+### Patch Changes
+
+- [`b7c1285`](https://github.com/subshell-ai/subshell/commit/b7c1285eab0ec5defd1ac0c3142c639f93f5ed0b) Thanks [@theogravity](https://github.com/theogravity)! - Fixed how the agent names itself when re-entering its own binary.
+  
+  Two callers do it — the service unit's `ExecStart` (`<self> run`) and every
+  pane's MCP registration (`<self> mcp`) — and they decided separately. Only one
+  decided correctly: the MCP registration passed `process.execPath` bare, which
+  under a source run is the `bun` binary, so a dev agent registered `bun mcp` for
+  its panes. That is not a command, so those panes got an MCP entry that could
+  never start.
+  
+  Both now share one decision, which also fixes a case neither handled: a
+  compiled agent RENAMED to something not starting with `subshell` was treated as
+  an interpreter launch and had its virtual `/$bunfs/…` argv[1] baked into the
+  service unit, producing an `ExecStart` that cannot run. It is now correctly
+  treated as compiled.
+
 ## 0.5.0
 
 ### Minor Changes

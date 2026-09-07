@@ -1,5 +1,40 @@
 # @internal/desktop-client
 
+## 0.3.0
+
+### Minor Changes
+
+- [`00abae8`](https://github.com/subshell-ai/subshell/commit/00abae82d4299f52433ba5f88694e42500aeabaf) Thanks [@theogravity](https://github.com/theogravity)! - **Subshell Client is now a client.** It opens the control plane's own UI in a
+  native window — point it at a server's address and that is what you get — and
+  registering this machine as a node moved into a second window, reached from the
+  tray ("This machine…") and shown on a fresh install before an address is
+  settled.
+  
+  That second window existing is the whole "node functionality" toggle: a client
+  you only watch subshells from never opens it, and there is no mode flag for the
+  two halves to disagree about. The address is remembered, and is picked up
+  automatically from an existing enrolment.
+  
+  The window showing the plane's page is granted **no Tauri commands at all**. A
+  control plane can live on any host, so its origin cannot be pinned in a
+  capability file the way `apps/server/desktop` pins its own loopback server —
+  so rather than widen anything, that window gets nothing, carries no
+  desktop-shell user-agent marker, and is still pinned by `on_navigation` to the
+  origin it opened with. Enrolment, agent installation and service control stay
+  on the bundled page, which the plane cannot reach.
+
+- [`383158e`](https://github.com/subshell-ai/subshell/commit/383158ecd814437a018fed47d8b4476e6eefc3c0) Thanks [@theogravity](https://github.com/theogravity)! - Published artifacts now say **Desktop** in their names:
+  `Subshell-Client-Desktop.app.tar.gz` and
+  `subshell-client-desktop_<version>_amd64.deb`.
+  
+  Both CLIs ship from the same repo, so the old names sat in a downloads folder
+  next to `subshell-node-cli-<triple>` — the bare node agent — with nothing to say which
+  was the application.
+  
+  The suffix is on the file name only. The installed app is still
+  `Subshell Client.app`, with the same window title, menu bar and bundle
+  identifier, so an existing install upgrades in place.
+
 ## 0.2.0
 
 ### Minor Changes
