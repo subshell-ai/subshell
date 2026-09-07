@@ -1,5 +1,39 @@
 # @internal/desktop-server
 
+## 0.4.0
+
+### Minor Changes
+
+- [`56a223c`](https://github.com/subshell-ai/subshell/commit/56a223c1cb977eb08fa5568594fd8791c4f957ca) Thanks [@theogravity](https://github.com/theogravity)! - The bundle identifier is now **`dev.subshell.server`** (it was
+  `dev.subshell.desktop`), matching the app's name and its sibling's
+  `dev.subshell.client`.
+  
+  macOS tracks an app BY its identifier, so a build installed under the old one is
+  a **separate app** to the system: it keeps its own settings directory, its own
+  notification permission grant, its own single-instance lock and its own saved
+  window state, and this build starts from defaults rather than inheriting them.
+  Delete the old `Subshell Server.app` and, if you want the disk clean,
+  `~/Library/Application Support/dev.subshell.desktop`.
+  
+  On Linux the settings directory moves from `~/.config/subshell-desktop` to
+  `~/.config/subshell-desktop-server` — deliberately NOT
+  `~/.config/subshell-server`, which is where the `subshell-server` CLI keeps its
+  own `config.env`.
+
+- [`2ea8914`](https://github.com/subshell-ai/subshell/commit/2ea891437237b1213a3bd458908c99062beb0242) Thanks [@theogravity](https://github.com/theogravity)! - Renamed the app to **Subshell Server** (it was "Subshell"). The installed app is
+  `Subshell Server.app` on macOS, and the window titles, tray tooltip and menu bar
+  all read Subshell Server.
+  
+  Every published artifact name changes with it: `Subshell-Server.app.tar.gz`
+  (was `Subshell.app.tar.gz`) and `subshell-server_<version>_amd64.deb` (was
+  `Subshell_<version>_amd64.deb`). Published names are space-free because they are
+  download URLs and shell arguments; the `.app` inside the tarball keeps the
+  spaced product name.
+  
+  The Cargo crate (`subshell-desktop`, also the `/usr/bin` binary in the `.deb`),
+  the sidecar stem (`subshell-server-bundled`) and the `desktop-server-v` tag
+  prefix are unchanged.
+
 ## 0.3.0
 
 ### Minor Changes
