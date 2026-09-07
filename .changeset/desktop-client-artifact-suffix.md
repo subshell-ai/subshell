@@ -7,7 +7,7 @@ Published artifacts now say **Desktop** in their names:
 `subshell-client-desktop_<version>_amd64.deb`.
 
 Both CLIs ship from the same repo, so the old names sat in a downloads folder
-next to `subshell-<triple>` — the bare node agent — with nothing to say which
+next to `subshell-cli-<triple>` — the bare node agent — with nothing to say which
 was the application.
 
 The suffix is on the file name only. The installed app is still

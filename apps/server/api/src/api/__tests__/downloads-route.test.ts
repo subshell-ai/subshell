@@ -47,7 +47,10 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   const email = `dl-${crypto.randomUUID()}@subshell.local`;
   const pw = "downloads-1";
   const TARGET = "linux-x64";
-  const fixturePath = join(NODE_ARTIFACTS_DIR, `subshell-${TARGET}`);
+  // Literal, not `nodeArtifactFileName(TARGET)`: the fixture is written where
+  // the ROUTE will look for it, so a rename that only touched one side of that
+  // contract has to fail here.
+  const fixturePath = join(NODE_ARTIFACTS_DIR, `subshell-cli-${TARGET}`);
   const sidecarPath = `${fixturePath}.sha256`;
   const FIXTURE = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 1, 2, 3, 4, 0xde, 0xad, 0xbe, 0xef]);
   let expectedSha = "";
@@ -171,7 +174,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(res.status).toBe(200);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(FIXTURE);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
-    expect(res.headers.get("content-disposition")).toContain(`subshell-${TARGET}`);
+    expect(res.headers.get("content-disposition")).toContain(`subshell-cli-${TARGET}`);
   });
 
   it("cookie session → 200 (no setup key needed)", async () => {
@@ -203,7 +206,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
   it(".sha256 prefers an on-disk sidecar and notices a swapped binary (mtime-keyed cache)", async () => {
     const fakeHex = "a".repeat(64);
-    writeFileSync(sidecarPath, `${fakeHex}  subshell-${TARGET}\n`);
+    writeFileSync(sidecarPath, `${fakeHex}  subshell-cli-${TARGET}\n`);
     try {
       const side = await dl(`/node/${TARGET}.sha256`, { cookie });
       expect(side.status).toBe(200);
@@ -221,7 +224,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   });
 
   it(".sha256 for a known target with no binary on disk → 404", async () => {
-    expect((await dl("/node/darwin-x64.sha256", { cookie })).status).toBe(404);
+    expect((await dl("/node/darwin-arm64.sha256", { cookie })).status).toBe(404);
   });
 
   // ── /install.sh ───────────────────────────────────────────────────────────
@@ -536,6 +539,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(gone404.exitCode).toBe(1);
         expect(gone404.stderr).toContain("no linux-x64 agent binary published");
         expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:client
+        // …and it names the ASSET to copy. That name is the artifact name, so
+        // it moves whenever the artifact does.
+        expect(gone404.stderr).toContain("'subshell-cli-linux-x64' asset");
         expect(gone404.survivor).toBe("WORKING-BINARY\n");
         expect(existsSync(join(gone404.cwd, "subshell.part"))).toBe(false); // temp cleaned
 

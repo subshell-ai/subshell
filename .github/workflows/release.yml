@@ -25,7 +25,7 @@
 #                 triples execute `version` (the server additionally boots on
 #                 a temp DB with the on-disk frontend dist hidden — / and
 #                 /docs must answer from the EMBEDDED bytes), linux-arm64 gets
-#                 a `file` magic check only, darwin-x64 runs under Rosetta
+#                 a `file` magic check only
 #                 (degrading to the magic check). Uploads binary + .sha256.
 #   publish     — per tagged app: draft release with every artifact, then a
 #                 second softprops invocation flips the draft live. Any build
@@ -232,7 +232,7 @@ jobs:
             appsjson="$appsjson{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\"}"
             case "$app" in
               server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
-              client) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
+              client) triples="linux-x64 linux-arm64 darwin-arm64" ;;
               # No linux-arm64: there is no native arm64 Linux runner, and a
               # file(1) magic check cannot see a GUI's characteristic failure,
               # which is an invisible window. No darwin-x64: a desktop build
@@ -251,7 +251,6 @@ jobs:
               esac
               case "$triple" in
                 linux-x64|darwin-arm64) smoke="exec" ;;   # native on its runner
-                darwin-x64) smoke="rosetta" ;;            # arch -x86_64, degrade to magic
                 *) smoke="magic" ;;                       # linux-arm64: cross-built, never exec'd here
               esac
               # The desktop artifact is a BUNDLE, not a bare binary, so it gets
@@ -519,8 +518,8 @@ jobs:
               ;;
           esac
           case "$APP" in
-            server) BIN="dist-rel/subshell-server-$TRIPLE" ;;
-            client) BIN="dist-rel/subshell-$TRIPLE" ;;
+            server) BIN="dist-rel/subshell-server-cli-$TRIPLE" ;;
+            client) BIN="dist-rel/subshell-cli-$TRIPLE" ;;
             *) echo "no binary smoke for app '$APP'"; exit 1 ;;
           esac
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
@@ -530,15 +529,17 @@ jobs:
           case "$TRIPLE" in
             linux-x64)     HINT='ELF 64-bit.*x86-64' ;;
             linux-arm64)   HINT='ELF 64-bit.*ARM aarch64' ;;
-            darwin-x64)    HINT='Mach-O 64-bit.*x86_64' ;;
             darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
           esac
           file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
 
           exec_smoke() {
-            # $1: command prefix ("" native, "arch -x86_64" under Rosetta)
+            # No argument any more. This took an exec prefix so darwin-x64
+            # could be smoked under Rosetta; Intel Macs are no longer a
+            # published target, so every remaining native triple runs bare and
+            # the `rosetta` smoke mode is gone with it.
             local out
-            out=$($1 "$BIN" version 2>&1) || return 1
+            out=$("$BIN" version 2>&1) || return 1
             echo "$out"
             # Pinned against the CLIs' real output: the server prints exactly
             # "subshell-server <v>"; the client adds "(node protocol vN)".
@@ -556,8 +557,8 @@ jobs:
               # server binary SERVES `mcp` itself — the refusal contract
               # (clean-env `env -i` refusal + no-CWD-litter) lives in ONE
               # script shared with test.yml, so the two can never check
-              # different contracts. $1 = exec prefix (Rosetta on darwin-x64).
-              bash scripts/smoke-mcp-refusal.sh "$BIN" "$1"
+              # different contracts.
+              bash scripts/smoke-mcp-refusal.sh "$BIN"
             fi
           }
 
@@ -597,16 +598,7 @@ jobs:
 
           case "$SMOKE" in
             exec)
-              exec_smoke ""
-              ;;
-            rosetta)
-              # Degrade only when Rosetta itself is missing — a binary that
-              # FAILS under Rosetta is a broken artifact, not a downgrade case.
-              if arch -x86_64 /usr/bin/true 2>/dev/null; then
-                exec_smoke "arch -x86_64"
-              else
-                echo "::notice::Rosetta unavailable — magic-check-only smoke (file(1) hint already passed)"
-              fi
+              exec_smoke
               ;;
             magic)
               echo "cross-built $TRIPLE — no exec smoke (digest sidecar + file(1) hint are the proof)"

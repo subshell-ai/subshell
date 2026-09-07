@@ -59,7 +59,7 @@ export function buildTargets(scope: readonly string[] | null = null): BuildTarge
  * Uniform: `--compile --bytecode --minify --target=bun-<triple>` — the
  * host-wins-its-triple special case is retired (spec 2026-09-03 §5).
  * @param triple - platform triple to build
- * @param outDir - directory for the `subshell-<triple>` output file
+ * @param outDir - directory for the `subshell-cli-<triple>` output file
  */
 export function buildArgs(triple: string, outDir: string): string[] {
   return [
@@ -207,7 +207,9 @@ async function main(): Promise<void> {
   process.stdout.write(`\npublished ${result.artifacts.size} subshell builds → ${destDir}\n\n`);
   for (const [triple, { path, digest }] of result.artifacts) {
     const bytes = (await Bun.file(path).stat())?.size ?? 0;
-    process.stdout.write(`  subshell-${triple.padEnd(12)} ${String(bytes).padStart(12)} bytes  ${digest}\n`);
+    process.stdout.write(
+      `  ${nodeArtifactFileName(triple).padEnd(28)} ${String(bytes).padStart(12)} bytes  ${digest}\n`,
+    );
   }
   process.stdout.write(
     "\nrestart `subshell-server.service` to serve them: systemctl --user restart subshell-server.service\n",

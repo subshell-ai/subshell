@@ -81,7 +81,7 @@ Two platform differences worth knowing:
   browser still works there.
 
 Intel Macs and arm64 Linux are not built. There is no native arm64 Linux runner
-to smoke a GUI on, and `SERVER_TARGETS` has no darwin-x64 server to bundle.
+to smoke a GUI on, and Intel Macs are not a target for any component.
 
 ## Requirements
 
@@ -172,14 +172,22 @@ The agent itself: [`apps/client/agent/AGENTS.md`](apps/client/agent/AGENTS.md).
 
 The control plane ships as one self-contained binary per platform, with the SPA
 embedded — no Bun, no checkout, no `apps/server/web/dist` on the host. Assets live
-on GitHub Releases under `server-vX.Y.Z` (`linux-x64`, `linux-arm64`,
-`darwin-arm64`; darwin builds are signed and notarized) and `client-vX.Y.Z` for
-the node agent (`linux|darwin × x64|arm64`).
+on GitHub Releases under `server-vX.Y.Z` as `subshell-server-cli-<triple>`
+(`linux-x64`, `linux-arm64`, `darwin-arm64`; darwin builds are signed and
+notarized) and under `client-vX.Y.Z` as `subshell-cli-<triple>` for the node
+agent (`linux|darwin × x64|arm64`). The `cli` in an asset name says it is the
+bare binary rather than the desktop app that wraps it; you rename it to
+`subshell-server` (or `subshell`) on install, as below.
 
 ```bash
-gh release download server-v1.6.0 -p 'subshell-server-darwin-arm64*'
-shasum -a 256 -c subshell-server-darwin-arm64.sha256
-install -m755 subshell-server-darwin-arm64 ~/.local/bin/subshell-server
+gh release download server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'
+
+# The .sha256 sidecar is a BARE 64-hex digest, not `<hash>  <name>`, so
+# `shasum -c <file>.sha256` cannot read it — pair the two yourself:
+printf '%s  %s\n' "$(cat subshell-server-cli-darwin-arm64.sha256)" \
+  subshell-server-cli-darwin-arm64 | shasum -a 256 -c -
+
+install -m755 subshell-server-cli-darwin-arm64 ~/.local/bin/subshell-server
 
 subshell-server init              # config home (0700), auth secret, port/host/db
 subshell-server service install   # systemd user unit / launchd agent

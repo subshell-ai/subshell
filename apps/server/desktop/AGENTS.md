@@ -102,8 +102,8 @@ SUBSHELL_SERVER_RELEASE_TRIPLES=darwin-arm64 \
 SUBSHELL_SERVER_RELEASE_DIR="$PWD/apps/server/desktop/src-tauri/binaries" \
   bun run release:server
 cd apps/server/desktop/src-tauri/binaries \
-  && mv subshell-server-darwin-arm64 subshell-server-bundled-aarch64-apple-darwin \
-  && rm -f subshell-server-darwin-arm64.sha256
+  && mv subshell-server-cli-darwin-arm64 subshell-server-bundled-aarch64-apple-darwin \
+  && rm -f subshell-server-cli-darwin-arm64.sha256
 ```
 
 Three rules about that binary:
@@ -130,6 +130,7 @@ Three rules about that binary:
 | `productName` (the `.app` a user installs) | `Subshell Server` — `Subshell Server.app`, space included |
 | published macOS asset | `Subshell-Server-Desktop.app.tar.gz` |
 | published Debian asset | `subshell-server-desktop_<version>_amd64.deb` |
+| the CLI it bundles, as that CLI publishes it | `subshell-server-cli-<triple>` |
 | bundle identifier | `dev.subshell.server` |
 | Cargo crate / `/usr/bin` binary | `subshell-desktop` |
 | sidecar stem | `subshell-server-bundled` |

@@ -106,11 +106,13 @@ A zero-byte stub is correct for the Rust tests — none of them executes the
 sidecar, and `tauri-build` only checks that the path EXISTS. A real one comes
 from `bun run compile:release`, which builds `apps/client/agent` first.
 
-**The staged name and the in-bundle name are different strings.** The release
-script writes `subshell-node-bundled-<rust triple>`; Tauri STRIPS the suffix
-when it copies the file, so inside the bundle it is `subshell-node-bundled`.
-Anything grepping for the staged name inside a built bundle finds nothing, 100%
-of the time.
+**Three names, one binary.** `apps/client/agent`'s own pipeline publishes it as
+`subshell-cli-<triple>` (the `cli` says bare-binary, against this app's
+`Desktop`), which is what `stageSidecar` looks for after the nested build. The
+release script then MOVES it to `subshell-node-bundled-<rust triple>`, and Tauri
+STRIPS that suffix when it copies the file, so inside the bundle it is
+`subshell-node-bundled`. Anything grepping for the staged name inside a built
+bundle finds nothing, 100% of the time.
 
 **Why the `-bundled` suffix.** Tauri puts an `externalBin` in `/usr/bin` on
 Debian. A sidecar named `subshell` would own that name system-wide on every

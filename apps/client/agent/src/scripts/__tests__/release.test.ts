@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { NODE_TARGETS } from "@internal/subshell-protocol";
+import { NODE_TARGETS, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { digestFile } from "@internal/subshell-protocol/release-artifacts";
 import { type BuildAllResult, buildAll, buildArgs, buildTargets, parseScope, resolveArtifactsDir } from "../release.js";
 
@@ -12,7 +12,7 @@ describe("buildArgs (always-bytecode, spec 2026-09-03 §5)", () => {
       const args = buildArgs(triple, "/out");
       expect(args).toContain("--bytecode");
       expect(args).toContain(`--target=bun-${triple}`);
-      expect(args).toContain(join("/out", `subshell-${triple}`));
+      expect(args).toContain(join("/out", nodeArtifactFileName(triple)));
     }
   });
 });
@@ -36,7 +36,7 @@ describe("parseScope (wrapper over the shared parse, NODE_TARGETS)", () => {
   test("undefined → null (full set)", () => expect(parseScope(undefined)).toBeNull());
 
   test("whitespace-separated subset passes through", () =>
-    expect(parseScope(" linux-arm64\tdarwin-x64 ")).toEqual(["linux-arm64", "darwin-x64"]));
+    expect(parseScope(" linux-arm64\tdarwin-arm64 ")).toEqual(["linux-arm64", "darwin-arm64"]));
 
   test("unknown triple throws, naming this app's env var", () =>
     expect(() => parseScope("win32-x64")).toThrow(/unknown target .* SUBSHELL_RELEASE_TRIPLES/));
@@ -55,7 +55,7 @@ describe("buildAll", () => {
     const runBuild = async (args: string[]): Promise<number> => {
       calls.push(args);
       const outfile = args[args.indexOf("--outfile") + 1] as string;
-      if (failTriple && outfile.endsWith(`subshell-${failTriple}`)) return 1;
+      if (failTriple && outfile.endsWith(nodeArtifactFileName(failTriple))) return 1;
       // The real main() mkdirs outDir before building; the stub mirrors that here.
       await mkdir(dirname(outfile), { recursive: true });
       await writeFile(outfile, `binary-bytes-for-${outfile}`);
@@ -66,11 +66,11 @@ describe("buildAll", () => {
 
   test("one failing target → {ok:false, failed:<triple>}; publish is a separate step main() skips", async () => {
     const outDir = join(workDir, "out-fail");
-    const { runBuild } = stubRunBuild("darwin-x64");
+    const { runBuild } = stubRunBuild("darwin-arm64");
     const result = await buildAll({ runBuild, outDir });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure result");
-    expect(result.failed).toBe("darwin-x64");
+    expect(result.failed).toBe("darwin-arm64");
     // (All-or-nothing is STRUCTURAL: buildAll never receives destDir, and
     // main() calls publishArtifacts only on ok:true — a readdir here could
     // not fail, so the result shape is the honest assertion.)
@@ -85,7 +85,7 @@ describe("buildAll", () => {
     // no dupes, regardless of the arch the suite runs on.
     expect(result.artifacts.size).toBe(NODE_TARGETS.length);
     for (const [triple, artifact] of result.artifacts) {
-      expect(artifact.path).toBe(join(outDir, `subshell-${triple}`));
+      expect(artifact.path).toBe(join(outDir, nodeArtifactFileName(triple)));
       expect(artifact.digest).toBe(await digestFile(artifact.path)); // production hasher, not a mirror
       expect(artifact.digest).toMatch(/^[0-9a-f]{64}$/);
     }

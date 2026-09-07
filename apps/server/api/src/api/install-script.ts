@@ -89,7 +89,15 @@ ARCH="$(uname -m)"
 case "$OS/$ARCH" in
   Linux/x86_64)             TARGET="linux-x64" ;;
   Linux/aarch64|Linux/arm64) TARGET="linux-arm64" ;;
-  Darwin/x86_64)            TARGET="darwin-x64" ;;
+  Darwin/x86_64)
+    # Refused BY NAME rather than resolved to a target that 404s. Intel Macs
+    # are not a published target, and "this server publishes no binary for your
+    # platform" would read as "the operator has not published one yet" — a
+    # different problem with a different fix.
+    echo "subshell: Intel Macs are not supported — no agent is published for darwin-x64." >&2
+    echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the agent from a checkout." >&2
+    exit 1
+    ;;
   Darwin/arm64)             TARGET="darwin-arm64" ;;
   *)
     echo "subshell: unsupported platform: $OS/$ARCH" >&2
@@ -126,7 +134,7 @@ case "$HTTP" in
     rm -f "$TMP" 2>/dev/null || true
     echo "subshell: this server has no $TARGET agent binary published." >&2
     echo "    Publish it on the server host — 'bun run release:client' from a checkout, or (a" >&2
-    echo "    binary-only install has no checkout) copy the 'subshell-$TARGET' asset from the" >&2
+    echo "    binary-only install has no checkout) copy the 'subshell-cli-$TARGET' asset from the" >&2
     echo "    client's GitHub Release into the server's node-artifacts dir — or install the" >&2
     echo "    agent for this machine another way and enroll directly:" >&2
     echo "      subshell enroll --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2

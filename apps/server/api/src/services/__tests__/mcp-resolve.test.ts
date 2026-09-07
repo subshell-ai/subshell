@@ -56,7 +56,7 @@ describe("probeMcpLaunch", () => {
   });
 
   it("self (compiled, triple-suffixed): the release artifact name still self-resolves", () => {
-    const probe = probeMcpLaunch({}, { execPath: "/srv/bin/subshell-server-darwin-arm64", which: () => null });
+    const probe = probeMcpLaunch({}, { execPath: "/srv/bin/subshell-server-cli-darwin-arm64", which: () => null });
     expect(resolvedSource(probe)).toBe("self");
   });
 
@@ -80,7 +80,7 @@ describe("probeMcpLaunch", () => {
     // through to client-on-PATH and, with no agent, to the UNRESOLVED error.
     const probe = probeMcpLaunch(
       {},
-      { execPath: "/srv/bin/srv", argv1: "/$bunfs/root/subshell-server-darwin-arm64", which: () => null },
+      { execPath: "/srv/bin/srv", argv1: "/$bunfs/root/subshell-server-cli-darwin-arm64", which: () => null },
     );
     expect(probe.spec).toBeNull();
     expect(probe.error).toContain("SUBSHELL_MCP_COMMAND");

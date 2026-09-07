@@ -272,7 +272,7 @@ describe("resolveArtifactsDir (SUBSHELL_SERVER_RELEASE_DIR ?? <repo-root>/dist-s
 });
 
 describe("publish through the shared primitive (server artifact names, basename contract)", () => {
-  test("the published set is EXACTLY subshell-server-<triple> + .sha256 per target", async () => {
+  test("the published set is EXACTLY subshell-server-cli-<triple> + .sha256 per target", async () => {
     const workDir = await mkdtemp(join(tmpdir(), "subshell-server-publish-test-"));
     const artifacts = new Map<string, BuiltArtifact>();
     for (const triple of SERVER_TARGETS) {
@@ -284,8 +284,10 @@ describe("publish through the shared primitive (server artifact names, basename 
     const destDir = join(workDir, "dest");
     await publishArtifacts(artifacts, destDir);
     const names = (await readdir(destDir)).sort();
+    // Literal on purpose: this is the one place the SHIPPED file names are
+    // asserted without going through the naming function that produced them.
     expect(names).toEqual(
-      SERVER_TARGETS.flatMap((t) => [`subshell-server-${t}`, `subshell-server-${t}.sha256`]).sort(),
+      SERVER_TARGETS.flatMap((t) => [`subshell-server-cli-${t}`, `subshell-server-cli-${t}.sha256`]).sort(),
     );
   });
 });

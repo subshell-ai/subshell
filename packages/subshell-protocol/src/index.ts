@@ -75,6 +75,7 @@ export {
 } from "./node-signing.js";
 export {
   AGENT_SIDECAR_NAME,
+  CLI_SUFFIX,
   DEFAULT_DATABASE_PATH,
   DESKTOP_CLIENT_PRODUCT,
   DESKTOP_SERVER_PRODUCT,

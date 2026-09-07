@@ -21,9 +21,13 @@ bun run verify-types     # tsc --noEmit
   they must never become a hidden cost of the normal build/test path. Every
   target ships `--bytecode` (risk #9 retired at bun 1.4.0 — spec 2026-09-03
   §5); the pipeline refuses older bun. `SUBSHELL_RELEASE_TRIPLES` scopes a
-  subset (CI uses this). Publish is atomic (tmp + `rename()` per
-  artifact + fresh `.sha256` sidecar — the downloads route's mtime-keyed cache
-  contract) and all-or-nothing (a failed target publishes NOTHING). Destination:
+  subset (CI uses this). Each target publishes as `subshell-cli-<triple>` —
+  the `cli` says it is the bare binary rather than the `apps/client/desktop`
+  app that wraps it (`nodeArtifactFileName`, `@internal/subshell-protocol`);
+  the INSTALLED binary is still `subshell`, so an install renames it. Publish
+  is atomic (tmp + `rename()` per artifact + fresh `.sha256` sidecar — the
+  downloads route's mtime-keyed cache contract) and all-or-nothing (a failed
+  target publishes NOTHING). Destination:
   `SUBSHELL_NODE_ARTIFACTS_DIR`, else `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` (a
   documented duplicate of the server's default in `apps/server/api/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with

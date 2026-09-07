@@ -311,14 +311,14 @@ describe("settings routes (admin cookie only)", () => {
       return ((await res.json()) as { nodeArtifactTargets: string[] }).nodeArtifactTargets;
     };
     mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
-    const path = join(NODE_ARTIFACTS_DIR, nodeArtifactFileName("darwin-x64"));
+    const path = join(NODE_ARTIFACTS_DIR, nodeArtifactFileName("darwin-arm64"));
     try {
       rmSync(path, { force: true });
-      expect(await read()).not.toContain("darwin-x64");
+      expect(await read()).not.toContain("darwin-arm64");
       writeFileSync(path, "");
-      expect(await read()).not.toContain("darwin-x64");
+      expect(await read()).not.toContain("darwin-arm64");
       writeFileSync(path, "binary-bytes");
-      expect(await read()).toContain("darwin-x64");
+      expect(await read()).toContain("darwin-arm64");
     } finally {
       rmSync(path, { force: true });
     }

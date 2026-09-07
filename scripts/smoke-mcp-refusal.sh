@@ -15,7 +15,10 @@
 #      silently flip the expected refusal into a connect attempt.
 #
 # Usage: smoke-mcp-refusal.sh <binary> [exec-prefix]
-#   exec-prefix: e.g. "arch -x86_64" to run the binary under Rosetta.
+#   exec-prefix: optional command prefix. Unused since Intel Macs stopped being
+#                a published target — nothing cross-arch is exec-smoked any
+#                more — but kept because it costs one line and is the only
+#                thing that would make a future cross-arch smoke possible.
 set -euo pipefail
 
 BIN="$(realpath "$1")"

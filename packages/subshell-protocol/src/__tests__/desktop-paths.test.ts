@@ -124,29 +124,6 @@ describe("published artifacts", () => {
     expect(desktopArtifactFileName(" Padded ", "linux-x64", "1.0.0")).toBe("padded-desktop_1.0.0_amd64.deb");
   });
 
-  // A Debian package name must be lowercase; the macOS tarball keeps the
-  // product's own capitalization, because that is the name a user downloads.
-  // The whole reason the suffix exists. Both CLIs publish from this same repo,
-  // and `subshell-server_0.5.0_amd64.deb` sitting beside
-  // `subshell-server-darwin-arm64` in a downloads folder says nothing about
-  // which one is the application.
-  test("no published desktop name can be mistaken for a CLI artifact", () => {
-    const cli = [...SERVER_TARGETS.map(serverArtifactFileName), ...NODE_TARGETS.map(nodeArtifactFileName)];
-    for (const product of [DESKTOP_SERVER_PRODUCT, DESKTOP_CLIENT_PRODUCT]) {
-      for (const target of DESKTOP_TARGETS) {
-        const name = desktopArtifactFileName(product, target, "0.5.0");
-        expect(name.toLowerCase()).toContain("desktop");
-        for (const other of cli) {
-          expect(name).not.toBe(other);
-          // Not merely distinct: neither may PREFIX the other, or a glob or a
-          // tab-completion over a downloads folder still conflates them.
-          expect(name.startsWith(other)).toBe(false);
-          expect(other.startsWith(name)).toBe(false);
-        }
-      }
-    }
-  });
-
   test("the deb is lowercased and the tarball is not", () => {
     expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe(
       desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3").toLowerCase(),
@@ -169,5 +146,129 @@ describe("published artifacts", () => {
     expect(() => desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "windows-x64", "1.0.0")).toThrow(
       /no desktop artifact name/,
     );
+  });
+});
+
+/**
+ * The property the suffixes exist to buy, pinned across ALL FOUR producers
+ * rather than desktop-vs-CLI: whatever lands in one downloads folder must be
+ * tellable apart, by a human reading it and by a glob or a tab-completion
+ * running over it.
+ */
+const VERSION = "0.5.0";
+
+/** What the name has to SAY: an app bundle, or the bare CLI binary it wraps. */
+type ArtifactKind = "cli" | "desktop";
+
+interface PublishedArtifact {
+  /** The name its pipeline publishes it under. */
+  name: string;
+  /** Which pipeline published it — quoted in a failure so it can be found. */
+  producer: string;
+  /** The word this name must carry. */
+  kind: ArtifactKind;
+}
+
+/**
+ * Every artifact the four release pipelines publish for ONE version. Each
+ * lands as two files — the artifact and its `.sha256` sidecar, derived from
+ * the same name by `publishArtifacts` / the desktop `collectArtifact`s — which
+ * is why the collision check below expands each entry rather than testing the
+ * bare names.
+ */
+function publishedArtifacts(): PublishedArtifact[] {
+  return [
+    ...SERVER_TARGETS.map((t) => ({ name: serverArtifactFileName(t), producer: "server CLI", kind: "cli" as const })),
+    ...NODE_TARGETS.map((t) => ({ name: nodeArtifactFileName(t), producer: "agent CLI", kind: "cli" as const })),
+    ...DESKTOP_TARGETS.flatMap((t) => [
+      {
+        name: desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, t, VERSION),
+        producer: "desktop-server",
+        kind: "desktop" as const,
+      },
+      {
+        name: desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, t, VERSION),
+        producer: "desktop-client",
+        kind: "desktop" as const,
+      },
+    ]),
+  ];
+}
+
+/** The files one artifact actually puts on disk. */
+function publishedFiles(artifact: PublishedArtifact): string[] {
+  return [artifact.name, `${artifact.name}.sha256`];
+}
+
+/**
+ * A name's words as a reader parses them: `-`, `_` and `.` all separate. The
+ * kind check runs on these and NOT on substrings, because
+ * `subshell-client-desktop_…` contains "cli" inside "client" — a substring
+ * test would read the desktop-client bundle as a CLI artifact.
+ */
+function tokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .split(/[-_.]+/)
+    .filter(Boolean);
+}
+
+describe("the published artifact set (all four producers)", () => {
+  test("the set is every triple of every producer, and nothing else", () => {
+    expect(publishedArtifacts()).toHaveLength(SERVER_TARGETS.length + NODE_TARGETS.length + DESKTOP_TARGETS.length * 2);
+  });
+
+  // Equality is the obvious half; PREFIX is the half that bites. A binary
+  // legitimately prefixes its OWN sidecar, so the pairing is per-artifact:
+  // across two DIFFERENT artifacts, no published file may prefix another, or a
+  // `subshell-cli-linux-x64*` glob sweeps up a second product's files too.
+  //
+  // Compared CASE-FOLDED, because the whole argument is about a downloads
+  // folder and the default file systems on macOS (APFS) and Windows are
+  // case-insensitive: `Subshell-Server-Desktop…` and `subshell-server-desktop…`
+  // are two names here and one name there. The raw names go in the violation
+  // message so a failure is still readable.
+  test("no two artifacts collide, by equality or by prefix — sidecars included", () => {
+    const artifacts = publishedArtifacts();
+    const violations: string[] = [];
+    for (const a of artifacts) {
+      for (const b of artifacts) {
+        if (a === b) continue;
+        for (const fileA of publishedFiles(a)) {
+          for (const fileB of publishedFiles(b)) {
+            const foldedA = fileA.toLowerCase();
+            const foldedB = fileB.toLowerCase();
+            if (foldedA === foldedB) violations.push(`${a.producer} and ${b.producer} both publish ${fileA}`);
+            else if (foldedB.startsWith(foldedA)) {
+              violations.push(`${b.producer}'s ${fileB} starts with ${a.producer}'s ${fileA}`);
+            }
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  test("every name says which kind it is, as a whole token", () => {
+    for (const artifact of publishedArtifacts()) {
+      const words = tokens(artifact.name);
+      expect(words).toContain(artifact.kind);
+      expect(words).not.toContain(artifact.kind === "cli" ? "desktop" : "cli");
+    }
+  });
+
+  // The trap the token split exists for, stated as its own case so nobody
+  // "simplifies" it back to a substring check.
+  test("'client' is not the token 'cli'", () => {
+    const deb = desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "linux-x64", VERSION);
+    expect(deb).toContain("cli"); // inside "client"
+    expect(tokens(deb)).not.toContain("cli");
+  });
+
+  // The platform triple stays LAST in a CLI name — the thing a human scans a
+  // downloads folder for, and what `.sha256` attaches to.
+  test("a CLI name ends with its triple", () => {
+    for (const target of SERVER_TARGETS) expect(serverArtifactFileName(target).endsWith(target)).toBe(true);
+    for (const target of NODE_TARGETS) expect(nodeArtifactFileName(target).endsWith(target)).toBe(true);
   });
 });

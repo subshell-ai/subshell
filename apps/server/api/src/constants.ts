@@ -132,10 +132,12 @@ export const SUBSHELL_LOG_RETENTION_DAYS = env
 
 /**
  * Directory `GET /api/downloads/node/*` serves the prebuilt `subshell`
- * binaries from (spec 2026-08-31 §8): files named `subshell-<target>`
- * (plus an optional `subshell-<target>.sha256` sidecar). The build pipeline
- * that populates it is separate (e2e Task 16) — serving a directory that does
- * not exist yet is a plain 404, so no boot check.
+ * binaries from (spec 2026-08-31 §8): files named `subshell-cli-<target>`
+ * (plus an optional `subshell-cli-<target>.sha256` sidecar). Those names come
+ * from `nodeArtifactFileName` and are never spelled out at a use site. The
+ * build pipeline that populates this directory is separate (e2e Task 16) —
+ * serving a directory that does not exist yet is a plain 404, so no boot
+ * check.
  *
  * Under {@link IS_TEST} it hangs off the temp {@link SUBSHELL_SERVER_DATA_DIR} (the
  * environment is ignored, same reasoning as there), which lets route tests

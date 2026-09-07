@@ -15,8 +15,9 @@ import type { McpLaunchSpec } from "@internal/harnesses";
 
 /**
  * The server executable's product name — the gate on the SELF rung's compiled
- * shape. The `startsWith` also admits the triple-suffixed release artifacts
- * (`subshell-server-darwin-arm64`).
+ * shape. The `startsWith` also admits the published release artifacts
+ * (`subshell-server-cli-darwin-arm64` — a `cli` marker and a triple that an
+ * install drops).
  */
 const SERVER_PRODUCT = "subshell-server";
 

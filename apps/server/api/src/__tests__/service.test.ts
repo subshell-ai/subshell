@@ -84,9 +84,9 @@ describe("execLine", () => {
     ]);
   });
 
-  test("a release-named artifact (subshell-server-linux-x64) is recognised too", () => {
-    expect(execLine({ servicePath: "/x/subshell-server-linux-x64", argv1: "/ignored/index.ts" })).toEqual([
-      "/x/subshell-server-linux-x64",
+  test("a release-named artifact (subshell-server-cli-linux-x64) is recognised too", () => {
+    expect(execLine({ servicePath: "/x/subshell-server-cli-linux-x64", argv1: "/ignored/index.ts" })).toEqual([
+      "/x/subshell-server-cli-linux-x64",
     ]);
   });
 

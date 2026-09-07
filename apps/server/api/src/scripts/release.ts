@@ -69,7 +69,7 @@ export function buildTargets(scope: readonly string[] | null = null): BuildTarge
  * stays `./src/index.ts`, the byte-identical boot path of the plain `tsc`
  * dist (plan 2 Global Constraints).
  * @param triple - platform triple to build
- * @param outDir - directory for the `subshell-server-<triple>` output file
+ * @param outDir - directory for the `subshell-server-cli-<triple>` output file
  */
 export function buildArgs(triple: string, outDir: string): string[] {
   return [
@@ -261,7 +261,7 @@ async function main(): Promise<void> {
   for (const [triple, { path, digest }] of result.artifacts) {
     const bytes = (await Bun.file(path).stat())?.size ?? 0;
     process.stdout.write(
-      `  ${serverArtifactFileName(triple).padEnd(26)} ${String(bytes).padStart(12)} bytes  ${digest}\n`,
+      `  ${serverArtifactFileName(triple).padEnd(32)} ${String(bytes).padStart(12)} bytes  ${digest}\n`,
     );
   }
 }

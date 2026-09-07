@@ -80,8 +80,9 @@ src/
 ```
 
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
-(`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries from
-`NODE_ARTIFACTS_DIR` (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
+(`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries —
+published as `subshell-cli-<triple>` + `.sha256` — from `NODE_ARTIFACTS_DIR`
+(`SUBSHELL_NODE_ARTIFACTS_DIR`, default
 `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:client`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
 A binary-only server install ships that dir EMPTY, so the install one-liner
@@ -445,11 +446,13 @@ bun run release:server     # 2. = apps/server/api compile:release (src/scripts/r
 The pipeline embeds the SPA (the generator overwrites the stub; the stub is
 restored with `git checkout` in a `finally` — embedded bytes are release
 noise, never a commit), builds the three `SERVER_TARGETS` triples
-(`linux-x64`, `linux-arm64`, `darwin-arm64` — deliberately no darwin-x64;
+(`linux-x64`, `linux-arm64`, `darwin-arm64` — no darwin-x64, since Intel
+Macs are not a target for any component;
 `@internal/subshell-protocol` `paths.ts`) — one binary per triple: the
-SPA-embedded `subshell-server-<triple>`, which serves its own `mcp`
-subcommand so a server-only host self-resolves its MCP entrypoint —
-each with `--bytecode` (bun ≥
+SPA-embedded `subshell-server-cli-<triple>` (the `cli` marks it as the bare
+binary, not the desktop app that wraps it; an install renames it to
+`subshell-server`), which serves its own `mcp` subcommand so a server-only
+host self-resolves its MCP entrypoint — each with `--bytecode` (bun ≥
 1.4.0 asserted; `SUBSHELL_SERVER_RELEASE_TRIPLES` scopes a subset for CI),
 darwin targets are signed + notarized first when `SUBSHELL_RELEASE_SIGN_CMD`
 is set (CI sets it to `scripts/macos-sign-notarize.sh` on mac-builder — see

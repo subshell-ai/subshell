@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CLI_SUFFIX,
   defaultSubshellServerDataDir,
   NODE_TARGETS,
   nodeArtifactFileName,
@@ -65,8 +66,8 @@ describe("resolveNodeArtifactsDir", () => {
 });
 
 describe("NODE_TARGETS / SERVER_TARGETS", () => {
-  test("node set is the four served triples (spec 2026-08-31 §8)", () => {
-    expect(NODE_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]);
+  test("node set is the three served triples — no Intel Mac (spec 2026-08-31 §8)", () => {
+    expect(NODE_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-arm64"]);
   });
 
   test("server set is the plan-2 triple set — narrower: NO darwin-x64", () => {
@@ -76,9 +77,26 @@ describe("NODE_TARGETS / SERVER_TARGETS", () => {
 
   test("the two artifact names never collide on a shared triple", () => {
     for (const triple of SERVER_TARGETS) {
-      expect(nodeArtifactFileName(triple)).toBe(`subshell-${triple}`);
-      expect(serverArtifactFileName(triple)).toBe(`subshell-server-${triple}`);
+      expect(nodeArtifactFileName(triple)).toBe(`subshell-cli-${triple}`);
+      expect(serverArtifactFileName(triple)).toBe(`subshell-server-cli-${triple}`);
       expect(serverArtifactFileName(triple)).not.toBe(nodeArtifactFileName(triple));
+    }
+  });
+
+  // The suffix is on the ARTIFACT name only: what an operator installs is
+  // still `subshell-server` / `subshell`, so a downloaded file must never
+  // arrive already carrying the installed binary's exact name (that is what
+  // makes "rename it on install" a real step rather than a no-op).
+  test("no artifact name is the installed binary's name", () => {
+    expect(CLI_SUFFIX).toBe("cli");
+    for (const triple of NODE_TARGETS) {
+      expect(nodeArtifactFileName(triple)).not.toBe("subshell");
+    }
+    for (const triple of SERVER_TARGETS) {
+      expect(serverArtifactFileName(triple)).not.toBe("subshell-server");
+      // …and dropping the platform triple does NOT give it either, which is
+      // why the install instructions name the destination explicitly.
+      expect(serverArtifactFileName(triple).replace(`-${triple}`, "")).toBe("subshell-server-cli");
     }
   });
 });

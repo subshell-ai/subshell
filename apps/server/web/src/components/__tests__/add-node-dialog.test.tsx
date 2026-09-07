@@ -141,14 +141,14 @@ describe("AddNodeDialog", () => {
   it("names only the MISSING targets when artifacts are published for some", async () => {
     const { restore } = mockFetch({
       appBaseUrl: "https://subshell.example",
-      nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-arm64"],
+      nodeArtifactTargets: ["linux-x64", "linux-arm64"],
     });
     try {
       renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       const hint = await screen.findByText(/no agent binary published/i);
-      expect(hint.textContent).toContain("darwin-x64");
+      expect(hint.textContent).toContain("darwin-arm64");
       expect(hint.textContent).not.toContain("linux-x64");
     } finally {
       restore();
@@ -161,7 +161,7 @@ describe("AddNodeDialog", () => {
     // resolves against the stale tree — a false green either way.
     const { restore } = mockFetch({
       appBaseUrl: "https://subshell.example",
-      nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"],
+      nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-arm64"],
     });
     try {
       renderDialog();

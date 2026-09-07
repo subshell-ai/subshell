@@ -23,41 +23,84 @@
 /** One {@link NODE_TARGETS} entry. */
 export type NodeTarget = (typeof NODE_TARGETS)[number];
 
-/** The closed set of platform triples the `subshell` is published for (spec §8). */
-export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
+/**
+ * The closed set of platform triples the `subshell` agent is published for
+ * (spec §8).
+ *
+ * No `darwin-x64`: Intel Macs are not a target. Apple is ending support for
+ * them, and the agent is the last thing here that was still built for one —
+ * carrying a triple nobody wants costs a cross-build and a release shard every
+ * cut. An Intel Mac therefore has no published agent: `install.sh` refuses it
+ * by name rather than resolving a target that 404s, and running from a
+ * checkout is the only path left. Note that `darwin-arm64` is NOT a fallback —
+ * an arm64 binary does not run on Intel, and Rosetta only translates the other
+ * direction.
+ */
+export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"] as const;
 
 /** One {@link SERVER_TARGETS} entry. */
 export type ServerTarget = (typeof SERVER_TARGETS)[number];
 
 /**
  * The closed set of platform triples the `subshell-server` is published for
- * (spec 2026-09-03 §7). Deliberately NARROWER than {@link NODE_TARGETS}: no
- * darwin-x64 (the server targets Apple silicon Macs; an Intel host runs the
- * linux build or the source path).
+ * (spec 2026-09-03 §7).
+ *
+ * Identical to {@link NODE_TARGETS} today — it was the narrower of the two
+ * until the agent's Intel-Mac build was dropped. They stay separate constants
+ * because they describe different products and may diverge again, not because
+ * they currently differ.
+ *
+ * No `darwin-x64`, for the same reason as the agent: Intel Macs are not a
+ * target. The comment here used to say an Intel host "runs the linux build or
+ * the source path", and the first half of that was simply false — a linux
+ * binary is not a macOS fallback. A checkout is the only path.
  */
 export const SERVER_TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"] as const;
 
 /**
- * The file name a built binary is published as and served under:
- * `subshell-<target>` (plus a `.sha256` sidecar written/read alongside it).
- * The agent's release pipeline and the backend's downloads route must agree —
- * drift is a 404 on install. `target` is normally a {@link NodeTarget}; the
- * parameter stays a plain string because the release pipeline's scope
- * override schedules a plain-string subset through the same naming.
+ * Carried by every published CLI artifact name, so a downloaded file says
+ * which of the two things it is — the CLI binary, or the desktop app that
+ * wraps it. The counterpart of {@link DESKTOP_SUFFIX}, and there for the same
+ * reason: all four producers publish out of this one repo and their artifacts
+ * land side by side in a downloads folder, where `subshell-server-darwin-arm64`
+ * next to `Subshell-Server-Desktop.app.tar.gz` said nothing about which was
+ * which.
+ *
+ * It sits BEFORE the triple rather than at the end, so the platform stays the
+ * last thing in the name — that is what a human scans a downloads folder for,
+ * and what `.sha256` attaches to.
+ *
+ * On the ARTIFACT name only. The installed binaries are still `subshell-server`
+ * and `subshell`, the `bun run compile` dev outputs are unchanged, and no CLI
+ * command, config path or service unit moves — so a downloaded artifact is
+ * renamed on install, exactly as it always was.
+ */
+export const CLI_SUFFIX = "cli";
+
+/**
+ * The file name a built agent binary is published as and served under:
+ * `subshell-cli-<target>` (plus a `.sha256` sidecar written/read alongside
+ * it). The agent's release pipeline and the backend's downloads route must
+ * agree — drift is a 404 on install, which is also why renaming this is a
+ * DEPLOY-ORDER fact: an instance's existing `node-artifacts` dir holds the old
+ * names until `release:client` republishes into it. `target` is normally a
+ * {@link NodeTarget}; the parameter stays a plain string because the release
+ * pipeline's scope override schedules a plain-string subset through the same
+ * naming.
  */
 export function nodeArtifactFileName(target: string): string {
-  return `subshell-${target}`;
+  return `subshell-${CLI_SUFFIX}-${target}`;
 }
 
 /**
  * The file name a built `subshell-server` binary is published as:
- * `subshell-server-<target>` (plus a `.sha256` sidecar alongside). Same
+ * `subshell-server-cli-<target>` (plus a `.sha256` sidecar alongside). Same
  * naming discipline as {@link nodeArtifactFileName}, different product name —
  * the two binaries coexist in one artifacts flow and must never overwrite
  * each other.
  */
 export function serverArtifactFileName(target: string): string {
-  return `subshell-server-${target}`;
+  return `subshell-server-${CLI_SUFFIX}-${target}`;
 }
 
 /** One {@link DESKTOP_TARGETS} entry. */
@@ -169,7 +212,9 @@ export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 
 /**
  * Appended to every published desktop artifact name, so a downloaded file says
- * which of the two things it is — the app, or the CLI binary it wraps.
+ * which of the two things it is — the app, or the CLI binary it wraps. The
+ * counterpart of {@link CLI_SUFFIX}, which says the same thing from the other
+ * side.
  *
  * Not part of `productName`: see {@link desktopArtifactFileName}.
  */
@@ -184,13 +229,13 @@ export const DESKTOP_SUFFIX = "Desktop";
  * top of that (a `.deb` file name is conventionally the package name, which
  * Debian requires to be lowercase).
  *
- * **Every name carries {@link DESKTOP_SUFFIX}**, because the CLI artifacts ship
- * from the same repo under names that would otherwise be mistaken for these:
- * the server CLI publishes `subshell-server-<triple>` and the agent
- * `subshell-<triple>`. In a downloads folder `subshell-server_0.5.0_amd64.deb`
- * next to `subshell-server-darwin-arm64` says nothing about which is the app,
- * so `Subshell Server` publishes as `Subshell-Server-Desktop.app.tar.gz` and
- * `subshell-server-desktop_<version>_amd64.deb`.
+ * **Every name carries {@link DESKTOP_SUFFIX}**, and every CLI artifact name
+ * carries {@link CLI_SUFFIX}, because all four ship from the same repo into the
+ * same downloads folder: `subshell-server_0.5.0_amd64.deb` next to
+ * `subshell-server-darwin-arm64` said nothing about which was the app, so
+ * `Subshell Server` publishes as `Subshell-Server-Desktop.app.tar.gz` /
+ * `subshell-server-desktop_<version>_amd64.deb` and the server CLI as
+ * `subshell-server-cli-<triple>` (the agent as `subshell-cli-<triple>`).
  *
  * The suffix is on the FILE NAME only. `productName` stays `Subshell Server`,
  * so the installed app, the window title and the menu bar are unchanged — and
@@ -244,7 +289,7 @@ export function defaultSubshellServerDataDir(env: NodeArtifactsEnv): string {
 }
 
 /**
- * Resolve where `subshell-<target>` binaries are published to / served
+ * Resolve where `subshell-cli-<target>` binaries are published to / served
  * from, UN-normalized (callers `resolve()` it against their own cwd — the
  * apps deliberately disagree on cwd, the ENV ladder is what must not drift).
  * Ladder: `SUBSHELL_NODE_ARTIFACTS_DIR` → `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` →

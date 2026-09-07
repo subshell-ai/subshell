@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SERVER_TARGETS } from "../paths.js";
+import { nodeArtifactFileName, SERVER_TARGETS, serverArtifactFileName } from "../paths.js";
 import {
   assertBunFloor,
   type BuiltArtifact,
@@ -26,7 +26,7 @@ describe("publishArtifacts", () => {
     await mkdir(srcDir, { recursive: true });
     artifacts = new Map();
     for (const [i, triple] of (["linux-x64", "darwin-arm64"] as const).entries()) {
-      const path = join(srcDir, `subshell-${triple}`);
+      const path = join(srcDir, nodeArtifactFileName(triple));
       await writeFile(path, `payload-${i}-${triple}`);
       const digest = await digestFile(path);
       artifacts.set(triple, { path, digest });
@@ -37,7 +37,7 @@ describe("publishArtifacts", () => {
     const destDir = join(workDir, "dest-clean");
     await publishArtifacts(artifacts, destDir);
     for (const [triple, { path, digest }] of artifacts) {
-      const destBin = join(destDir, `subshell-${triple}`);
+      const destBin = join(destDir, nodeArtifactFileName(triple));
       expect(await Bun.file(destBin).text()).toBe(await Bun.file(path).text());
       const sidecar = await Bun.file(`${destBin}.sha256`).text();
       expect(sidecar).toBe(`${digest}\n`);
@@ -51,9 +51,9 @@ describe("publishArtifacts", () => {
   test("a stale garbage sidecar at dest is regenerated, never reused", async () => {
     const destDir = join(workDir, "dest-stale");
     await mkdir(destDir, { recursive: true });
-    await writeFile(join(destDir, "subshell-linux-x64.sha256"), "deadbeef\n");
+    await writeFile(join(destDir, `${nodeArtifactFileName("linux-x64")}.sha256`), "deadbeef\n");
     await publishArtifacts(artifacts, destDir);
-    const sidecar = await Bun.file(join(destDir, "subshell-linux-x64.sha256")).text();
+    const sidecar = await Bun.file(join(destDir, `${nodeArtifactFileName("linux-x64")}.sha256`)).text();
     expect(sidecar).toBe(`${(artifacts.get("linux-x64") as { digest: string }).digest}\n`);
     expect(sidecar).not.toContain("deadbeef");
   });
@@ -62,7 +62,7 @@ describe("publishArtifacts", () => {
     const destDir = join(workDir, "nested", "artifacts");
     expect(existsSync(destDir)).toBe(false);
     await publishArtifacts(artifacts, destDir);
-    expect(existsSync(join(destDir, "subshell-darwin-arm64"))).toBe(true);
+    expect(existsSync(join(destDir, nodeArtifactFileName("darwin-arm64")))).toBe(true);
   });
 
   test("publishes under the artifact file's OWN basename — server-named artifacts coexist (Task E)", async () => {
@@ -71,14 +71,14 @@ describe("publishArtifacts", () => {
     const destDir = join(workDir, "dest-mixed");
     const mixed = new Map<string, BuiltArtifact>();
     for (const triple of SERVER_TARGETS) {
-      const path = join(srcDirLocal, `subshell-server-${triple}`);
+      const path = join(srcDirLocal, serverArtifactFileName(triple));
       await writeFile(path, `server-${triple}`);
       mixed.set(triple, { path, digest: await digestFile(path) });
     }
     await publishArtifacts(mixed, destDir);
     const names = (await readdir(destDir)).sort();
     expect(names).toEqual(
-      SERVER_TARGETS.flatMap((t) => [`subshell-server-${t}`, `subshell-server-${t}.sha256`]).sort(),
+      SERVER_TARGETS.flatMap((t) => [serverArtifactFileName(t), `${serverArtifactFileName(t)}.sha256`]).sort(),
     );
   });
 });
@@ -140,7 +140,7 @@ describe("runSignHook (SUBSHELL_RELEASE_SIGN_CMD, darwin release signing)", () =
   });
 
   test("the artifact path is appended as the command's argument; its exit code decides", async () => {
-    const bin = join(workDir, "subshell-darwin-arm64");
+    const bin = join(workDir, nodeArtifactFileName("darwin-arm64"));
     await writeFile(bin, "bytes");
     // `test -f <appended path>` — passes iff the artifact path arrived verbatim.
     expect(await runSignHook(bin, { SUBSHELL_RELEASE_SIGN_CMD: "test -f" })).toBe(true);

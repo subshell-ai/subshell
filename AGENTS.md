@@ -207,10 +207,11 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
 ```
 
 - `release:client` runs `apps/client/agent`'s `compile:release` (`src/scripts/release.ts`):
-  the four served triples (`linux|darwin × x64|arm64`), each cross-built WITH
+  the three served triples (`linux-x64`, `linux-arm64`, `darwin-arm64` — no
+  Intel Mac), each cross-built WITH
   `--bytecode` (uniform since spec 2026-09-03 §5) — `SUBSHELL_RELEASE_TRIPLES`
   scopes a subset (CI uses this); each digested and published as
-  `subshell-<triple>` + a fresh `.sha256` sidecar via temp-file + `rename()`
+  `subshell-cli-<triple>` + a fresh `.sha256` sidecar via temp-file + `rename()`
   (the atomic swap the downloads route's mtime-keyed cache requires). See
   `apps/client/agent/AGENTS.md` for the app itself.
 - Publish destination: `SUBSHELL_NODE_ARTIFACTS_DIR`, else
@@ -223,6 +224,22 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   ships `--bytecode` (risk #9 retired at bun 1.4.0 — spec 2026-09-03 §5; the
   pipeline refuses older bun). A failed target exits non-zero and publishes
   NOTHING — never a half set.
+- **The artifact names carry `cli` as of 2026-09-07** (`subshell-cli-<triple>`,
+  `subshell-server-cli-<triple>`), so a downloaded file says whether it is the
+  CLI or the desktop app that wraps it. That makes republishing a DEPLOY-ORDER
+  step, not a detail: an already-running instance's `node-artifacts` dir still
+  holds the old names, and every agent download 404s (`install.sh` says "this
+  server has no <target> agent binary published") until `release:client`
+  publishes into it again. The installed binary names are unchanged — a
+  downloaded artifact is still renamed to `subshell` on install.
+
+  `publishArtifacts` writes but never deletes, so after republishing, the
+  old-named files are still sitting there — unreachable (nothing resolves to
+  them any more) but occupying ~70 MB each. Delete the `subshell-<triple>` and
+  `subshell-<triple>.sha256` leftovers by hand. Making publish prune the
+  directory would be the wrong fix: it is an atomic-swap publisher, not a
+  directory owner, and a bad scope variable would then delete artifacts it
+  merely failed to rebuild.
 - `turbo build` wipes the compiled `apps/client/agent/dist/subshell` dev binary;
   re-create it with `cd apps/client/agent && bun run compile`.
 - Separately, `bun run release:server` builds the **control-plane** binary
@@ -230,10 +247,10 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   (`linux-x64`, `linux-arm64`, `darwin-arm64`), each `--bytecode`, with the
   built SPA **embedded** so the binary serves the UI with no frontend dist
   on the host (an embed step overwrites — then `git checkout` restores —
-  the tracked `embedded-web.ts` stub). Published atomically to
-  `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — a
-  local drop dir to scp/deploy; there is no data-dir ladder here. See
-  `apps/server/api/AGENTS.md` ("Standalone binary & CLI") for the CLI
+  the tracked `embedded-web.ts` stub). Published atomically as
+  `subshell-server-cli-<triple>` + `.sha256` to `SUBSHELL_SERVER_RELEASE_DIR`,
+  default `<repo-root>/dist-server` — a local drop dir to scp/deploy; there is
+  no data-dir ladder here. See `apps/server/api/AGENTS.md` ("Standalone binary & CLI") for the CLI
   (`init`/`configure`/`status`/`service install|uninstall|status|start|stop|restart`)
   and config.env.
 
@@ -264,14 +281,18 @@ Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`) — narrower than
 runner, and `file(1)` cannot see a GUI's characteristic failure, which is an
 invisible window.
 
-**Every published desktop artifact carries a `Desktop` suffix**, because both
-CLIs publish from this same repo: the server CLI as `subshell-server-<triple>`
-and the agent as `subshell-<triple>`. In a downloads folder
-`subshell-server_0.5.0_amd64.deb` beside `subshell-server-darwin-arm64` says
-nothing about which one is the application. The suffix is on the FILE NAME
-only — `productName` stays `Subshell Server`, so the installed app, its window
-title and its menu bar are unchanged. A test pins that no published desktop
-name equals or prefixes a CLI artifact name.
+**Every published desktop artifact carries a `Desktop` suffix**, and every CLI
+artifact carries `cli` (`subshell-server-cli-<triple>`, `subshell-cli-<triple>`),
+because all four publish from this same repo into one downloads folder. Before
+the markers, `subshell-server_0.5.0_amd64.deb` beside
+`subshell-server-darwin-arm64` said nothing about which one was the
+application. Both markers are on the FILE NAME only — `productName` stays
+`Subshell Server` and the installed CLI is still `subshell-server`, so the
+installed app, its window title, its menu bar and every CLI command are
+unchanged. A test pins the whole set: across all four producers and every
+triple, no published file (sidecars included) equals or prefixes another, and
+each name carries the word — as a whole token, since `client` contains `cli` —
+that says which kind it is.
 
 One consequence is deliberate and worth knowing: Tauri derives the Debian
 `Package:` field from `productName`, so it is still `subshell-server`. Two
@@ -353,8 +374,8 @@ the duplication.
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
 The four pipelines run sharded in CI and ship as **GitHub Releases** under
-component-scoped tags: `server-vX.Y.Z` (three `subshell-server-<triple>`
-binaries + `.sha256` sidecars), `client-vX.Y.Z` (4 + 4),
+component-scoped tags: `server-vX.Y.Z` (three `subshell-server-cli-<triple>`
+binaries + `.sha256` sidecars), `client-vX.Y.Z` (3 + 3),
 `desktop-server-vX.Y.Z` (2 + 2) and `desktop-client-vX.Y.Z` (2 + 2). Tagging
 and releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
 
@@ -389,10 +410,13 @@ differs is the SHAPE of what they publish — a bundle rather than a bare binary
 which is why they share their own smoke, parameterized by app id.
 
 - **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
-  `subshell-server-<triple>` (SPA embedded; the binary serves its own
+  `subshell-server-cli-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
-  install that ONE file (triple suffix dropped). The 1.3.x companion-binary
-  era is retired. `desktop-server-vX.Y.Z` carries `Subshell-Server-Desktop.app.tar.gz`
+  install that ONE file **renamed to `subshell-server`** — dropping only the
+  triple would leave `subshell-server-cli`, which is not the name the service
+  unit invokes. `client-vX.Y.Z` carries `subshell-cli-<triple>` the same way,
+  installed as `subshell`. The 1.3.x companion-binary era is retired.
+  `desktop-server-vX.Y.Z` carries `Subshell-Server-Desktop.app.tar.gz`
   (darwin-arm64, signed + notarized + stapled) and
   `subshell-server-desktop_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z`
   carries `Subshell-Client-Desktop.app.tar.gz` and
@@ -446,8 +470,9 @@ which is why they share their own smoke, parameterized by app id.
   The plan job pushes the missing tag(s) FIRST, then one build shard per
   app×triple on the self-hosted fleet (linux on `[self-hosted, Linux,
   X64]` — linux-arm64 cross-built there, `file` magic check only, never
-  exec'd; darwin on mac-builder `[self-hosted, macOS, ARM64]` — darwin-x64
-  smoke under Rosetta). Native shards exec `version`; server shards also
+  exec'd; darwin on mac-builder `[self-hosted, macOS, ARM64]`, natively —
+  nothing is cross-arch smoked now that Intel Macs are not a target, so the
+  Rosetta smoke mode is gone). Native shards exec `version`; server shards also
   BOOT on a temp DB with `apps/server/web/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.
