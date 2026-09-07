@@ -19,6 +19,25 @@
 //!
 //! A `Menu` is attached even where nothing needs one: on some Linux
 //! implementations an icon with no menu may not register at all.
+//!
+//! **macOS has its own silently-invisible mode, and it is not ours to fix.**
+//! Measured on a notched MacBook Pro running macOS 26.6.2: every newly created
+//! `NSStatusItem` is allocated with its right edge at logical x≈847, which is
+//! INSIDE the notch (`NSScreen.auxiliaryTopRightArea` starts at 848), and grows
+//! leftward — never into the free right-hand area, ~179pt of which macOS was
+//! holding while drawing nothing. AppKit reports the item perfectly healthy the
+//! whole time: `isVisible == true`, `alphaValue == 1.0`, window level 25,
+//! occlusion "visible". A 25-line pure Swift/AppKit program with no Tauri and
+//! no `tray-icon` reproduces it exactly, so nothing in this repo, in Tauri, or
+//! in `tray-icon` is implicated. Restarting ControlCenter or the session is the
+//! remedy.
+//!
+//! The lesson that IS ours: **`build()` returning `Ok` and `tray_by_id()`
+//! returning `Some` are not evidence the icon is on screen** — both were true
+//! throughout, on both platforms, which is exactly why this looked like a
+//! silent code failure for so long. Do not build a health check on either.
+//! The only usable macOS check would compare `TrayIcon::rect()` against
+//! `auxiliaryTopRightArea`; there is none today, so this app cannot warn.
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
