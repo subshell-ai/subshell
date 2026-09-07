@@ -43,8 +43,12 @@ on:
       app:
         description: "Which deployable to cut"
         type: choice
-        options: [server, client, desktop-server, desktop-client, all, both, desktop]
-        default: both
+        options: [server, client, desktop-server, desktop-client, all]
+        # `all` is the default because every component is cuttable and each
+        # desktop bundle SHIPS the CLI it wraps — so a CLI-only fix does not
+        # reach desktop users until the matching desktop cut. Defaulting to the
+        # whole set makes the safe cut the one you get by pressing Run.
+        default: all
       version:
         description: "Version override — blank = read apps/<app>/package.json (applies to every app in `app`)"
         type: string
@@ -132,12 +136,6 @@ jobs:
             desktop-server) apps="desktop-server" ;;
             desktop-client) apps="desktop-client" ;;
             all)     apps="server client desktop-server desktop-client" ;;
-            # Deprecated aliases, kept so a dispatch typed from an older doc
-            # still cuts what it used to. `all` is the one that includes both
-            # desktop apps. `desktop` predates the desktop-client app, when
-            # there was only one desktop app and it wrapped the server.
-            both)    apps="server client" ;;
-            desktop) apps="desktop-server" ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,

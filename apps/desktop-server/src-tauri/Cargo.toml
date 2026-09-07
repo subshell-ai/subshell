@@ -1,7 +1,7 @@
 [package]
 name = "subshell-desktop"
 version = "0.1.0"
-description = "Subshell Desktop"
+description = "Subshell Server"
 edition = "2021"
 rust-version = "1.82"
 

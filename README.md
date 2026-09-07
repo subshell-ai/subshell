@@ -57,11 +57,7 @@ get past its setup screen without it — `brew install tmux` on macOS,
 | Subshell Client | `Subshell-Client.app.tar.gz` from `desktop-client-vX.Y.Z` | `subshell-client_X.Y.Z_amd64.deb` |
 
 macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
-Ubuntu 24.04+ / Debian 13+ (glibc 2.39). Releases cut before 2026-09-06, when
-there was only one desktop app, are tagged `desktop-vX.Y.Z`. The two apps were
-called Subshell and SubshellNode until 2026-09-06, and releases from before
-then carry the old asset names; a rename does not disturb an installed app,
-which macOS tracks by bundle identifier rather than by name.
+Ubuntu 24.04+ / Debian 13+ (glibc 2.39).
 
 Each app ships the binary it manages inside it — nothing is downloaded on first
 run. Subshell Server offers to install `subshell-server` to `~/.local/bin`,

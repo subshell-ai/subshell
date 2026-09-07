@@ -344,19 +344,16 @@ describe("productName", () => {
   });
 
   /**
-   * The DELIBERATE divergence, pinned so nobody "fixes" it: this app is called
-   * Subshell Client and its bundle identifier still says `node`.
-   *
    * An identifier is an identity, not a label — it keys the macOS settings
    * directory, the notification permission grant, the single-instance lock and
-   * the window-state store, and macOS tracks an app by it, so a renamed `.app`
-   * with the SAME identifier upgrades in place. Changing it would silently
-   * restart every installed user from defaults. The app also wraps the node
-   * agent, which the control plane calls a node, so `dev.subshell.node` is not
-   * even wrong.
+   * the window-state store, and macOS tracks an app BY it. Pinned so a change
+   * to any of that is a deliberate edit here rather than a silent one, and so
+   * it stays distinct from `apps/desktop-server`'s: the two apps are installed
+   * side by side and must not share a settings file.
    */
-  test("the bundle identifier still says node, and that is on purpose", () => {
-    expect(CONF.identifier).toBe("dev.subshell.node");
+  test("the bundle identifier matches the product name and is this app's own", () => {
+    expect(CONF.identifier).toBe("dev.subshell.client");
+    expect(CONF.identifier).not.toBe("dev.subshell.server");
     expect(CONF.productName).toContain("Client");
   });
 });

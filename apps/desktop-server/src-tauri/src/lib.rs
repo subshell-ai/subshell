@@ -15,12 +15,17 @@ use tauri::Manager;
 
 /// Where this app's settings file lives.
 ///
-/// Both strings are SHIPPED: users already have a file at these paths, and
-/// changing either silently forgets every preference they set. They are also
-/// what keeps this app's settings distinct from `apps/desktop-client`'s.
+/// Both strings are what keep this app's settings distinct from
+/// `apps/desktop-client`'s: one shared string would mean two apps overwriting
+/// one file, each forgetting the other's chosen binary.
+///
+/// The Linux directory is `subshell-desktop-server`, NOT `subshell-server`:
+/// `~/.config/subshell-server` is where the SERVER CLI keeps its `config.env`
+/// (`apps/server/src/config-env.ts`), and dropping this app's `settings.json`
+/// in beside it would put two different programs' state in one directory.
 const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
-    macos_bundle_id: "dev.subshell.desktop",
-    linux_dir: "subshell-desktop",
+    macos_bundle_id: "dev.subshell.server",
+    linux_dir: "subshell-desktop-server",
 };
 
 /// Build and run the app.
@@ -152,23 +157,34 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    /// The settings file is SHIPPED state. Moving it — by renaming the bundle
-    /// id or the Linux directory — does not fail, it silently starts every
-    /// existing user from defaults, so the two strings are pinned here rather
-    /// than only living at their use site.
+    /// Pinned here rather than only at the use site: the bundle id is this
+    /// app's identity to macOS (settings directory, notification grant,
+    /// single-instance lock, window state), and the Linux directory must stay
+    /// clear of the server CLI's own `~/.config/subshell-server`.
     #[test]
-    fn the_settings_identity_is_the_one_users_already_have() {
-        assert_eq!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.desktop");
-        assert_eq!(SETTINGS_PATHS.linux_dir, "subshell-desktop");
+    fn the_settings_identity_is_this_apps_own() {
+        assert_eq!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.server");
+        assert_eq!(SETTINGS_PATHS.linux_dir, "subshell-desktop-server");
         let Some(file) = SETTINGS_PATHS.file() else { return };
         let shown = file.to_string_lossy().into_owned();
         if cfg!(target_os = "macos") {
             assert!(
-                shown.ends_with("/Library/Application Support/dev.subshell.desktop/settings.json"),
+                shown.ends_with("/Library/Application Support/dev.subshell.server/settings.json"),
                 "{shown}"
             );
         } else {
-            assert!(shown.ends_with("/.config/subshell-desktop/settings.json"), "{shown}");
+            assert!(
+                shown.ends_with("/.config/subshell-desktop-server/settings.json"),
+                "{shown}"
+            );
         }
+    }
+
+    /// The Linux directory is NOT the server CLI's config home. That CLI keeps
+    /// `config.env` in `~/.config/subshell-server`; a shared directory would
+    /// mix two programs' state.
+    #[test]
+    fn the_linux_directory_is_not_the_server_clis() {
+        assert_ne!(SETTINGS_PATHS.linux_dir, "subshell-server");
     }
 }

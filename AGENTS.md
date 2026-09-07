@@ -256,10 +256,10 @@ space-free because they are download URLs and shell arguments. What Tauri
 emits is discovered instead: each pipeline asserts exactly one bundle
 directory, then GLOBS it for the one `.deb` / `.app` that appeared
 (`selectBundleOutput` — zero or several is a refusal, never a pick) and renames
-or tars it into the published name. Before 2026-09-06 the name was PREDICTED
-from `productName`, which is the only reason both apps were called in single
-tokens: the `.deb` name goes through Debian's own package-name sanitizer, and
-that is not knowable without running the Linux bundler.
+or tars it into the published name. Discovery rather than prediction, because
+the `.deb` name goes through Debian's own package-name sanitizer and is not
+knowable without running the Linux bundler — which is also what frees
+`productName` to be anything, spaces included.
 
 The `.app` INSIDE the tarball keeps its real name — `Subshell Server.app`,
 space and all — because that is what the user installs and what the bundle
@@ -270,24 +270,27 @@ release script's `tar` passes it as one `Bun.spawn` argv element, and
 **The two apps' identities are four-way distinct on purpose** — crate name,
 bundle identifier, `productName`, and sidecar stem. Both can be installed on one
 machine, both put a binary in `/usr/bin` on Debian, and both keep a settings
-file keyed by their identifier. Changing `dev.subshell.desktop` or
-`dev.subshell.node` after a release orphans that app's users' settings and their
-macOS permission grants; treat those two strings as frozen.
+file keyed by their identifier, so a shared string is a collision:
+`dev.subshell.server` / `dev.subshell.client`, and Linux settings directories
+`subshell-desktop-server` / `subshell-desktop-client`.
 
-**The client's identifier says `node` while its product name says Client, and
-that divergence is deliberate.** An identifier is an identity, not a label: it
-keys the macOS settings directory, the notification permission grant, the
-single-instance lock and the window-state store, and macOS tracks an app BY it,
-so a renamed `.app` with the same identifier upgrades in place. Renaming it to
-match the product would silently restart every installed user from defaults.
-The app also wraps the node agent, which the control plane calls a node. Two
-tests pin it (`productName` in each app's `release.test.ts`) so nobody
-"fixes" it. Cargo crate names (`subshell-desktop`, `subshell-desktop-client` —
-also the `/usr/bin` binary names in the debs) and sidecar stems
+**Those Linux directory names are not the CLIs'**, and that asymmetry is the
+point: `~/.config/subshell-server` is where the SERVER CLI keeps `config.env`
+(`apps/server/src/config-env.ts`) and `~/.config/subshell` is the node agent's
+own config home (`apps/client/src/config.ts`). A desktop app dropping
+`settings.json` into either would put two different programs' state in one
+directory, so each app prefixes `subshell-desktop-`. An identifier is an
+identity rather than a label — it keys the macOS settings directory, the
+notification permission grant, the single-instance lock and the window-state
+store — which is why each app's `release.test.ts` and `lib.rs` pin it instead
+of letting it live only at its use site.
+
+Cargo crate names (`subshell-desktop`, `subshell-desktop-client` — also the
+`/usr/bin` binary names in the debs) and sidecar stems
 (`subshell-server-bundled`, `subshell-node-bundled` — they name the binary each
-app WRAPS, not the app) stay for the same class of reason, as do the
-`desktop-server-v` / `desktop-client-v` tag prefixes, which follow the
-directory name.
+app WRAPS, not the app) are deliberately NOT renamed in step with the products,
+as are the `desktop-server-v` / `desktop-client-v` tag prefixes, which follow
+the directory name.
 
 Window titles, tray tooltips and menu titles read "Subshell Server" /
 "Subshell Client"; those are free-form strings and are not `productName`. Keep
@@ -330,11 +333,6 @@ other two: their own changesets package, tag prefix, CHANGELOG sliced into the
 release body, and shards in the same `build`/`publish` jobs. The only thing that
 differs is the SHAPE of what they publish — a bundle rather than a bare binary —
 which is why they share their own smoke, parameterized by app id.
-
-**Releases before 2026-09-06 used the tag prefix `desktop-v`**, when there was
-one desktop app and it wrapped the server. `desktop-v0.2.0` and its release are
-history and stay as they are — as are the asset names from before the apps were
-renamed from Subshell/SubshellNode on the same date.
 
 - **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
   `subshell-server-<triple>` (SPA embedded; the binary serves its own
@@ -386,10 +384,9 @@ renamed from Subshell/SubshellNode on the same date.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
   `app=server|client|desktop-server|desktop-client`, optional
-  `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`). `desktop` is
-  kept as a deprecated alias for `desktop-server`, and `both` for
-  `server client`, so a dispatch typed from an older doc still cuts what it
-  used to.
+  `-f version=X.Y.Z`; blank = read `apps/<app>/package.json`). `all` is the
+  input's default: every component is cuttable, and each desktop bundle ships
+  the CLI it wraps, so the whole set is the safe cut.
   The plan job pushes the missing tag(s) FIRST, then one build shard per
   app×triple on the self-hosted fleet (linux on `[self-hosted, Linux,
   X64]` — linux-arm64 cross-built there, `file` magic check only, never

@@ -2,9 +2,7 @@
 
 `apps/desktop-server` (`@internal/desktop-server`) — **Subshell Server**, a
 **Tauri v2** shell that installs, runs and manages a `subshell-server` on this
-machine, so a user never has to touch a CLI binary. (The app was called
-**Subshell** until 2026-09-06; see "Names" below for what did NOT change with
-it.)
+machine, so a user never has to touch a CLI binary.
 
 ## The two windows, and why they are two
 
@@ -132,7 +130,7 @@ Three rules about that binary:
 | `productName` (the `.app` a user installs) | `Subshell Server` — `Subshell Server.app`, space included |
 | published macOS asset | `Subshell-Server.app.tar.gz` |
 | published Debian asset | `subshell-server_<version>_amd64.deb` |
-| bundle identifier | `dev.subshell.desktop` — FROZEN |
+| bundle identifier | `dev.subshell.server` |
 | Cargo crate / `/usr/bin` binary | `subshell-desktop` |
 | sidecar stem | `subshell-server-bundled` |
 
@@ -143,23 +141,27 @@ Three things about that table are load-bearing:
   they are space-free because they are download URLs and shell arguments. What
   Tauri emits is DISCOVERED: `collectArtifact` globs `bundle/<dir>` for the one
   `.deb`/`.app` present (`selectBundleOutput`; zero or several is a refusal,
-  never a pick) and renames or tars it. Until 2026-09-06 that name was
-  predicted from `productName`, which is the only reason this app was called
-  `Subshell` in one token — the `.deb` name goes through Debian's own
-  package-name sanitizer, unknowable without running the Linux bundler.
+  never a pick) and renames or tars it. Discovery rather than prediction: the
+  `.deb` name goes through Debian's own package-name sanitizer, unknowable
+  without running the Linux bundler — which is what frees `productName` to
+  carry a space.
 - **The `.app` inside the tarball keeps its space.** A space in a bundle path
-  is a real case now: the release script's `tar` hands it to `Bun.spawn` as one
+  is therefore a real case: the release script's `tar` hands it to `Bun.spawn` as one
   argv element, and `scripts/smoke-desktop-bundle.sh` quotes every path it
   builds from `PRODUCT`.
-- **`dev.subshell.desktop` did not change with the name, and must not.** An
-  identifier is an identity, not a label — it keys the macOS settings
+- **The identifier is an identity, not a label.** It keys the macOS settings
   directory, the notification permission grant, the single-instance lock and
-  the window-state store, and macOS tracks an app BY it, which is what makes a
-  renamed `.app` an in-place upgrade rather than a stranger. Same reasoning for
-  the crate name (it is the `/usr/bin` binary in the `.deb`, beside
-  `apps/desktop-client`'s) and the sidecar stem, which names the binary this
-  app WRAPS. `src/scripts/__tests__/release.test.ts` pins `productName` against
-  the protocol constant and the identifier against its shipped value.
+  the window-state store, and macOS tracks an app BY it — so it must stay
+  distinct from `apps/desktop-client`'s `dev.subshell.client` (the two apps are
+  installed side by side and must not share a settings file), and changing it
+  is what makes a build a different app to macOS rather than an upgrade of this
+  one. The crate name is the same class of decision (it is the `/usr/bin`
+  binary in the `.deb`, beside `apps/desktop-client`'s), and so is the sidecar
+  stem, which names the binary this app WRAPS rather than the app — neither is
+  renamed in step with the product.
+  `src/scripts/__tests__/release.test.ts` pins `productName` against the
+  protocol constant and the identifier against its expected value;
+  `src-tauri/src/lib.rs` pins the settings paths it keys.
 
 ## Where things live
 
@@ -195,12 +197,14 @@ parses. `control.rs`/`windows.rs`/`tray.rs`/`menu.rs`/`bridge.rs` are
 different — duplication there is cheaper than an abstraction designed against
 one real consumer and one guess.
 
-The two per-app parameters are the ones that touch a SHIPPED user's disk:
-`SETTINGS_PATHS` in `lib.rs` (`dev.subshell.desktop` / `subshell-desktop`) and
-`SERVER_SIDECAR` in `server_bin.rs` (the bundled name, the installed name, and
-the `"subshell-server "` prefix its `version` line starts with). Both are
-pinned by test, because changing either does not fail — it silently starts
-every existing user from scratch.
+The two per-app parameters are the ones that touch a user's disk:
+`SETTINGS_PATHS` in `lib.rs` (`dev.subshell.server` / `subshell-desktop-server`
+— the Linux name is prefixed to stay out of `~/.config/subshell-server`, the
+server CLI's own `config.env` home) and `SERVER_SIDECAR` in `server_bin.rs`
+(the bundled name, the installed name, and the `"subshell-server "` prefix its
+`version` line starts with). Both are pinned by test, because changing either
+does not fail — it silently starts the app from scratch against a different
+file.
 
 ## The IPC boundary
 
@@ -336,9 +340,9 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   `src-tauri/icons/app-icon.png`, then `bun run icons` cuts the `.icns` and the
   sized PNGs from it. The background colour that distinguishes this app from
   `apps/desktop-client` lives in `brand/generate.ts`'s `DESKTOP_APPS` table.
-  (Before 2026-09-07 the set was cut from `apps/frontend/public/icons/icon-512.png`
-  — the SQUARE web tile — so the macOS icon shipped with hard corners while a
-  rounded master sat unused beside it.)
+  The master is a ROUNDED one, not `apps/frontend/public/icons/icon-512.png`:
+  that is the square web tile, and cutting the `.icns` from it ships a macOS
+  icon with hard corners.
 - **The tray icon is NOT a template** (`icon_as_template(false)`). macOS draws a
   template from the alpha channel alone and discards every colour, which would
   render this app and the node app as the same filled rounded square — and,

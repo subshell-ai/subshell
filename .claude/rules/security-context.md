@@ -244,7 +244,7 @@ shares and subshell shares are two independent axes:
 ## The desktop apps (`apps/desktop-server`, `apps/desktop-client`)
 
 Two Tauri v2 shells, one per CLI. `apps/desktop-server` installs, runs and
-manages a `subshell-server`; `apps/desktop-client` ("Subshell Node") registers
+manages a `subshell-server`; `apps/desktop-client` ("Subshell Client") registers
 the machine as a node and manages its `subshell` agent. Neither adds a server
 surface — everything privileged goes through its CLI as the same local user.
 

@@ -20,9 +20,9 @@ use crate::shell_env::home_dir;
 
 /// One app's identity on disk — where its settings file goes.
 ///
-/// macOS keys the directory by bundle id (`dev.subshell.desktop`), Linux by an
-/// XDG-ish directory name (`subshell-desktop`). Two apps sharing either string
-/// would share (and overwrite) one file.
+/// macOS keys the directory by bundle id (`dev.subshell.server`), Linux by an
+/// XDG-ish directory name (`subshell-desktop-server`). Two apps sharing either
+/// string would share (and overwrite) one file.
 #[derive(Debug, Clone, Copy)]
 pub struct SettingsPaths {
     /// `~/Library/Application Support/<macos_bundle_id>/settings.json`.
@@ -50,11 +50,6 @@ impl SettingsPaths {
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     /// An explicit binary chosen by the user; outranks every discovery rung but the env override.
-    ///
-    /// The alias is not decoration: `apps/desktop-server` shipped this key as
-    /// `serverBinPath` in 0.2.0, and dropping it would silently forget the
-    /// binary an upgrading user had chosen by hand.
-    #[serde(alias = "serverBinPath")]
     pub binary_path: Option<String>,
     /// Whether closing the window hides it to the tray instead of quitting.
     ///

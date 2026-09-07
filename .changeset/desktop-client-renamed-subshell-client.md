@@ -12,12 +12,7 @@ Every published artifact name changes with it: `Subshell-Client.app.tar.gz` (was
 are download URLs and shell arguments; the `.app` inside the tarball keeps the
 spaced product name.
 
-The **bundle identifier stays `dev.subshell.node`** — an identifier is an
-identity, not a label, and it keys the macOS settings directory, the
-notification permission grant, the single-instance lock and the window-state
-store. macOS tracks an app by identifier, so the renamed `.app` upgrades in
-place and nobody starts over from defaults; the app also wraps the node agent,
-which the control plane calls a node. The Cargo crate
-(`subshell-desktop-client`, also the `/usr/bin` binary in the `.deb`), the
-sidecar stem (`subshell-node-bundled`) and the `desktop-client-v` tag prefix are
-unchanged, and "node" still names the control-plane concept everywhere it did.
+The Cargo crate (`subshell-desktop-client`, also the `/usr/bin` binary in the
+`.deb`), the sidecar stem (`subshell-node-bundled`) and the `desktop-client-v`
+tag prefix are unchanged, and "node" still names the control-plane concept
+everywhere it did.

@@ -333,9 +333,11 @@ describe("productName", () => {
 
   // The identifier is IDENTITY, not a label: it keys the macOS settings
   // directory, the notification grant, the single-instance lock and the window
-  // state. It stays what shipped users already have, even now that the product
-  // name has changed.
-  test("the bundle identifier is untouched by the rename", () => {
-    expect(CONF.identifier).toBe("dev.subshell.desktop");
+  // state. It is pinned so a change to any of those is a deliberate edit here
+  // rather than a silent one — and so it stays distinct from
+  // `apps/desktop-client`'s, which shares none of that state.
+  test("the bundle identifier is this app's own", () => {
+    expect(CONF.identifier).toBe("dev.subshell.server");
+    expect(CONF.identifier).not.toBe("dev.subshell.client");
   });
 });

@@ -4,10 +4,10 @@
 **Tauri v2** shell that registers this machine as a node and keeps its
 `subshell` agent running, so a user never has to touch a CLI binary.
 
-The app was called **Subshell Node** until 2026-09-06. The word "node" is still
-correct everywhere it names the control-plane CONCEPT — the machine this app
-registers IS a node, the `node_*` commands act on it, the server's Nodes page
-lists it. Only the APP's name changed.
+The word "node" stays wherever it names the control-plane CONCEPT rather than
+this app — the machine this app registers IS a node, the `node_*` commands act
+on it, the server's Nodes page lists it, and the sidecar stem names the agent
+this app wraps.
 
 It is the sibling of `apps/desktop-server`, one layer down the stack: that app
 wraps the control plane, this one wraps a node. Read that app's `AGENTS.md`
@@ -120,7 +120,7 @@ its own.
 | | desktop-server | desktop-client |
 | --- | --- | --- |
 | Cargo crate | `subshell-desktop` | `subshell-desktop-client` |
-| bundle identifier | `dev.subshell.desktop` | `dev.subshell.node` |
+| bundle identifier | `dev.subshell.server` | `dev.subshell.client` |
 | `productName` | `Subshell Server` | `Subshell Client` |
 | sidecar stem | `subshell-server-bundled` | `subshell-node-bundled` |
 | published `.app.tar.gz` | `Subshell-Server.app.tar.gz` | `Subshell-Client.app.tar.gz` |
@@ -128,30 +128,31 @@ its own.
 
 Both packages can be installed on one machine and both put a binary in
 `/usr/bin` on Debian, so a shared string is a file conflict. The identifier is
-additionally the macOS settings directory and the single-instance key, so
-changing it after a release silently starts every existing user from defaults
-and drops their notification permission.
+additionally the macOS settings directory
+(`crates/desktop-core`'s `SettingsPaths`), the notification permission grant,
+the single-instance lock and the window-state store, and macOS tracks an app BY
+it — an identity rather than a label, which is why
+`src/scripts/__tests__/release.test.ts` and `src-tauri/src/lib.rs` both pin it.
 
-**The identifier says `node` while the product name says Client, and that is
-deliberate — do not "fix" it.** An identifier is an identity, not a label: it
-keys the macOS settings directory (`crates/desktop-core`'s `SettingsPaths`),
-the notification permission grant, the single-instance lock and the
-window-state store, and macOS tracks an app BY it — which is exactly why a
-renamed `.app` with the same identifier upgrades in place instead of arriving
-as a stranger. It is also not even wrong: this app wraps the node agent. The
-Cargo crate name is the same class of decision (it is the `/usr/bin` binary
-name in the `.deb`), and so is the sidecar stem, which names the binary this
-app WRAPS rather than the app. `src/scripts/__tests__/release.test.ts` pins
-both halves of the divergence.
+**The Linux settings directory is `subshell-desktop-client`, not `subshell`.**
+`~/.config/subshell` is the AGENT's own config home
+(`apps/client/src/config.ts` — `config.json` and the 0600 node key), and this
+app writing `settings.json` in beside it would put two programs' state in one
+directory. `apps/desktop-server` is prefixed for the same reason, against the
+server CLI's `~/.config/subshell-server`.
 
-`productName` may contain a space since 2026-09-06: Tauri derives the `.app`
-directory name and the `.deb` file name from it, and the Debian one goes
-through a package-name sanitizer nobody can predict without running the Linux
-bundler — so the release script no longer predicts it. It globs
-`bundle/<dir>` for the ONE artifact that appeared and publishes it under the
-name `desktopArtifactFileName` chooses (space-free: these are download URLs
-and shell arguments). The `.app` inside that tarball is `Subshell Client.app`,
-space included, which is why the tar call and the smoke quote their paths.
+Cargo crate names and sidecar stems are deliberately not renamed in step with
+the products: the crate name is the `/usr/bin` binary in the `.deb`, and the
+sidecar stem names the binary this app WRAPS rather than the app.
+
+`productName` may contain a space: Tauri derives the `.app` directory name and
+the `.deb` file name from it, and the Debian one goes through a package-name
+sanitizer nobody can predict without running the Linux bundler — so the release
+script does not predict it. It globs `bundle/<dir>` for the ONE artifact that
+appeared and publishes it under the name `desktopArtifactFileName` chooses
+(space-free: these are download URLs and shell arguments). The `.app` inside
+that tarball is `Subshell Client.app`, space included, which is why the tar
+call and the smoke quote their paths.
 
 The window title, tray tooltip and menu titles read "Subshell Client" — those
 are free-form and are not `productName`.

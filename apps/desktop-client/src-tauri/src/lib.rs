@@ -22,15 +22,19 @@ use tauri::Manager;
 
 /// Where this app's settings file lives.
 ///
-/// Both strings are SHIPPED: users have a file at these paths, and changing
-/// either does not fail — it silently starts every existing user from
-/// defaults. They are also what keeps this app's settings distinct from
-/// `apps/desktop-server`'s, which uses `dev.subshell.desktop` /
-/// `subshell-desktop`; one shared string would mean two apps overwriting one
-/// file, each forgetting the other's chosen binary.
+/// Both strings are what keep this app's settings distinct from
+/// `apps/desktop-server`'s, which uses `dev.subshell.server` /
+/// `subshell-desktop-server`; one shared string would mean two apps
+/// overwriting one file, each forgetting the other's chosen binary.
+///
+/// The Linux directory is `subshell-desktop-client`, NOT `subshell`:
+/// `~/.config/subshell` is the node AGENT's own config home
+/// (`apps/client/src/config.ts`, where `config.json` and the node key live),
+/// and dropping this app's `settings.json` in beside it would put two
+/// different programs' state in one directory.
 const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
-    macos_bundle_id: "dev.subshell.node",
-    linux_dir: "subshell-node",
+    macos_bundle_id: "dev.subshell.client",
+    linux_dir: "subshell-desktop-client",
 };
 
 /// Environment variables this app refuses to pass on to the agent.
@@ -158,23 +162,26 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    /// The settings file is SHIPPED state. Moving it — by renaming the bundle
-    /// id or the Linux directory — does not fail, it silently starts every
-    /// existing user from defaults, so the two strings are pinned here rather
-    /// than only living at their use site.
+    /// Pinned here rather than only at the use site: the bundle id is this
+    /// app's identity to macOS (settings directory, notification grant,
+    /// single-instance lock, window state), and the Linux directory must stay
+    /// clear of the agent CLI's own `~/.config/subshell`.
     #[test]
-    fn the_settings_identity_is_the_one_users_already_have() {
-        assert_eq!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.node");
-        assert_eq!(SETTINGS_PATHS.linux_dir, "subshell-node");
+    fn the_settings_identity_is_this_apps_own() {
+        assert_eq!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.client");
+        assert_eq!(SETTINGS_PATHS.linux_dir, "subshell-desktop-client");
         let Some(file) = SETTINGS_PATHS.file() else { return };
         let shown = file.to_string_lossy().into_owned();
         if cfg!(target_os = "macos") {
             assert!(
-                shown.ends_with("/Library/Application Support/dev.subshell.node/settings.json"),
+                shown.ends_with("/Library/Application Support/dev.subshell.client/settings.json"),
                 "{shown}"
             );
         } else {
-            assert!(shown.ends_with("/.config/subshell-node/settings.json"), "{shown}");
+            assert!(
+                shown.ends_with("/.config/subshell-desktop-client/settings.json"),
+                "{shown}"
+            );
         }
     }
 
@@ -182,8 +189,16 @@ mod tests {
     /// app silently overwriting the other's chosen binary.
     #[test]
     fn the_settings_identity_is_not_the_server_apps() {
-        assert_ne!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.desktop");
-        assert_ne!(SETTINGS_PATHS.linux_dir, "subshell-desktop");
+        assert_ne!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.server");
+        assert_ne!(SETTINGS_PATHS.linux_dir, "subshell-desktop-server");
+    }
+
+    /// The Linux directory is NOT the agent CLI's config home. That CLI keeps
+    /// `config.json` and the node key in `~/.config/subshell`; a shared
+    /// directory would mix two programs' state.
+    #[test]
+    fn the_linux_directory_is_not_the_agent_clis() {
+        assert_ne!(SETTINGS_PATHS.linux_dir, "subshell");
     }
 
     /// Deliberately not exercised by mutating the environment: `unsetenv` is
