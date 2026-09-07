@@ -1,5 +1,21 @@
 # @internal/desktop-server
 
+## 0.3.0
+
+### Minor Changes
+
+- [`c694cdd`](https://github.com/subshell-ai/subshell/commit/c694cddf53a186a11c1e5e4e82e137fcfc6e149a) Thanks [@theogravity](https://github.com/theogravity)! - Renamed from `@internal/desktop` now that there are two desktop apps — this one
+  wraps the server, and the new `@internal/desktop-client` wraps a node agent.
+  
+  **Releases now carry the tag prefix `desktop-server-v`** instead of `desktop-v`.
+  Existing `desktop-v*` releases are unchanged.
+  
+  Nothing user-facing about the app itself changes: the bundle identifier,
+  product name, artifact names and the settings file are all deliberately
+  untouched, so an installed copy upgrades in place and keeps its settings. The
+  Rust it shares with the new app moved to `crates/desktop-core`, and one settings
+  key was renamed with a back-compatible alias.
+
 ## 0.2.0
 
 ### Minor Changes
