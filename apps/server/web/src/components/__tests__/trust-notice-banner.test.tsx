@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { TrustNoticeBanner } from "@/components/trust-notice-banner";
+import { TrustNoticeBanner, VISIBLE_MS } from "@/components/trust-notice-banner";
 import { noticeSeen, setTrustBannersEnabled } from "@/lib/trust-notice-prefs";
 import type { TrustNotice } from "@/lib/trust-notices";
 
@@ -20,19 +20,26 @@ describe("TrustNoticeBanner", () => {
   afterEach(cleanup);
 
   it("shows the disclosure, then retires it without being touched", async () => {
-    render(<TrustNoticeBanner notices={[notice()]} />);
+    // A SHORT dwell, not a fake clock. The contract under test is "it goes
+    // away on its own", so the timers stay real — asserting this through fake
+    // timers would test the mock instead. At the 5 s default this case spent
+    // 5.4 s of wall clock and, on a loaded CI runner, blew past even a 15 s
+    // budget (17.2 s, one failed run on 2026-09-07). The default itself is
+    // pinned separately below, so nothing here stops covering it.
+    render(<TrustNoticeBanner notices={[notice()]} visibleMs={80} />);
     expect(screen.getByRole("alert").textContent).toContain("shared this subshell with 2 other people");
 
-    // 5 s visible + 400 ms fade. Real timers with a generous budget: the
-    // component's contract is "it goes away on its own", and asserting that
-    // through fake timers would test the mock instead.
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull(), { timeout: 8000 });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull(), { timeout: 4000 });
     // ...and having been shown once, it does not come back.
     expect(noticeSeen("shared:s1:2:false")).toBe(true);
-    // Explicit case timeout: the banner's whole point is a 5 s dwell, which
-    // is past bun's 5 s default — without this the case is killed mid-wait
-    // and fails as a bogus assertion rather than a timeout.
-  }, 15_000);
+  });
+
+  // The dwell the app actually ships. The case above proves the retire path
+  // with a short one, so without this the 5 s product decision would be
+  // asserted nowhere and could be changed by accident.
+  it("dwells for five seconds by default", () => {
+    expect(VISIBLE_MS).toBe(5_000);
+  });
 
   it("retires when dismissed, well before the 5 s dwell, and remembers that", async () => {
     render(<TrustNoticeBanner notices={[notice()]} />);

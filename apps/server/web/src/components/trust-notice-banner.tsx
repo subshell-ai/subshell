@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
  */
 
 /** How long the banner stays up before fading on its own. */
-const VISIBLE_MS = 5_000;
+export const VISIBLE_MS = 5_000;
 
 /** Fade duration; the banner is dropped only after this elapses. */
 const FADE_MS = 400;
@@ -33,9 +33,26 @@ export interface TrustNoticeBannerProps {
   notices: TrustNotice[];
   /** Extra classes for the wrapper (positioning is the caller's business). */
   className?: string;
+  /**
+   * Dwell before the fade starts. Defaults to {@link VISIBLE_MS}; no caller in
+   * the app passes it.
+   *
+   * It exists for the tests. The contract worth asserting is "the banner goes
+   * away on its own", which needs REAL timers — asserting it through fake ones
+   * tests the mock instead. But at the 5 s default that case spends 5.4 s of
+   * wall clock, and on a loaded CI runner it blew past even a 15 s budget
+   * (measured: 17.2 s, one failed run on 2026-09-07). A shorter dwell keeps the
+   * real-timer contract and removes the flake, rather than raising the budget
+   * and moving the threshold.
+   */
+  visibleMs?: number;
 }
 
-export function TrustNoticeBanner({ notices, className }: TrustNoticeBannerProps): JSX.Element | null {
+export function TrustNoticeBanner({
+  notices,
+  className,
+  visibleMs = VISIBLE_MS,
+}: TrustNoticeBannerProps): JSX.Element | null {
   /**
    * The exposure currently on screen, or null for none. Chosen ONCE per set of
    * notices, in the effect below — never re-derived during render, so marking
@@ -81,12 +98,12 @@ export function TrustNoticeBanner({ notices, className }: TrustNoticeBannerProps
       markNoticeSeen(key);
       setActiveKey(null);
     };
-    timers.current = [setTimeout(() => setFading(true), VISIBLE_MS), setTimeout(retire, VISIBLE_MS + FADE_MS)];
+    timers.current = [setTimeout(() => setFading(true), visibleMs), setTimeout(retire, visibleMs + FADE_MS)];
     return () => {
       for (const timer of timers.current) clearTimeout(timer);
       timers.current = [];
     };
-  }, []);
+  }, [visibleMs]);
 
   const active = notices.find((notice) => notice.dismissKey === activeKey);
   if (!active) return null;
