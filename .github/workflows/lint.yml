@@ -46,6 +46,13 @@ jobs:
       - name: Run package checking
         run: bun run lint:packages
 
+      # Bun records a version for each workspace in bun.lock and never resyncs
+      # it, and `--frozen-lockfile` exits 0 when it is stale — so the release
+      # flow silently drifted the lockfile a whole version behind before
+      # anyone noticed. This is the only check that sees it.
+      - name: Check the lockfile's workspace versions
+        run: bun run lint:lockfile
+
       - name: Run type checking
         run: bun run verify-types
 

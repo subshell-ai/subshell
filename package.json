@@ -26,6 +26,8 @@
     "lint": "turbo run lint --continue --",
     "lint:check": "turbo run lint:check --continue --",
     "lint:packages": "syncpack lint",
+    "lint:lockfile": "bun scripts/lockfile-workspace-versions.ts",
+    "lint:lockfile:fix": "bun scripts/lockfile-workspace-versions.ts --fix",
     "test": "turbo run test --continue --",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:install": "turbo run install-browsers",
@@ -34,7 +36,7 @@
     "release:desktop-server": "bun run --cwd apps/server/desktop compile:release",
     "release:desktop-client": "bun run --cwd apps/client/desktop compile:release",
     "changeset": "changeset",
-    "version-packages": "changeset version"
+    "version-packages": "changeset version && bun run lint:lockfile:fix"
   },
   "dependencies": {
     "@elysiajs/eden": "1.4.9",
