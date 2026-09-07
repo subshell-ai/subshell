@@ -1,6 +1,6 @@
 # Client AGENTS.md
 
-App-specific documentation for `subshell` (`@internal/client`) — the node
+App-specific documentation for `subshell` (`@internal/node`) — the node
 daemon: it enrolls with the control plane, holds the `/ws/node` socket, and
 executes signed commands (launch/tmux/fs) as the invoking user on its machine.
 Design: `docs/superpowers/specs/2026-08-31-nodes-design.md` §7 + the Phase-3
@@ -11,7 +11,7 @@ distribution design beside it. Architecture-role prose: `docs/architecture.md` �
 ```bash
 bun run build            # tsdown lib build → dist/index.js|.d.ts (what turbo runs)
 bun run compile          # single-file DEV binary ./dist/subshell (host only, --bytecode)
-bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:client`)
+bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:node`)
 bun run test             # bun test
 bun run verify-types     # tsc --noEmit
 ```
@@ -21,7 +21,7 @@ bun run verify-types     # tsc --noEmit
   they must never become a hidden cost of the normal build/test path. Every
   target ships `--bytecode` (risk #9 retired at bun 1.4.0 — spec 2026-09-03
   §5); the pipeline refuses older bun. `SUBSHELL_RELEASE_TRIPLES` scopes a
-  subset (CI uses this). Each target publishes as `subshell-cli-<triple>` —
+  subset (CI uses this). Each target publishes as `subshell-node-cli-<triple>` —
   the `cli` says it is the bare binary rather than the `apps/client/desktop`
   app that wraps it (`nodeArtifactFileName`, `@internal/subshell-protocol`);
   the INSTALLED binary is still `subshell`, so an install renames it. Publish
@@ -31,7 +31,7 @@ bun run verify-types     # tsc --noEmit
   `SUBSHELL_NODE_ARTIFACTS_DIR`, else `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` (a
   documented duplicate of the server's default in `apps/server/api/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
-  the tsdown output) — re-create with `cd apps/client/agent && bun run compile`.
+  the tsdown output) — re-create with `cd apps/node/agent && bun run compile`.
 - Workspace deps (`harnesses`, `subshell-protocol`, `mcp-core`, `backend-errors`):
   the compiled binary BUNDLES their dists, so `turbo build` must run first —
   `compile:release` preflights and refuses otherwise. The client imports
@@ -148,7 +148,7 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`
   per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +
-  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the client data dir).
+  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the agent's data dir).
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
   `SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
 

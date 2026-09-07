@@ -6,7 +6,7 @@ import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
  * `subshell-server service install|uninstall` — background the control plane
  * with the platform's per-user service manager: a systemd **user** unit on
  * Linux, a launchd agent plist on macOS. The direct mirror of
- * `apps/client/agent/src/service.ts` (same deps-injection discipline, same
+ * `apps/node/agent/src/service.ts` (same deps-injection discipline, same
  * "tests pin the exact unit/plist text + command sequences" property) with
  * one deliberate structural difference: EVERYTHING here is SYNCHRONOUS.
  * That is not style — the CLI entry (cli.ts invariant 1) forbids a handled
@@ -16,7 +16,7 @@ import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
  *
  * One further divergence, added 2026-09-05 and deliberately SERVER-ONLY for
  * now: {@link queryService}/{@link controlService} (the manager-state read and
- * the start/stop/restart drivers, with the live-pane guard). `apps/client/agent`'s
+ * the start/stop/restart drivers, with the live-pane guard). `apps/node/agent`'s
  * unit carries the same tmux-child hazard and should grow the same surface,
  * but the node daemon has no UI asking for it yet and the client's async
  * shape means the port is not a copy-paste.

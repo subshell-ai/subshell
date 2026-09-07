@@ -31,7 +31,7 @@ import {
  * found" pointing at a path that looks right), a signing hook inherited from
  * the CI shard (wall-clock spent signing bytes Tauri re-seals, plus a digest
  * that matches nothing), a relative publish dir (resolved in the CHILD's cwd,
- * so it lands in apps/client/agent/apps/client/desktop/…), a surplus bundle (which
+ * so it lands in apps/node/agent/apps/client/desktop/…), a surplus bundle (which
  * the publish glob would ship), and the bundle-path → artifact-name mapping,
  * which is the piece a Tauri upgrade moves.
  *
@@ -77,11 +77,11 @@ describe("stageSidecar", () => {
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(true);
     // `compile` is the host-only dev build — no cross target and no
     // --bytecode, so a darwin bundle built on a Linux shard would carry an ELF.
-    expect(s.runs[0]?.argv).toEqual(["bun", "run", "--cwd", "apps/client/agent", "compile:release"]);
+    expect(s.runs[0]?.argv).toEqual(["bun", "run", "--cwd", "apps/node/agent", "compile:release"]);
   });
 
   // resolveArtifactsDir() on the agent side resolves in the CHILD's cwd, so a
-  // relative override would land in apps/client/agent/apps/client/desktop/…
+  // relative override would land in apps/node/agent/apps/client/desktop/…
   test("passes an ABSOLUTE publish directory", async () => {
     const s = stub();
     await stageSidecar(s.deps, "darwin-arm64");

@@ -11,7 +11,7 @@
 //! Two traps live in here, both specific to the CLIENT and neither shared with
 //! `apps/server/desktop`'s otherwise identical ladder:
 //!
-//! 1. `execLine()` in `apps/client/agent/src/service.ts` appends the VERB: a
+//! 1. `execLine()` in `apps/node/agent/src/service.ts` appends the VERB: a
 //!    compiled install records `[binary, "run"]` and a dev-form install records
 //!    `[interpreter, script, "run"]`. Both tokens of the dev form are needed
 //!    (argv[0] alone is `bun`), and the trailing `run` must be dropped, or the
@@ -47,14 +47,14 @@ pub const AGENT_SIDECAR: SidecarSpec = SidecarSpec {
 /// build without installing anything.
 const AGENT_BIN_ENV: &str = "SUBSHELL_AGENT_BIN";
 
-/// The systemd user unit `apps/client/agent/src/service.ts` installs.
+/// The systemd user unit `apps/node/agent/src/service.ts` installs.
 ///
 /// Pinned here rather than derived: it is the CLIENT's unit
 /// (`subshell.service`), and reading `apps/server/desktop`'s
 /// `subshell-server.service` by accident would resolve the wrong product's
 /// binary and then drive it with node verbs it does not have.
 const SYSTEMD_UNIT: &str = "subshell.service";
-/// The launchd label `apps/client/agent/src/service.ts` installs under.
+/// The launchd label `apps/node/agent/src/service.ts` installs under.
 const LAUNCHD_LABEL: &str = "dev.subshell.client";
 
 /// The verb `execLine()` appends to every service definition it writes.
@@ -370,8 +370,8 @@ mod exec_parse_tests {
     #[test]
     fn a_dev_form_install_keeps_both_tokens() {
         assert_eq!(
-            parse_systemd_exec("/Users/x/.bun/bin/bun /repo/apps/client/agent/src/main.ts run"),
-            ["/Users/x/.bun/bin/bun", "/repo/apps/client/agent/src/main.ts", "run"]
+            parse_systemd_exec("/Users/x/.bun/bin/bun /repo/apps/node/agent/src/main.ts run"),
+            ["/Users/x/.bun/bin/bun", "/repo/apps/node/agent/src/main.ts", "run"]
         );
     }
 
@@ -730,7 +730,7 @@ mod sidecar_spec_tests {
     }
 
     // The service definition this app reads is the CLIENT's, not the server
-    // app's — `apps/client/agent/src/service.ts` SYSTEMD_UNIT_NAME / LAUNCHD_LABEL.
+    // app's — `apps/node/agent/src/service.ts` SYSTEMD_UNIT_NAME / LAUNCHD_LABEL.
     #[test]
     fn the_service_definition_names_are_the_clients() {
         assert_eq!(SYSTEMD_UNIT, "subshell.service");

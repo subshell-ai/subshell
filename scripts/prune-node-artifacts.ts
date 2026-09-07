@@ -9,9 +9,10 @@
  * every triple it had merely been told not to build. That is the wrong failure
  * to risk in the step that ships binaries.
  *
- * The consequence is leftovers. Renaming the published artifacts to
- * `subshell-cli-<triple>` orphaned every `subshell-<triple>`, and dropping the
- * Intel Mac target orphaned `subshell-cli-darwin-x64` — unreachable, since
+ * The consequence is leftovers. Two renames orphaned a full set each —
+ * `subshell-<triple>` when the artifacts took the `cli` marker, then
+ * `subshell-cli-<triple>` when the node agent's artifacts took the word `node`
+ * — and dropping the Intel Mac target orphaned one more. Unreachable, since
  * nothing resolves to those names any more, but ~70 MB each.
  *
  * So pruning is its own explicit step, and it decides from the COMPLETE target

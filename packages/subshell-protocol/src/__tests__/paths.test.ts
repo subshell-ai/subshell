@@ -77,7 +77,7 @@ describe("NODE_TARGETS / SERVER_TARGETS", () => {
 
   test("the two artifact names never collide on a shared triple", () => {
     for (const triple of SERVER_TARGETS) {
-      expect(nodeArtifactFileName(triple)).toBe(`subshell-cli-${triple}`);
+      expect(nodeArtifactFileName(triple)).toBe(`subshell-node-cli-${triple}`);
       expect(serverArtifactFileName(triple)).toBe(`subshell-server-cli-${triple}`);
       expect(serverArtifactFileName(triple)).not.toBe(nodeArtifactFileName(triple));
     }

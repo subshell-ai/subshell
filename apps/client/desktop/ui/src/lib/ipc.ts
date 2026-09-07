@@ -13,7 +13,7 @@
  *    words spent on them.
  * 2. The **command names** are pinned by `__tests__/ipc-acl.test.ts`, which
  *    reads `src-tauri/permissions/desktop.toml` and
- *    `src-tauri/capabilities/main.json` and asserts the set granted there is
+ *    `src-tauri/capabilities/node.json` and asserts the set granted there is
  *    exactly the set invoked here. A name that appears in only two of the three
  *    places is a runtime permission rejection, not a compile error.
  * 3. The **step union** is derived from `ProbeStep`'s serde values, and
@@ -52,7 +52,7 @@ export interface AgentBinary {
  * `subshell status --json`, forwarded by the Rust side as an opaque
  * `serde_json::Value`.
  *
- * So this interface describes `apps/client/agent/src/cli.ts`'s body, not a Rust
+ * So this interface describes `apps/node/agent/src/cli.ts`'s body, not a Rust
  * struct: `{nodeId, serverUrl, online, agentVersion}` when a config loaded, and
  * `{nodeId: null, serverUrl: null, online: false, agentVersion, reason}` when
  * `loadConfig()` threw. Every field is optional because the app must render
@@ -70,12 +70,12 @@ export interface NodeStatusBody {
   reason?: string;
 }
 
-/** `ServiceRunState` in `apps/client/agent/src/service.ts`. */
+/** `ServiceRunState` in `apps/node/agent/src/service.ts`. */
 export type ServiceRunState = "running" | "stopping" | "stopped" | "not-installed" | "unknown";
 
 /**
  * Whether a teardown leaves live panes running. `PaneSafety` in
- * `apps/client/agent/src/service.ts`.
+ * `apps/node/agent/src/service.ts`.
  *
  * `unknown` is not a shrug — the definition exists and could not be read — so
  * everything here fails CLOSED on it, exactly as the CLI's own guard does.
@@ -83,7 +83,7 @@ export type ServiceRunState = "running" | "stopping" | "stopped" | "not-installe
  */
 export type PaneSafety = "keeps" | "kills" | "unknown";
 
-/** `subshell service status --json` — `ServiceState` in `apps/client/agent/src/service.ts`. */
+/** `subshell service status --json` — `ServiceState` in `apps/node/agent/src/service.ts`. */
 export interface ServiceStatusBody {
   installed?: boolean;
   definitionPath?: string | null;
@@ -159,7 +159,7 @@ export interface Probe {
 /**
  * The CLI's own words, verbatim. `ActionResult`.
  *
- * `stdout`/`stderr` are rendered as-is and never re-worded: `apps/client/agent`
+ * `stdout`/`stderr` are rendered as-is and never re-worded: `apps/node/agent`
  * phrases the tmux refusal, the `loginctl enable-linger` hint, the live-pane
  * refusal and every enrollment failure, and those strings are pinned by its own
  * tests.
@@ -216,6 +216,15 @@ export interface NodeSettings {
   traySupported: boolean;
   /** And when it is not, why: the difference between hiding the control and explaining it. */
   trayStatus: TrayStatus;
+  /**
+   * The control plane this client shows, once one is known — the stored
+   * address, else the enrolled node's own `serverUrl`.
+   *
+   * Resolved on the Rust side rather than assembled here, so what this page
+   * offers to open and what {@link nodeOpenPlane} actually opens cannot be two
+   * different addresses.
+   */
+  planeUrl: string | null;
 }
 
 /** The directories and files the window may ask to reveal. `OpenTarget`, kebab-case. */
@@ -317,4 +326,21 @@ export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
  */
 export function nodeSetCloseToTray(args: { enabled: boolean }): Promise<void> {
   return invoke<void>("node_set_close_to_tray", args);
+}
+
+/**
+ * Show a control plane's own UI in the app's main window, and remember the
+ * address.
+ *
+ * `url` is what the user typed; omit it to open whatever address is already
+ * settled. Rejects with a string for anything that is not an http(s) URL, and
+ * for "nothing to open" when no address is known yet.
+ *
+ * **The window this opens is granted no commands.** A control plane can live on
+ * any host, so its origin cannot be enumerated in a capability file, and a
+ * window that cannot be pinned gets nothing — see
+ * `src-tauri/src/windows.rs`. Everything privileged stays on this page.
+ */
+export function nodeOpenPlane(args: { url: string | null }): Promise<string> {
+  return invoke<string>("node_open_plane", args);
 }

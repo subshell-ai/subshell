@@ -31,7 +31,7 @@
     "test": "turbo run test --continue --",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:install": "turbo run install-browsers",
-    "release:client": "bun run --cwd apps/client/agent compile:release",
+    "release:node": "bun run --cwd apps/node/agent compile:release",
     "prune:node-artifacts": "bun scripts/prune-node-artifacts.ts",
     "release:server": "bun run --cwd apps/server/api compile:release",
     "release:desktop-server": "bun run --cwd apps/server/desktop compile:release",

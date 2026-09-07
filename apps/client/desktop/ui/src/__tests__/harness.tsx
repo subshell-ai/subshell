@@ -76,6 +76,7 @@ export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSetting
     closeToTray: false,
     traySupported,
     trayStatus: traySupported ? "supported" : "unsupported",
+    planeUrl: null,
     ...overrides,
   };
 }

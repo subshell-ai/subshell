@@ -181,7 +181,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       // resize is what sizes a pane) — so the wire carries no geometry; (2)
       // the frozen protocol validates/passes the optional fields intact, so
       // the day a producer exists the frame reaches the agent's resizeWindow
-      // (apps/client/agent/src/commands/launch.ts) without another protocol change.
+      // (apps/node/agent/src/commands/launch.ts) without another protocol change.
       expect("cols" in launch).toBe(false);
       expect("rows" in launch).toBe(false);
       const withGeometry = parseNodeCommandBody({ ...launch, cols: 132, rows: 43 });
@@ -345,7 +345,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
   describe("uploads relay through the same routes (Task 12 fixture, scripted agent)", () => {
     /**
      * A real-fs stand-in for the agent's `write_file` executor
-     * (`apps/client/agent/src/commands/write-file.ts`, pinned by its own suite):
+     * (`apps/node/agent/src/commands/write-file.ts`, pinned by its own suite):
      * chunk 0 truncates a `.part` beside the target, later chunks append,
      * eof renames it into place — every accepted chunk answers the contractual
      * `{ path, received }`. Bytes land on an actual disk, so the eof

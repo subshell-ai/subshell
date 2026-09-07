@@ -79,17 +79,17 @@ export const CLI_SUFFIX = "cli";
 
 /**
  * The file name a built agent binary is published as and served under:
- * `subshell-cli-<target>` (plus a `.sha256` sidecar written/read alongside
- * it). The agent's release pipeline and the backend's downloads route must
- * agree — drift is a 404 on install, which is also why renaming this is a
+ * `subshell-node-cli-<target>` (plus a `.sha256` sidecar written/read
+ * alongside it). The agent's release pipeline and the backend's downloads route
+ * must agree — drift is a 404 on install, which is also why renaming this is a
  * DEPLOY-ORDER fact: an instance's existing `node-artifacts` dir holds the old
- * names until `release:client` republishes into it. `target` is normally a
+ * names until `release:node` republishes into it. `target` is normally a
  * {@link NodeTarget}; the parameter stays a plain string because the release
  * pipeline's scope override schedules a plain-string subset through the same
  * naming.
  */
 export function nodeArtifactFileName(target: string): string {
-  return `subshell-${CLI_SUFFIX}-${target}`;
+  return `subshell-node-${CLI_SUFFIX}-${target}`;
 }
 
 /**
@@ -171,7 +171,7 @@ const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
  */
 export const SERVER_SIDECAR_NAME = "subshell-server-bundled";
 
-/** The in-bundle name of the node agent `apps/client/desktop` ships. */
+/** The in-bundle name of the node agent Subshell Client ships. */
 export const AGENT_SIDECAR_NAME = "subshell-node-bundled";
 
 /**
@@ -207,7 +207,10 @@ export function desktopSidecarFileName(sidecarName: string, target: string): str
  */
 export const DESKTOP_SERVER_PRODUCT = "Subshell Server";
 
-/** The product name of `apps/client/desktop` — the node agent's GUI. */
+/**
+ * The product name of `apps/client/desktop` — the human interface to a control
+ * plane, which is also where a machine is registered as a node.
+ */
 export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 
 /**
@@ -235,7 +238,7 @@ export const DESKTOP_SUFFIX = "Desktop";
  * `subshell-server-darwin-arm64` said nothing about which was the app, so
  * `Subshell Server` publishes as `Subshell-Server-Desktop.app.tar.gz` /
  * `subshell-server-desktop_<version>_amd64.deb` and the server CLI as
- * `subshell-server-cli-<triple>` (the agent as `subshell-cli-<triple>`).
+ * `subshell-server-cli-<triple>` (the agent as `subshell-node-cli-<triple>`).
  *
  * The suffix is on the FILE NAME only. `productName` stays `Subshell Server`,
  * so the installed app, the window title and the menu bar are unchanged — and
@@ -289,7 +292,7 @@ export function defaultSubshellServerDataDir(env: NodeArtifactsEnv): string {
 }
 
 /**
- * Resolve where `subshell-cli-<target>` binaries are published to / served
+ * Resolve where `subshell-node-cli-<target>` binaries are published to / served
  * from, UN-normalized (callers `resolve()` it against their own cwd — the
  * apps deliberately disagree on cwd, the ENV ladder is what must not drift).
  * Ladder: `SUBSHELL_NODE_ARTIFACTS_DIR` → `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` →

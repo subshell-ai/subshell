@@ -63,7 +63,7 @@ const PublicSettingsSchema = t.Object({
   // holds this payload.
   nodeArtifactTargets: t.Array(t.String(), {
     description:
-      "Platform triples whose agent binary THIS server actually serves under /api/downloads/node/* (empty on a fresh binary-only install until release:client publishes artifacts); the Nodes dialog shows a manual-enroll fallback when it is incomplete",
+      "Platform triples whose agent binary THIS server actually serves under /api/downloads/node/* (empty on a fresh binary-only install until release:node publishes artifacts); the Nodes dialog shows a manual-enroll fallback when it is incomplete",
   }),
 });
 

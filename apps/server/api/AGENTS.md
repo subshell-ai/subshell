@@ -73,7 +73,7 @@ src/
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
-├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node client can reuse it
+├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/harnesses` (tmux-runner.ts) so the node agent can reuse it
 ├── utils/          # Logger and small shared helpers
 ├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
@@ -81,9 +81,9 @@ src/
 
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries —
-published as `subshell-cli-<triple>` + `.sha256` — from `NODE_ARTIFACTS_DIR`
+published as `subshell-node-cli-<triple>` + `.sha256` — from `NODE_ARTIFACTS_DIR`
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
-`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:client`,
+`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:node`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
 A binary-only server install ships that dir EMPTY, so the install one-liner
 404s until someone publishes — three surfaces know this instead of letting
@@ -459,7 +459,7 @@ is set (CI sets it to `scripts/macos-sign-notarize.sh` on mac-builder — see
 root `AGENTS.md`; unset locally, so plain release runs skip the hook),
 and publishes atomically (tmp + rename + `.sha256` sidecar) to
 `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — an
-operator drop dir to scp/deploy, not a data-dir ladder like the client's
+operator drop dir to scp/deploy, not a data-dir ladder like the agent's
 node artifacts. A failed target publishes NOTHING.
 
 ## Testing

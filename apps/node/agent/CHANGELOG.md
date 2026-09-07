@@ -1,4 +1,4 @@
-# @internal/client
+# @internal/node
 
 ## 0.5.0
 

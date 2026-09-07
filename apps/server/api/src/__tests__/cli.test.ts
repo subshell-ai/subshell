@@ -94,7 +94,7 @@ describe("dispatchCli — mcp", () => {
     // The fake runner resolves immediately (that is what connect() does);
     // dispatch must NOT: exiting — or even resolving `true`, which
     // cli-bootstrap's `.then(handled ⇒ exit 0)` would act on — kills a live
-    // stdio transport milliseconds after `ready` (apps/client/agent's T18 lesson;
+    // stdio transport milliseconds after `ready` (apps/node/agent's T18 lesson;
     // e2e-cross-subshell.test.ts owns the real two-process proof). The
     // parked promise means the transport owns the process lifetime.
     let settled = false;

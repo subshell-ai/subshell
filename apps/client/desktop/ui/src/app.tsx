@@ -1,19 +1,24 @@
 /**
- * Subshell Client's only page.
+ * Subshell Client's bundled page — the `node` window.
  *
- * The whole product is one sentence: paste a server URL and a setup key, and
- * this machine becomes a node that agents can be launched on, without ever
- * meeting the CLI. This file is the composition behind that sentence —
- * `hooks/use-node-state` reads the machine, `hooks/use-node-commands` acts on
- * it, `components/step-screens` holds the words, and this decides which of them
- * is on screen.
+ * NOT the app's only window. `main` shows a control plane's own UI, loaded from
+ * the plane's own origin and granted no commands at all; this page is the other
+ * half, and the only surface that drives the `subshell` CLI. Its sentence:
+ * paste a server URL and a setup key, and this machine becomes a node that
+ * agents can be launched on, without ever meeting the CLI.
  *
- * There is no router: one window and a step machine. The step is the probe's
- * own `step`, except while the user has explicitly asked for a screen the
- * machine's state does not imply — today only re-enrolment.
+ * The composition behind that — `hooks/use-node-state` reads the machine,
+ * `hooks/use-node-commands` acts on it, `components/step-screens` holds the
+ * words, and this decides which of them is on screen — plus
+ * `components/plane-card`, which is the door to the other window.
+ *
+ * There is no router: one page and a step machine. The step is the probe's own
+ * `step`, except while the user has explicitly asked for a screen the machine's
+ * state does not imply — today only re-enrolment.
  */
 import { useState } from "react";
 import { OutputBlock } from "@/components/output-block";
+import { PlaneCard } from "@/components/plane-card";
 import { PrefsCard } from "@/components/prefs-card";
 import { StatusCard } from "@/components/status-card";
 import { StepCard } from "@/components/step-card";
@@ -72,9 +77,11 @@ export function App() {
       <header>
         <h1 className="font-semibold text-[15px] tracking-tight">Subshell Client</h1>
         <p className="mt-0.5 text-muted-foreground text-xs">
-          Register this machine with a Subshell control plane, and keep its agent running.
+          Watch a Subshell control plane, and register this machine with it as a node.
         </p>
       </header>
+
+      <PlaneCard settings={settings} busy={runner.busy} onOpen={commands.openPlane} />
 
       <StatusCard
         probe={probe}

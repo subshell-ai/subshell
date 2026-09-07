@@ -5,7 +5,7 @@
 #                 ("chore: release package(s)"). Private packages: changesets
 #                 creates NO tags/releases for them — the version PR only bumps
 #                 the FOUR releasable apps' package.jsons + CHANGELOGs:
-#                 apps/server/api, apps/client/agent, apps/server/desktop and
+#                 apps/server/api, apps/node/agent, apps/server/desktop and
 #                 apps/client/desktop. `.changeset/config.json` ignores the
 #                 other ten workspaces.
 #   plan        — push events emit an EMPTY matrix (the merge of a version PR
@@ -35,15 +35,16 @@
 # An app has TWO names, and confusing them is the failure mode this workflow is
 # now shaped around:
 #
-#   app (the id)  `server` | `client` | `desktop-server` | `desktop-client`.
+#   app (the id)  `server` | `node` | `desktop-server` | `desktop-client`.
 #                 The git tag prefix, the upload-artifact name, the publish
 #                 download pattern and file glob, the dispatch option, and
-#                 every `matrix.app == …` condition. These are PUBLISHED —
-#                 `server-v1.9.0`, `client-v0.5.0`, `desktop-server-v0.4.0`
-#                 and `desktop-client-v0.2.0` all exist as releases — so they
-#                 are frozen regardless of where the code lives.
+#                 every `matrix.app == …` condition. These are what a user
+#                 sees on the releases page — `server-vX.Y.Z`, `node-vX.Y.Z`,
+#                 `desktop-server-vX.Y.Z`, `desktop-client-vX.Y.Z` — and they
+#                 follow the product's three words, not the directory tree.
+#                 `client` as an id is RETIRED: it published the node agent.
 #   dir           where the app lives under `apps/`, now NESTED:
-#                 `server/api`, `client/agent`, `server/desktop`,
+#                 `server/api`, `node/agent`, `server/desktop`,
 #                 `client/desktop`. Used for `apps/<dir>/package.json`,
 #                 `apps/<dir>/CHANGELOG.md`, `--cwd`/`working-directory` and
 #                 the cargo cache paths — and for nothing else.
@@ -51,7 +52,7 @@
 # The mapping is the `app_dir` table in the plan job below, which emits `dir`
 # in every matrix entry so no downstream job re-derives it. The two names used
 # to be one string; nesting split them, because `server/api-v1.9.0` is not a
-# usable tag and the ids were already published.
+# usable tag.
 #
 # Retry semantics: a mid-flight failure leaves the tag (and maybe a draft
 # release). Re-dispatching COMPLETES the half-cut (plan treats tag-without-
@@ -67,7 +68,7 @@ on:
       app:
         description: "Which deployable to cut"
         type: choice
-        options: [server, client, desktop-server, desktop-client, all]
+        options: [server, node, desktop-server, desktop-client, all]
         # `all` is the default because every component is cuttable and each
         # desktop bundle SHIPS the CLI it wraps — so a CLI-only fix does not
         # reach desktop users until the matching desktop cut. Defaulting to the
@@ -156,10 +157,10 @@ jobs:
           fi
           case "$APP_INPUT" in
             server)  apps="server" ;;
-            client)  apps="client" ;;
+            node)    apps="node" ;;
             desktop-server) apps="desktop-server" ;;
             desktop-client) apps="desktop-client" ;;
-            all)     apps="server client desktop-server desktop-client" ;;
+            all)     apps="server node desktop-server desktop-client" ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
@@ -170,7 +171,7 @@ jobs:
           #
           # This is a property of the IDS, not of the directories: the ids are
           # what the tags and the artifact names are built from.
-          ALL_APPS="server client desktop-server desktop-client"
+          ALL_APPS="server node desktop-server desktop-client"
           for a in $ALL_APPS; do
             for b in $ALL_APPS; do
               [ "$a" = "$b" ] && continue
@@ -185,7 +186,7 @@ jobs:
           app_dir() {
             case "$1" in
               server)         echo "server/api" ;;
-              client)         echo "client/agent" ;;
+              node)           echo "node/agent" ;;
               desktop-server) echo "server/desktop" ;;
               desktop-client) echo "client/desktop" ;;
               # Never a fall-through to "$1": a new id without a directory
@@ -232,7 +233,7 @@ jobs:
             appsjson="$appsjson{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\"}"
             case "$app" in
               server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
-              client) triples="linux-x64 linux-arm64 darwin-arm64" ;;
+              node) triples="linux-x64 linux-arm64 darwin-arm64" ;;
               # No linux-arm64: there is no native arm64 Linux runner, and a
               # file(1) magic check cannot see a GUI's characteristic failure,
               # which is an invisible window. No darwin-x64: a desktop build
@@ -334,12 +335,12 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Both release scripts preflight the workspace dist outputs (the client
+      # Both release scripts preflight the workspace dist outputs (the node agent
       # bundles packages/*, the server embeds apps/server/web/dist).
       - run: bun run build
 
       - name: Release build (scoped to ${{ matrix.triple }})
-        if: contains(fromJSON('["server","client"]'), matrix.app)
+        if: contains(fromJSON('["server","node"]'), matrix.app)
         env:
           APP: ${{ matrix.app }}
           TRIPLE: ${{ matrix.triple }}
@@ -397,7 +398,7 @@ jobs:
           esac
           case "$APP" in
             server) SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server ;;
-            client) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:client ;;
+            node) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:node ;;
             # Never an `else`: a new app reaching here would build and publish
             # the NODE binary under its own tag rather than failing.
             *) echo "::error::no bare-binary pipeline for app '$APP'"; exit 1 ;;
@@ -519,7 +520,7 @@ jobs:
           esac
           case "$APP" in
             server) BIN="dist-rel/subshell-server-cli-$TRIPLE" ;;
-            client) BIN="dist-rel/subshell-cli-$TRIPLE" ;;
+            node) BIN="dist-rel/subshell-node-cli-$TRIPLE" ;;
             *) echo "no binary smoke for app '$APP'"; exit 1 ;;
           esac
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
@@ -542,13 +543,13 @@ jobs:
             out=$("$BIN" version 2>&1) || return 1
             echo "$out"
             # Pinned against the CLIs' real output: the server prints exactly
-            # "subshell-server <v>"; the client adds "(node protocol vN)".
+            # "subshell-server <v>"; the agent adds "(node protocol vN)".
             if [ "$APP" = "server" ]; then
               [ "$out" = "subshell-server $VERSION" ] || { echo "server version output mismatch"; return 1; }
             else
               case "$out" in
                 "subshell $VERSION"*) ;;
-                *) echo "client version output mismatch"; return 1 ;;
+                *) echo "node agent version output mismatch"; return 1 ;;
               esac
             fi
             if [ "$APP" = "server" ]; then

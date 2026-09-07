@@ -81,7 +81,7 @@ operator-facing version.
 **There is deliberately no `build` script.** `bun run build` runs on hosted
 `ubuntu-latest` in both `test.yml` and `lint.yml`, where there is no Rust
 toolchain, so cargo must stay structurally out of the turbo `build` graph —
-the same discipline `apps/mobile` uses to keep Xcode out. There is also **no
+the same discipline `apps/client/mobile` uses to keep Xcode out. There is also **no
 `dev` script**: root `bun run start` is `turbo watch dev`, which would
 otherwise launch a Tauri window for everyone.
 
@@ -194,7 +194,7 @@ crates/desktop-core/src/
 Two things stay behind on purpose. `server_bin.rs` is a ladder for
 `subshell-server` specifically, down to the unit file it reads and the plist it
 parses. `control.rs`/`windows.rs`/`tray.rs`/`menu.rs`/`bridge.rs` are
-`tauri`-typed and label-driven, and the client app's window model is genuinely
+`tauri`-typed and label-driven, and Subshell Client's window model is genuinely
 different — duplication there is cheaper than an abstraction designed against
 one real consumer and one guess.
 

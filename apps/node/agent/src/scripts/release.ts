@@ -31,7 +31,7 @@ import {
 } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-/** `apps/client/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
+/** `apps/node/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
 const AGENT_DIR = resolve(SCRIPT_DIR, "..", "..");
 /** The monorepo root — where the `packages` dist outputs and hoisted workspace links live. */
 const REPO_ROOT = resolve(AGENT_DIR, "..", "..", "..");
@@ -55,11 +55,11 @@ export function buildTargets(scope: readonly string[] | null = null): BuildTarge
 }
 
 /**
- * `bun build` argv for one target (spawned with cwd `apps/client/agent`).
+ * `bun build` argv for one target (spawned with cwd `apps/node/agent`).
  * Uniform: `--compile --bytecode --minify --target=bun-<triple>` — the
  * host-wins-its-triple special case is retired (spec 2026-09-03 §5).
  * @param triple - platform triple to build
- * @param outDir - directory for the `subshell-cli-<triple>` output file
+ * @param outDir - directory for the `subshell-node-cli-<triple>` output file
  */
 export function buildArgs(triple: string, outDir: string): string[] {
   return [
@@ -87,7 +87,7 @@ export function parseScope(raw: string | undefined): string[] | null {
 
 /** Injectable build runner for tests (a real spawn in `main`). */
 export interface ReleaseDeps {
-  /** Runs one `bun build` argv (relative to `apps/client/agent`); resolves with its exit code. */
+  /** Runs one `bun build` argv (relative to `apps/node/agent`); resolves with its exit code. */
   runBuild(args: string[]): Promise<number>;
   /** Directory the compiled binaries are written to. */
   outDir: string;
@@ -149,7 +149,7 @@ export function resolveArtifactsDir(): string {
   );
 }
 
-/** Runs one `bun` subcommand argv in `apps/client/agent` with output streamed to this console. */
+/** Runs one `bun` subcommand argv in `apps/node/agent` with output streamed to this console. */
 async function runBun(args: string[]): Promise<number> {
   const child = Bun.spawn([process.execPath, ...args], {
     cwd: AGENT_DIR,

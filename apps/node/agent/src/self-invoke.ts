@@ -53,7 +53,7 @@ function looksLikeEntryScript(argv1: string): boolean {
  *    because a pane config spawns in the subshell's cwd where a relative
  *    argv[1] would not exist.
  * 3. Neither — a compiled binary someone renamed (the published artifact is
- *    `subshell-cli-<triple>`, and nothing stops a user calling it `agent`).
+ *    `subshell-node-cli-<triple>`, and nothing stops a user calling it `agent`).
  *    Its argv1 is the bunfs path, so rung 2 must not claim it: treat it as
  *    compiled, which is what it is.
  */

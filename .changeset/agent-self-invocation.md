@@ -1,5 +1,5 @@
 ---
-"@internal/client": patch
+"@internal/node": patch
 ---
 
 Fixed how the agent names itself when re-entering its own binary.

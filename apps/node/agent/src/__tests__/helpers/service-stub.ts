@@ -53,7 +53,7 @@ export function serviceStub(over: Partial<ServiceDeps> & { respond?: Responder }
     home: HOME,
     uid: 1000,
     execPath: "/usr/local/bin/subshell",
-    argv1: "/repo/apps/client/agent/src/main.ts",
+    argv1: "/repo/apps/node/agent/src/main.ts",
     hasConfig: async () => true,
     runCmd: async (cmd) => {
       calls.push(cmd);

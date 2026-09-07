@@ -51,17 +51,24 @@ use tauri::AppHandle;
 /// other app's.
 const TRAY_ID: &str = "subshell-node";
 
-/// The menu id for "show the window". Namespaced so it can never collide with
-/// a predefined item's id.
+/// The menu ids. Namespaced so they can never collide with a predefined
+/// item's id.
 const OPEN_ID: &str = "tray:open";
+const NODE_ID: &str = "tray:node";
 
 /// Build the tray icon. Failure is not fatal — an app without a tray still works.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
+    // Two items, one per window, because the two are genuinely different
+    // destinations: the plane's UI, and this machine's own node settings. The
+    // second is also the only way BACK to the node page once a client has
+    // settled on a plane and opens there every time.
     let open = MenuItem::with_id(app, OPEN_ID, "Open Subshell Client", true, None::<&str>)?;
+    let node = MenuItem::with_id(app, NODE_ID, "This machine…", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
             &open,
+            &node,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
         ],
@@ -92,10 +99,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         // macOS/Windows only; on Linux this is inert and the menu is the whole
         // interaction, which is why nothing here depends on a click.
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            if event.id.as_ref() == OPEN_ID {
-                crate::windows::focus_main(app);
-            }
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            OPEN_ID => crate::windows::focus_any(app),
+            NODE_ID => crate::windows::focus_node(app),
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             // LEFT button, on RELEASE. `Click` fires for every button, so
@@ -107,7 +114,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } = event
             {
-                crate::windows::focus_main(tray.app_handle());
+                crate::windows::focus_any(tray.app_handle());
             }
         })
         .build(app)?;
@@ -126,9 +133,11 @@ mod tests {
         assert_ne!(TRAY_ID, "subshell");
     }
 
-    // Namespaced so it cannot collide with a predefined item's id.
+    // Namespaced so they cannot collide with a predefined item's id.
     #[test]
-    fn the_menu_id_is_namespaced() {
+    fn the_menu_ids_are_namespaced() {
         assert!(OPEN_ID.starts_with("tray:"));
+        assert!(NODE_ID.starts_with("tray:"));
+        assert_ne!(OPEN_ID, NODE_ID);
     }
 }

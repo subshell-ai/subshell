@@ -47,13 +47,16 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Nodes | Other machines run harnesses on the control plane's behalf. Control→agent commands are JWS-signed envelopes (authenticity/freshness/target, not confidentiality); events come back unsigned on the node key. `NodeLauncher` is the ONLY local-vs-remote branch, and the browser `/ws` contract is byte-identical for remote panes — [architecture §9](architecture.md#9-nodes-remote-execution-hosts), wire contract in [node-protocol.md](node-protocol.md) |
 | Sharing | A subshell is private to its owner by default (404, never 403, so ids can't be probed). The owner grants **view** or **edit** to Everyone or named users; delete + re-share + the notification bell stay owner-only, admins included. Sharing is a browser act — bearer keys are refused on the shares routes |
 | Several viewers | A tmux pane has ONE grid, so the pane is sized to the smallest visible viewer that can type (`shared-geometry.ts` in `@internal/subshell-protocol` — the server APPLIES the rule, the browser EXPLAINS it from the same definition). Everyone attached sees everyone else's device name |
-| Distribution | Two binaries, cut by `.github/workflows/release.yml` under component-scoped tags: `subshell-server-cli-<triple>` (SPA embedded, serves its own `mcp` subcommand) and `subshell-cli-<triple>` (the node agent) — the `cli` marks a bare binary, against the desktop apps' `Desktop`. Versions bump via changesets; the workflow owns the tags |
+| Distribution | Two binaries, cut by `.github/workflows/release.yml` under component-scoped tags: `subshell-server-cli-<triple>` (SPA embedded, serves its own `mcp` subcommand) and `subshell-node-cli-<triple>` (the node agent) — the `cli` marks a bare binary, against the desktop apps' `Desktop`. Versions bump via changesets; the workflow owns the tags |
 | Mobile | <1024px = drawer shell + tab workspaces (`useIsWide`, `WORKSPACE_TILING_MIN_WIDTH`); ≥1024px = today's desktop shell; accessory terminal key bar sends raw WS `input` frames (same path as desktop keystrokes); PWA manifest, no service worker — spec [`superpowers/specs/2026-08-30-mobile-support-design.md`](superpowers/specs/2026-08-30-mobile-support-design.md) |
 
 ## Workspace layout
 
-`apps/server/` and `apps/client/` are grouping directories — the tree IS the
-taxonomy, and neither carries a `package.json`.
+`apps/server/`, `apps/client/` and `apps/node/` are grouping directories — the
+tree IS the taxonomy, and none of them carries a `package.json`. Three words,
+each naming exactly one thing: a **server** is a control plane, a **node** is a
+machine that runs agents, a **client** is a person's interface to a control
+plane. See `superpowers/specs/2026-09-07-app-vocabulary-design.md`.
 
 ```
 apps/server/api            Elysia app: api routes, ws, auth, subshell manager, tmux runner,
@@ -63,10 +66,12 @@ apps/server/api            Elysia app: api routes, ws, auth, subshell manager, t
 apps/server/web            React SPA the server serves: TanStack Router/Query, xterm,
                            shadcn/ui, dark theme
 apps/server/desktop        Tauri v2 GUI over apps/server/api (installs/runs/manages it)
-apps/client/agent          `subshell` — the node daemon: enrolls with the control plane, holds the
+apps/node/agent            `subshell` — the node daemon: enrolls with the control plane, holds the
                            /ws/node socket, executes signed launch/tmux/fs commands as its OS user
-apps/client/desktop        Tauri v2 GUI over apps/client/agent (registers this machine as a node)
-apps/mobile                native companion (React Native + Expo SDK 57) — push, badge, lock-screen
+apps/client/desktop        Tauri v2 GUI — Subshell Client: one window showing a control plane's
+                           own UI (granted no commands), one bundled window that registers this
+                           machine as a node and manages apps/node/agent
+apps/client/mobile         native companion (React Native + Expo SDK 57) — push, badge, lock-screen
                            actions, Keychain credential; NOT a second web app
 e2e                        Playwright suite (own backend on :3199, real tmux) — outside `bun run test`
 brand                      wordmark/palette masters + generators (`bun run brand:generate`)
@@ -146,7 +151,7 @@ model, including the accepted risks and what is deliberately not defended.
 
 ## Status (2026-09-05)
 
-`@internal/server` 1.6.0 · `@internal/client` 0.3.1 (node protocol floor
+`@internal/server` 1.6.0 · `@internal/node` 0.3.1 (node protocol floor
 `MIN_AGENT_VERSION` 0.3.0). Everything below is shipped and on `main`.
 
 - **Core** — single-port serving (built SPA + API + WS + `/docs`), tmux-backed
@@ -172,12 +177,12 @@ model, including the accepted risks and what is deliberately not defended.
   triple with the SPA embedded and its own `mcp` subcommand, plus a CLI
   (`version｜status｜init｜configure｜service install｜uninstall`); the node agent
   ships as four. Both are cut by `.github/workflows/release.yml` under
-  `server-vX.Y.Z` / `client-vX.Y.Z`, darwin artifacts signed + notarized.
+  `server-vX.Y.Z` / `node-vX.Y.Z`, darwin artifacts signed + notarized.
 - **Admin** — `/settings/status` renders the whole instance in one read
   (versions, host paths, resolved MCP entrypoint, counts, security posture),
   carrying no secret in any form.
 - **Mobile** — the responsive web shell (drawer nav, terminal key bar, tab
-  workspaces, Add to Home Screen) plus a native companion app (`apps/mobile`)
+  workspaces, Add to Home Screen) plus a native companion app (`apps/client/mobile`)
   for the four things a web page cannot do.
 
 Browser-level coverage is the repo-root Playwright suite — 15 spec files across

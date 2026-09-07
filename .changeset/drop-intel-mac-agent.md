@@ -1,5 +1,5 @@
 ---
-"@internal/client": minor
+"@internal/node": minor
 ---
 
 **Intel Macs are no longer a published target.** The agent's `darwin-x64` build

@@ -1,7 +1,7 @@
 /**
  * The CLI's own words, VERBATIM.
  *
- * `apps/client/agent` owns every operator-facing message — the tmux refusal, the
+ * `apps/node/agent` owns every operator-facing message — the tmux refusal, the
  * `loginctl enable-linger` hint, the live-pane refusal, every enrollment
  * failure — and its strings are pinned by its own tests. Re-wording them here
  * would drift; matching them with a regex would break on the next copy edit. So

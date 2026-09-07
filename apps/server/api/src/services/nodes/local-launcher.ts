@@ -333,7 +333,7 @@ export class LocalLauncher implements NodeLauncher {
  *
  * The mode is asserted unconditionally rather than passed to `mkdirSync`,
  * for the two reasons this codebase has already met elsewhere (see
- * `apps/client/agent/src/identity.ts` and `commands/configure.ts`): mkdir's `mode`
+ * `apps/node/agent/src/identity.ts` and `commands/configure.ts`): mkdir's `mode`
  * is clamped by the umask, and it applies only to segments mkdir actually
  * creates — so a directory that predates this fix keeps whatever mode the old
  * bare `mkdirSync(recursive)` gave it, which was 0755.

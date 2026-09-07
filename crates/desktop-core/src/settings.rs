@@ -63,6 +63,17 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// Reserved for Phase 4; persisted now so the file shape does not change later.
     pub open_at_login: bool,
+    /// Subshell Client only: the control plane whose UI the app's main window shows.
+    ///
+    /// Stored here rather than read from the node agent's `config.json` every
+    /// time, because a client is not required to be a node — someone who only
+    /// watches subshells never enrolls, so there is no config to read. Where
+    /// both exist, this one wins: it is the address the user last chose.
+    ///
+    /// `apps/server/desktop` never sets it. It shares the struct because the
+    /// two apps share the file FORMAT, not the file — each keys its own
+    /// directory off its own [`SettingsPaths`].
+    pub plane_url: Option<String>,
 }
 
 impl Settings {
@@ -145,10 +156,12 @@ mod tests {
             binary_path: Some("/x/subshell-server".into()),
             close_to_tray: true,
             open_at_login: false,
+            plane_url: Some("https://subshell.example.com".into()),
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);
+        assert_eq!(back.plane_url.as_deref(), Some("https://subshell.example.com"));
     }
 
     // Unknown keys from a newer build must not wipe the file.

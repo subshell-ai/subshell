@@ -3,7 +3,7 @@
  * and `node_settings` returned, so it is testable without a webview.
  *
  * The shapes it reaches into are the ones declared in `lib/ipc.ts`, which
- * mirror `src-tauri/src/control.rs` and `apps/client/agent`'s `status --json` /
+ * mirror `src-tauri/src/control.rs` and `apps/node/agent`'s `status --json` /
  * `service status --json` bodies. Nothing here decides anything.
  */
 import type { AgentChoice, AgentSource, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";

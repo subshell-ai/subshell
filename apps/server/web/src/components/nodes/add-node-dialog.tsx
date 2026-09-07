@@ -115,7 +115,7 @@ export function AddNodeDialog({
   // The dialog cannot know the NEW machine's platform, so it judges the
   // one-liner by what the server can serve: a target missing from
   // nodeArtifactTargets 404s the download on that machine (the fresh
-  // binary-only-install bug — an empty artifacts dir until release:client
+  // binary-only-install bug — an empty artifacts dir until release:node
   // runs). `undefined` = a server predating the field → stay silent.
   const targets = publicSettings?.nodeArtifactTargets;
   const missingTargets = targets ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
@@ -128,7 +128,7 @@ export function AddNodeDialog({
   const missingNote = missingTargets.length > 0 && (
     <p className="text-amber-600 text-xs dark:text-amber-400">
       This server has no agent binary published for: {missingTargets.join(", ")} — the install command 404s on those
-      machines. Publish the binaries on the server (run <code className="font-mono">bun run release:client</code> from a
+      machines. Publish the binaries on the server (run <code className="font-mono">bun run release:node</code> from a
       checkout, or copy the client's GitHub Release binaries into its node-artifacts dir), or install the subshell agent
       another way and enroll directly.
     </p>

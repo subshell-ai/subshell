@@ -37,15 +37,19 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 
 ## Desktop apps
 
-If you would rather not touch a CLI, there are two apps — one for each end.
+If you would rather not touch a CLI, there are two apps.
 
-**Subshell Server** installs and runs the *server*: a native window, menu bar
-and tray, with the server's install, start, stop and restart behind buttons.
+**Subshell Server** installs and runs a *control plane* on this machine: a
+native window, menu bar and tray, with the server's install, start, stop and
+restart behind buttons.
 
-**Subshell Client** registers *this machine* as a node so agents can be launched
-on it from the browser. Paste the server's address and a setup key (Settings →
-Nodes → Add node mints one, and it is single-use and good for 24 hours), and it
-enrols, installs the agent as a background service and shows you its state.
+**Subshell Client** is your own way into a control plane — point it at a
+server's address and it opens that server's UI in a native window. It is also
+where you register *this machine* as a node so agents can be launched on it:
+paste a setup key (Settings → Nodes → Add node mints one, single-use and good
+for 24 hours) and it enrols, installs the agent as a background service and
+shows you its state. A client you only watch subshells from never opens that
+half.
 
 **Install `tmux` first.** Every subshell runs in a tmux pane, so the app cannot
 get past its setup screen without it — `brew install tmux` on macOS,
@@ -62,13 +66,15 @@ Ubuntu 24.04+ / Debian 13+ (glibc 2.39).
 Each app ships the binary it manages inside it — nothing is downloaded on first
 run. Subshell Server offers to install `subshell-server` to `~/.local/bin`,
 write a `config.env`, register it as a service (a systemd user unit on Linux, a
-launchd agent on macOS) and start it; after that the window is the same Subshell
-UI a browser shows, because it is served by that same local server. Subshell
-Client does the same for the `subshell` agent, and its window stays its own — a
-node has no web UI of its own to show.
+launchd agent on macOS) and start it. Subshell Client does the same for the
+`subshell` agent, from a second window reached from its tray ("This machine…").
 
-The two can live on one machine, and often should: the machine running the
-control plane is usually also a machine you want to launch agents on.
+Both apps show the plane's UI in a window loading it from the server's own
+address, because that is where the session cookie lives. The window is a plain
+webview: it can do nothing to your machine that a browser tab could not.
+
+The two apps can live on one machine, and often should: the machine running the
+control plane is usually also one you want to launch agents on.
 
 Two platform differences worth knowing:
 
@@ -166,7 +172,7 @@ Points worth knowing before you enrol one:
   the reconcile sweep skips its rows, and the UI says "node unreachable".
 
 Architecture detail: [`docs/architecture.md` §9](docs/architecture.md#9-nodes-remote-execution-hosts).
-The agent itself: [`apps/client/agent/AGENTS.md`](apps/client/agent/AGENTS.md).
+The agent itself: [`apps/node/agent/AGENTS.md`](apps/node/agent/AGENTS.md).
 
 ## Install from a release binary
 
@@ -174,7 +180,7 @@ The control plane ships as one self-contained binary per platform, with the SPA
 embedded — no Bun, no checkout, no `apps/server/web/dist` on the host. Assets live
 on GitHub Releases under `server-vX.Y.Z` as `subshell-server-cli-<triple>`
 (`linux-x64`, `linux-arm64`, `darwin-arm64`; darwin builds are signed and
-notarized) and under `client-vX.Y.Z` as `subshell-cli-<triple>` for the node
+notarized) and under `node-vX.Y.Z` as `subshell-node-cli-<triple>` for the node
 agent (`linux|darwin × x64|arm64`). The `cli` in an asset name says it is the
 bare binary rather than the desktop app that wraps it; you rename it to
 `subshell-server` (or `subshell`) on install, as below.
@@ -407,14 +413,16 @@ your VPN):
   its replay defense, every command and event.
 - [Project overview](docs/overview.md) — what Subshell is, the workspace layout, and
   what has shipped.
-- Per-app notes — the tree under `apps/` is grouped by side of the product,
-  `apps/server/*` and `apps/client/*`: [`apps/server/api`](apps/server/api/AGENTS.md)
+- Per-app notes — the tree under `apps/` is grouped by the three words the
+  product uses (a **server** is a control plane, a **node** is a machine that
+  runs agents, a **client** is a person's interface to a control plane):
+  [`apps/server/api`](apps/server/api/AGENTS.md)
   (routes, the CLI/binary, attach diagnostics),
   [`apps/server/web`](apps/server/web/AGENTS.md) (the SPA the server serves),
   [`apps/server/desktop`](apps/server/desktop/AGENTS.md) (its Tauri GUI),
-  [`apps/client/agent`](apps/client/agent/AGENTS.md) (the node agent),
+  [`apps/node/agent`](apps/node/agent/AGENTS.md) (the node agent),
   [`apps/client/desktop`](apps/client/desktop/AGENTS.md) (its Tauri GUI),
-  [`apps/mobile`](apps/mobile/AGENTS.md), [`e2e`](e2e/AGENTS.md).
+  [`apps/client/mobile`](apps/client/mobile/AGENTS.md), [`e2e`](e2e/AGENTS.md).
 - Build, release and migration operations: root [`AGENTS.md`](AGENTS.md).
 - Design rationale lives in `docs/superpowers/specs/`; the build plans in
   `docs/superpowers/plans/`.

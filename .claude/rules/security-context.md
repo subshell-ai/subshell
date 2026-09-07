@@ -243,34 +243,41 @@ shares and subshell shares are two independent axes:
 
 ## The desktop apps (`apps/server/desktop`, `apps/client/desktop`)
 
-Two Tauri v2 shells, one per CLI. `apps/server/desktop` installs, runs and
-manages a `subshell-server`; `apps/client/desktop` ("Subshell Client") registers
-the machine as a node and manages its `subshell` agent. Neither adds a server
-surface — everything privileged goes through its CLI as the same local user.
+Two Tauri v2 shells. `apps/server/desktop` ("Subshell Server") installs, runs
+and manages a `subshell-server`; `apps/client/desktop` ("Subshell Client") is a
+person's interface to a control plane AND the place their machine is registered
+as a node. Neither adds a server surface — everything privileged goes through a
+CLI as the same local user.
 
-The first bullet below is specific to `apps/server/desktop`. The node app has
-ONE window and it loads the app's own bundled page, because a node serves
-nothing to load; its `csp` therefore governs every page it shows. The rest
-applies to both.
+**Both apps have the same two-window shape, and it is the boundary.** One window
+holds a page THIS REPO DID NOT SHIP (the control plane's own UI) and one holds a
+bundled page; the CLI-driving commands are granted only to the bundled one. The
+`csp` in each `tauri.conf.json` governs the bundled page only — the remote
+window carries whatever CSP the plane sends.
 
-- **The server app's main window loads the SERVER's page**, at
-  `http://127.0.0.1:<port>` or `http://localhost:<port>`, and that window holds
-  Tauri's IPC globals. It is therefore treated as REMOTE content:
-  `capabilities/main.json` scopes it to loopback URLs and grants only commands
-  that cannot touch the CLI, the config, the service or the filesystem (show an
-  existing window, drop this app's own title bar, display one fixed-shape
-  notification). `open_main` independently refuses a non-loopback origin, and
-  `on_navigation` pins the window to the origin it was opened with. The
-  CLI-driving commands live on a SEPARATE window whose page is bundled. **The
-  `csp` in `tauri.conf.json` applies only to that bundled console** — the app
-  window's page carries whatever CSP the server sends, so an XSS in the SPA
-  reaches those three commands.
+- **The server app's remote window is PINNED TO LOOPBACK and holds three
+  commands.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
+  the server this app itself manages — so `capabilities/main.json` scopes it
+  with `remote.urls` to loopback and grants only commands that cannot touch the
+  CLI, the config, the service or the filesystem (show an existing window, drop
+  this app's own title bar, display one fixed-shape notification). `open_main`
+  independently refuses a non-loopback origin, and `on_navigation` pins the
+  window to the origin it opened with. An XSS in the SPA reaches those three
+  commands and nothing else.
+- **The client app's remote window is granted NOTHING.** A control plane can
+  live on any host, so its origin cannot be enumerated in a capability file the
+  way loopback can — and rather than reach for runtime ACLs, no capability names
+  that window at all, so every `invoke` from it is refused. It is also built
+  WITHOUT the `SubshellDesktop/…` user-agent marker, so the SPA never takes its
+  desktop-shell branch and never tries; `on_navigation` still pins it to the
+  origin it opened with. An XSS in a control plane's SPA therefore reaches
+  nothing in Subshell Client.
 - **Each app's ACL manifest is load-bearing BY EXISTENCE.** Tauri gates an app
   command only when `plugin_command.is_some() || has_app_acl_manifest ||
   !is_local`, so deleting `permissions/desktop.toml` leaves every command
-  ungated for every local window. The node app has one local window and grants
-  it everything today; the file is what stops a second window added later from
-  inheriting the whole CLI surface silently.
+  ungated for every LOCAL window. Both apps have a local window that may drive
+  the CLI and a remote window that may not, and that file is what keeps a third
+  window added later from inheriting the surface silently.
 - **The bundled binary is signed with the app's entitlements.** Tauri has ONE
   entitlements slot for the whole bundle, so whatever the Bun-compiled binary
   needs is also granted to the GUI process — which, in the server app, is the

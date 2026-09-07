@@ -13,7 +13,7 @@ import { setupAuthTables } from "../../api/__tests__/helpers/auth-tables.js";
  * The CONTROL PLANE's half of the launch gate.
  *
  * The node has its own copy and its own test (`commands-allowed-dirs.test.ts`
- * in apps/client/agent); this pins the server's, which is what produces the
+ * in apps/node/agent); this pins the server's, which is what produces the
  * explainable 403 before anything is spawned and what holds while a node has
  * yet to receive a push.
  *

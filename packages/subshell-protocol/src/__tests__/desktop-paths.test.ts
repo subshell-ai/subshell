@@ -221,7 +221,7 @@ describe("the published artifact set (all four producers)", () => {
   // Equality is the obvious half; PREFIX is the half that bites. A binary
   // legitimately prefixes its OWN sidecar, so the pairing is per-artifact:
   // across two DIFFERENT artifacts, no published file may prefix another, or a
-  // `subshell-cli-linux-x64*` glob sweeps up a second product's files too.
+  // `subshell-node-cli-linux-x64*` glob sweeps up a second product's files too.
   //
   // Compared CASE-FOLDED, because the whole argument is about a downloads
   // folder and the default file systems on macOS (APFS) and Windows are

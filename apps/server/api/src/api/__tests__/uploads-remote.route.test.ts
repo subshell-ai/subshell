@@ -31,7 +31,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * 400 without a single frame.
  *
  * The fake agent stands in for the real `write_file` executor
- * (`apps/client/agent/src/commands/write-file.ts`, pinned by its own tests): it
+ * (`apps/node/agent/src/commands/write-file.ts`, pinned by its own tests): it
  * captures every command by unwrapping the signed envelope the RPC put on the
  * wire and answers each chunk with the `{ path, received }` result the agent
  * is contractually required to echo. Chunk indices arriving 0,1,2… in wire

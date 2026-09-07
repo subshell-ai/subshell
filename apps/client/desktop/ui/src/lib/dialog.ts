@@ -3,7 +3,7 @@
  *
  * Kept out of `ipc.ts` so that file stays exactly "the `node_*` contract" — the
  * ACL test reads the command names out of it and compares them to what
- * `permissions/desktop.toml` and `capabilities/main.json` grant, and a
+ * `permissions/desktop.toml` and `capabilities/node.json` grant, and a
  * plugin call is granted by a different mechanism (`dialog:allow-open` in the
  * capability, not an app permission).
  *

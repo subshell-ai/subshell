@@ -22,7 +22,7 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-t
  * so these tests pin the whole server-side path: visibility (404 never 403),
  * the protocol-v3 feature gate, `~`/empty → agent-home, the local-shape
  * pass-through, and the error mapping. The agent's own fs-ls semantics live
- * in `apps/client/agent/src/__tests__/commands-fs-ls.test.ts`.
+ * in `apps/node/agent/src/__tests__/commands-fs-ls.test.ts`.
  *
  * The local browse (omitted / 'local') is pinned by `files-route.test.ts`;
  * the first test here only proves the node param never diverts it.

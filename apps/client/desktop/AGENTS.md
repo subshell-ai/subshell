@@ -1,40 +1,68 @@
 # Desktop client AGENTS.md
 
 `apps/client/desktop` (`@internal/desktop-client`) — **Subshell Client**, a
-**Tauri v2** shell that registers this machine as a node and keeps its
-`subshell` agent running, so a user never has to touch a CLI binary.
+**Tauri v2** shell that is a user's interface to a control plane, and the place
+their machine is registered as a node — so neither job needs a CLI binary.
 
-The word "node" stays wherever it names the control-plane CONCEPT rather than
-this app — the machine this app registers IS a node, the `node_*` commands act
-on it, the server's Nodes page lists it, and the sidecar stem names the agent
-this app wraps.
+Read `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md` first if the
+words are new. Three of them each name exactly one thing: a **server** is a
+control plane, a **node** is a machine that runs agents, a **client** is a human
+interface to a control plane. This app is a client that can also make its
+machine a node — which is why "node" appears all over it without contradiction:
+the machine it registers IS a node, the `node_*` commands act on it, the
+server's Nodes page lists it, and the sidecar stem names the agent it wraps.
 
-It is the counterpart of `apps/server/desktop`, one layer down the stack: that
-app wraps the control plane, this one wraps a node. Each lives beside the CLI it
-wraps — `apps/client/desktop` beside `apps/client/agent`, `apps/server/desktop`
-beside `apps/server/api` — which is what the `apps/` tree is grouped by. Read
-that app's `AGENTS.md` too: most of the machinery is the same and is documented
-there once.
+It is the counterpart of `apps/server/desktop`, and the two are shaped alike:
+each has a window holding a remote page and a window holding its own bundled
+one. Read that app's `AGENTS.md` too — most of the machinery is documented there
+once.
 
-## One window, and why that is the whole difference
+## Two windows, and why that is the whole design
 
-`apps/server/desktop` has two windows because the thing it manages serves a web
-UI, and `apps/server/web` is hard same-origin, so that UI has to be loaded from
-the server's own HTTP origin. **A node serves nothing.** There is no page to
-load, so this app has one window, it loads `ui/dist/index.html` from the bundle,
-and every piece of remote-content apparatus in the other app is absent here: no
-second window, no `SubshellDesktop/…` user-agent marker, no `shell_ready`
-title-bar handshake, no `on_navigation` pin, no `disable_drag_drop_handler`, no
-1024px minimum width, no `bridge.rs` CustomEvent bus.
+| window | page | granted |
+|---|---|---|
+| `main` | the control plane's own UI, at the plane's origin | **nothing** |
+| `node` | `ui/dist/index.html`, from the bundle | every `node_*` command |
 
-That also means the `csp` in `tauri.conf.json` is the real CSP for every page
-this app shows, rather than a policy that covers only one of two windows.
+`main` loads the plane's own page rather than a bundled copy because
+`apps/server/web` is hard same-origin — relative `apiFetch` with
+`credentials: "include"`, an auth client with no `baseURL`, a WebSocket URL
+built from `window.location.host` — so a `tauri://` page could not carry the
+`SameSite=Lax` session cookie to any of them.
+
+**No capability file names `main`, and that absence is the security boundary.**
+`apps/server/desktop` can pin its remote window to loopback because it manages
+the server serving it; a control plane can live on any host, so there is no
+equivalent pin here — and a window whose origin cannot be enumerated ahead of
+time gets no commands at all. Two consequences follow and are deliberate:
+
+- **No `SubshellDesktop/…` user-agent marker on that window.** That marker is
+  how `apps/server/web` decides it is in a desktop shell and starts talking to
+  Tauri (overlay title bar, window drags); with no grant those calls would be
+  refused one at a time. Without it the SPA renders exactly as it does in a
+  browser, which is right for a window that is one. So there is no
+  `shell_ready` handshake and no `bridge.rs` CustomEvent bus here either.
+- **What IS kept:** an `on_navigation` origin pin, `disable_drag_drop_handler`
+  (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
+  drag-a-subshell-into-a-workspace and the terminal's uploads), and the 1024px
+  minimum width that keeps the SPA off its phone drawer.
+
+**The node window existing is the whole "node functionality" toggle.** A client
+used only to watch subshells never opens it; there is no mode flag for the two
+halves to disagree about. It opens from the tray ("This machine…"), and it is
+what a fresh install lands on — `lib.rs` opens the plane window at startup only
+when an address is already settled (the stored `planeUrl`, else the enrolled
+node's own `serverUrl`).
+
+The `csp` in `tauri.conf.json` governs the **bundled** page only. The plane's
+window carries whatever CSP the plane sends, which is the same split
+`apps/server/desktop` has — and the reason nothing privileged lives there.
 
 ## The page (`ui/`) — React, on the same stack as `apps/server/web`
 
 `ui/` is a small **React + Vite + Tailwind v4 + TanStack Query** app, built to
 `ui/dist` (the `frontendDist`). It mirrors `apps/server/web`'s stack minus what
-one local window has no use for: no router (one window and a step machine, so
+the bundled page has no use for: no router (one page and a step machine, so
 there are no URLs), no xterm, no dockview, no better-auth, no
 `@internal/backend-client`. Every shared version is pinned to the same string
 `apps/server/web/package.json` uses — `bun run syncpack:lint` fails otherwise.
@@ -44,9 +72,10 @@ Three things about it are load-bearing:
 - **The typed IPC contract is `ui/src/lib/ipc.ts`**, one narrow function per
   `node_*` command, transcribed from `src-tauri/src/control.rs`. Nothing
   generates it, so `ui/src/__tests__/ipc-acl.test.ts` reads
-  `permissions/desktop.toml` and `capabilities/main.json` and asserts the
+  `permissions/desktop.toml` and `capabilities/node.json` and asserts the
   granted command set is exactly the invoked one. That three-way mismatch is a
-  runtime permission rejection, not a compile error.
+  runtime permission rejection, not a compile error. The same file asserts that
+  NO capability names the `main` window.
 - **`withGlobalTauri` is `false`.** `invoke` is imported from
   `@tauri-apps/api/core`; `window.__TAURI__` existed only for the framework-free
   page and is gone.
@@ -104,10 +133,10 @@ cd src-tauri && install -m 755 /dev/null "binaries/subshell-node-bundled-$(rustc
 
 A zero-byte stub is correct for the Rust tests — none of them executes the
 sidecar, and `tauri-build` only checks that the path EXISTS. A real one comes
-from `bun run compile:release`, which builds `apps/client/agent` first.
+from `bun run compile:release`, which builds `apps/node/agent` first.
 
-**Three names, one binary.** `apps/client/agent`'s own pipeline publishes it as
-`subshell-cli-<triple>` (the `cli` says bare-binary, against this app's
+**Three names, one binary.** `apps/node/agent`'s own pipeline publishes it as
+`subshell-node-cli-<triple>` (the `cli` says bare-binary, against this app's
 `Desktop`), which is what `stageSidecar` looks for after the nested build. The
 release script then MOVES it to `subshell-node-bundled-<rust triple>`, and Tauri
 STRIPS that suffix when it copies the file, so inside the bundle it is
@@ -141,7 +170,7 @@ it — an identity rather than a label, which is why
 
 **The Linux settings directory is `subshell-desktop-client`, not `subshell`.**
 `~/.config/subshell` is the AGENT's own config home
-(`apps/client/agent/src/config.ts` — `config.json` and the 0600 node key), and this
+(`apps/node/agent/src/config.ts` — `config.json` and the 0600 node key), and this
 app writing `settings.json` in beside it would put two programs' state in one
 directory. `apps/server/desktop` is prefixed for the same reason, against the
 server CLI's `~/.config/subshell-server`.
@@ -168,7 +197,7 @@ are free-form and are not `productName`.
 src-tauri/src/
 ├── agent_bin.rs   the resolution ladder for `subshell`, and the bundled-vs-installed policy
 ├── control.rs     the eight `node_*` commands, and Probe
-├── windows.rs     the one window
+├── windows.rs     the two windows — the plane's page, and the bundled node page
 ├── tray.rs        tray icon + menu (an explicit id; a Menu attached, or Linux may not register it)
 ├── menu.rs        the macOS menu bar — module-gated, because Linux has none
 └── lib.rs         plugins, environment scrubbing, lifecycle
@@ -194,11 +223,12 @@ drawn on this desktop at all.)
 
 `permissions/desktop.toml` is the app's ACL manifest and it is load-bearing **by
 existence**, not only by contents: Tauri gates an app command when
-`plugin_command.is_some() || has_app_acl_manifest || !is_local`. With one local
-window every command is granted today — but delete that file and a second
-window added later would inherit the whole CLI surface silently.
+`plugin_command.is_some() || has_app_acl_manifest || !is_local`. Delete it and
+every command becomes ungated for every local window — which now matters
+concretely, because there are two windows and only one of them may drive the
+CLI.
 
-Command names live in that file and in `capabilities/main.json`. Changing one
+Command names live in that file and in `capabilities/node.json`. Changing one
 without the other produces a command that is refused at runtime with a message
 about permissions, not a compile error.
 
@@ -267,7 +297,7 @@ about permissions, not a compile error.
   when `trayStatus` is `not-detected`, because naming the extension is
   actionable and an absent control is not. It is a false negative on the older
   XEmbed tray, which is why every string says "none was detected".
-- **The icon is currently the same mark as `apps/server/desktop`.** The brand
-  generator needs a licensed font that is not in the repo, so a distinct node
-  badge is a design task, not a code one. Two identical Dock icons is a real
-  papercut and worth fixing.
+- **The two apps' icons differ only by BACKGROUND COLOUR** (`brand/generate.ts`
+  — plum here, near-black for the server), which is also why the tray icon is
+  NOT `icon_as_template(true)` on macOS: a template icon is drawn from the alpha
+  channel alone and both would collapse to the same filled square.

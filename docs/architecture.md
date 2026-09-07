@@ -333,7 +333,7 @@ apps/server/api/src/
 │   ├── subshell-tokens.ts     issue / revoke / extend subshell tokens
 │   ├── subshell-manager.service.ts  lifecycle orchestration (§5)
 │   ├── mcp-launch.ts          MCP config file + subshellMcpEnv (single producer)
-│   ├── mcp-resolve.ts         pure launch ladder (env override → self → client-on-PATH)
+│   ├── mcp-resolve.ts         pure launch ladder (env override → self → agent-on-PATH)
 │   └── channels/
 │       ├── post-bus.ts        in-process append notifier (single-process scale is fine)
 │       ├── read-wait.ts       long-park primitive (event-driven + timeout)
@@ -403,8 +403,8 @@ two-process e2e in `src/__tests__/e2e-cross-subshell.test.ts`):
 A node is another machine that runs harnesses on the control plane's behalf
 ([spec](superpowers/specs/2026-08-31-nodes-design.md); the wire contract in full
 is [`node-protocol.md`](node-protocol.md)). The daemon on it is
-`subshell` (`apps/client/agent`, see
-[`apps/client/agent/AGENTS.md`](../apps/client/agent/AGENTS.md)); the control-plane side is
+`subshell` (`apps/node/agent`, see
+[`apps/node/agent/AGENTS.md`](../apps/node/agent/AGENTS.md)); the control-plane side is
 `apps/server/api/src/services/nodes/` + `api/nodes/`.
 
 **Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
@@ -446,8 +446,8 @@ control plane heals its rows.
 
 **Distribution.** Prebuilt `subshell` binaries live in `NODE_ARTIFACTS_DIR`
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts`) and
-are published by `bun run release:client` from the repo root
-(`apps/client/agent/src/scripts/release.ts` — every triple cross-built with
+are published by `bun run release:node` from the repo root
+(`apps/node/agent/src/scripts/release.ts` — every triple cross-built with
 `--bytecode`, sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the
 dance is in root `AGENTS.md`). `GET /api/downloads/node/*` gates on a session cookie OR a
 valid unconsumed setup key (`peekValid` — consumption-free) and refuses
@@ -461,7 +461,7 @@ script embeds — and warns when that URL is loopback (a remote node would dial
 the wrong machine).
 
 **Background service.** `subshell service install|uninstall`
-(`apps/client/agent/src/service.ts`) writes a systemd **user** unit or a launchd
+(`apps/node/agent/src/service.ts`) writes a systemd **user** unit or a launchd
 agent (`dev.subshell.client`), self-referencing the running executable (compiled
 binary or `bun <entry>` in dev); on Linux the post-install hint is
 `loginctl enable-linger` to survive logout. Harness inventory is pushed by the

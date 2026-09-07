@@ -30,7 +30,7 @@ integrity check → `dist/`); real binaries are `eas build` (iOS) and
 
 **No `dev` script, on purpose.** Root `bun run start` is `turbo watch dev`;
 adding `dev` here would silently start Metro for everyone who runs it. Use
-`bun run --cwd apps/mobile start`.
+`bun run --cwd apps/client/mobile start`.
 
 **Node is a runtime, not a package manager.** `.claude/rules/package-manager.md`
 still governs: `bun install`, `bunx`, never npm. Node exists because Metro, the
@@ -85,11 +85,11 @@ goes red at runtime rather than at typecheck.
 **`assets/terminal.html` is generated — never hand-edit, never lint.** The
 Live tab's xterm page (JS + CSS inlined, zero network requests — the WebView
 owns no network and cannot reach the token) is produced by
-`bun scripts/sync-terminal-assets.ts` (from `apps/mobile`), which re-inlines
+`bun scripts/sync-terminal-assets.ts` (from `apps/client/mobile`), which re-inlines
 the pinned `@xterm/*` files from `node_modules`. After bumping either dep,
 re-run it and commit the regenerated file. The root `biome.json` excludes
 `**/assets/terminal.html` — the exclusion is cwd-agnostic on purpose, because
-the pre-commit `lint:staged` task runs biome from `apps/mobile` and a
+the pre-commit `lint:staged` task runs biome from `apps/client/mobile` and a
 path-anchored pattern silently stopped matching there.
 
 **SDK 57 no longer bundles `@expo/vector-icons` through `expo`.** Without an

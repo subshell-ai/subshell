@@ -4,7 +4,7 @@
 //! owns each decision (what a valid setup key redeems to, whether a restart
 //! would kill live panes, what to tell the operator), and this layer only
 //! routes. Nothing here parses the CLI's prose and nothing here re-implements a
-//! rule that has a home in `apps/client/agent` — which is why every action returns
+//! rule that has a home in `apps/node/agent` — which is why every action returns
 //! the CLI's own `stdout`/`stderr` VERBATIM alongside an ok flag. Those strings
 //! are pinned by the client's own tests; re-wording them here would drift, and
 //! matching them with a regex would break on the next copy edit.
@@ -798,7 +798,7 @@ impl EnrollOutcome {
 ///
 /// Parses for validity but returns the TRIMMED ORIGINAL with trailing slashes
 /// removed, rather than the parser's normalized spelling — `normalizeServer`
-/// in `apps/client/agent/src/enroll.ts` does the same, and the string this returns is
+/// in `apps/node/agent/src/enroll.ts` does the same, and the string this returns is
 /// the one that gets persisted into `config.json` and dialed forever after.
 pub fn validate_server_url(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
@@ -1063,6 +1063,12 @@ pub struct NodeSettings {
     /// absent control explains nothing and a GNOME user can fix this in a
     /// minute.
     pub tray_status: TraySupport,
+    /// The control plane the main window shows, once one has been resolved.
+    ///
+    /// From the stored preference, else the enrolled node's own `serverUrl` —
+    /// the same ladder [`resolve_plane_url`] walks, so what the page offers to
+    /// open and what actually opens can never be two different addresses.
+    pub plane_url: Option<String>,
 }
 
 /// Build the payload from the stored settings and one probe answer.
@@ -1078,6 +1084,7 @@ fn settings_view(current: Settings, support: TraySupport) -> NodeSettings {
         close_to_tray: effective_close_to_tray(current.close_to_tray, support),
         tray_supported: support.supported(),
         tray_status: support,
+        plane_url: plane_url_from(current.plane_url),
     }
 }
 
@@ -1099,6 +1106,61 @@ pub fn node_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bool)
         return Err(NO_TRAY.to_string());
     }
     settings.update(|s| s.close_to_tray = enabled)
+}
+
+// ---------------------------------------------------------------------------
+// The control plane
+// ---------------------------------------------------------------------------
+
+/// Which control plane this client shows, given a stored preference.
+///
+/// Two rungs, in this order:
+///
+/// 1. the **stored** `planeUrl` — the address the user last chose, which is
+///    the only rung a client that is not a node ever has;
+/// 2. the enrolled node's **`serverUrl`** from `config.json`, so a machine
+///    enrolled from the CLI opens on its own plane without being told twice.
+///
+/// Each rung is validated rather than trusted: both are strings from a file,
+/// and the answer is what a window gets pointed at. An unusable value is
+/// skipped, not surfaced — the page's own URL field is where a bad address is
+/// reported, at the moment someone types one.
+pub fn plane_url_from(stored: Option<String>) -> Option<String> {
+    stored
+        .and_then(|u| validate_server_url(&u).ok())
+        .or_else(|| read_node_config().server_url.and_then(|u| validate_server_url(&u).ok()))
+}
+
+/// The same ladder, against the live settings. What `lib.rs` asks at startup.
+pub fn resolve_plane_url(settings: &SettingsState) -> Option<String> {
+    plane_url_from(settings.get().plane_url)
+}
+
+/// Show a control plane's own UI, and remember the address.
+///
+/// `url` is what the user typed or what the page read off the probe; `None`
+/// means "open whatever [`resolve_plane_url`] already knows", which is what the
+/// header button does once an address is settled.
+///
+/// The window this opens is granted NO commands — see
+/// `windows::open_plane` — so this is the whole of the plane's reach into the
+/// app: it gets a webview, an origin pin, and nothing else.
+#[tauri::command(async)]
+pub fn node_open_plane(
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+    url: Option<String>,
+) -> Result<String, String> {
+    let resolved = match url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()) {
+        Some(raw) => validate_server_url(&raw)?,
+        None => resolve_plane_url(&settings)
+            .ok_or_else(|| "no control plane yet — enter its URL, or enrol this machine first".to_string())?,
+    };
+    // Persisted BEFORE the window opens, so a plane that is merely unreachable
+    // today is still the one this client comes back to tomorrow.
+    settings.update(|s| s.plane_url = Some(resolved.clone()))?;
+    crate::windows::open_plane(&app, &resolved)?;
+    Ok(resolved)
 }
 
 /// The directories and files the window may ask to reveal.
@@ -2113,6 +2175,7 @@ mod path_tests {
             binary_path: None,
             close_to_tray,
             open_at_login: false,
+            plane_url: None,
         }
     }
 

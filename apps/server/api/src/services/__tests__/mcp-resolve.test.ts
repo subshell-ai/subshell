@@ -77,7 +77,7 @@ describe("probeMcpLaunch", () => {
     // path. When the artifact is renamed so its basename misses the
     // `subshell-server` gate, the argv1 rung must not bake the unspawnable
     // `<renamed-bin> /$bunfs/... mcp` and report `(via self)` — it must fall
-    // through to client-on-PATH and, with no agent, to the UNRESOLVED error.
+    // through to agent-on-PATH and, with no agent, to the UNRESOLVED error.
     const probe = probeMcpLaunch(
       {},
       { execPath: "/srv/bin/srv", argv1: "/$bunfs/root/subshell-server-cli-darwin-arm64", which: () => null },
@@ -97,7 +97,7 @@ describe("probeMcpLaunch", () => {
     expect(probe.spec).toBeNull();
   });
 
-  it("client-on-PATH remains the last rung", () => {
+  it("agent-on-PATH remains the last rung", () => {
     const probe = probeMcpLaunch(
       {},
       {
@@ -106,7 +106,7 @@ describe("probeMcpLaunch", () => {
         which: (n) => (n === "subshell" ? "/usr/local/bin/subshell" : null),
       },
     );
-    expect(probe).toEqual({ spec: { command: "/usr/local/bin/subshell", args: ["mcp"] }, source: "client-on-path" });
+    expect(probe).toEqual({ spec: { command: "/usr/local/bin/subshell", args: ["mcp"] }, source: "agent-on-path" });
   });
 
   it("a bare `subshell` on PATH never beats the self rung", () => {

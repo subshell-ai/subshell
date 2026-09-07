@@ -3,7 +3,7 @@
  * self-contained page (spec §Rendering: "xterm ships as a local asset, never
  * a CDN <script>"; the WebView's opaque origin could not fetch anyway).
  *
- * Run after bumping @xterm/* in apps/mobile/package.json:
+ * Run after bumping @xterm/* in apps/client/mobile/package.json:
  *   bun scripts/sync-terminal-assets.ts
  * and COMMIT the generated file (Metro serves it as a bundled asset).
  */

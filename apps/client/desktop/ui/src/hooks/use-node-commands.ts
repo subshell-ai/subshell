@@ -5,7 +5,7 @@
  * Two rules carry most of the weight, and they are the same two the vanilla
  * page was built around:
  *
- * 1. **The CLI owns every operator-facing message.** `apps/client/agent` phrases the
+ * 1. **The CLI owns every operator-facing message.** `apps/node/agent` phrases the
  *    tmux refusal, the `loginctl enable-linger` hint, the live-pane refusal and
  *    every enrollment failure, and its strings are pinned by its own tests. So
  *    `stdout`/`stderr` reach the screen VERBATIM and are never re-worded here.
@@ -24,6 +24,7 @@ import {
   nodeEnroll,
   nodeInstallAgent,
   nodeOpenPath,
+  nodeOpenPlane,
   nodeService,
   nodeSetAgentBin,
   nodeSetCloseToTray,
@@ -60,6 +61,8 @@ export interface NodeCommands {
   clearBinary: () => void;
   /** The close-to-tray preference. */
   setCloseToTray: (enabled: boolean) => void;
+  /** Show a control plane's UI. `null` opens the address already settled. */
+  openPlane: (url: string | null) => void;
 }
 
 export function useNodeCommands(args: {
@@ -286,6 +289,20 @@ export function useNodeCommands(args: {
         async () => {
           await nodeSetCloseToTray({ enabled });
           return finished(null);
+        },
+        { reprobe: false },
+      ),
+
+    /**
+     * Opening a plane changes nothing about this machine, so it does not
+     * re-probe either. It still goes through the runner: an unusable URL comes
+     * back as a rejection, and this is the line that reads it out.
+     */
+    openPlane: (url) =>
+      runner.run(
+        async () => {
+          const opened = await nodeOpenPlane({ url });
+          return finished({ ok: true, stdout: `Opened ${opened}`, stderr: "" });
         },
         { reprobe: false },
       ),

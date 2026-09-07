@@ -8,7 +8,7 @@ import type { McpLaunchSpec } from "@internal/harnesses";
  * side-effect-free CLI graph. Registration/env helpers live there; this module
  * answers one question: which command + argv launches the MCP server here.
  *
- * The ladder is env override → SELF → client-on-PATH (spec 2026-09-03, single
+ * The ladder is env override → SELF → agent-on-PATH (spec 2026-09-03, single
  * binary): the server process IS the MCP server, so there is no companion file
  * to hunt for and this module touches no fs at all.
  */
@@ -26,7 +26,7 @@ const SERVER_PRODUCT = "subshell-server";
  * `@internal/mcp-core` server, so the PATH lookup of it is the safe last
  * autodetect rung — it covers installs whose server predates the self rung.
  */
-const CLIENT_BINARY = "subshell";
+const AGENT_BINARY = "subshell";
 
 /**
  * Fallback launch spec used only for DISPLAY when the real one cannot be
@@ -37,7 +37,7 @@ const CLIENT_BINARY = "subshell";
 export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: SERVER_PRODUCT, args: ["mcp"] };
 
 /** Which rung answered — surfaced by `status` so an operator sees WHY it resolves. */
-export type McpLaunchSource = "env" | "self" | "client-on-path";
+export type McpLaunchSource = "env" | "self" | "agent-on-path";
 
 /** Result of {@link probeMcpLaunch}: either a resolved spec + its rung, or the failure text. */
 export type McpProbeOutcome =
@@ -46,7 +46,7 @@ export type McpProbeOutcome =
 
 /** Injectable PATH/executable seams so tests can pin every rung (defaults: real Bun). */
 export interface McpResolveIo {
-  /** PATH lookup for the client-on-PATH rung (default: `Bun.which`). */
+  /** PATH lookup for the agent-on-PATH rung (default: `Bun.which`). */
   which?: (name: string) => string | null;
   /** This process's executable (default: `process.execPath`). */
   execPath?: string;
@@ -110,8 +110,8 @@ export function probeMcpLaunch(env: NodeJS.ProcessEnv = process.env, io: McpReso
   }
   // 3. LAST RUNG: the `subshell` node agent carries the same mcp-core server.
   //    Covers hosts whose server predates the self rung.
-  const client = which(CLIENT_BINARY);
-  if (client) return { spec: { command: client, args: ["mcp"] }, source: "client-on-path" };
+  const agent = which(AGENT_BINARY);
+  if (agent) return { spec: { command: agent, args: ["mcp"] }, source: "agent-on-path" };
   return { spec: null, error: "cannot locate the subshell mcp entrypoint; set SUBSHELL_MCP_COMMAND" };
 }
 

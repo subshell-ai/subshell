@@ -1,10 +1,16 @@
 //! Subshell Client — a native shell around this machine's `subshell` node agent.
 //!
-//! The whole product is one sentence: paste a server URL and a setup key, and
-//! this machine becomes a node that agents can be launched on — without ever
-//! meeting the CLI. Everything below is in service of that, and every command
-//! is a wrapper over `apps/client/agent`'s own binary rather than a reimplementation
-//! of it.
+//! Two things in one app, because one person does both: WATCHING a control
+//! plane (the `main` window, showing the plane's own UI) and MAKING THIS
+//! MACHINE A NODE (the `node` window, bundled, the only surface that drives the
+//! `subshell` CLI). The node window existing is the whole of the "node
+//! functionality" toggle — a client used purely to watch subshells never opens
+//! it.
+//!
+//! Every command here is a wrapper over `apps/node/agent`'s own binary rather
+//! than a reimplementation of it, and none of them is reachable from the window
+//! showing the plane's page. See `windows.rs` for why that split is the
+//! security boundary.
 
 mod agent_bin;
 mod control;
@@ -29,7 +35,7 @@ use tauri::Manager;
 ///
 /// The Linux directory is `subshell-desktop-client`, NOT `subshell`:
 /// `~/.config/subshell` is the node AGENT's own config home
-/// (`apps/client/agent/src/config.ts`, where `config.json` and the node key live),
+/// (`apps/node/agent/src/config.ts`, where `config.json` and the node key live),
 /// and dropping this app's `settings.json` in beside it would put two
 /// different programs' state in one directory.
 const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
@@ -40,7 +46,7 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 /// Environment variables this app refuses to pass on to the agent.
 ///
 /// `SUBSHELL_CONFIG_HOME` relocates the agent's config home
-/// (`apps/client/agent/src/config.ts`), and `service install` bakes only `PATH` into
+/// (`apps/node/agent/src/config.ts`), and `service install` bakes only `PATH` into
 /// the unit or plist it writes — so an agent enrolled under a relocated home is
 /// started by a service that looks in `~/.config/subshell`, finds nothing, and
 /// crash-loops with nothing to explain it. This app also NAMES that directory
@@ -76,7 +82,7 @@ pub fn run() {
         // way back to a window that is not showing.
         builder = builder
             .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-                windows::focus_main(app);
+                windows::focus_any(app);
             }))
             .plugin(
                 tauri_plugin_window_state::Builder::default()
@@ -104,6 +110,7 @@ pub fn run() {
             control::node_open_path,
             control::node_settings,
             control::node_set_close_to_tray,
+            control::node_open_plane,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -114,8 +121,11 @@ pub fn run() {
                 // unreachable with nothing to explain it. This is the guard
                 // that actually protects the user — the setting may have been
                 // made on a session that had a tray.
-                let hide = window.label() == windows::MAIN_LABEL
-                    && control::close_to_tray_now(&window.app_handle().state::<SettingsState>());
+                //
+                // Either window, because either can be the last one on screen:
+                // a client that is not a node lives entirely in the plane
+                // window, and a node being set up lives entirely in the other.
+                let hide = control::close_to_tray_now(&window.app_handle().state::<SettingsState>());
                 if hide {
                     api.prevent_close();
                     let _ = window.hide();
@@ -131,7 +141,25 @@ pub fn run() {
             if let Err(err) = tray::build(&handle) {
                 eprintln!("subshell-node: could not create the tray icon: {err}");
             }
-            windows::open_main(&handle)?;
+            // Which window opens first says what this install IS. An address
+            // already settled — chosen here before, or enrolled from the CLI —
+            // means a client whose job is the plane; anything else means a
+            // machine that has not been pointed anywhere yet, and the node page
+            // is where it gets pointed.
+            match control::resolve_plane_url(&app.state::<SettingsState>()) {
+                Some(url) => {
+                    // Not fatal. A plane that will not open (a URL that has
+                    // stopped resolving, a webview that failed to build) must
+                    // still leave a usable app rather than none.
+                    if let Err(err) = windows::open_plane(&handle, &url) {
+                        eprintln!("subshell-client: could not open the control plane at {url}: {err}");
+                        windows::open_node(&handle)?;
+                    }
+                }
+                None => {
+                    windows::open_node(&handle)?;
+                }
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -145,7 +173,8 @@ pub fn run() {
             // down with it.
             tauri::RunEvent::ExitRequested { api, .. }
                 if control::close_to_tray_now(&app.state::<SettingsState>())
-                    && app.get_webview_window(windows::MAIN_LABEL).is_some() =>
+                    && (app.get_webview_window(windows::PLANE_LABEL).is_some()
+                        || app.get_webview_window(windows::NODE_LABEL).is_some()) =>
             {
                 api.prevent_exit();
             }
@@ -153,7 +182,7 @@ pub fn run() {
             // Without this a window closed to the tray cannot be brought back
             // from the Dock, only from the tray.
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen { .. } => windows::focus_main(app),
+            tauri::RunEvent::Reopen { .. } => windows::focus_any(app),
             _ => {}
         });
 }

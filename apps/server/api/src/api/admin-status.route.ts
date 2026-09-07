@@ -90,7 +90,7 @@ const RuntimeSchema = t.Object({
   mcpEntrypoint: t.Nullable(t.String({ description: "Resolved `subshell mcp` command line" }), {
     description: "The command every subshell create registers, or null when UNRESOLVED (create will 500)",
   }),
-  mcpSource: t.Nullable(t.String({ description: "Which rung answered: env | self | client-on-path" }), {
+  mcpSource: t.Nullable(t.String({ description: "Which rung answered: env | self | agent-on-path" }), {
     description: "Resolution rung, or null when unresolved",
   }),
 });

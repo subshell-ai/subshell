@@ -7,12 +7,12 @@
 # silently inherit the ability to drive the CLI. With it, each command is
 # granted deliberately, per window.
 #
-# This app has ONE window and it loads a page from the bundle, so today every
-# command is granted to it. The file still earns its place: the moment a second
-# window exists — a webview onto a control plane, say, to let a user mint their
-# own setup key — that window starts ungated unless this file is here to say
-# otherwise. See `apps/server/desktop/src-tauri/permissions/desktop.toml` for
-# what that split looks like once it is needed.
+# That second window now exists. `main` shows a control plane's own UI, loaded
+# from the plane's own origin, and NO capability names it — so every permission
+# defined below reaches the bundled `node` page and nothing else. A control
+# plane can live on any host, which is exactly why it cannot be granted
+# anything: `apps/server/desktop` can pin its remote window to loopback because
+# it manages the server serving it, and there is no equivalent pin here.
 
 "$schema" = "schemas/schema.json"
 
@@ -55,3 +55,8 @@ commands.allow = ["node_settings"]
 identifier = "allow-node-set-close-to-tray"
 description = "Choose whether closing the window hides it to the tray."
 commands.allow = ["node_set_close_to_tray"]
+
+[[permission]]
+identifier = "allow-node-open-plane"
+description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only, and that window is granted no commands of its own."
+commands.allow = ["node_open_plane"]

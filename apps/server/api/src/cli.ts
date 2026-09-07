@@ -220,11 +220,11 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         return true;
       }
       // ATTACH is not done. `runSubshellMcp` resolves once the stdio
-      // transport CONNECTS (mcp-core's contract — the same one apps/client/agent's
+      // transport CONNECTS (mcp-core's contract — the same one apps/node/agent's
       // T18 fix documents); an `exit(0)` here — or even returning `true`,
       // which cli-bootstrap's `.then(handled ⇒ exit 0)` would act on —
       // kills the live transport milliseconds after `ready`. This is the
-      // server twin of apps/client/agent's keepAlive: PARK the dispatch promise so
+      // server twin of apps/node/agent's keepAlive: PARK the dispatch promise so
       // nothing downstream can exit, and let the transport's stdin listener
       // own the process lifetime. When the pane's client disconnects, the
       // stream ends, the drained event loop ends the process (0) naturally,

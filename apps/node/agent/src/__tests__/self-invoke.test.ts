@@ -35,7 +35,7 @@ describe("selfInvocation", () => {
     expect(args[0]).toMatch(/main\.ts$/);
   });
 
-  // The published artifact is `subshell-cli-<triple>` and nothing stops a user
+  // The published artifact is `subshell-node-cli-<triple>` and nothing stops a user
   // renaming it. Its argv[1] is the virtual bunfs path, which is NOT an entry
   // script — treating it as one would bake an unspawnable command.
   test("a renamed compiled binary is still compiled, not an interpreter launch", () => {

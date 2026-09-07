@@ -18,7 +18,7 @@ the service unit invokes. No CLI command, config path or service name changes.
 
 The server also resolves the node-agent artifacts it serves under their new
 names, so **an existing instance must republish its node artifacts**
-(`bun run release:client` with `SUBSHELL_NODE_ARTIFACTS_DIR` pointed at the
+(`bun run release:node` with `SUBSHELL_NODE_ARTIFACTS_DIR` pointed at the
 directory the server serves). Until it does, the enroll one-liner and
 `GET /api/downloads/node/*` 404 on every target — the old files are still on
 disk under the old names.

@@ -69,7 +69,7 @@ const shaCache = new Map<string, string>();
 /**
  * SHA-256 (lowercase hex) of a target's binary, or null when unpublished —
  * "published" being exactly {@link artifactStat}'s rule, so the binary route
- * and this one never disagree. An on-disk `subshell-cli-<target>.sha256`
+ * and this one never disagree. An on-disk `subshell-node-cli-<target>.sha256`
  * sidecar wins when it holds a 64-hex digest (publisher-provided truth);
  * otherwise the digest is computed over the binary. Both paths cache under
  * the file mtimes, so a swapped binary or sidecar is noticed on the next

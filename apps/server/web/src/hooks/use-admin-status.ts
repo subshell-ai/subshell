@@ -61,7 +61,7 @@ export interface AdminStatus {
     tmuxPath: string | null;
     /** Resolved `subshell mcp` command, null when UNRESOLVED */
     mcpEntrypoint: string | null;
-    /** Which rung resolved it: env | self | client-on-path */
+    /** Which rung resolved it: env | self | agent-on-path */
     mcpSource: string | null;
   };
   inventory: {

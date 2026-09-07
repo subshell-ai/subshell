@@ -461,24 +461,26 @@ endpoint is rate-limited.
 
 ## 8b. The desktop apps
 
-Two Tauri v2 shells, each a GUI over one of the CLIs. `apps/server/desktop`
-installs, runs and manages a `subshell-server`; `apps/client/desktop`
-("Subshell Client") registers the machine as a node and manages its `subshell`
-agent. Neither adds a server surface — every privileged thing they do goes
-through their CLI as the same local user — but the first introduces a boundary
-that did not exist before, and both inherit the entitlement and
-executes-what-it-finds properties below.
+Two Tauri v2 shells. `apps/server/desktop` ("Subshell Server") installs, runs
+and manages a `subshell-server`; `apps/client/desktop` ("Subshell Client") is a
+person's interface to a control plane and the place their machine is registered
+as a node. Neither adds a server surface — every privileged thing they do goes
+through a CLI as the same local user — but both hold a page this repo did not
+ship, and both inherit the entitlement and executes-what-it-finds properties
+below.
 
-`apps/client/desktop` has ONE window and it loads the app's own bundled page,
-because a node serves nothing. That makes the remote-content section below
-specific to `apps/server/desktop`: the node app has no remote origin, so its
-`csp` in `tauri.conf.json` governs every page it shows.
+### The window that loads someone else's page
 
-### The window that loads the server's page (`apps/server/desktop` only)
+Each app has **two windows**, and the split is the boundary: one holds a REMOTE
+page and one holds a page bundled with the app, and every command that touches
+a CLI, a config file, a service manager or the filesystem is granted to the
+bundled one alone. What differs between the apps is how much the remote window
+gets, and the difference follows from whether its origin can be known ahead of
+time.
 
-The app window (`main`) loads `http://127.0.0.1:<port>` — the SPA, served by
-the server it manages — and that window holds Tauri's IPC globals. It is
-treated as **remote content**:
+**Subshell Server — loopback, three commands.** Its `main` window loads
+`http://127.0.0.1:<port>`: the SPA served by the very server this app manages,
+so the origin is knowable and is pinned four ways.
 
 | Gate | What it does |
 | --- | --- |
@@ -489,15 +491,25 @@ treated as **remote content**:
 
 The three granted commands are chosen for what they cannot do: show a window
 that already exists, drop this app's own title bar, and display one
-fixed-shape notification. Everything that touches the CLI, config.env, the
-service manager or the filesystem lives on a **separate window** whose page is
-bundled with the app.
+fixed-shape notification.
 
-Two limits worth stating rather than implying. The `csp` in `tauri.conf.json`
-applies to the bundled console **only** — the app window's page carries
-whatever CSP the server sends, so an XSS in the SPA reaches those three
-commands. And the app's ACL manifest is what makes any of this apply at all:
-Tauri leaves app commands ungated for local windows when no manifest exists.
+**Subshell Client — any origin, and therefore nothing.** Its `main` window loads
+a control plane's own UI, and a control plane can live on any host: a LAN
+address, a VPN name, a public hostname. That origin cannot be enumerated in a
+capability file, so rather than reach for Tauri's runtime ACLs, **no capability
+names that window** and every `invoke` from it is refused. Two supporting
+choices: the window is built without the `SubshellDesktop/…` user-agent marker,
+so `apps/server/web` never takes its desktop-shell branch and never calls
+anything; and `on_navigation` still pins it to the origin it opened with, so a
+redirect cannot walk it elsewhere. Enrolment, agent installation and service
+control live on the app's bundled `node` window, which the plane cannot reach.
+
+Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
+applies to that app's bundled page **only** — a remote window's page carries
+whatever CSP its origin sends, so an XSS in the server app's SPA reaches those
+three commands (and, in the client app, nothing). And each app's ACL manifest is
+what makes any of this apply at all: Tauri leaves app commands ungated for local
+windows when no manifest exists.
 
 ### Entitlements are shared with the bundled binary
 

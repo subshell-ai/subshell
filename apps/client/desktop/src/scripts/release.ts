@@ -5,7 +5,7 @@
  * runs (assertBunFloor → parseScope → preflight → stage sidecar → bundle →
  * assert the bundle set → glob the one artifact the bundler wrote → digest →
  * publish, all-or-nothing, CLI entry behind `import.meta.main`). Exactly one thing differs: the nested product. This app
- * ships the NODE AGENT (`apps/client/agent` → `subshell`), not the server, so the
+ * ships the NODE AGENT (`apps/node/agent` → `subshell`), not the server, so the
  * child build, the env vars that steer it, the staged file name and the
  * product name all come from the agent's half of the distribution contract in
  * `@internal/subshell-protocol`.
@@ -28,8 +28,8 @@
  *    digest that matches nothing. Digests are never comparable between the
  *    bare-binary download channel (`GET /api/downloads/node/*`) and this one.
  * 4. **`SUBSHELL_NODE_ARTIFACTS_DIR` must be ABSOLUTE.** `resolveArtifactsDir()`
- *    on the agent side calls `resolve()` in the CHILD's cwd (`apps/client/agent`),
- *    so a relative override lands in `apps/client/agent/apps/client/desktop/…` — a
+ *    on the agent side calls `resolve()` in the CHILD's cwd (`apps/node/agent`),
+ *    so a relative override lands in `apps/node/agent/apps/client/desktop/…` — a
  *    path that looks right in the log and is not, and the build then fails with
  *    "binary not found" pointing somewhere else entirely.
  */
@@ -118,13 +118,13 @@ export interface DesktopReleaseDeps {
  * Build the node agent for `triple` and stage it under the name Tauri expects.
  *
  * The three env vars handed to the child are the whole contract with
- * `apps/client/agent`'s own pipeline: scope it to one triple, publish it into the
+ * `apps/node/agent`'s own pipeline: scope it to one triple, publish it into the
  * sidecar directory by ABSOLUTE path (rule 4 in this file's header), and sign
  * nothing (rule 2).
  */
 export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
   deps.log(`staging the node agent sidecar for ${triple}…`);
-  const code = await deps.run(["bun", "run", "--cwd", "apps/client/agent", "compile:release"], REPO_ROOT, {
+  const code = await deps.run(["bun", "run", "--cwd", "apps/node/agent", "compile:release"], REPO_ROOT, {
     SUBSHELL_RELEASE_TRIPLES: triple,
     SUBSHELL_NODE_ARTIFACTS_DIR: SIDECAR_DIR,
     // Cleared, not merely unset: an inherited value from the CI shard would
@@ -304,7 +304,7 @@ async function main(): Promise<void> {
   const deps = DEFAULT_DEPS;
 
   // The nested agent build BUNDLES the workspace dists, and refuses without
-  // them (`assertWorkspaceBuilt` in apps/client/agent's pipeline). Mirroring that
+  // them (`assertWorkspaceBuilt` in apps/node/agent's pipeline). Mirroring that
   // gate here fails in a second rather than after a full cargo build.
   const harnessesDist = join(REPO_ROOT, "packages", "harnesses", "dist");
   if (!deps.exists(join(harnessesDist, "index.mjs")) && !deps.exists(join(harnessesDist, "index.js"))) {

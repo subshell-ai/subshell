@@ -17,7 +17,7 @@ function Row({ label, value }: { label: string; value: string | undefined }) {
 /**
  * What this instance and this browser are actually RUNNING.
  *
- * The two halves version INDEPENDENTLY — `apps/server/api` and `apps/client/agent` carry
+ * The two halves version INDEPENDENTLY — `apps/server/api` and `apps/node/agent` carry
  * their own package.json versions (changesets bump them separately), and this
  * bundle is stamped by build time — so there is deliberately no single
  * "subshell version" printed here.

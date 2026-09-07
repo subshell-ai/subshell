@@ -26,7 +26,7 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 const FS_LS_TIMEOUT_MS = 5_000;
 
 /**
- * The agent-side refusal prefixes of `fs-ls.ts` (apps/client/agent), as wrapped by
+ * The agent-side refusal prefixes of `fs-ls.ts` (apps/node/agent), as wrapped by
  * `resolveResult` into `node "<id>" reported: <PREFIX>: <path>`. The prefixes
  * are OUR protocol — pinned by the agent's own suite — and text-coupling the
  * mapping is the established idiom here (see remote-launcher's ALREADY_GONE_RE

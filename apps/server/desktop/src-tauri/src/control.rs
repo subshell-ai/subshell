@@ -811,6 +811,9 @@ mod tests {
             binary_path: None,
             close_to_tray,
             open_at_login: false,
+            // Subshell Client's field. This app never reads or writes it; it
+            // shares the struct, not the file.
+            plane_url: None,
         }
     }
 

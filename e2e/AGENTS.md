@@ -33,7 +33,7 @@ The backend serves the frontend bundle, so **one origin = the whole app**; all
 specs use `baseURL` from `ports.ts`.
 
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
-source** (`bun apps/client/agent/src/main.ts enroll|run` via `stub/client.ts`, with
+source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
 `SUBSHELL_CONFIG_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
 daemonised tmux servers are quarantined). No hand-written fake agent exists —
 the master plan's `subshell-fake.ts` was superseded before it was written

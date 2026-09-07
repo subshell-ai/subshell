@@ -2,10 +2,15 @@
  * The three-way contract: the page, the Rust command set, and the ACL.
  *
  * A command name lives in `lib/ipc.ts`, in `src-tauri/permissions/desktop.toml`
- * and in `src-tauri/capabilities/main.json`. Changing one without the others
+ * and in `src-tauri/capabilities/node.json`. Changing one without the others
  * produces a command that is REFUSED AT RUNTIME with a message about
  * permissions — not a compile error, and not something any type checks. Nothing
  * held those three files together before this test.
+ *
+ * `node.json` and not `main.json`, and that is the point of the last block
+ * here: `main` is the window showing a CONTROL PLANE's own page, and it is
+ * granted nothing. A capability file that named it would hand a remote origin
+ * the whole CLI surface.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -49,7 +54,7 @@ function manifestPermissions(): Map<string, string[]> {
 }
 
 function capabilityPermissions(): string[] {
-  const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/main.json"), "utf8")) as {
+  const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/node.json"), "utf8")) as {
     permissions: string[];
   };
   return capability.permissions;
@@ -112,6 +117,35 @@ describe("the IPC contract", () => {
     // be dismissed to re-read the form behind it.
     const dialog = capabilityPermissions().filter((id) => id.startsWith("dialog:"));
     expect(dialog.sort()).toEqual(["dialog:allow-message", "dialog:allow-open"]);
+  });
+});
+
+describe("the window that is granted nothing", () => {
+  /** Every capability file the app ships, parsed. */
+  function capabilities(): { file: string; identifier: string; windows?: string[]; local?: boolean }[] {
+    const dir = join(TAURI_DIR, "capabilities");
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => ({ file: f, ...JSON.parse(readFileSync(join(dir, f), "utf8")) }));
+  }
+
+  // The security boundary of this app is an ABSENCE: no capability names the
+  // `main` window, so every command it invokes is refused. A control plane can
+  // live on any host, so unlike `apps/server/desktop`'s loopback window this
+  // one's origin cannot be pinned in a capability at all — which is exactly why
+  // it gets none.
+  it("grants the control-plane window no capability", () => {
+    for (const capability of capabilities()) {
+      expect(capability.windows ?? [], capability.file).not.toContain("main");
+    }
+  });
+
+  // The corollary: everything this app grants goes to the bundled page.
+  it("grants everything to the bundled node window, locally", () => {
+    const files = capabilities();
+    expect(files.map((c) => c.file).sort()).toEqual(["node.json"]);
+    expect(files[0]?.windows).toEqual(["node"]);
+    expect(files[0]?.local).toBe(true);
   });
 });
 

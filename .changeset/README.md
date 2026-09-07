@@ -1,7 +1,7 @@
 # Changesets
 
 Run `bunx changeset` after user-visible changes to any releasable app —
-`@internal/server`, `@internal/client`, `@internal/desktop-server` or
+`@internal/server`, `@internal/node`, `@internal/desktop-server` or
 `@internal/desktop-client`. The version PR on merge to main records the bump;
 the release cut happens via `.github/workflows/release.yml`.
 

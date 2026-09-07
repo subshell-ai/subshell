@@ -38,7 +38,7 @@ export function artifactStat(target: NodeTarget): Stats | null {
  * The targets this instance ACTUALLY serves — the same rule as
  * {@link artifactStat}, widened to the whole closed set. A binary-only
  * server install (GitHub release) ships an EMPTY artifacts dir, which nothing
- * populates until `release:client` publishes to it; until then the enroll
+ * populates until `release:node` publishes to it; until then the enroll
  * one-liner 404s on every machine, and this list is how the dialog and the
  * operator's own `status` know that instead of discovering it.
  */

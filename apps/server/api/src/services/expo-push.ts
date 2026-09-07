@@ -120,7 +120,7 @@ export function buildExpoMessages(
     threadId: subshellId,
     tag: subshellId,
     collapseId: subshellId,
-    // Names registered in apps/mobile/src/native/push.ts — keep the three in
+    // Names registered in apps/client/mobile/src/native/push.ts — keep the three in
     // sync or the lock-screen actions silently vanish on real devices.
     categoryId: "subshell",
     channelId: "subshell-subshells",
