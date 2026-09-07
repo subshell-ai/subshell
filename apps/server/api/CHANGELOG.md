@@ -1,5 +1,13 @@
 # @internal/server
 
+## 1.10.1
+
+### Patch Changes
+
+- [`63860fd`](https://github.com/subshell-ai/subshell/commit/63860fd73a3e0e9ab8fa0f818ce734a6038e09da) Thanks [@theogravity](https://github.com/theogravity)! - The "no agent binary published" guidance named the retired `client` release. The
+  install script's 404 message and the Add-node dialog now point at a
+  `node-vX.Y.Z` release, which is where those assets actually are.
+
 ## 1.10.0
 
 ### Minor Changes
