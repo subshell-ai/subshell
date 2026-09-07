@@ -5,7 +5,29 @@ its scripts are named `make`/`check` so `turbo run test|generate` never picks th
 up. Root aliases: `bun run brand:generate`, `bun run brand:test`.
 
 `bun run brand:generate` rasterizes `src/*.svg` masters into the committed PNGs
-(`apps/frontend/public/icons/`, `docs/assets/`).
+(`apps/frontend/public/icons/`, `docs/assets/`, and each desktop app's
+`src-tauri/icons/app-icon.png`).
+
+**The two desktop apps differ only in their icon background**, and that is a
+table in `generate.ts` (`DESKTOP_APPS`), not two copies of the artwork: one mark,
+one geometry, one colour per app, swapped into the `<rect id="bg">` of
+`tile-rounded.svg`. Both colours are taken off the UI palette in
+`apps/frontend/src/styles.css` rather than picked by eye — the server uses
+`--background` and the node app the accent hue at a mid lightness, so they differ
+in hue AND lightness and stay apart when scaled to a 22pt menu-bar icon.
+
+This script emits the 1024px MASTER only. The platform icon set (`.icns` and the
+sized PNGs) is cut from it by tauri, which each app runs itself:
+
+```bash
+bun run brand:generate                       # the masters
+bun run --cwd apps/desktop-server icons      # the icon sets
+bun run --cwd apps/desktop-client icons
+```
+
+Those `icons` scripts also delete the Windows, iOS and Android assets
+`tauri icon` emits unasked — neither app targets any of them, and leaving them
+in the tree implies support that does not exist.
 
 Requires the licensed font. The search order is per-OS — `~/Library/Fonts` and
 `/Library/Fonts` on macOS, `~/.local/share/fonts`, `~/.fonts` and the system

@@ -1,16 +1,27 @@
 /**
  * The words this app owns, and the two shapes it checks before spending a key.
  *
- * Everything the CLI says is printed verbatim by `dom.js`'s `show`. What is
- * here is the other half: the things the CLI never gets a chance to say,
- * because they have to be true BEFORE it is invoked — what a setup key is,
+ * Everything the CLI says is printed verbatim by `components/output-block.tsx`.
+ * What is here is the other half: the things the CLI never gets a chance to
+ * say, because they have to be true BEFORE it is invoked — what a setup key is,
  * where it comes from, what a wrong node name costs, and what a loopback URL
- * means. Kept out of `main.js` so the prose can be edited without reading the
- * state machine, and so `main.js` stays about behavior.
+ * means. Kept out of the components so the prose can be edited without reading
+ * the state machine.
  */
+import type { Probe } from "@/lib/ipc";
+
+/** One field of the enrollment form. */
+export interface EnrollField {
+  name: EnrollFieldName;
+  label: string;
+  placeholder: string;
+}
+
+/** The keys of the enroll form, which are also the keys of its error map. */
+export type EnrollFieldName = "server" | "key" | "name";
 
 /** The three fields of the enrollment form, in the order they are filled in. */
-export const FIELDS = [
+export const ENROLL_FIELDS: readonly EnrollField[] = [
   { name: "server", label: "Server URL", placeholder: "https://subshell.example.com" },
   { name: "key", label: "Setup key", placeholder: "nsk_…" },
   { name: "name", label: "Node name (optional)", placeholder: "this machine's hostname" },
@@ -42,7 +53,7 @@ export const LOOPBACK_NOTE =
   "run the server here, and wrong if you copied the URL out of a browser on another machine.";
 
 /** What every enrollment screen says about the key, in plain language. */
-export const ENROLL_NOTES = [
+export const ENROLL_NOTES: readonly string[] = [
   "Mint a setup key in the browser first: Settings → Nodes → Add node. It is shown once, so copy it before closing " +
     "that dialog.",
   "A setup key is single-use and expires after 24 hours. Anything that fails AFTER the control plane has accepted " +
@@ -59,7 +70,7 @@ export const ENROLL_NOTES = [
  * does not, so it comes up ONLINE with an empty harness inventory and 409s
  * every launch — which is the failure nobody attributes to tmux.
  */
-export function tmuxHint(probe, which) {
+export function tmuxHint(probe: Probe | undefined, which: "enroll" | "service"): string {
   if (probe?.tmux) return "";
   return which === "enroll"
     ? "tmux was not found on the login PATH. `subshell enroll` checks for it before its network call, so a missing " +

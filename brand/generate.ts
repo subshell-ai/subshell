@@ -17,6 +17,7 @@ const BRAND_DIR = import.meta.dir;
 const SRC_DIR = path.join(BRAND_DIR, "src");
 const ICONS_DIR = path.join(BRAND_DIR, "../apps/frontend/public/icons");
 const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
+const APPS_DIR = path.join(BRAND_DIR, "../apps");
 
 /** Everything — wordmark and mark — is Light 300 (operator choice 2026-09-03: Thin read too weak beside the UI's label weights). */
 const FONT_FILE = "Acherus-Grotesque-Light.otf";
@@ -92,9 +93,52 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
   { master: "wordmark-plate.svg", mode: "width", size: 1280, out: "docs/subshell-wordmark@2x.png" },
 ];
 
+/**
+ * The desktop apps' icon backgrounds — the ONE thing that differs between them.
+ *
+ * Two Tauri apps ship side by side (`apps/desktop-server` = Subshell,
+ * `apps/desktop-client` = Subshell Node) and they used to carry byte-identical
+ * icons, which made them indistinguishable in a Dock, a launcher and a menu
+ * bar. The mark stays the same — it is one product — so the background carries
+ * the difference.
+ *
+ * Both colours come off the UI palette in `apps/frontend/src/styles.css` rather
+ * than being picked by eye: the server takes `--background` (the product
+ * ground, oklch 0.224 0.035 296) and the node app the accent hue at a mid
+ * lightness (oklch 0.38 0.13 322). They differ in BOTH hue and lightness,
+ * which is what survives being scaled to a 22pt menu-bar icon, and each keeps
+ * the `#e6dbef` glyph above 8:1 contrast.
+ *
+ * The output is a 1024px master only. The platform icon SET (`.icns`, the
+ * sized PNGs) is cut from it by `tauri icon`, which each app runs through its
+ * own `bun run icons` — see the note printed at the end of this script.
+ */
+const DESKTOP_ICON_SIZE = 1024;
+const DESKTOP_APPS: { app: string; background: string }[] = [
+  { app: "desktop-server", background: "#1d182a" },
+  { app: "desktop-client", background: "#61246a" },
+];
+
+/**
+ * Swap the tile's background fill.
+ *
+ * Deliberately narrow: it matches the ONE rect carrying `id="bg"` and throws
+ * rather than guessing, so a master edited to move that id fails the build
+ * instead of silently emitting two icons the same colour — which is the exact
+ * bug this whole table exists to fix.
+ */
+function recolorBackground(svg: string, background: string): string {
+  const rect = /<rect id="bg"([^>]*?)fill="#[0-9a-fA-F]{3,8}"/;
+  if (!rect.test(svg)) {
+    throw new Error('tile master has no <rect id="bg" … fill="#…"> to recolour');
+  }
+  return svg.replace(rect, `<rect id="bg"$1fill="${background}"`);
+}
+
 /** Rasterizes one master at the requested pixel size (deterministic). */
-function render(master: string, mode: Mode, size: number): Buffer {
-  const svg = readFileSync(path.join(SRC_DIR, master), "utf8");
+function render(master: string, mode: Mode, size: number, edit?: (svg: string) => string): Buffer {
+  const raw = readFileSync(path.join(SRC_DIR, master), "utf8");
+  const svg = edit ? edit(raw) : raw;
   const resvg = new Resvg(svg, {
     fitTo: { mode, value: size },
     font: {
@@ -117,6 +161,18 @@ outputs.set(
   ]),
 );
 
+/** The desktop app masters, keyed by their absolute destination. */
+const appIcons = new Map<string, Buffer>();
+for (const { app, background } of DESKTOP_APPS) {
+  appIcons.set(
+    path.join(APPS_DIR, app, "src-tauri/icons/app-icon.png"),
+    // The ROUNDED tile, not the square one the web favicons use: macOS does
+    // not round an app icon for you, so a square master ships as a hard-edged
+    // square among rounded Dock neighbours.
+    render("tile-rounded.svg", "width", DESKTOP_ICON_SIZE, (svg) => recolorBackground(svg, background)),
+  );
+}
+
 mkdirSync(ICONS_DIR, { recursive: true });
 mkdirSync(DOCS_DIR, { recursive: true });
 for (const [out, bytes] of outputs) {
@@ -126,6 +182,15 @@ for (const [out, bytes] of outputs) {
   writeFileSync(file, bytes);
   console.log(`wrote ${out} (${bytes.length} B)`);
 }
+for (const [file, bytes] of appIcons) {
+  writeFileSync(file, bytes);
+  console.log(`wrote ${path.relative(path.join(BRAND_DIR, ".."), file)} (${bytes.length} B)`);
+}
+
 console.log(
   "\nCommit the regenerated PNGs. Never hand-edit them; change brand/src/*.svg or the JOBS table and re-run.",
+);
+console.log(
+  "\nThe desktop app-icon SETS are cut from those masters by tauri, not by this script:\n" +
+    DESKTOP_APPS.map(({ app }) => `  bun run --cwd apps/${app} icons`).join("\n"),
 );

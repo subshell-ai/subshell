@@ -23,6 +23,13 @@ fail() {
   exit 1
 }
 
+# The minimum glibc both apps are built against, chosen by the builder image
+# (ubuntu:24.04) rather than inherited from whatever the runner was last
+# re-imaged with. Bumping the image means bumping this AND the deb.depends in
+# both tauri.conf.json files — the support statement is Ubuntu 24.04+ /
+# Debian 13+.
+GLIBC_FLOOR="2.39"
+
 # Everything that differs between the two bundles, in one table. The in-bundle
 # sidecar name has NO triple suffix — Tauri strips it on copy, so anything
 # grepping for the STAGED name finds nothing 100% of the time.
@@ -100,6 +107,16 @@ if [ "$TRIPLE" = "linux-x64" ]; then
   for dep in libwebkit2gtk-4.1-0 libayatana-appindicator3-1; do
     case "$DEPENDS" in *"$dep"*) ;; *) fail "Depends is missing $dep" ;; esac
   done
+  # Tauri generates Depends from the linked libraries and adds NO libc6 entry
+  # and no version constraints at all — so without the manual one from
+  # tauri.conf.json, this package installs cleanly on Ubuntu 22.04 and then
+  # dies at exec with "GLIBC_2.39 not found". The manual dep turns a confusing
+  # runtime crash into a clean dpkg refusal, and it is invisible unless
+  # asserted: the release that shipped without it passed every other check.
+  case "$DEPENDS" in
+    *"libc6 (>= $GLIBC_FLOOR)"*) ;;
+    *) fail "Depends carries no 'libc6 (>= $GLIBC_FLOOR)' — the .deb would install on an older glibc and die at exec" ;;
+  esac
 
   dpkg-deb -x "$DIST/$ARTIFACT" "$WORK/root"
   # Capture, then match. `grep -q` exits at the first hit and SIGPIPEs the

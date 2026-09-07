@@ -5,6 +5,19 @@
   ],
   "tasks": {
     "clean": {},
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "ui/**",
+        "vite.config.ts",
+        "*.json"
+      ],
+      "outputs": [
+        "ui/dist/**"
+      ]
+    },
     "lint": {
       "inputs": [
         "src/**",
@@ -25,6 +38,8 @@
     "verify-types": {
       "inputs": [
         "src/**",
+        "ui/**",
+        "vite.config.ts",
         "*.json"
       ]
     }

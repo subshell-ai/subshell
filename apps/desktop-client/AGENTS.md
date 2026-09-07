@@ -13,8 +13,8 @@ too — most of the machinery is the same and is documented there once.
 `apps/desktop-server` has two windows because the thing it manages serves a web
 UI, and `apps/frontend` is hard same-origin, so that UI has to be loaded from
 the server's own HTTP origin. **A node serves nothing.** There is no page to
-load, so this app has one window, it loads `ui/index.html` from the bundle, and
-every piece of remote-content apparatus in the other app is absent here: no
+load, so this app has one window, it loads `ui/dist/index.html` from the bundle,
+and every piece of remote-content apparatus in the other app is absent here: no
 second window, no `SubshellDesktop/…` user-agent marker, no `shell_ready`
 title-bar handshake, no `on_navigation` pin, no `disable_drag_drop_handler`, no
 1024px minimum width, no `bridge.rs` CustomEvent bus.
@@ -22,15 +22,56 @@ title-bar handshake, no `on_navigation` pin, no `disable_drag_drop_handler`, no
 That also means the `csp` in `tauri.conf.json` is the real CSP for every page
 this app shows, rather than a policy that covers only one of two windows.
 
+## The page (`ui/`) — React, on the same stack as `apps/frontend`
+
+`ui/` is a small **React + Vite + Tailwind v4 + TanStack Query** app, built to
+`ui/dist` (the `frontendDist`). It mirrors `apps/frontend`'s stack minus what
+one local window has no use for: no router (one window and a step machine, so
+there are no URLs), no xterm, no dockview, no better-auth, no
+`@internal/backend-client`. Every shared version is pinned to the same string
+`apps/frontend/package.json` uses — `bun run syncpack:lint` fails otherwise.
+
+Three things about it are load-bearing:
+
+- **The typed IPC contract is `ui/src/lib/ipc.ts`**, one narrow function per
+  `node_*` command, transcribed from `src-tauri/src/control.rs`. Nothing
+  generates it, so `ui/src/__tests__/ipc-acl.test.ts` reads
+  `permissions/desktop.toml` and `capabilities/main.json` and asserts the
+  granted command set is exactly the invoked one. That three-way mismatch is a
+  runtime permission rejection, not a compile error.
+- **`withGlobalTauri` is `false`.** `invoke` is imported from
+  `@tauri-apps/api/core`; `window.__TAURI__` existed only for the framework-free
+  page and is gone.
+- **Design tokens and the `components/ui/` primitives are COPIED** from
+  `apps/frontend`, verbatim except the `cn` import path. Copied rather than
+  shared so extracting them into a package later is a straight move, and so a
+  diff between the two copies is the drift signal.
+
 ## Commands
 
 ```bash
-bun run dev:app             # tauri dev (needs a staged sidecar — see below)
+bun run dev:app             # tauri dev (needs a staged sidecar — see below);
+                            # runs `dev:ui` for you via beforeDevCommand
+bun run dev:ui              # just the Vite dev server, on :5177
+bun run build               # vite build -> ui/dist   (pure JS; safe in CI)
 bun run compile             # tauri build --debug
-bun run test                # bun test src   (the TS half: the release script)
+bun run test                # bun test src  +  bun test in ui/  (see below)
+bun run verify-types        # both tsconfigs: src/ (bun) and ui/ (react)
 cd src-tauri && cargo test  # the Rust half — the ladder, the parsers, the policy
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
+
+There is deliberately **no `dev` script**: root `bun run start` is
+`turbo watch dev`, and a `dev` task here would spawn a Vite server for everyone
+working on the backend. The Vite port is **5177**, not a neighbour of
+`apps/frontend`'s 5174 — Vite walks upward from a taken port, and `devUrl` is a
+fixed string, so 5175 is exactly where the SPA lands when its own port is busy.
+
+**Two `bun test` runs, two configs.** `bun test src` covers the release script
+with plain bun and NO DOM; `cd ui && bun test` picks up `ui/bunfig.toml`, which
+preloads `ui/src/test-setup.ts` (happy-dom + the React act flag) for the
+component tests. bunfig is resolved from the cwd, which is the whole reason the
+web half's config lives in `ui/` rather than at the package root.
 
 **Verify Linux in the container, not by reasoning.** Half this crate is
 `#[cfg]`-gated, so `cargo clippy` on macOS cannot see what Linux compiles:
@@ -101,7 +142,12 @@ src-tauri/src/
 ├── menu.rs        the macOS menu bar — module-gated, because Linux has none
 └── lib.rs         plugins, environment scrubbing, lifecycle
 
-ui/                the bundled page: no framework, no build step, no npm runtime dep
+ui/                the bundled page (React + Vite + Tailwind), built to ui/dist
+├── src/lib/       ipc.ts (the typed command contract), steps.ts, copy.ts, cn.ts
+├── src/hooks/     the two queries, the serializing action runner, the commands
+├── src/components/ui/   primitives copied from apps/frontend
+└── src/components/      the screens (step-screens.ts holds the words)
+vite.config.ts     the web build; `ui/` is its root
 src/scripts/       the release script (TS) — `bun run compile:release`
 ```
 
@@ -124,6 +170,22 @@ about permissions, not a compile error.
 
 ## Things that will bite
 
+- **The CSP blocks inline style ATTRIBUTES, not just `<style>` elements.**
+  `style-src 'self'` with no `'unsafe-inline'` means a React `style={{…}}` prop
+  is a silently unstyled element — no error, no warning, and it looks correct
+  under `tauri dev`, where `app.security.devCsp` relaxes exactly that rule so
+  Vite's HMR works. Tailwind classes only; `ui/src/__tests__/no-inline-styles.test.ts`
+  fails on a `style` prop or `dangerouslySetInnerHTML` anywhere under `ui/src`.
+  For the same reason, **do not reach for a portalled or anchored Base UI
+  component** (popover, tooltip, select): they position themselves with inline
+  styles. And Vite's module-preload polyfill is an inline `<script>`, which is
+  why `modulePreload.polyfill` is off in `vite.config.ts`.
+- **Base UI's `Switch` needs a stylesheet workaround for that.** `Switch.Root`
+  renders a hidden native checkbox — as a SIBLING of the root, not a child — and
+  hides it with an inline style, so under the shipped CSP it becomes a visible
+  stray checkbox. `ui/src/styles.css` restates the hiding from a stylesheet;
+  `ui/src/__tests__/switch-csp.test.tsx` fails if Base UI stops emitting that
+  input, at which point delete both.
 - **`subshell status` exits 1 whenever the node is offline.** The exit code is a
   hint; the JSON body on stdout is the answer. Treating non-zero as "the command
   failed" turns every stopped agent into an error dialog.

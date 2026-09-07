@@ -51,9 +51,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 "no default window icon",
             ))
         })?)
-        // A monochrome template icon is the macOS convention; the same asset
-        // renders as-is elsewhere.
-        .icon_as_template(true)
+        // NOT a template. A macOS template icon is drawn from the ALPHA
+        // CHANNEL alone — the system discards every colour and fills the
+        // silhouette to match the menu bar. That is the right convention for a
+        // single app, and it was what this called for; but the whole point of
+        // the two apps' icons is that their BACKGROUNDS differ, and under a
+        // template both collapse to the same filled rounded square. The
+        // shipped asset is a rounded tile at 96% opacity, so a template was
+        // already rendering as a solid blob rather than the `/s` mark.
+        //
+        // The cost is that a coloured icon does not adapt to a light or dark
+        // menu bar. The tile is a dark plate with a light glyph, which reads on
+        // both, and telling two menu-bar items apart beats matching them.
+        .icon_as_template(false)
         .tooltip("Subshell")
         .menu(&menu)
         // macOS/Windows only; on Linux this is inert and the menu is the whole

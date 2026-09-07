@@ -263,9 +263,20 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   `migrator.migrateToLatest()`, which is forward-only. `decide_server` offers a
   newer bundled server and ADOPTS a newer installed one; the reverse is data
   loss, not a choice to present.
-- **Icons** are generated with `tauri icon` from
-  `apps/frontend/public/icons/icon-512.png`, itself a `brand/` output. Regenerate
-  them from the brand master, never by hand.
+- **Icons** come from `brand/` in two steps and never by hand:
+  `bun run brand:generate` writes this app's 1024px master to
+  `src-tauri/icons/app-icon.png`, then `bun run icons` cuts the `.icns` and the
+  sized PNGs from it. The background colour that distinguishes this app from
+  `apps/desktop-client` lives in `brand/generate.ts`'s `DESKTOP_APPS` table.
+  (Before 2026-09-07 the set was cut from `apps/frontend/public/icons/icon-512.png`
+  — the SQUARE web tile — so the macOS icon shipped with hard corners while a
+  rounded master sat unused beside it.)
+- **The tray icon is NOT a template** (`icon_as_template(false)`). macOS draws a
+  template from the alpha channel alone and discards every colour, which would
+  render this app and the node app as the same filled rounded square — and,
+  since the asset is a 96%-opaque tile, as a blob rather than the `/s` mark. A
+  coloured menu-bar icon does not adapt to a light or dark bar; a dark plate
+  with a light glyph reads on both.
 
 - **`proc::run` drains both pipes on threads, and that is not tidiness.**
   Waiting for exit and reading afterwards is the classic pipe deadlock, and it
