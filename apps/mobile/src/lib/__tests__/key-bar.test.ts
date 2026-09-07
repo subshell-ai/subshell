@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "@internal/subshell-protocol";
 import { isRepeatable, KEY_BAR_BUTTONS, KEY_BAR_EXTENDED, wrapPaste } from "@/lib/key-bar";
 
-/** Byte-for-byte port of the web bar's table (spec §Screens "the web table ported byte-for-byte"; source apps/frontend/src/components/terminal-key-bar.tsx:15-33). */
+/** Byte-for-byte port of the web bar's table (spec §Screens "the web table ported byte-for-byte"; source apps/server/web/src/components/terminal-key-bar.tsx:15-33). */
 const EXPECTED_MAIN: [string, string][] = [
   ["Esc", "\x1b"],
   ["^C", "\x03"],

@@ -12,7 +12,7 @@ export interface KeyBarButton {
   bytes: string;
 }
 
-/** The main row — ported byte-for-byte from `apps/frontend/src/components/terminal-key-bar.tsx:15-33`. */
+/** The main row — ported byte-for-byte from `apps/server/web/src/components/terminal-key-bar.tsx:15-33`. */
 export const KEY_BAR_BUTTONS: KeyBarButton[] = [
   { label: "Esc", bytes: "\x1b" },
   { label: "^C", bytes: "\x03" },

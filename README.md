@@ -166,12 +166,12 @@ Points worth knowing before you enrol one:
   the reconcile sweep skips its rows, and the UI says "node unreachable".
 
 Architecture detail: [`docs/architecture.md` §9](docs/architecture.md#9-nodes-remote-execution-hosts).
-The agent itself: [`apps/client/AGENTS.md`](apps/client/AGENTS.md).
+The agent itself: [`apps/client/agent/AGENTS.md`](apps/client/agent/AGENTS.md).
 
 ## Install from a release binary
 
 The control plane ships as one self-contained binary per platform, with the SPA
-embedded — no Bun, no checkout, no `apps/frontend/dist` on the host. Assets live
+embedded — no Bun, no checkout, no `apps/server/web/dist` on the host. Assets live
 on GitHub Releases under `server-vX.Y.Z` (`linux-x64`, `linux-arm64`,
 `darwin-arm64`; darwin builds are signed and notarized) and `client-vX.Y.Z` for
 the node agent (`linux|darwin × x64|arm64`).
@@ -202,7 +202,7 @@ Cutting a release is a workflow dispatch, never a hand-made tag —
 ```bash
 turbo build          # builds frontend/dist + server/dist
 DATABASE_PATH=./data/subshell.db HOST=0.0.0.0 NODE_ENV=production \
-  bun run --cwd apps/server prod
+  bun run --cwd apps/server/api prod
 ```
 
 The backend serves the built SPA at `/` plus the API, WebSocket and `/docs`.
@@ -230,7 +230,7 @@ docker compose up -d         # http://localhost:3080
   claude keeps session records). Adjust those mounts for a different harness.
 - Migrating from a host-run dev instance: stop the dev backend (it holds
   `:3080`), then `sqlite3 data/subshell.db ".backup ~/.config/subshell-server/subshell.db"` and
-  `cp -a data/subshells ~/.config/subshell-server/` from `apps/server/`. Keep
+  `cp -a data/subshells ~/.config/subshell-server/` from `apps/server/api/`. Keep
   `BETTER_AUTH_SECRET` identical and existing browser sessions survive.
 - Container restarts end tmux state — running subshells die with the container
   and surface as dead rows; restart them from the UI.
@@ -266,8 +266,8 @@ resolved script path:
 
 ```bash
 bunx turbo build
-bun apps/server/src/index.ts init
-bun apps/server/src/index.ts service install
+bun apps/server/api/src/index.ts init
+bun apps/server/api/src/index.ts service install
 ```
 
 The CLI drives it from there, on both platforms:
@@ -307,7 +307,7 @@ file, so the two cannot disagree. `:3080` must be free.
 > ```bash
 > systemctl --user disable --now subshell-server.service
 > rm ~/.config/systemd/user/subshell-server.service
-> bun apps/server/src/index.ts init && bun apps/server/src/index.ts service install
+> bun apps/server/api/src/index.ts init && bun apps/server/api/src/index.ts service install
 > ```
 >
 > Both installers write `KillMode=process`, so a restart does not take live
@@ -316,7 +316,7 @@ file, so the two cannot disagree. `:3080` must be free.
 
 ## Configuration
 
-Environment variables (see `apps/server/src/constants.ts`):
+Environment variables (see `apps/server/api/src/constants.ts`):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -399,12 +399,16 @@ your VPN):
   its replay defense, every command and event.
 - [Project overview](docs/overview.md) — what Subshell is, the workspace layout, and
   what has shipped.
-- Per-app notes: [`apps/server`](apps/server/AGENTS.md) (routes, the CLI/binary, attach
-  diagnostics), [`apps/frontend`](apps/frontend/AGENTS.md),
-  [`apps/client`](apps/client/AGENTS.md) (the node agent),
+- Per-app notes — the tree under `apps/` is grouped by side of the product,
+  `apps/server/*` and `apps/client/*`: [`apps/server/api`](apps/server/api/AGENTS.md)
+  (routes, the CLI/binary, attach diagnostics),
+  [`apps/server/web`](apps/server/web/AGENTS.md) (the SPA the server serves),
+  [`apps/server/desktop`](apps/server/desktop/AGENTS.md) (its Tauri GUI),
+  [`apps/client/agent`](apps/client/agent/AGENTS.md) (the node agent),
+  [`apps/client/desktop`](apps/client/desktop/AGENTS.md) (its Tauri GUI),
   [`apps/mobile`](apps/mobile/AGENTS.md), [`e2e`](e2e/AGENTS.md).
 - Build, release and migration operations: root [`AGENTS.md`](AGENTS.md).
 - Design rationale lives in `docs/superpowers/specs/`; the build plans in
   `docs/superpowers/plans/`.
 - OpenAPI docs at `/docs` (Scalar UI).
-- `apps/server/.env.example` documents the dev env shape.
+- `apps/server/api/.env.example` documents the dev env shape.

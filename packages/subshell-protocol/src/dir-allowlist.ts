@@ -20,7 +20,7 @@
  *   candidates — a rule that looks like it confines and does not is worse
  *   than no rule.
  * - The authority for a real launch is the filesystem-aware check: the node's
- *   `pathAllowed()` (`apps/client/src/path-policy.ts`), which walks symlinked
+ *   `pathAllowed()` (`apps/client/agent/src/path-policy.ts`), which walks symlinked
  *   ancestors and denies dangling leaves; and on the control plane, the
  *   already-`realpath`'d value that `validateWorkingDir` returns. Callers MUST
  *   test the RESOLVED path, never raw user input.

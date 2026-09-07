@@ -13,10 +13,10 @@
     "@internal/backend-errors",
     "@internal/brand",
     "@internal/e2e",
-    "@internal/frontend",
     "@internal/harnesses",
     "@internal/mcp-core",
     "@internal/mobile",
+    "@internal/server-web",
     "@internal/subshell-protocol",
     "@internal/tsconfig"
   ],

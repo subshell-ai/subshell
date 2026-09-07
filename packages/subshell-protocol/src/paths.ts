@@ -64,7 +64,7 @@ export function serverArtifactFileName(target: string): string {
 export type DesktopTarget = (typeof DESKTOP_TARGETS)[number];
 
 /**
- * The closed set of platform triples `apps/desktop-server` is published for.
+ * The closed set of platform triples `apps/server/desktop` is published for.
  *
  * NARROWER than {@link SERVER_TARGETS}, and for a different reason than the
  * server's own narrowing:
@@ -128,7 +128,7 @@ const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
  */
 export const SERVER_SIDECAR_NAME = "subshell-server-bundled";
 
-/** The in-bundle name of the node agent `apps/desktop-client` ships. */
+/** The in-bundle name of the node agent `apps/client/desktop` ships. */
 export const AGENT_SIDECAR_NAME = "subshell-node-bundled";
 
 /**
@@ -164,7 +164,7 @@ export function desktopSidecarFileName(sidecarName: string, target: string): str
  */
 export const DESKTOP_SERVER_PRODUCT = "Subshell Server";
 
-/** The product name of `apps/desktop-client` — the node agent's GUI. */
+/** The product name of `apps/client/desktop` — the node agent's GUI. */
 export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 
 /**

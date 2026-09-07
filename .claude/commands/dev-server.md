@@ -19,7 +19,7 @@ This skill manages the backend API server running on port 3080.
 2. If already running, inform the user and exit
 3. If not running, start the server in the background:
    ```bash
-   cd apps/server && bun run dev
+   cd apps/server/api && bun run dev
    ```
    Use `run_in_background: true` for the Bash tool
 4. Wait for the server to be ready by polling the health endpoint (up to 10 seconds):

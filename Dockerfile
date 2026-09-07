@@ -11,11 +11,19 @@ WORKDIR /app
 
 # ---- Dependencies (workspace manifests only, for layer caching) ----
 # The list must cover every workspace the root package.json globs
-# (apps/*, packages/*, e2e) — `--frozen-lockfile` fails on a missing one.
+# (apps/*, apps/*/*, packages/*, e2e, brand) — `--frozen-lockfile` fails on a
+# missing one. It is already short of that, and only ONE absence matters: a
+# retained workspace (@internal/server) depends on @internal/mcp-core, so this
+# stage fails with "listed in bun.lock but not on disk" until
+# `COPY packages/mcp-core/package.json packages/mcp-core/` is added. The others
+# (apps/mobile, apps/client/*, apps/server/desktop, brand) are inert — nothing
+# kept here depends on them. Pre-existing: this image predates those workspaces
+# and is not built in CI, so fixing it is its own change rather than part of
+# the apps/ taxonomy move.
 FROM base AS deps
 COPY package.json bun.lock turbo.json ./
-COPY apps/server/package.json apps/server/
-COPY apps/frontend/package.json apps/frontend/
+COPY apps/server/api/package.json apps/server/api/
+COPY apps/server/web/package.json apps/server/web/
 COPY e2e/package.json e2e/
 COPY packages/harnesses/package.json packages/harnesses/
 COPY packages/subshell-protocol/package.json packages/subshell-protocol/
@@ -35,8 +43,8 @@ RUN bun run --cwd packages/subshell-protocol build \
  && bun run --cwd packages/harnesses build \
  && bun run --cwd packages/backend-errors build \
  && bun run --cwd packages/backend-client build \
- && bun run --cwd apps/frontend build \
- && bun run --cwd apps/server build
+ && bun run --cwd apps/server/web build \
+ && bun run --cwd apps/server/api build
 
 # ---- Runtime (slim) ----
 FROM oven/bun:1.4-slim AS runtime
@@ -72,8 +80,8 @@ USER subshell
 COPY --from=deps /app/. ./
 
 # Built artifacts (backend imports @internal/* from the workspace root).
-COPY --from=build /app/apps/server/dist ./apps/server/dist
-COPY --from=build /app/apps/frontend/dist ./apps/frontend/dist
+COPY --from=build /app/apps/server/api/dist ./apps/server/api/dist
+COPY --from=build /app/apps/server/web/dist ./apps/server/web/dist
 COPY --from=build /app/packages ./packages
 
 # SQLite + session logs live here (mount a volume).
@@ -83,4 +91,4 @@ ENV NODE_ENV=production
 
 EXPOSE 3080
 
-CMD ["bun", "run", "./apps/server/dist/index.js"]
+CMD ["bun", "run", "./apps/server/api/dist/index.js"]

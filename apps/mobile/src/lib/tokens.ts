@@ -1,5 +1,5 @@
 /**
- * Design tokens — the dark-only port of `apps/frontend/src/styles.css`.
+ * Design tokens — the dark-only port of `apps/server/web/src/styles.css`.
  * The web app's oklch() values are converted to hex (OKLab→linear-sRGB→sRGB,
  * anchor-checked against CSS red) because native colour parsing cannot be
  * assumed to speak oklch(); the terminal trio is hex at the source.

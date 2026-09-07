@@ -34,11 +34,11 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Area | Choice |
 |---|---|
 | Runtime | **Bun** exclusively (monorepo via turbo workspaces) |
-| Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/server/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
+| Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/server/api/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
 | Subshells | **tmux-backed, detachable** (survive browser close; tmux >= 3.2, per README); pipe-pane → per-subshell log file. tmux 3.6 additionally exposes `#{pane_dead_status}`, which is how a crashed pane's exit code is read — on older tmux that read degrades to `null`, never to an error |
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 13 MCP tools (6 channel, 7 subshell) |
-| Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/frontend/.migration/`) |
+| Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/server/web/.migration/`) |
 | Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
@@ -52,18 +52,24 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 
 ## Workspace layout
 
+`apps/server/` and `apps/client/` are grouping directories — the tree IS the
+taxonomy, and neither carries a `package.json`.
+
 ```
-apps/server       Elysia app: api routes, ws, auth, subshell manager, tmux runner,
-                  static serving (built SPA), migrations; the binary serves its own
-                  `subshell-server mcp` subcommand — the stdio `subshell mcp` entry
-                  (no companion compile target, never opens the app DB)
-apps/frontend     React SPA: TanStack Router/Query, xterm, shadcn/ui, dark theme
-apps/client       `subshell` — the node daemon: enrolls with the control plane, holds the
-                  /ws/node socket, executes signed launch/tmux/fs commands as its OS user
-apps/mobile       native companion (React Native + Expo SDK 57) — push, badge, lock-screen
-                  actions, Keychain credential; NOT a second web app
-e2e               Playwright suite (own backend on :3199, real tmux) — outside `bun run test`
-brand             wordmark/palette masters + generators (`bun run brand:generate`)
+apps/server/api            Elysia app: api routes, ws, auth, subshell manager, tmux runner,
+                           static serving (built SPA), migrations; the binary serves its own
+                           `subshell-server mcp` subcommand — the stdio `subshell mcp` entry
+                           (no companion compile target, never opens the app DB)
+apps/server/web            React SPA the server serves: TanStack Router/Query, xterm,
+                           shadcn/ui, dark theme
+apps/server/desktop        Tauri v2 GUI over apps/server/api (installs/runs/manages it)
+apps/client/agent          `subshell` — the node daemon: enrolls with the control plane, holds the
+                           /ws/node socket, executes signed launch/tmux/fs commands as its OS user
+apps/client/desktop        Tauri v2 GUI over apps/client/agent (registers this machine as a node)
+apps/mobile                native companion (React Native + Expo SDK 57) — push, badge, lock-screen
+                           actions, Keychain credential; NOT a second web app
+e2e                        Playwright suite (own backend on :3199, real tmux) — outside `bun run test`
+brand                      wordmark/palette masters + generators (`bun run brand:generate`)
 packages/harnesses         HarnessPlugin interface + five built-in harness plugins + TmuxRunner
 packages/backend-errors    shared error handler (scaffold)
 packages/backend-client    Eden Treaty client (scaffold; types inferred from backend's `App` type)
@@ -128,8 +134,8 @@ model, including the accepted risks and what is deliberately not defended.
 
 - Backend uses **`bun test`** (vitest was removed — its node worker cannot
   import `bun:sqlite`)
-- Run: `bun run test` (root, all packages) / `cd apps/server && bun test`
-- Type check: `bun run verify-types` (root) / `cd apps/server && bunx tsc --noEmit` (from the
+- Run: `bun run test` (root, all packages) / `cd apps/server/api && bun test`
+- Type check: `bun run verify-types` (root) / `cd apps/server/api && bunx tsc --noEmit` (from the
   package dir, not repo root)
 - Lint: biome — `bun run lint` fixes (`--write --unsafe`), `bun run lint:check` verifies read-only
 - Hooks: lefthook runs `lint:staged` (+ syncpack) on **pre-commit** and `verify-types` +

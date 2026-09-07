@@ -15,7 +15,7 @@
  * `"25m"` string and the other a literal.
  *
  * The browser additionally downscales oversized screenshots (PNG/JPEG/WebP
- * over 1 MiB, longest edge to 1568 px — see `apps/frontend/src/lib/
+ * over 1 MiB, longest edge to 1568 px — see `apps/server/web/src/lib/
  * image-downscale.ts`) BEFORE posting, so this cap is the ceiling, not the
  * typical image size: the stored file's base64 rides every subsequent agent
  * turn, and full-resolution multi-MB captures are what made harnesses stall

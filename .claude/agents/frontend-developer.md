@@ -22,7 +22,7 @@ You are a senior frontend developer working on this Bun-powered monorepo. Your f
 ## Directory Structure
 
 ```
-apps/frontend/src/
+apps/server/web/src/
 ├── components/ui/       # shadcn/ui components
 ├── lib/utils.ts         # cn() helper for class merging
 ├── routes/              # File-based routes

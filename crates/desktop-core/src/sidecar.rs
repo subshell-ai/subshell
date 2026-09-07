@@ -36,8 +36,8 @@ use crate::shell_env::home_dir;
 /// What one app's shipped binary is called, and how it announces itself.
 ///
 /// Every field is a string the install dance would otherwise hard-code, and
-/// each is per-app: `apps/desktop-server` ships a `subshell-server`,
-/// `apps/desktop-client` a `subshell` node agent.
+/// each is per-app: `apps/server/desktop` ships a `subshell-server`,
+/// `apps/client/desktop` a `subshell` node agent.
 #[derive(Debug, Clone, Copy)]
 pub struct SidecarSpec {
     /// The sidecar's name INSIDE the bundle.

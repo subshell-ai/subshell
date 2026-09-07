@@ -139,8 +139,8 @@ dist
 
 # Subshell runtime data (SQLite DB + session logs)
 data/
-apps/server/data/
-apps/server/.bun/
+apps/server/api/data/
+apps/server/api/.bun/
 
 # release drop dirs: `release:server` output + CI build staging (binaries, never committable)
 dist-server/
@@ -162,18 +162,18 @@ e2e/playwright-report/
 .DS_Store
 
 # The desktop apps: the staged sidecar is a ~100 MB build input, never a commit.
-# Spelled per app rather than as `apps/desktop*/...` on purpose — a glob here
+# Spelled per app rather than as `apps/*/desktop/...` on purpose — a glob here
 # would also swallow anything a future desktop app adds, silently.
-apps/desktop-server/src-tauri/binaries/*
-!apps/desktop-server/src-tauri/binaries/.gitkeep
-apps/desktop-server/src-tauri/target/
-apps/desktop-server/src-tauri/gen/
-apps/desktop-client/src-tauri/binaries/*
-!apps/desktop-client/src-tauri/binaries/.gitkeep
-apps/desktop-client/src-tauri/target/
-apps/desktop-client/src-tauri/gen/
-# The Vite build of apps/desktop-client's window (its `frontendDist`). Spelled
+apps/server/desktop/src-tauri/binaries/*
+!apps/server/desktop/src-tauri/binaries/.gitkeep
+apps/server/desktop/src-tauri/target/
+apps/server/desktop/src-tauri/gen/
+apps/client/desktop/src-tauri/binaries/*
+!apps/client/desktop/src-tauri/binaries/.gitkeep
+apps/client/desktop/src-tauri/target/
+apps/client/desktop/src-tauri/gen/
+# The Vite build of apps/client/desktop's window (its `frontendDist`). Spelled
 # out even though the blanket `dist` rule above already covers it, so deleting
 # that rule does not silently start committing a build output.
-apps/desktop-client/ui/dist/
+apps/client/desktop/ui/dist/
 crates/desktop-core/target/

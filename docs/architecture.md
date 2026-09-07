@@ -72,7 +72,7 @@ Key properties:
 ## 2. Credentials & trust boundaries
 
 Three actor kinds reach `/api/*` through one guard
-(`apps/server/src/api/auth-guard.ts`), which injects
+(`apps/server/api/src/api/auth-guard.ts`), which injects
 `{ user, principal, actor, apiKeyId, apiKeyPermissions }` into every route
 context.
 
@@ -250,7 +250,7 @@ create and auto-restart paths; manual harnesses write no file at all.
 | `SUBSHELL_DATA_DIR` | where the keypair persists (subshell data dir) |
 
 Deployment override: `SUBSHELL_MCP_COMMAND` / `SUBSHELL_MCP_ARGS` (JSON array) pin how
-the server is launched; default resolution (apps/server `services/mcp-resolve.ts`) is
+the server is launched; default resolution (apps/server/api `services/mcp-resolve.ts`) is
 env override → SELF (`subshell-server mcp` when compiled, `<bun> <absolute entry> mcp`
 under `bun run`) → the `subshell` node agent on PATH (`subshell mcp`).
 `subshell-server status` prints which rung answered.
@@ -317,7 +317,7 @@ response or on-disk MCP config.
 ## 6. Component map
 
 ```
-apps/server/src/
+apps/server/api/src/
 ├── api/
 │   ├── auth-guard.ts          authGuard + requireAdmin + requirePerm + HttpError;
 │   │                          the ONLY place credentials become principals
@@ -353,7 +353,7 @@ packages/mcp-core/src/         the `subshell mcp` child implementation (serves b
 ├── identity-store.ts      keypair persistence + principal-stamp guard
 └── pin-store.ts           TOFU peer pins (peers.json)
 
-apps/frontend/src/                (the channel/key surface specifically; the app is much larger)
+apps/server/web/src/                (the channel/key surface specifically; the app is much larger)
 ├── components/system-api-keys-card.tsx   system keys (Settings page)
 └── hooks/use-system-keys.ts              TanStack Query hooks over /api/system-keys
 ```
@@ -403,9 +403,9 @@ two-process e2e in `src/__tests__/e2e-cross-subshell.test.ts`):
 A node is another machine that runs harnesses on the control plane's behalf
 ([spec](superpowers/specs/2026-08-31-nodes-design.md); the wire contract in full
 is [`node-protocol.md`](node-protocol.md)). The daemon on it is
-`subshell` (`apps/client`, see
-[`apps/client/AGENTS.md`](../apps/client/AGENTS.md)); the control-plane side is
-`apps/server/src/services/nodes/` + `api/nodes/`.
+`subshell` (`apps/client/agent`, see
+[`apps/client/agent/AGENTS.md`](../apps/client/agent/AGENTS.md)); the control-plane side is
+`apps/server/api/src/services/nodes/` + `api/nodes/`.
 
 **Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
 `node_harnesses` (migration 0017). REST: setup keys mint single-use `nsk_…`
@@ -447,7 +447,7 @@ control plane heals its rows.
 **Distribution.** Prebuilt `subshell` binaries live in `NODE_ARTIFACTS_DIR`
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts`) and
 are published by `bun run release:client` from the repo root
-(`apps/client/src/scripts/release.ts` — every triple cross-built with
+(`apps/client/agent/src/scripts/release.ts` — every triple cross-built with
 `--bytecode`, sha256 sidecars, atomic tmp+rename publish, all-or-nothing; the
 dance is in root `AGENTS.md`). `GET /api/downloads/node/*` gates on a session cookie OR a
 valid unconsumed setup key (`peekValid` — consumption-free) and refuses
@@ -461,7 +461,7 @@ script embeds — and warns when that URL is loopback (a remote node would dial
 the wrong machine).
 
 **Background service.** `subshell service install|uninstall`
-(`apps/client/src/service.ts`) writes a systemd **user** unit or a launchd
+(`apps/client/agent/src/service.ts`) writes a systemd **user** unit or a launchd
 agent (`dev.subshell.client`), self-referencing the running executable (compiled
 binary or `bun <entry>` in dev); on Linux the post-install hint is
 `loginctl enable-linger` to survive logout. Harness inventory is pushed by the

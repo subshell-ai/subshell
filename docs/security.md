@@ -72,7 +72,7 @@ Everything below assumes that perimeter holds.
 ## 2. Identity and credentials
 
 Four credential kinds exist. Three reach `/api/*` through one guard
-(`apps/server/src/api/auth-guard.ts`), which is the only place credentials become
+(`apps/server/api/src/api/auth-guard.ts`), which is the only place credentials become
 principals; the fourth is a websocket credential and nothing else.
 
 | | Session cookie | System key | Subshell token | Node key |
@@ -461,20 +461,20 @@ endpoint is rate-limited.
 
 ## 8b. The desktop apps
 
-Two Tauri v2 shells, each a GUI over one of the CLIs. `apps/desktop-server`
-installs, runs and manages a `subshell-server`; `apps/desktop-client`
+Two Tauri v2 shells, each a GUI over one of the CLIs. `apps/server/desktop`
+installs, runs and manages a `subshell-server`; `apps/client/desktop`
 ("Subshell Client") registers the machine as a node and manages its `subshell`
 agent. Neither adds a server surface — every privileged thing they do goes
 through their CLI as the same local user — but the first introduces a boundary
 that did not exist before, and both inherit the entitlement and
 executes-what-it-finds properties below.
 
-`apps/desktop-client` has ONE window and it loads the app's own bundled page,
+`apps/client/desktop` has ONE window and it loads the app's own bundled page,
 because a node serves nothing. That makes the remote-content section below
-specific to `apps/desktop-server`: the node app has no remote origin, so its
+specific to `apps/server/desktop`: the node app has no remote origin, so its
 `csp` in `tauri.conf.json` governs every page it shows.
 
-### The window that loads the server's page (`apps/desktop-server` only)
+### The window that loads the server's page (`apps/server/desktop` only)
 
 The app window (`main`) loads `http://127.0.0.1:<port>` — the SPA, served by
 the server it manages — and that window holds Tauri's IPC globals. It is
@@ -503,7 +503,7 @@ Tauri leaves app commands ungated for local windows when no manifest exists.
 
 Tauri applies ONE entitlements file to every signed target in the bundle, so
 whatever the Bun-compiled binary needs is also granted to the GUI process — in
-`apps/desktop-server`'s case, the process that holds the session cookie. Both
+`apps/server/desktop`'s case, the process that holds the session cookie. Both
 apps bundle a Bun-compiled binary and so carry the same list, in two separate
 files: sharing one plist between the two pipelines would silently widen
 whichever was not being edited, and a test in each app pins that separation. The set was trimmed to `allow-jit` and
@@ -530,7 +530,7 @@ is arbitrary code by construction, on every launch.
 
 ### A setup key typed into the node app is `ps`-visible
 
-`apps/desktop-client` passes the pasted key to `subshell enroll --key <nsk_…>`,
+`apps/client/desktop` passes the pasted key to `subshell enroll --key <nsk_…>`,
 so it is one argv element for the life of that process and readable by any
 local process that can see the process table. This is the same exposure the CLI
 path already has (§8: the key also lands in shell history, and in a URL query
