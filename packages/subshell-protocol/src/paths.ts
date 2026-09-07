@@ -146,13 +146,17 @@ export function desktopSidecarFileName(sidecarName: string, target: string): str
  * The macOS/Debian product name of each desktop app — the name a user sees.
  *
  * Tauri derives BOTH the `.app` directory name and the `.deb` file name from
- * `productName`, so this is what the bundler EMITS: `Subshell Server.app`,
- * spaces and all. It is deliberately NOT what this repo publishes — see
- * {@link desktopArtifactFileName} — because the emitted `.deb` name goes
- * through Debian's own package-name sanitizer, which no amount of reading can
- * settle without running the Linux bundler. The pipelines therefore GLOB the
- * bundle directory for the one artifact that appeared and rename it, rather
- * than predicting its name.
+ * `productName`, so this is what the bundler EMITS: `Subshell Server.app` and
+ * `Subshell Server_<version>_<arch>.deb`, spaces and all. Measured against a
+ * real bundle rather than assumed: Tauri sanitizes in exactly ONE place, the
+ * Debian `Package:` control field, which it kebab-cases to `subshell-server`.
+ * The FILE name it never touches.
+ *
+ * That is deliberately NOT what this repo publishes — see
+ * {@link desktopArtifactFileName} — and it is why the pipelines GLOB the bundle
+ * directory for the one artifact that appeared and rename it. A published name
+ * containing a space would be hostile in a download URL and in every shell that
+ * handles it, and a PREDICTED name could not have survived the space at all.
  *
  * Must equal `productName` in each app's `tauri.conf.json` (pinned by test in
  * both apps): that is the string the release script tars and the smoke looks

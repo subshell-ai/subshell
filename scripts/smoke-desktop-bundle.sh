@@ -108,7 +108,21 @@ if [ "$TRIPLE" = "linux-x64" ]; then
   # members as `usr/bin/x` on some versions and `./usr/bin/x` on others, and a
   # pattern anchored with a leading slash silently matches neither — which
   # reads as "the sidecar is missing" for a package that is perfectly correct.
-  entry="$(awk -v p="usr/bin/$SIDECAR" '$NF == p || $NF == "./" p' "$WORK/contents")"
+  # Match on the END OF THE LINE, not on a field. `dpkg-deb -c` puts the path
+  # last, and $NF is the last WHITESPACE-SEPARATED field — so any in-package
+  # path containing a space silently never matches. This package ships one:
+  # `usr/share/applications/Subshell Client.desktop`, whose $NF is
+  # `Client.desktop`. The two paths checked here happen to be space-free, so
+  # the old field match worked by luck rather than by design.
+  #
+  # The leading space in the pattern anchors it to the start of the path field,
+  # so a longer path ending in the same name cannot match.
+  entry=""
+  while IFS= read -r line; do
+    case "$line" in
+      *" usr/bin/$SIDECAR" | *" ./usr/bin/$SIDECAR") entry="$line"; break ;;
+    esac
+  done <"$WORK/contents"
   if [ -z "$entry" ]; then
     # A bare "not found" is not actionable — the next question is always "then
     # what IS in there".

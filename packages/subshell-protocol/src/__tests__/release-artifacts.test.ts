@@ -161,7 +161,11 @@ describe("selectBundleOutput", () => {
   test("finds the one artifact, spaces and all", () => {
     expect(selectBundleOutput(["Subshell Client.app"], ".app", "bundle/macos")).toBe("Subshell Client.app");
     expect(
-      selectBundleOutput(["subshell-client_0.1.0_amd64", "Subshell Client_0.1.0_amd64.deb"], ".deb", "bundle/deb"),
+      // Both names are spaced, measured against a real aarch64 bundle: Tauri
+      // leaves a staging DIRECTORY beside the artifact named from the same base
+      // (`Subshell Client_0.1.0_amd64`, no extension). It is only the `.deb`
+      // suffix that tells them apart — which is exactly what this filters on.
+      selectBundleOutput(["Subshell Client_0.1.0_amd64", "Subshell Client_0.1.0_amd64.deb"], ".deb", "bundle/deb"),
     ).toBe("Subshell Client_0.1.0_amd64.deb");
   });
 
