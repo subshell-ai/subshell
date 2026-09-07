@@ -128,8 +128,8 @@ Three rules about that binary:
 | | this app |
 | --- | --- |
 | `productName` (the `.app` a user installs) | `Subshell Server` — `Subshell Server.app`, space included |
-| published macOS asset | `Subshell-Server.app.tar.gz` |
-| published Debian asset | `subshell-server_<version>_amd64.deb` |
+| published macOS asset | `Subshell-Server-Desktop.app.tar.gz` |
+| published Debian asset | `subshell-server-desktop_<version>_amd64.deb` |
 | bundle identifier | `dev.subshell.server` |
 | Cargo crate / `/usr/bin` binary | `subshell-desktop` |
 | sidecar stem | `subshell-server-bundled` |

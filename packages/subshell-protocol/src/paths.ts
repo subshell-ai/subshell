@@ -168,14 +168,38 @@ export const DESKTOP_SERVER_PRODUCT = "Subshell Server";
 export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 
 /**
+ * Appended to every published desktop artifact name, so a downloaded file says
+ * which of the two things it is — the app, or the CLI binary it wraps.
+ *
+ * Not part of `productName`: see {@link desktopArtifactFileName}.
+ */
+export const DESKTOP_SUFFIX = "Desktop";
+
+/**
  * The name this repo PUBLISHES a desktop artifact under — chosen here, never
  * read off the bundler's output.
  *
  * These are download URLs and shell arguments, so they are space-free: the
  * product name's whitespace becomes `-`, and the Debian name is lowercased on
  * top of that (a `.deb` file name is conventionally the package name, which
- * Debian requires to be lowercase). `Subshell Server` therefore publishes as
- * `Subshell-Server.app.tar.gz` and `subshell-server_<version>_amd64.deb`.
+ * Debian requires to be lowercase).
+ *
+ * **Every name carries {@link DESKTOP_SUFFIX}**, because the CLI artifacts ship
+ * from the same repo under names that would otherwise be mistaken for these:
+ * the server CLI publishes `subshell-server-<triple>` and the agent
+ * `subshell-<triple>`. In a downloads folder `subshell-server_0.5.0_amd64.deb`
+ * next to `subshell-server-darwin-arm64` says nothing about which is the app,
+ * so `Subshell Server` publishes as `Subshell-Server-Desktop.app.tar.gz` and
+ * `subshell-server-desktop_<version>_amd64.deb`.
+ *
+ * The suffix is on the FILE NAME only. `productName` stays `Subshell Server`,
+ * so the installed app, the window title and the menu bar are unchanged — and
+ * so, deliberately, is the Debian `Package:` field, which Tauri derives from
+ * `productName` and which is therefore still `subshell-server`. That is a
+ * latent collision with a future server-CLI `.deb`: two packages cannot share
+ * a name, and installing one would replace the other. The `/usr/bin` paths do
+ * NOT collide (that is what the `-bundled` sidecar suffix is for), so this is
+ * package identity only, and the lever if it ever matters is `productName`.
  *
  * The `.app` INSIDE the tarball keeps its real, spaced name — that is what the
  * user installs and what the bundle identifier belongs to — so anything
@@ -189,7 +213,7 @@ export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
  * @param version - the app version, for the Debian file name
  */
 export function desktopArtifactFileName(product: string, target: string, version: string): string {
-  const slug = product.trim().replace(/\s+/g, "-");
+  const slug = `${product.trim().replace(/\s+/g, "-")}-${DESKTOP_SUFFIX}`;
   if (target === "darwin-arm64") return `${slug}.app.tar.gz`;
   if (target === "linux-x64") return `${slug.toLowerCase()}_${version}_amd64.deb`;
   throw new Error(`no desktop artifact name for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);

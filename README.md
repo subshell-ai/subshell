@@ -53,8 +53,8 @@ get past its setup screen without it — `brew install tmux` on macOS,
 
 | App | macOS (Apple silicon) | Linux (x86_64) |
 | --- | --- | --- |
-| Subshell Server | `Subshell-Server.app.tar.gz` from `desktop-server-vX.Y.Z` | `subshell-server_X.Y.Z_amd64.deb` |
-| Subshell Client | `Subshell-Client.app.tar.gz` from `desktop-client-vX.Y.Z` | `subshell-client_X.Y.Z_amd64.deb` |
+| Subshell Server | `Subshell-Server-Desktop.app.tar.gz` from `desktop-server-vX.Y.Z` | `subshell-server-desktop_X.Y.Z_amd64.deb` |
+| Subshell Client | `Subshell-Client-Desktop.app.tar.gz` from `desktop-client-vX.Y.Z` | `subshell-client-desktop_X.Y.Z_amd64.deb` |
 
 macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
 Ubuntu 24.04+ / Debian 13+ (glibc 2.39).

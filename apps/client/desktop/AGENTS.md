@@ -126,8 +126,8 @@ its own.
 | bundle identifier | `dev.subshell.server` | `dev.subshell.client` |
 | `productName` | `Subshell Server` | `Subshell Client` |
 | sidecar stem | `subshell-server-bundled` | `subshell-node-bundled` |
-| published `.app.tar.gz` | `Subshell-Server.app.tar.gz` | `Subshell-Client.app.tar.gz` |
-| published `.deb` | `subshell-server_<v>_amd64.deb` | `subshell-client_<v>_amd64.deb` |
+| published `.app.tar.gz` | `Subshell-Server-Desktop.app.tar.gz` | `Subshell-Client-Desktop.app.tar.gz` |
+| published `.deb` | `subshell-server-desktop_<v>_amd64.deb` | `subshell-client-desktop_<v>_amd64.deb` |
 
 Both packages can be installed on one machine and both put a binary in
 `/usr/bin` on Debian, so a shared string is a file conflict. The identifier is

@@ -6,9 +6,12 @@ import {
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  NODE_TARGETS,
+  nodeArtifactFileName,
   rustTargetTriple,
   SERVER_SIDECAR_NAME,
   SERVER_TARGETS,
+  serverArtifactFileName,
 } from "../paths.js";
 
 /**
@@ -90,13 +93,17 @@ describe("sidecar naming", () => {
 
 describe("published artifacts", () => {
   test("macOS ships a tarball, Linux a versioned deb", () => {
-    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toBe("Subshell-Server.app.tar.gz");
-    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe(
-      "subshell-server_1.2.3_amd64.deb",
+    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toBe(
+      "Subshell-Server-Desktop.app.tar.gz",
     );
-    expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "darwin-arm64", "0.1.0")).toBe("Subshell-Client.app.tar.gz");
+    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe(
+      "subshell-server-desktop_1.2.3_amd64.deb",
+    );
+    expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "darwin-arm64", "0.1.0")).toBe(
+      "Subshell-Client-Desktop.app.tar.gz",
+    );
     expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "linux-x64", "0.1.0")).toBe(
-      "subshell-client_0.1.0_amd64.deb",
+      "subshell-client-desktop_0.1.0_amd64.deb",
     );
   });
 
@@ -113,17 +120,40 @@ describe("published artifacts", () => {
     }
     // Whitespace collapses to one hyphen rather than being dropped, so two
     // products cannot slug to the same file name.
-    expect(desktopArtifactFileName("Two  Words", "darwin-arm64", "1.0.0")).toBe("Two-Words.app.tar.gz");
-    expect(desktopArtifactFileName(" Padded ", "linux-x64", "1.0.0")).toBe("padded_1.0.0_amd64.deb");
+    expect(desktopArtifactFileName("Two  Words", "darwin-arm64", "1.0.0")).toBe("Two-Words-Desktop.app.tar.gz");
+    expect(desktopArtifactFileName(" Padded ", "linux-x64", "1.0.0")).toBe("padded-desktop_1.0.0_amd64.deb");
   });
 
   // A Debian package name must be lowercase; the macOS tarball keeps the
   // product's own capitalization, because that is the name a user downloads.
+  // The whole reason the suffix exists. Both CLIs publish from this same repo,
+  // and `subshell-server_0.5.0_amd64.deb` sitting beside
+  // `subshell-server-darwin-arm64` in a downloads folder says nothing about
+  // which one is the application.
+  test("no published desktop name can be mistaken for a CLI artifact", () => {
+    const cli = [...SERVER_TARGETS.map(serverArtifactFileName), ...NODE_TARGETS.map(nodeArtifactFileName)];
+    for (const product of [DESKTOP_SERVER_PRODUCT, DESKTOP_CLIENT_PRODUCT]) {
+      for (const target of DESKTOP_TARGETS) {
+        const name = desktopArtifactFileName(product, target, "0.5.0");
+        expect(name.toLowerCase()).toContain("desktop");
+        for (const other of cli) {
+          expect(name).not.toBe(other);
+          // Not merely distinct: neither may PREFIX the other, or a glob or a
+          // tab-completion over a downloads folder still conflates them.
+          expect(name.startsWith(other)).toBe(false);
+          expect(other.startsWith(name)).toBe(false);
+        }
+      }
+    }
+  });
+
   test("the deb is lowercased and the tarball is not", () => {
     expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe(
       desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3").toLowerCase(),
     );
-    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toMatch(/^Subshell-Server\./);
+    expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toMatch(
+      /^Subshell-Server-Desktop\./,
+    );
   });
 
   // Two apps publish into ONE GitHub release directory per cut.

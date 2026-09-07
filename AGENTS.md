@@ -262,10 +262,28 @@ binary, each with a failure that only appears on a user's machine:
 Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`) — narrower than
 `SERVER_TARGETS` and for a different reason: there is no native arm64 Linux
 runner, and `file(1)` cannot see a GUI's characteristic failure, which is an
-invisible window. Artifacts are `Subshell-Server.app.tar.gz` /
-`Subshell-Client.app.tar.gz` (no DMG: Tauri signs one but neither notarizes nor
-staples it) and `subshell-server_<version>_amd64.deb` /
-`subshell-client_<version>_amd64.deb` (no AppImage: `linuxdeploy` cannot
+invisible window.
+
+**Every published desktop artifact carries a `Desktop` suffix**, because both
+CLIs publish from this same repo: the server CLI as `subshell-server-<triple>`
+and the agent as `subshell-<triple>`. In a downloads folder
+`subshell-server_0.5.0_amd64.deb` beside `subshell-server-darwin-arm64` says
+nothing about which one is the application. The suffix is on the FILE NAME
+only — `productName` stays `Subshell Server`, so the installed app, its window
+title and its menu bar are unchanged. A test pins that no published desktop
+name equals or prefixes a CLI artifact name.
+
+One consequence is deliberate and worth knowing: Tauri derives the Debian
+`Package:` field from `productName`, so it is still `subshell-server`. Two
+packages cannot share a name, so a future server-CLI `.deb` would collide with
+— and on install replace — the desktop app. The `/usr/bin` paths do NOT collide
+(that is what the `-bundled` sidecar suffix buys), so this is package identity
+only, and the lever if it ever matters is `productName`.
+
+Artifacts are `Subshell-Server-Desktop.app.tar.gz` /
+`Subshell-Client-Desktop.app.tar.gz` (no DMG: Tauri signs one but neither notarizes nor
+staples it) and `subshell-server-desktop_<version>_amd64.deb` /
+`subshell-client-desktop_<version>_amd64.deb` (no AppImage: `linuxdeploy` cannot
 cross-compile and downloads at build time).
 
 **Those published names are chosen HERE, not read off the bundler**
@@ -374,11 +392,11 @@ which is why they share their own smoke, parameterized by app id.
   `subshell-server-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
   install that ONE file (triple suffix dropped). The 1.3.x companion-binary
-  era is retired. `desktop-server-vX.Y.Z` carries `Subshell-Server.app.tar.gz`
+  era is retired. `desktop-server-vX.Y.Z` carries `Subshell-Server-Desktop.app.tar.gz`
   (darwin-arm64, signed + notarized + stapled) and
-  `subshell-server_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z`
-  carries `Subshell-Client.app.tar.gz` and
-  `subshell-client_<version>_amd64.deb`. Each with a
+  `subshell-server-desktop_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z`
+  carries `Subshell-Client-Desktop.app.tar.gz` and
+  `subshell-client-desktop_<version>_amd64.deb`. Each with a
   `.sha256` — no DMG (Tauri signs one but neither notarizes nor staples it) and
   no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a

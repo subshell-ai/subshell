@@ -41,7 +41,7 @@ GLIBC_FLOOR="2.39"
 #   TARBALL  the PUBLISHED macOS asset name. Space-free, because it is a
 #            download URL and a shell argument, and chosen by the repo
 #            (`desktopArtifactFileName`) rather than read off the bundler.
-#   PKG      the PUBLISHED Debian package/file name — lowercase, as a Debian
+#   PKG      the PUBLISHED Debian file-name stem — lowercase, as a Debian
 #            package name has to be.
 #
 # The release script globs the bundle directory for whatever Tauri emitted and
@@ -53,16 +53,16 @@ GLIBC_FLOOR="2.39"
 case "$APP" in
   desktop-server)
     PRODUCT="Subshell Server"
-    TARBALL="Subshell-Server.app.tar.gz"
-    PKG="subshell-server"
+    TARBALL="Subshell-Server-Desktop.app.tar.gz"
+    PKG="subshell-server-desktop"
     SIDECAR="subshell-server-bundled"
     SIDECAR_PREFIX="subshell-server "
     MAIN_BIN="subshell-desktop"
     ;;
   desktop-client)
     PRODUCT="Subshell Client"
-    TARBALL="Subshell-Client.app.tar.gz"
-    PKG="subshell-client"
+    TARBALL="Subshell-Client-Desktop.app.tar.gz"
+    PKG="subshell-client-desktop"
     SIDECAR="subshell-node-bundled"
     SIDECAR_PREFIX="subshell "
     MAIN_BIN="subshell-desktop-client"

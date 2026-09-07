@@ -78,6 +78,7 @@ export {
   DEFAULT_DATABASE_PATH,
   DESKTOP_CLIENT_PRODUCT,
   DESKTOP_SERVER_PRODUCT,
+  DESKTOP_SUFFIX,
   DESKTOP_TARGETS,
   type DesktopTarget,
   defaultSubshellServerDataDir,

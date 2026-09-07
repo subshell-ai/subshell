@@ -172,7 +172,7 @@ describe("selectBundleOutput", () => {
   // The tarball this pipeline writes lands beside the .app it was made from,
   // so a re-entrant collect must not see two candidates.
   test("the tarball beside the .app is not a second .app", () => {
-    expect(selectBundleOutput(["Subshell Server.app", "Subshell-Server.app.tar.gz"], ".app", "d")).toBe(
+    expect(selectBundleOutput(["Subshell Server.app", "Subshell-Server-Desktop.app.tar.gz"], ".app", "d")).toBe(
       "Subshell Server.app",
     );
   });

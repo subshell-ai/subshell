@@ -226,7 +226,7 @@ describe("bundleArtifact", () => {
   test("maps the emitted .app to the tarball this repo publishes", () => {
     expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", "Subshell Server.app")).toEqual({
       source: `${ROOT}/macos/Subshell Server.app`,
-      artifact: `${ROOT}/macos/Subshell-Server.app.tar.gz`,
+      artifact: `${ROOT}/macos/Subshell-Server-Desktop.app.tar.gz`,
       archive: true,
     });
   });
@@ -234,7 +234,7 @@ describe("bundleArtifact", () => {
   test("maps the emitted .deb onto the canonical package name", () => {
     expect(bundleArtifact(ROOT, "linux-x64", "1.2.3", "Subshell Server_1.2.3_amd64.deb")).toEqual({
       source: `${ROOT}/deb/Subshell Server_1.2.3_amd64.deb`,
-      artifact: `${ROOT}/deb/subshell-server_1.2.3_amd64.deb`,
+      artifact: `${ROOT}/deb/subshell-server-desktop_1.2.3_amd64.deb`,
       archive: false,
     });
   });
@@ -244,7 +244,7 @@ describe("bundleArtifact", () => {
   test("the published name never depends on what the bundler emitted", () => {
     for (const emitted of ["Subshell Server.app", "subshell-server.app", "Whatever.app"]) {
       expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", emitted).artifact).toBe(
-        `${ROOT}/macos/Subshell-Server.app.tar.gz`,
+        `${ROOT}/macos/Subshell-Server-Desktop.app.tar.gz`,
       );
     }
   });
@@ -273,13 +273,13 @@ describe("collectArtifact", () => {
     const s = stub({ listing: ["Subshell Server.app"] });
     const out = await collectArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3");
     expect(s.listed).toEqual([`${ROOT}/macos`]);
-    expect(out).toBe(`${ROOT}/macos/Subshell-Server.app.tar.gz`);
+    expect(out).toBe(`${ROOT}/macos/Subshell-Server-Desktop.app.tar.gz`);
     expect(s.runs).toHaveLength(1);
     expect(s.runs[0]?.argv).toEqual([
       "tar",
       "--no-mac-metadata",
       "-czf",
-      `${ROOT}/macos/Subshell-Server.app.tar.gz`,
+      `${ROOT}/macos/Subshell-Server-Desktop.app.tar.gz`,
       "-C",
       `${ROOT}/macos`,
       "Subshell Server.app",
@@ -291,7 +291,7 @@ describe("collectArtifact", () => {
   test("renames the emitted .deb onto the published name, archiving nothing", async () => {
     const s = stub({ listing: ["Subshell Server_1.2.3_amd64.deb"] });
     const out = await collectArtifact(s.deps, ROOT, "linux-x64", "1.2.3");
-    expect(out).toBe(`${ROOT}/deb/subshell-server_1.2.3_amd64.deb`);
+    expect(out).toBe(`${ROOT}/deb/subshell-server-desktop_1.2.3_amd64.deb`);
     expect(s.moves).toEqual([[`${ROOT}/deb/Subshell Server_1.2.3_amd64.deb`, out]]);
     expect(s.runs).toEqual([]);
   });
@@ -300,7 +300,7 @@ describe("collectArtifact", () => {
   test("ignores everything without the bundler's own extension", async () => {
     const s = stub({ listing: ["Subshell Server_1.2.3_amd64", "Subshell Server_1.2.3_amd64.deb"] });
     expect(await collectArtifact(s.deps, ROOT, "linux-x64", "1.2.3")).toBe(
-      `${ROOT}/deb/subshell-server_1.2.3_amd64.deb`,
+      `${ROOT}/deb/subshell-server-desktop_1.2.3_amd64.deb`,
     );
   });
 
@@ -325,7 +325,7 @@ describe("productName", () => {
 
   // The bundler names the `.app` directory from `productName`, and this
   // pipeline tars whatever it finds — so a drift here would not break the
-  // build. It would publish `Subshell-Server.app.tar.gz` containing an `.app`
+  // build. It would publish `Subshell-Server-Desktop.app.tar.gz` containing an `.app`
   // called something else, which is a worse failure: a silent one.
   test("is the product name the release contract publishes under", () => {
     expect(CONF.productName).toBe(DESKTOP_SERVER_PRODUCT);
