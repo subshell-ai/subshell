@@ -129,8 +129,8 @@ export function AddNodeDialog({
     <p className="text-amber-600 text-xs dark:text-amber-400">
       This server has no agent binary published for: {missingTargets.join(", ")} — the install command 404s on those
       machines. Publish the binaries on the server (run <code className="font-mono">bun run release:node</code> from a
-      checkout, or copy the client's GitHub Release binaries into its node-artifacts dir), or install the subshell agent
-      another way and enroll directly.
+      checkout, or copy the binaries from a node-vX.Y.Z GitHub Release into its node-artifacts dir), or install the
+      agent another way and enroll directly.
     </p>
   );
   // Settings neither loaded nor errored ⇒ no verdict exists; say so instead

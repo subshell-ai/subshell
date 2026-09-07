@@ -21,7 +21,7 @@ import {
   SERVER_RELEASE_TRIPLES_ENV,
 } from "../release.js";
 
-// The server pipeline has NO parseScope wrapper (unlike the client's): main()
+// The server pipeline has NO parseScope wrapper (unlike the agent's): main()
 // calls the shared generalized parse with SERVER_TARGETS, so this suite pins
 // THAT call shape — the same known set + env name the module wires in.
 const ENV_NAME = SERVER_RELEASE_TRIPLES_ENV;

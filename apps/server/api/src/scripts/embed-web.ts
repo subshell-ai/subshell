@@ -5,7 +5,7 @@
  * static module the memory-mode static plugin imports (project rule: no
  * dynamic imports, so the bytes ship as a plain TS module).
  *
- * Deliberately OUTSIDE the runtime import graph (the client's `release.ts`
+ * Deliberately OUTSIDE the runtime import graph (the agent's `release.ts`
  * precedent): the compiled binary never sees this file, tests import only the
  * pure exports, and the CLI entry is guarded by `import.meta.main`.
  *

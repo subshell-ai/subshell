@@ -8,13 +8,18 @@
  *
  * Two renders, and the difference is whether an address is settled:
  *
- * - **known** — one line and a button. The address came from the stored
- *   preference or from the enrolled node's own `serverUrl`, resolved on the
- *   Rust side, so it is the address that will actually open.
- * - **unknown** — a URL field. A client is not required to be a node: someone
- *   who only watches subshells never enrols, so there may be no `config.json`
- *   to read an address out of, and typing one has to be possible without going
- *   near the enrolment form.
+ * - **known** — one line, an Open button, and a Change button. The address came
+ *   from the stored preference or from the enrolled node's own `serverUrl`,
+ *   resolved on the Rust side, so it is the address that will actually open.
+ * - **unknown**, or Change — a URL field. A client is not required to be a
+ *   node: someone who only watches subshells never enrols, so there may be no
+ *   `config.json` to read an address out of, and typing one has to be possible
+ *   without going near the enrolment form.
+ *
+ * **Change is not a nicety.** `planeUrl` becomes non-null on its own the moment
+ * this machine is enrolled, so without it a machine enrolled against one plane
+ * could never be pointed at another from the app — and a typo'd-but-valid
+ * address would be equally permanent.
  *
  * The field is deliberately NOT the enrolment form's server field. That one
  * spends a setup key; this one opens a window. Sharing it would make "show me
@@ -38,8 +43,10 @@ export function PlaneCard(props: {
   const { settings, busy, onOpen } = props;
   const known = settings?.planeUrl ?? null;
   const [typed, setTyped] = useState("");
+  /** Whether the user asked to retype a plane that is already settled. */
+  const [editing, setEditing] = useState(false);
 
-  if (known !== null) {
+  if (known !== null && !editing) {
     return (
       <Card>
         <CardContent className="flex items-center justify-between gap-3 p-4">
@@ -47,10 +54,27 @@ export function PlaneCard(props: {
             <p className="text-muted-foreground text-xs">Control plane</p>
             <p className="mt-0.5 truncate font-mono text-xs">{known}</p>
           </div>
-          <Button size="sm" onClick={() => onOpen(null)} disabled={busy}>
-            <ExternalLink aria-hidden />
-            Open
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (busy) return;
+                // Seeded with the current address: a change is usually an edit
+                // of this one, and an empty field would make the user retype a
+                // hostname to correct one character of it.
+                setTyped(known);
+                setEditing(true);
+              }}
+              disabled={busy}
+            >
+              Change
+            </Button>
+            <Button size="sm" onClick={() => onOpen(null)} disabled={busy}>
+              <ExternalLink aria-hidden />
+              Open
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -70,6 +94,10 @@ export function PlaneCard(props: {
           onSubmit={(e) => {
             e.preventDefault();
             if (busy) return;
+            // `editing` is cleared unconditionally: the runner surfaces a
+            // rejected URL as its own message, and leaving the form open on
+            // success would look like nothing happened.
+            setEditing(false);
             onOpen(typed);
           }}
         >
@@ -87,6 +115,20 @@ export function PlaneCard(props: {
             <ExternalLink aria-hidden />
             Open
           </Button>
+          {known !== null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+                setTyped("");
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+          )}
         </form>
       </CardContent>
     </Card>

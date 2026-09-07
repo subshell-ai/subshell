@@ -101,6 +101,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(SettingsState::new(SETTINGS_PATHS))
+        .manage(windows::PlanePin::new())
         .invoke_handler(tauri::generate_handler![
             control::node_probe,
             control::node_install_agent,
@@ -135,31 +136,25 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             #[cfg(target_os = "macos")]
-            app.set_menu(menu::build(&handle)?)?;
-            // A tray that fails to build is not fatal — nothing it offers is
-            // unreachable from the window.
+            {
+                app.set_menu(menu::build(&handle)?)?;
+                app.on_menu_event(|app, event| menu::on_event(app, event.id.as_ref()));
+            }
+            // A tray that fails to build is not fatal — everything it offers
+            // is reachable another way, and `windows::open_at_startup` puts the
+            // node window on screen outright where it would not be.
             if let Err(err) = tray::build(&handle) {
                 eprintln!("subshell-node: could not create the tray icon: {err}");
             }
-            // Which window opens first says what this install IS. An address
-            // already settled — chosen here before, or enrolled from the CLI —
-            // means a client whose job is the plane; anything else means a
-            // machine that has not been pointed anywhere yet, and the node page
-            // is where it gets pointed.
-            match control::resolve_plane_url(&app.state::<SettingsState>()) {
-                Some(url) => {
-                    // Not fatal. A plane that will not open (a URL that has
-                    // stopped resolving, a webview that failed to build) must
-                    // still leave a usable app rather than none.
-                    if let Err(err) = windows::open_plane(&handle, &url) {
-                        eprintln!("subshell-client: could not open the control plane at {url}: {err}");
-                        windows::open_node(&handle)?;
-                    }
-                }
-                None => {
-                    windows::open_node(&handle)?;
-                }
-            }
+            // Which window LEADS says what this install is. An address already
+            // settled — chosen here before, or enrolled from the CLI — means a
+            // client whose job is the plane; anything else means a machine that
+            // has not been pointed anywhere yet, and the node page is where it
+            // gets pointed. `open_at_startup` also decides whether the node
+            // window has to be on screen anyway, which is a question about this
+            // desktop's tray rather than about this install.
+            let plane = control::resolve_plane_url(&app.state::<SettingsState>());
+            windows::open_at_startup(&handle, plane.as_deref())?;
             Ok(())
         })
         .build(tauri::generate_context!())

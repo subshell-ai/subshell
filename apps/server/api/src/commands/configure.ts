@@ -37,7 +37,7 @@ import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-instal
  * built-in defaults + flags only.
  */
 
-/** Env var that skips the tmux preflight (mirrors the client's escape hatch). */
+/** Env var that skips the tmux preflight (mirrors the agent's escape hatch). */
 export const SKIP_TMUX_CHECK_ENV = "SUBSHELL_SERVER_SKIP_TMUX_CHECK";
 
 /** The four keys `configure` owns; the rest of config.env belongs to other writers. */
@@ -153,7 +153,7 @@ export interface TmuxPreflightDeps {
 /**
  * tmux preflight — the server's `local` node launches every pane through
  * tmux, so refuse `init`/`configure`/`service install` before any write when
- * it is missing. Mirrors the client's enroll-time style: platform hint +
+ * it is missing. Mirrors the agent's enroll-time style: platform hint +
  * escape hatch name (spec 2026-09-03 plan-2 Global Constraints).
  *
  * Since spec 2026-09-03 (tmux offer): an interactive run with a supported

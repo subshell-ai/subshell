@@ -49,10 +49,19 @@ time gets no commands at all. Two consequences follow and are deliberate:
 
 **The node window existing is the whole "node functionality" toggle.** A client
 used only to watch subshells never opens it; there is no mode flag for the two
-halves to disagree about. It opens from the tray ("This machine…"), and it is
-what a fresh install lands on — `lib.rs` opens the plane window at startup only
-when an address is already settled (the stored `planeUrl`, else the enrolled
-node's own `serverUrl`).
+halves to disagree about. A fresh install lands on it — `open_at_startup` leads
+with the plane window only when an address is already settled (the stored
+`planeUrl`, else the enrolled node's own `serverUrl`).
+
+**It must always have a route home, and the tray is not one.** The plane window
+is remote content granted nothing, so it cannot offer a way back, and a tray
+icon is silently invisible wherever no StatusNotifier host is registered. So:
+macOS gets **Window → This machine…** in the menu bar (always drawn, which also
+covers the notched-display hazard in `tray.rs`); everywhere else,
+`node_window_has_a_route_home()` asks `desktop-core`'s tray probe and, when the
+answer is no, `open_at_startup` puts the node window on screen alongside the
+plane and `focus_any` RE-CREATES it — so relaunching, which is what `tray.rs`
+calls the way back from an invisible tray, actually is one.
 
 The `csp` in `tauri.conf.json` governs the **bundled** page only. The plane's
 window carries whatever CSP the plane sends, which is the same split

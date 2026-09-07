@@ -18,7 +18,7 @@ import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
  * now: {@link queryService}/{@link controlService} (the manager-state read and
  * the start/stop/restart drivers, with the live-pane guard). `apps/node/agent`'s
  * unit carries the same tmux-child hazard and should grow the same surface,
- * but the node daemon has no UI asking for it yet and the client's async
+ * but the node daemon has no UI asking for it yet and the agent's async
  * shape means the port is not a copy-paste.
  *
  * Nothing here shells out at import time; every effect flows through
@@ -108,7 +108,7 @@ export const LAUNCHD_LABEL = "dev.subshell.server";
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
-/** NOTE: deliberately distinct from the client's `~/Library/Logs/subshell.log`. */
+/** NOTE: deliberately distinct from the agent's `~/Library/Logs/subshell.log`. */
 const serverLogPath = (home: string) => join(home, "Library", "Logs", "subshell-server.log");
 
 /**
@@ -210,7 +210,7 @@ const xmlEscape = (s: string): string =>
 
 /**
  * launchd plist body: keep-alive agent logging to
- * `~/Library/Logs/subshell-server.log` (its own file — the client's is
+ * `~/Library/Logs/subshell-server.log` (its own file — the agent's is
  * `subshell.log`). Only PATH is baked: config.env is loaded by the binary
  * itself (and by nothing the plist would need to see), so no
  * SUBSHELL_* exports belong here.

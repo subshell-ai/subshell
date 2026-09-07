@@ -1,13 +1,13 @@
 /**
  * `bun run compile:release` — the operator-facing release pipeline for the
  * `subshell-server` binary (plan 2, Task E; spec 2026-09-03 §3–§5). Cloned
- * from the client's proven shape: builds every SERVER_TARGETS triple into
+ * from the agent's proven shape: builds every SERVER_TARGETS triple into
  * `apps/server/api/dist/release/` with `--bytecode` (uniform, floor 1.4.0
  * asserted), digests each via the shared `digestFile`, then publishes
  * atomically (tmp + rename + `.sha256` sidecar) into
  * `SUBSHELL_SERVER_RELEASE_DIR` (default `<repo-root>/dist-server`).
  *
- * The EMBED step is this pipeline's one addition over the client's: the
+ * The EMBED step is this pipeline's one addition over the agent's: the
  * compiled binary serves the SPA from `src/generated/embedded-web.ts`, so
  * BEFORE any build the frontend dist is pref-lighted (must exist — the agent
  * workspace-build preflight precedent) and the generator runs; the TRACKED

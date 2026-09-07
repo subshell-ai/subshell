@@ -24,7 +24,7 @@ const HOME = "/home/tester";
 const CONFIG = join(HOME, ".config", "subshell-server");
 const UNIT = join(HOME, ".config", "systemd", "user", "subshell-server.service");
 const PLIST = join(HOME, "Library", "LaunchAgents", "dev.subshell.server.plist");
-/** Distinct from the client's `~/Library/Logs/subshell.log` — pinned below. */
+/** Distinct from the agent's `~/Library/Logs/subshell.log` — pinned below. */
 const LOG = join(HOME, "Library", "Logs", "subshell-server.log");
 
 /** What a stubbed runCmd answers per invocation (default: success, silent). */
@@ -225,7 +225,7 @@ describe("installService — macOS (launchd agent)", () => {
     // tmux children (the live panes) with it.
     expect(plist).toInclude("<key>AbandonProcessGroup</key>");
     expect(plist).toInclude("<string>/usr/local/bin/subshell-server</string>");
-    // The log is the SERVER's own file — never the client's subshell.log.
+    // The log is the SERVER's own file — never the agent's subshell.log.
     expect(plist.split(LOG).length - 1).toBe(2); // StandardOutPath AND StandardErrorPath
     expect(plist).not.toInclude(join(HOME, "Library", "Logs", "subshell.log"));
 

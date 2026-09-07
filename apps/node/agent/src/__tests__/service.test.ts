@@ -797,7 +797,7 @@ describe("serviceStateLines", () => {
     expect(lines).toContain("state                = running (pid 5150)");
   });
 
-  test("the LOG path stays the client's own (never the server's)", async () => {
+  test("the LOG path stays the agent's own (never the server's)", async () => {
     const s = stub({ platform: "darwin" });
     await installService(s.deps);
     expect(s.files.get(PLIST) ?? "").toContain(LOG);
