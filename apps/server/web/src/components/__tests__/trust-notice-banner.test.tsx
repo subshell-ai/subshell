@@ -29,10 +29,21 @@ describe("TrustNoticeBanner", () => {
     render(<TrustNoticeBanner notices={[notice()]} visibleMs={80} />);
     expect(screen.getByRole("alert").textContent).toContain("shared this subshell with 2 other people");
 
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull(), { timeout: 4000 });
-    // ...and having been shown once, it does not come back.
-    expect(noticeSeen("shared:s1:2:false")).toBe(true);
-  });
+    // Wait on the MARK, not on the banner's absence. `retire` writes the mark
+    // and drops the banner in that order, so the mark is the stronger signal:
+    // the banner can also vanish because `cleanup` unmounted the component,
+    // which is exactly what happens when this case is killed mid-wait — the
+    // assertion then fails as a bogus "not seen" instead of as a timeout. The
+    // sibling dismissal case below has always waited this way and has never
+    // flaked.
+    await waitFor(() => expect(noticeSeen("shared:s1:2:false")).toBe(true), { timeout: 4000 });
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Explicit budget: bun's default case timeout is 5 s, and a loaded CI
+    // runner starves REAL timers badly enough to blow through it — this case
+    // failed at 17.2 s and 20.9 s on two separate runs before the dwell was
+    // shortened. 80 ms of dwell plus a 400 ms fade needs nothing like 15 s;
+    // the budget is there to absorb starvation, not duration.
+  }, 15_000);
 
   // The dwell the app actually ships. The case above proves the retire path
   // with a short one, so without this the 5 s product decision would be
