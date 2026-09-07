@@ -16,6 +16,7 @@ import {
   stopWatcher,
 } from "../commands/report.js";
 import type { AgentConfig } from "../config.js";
+import { selfInvocation } from "../self-invoke.js";
 import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
@@ -199,8 +200,18 @@ async function recordMeta(store: SubshellMetaStore, subshellId: string, socket: 
 }
 
 /** The claude dialect the AGENT regenerates locally (Step-3 design note). */
+/**
+ * The dialect the AGENT will write for its own MCP entry.
+ *
+ * Built from `selfInvocation` rather than a hardcoded
+ * `{command: process.execPath, args: ["mcp"]}`, because that shape was the bug:
+ * under an interpreter `process.execPath` is `bun`, and `bun mcp` is not a
+ * command. Deriving it the same way the code does keeps this test honest about
+ * WHICH invocation is written without re-pinning the old, broken one — the
+ * rungs themselves are pinned in `self-invoke.test.ts`.
+ */
 function localMcpContent(): string {
-  return `${JSON.stringify({ mcpServers: { subshell: { command: process.execPath, args: ["mcp"] } } }, null, 2)}\n`;
+  return `${JSON.stringify({ mcpServers: { subshell: selfInvocation("mcp") } }, null, 2)}\n`;
 }
 
 async function waitFor(cond: () => boolean, what: string, timeoutMs = 5_000): Promise<void> {

@@ -1,7 +1,8 @@
 import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import type { CliResult } from "./cli.js";
+import { selfInvocation } from "./self-invoke.js";
 
 /**
  * `subshell service install|uninstall` — background the daemon with the
@@ -58,15 +59,16 @@ const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAU
 const launchLogPath = (home: string) => join(home, "Library", "Logs", "subshell.log");
 
 /**
- * The argv the service manager should run. Compiled binary (basename starts
- * with `subshell`): the binary itself plus `run`. Dev/interpreter launch
- * (`bun src/main.ts`): interpreter + the resolved script path + `run` — a bare
- * relative `argv1` would break the moment the manager starts us from another
- * cwd, so it is resolved at install time.
+ * The argv the service manager should run: `<self> run`.
+ *
+ * The compiled-versus-interpreted decision lives in {@link selfInvocation},
+ * shared with the MCP registration in `commands/launch.ts` — the two used to
+ * decide it separately and disagreed, which is how a source-run agent came to
+ * register `bun mcp` for its panes.
  */
 export function execLine(deps: Pick<ServiceDeps, "execPath" | "argv1">): string[] {
-  if (basename(deps.execPath).startsWith("subshell")) return [deps.execPath, "run"];
-  return [deps.execPath, resolve(deps.argv1), "run"];
+  const { command, args } = selfInvocation("run", deps);
+  return [command, ...args];
 }
 
 /**

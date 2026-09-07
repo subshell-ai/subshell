@@ -5,6 +5,7 @@ import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allow
 import { enforceMode } from "../fs-mode.js";
 import { log } from "../log.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
+import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { startExitWatcher } from "./report.js";
@@ -73,7 +74,11 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     if (!(await pathAllowed(cmd.mcp.path, await realpathRoots([ctx.config.dataDir])))) {
       return { ok: false, error: "mcp path refused" };
     }
-    reg = harness.mcpRegistration?.({ command: process.execPath, args: ["mcp"] }, cmd.mcp.path);
+    // `selfInvocation`, not a bare `process.execPath`: under a source run that
+    // is the `bun` binary, and `bun mcp` is not a command — every pane from a
+    // dev agent would get an MCP entry that can never start. Same decision the
+    // service unit's ExecStart makes, made in one place.
+    reg = harness.mcpRegistration?.(selfInvocation("mcp"), cmd.mcp.path);
     let content = cmd.mcp.fileContent;
     if (reg && content !== reg.fileContent) {
       log(

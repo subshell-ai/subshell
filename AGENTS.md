@@ -235,11 +235,20 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
 
   `publishArtifacts` writes but never deletes, so after republishing, the
   old-named files are still sitting there — unreachable (nothing resolves to
-  them any more) but occupying ~70 MB each. Delete the `subshell-<triple>` and
-  `subshell-<triple>.sha256` leftovers by hand. Making publish prune the
-  directory would be the wrong fix: it is an atomic-swap publisher, not a
-  directory owner, and a bad scope variable would then delete artifacts it
-  merely failed to rebuild.
+  them any more) but occupying ~70 MB each. Clear them with:
+
+  ```bash
+  bun run prune:node-artifacts <dir>            # list what no target can produce
+  bun run prune:node-artifacts <dir> --delete   # remove it
+  ```
+
+  Pruning is deliberately NOT part of publishing. `publishArtifacts` is an
+  atomic-swap publisher rather than the directory's owner, and it is scoped by
+  `SUBSHELL_RELEASE_TRIPLES` — a publisher that pruned would delete every
+  triple it had merely been told not to build. The script instead decides from
+  the COMPLETE target set, so a file survives if ANY current target could
+  publish it; scope cannot reach it. It also leaves directories and in-flight
+  `.tmp-<pid>` files alone.
 - `turbo build` wipes the compiled `apps/client/agent/dist/subshell` dev binary;
   re-create it with `cd apps/client/agent && bun run compile`.
 - Separately, `bun run release:server` builds the **control-plane** binary
