@@ -12,7 +12,11 @@ need an AGPL licence to integrate with Subshell -- you almost certainly do not.
 Everything outside apps/server/ is licensed under the Apache License, Version
 2.0. See the LICENSE file at the repository root.
 
-Copyright (C) 2026 Theo Gravity
+Non-AGPL commercial licenses for this software are available for
+organizations whose policies forbid the AGPL. Contact
+Theo Gravity <theo@disaresta.com>.
+
+Copyright (C) 2026 Disaresta
 
 ===============================================================================
 
