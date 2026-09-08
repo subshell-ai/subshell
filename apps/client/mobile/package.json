@@ -2,6 +2,7 @@
   "name": "@internal/mobile",
   "description": "Native iOS/Android companion for subshell — monitors subshells and rings when one waits for you",
   "version": "1.0.0",
+  "license": "Apache-2.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {

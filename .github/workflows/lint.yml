@@ -53,6 +53,13 @@ jobs:
       - name: Check the lockfile's workspace versions
         run: bun run lint:lockfile
 
+      # Subshell is dual-licensed by path (apps/server/** is AGPL, the rest is
+      # Apache). A new or moved package declaring the wrong `license` — or none
+      # at all — is not a type error, a lint error or a test failure. This is
+      # the only thing that sees it.
+      - name: Check the per-path licence declarations
+        run: bun run lint:licenses
+
       - name: Run type checking
         run: bun run verify-types
 

@@ -1,5 +1,5 @@
 module.exports = {
-  "sortFirst": ["name", "description", "version", "type", "private", "main", "exports", "types", "author", "keywords", "scripts", "dependencies", "devDependencies", "peerDependencies", "resolutions"],
+  "sortFirst": ["name", "description", "version", "license", "type", "private", "main", "exports", "types", "author", "keywords", "scripts", "dependencies", "devDependencies", "peerDependencies", "resolutions"],
   "sortAz": [],
   "semverGroups": [{
     "range": "",

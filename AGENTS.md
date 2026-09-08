@@ -100,6 +100,58 @@ Package names follow the same words: `@internal/server`, `@internal/server-web`,
 `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`,
 `@internal/mobile`.
 
+### The licence boundary IS this directory line
+
+Subshell is dual-licensed, and the split is exactly the `server` grouping
+directory: **`apps/server/**` is AGPL-3.0-only**, **everything else is
+Apache-2.0**. The permissive half is permissive so third parties can write
+harness plugins, embed the node agent and build on `subshell-protocol` without
+copyleft; the AGPL covers the one piece a competitor would fork into a hosted
+service. Root `LICENSE` states the split; `apps/server/LICENSE` carries the
+AGPL text.
+
+**The API Type Surface exception.** `apps/server/LICENSE` also carries an
+additional permission under AGPL section 7: the control plane's TypeScript type
+declarations — routes, request/response shapes, WS frames, MCP tools, the
+exported `App` type, and any `.d.ts` generated from them — may be used under
+Apache-2.0 instead. Implementation is excluded. It exists so API clients and
+SDKs are never copyleft, and it is why `packages/backend-client` can be
+Apache-2.0 while inferring its types from the AGPL server.
+
+Three consequences for ordinary work:
+
+- **Moving a file into or out of `apps/server/` relicenses it.** That is
+  usually fine and occasionally not — moving server code into `packages/` makes
+  it Apache-2.0, i.e. hands it to anyone, permanently. Decide it, don't
+  discover it.
+- **An Apache package may only reach into `apps/server/` for TYPES.** The
+  exception covers declarations, not code, so a value import from an Apache
+  package is outside the carve-out and entangles the two licences.
+- **Every such edge is enumerated**, in `PERMITTED_CROSSINGS` in
+  `scripts/license-fields.ts`, with the reason it is sound. There are three:
+  `backend-client → @internal/server` (type-only; the built `dist/index.d.ts`
+  holds no server source, just an unresolved module reference), and `e2e`'s two
+  build-ordering devDependencies — e2e spawns the server as a subprocess and
+  imports nothing, and running a program is unrestricted by AGPL §2.
+
+`bun run lint:licenses` enforces all of it: every `package.json` and
+`Cargo.toml` declares the SPDX id its path implies (`lint:licenses:fix` writes
+them), no unlisted Apache→AGPL edge exists, and every permitted edge's imports
+are type-only (`import type`, `export type`, or braces where every specifier
+carries `type`). It runs in `lint.yml` and on pre-push, because none of this is
+a type error, a lint error or a test failure. The type-only check is what keeps
+the section 7 text describing what the code actually does — see
+`scripts/license-fields.ts`.
+
+Note that `apps/client/mobile/src/types/subshell.ts` contemplates importing
+`App` from `backend-client` "if a later milestone wants inference". Under the
+exception that is now fine — but it must stay `import type`, and the check will
+say so if it does not.
+
+Contributions need the one-time CLA in `CLA.md` (`.github/workflows/cla.yml`);
+that is what keeps non-AGPL commercial licensing of the server possible, and a
+DCO would not substitute.
+
 ### Technology Stack
 
 - **Runtime**: Bun (>= 1.4.0); Rust (stable) for the two desktop apps and `crates/desktop-core`
