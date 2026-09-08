@@ -60,6 +60,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       # The TmuxRunner suite drives a real tmux server. Idempotent so it costs
       # nothing once the image bakes tmux in (it is in the Dockerfile now, but
       # a PR still pulls whatever tag `main` last published).
@@ -163,6 +172,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       # The image installs rustup with `--profile minimal`, which does NOT
       # carry rustfmt or clippy — and this job is nothing but those two plus
       # tests. Idempotent, so it is a no-op once the image bakes them in.
@@ -228,6 +246,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Ensure rustfmt and clippy
         run: |
           set -euo pipefail
@@ -290,6 +317,15 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # The session-lifecycle spec spawns real tmux sessions (stub harness).
       - name: Ensure tmux and jq
