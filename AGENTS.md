@@ -495,7 +495,7 @@ Playwright's `install-deps` possible.
 system libraries, and staying out of a container means they never root-own the
 shared workspace.
 
-Three things this arrangement makes load-bearing:
+Four things this arrangement makes load-bearing:
 
 - **Every container job must end in the un-root step**, `if: always()`, copied
   from release.yml. A container writes as root onto a PERSISTENT workspace, so
@@ -509,6 +509,29 @@ Three things this arrangement makes load-bearing:
   `git tag -f` in the release plan job: a tag deleted upstream survived in the
   runner's clone, so re-cutting a release was impossible. Anything that reads
   git state, rather than just the checked-out tree, has to prune first.
+- **Disk is the standing cost, and none of it is self-limiting.** Every change
+  to `docker/desktop-builder.Dockerfile` moves the image tag and strands the
+  previous ~2 GB layer set forever, on every runner that pulled it. A full
+  runner does not fail politely: it dies in `actions/checkout` or a cargo link
+  step on whichever machine took the job, which reads as flake.
+  `runner-maintenance.yml` prunes docker daily and REPORTS usage, failing past
+  85% so a filling machine is named rather than discovered. It leaves the
+  workspaces alone on purpose — `target/`, `node_modules` and the turbo cache
+  surviving between runs is why CI is faster here than on hosted runners, and
+  they plateau. Fleet-wide coverage without being able to address a runner
+  comes from a matrix: `runs-on` selects by LABEL, so it fans out over 7 legs
+  and leans on a runner taking ONE job at a time, which puts N concurrent legs
+  on N distinct machines.
+
+**Not done deliberately: running the containers as a non-root user.** It
+would restore the one test skipped under root
+(`uploads-route.test.ts`, which chmods a directory to 0500 — root ignores
+permission bits) and let both the Chromium `--no-sandbox` workaround and all
+four un-root steps go. It needs `container.options: --user 1000`, and that
+HARDCODES a uid the un-root step currently discovers at runtime with `stat`,
+which is why the un-root step is correct on every runner. On a fleet being
+actively grown, a hardcoded uid fails nondeterministically on whichever
+machine was provisioned differently — a bad trade for one test.
 
 One thing that did NOT materialise: the expected slowdown. Queueing was
 supposed to make PR feedback worse than hosted CI, and every job came in
