@@ -1,0 +1,713 @@
+# Release automation (spec 2026-09-03 §6–§7, plan 3).
+#
+# Flow:
+#   changesets  — on every push to main, maintain the version PR
+#                 ("chore: release package(s)"). Private packages: changesets
+#                 creates NO tags/releases for them — the version PR only bumps
+#                 the FOUR releasable apps' package.jsons + CHANGELOGs:
+#                 apps/server/api, apps/node/agent, apps/server/desktop and
+#                 apps/client/desktop. `.changeset/config.json` ignores the
+#                 other ten workspaces.
+#   plan        — push events emit an EMPTY matrix (the merge of a version PR
+#                 does NOT auto-cut; the first-cut path is an explicit
+#                 workflow_dispatch — simpler and honest). A dispatch computes
+#                 {app, dir, version, tag} entries (version blank = read from
+#                 apps/<dir>/package.json, tag = <app>-v<version>), SKIPS apps
+#                 whose tag already exists, and PUSHES the missing tags before
+#                 any build starts (spec §7.2: no tag race downstream).
+#   build       — matrix over app×triple, pinned to hardware per triple:
+#                 linux-* → self-hosted Linux X64 (linux-arm64 is CROSS-BUILT,
+#                 no native arm64 Linux runner exists; bytecode cross is
+#                 proven on bun 1.4.0), darwin-* → mac-builder (macOS ARM64).
+#                 Each shard runs the app's OWN release script scoped to its
+#                 one triple (SUBSHELL_(SERVER_)RELEASE_TRIPLES + the release
+#                 dir env pointed at dist-rel/), then SMOKE-tests: native
+#                 triples execute `version` (the server additionally boots on
+#                 a temp DB with the on-disk frontend dist hidden — / and
+#                 /docs must answer from the EMBEDDED bytes), linux-arm64 gets
+#                 a `file` magic check only
+#                 (degrading to the magic check). Uploads binary + .sha256.
+#   publish     — per tagged app: draft release with every artifact, then a
+#                 second softprops invocation flips the draft live. Any build
+#                 failure ⇒ no release. softprops/action-gh-release because
+#                 the Linux self-hosted runners have NO gh CLI (measured).
+#
+# An app has TWO names, and confusing them is the failure mode this workflow is
+# now shaped around:
+#
+#   app (the id)  `server` | `node` | `desktop-server` | `desktop-client`.
+#                 The git tag prefix, the upload-artifact name, the publish
+#                 download pattern and file glob, the dispatch option, and
+#                 every `matrix.app == …` condition. These are what a user
+#                 sees on the releases page — `server-vX.Y.Z`, `node-vX.Y.Z`,
+#                 `desktop-server-vX.Y.Z`, `desktop-client-vX.Y.Z` — and they
+#                 follow the product's three words, not the directory tree.
+#                 `client` as an id is RETIRED: it published the node agent.
+#   dir           where the app lives under `apps/`, now NESTED:
+#                 `server/api`, `node/agent`, `server/desktop`,
+#                 `client/desktop`. Used for `apps/<dir>/package.json`,
+#                 `apps/<dir>/CHANGELOG.md`, `--cwd`/`working-directory` and
+#                 the cargo cache paths — and for nothing else.
+#
+# The mapping is the `app_dir` table in the plan job below, which emits `dir`
+# in every matrix entry so no downstream job re-derives it. The two names used
+# to be one string; nesting split them, because `server/api-v1.9.0` is not a
+# usable tag.
+#
+# Retry semantics: a mid-flight failure leaves the tag (and maybe a draft
+# release). Re-dispatching COMPLETES the half-cut (plan treats tag-without-
+# release as the retry state; only tag+PUBLISHED-release skips). The workflow
+# owns all tags; never cut them by hand.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Which deployable to cut"
+        type: choice
+        options: [server, node, desktop-server, desktop-client, all]
+        # `all` is the default because every component is cuttable and each
+        # desktop bundle SHIPS the CLI it wraps — so a CLI-only fix does not
+        # reach desktop users until the matching desktop cut. Defaulting to the
+        # whole set makes the safe cut the one you get by pressing Run.
+        default: all
+      version:
+        description: "Version override — blank = read apps/<dir>/package.json (applies to every app in `app`)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  # The desktop Linux shard pulls ghcr.io/subshell-ai/desktop-builder, which
+  # inherits this repo's visibility. Without this the runner's docker pull is
+  # denied by the registry and the job dies in "Initialize containers", before
+  # a single step runs.
+  packages: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changesets:
+    name: Version PR (changesets)
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      # The runner ships node 18 and no gh; the changesets action shells out to
+      # `npx changeset`, so pin a modern node for it (bun stays as-is below).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
+        with:
+          # NO publish-script: every workspace is private, npm publishing is
+          # out of scope (spec §11), and tag/release creation belongs to the
+          # publish job below — v2 would otherwise push tags itself.
+          version-script: bun run version-packages
+          commit-message: "chore: release package(s)"
+          pr-title: "chore: release package(s)"
+          create-github-releases: false
+          push-git-tags: false
+
+  plan:
+    name: Plan the cut
+    needs: changesets
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+      apps: ${{ steps.compute.outputs.apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: compute
+        env:
+          EVENT: ${{ github.event_name }}
+          APP_INPUT: ${{ inputs.app }}
+          VERSION_INPUT: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "workflow_dispatch" ]; then
+            echo 'matrix=[]' >> "$GITHUB_OUTPUT"
+            echo 'apps=[]' >> "$GITHUB_OUTPUT"
+            echo "::notice::$EVENT event — version PR only; cut releases via workflow_dispatch (see header comment)"
+            exit 0
+          fi
+          case "$APP_INPUT" in
+            server)  apps="server" ;;
+            node)    apps="node" ;;
+            desktop-server) apps="desktop-server" ;;
+            desktop-client) apps="desktop-client" ;;
+            all)     apps="server node desktop-server desktop-client" ;;
+            *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
+          esac
+          # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
+          # so an app ID that is a PREFIX of another absorbs that app's
+          # assets into its own release. `fail_on_unmatched_files: true` cannot
+          # catch it — it only fires on too FEW files, never too many. Assert
+          # the property here rather than discover it on an `all` cut.
+          #
+          # This is a property of the IDS, not of the directories: the ids are
+          # what the tags and the artifact names are built from.
+          ALL_APPS="server node desktop-server desktop-client"
+          for a in $ALL_APPS; do
+            for b in $ALL_APPS; do
+              [ "$a" = "$b" ] && continue
+              case "$b" in
+                "$a"-*) echo "::error::app id '$a' is a prefix of '$b' — the publish artifact glob would mix their releases"; exit 1 ;;
+              esac
+            done
+          done
+          # id → directory under apps/. The ONLY place this mapping lives; every
+          # job downstream reads `dir` out of the matrix instead of deriving it.
+          # See the header comment for which consumer takes which name.
+          app_dir() {
+            case "$1" in
+              server)         echo "server/api" ;;
+              node)           echo "node/agent" ;;
+              desktop-server) echo "server/desktop" ;;
+              desktop-client) echo "client/desktop" ;;
+              # Never a fall-through to "$1": a new id without a directory
+              # would silently read apps/<id>/package.json, which does not
+              # exist, and fail three steps later with a jq error.
+              *) echo "::error::no apps/ directory mapped for app id '$1'" >&2; return 1 ;;
+            esac
+          }
+          LINUX='["self-hosted","Linux","X64"]'
+          MAC='["self-hosted","macOS","ARM64"]'
+          entries=""
+          appsjson=""
+          for app in $apps; do
+            dir="$(app_dir "$app")"
+            pkgversion=$(jq -r .version "apps/$dir/package.json")
+            version="${VERSION_INPUT:-$pkgversion}"
+            # A `-f version=` that disagrees with package.json would tag one
+            # version and BUILD another: every pipeline reads the version from
+            # package.json, and the desktop artifact carries it in its filename,
+            # so the smoke then looks for a file that was never produced. Fail
+            # before any tag is pushed rather than half-way through a build.
+            if [ "$version" != "$pkgversion" ]; then
+              echo "::error::-f version=$version disagrees with apps/$dir/package.json ($pkgversion) — merge the changesets version PR first, or drop the override"
+              exit 1
+            fi
+            tag="$app-v$version"
+            if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+              if curl -fsS -o /dev/null -H "Authorization: Bearer $GITHUB_TOKEN" \
+                   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
+                echo "::notice::$tag already has a release — skipping (delete the release+tag to re-cut)"
+                continue
+              fi
+              # Retry state (spec §7.2): a prior cut tagged but never shipped
+              # (build/publish died mid-flight). Complete it — softprops will
+              # create the release on the EXISTING tag.
+              echo "::warning::tag $tag exists without a release — completing the cut"
+            else
+              # Tag BEFORE any build starts (spec §7.2): a failed build then
+              # leaves tag-without-release, which is the retry state above.
+              #
+              # `-f` because the self-hosted runners REUSE their workspace, so
+              # a tag created by an earlier cut is still in the local clone
+              # even after it is deleted from the remote — and the guard above
+              # asks the REMOTE. Without it, re-cutting a deleted version dies
+              # on `fatal: tag '<tag>' already exists`, which made the
+              # documented "delete the release+tag to re-cut" path impossible.
+              # Forcing is safe precisely because the remote check just proved
+              # the tag is absent there; the push below is still non-forced, so
+              # a tag that DOES exist upstream is never clobbered.
+              git tag -f "$tag" "$GITHUB_SHA"
+              git push origin "$tag"
+            fi
+            [ -z "$appsjson" ] || appsjson="$appsjson,"
+            appsjson="$appsjson{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\"}"
+            case "$app" in
+              server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
+              node) triples="linux-x64 linux-arm64 darwin-arm64" ;;
+              # No linux-arm64: there is no native arm64 Linux runner, and a
+              # file(1) magic check cannot see a GUI's characteristic failure,
+              # which is an invisible window. No darwin-x64: a desktop build
+              # bundles a server, and SERVER_TARGETS has none.
+              desktop-server|desktop-client) triples="linux-x64 darwin-arm64" ;;
+              # $triples is an ordinary shell variable that OUTLIVES the loop
+              # iteration. Without this arm a new app silently inherits the
+              # PREVIOUS app's triples instead of failing.
+              *) echo "::error::no triples defined for app '$app'"; exit 1 ;;
+            esac
+            for triple in $triples; do
+              case "$triple" in
+                linux-*) runner="$LINUX" ;;
+                darwin-*) runner="$MAC" ;;
+                *) echo "::error::no runner for triple '$triple'"; exit 1 ;;
+              esac
+              case "$triple" in
+                linux-x64|darwin-arm64) smoke="exec" ;;   # native on its runner
+                *) smoke="magic" ;;                       # linux-arm64: cross-built, never exec'd here
+              esac
+              # The desktop artifact is a BUNDLE, not a bare binary, so it gets
+              # its own smoke: digests, the nested sidecar, Debian deps, and on
+              # macOS the whole signing chain including the staple.
+              container=""
+              case "$app" in desktop-server|desktop-client)
+                smoke="bundle"
+                # A container, so the app's minimum glibc is CHOSEN rather than
+                # inherited from whatever the runner was last re-imaged with.
+                # Job-level (not `docker run` in a step) because the smoke needs
+                # the image's own toolchain — dpkg-deb, objdump, file — and
+                # execs the extracted sidecar, which is built to that floor.
+                [ "${triple%%-*}" = "linux" ] && container="ghcr.io/subshell-ai/desktop-builder:ubuntu24.04"
+                ;;
+              esac
+              [ -z "$entries" ] || entries="$entries,"
+              entries="$entries{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\",\"container\":\"$container\"}"
+            done
+          done
+          echo "matrix=[${entries}]" >> "$GITHUB_OUTPUT"
+          echo "apps=[$appsjson]" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release plan"
+            echo '```json'
+            echo "[${entries}]"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.app }} ${{ matrix.triple }}
+    needs: plan
+    # Guard BEFORE the matrix is expanded: an empty include array makes this
+    # job fail the run (measured — the job never materialises) because its
+    # runs-on reads from the matrix. A false `if` skips it cleanly.
+    if: needs.plan.outputs.matrix != '[]'
+    # One sign+notarize round trip per darwin artifact again — the mcp
+    # companion is retired (the server binary serves its own `mcp` subcommand).
+    # A desktop shard additionally compiles ~500 Rust crates and builds a
+    # server binary to bundle, so it gets its own budget.
+    timeout-minutes: ${{ startsWith(matrix.app, 'desktop-') && 90 || 45 }}
+    runs-on: ${{ matrix.runner }}
+    # Empty string = no container. Set only for the linux desktop shard, so the
+    # app's minimum glibc is a deliberate choice; every other shard is bare.
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        # A CONTAINER job defaults to `sh`, not bash, and every step here is
+        # bash: `set -o pipefail`, `${!var}` indirection. Without this the
+        # container shard dies on "Illegal option -o pipefail".
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` itself, whose root `prepare` script runs
+      # `lefthook install`. The image sets this too, but a container job
+      # overrides HOME to /github/home, where that config is not.
+      - name: Trust the bind-mounted workspace
+        if: matrix.container != ''
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Deterministic floor: mac-builder carries bun 1.3.14 (measured) — BELOW
+      # the 1.4.0 bytecode floor both release scripts assert — so setup-bun is
+      # load-bearing here, not decorative.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      # tsdown/rolldown bins carry a `#!/usr/bin/env node` shebang and need
+      # node >= 20.12 (util.styleText); the Linux runners ship node 18 (macOS
+      # ships 22 — that asymmetry only shows up here, never on hosted CI).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      # Both release scripts preflight the workspace dist outputs (the node agent
+      # bundles packages/*, the server embeds apps/server/web/dist).
+      - run: bun run build
+
+      - name: Release build (scoped to ${{ matrix.triple }})
+        if: contains(fromJSON('["server","node"]'), matrix.app)
+        env:
+          APP: ${{ matrix.app }}
+          TRIPLE: ${{ matrix.triple }}
+          DEST: ${{ github.workspace }}/dist-rel
+          # darwin provisioning (spec 2026-09-03, secrets-based): the identity
+          # and the notary API key come from repo secrets, NOT host keychain
+          # state — any mac runner is cut-ready with zero provisioning, and a
+          # cut never depends on the login keychain's mood.
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEST"
+          # Darwin artifacts ship signed + notarized (no more Gatekeeper
+          # "damaged" dialog on browser downloads): the hook runs between the
+          # build and the digest, so the .sha256 sidecars cover the signed
+          # bytes. See scripts/macos-sign-notarize.sh. A missing secret or
+          # identity fails the shard LOUDLY instead of publishing unsigned
+          # bytes.
+          case "$TRIPLE" in
+            darwin-*)
+              for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD NOTARY_API_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+                [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
+              done
+              # Ephemeral keychain, alive for exactly this step (trap cleans
+              # up + restores the search list). The login keychain is
+              # deliberately left OFF the search list for the job: any copy
+              # of the identity it happens to hold must never satisfy (or
+              # shadow) the lookup — that is precisely the host-state
+              # dependency this provisioning replaces.
+              CI_TMP="$(mktemp -d)"
+              KC="$CI_TMP/ci-build.keychain-db"
+              KCPW="$(/usr/bin/openssl rand -hex 16)"
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              security create-keychain -p "$KCPW" "$KC"
+              security list-keychains -d user -s "$KC"
+              security unlock-keychain -p "$KCPW" "$KC"
+              printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
+              security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+              rm -f "$CI_TMP/cert.p12"
+              security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
+              security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+                || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
+              # Notary: App Store Connect API key from secrets (no stored
+              # keychain profile anywhere).
+              printf '%s' "$NOTARY_API_KEY_P8_BASE64" | base64 -d > "$CI_TMP/notary.p8"
+              export SUBSHELL_NOTARY_KEY_PATH="$CI_TMP/notary.p8"
+              export SUBSHELL_NOTARY_KEY_ID="$NOTARY_KEY_ID"
+              export SUBSHELL_NOTARY_ISSUER_ID="$NOTARY_ISSUER_ID"
+              export SUBSHELL_RELEASE_SIGN_CMD="$GITHUB_WORKSPACE/scripts/macos-sign-notarize.sh"
+              ;;
+          esac
+          case "$APP" in
+            server) SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server ;;
+            node) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:node ;;
+            # Never an `else`: a new app reaching here would build and publish
+            # the NODE binary under its own tag rather than failing.
+            *) echo "::error::no bare-binary pipeline for app '$APP'"; exit 1 ;;
+          esac
+
+      # The mac-builder carries no Rust, and asking an operator to keep a
+      # toolchain installed on a fleet by hand is the kind of state that is
+      # only ever wrong at 2am. The Linux shard skips this: its container
+      # already ships a pinned toolchain.
+      - name: Use Rust
+        if: startsWith(matrix.app, 'desktop-') && startsWith(matrix.triple, 'darwin')
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        if: startsWith(matrix.app, 'desktop-')
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/${{ matrix.dir }}/src-tauri/target
+          # The `-v2-` is a deliberate one-time invalidation. The apps moved
+          # (apps/desktop-server -> apps/server/desktop) while this key stayed
+          # byte-identical — it is keyed on the component ID and on a Cargo.lock
+          # whose content did not change, since a path dependency records no
+          # path. So the first post-move run would take an EXACT-key hit on a
+          # target/ tree whose .fingerprint entries point at source paths that
+          # no longer exist, and actions/cache skips its save on an exact hit,
+          # so the stale tree would persist until Cargo.lock next changed.
+          key: ${{ runner.os }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-cargo-release-v2-${{ matrix.app }}-
+
+      - name: Desktop release build (scoped to ${{ matrix.triple }})
+        if: startsWith(matrix.app, 'desktop-')
+        env:
+          APP: ${{ matrix.app }}
+          # The app's directory under apps/ — see the plan job's `app_dir` table.
+          DIR: ${{ matrix.dir }}
+          TRIPLE: ${{ matrix.triple }}
+          DEST: ${{ github.workspace }}/dist-rel
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEST"
+
+          command -v cargo >/dev/null || { echo "no cargo on this runner/image"; exit 1; }
+          cargo --version; rustc --version
+          # NOT `bunx tauri --version`: npm has a real, deprecated package named
+          # `tauri` that bunx will happily fetch, so that probe can never fail.
+          "./apps/$DIR/node_modules/.bin/tauri" --version >/dev/null \
+            || { echo "@tauri-apps/cli is not installed in the workspace"; exit 1; }
+
+          case "$TRIPLE" in
+            linux-*)
+              # The nested release:server ends in `git checkout` to restore the
+              # embedded-web stub, as root, over a runner-owned workspace.
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
+              pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
+              pkg-config --exists ayatana-appindicator3-0.1 \
+                || { echo "missing libayatana-appindicator3-dev (tauri panics without it)"; exit 1; }
+              dpkg-deb --version >/dev/null || { echo "no dpkg-deb — wrong image?"; exit 1; }
+              # NOT `ldd --version | head -1`: ldd is a shell script, head exits
+              # after one line, and the SIGPIPE that follows is exit 141 — which
+              # `set -o pipefail` turns into a failed release. It is a race on
+              # the pipe buffer, so it fails intermittently (run 34022233821).
+              glibc_banner="$(ldd --version)"
+              echo "${glibc_banner%%$'\n'*}"   # records the glibc floor in the log
+              ;;
+            darwin-*)
+              for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD \
+                       NOTARY_API_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+                [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
+              done
+              CI_TMP="$(mktemp -d)"; trap 'rm -rf "$CI_TMP"' EXIT
+              printf '%s' "$NOTARY_API_KEY_P8_BASE64" | base64 -d > "$CI_TMP/notary.p8"
+              # Tauri builds its OWN throwaway keychain from APPLE_CERTIFICATE
+              # and pins --keychain on every codesign call. The repo's
+              # hand-rolled keychain block is deliberately NOT run here: two
+              # keychain owners is the identity ambiguity tauri#11992 traces to.
+              export APPLE_CERTIFICATE="$MACOS_CERT_P12_BASE64"
+              export APPLE_CERTIFICATE_PASSWORD="$MACOS_CERT_PASSWORD"
+              export APPLE_SIGNING_IDENTITY="Developer ID Application: Disaresta, LLC (DVRYX6BV6J)"
+              export APPLE_TEAM_ID="DVRYX6BV6J"
+              export APPLE_API_KEY="$NOTARY_KEY_ID"
+              export APPLE_API_ISSUER="$NOTARY_ISSUER_ID"
+              export APPLE_API_KEY_PATH="$CI_TMP/notary.p8"
+              ;;
+          esac
+
+          # NEVER on a desktop shard: the nested release:server would sign and
+          # notarize a binary the .app is about to re-seal with --force.
+          unset SUBSHELL_RELEASE_SIGN_CMD || true
+
+          SUBSHELL_DESKTOP_RELEASE_TRIPLES="$TRIPLE" \
+          SUBSHELL_DESKTOP_RELEASE_DIR="$DEST" \
+            bun run "release:$APP"
+
+      - name: Smoke
+        env:
+          APP: ${{ matrix.app }}
+          TRIPLE: ${{ matrix.triple }}
+          VERSION: ${{ matrix.version }}
+          SMOKE: ${{ matrix.smoke }}
+        run: |
+          set -euo pipefail
+          # A desktop artifact is a BUNDLE, not a bare binary — different
+          # checks entirely, so it exits before the binary smoke below.
+          case "$APP" in
+            desktop-*)
+              bash scripts/smoke-desktop-bundle.sh "$APP" "$TRIPLE" "$VERSION" dist-rel
+              exit 0
+              ;;
+          esac
+          case "$APP" in
+            server) BIN="dist-rel/subshell-server-cli-$TRIPLE" ;;
+            node) BIN="dist-rel/subshell-node-cli-$TRIPLE" ;;
+            *) echo "no binary smoke for app '$APP'"; exit 1 ;;
+          esac
+          test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
+          test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
+          # `file` magic sanity applies to every mode; the arch hint doubles as
+          # the fallback assertion when the binary cannot be executed here.
+          case "$TRIPLE" in
+            linux-x64)     HINT='ELF 64-bit.*x86-64' ;;
+            linux-arm64)   HINT='ELF 64-bit.*ARM aarch64' ;;
+            darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
+          esac
+          file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
+
+          exec_smoke() {
+            # No argument any more. This took an exec prefix so darwin-x64
+            # could be smoked under Rosetta; Intel Macs are no longer a
+            # published target, so every remaining native triple runs bare and
+            # the `rosetta` smoke mode is gone with it.
+            local out
+            out=$("$BIN" version 2>&1) || return 1
+            echo "$out"
+            # Pinned against the CLIs' real output: the server prints exactly
+            # "subshell-server <v>"; the agent adds "(node protocol vN)".
+            if [ "$APP" = "server" ]; then
+              [ "$out" = "subshell-server $VERSION" ] || { echo "server version output mismatch"; return 1; }
+            else
+              case "$out" in
+                "subshell $VERSION"*) ;;
+                *) echo "node agent version output mismatch"; return 1 ;;
+              esac
+            fi
+            if [ "$APP" = "server" ]; then
+              boot_smoke
+              # Branch-headline feature, per-triple (darwin included): the
+              # server binary SERVES `mcp` itself — the refusal contract
+              # (clean-env `env -i` refusal + no-CWD-litter) lives in ONE
+              # script shared with test.yml, so the two can never check
+              # different contracts.
+              bash scripts/smoke-mcp-refusal.sh "$BIN"
+            fi
+          }
+
+          boot_smoke() {
+            # Prove the EMBEDDED SPA serves: the compiled binary prefers an
+            # on-disk apps/server/web/dist at its BAKED build-time path (AGENTS
+            # caveat), so hide that dir for the boot.
+            local dbdir cfgdir port pid hdrs i
+            dbdir=$(mktemp -d)
+            cfgdir=$(mktemp -d)
+            port=$((20000 + RANDOM % 20000))
+            mv apps/server/web/dist "$dbdir/frontend-dist-hidden"
+            restore() { mv "$dbdir/frontend-dist-hidden" apps/server/web/dist 2>/dev/null || true; }
+            DATABASE_PATH="$dbdir/subshell.db" \
+            SUBSHELL_SERVER_CONFIG_DIR="$cfgdir" \
+            BETTER_AUTH_SECRET="$(head -c 32 /dev/urandom | base64)" \
+            SERVER_PORT="$port" HOST=127.0.0.1 APP_BASE_URL="http://127.0.0.1:$port" \
+              "$PWD/$BIN" >server-boot.log 2>&1 &
+            pid=$!
+            trap 'kill '"$pid"' 2>/dev/null || true; restore' EXIT
+            for i in $(seq 1 120); do
+              curl -fsS -o /dev/null "http://127.0.0.1:$port/docs" && break
+              kill -0 "$pid" 2>/dev/null || { echo "server died during boot:"; tail -40 server-boot.log; exit 1; }
+              sleep 0.5
+              [ "$i" = 120 ] && { echo "server never answered on :$port"; tail -40 server-boot.log; exit 1; }
+            done
+            curl -fsS "http://127.0.0.1:$port/" | grep -q 'id="root"' || { echo "/ did not serve the SPA index"; exit 1; }
+            # Embedded mode's tell is a strong ETag (spec §4 / static.plugin).
+            hdrs=$(curl -fsS -o /dev/null -D - "http://127.0.0.1:$port/")
+            echo "$hdrs" | grep -qi '^etag:' || { echo "/ carried no ETag — embedded mode not active?"; exit 1; }
+            echo "boot smoke OK: / and /docs served from the embedded SPA"
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            trap - EXIT
+            restore
+          }
+
+          case "$SMOKE" in
+            exec)
+              exec_smoke
+              ;;
+            magic)
+              echo "cross-built $TRIPLE — no exec smoke (digest sidecar + file(1) hint are the proof)"
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.app }}-${{ matrix.triple }}
+          path: dist-rel/*
+          if-no-files-found: error
+
+      # A container writes as root onto a PERSISTENT self-hosted workspace, so
+      # without this the next job on this runner fails on files it cannot touch.
+      #
+      # This step runs INSIDE the container, as root — so `id -u` is 0 and
+      # chowning to it is a no-op. The host's uid/gid is readable from
+      # $RUNNER_WORKSPACE, the runner-created parent of the checkout, which
+      # keeps its host ownership inside the mount.
+      - name: Un-root the workspace
+        if: always() && matrix.container != ''
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  publish:
+    name: Release ${{ matrix.app }}
+    needs: [plan, build]
+    if: needs.plan.outputs.apps != '[]'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.apps) }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ matrix.app }}-*
+          path: dist
+
+      # Solely to read the CHANGELOG: releases used to publish with an EMPTY
+      # body, so the one page a user lands on to ask "what changed in 1.6.0?"
+      # answered with a bare asset list. The prose already exists — changesets
+      # wrote it at version time — it just never travelled to the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+
+      # Slice out this version's section. Anchored on the "## <version>"
+      # heading changesets emits, stopping at the next one.
+      - id: notes
+        env:
+          APP: ${{ matrix.app }}
+          # The CHANGELOG lives with the code, so this one reads `dir`; the
+          # release NAME, tag and asset glob below all read `app`.
+          DIR: ${{ matrix.dir }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          changelog="repo/apps/$DIR/CHANGELOG.md"
+          out="$RUNNER_TEMP/release-notes-$APP.md"
+          if [ -f "$changelog" ]; then
+            awk -v want="$VERSION" '
+              /^## / { if (found) exit; if ($2 == want) { found = 1; next } }
+              found { print }
+            ' "$changelog" > "$out"
+          else
+            : > "$out"
+          fi
+          # A version cut with no changeset is legitimate (a re-cut, a manual
+          # version input), and an empty body must never fail the publish — a
+          # release with thin notes beats no release at all.
+          if [ ! -s "$out" ]; then
+            echo "::warning::no CHANGELOG section for $APP $VERSION — publishing with a placeholder body"
+            printf '%s\n' "\`$APP\` $VERSION. See the commit history for changes." > "$out"
+          fi
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      # Draft first: a failed upload never ships a live release.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          body_path: ${{ steps.notes.outputs.path }}
+          files: dist/${{ matrix.app }}-*/*
+          fail_on_unmatched_files: true
+
+      # Same tag + draft omitted = update the existing draft and publish it
+      # (softprops v2.6 semantics, confirmed against the action's input docs).
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.tag }}
+          body_path: ${{ steps.notes.outputs.path }}

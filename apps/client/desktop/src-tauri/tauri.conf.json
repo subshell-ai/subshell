@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Subshell Client",
+  "version": "../package.json",
+  "identifier": "dev.subshell.client",
+  "build": {
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:5177",
+    "beforeDevCommand": "bun run dev:ui",
+    "beforeBuildCommand": "bun run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5177 http://localhost:5177; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "externalBin": [
+      "binaries/subshell-node-bundled"
+    ],
+    "targets": [
+      "app",
+      "deb"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Register this machine as a Subshell node",
+    "longDescription": "Subshell Client registers this machine with a Subshell control plane and keeps its agent running, so agents can be launched here from the browser.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "13.0"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libc6 (>= 2.39)"
+        ]
+      }
+    }
+  }
+}

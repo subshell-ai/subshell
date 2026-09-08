@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "clean": {},
+    "build": {
+      "dependsOn": ["^build", "lint"],
+      "inputs": ["*.json", "*.js", "*.ts", "*.tsx", "app/**", "src/**", "scripts/**"],
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**", "scripts/**"]
+    },
+    "lint:check": {
+      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**", "scripts/**"]
+    },
+    "test": {
+      "cache": false
+    },
+    "verify-types": {
+      "inputs": ["*.ts", "*.tsx", "*.js", "*.json", "app/**", "src/**", "scripts/**"]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "clean": {},
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "ui/**",
+        "vite.config.ts",
+        "*.json"
+      ],
+      "outputs": [
+        "ui/dist/**"
+      ]
+    },
+    "lint": {
+      "inputs": [
+        "src/**",
+        "ui/**",
+        "*.json"
+      ]
+    },
+    "lint:check": {
+      "inputs": [
+        "src/**",
+        "ui/**",
+        "*.json"
+      ]
+    },
+    "test": {
+      "cache": false
+    },
+    "verify-types": {
+      "inputs": [
+        "src/**",
+        "ui/**",
+        "vite.config.ts",
+        "*.json"
+      ]
+    }
+  }
+}

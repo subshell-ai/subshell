@@ -1,0 +1,175 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/dockview-theme.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Subshell UI theme: dark only by design (no light variants exist).
+ * Tokens follow the shadcn/ui convention (oklch values).
+ *
+ * "Dreamframe" — the Castorice palette (spec 2026-09-02): violet-veined void
+ * surfaces, frost-lavender foreground, orchid accent. Hues sit at ~318-325°;
+ * success/warning/destructive semantics are deliberately NOT retinted.
+ * `--primary` stays bright so text-primary/links/border-primary glows read on
+ * the void; primary BUTTONS get a quieter sunk-plum gradient in ui/button.tsx
+ * rather than riding the token.
+ */
+:root,
+.dark {
+  /* Ground is the operator-approved slate-indigo #1d182a (oklch 0.224); the ramp
+     steps around it, hue 296° — indigo side of the family, calmer than the
+     318° magenta first pass. */
+  --background: oklch(0.224 0.035 296);
+  --foreground: oklch(0.92 0.03 312);
+
+  --card: oklch(0.255 0.032 296);
+  --card-foreground: oklch(0.92 0.03 312);
+
+  --popover: oklch(0.255 0.032 296);
+  --popover-foreground: oklch(0.92 0.03 312);
+
+  --primary: oklch(0.75 0.17 322);
+  --primary-foreground: oklch(0.16 0.05 322);
+
+  --secondary: oklch(0.29 0.034 296);
+  --secondary-foreground: oklch(0.9 0.025 312);
+
+  --muted: oklch(0.29 0.034 296);
+  --muted-foreground: oklch(0.74 0.04 310);
+
+  --accent: oklch(0.33 0.04 296);
+  --accent-foreground: oklch(0.95 0.02 315);
+
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.33 0.035 296);
+  --input: oklch(0.33 0.035 296);
+  --ring: oklch(0.62 0.13 322);
+
+  /* Status colors for anything outside Badge (dots, inline confirmations).
+     Seeded from ui/badge.tsx's success/warning variant values (Tailwind
+     emerald-400 / amber-400) so chips and dots finally share one palette. */
+  --success: oklch(0.765 0.177 163.223);
+  --warning: oklch(0.828 0.189 84.429);
+
+  /* Terminal/workspace surfaces. Raw hexes because xterm's theme and
+     dockview-theme.css consume the same literals — these vars are the one
+     home every layer reads. Values match subshell-terminal.tsx's TERMINAL_THEME. */
+  --terminal-strip: #221c32;
+  --terminal-canvas: #181226;
+  --terminal-tab-active: #2b243e;
+
+  --radius: 0.5rem;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-terminal-strip: var(--terminal-strip);
+  --color-terminal-canvas: var(--terminal-canvas);
+  --color-terminal-tab-active: var(--terminal-tab-active);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* xterm container: fill the terminal strip */
+.xterm {
+  height: 100%;
+}
+
+/* iOS auto-zoom rule: focusing a text input whose computed font-size is
+   below 16px makes WebKit zoom the whole page (factor ~= 16/font-size), and
+   in home-screen PWAs that zoom — plus the keyboard-shrunk viewport it
+   rides on — can PERSIST after the keyboard closes. Symptom: a dead black
+   band under the key bar and `visualViewport.scale` stuck at ~1.2
+   (measured live on the phone). The xterm helper textarea inherits the
+   terminal's 13px font, so every keystroke armed it. Both inputs are
+   invisible/1-char; their font size is never seen — it only has to be >=16.
+   `!important` beats xterm's inline style. */
+.xterm .xterm-helper-textarea,
+.xterm .composition-view {
+  font-size: 16px;
+}
+
+/* The same threshold guards the app's own form fields on touch: the shared
+   input style is 14px, which would zoom login/search/dialog fields the same
+   way. Desktop keeps its 14px; phones get Apple's no-zoom size (which is
+   also the accessibility-correct touch size). */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* Mobile touch ergonomics (spec §4): one-finger swipe scrolls the xterm
+   buffer, not the page; no double-tap zoom on controls. Coarse-pointer only
+   so desktop behavior is byte-identical. */
+@media (pointer: coarse) {
+  .xterm,
+  .xterm .xterm-viewport {
+    touch-action: pan-y;
+  }
+  /* The grid body declares NO browser gesture at all: a pan starting here —
+     one OR two fingers — must never become a native scroll, because the
+     nearest native scroller is the app shell (the iPad two-finger bug: the
+     whole PWA slid instead of the terminal). lib/terminal-touch-scroll owns
+     every gesture on the surface in JS (line-scroll, tap-to-focus). This is
+     the compositor-declared half of that contract — the JS preventDefault
+     alone lost the race to iOS committing the pan on the real device. */
+  .xterm .xterm-screen {
+    touch-action: none;
+  }
+  .xterm .xterm-viewport {
+    overscroll-behavior: contain;
+  }
+  button,
+  a,
+  [role="button"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+}

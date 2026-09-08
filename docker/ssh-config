@@ -1,0 +1,18 @@
+# SSH config for the subshell container. Bind-mounted OVER the host's
+# ~/.ssh/config (the host file's IdentityAgent points at a 1Password agent
+# socket that does not exist in the container, and git's ssh-format signing
+# aborts on the unreachable agent instead of falling back to key files).
+#
+# Add `Host` blocks here (ports, jump hosts, per-host identity) for git
+# remotes reached from panes; keys/known_hosts come from the ro ~/.ssh mount.
+Host *
+	IdentityAgent none
+
+# GitHub's port-22 range is partially unreachable from this network (some
+# anycast IPs stall the SSH banner; DNS round-robins, so pushes flake at
+# random). GitHub's supported fallback: SSH over the TLS port. HostKeyAlias
+# keeps verification against the known_hosts entry for github.com itself.
+Host github.com
+	Hostname ssh.github.com
+	Port 443
+	HostKeyAlias github.com

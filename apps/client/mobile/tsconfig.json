@@ -1,0 +1,30 @@
+{
+  "extends": "@internal/tsconfig/tsconfig.json",
+  "include": [
+    "app/**/*",
+    "src/**/*",
+    "*.ts",
+    "*.tsx",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": [
+      "react",
+      "bun"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "noEmit": true
+  }
+}

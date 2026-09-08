@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Subshell Server</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <h1>Subshell Server</h1>
+    <p class="sub">This machine's control plane — installed, configured and run from here.</p>
+
+    <div class="card">
+      <div class="row">
+        <span class="chip"><span class="dot" id="dot"></span><span id="state">Checking…</span></span>
+        <button type="button" id="refresh">Refresh</button>
+      </div>
+      <dl class="facts" id="facts"></dl>
+    </div>
+
+    <div class="card">
+      <p class="problem" id="problem"></p>
+      <div id="step-body"></div>
+      <div class="actions" id="step-actions"></div>
+      <div class="hint" id="step-hint"></div>
+    </div>
+
+    <div class="card" id="prefs-card" hidden>
+      <label class="switch">
+        <input type="checkbox" id="close-to-tray" />
+        <span>Keep running in the menu bar or system tray when the window is closed</span>
+      </label>
+      <div class="row" id="tray-missing" hidden>
+        <p class="hint" id="tray-reason"></p>
+        <button type="button" id="tray-recheck">Check again</button>
+      </div>
+    </div>
+
+    <pre id="output" aria-live="polite"></pre>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

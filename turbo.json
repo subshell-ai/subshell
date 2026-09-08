@@ -1,0 +1,53 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "tasks": {
+    "clean": {
+      "cache": false
+    },
+    "build": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "build:dev": {
+      "dependsOn": [
+        "^build:dev"
+      ],
+      "cache": false
+    },
+    "dev": {
+      "dependsOn": [
+        "^build:dev"
+      ],
+      "persistent": true,
+      "cache": false
+    },
+    "lint": {},
+    "lint:check": {},
+    "lint:staged": {
+      "cache": true
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ],
+      "cache": false
+    },
+    "test:e2e": {
+      "cache": false
+    },
+    "install-browsers": {
+      "cache": false
+    },
+    "verify-types": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "prod": {
+      "persistent": true
+    },
+    "generate": {}
+  }
+}

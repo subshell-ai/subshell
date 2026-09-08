@@ -1,0 +1,40 @@
+name: Reset the Linux runner workspace
+
+# Maintenance, run by hand.
+#
+# A container job on the self-hosted Linux runner writes as ROOT into a
+# bind-mounted workspace owned by the runner's user. `release.yml` un-roots it
+# on the way out, but if that step is itself skipped — the job cancelled, or
+# the step failing before it runs — the workspace is left with root-owned files
+# the runner user cannot delete. Every later job on that runner then dies in
+# `actions/checkout` with `EACCES: permission denied, rmdir ...`, which reads
+# like a checkout bug rather than a leftover.
+#
+# This job takes no checkout (that is the thing that fails) and runs AS root in
+# a container, so it can hand the tree back.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  reset:
+    name: Un-root the workspace
+    runs-on: [self-hosted, Linux, X64]
+    container: ubuntu:24.04
+    timeout-minutes: 10
+    steps:
+      - name: Restore ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          # $RUNNER_WORKSPACE is created by the runner and keeps the host's
+          # uid/gid inside the mount, so it is the authority on who should own
+          # the tree — `id -u` here is 0, which is the problem, not the answer.
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "workspace: $GITHUB_WORKSPACE"
+          echo "restoring ownership to $own"
+          root_owned="$(find "$GITHUB_WORKSPACE" -uid 0 | wc -l)"
+          echo "root-owned paths before: $root_owned"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+          echo "root-owned paths after:  $(find "$GITHUB_WORKSPACE" -uid 0 | wc -l)"

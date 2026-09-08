@@ -1,0 +1,44 @@
+name: Desktop builder image
+
+# The Linux release shard runs inside this image, so without a workflow that
+# publishes it the first `-f app=desktop` cut fails on an image pull — with the
+# job never starting, which is the least legible failure GitHub Actions has.
+#
+# Deliberately manual + path-triggered rather than on every push: the image
+# changes about as often as Tauri's system dependencies do, and rebuilding it
+# per commit would be minutes of runner time for a byte-identical result.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - docker/desktop-builder.Dockerfile
+      - .github/workflows/desktop-builder-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Tagged with the Ubuntu release it pins, not `latest`: the tag IS the
+      # support floor (glibc 2.39), so moving it would silently move every
+      # user's minimum supported Linux.
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          IMAGE=ghcr.io/${{ github.repository_owner }}/desktop-builder:ubuntu24.04
+          docker build -f docker/desktop-builder.Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "pushed $IMAGE" >> "$GITHUB_STEP_SUMMARY"

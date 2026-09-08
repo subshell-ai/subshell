@@ -1,0 +1,248 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      # The TmuxRunner suite drives a real tmux server.
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
+
+      - name: Run Package(s) Tests
+        run: bun run test
+
+      # Compiled-binary smoke guards against bundler import-graph defects
+      # (e.g. oven-sh/bun#31586 — zod subpath duplication) that source-level
+      # `bun test` cannot see.
+      - name: Compiled binary smoke
+        run: |
+          set -euo pipefail
+          cd apps/server/api
+          bun run compile
+          bin="$PWD/dist/subshell-server"
+          expected="subshell-server $(jq -r .version package.json)"
+          actual="$("$bin" version)"
+          [ "$actual" = "$expected" ] || { echo "version mismatch: got '$actual', want '$expected'"; exit 1; }
+          # The `mcp` refusal contract (clean-env refusal + no CWD litter)
+          # lives in ONE script, shared with the release shards.
+          bash ../../../scripts/smoke-mcp-refusal.sh "$bin"
+          # Real-bytes pin for the renamed-artifact guard (7d5d6f4): the unit
+          # tests fake the compiled argv[1]; this asserts against a REAL
+          # compiled copy under a foreign name that the self rung never
+          # resolves from baked/virtual build paths (`via self` would bake an
+          # entry that cannot exist on the target host).
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          cp "$bin" "$tmp/renamed-server"
+          status_out="$("$tmp/renamed-server" status 2>&1 || true)"
+          echo "$status_out"
+          if printf '%s' "$status_out" | grep -q "via self"; then echo "renamed compiled binary self-resolved its mcp entrypoint"; exit 1; fi
+          echo "compiled-binary smoke OK: version + clean mcp refusal + renamed-artifact fall-through"
+
+  # The shared Rust library both desktop apps depend on. Its own job because it
+  # has NO tauri dependency and therefore none of Tauri's system deps — it is a
+  # ~30-second job, and keeping it separate means the apps' matrix legs do not
+  # each re-run it.
+  desktop-core-rust:
+    name: Desktop core (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/desktop-core/target
+          key: ${{ runner.os }}-cargo-core-${{ hashFiles('crates/desktop-core/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-core-
+
+      - name: Format, lint and test
+        working-directory: crates/desktop-core
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  # The two Tauri apps' Rust halves. Deliberately their OWN job rather than part
+  # of `bun run test`: that command runs on a plain ubuntu-latest with no Rust
+  # toolchain (and none of Tauri's system deps), which is exactly why cargo is
+  # kept out of the turbo build graph.
+  desktop-rust:
+    name: Desktop (Rust) — ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `app` is the component id (also the release tag prefix); `dir` is
+        # where it lives under apps/. The two diverged when the apps became
+        # nested — see release.yml's plan job for the same table.
+        include:
+          - app: desktop-server
+            dir: server/desktop
+            sidecar: subshell-server-bundled
+          - app: desktop-client
+            dir: client/desktop
+            sidecar: subshell-node-bundled
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Tauri links against the system webview at BUILD time, so even
+      # `cargo test --lib` needs these.
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            build-essential curl wget file libxdo-dev libssl-dev pkg-config
+
+      - name: Use Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/${{ matrix.dir }}/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.app }}-
+
+      # `tauri-build` REFUSES TO BUILD when an `externalBin` file is missing,
+      # and the staged sidecar is a gitignored ~110 MB build input — so a clean
+      # checkout cannot compile this crate at all without one.
+      #
+      # A stub is the right answer here rather than a real build. This job tests
+      # the Rust logic — the resolution ladder, the ExecStart parser, the
+      # install policy, the process runner — none of which executes the sidecar;
+      # and `tauri-build` only checks that the path EXISTS. The real bundle,
+      # with a real binary inside it, is proven by
+      # `scripts/smoke-desktop-bundle.sh` on the release shards.
+      - name: Stage a stub sidecar
+        working-directory: apps/${{ matrix.dir }}/src-tauri
+        env:
+          SIDECAR: ${{ matrix.sidecar }}
+        run: |
+          set -euo pipefail
+          triple="$(rustc --print host-tuple)"
+          install -m 755 /dev/null "binaries/$SIDECAR-$triple"
+          echo "staged a STUB sidecar for $triple (the release pipeline stages a real one)"
+
+      - name: Format, lint and test
+        working-directory: apps/${{ matrix.dir }}/src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      # The session-lifecycle spec spawns real tmux sessions (stub harness).
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
+
+      # Keyed on the Playwright version so a bump downloads a matching browser.
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      - name: Install Chromium
+        run: bun run test:e2e:install
+
+      - name: Run end-to-end tests
+        run: bun run test:e2e
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7

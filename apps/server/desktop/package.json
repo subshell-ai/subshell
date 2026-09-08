@@ -1,0 +1,27 @@
+{
+  "name": "@internal/desktop-server",
+  "description": "Subshell Server \u2014 a Tauri shell that installs, runs and manages a local subshell-server",
+  "version": "0.5.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "clean": "rm -rf src-tauri/target src-tauri/binaries/subshell-server-bundled-*",
+    "compile": "tauri build --debug",
+    "dev:app": "tauri dev",
+    "icons": "tauri icon src-tauri/icons/app-icon.png && rm -rf src-tauri/icons/android src-tauri/icons/ios src-tauri/icons/icon.ico src-tauri/icons/Square*Logo.png src-tauri/icons/StoreLogo.png",
+    "lint": "biome check --write --unsafe src ui",
+    "lint:check": "biome check src ui",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src ui",
+    "test": "bun test src",
+    "verify-types": "tsc --project tsconfig.json --noEmit",
+    "compile:release": "bun run src/scripts/release.ts"
+  },
+  "dependencies": {
+    "@internal/subshell-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

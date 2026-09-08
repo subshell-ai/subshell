@@ -1,0 +1,53 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "clean": {},
+    "build": {
+      "dependsOn": [
+        "^build",
+        "lint"
+      ],
+      "inputs": [
+        "*.json",
+        "*.ts",
+        "src/**",
+        "scripts/**"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "dev": {
+      "dependsOn": [
+        "^build:dev"
+      ],
+      "persistent": true,
+      "cache": false
+    },
+    "lint": {
+      "inputs": [
+        "*.ts",
+        "*.json",
+        "src/**"
+      ]
+    },
+    "verify-types": {
+      "inputs": [
+        "*.ts",
+        "*.json",
+        "src/**"
+      ]
+    },
+    "prod": {
+      "dependsOn": [
+        "build"
+      ],
+      "persistent": true,
+      "cache": false
+    },
+    "generate": {}
+  }
+}

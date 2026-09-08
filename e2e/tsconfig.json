@@ -1,0 +1,13 @@
+{
+  "extends": "@internal/tsconfig/tsconfig.json",
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "test-results", "playwright-report"],
+  "compilerOptions": {
+    "types": ["node"],
+    // In-page code passed to page.evaluate() references browser globals
+    // (document/window/getComputedStyle) that the ES2023-only base lib
+    // lacks; the runner process itself stays Node-typed.
+    "lib": ["ES2023", "DOM"],
+    "noEmit": true
+  }
+}

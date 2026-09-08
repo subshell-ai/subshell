@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "subshell",
+    "slug": "subshell-mobile",
+    "version": "1.0.0",
+    "scheme": "subshell",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0a0c0f",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "nu.suteki.subshell"
+    },
+    "android": {
+      "package": "nu.suteki.subshell"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "tsconfigPaths": true
+    }
+  }
+}

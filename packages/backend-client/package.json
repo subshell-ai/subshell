@@ -1,0 +1,32 @@
+{
+  "name": "@internal/backend-client",
+  "description": "Type-safe client for the backend API via Eden Treaty",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@elysiajs/eden": "1.4.9",
+    "elysia": "1.4.29"
+  },
+  "devDependencies": {
+    "@internal/server": "workspace:*",
+    "@internal/tsconfig": "workspace:*",
+    "hash-runner": "4.0.0",
+    "tsdown": "0.22.14"
+  }
+}

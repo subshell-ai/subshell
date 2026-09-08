@@ -1,0 +1,27 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "subshell-ai/subshell"
+    }
+  ],
+  "access": "restricted",
+  "baseBranch": "main",
+  "ignore": [
+    "@internal/backend-client",
+    "@internal/backend-errors",
+    "@internal/brand",
+    "@internal/e2e",
+    "@internal/harnesses",
+    "@internal/mcp-core",
+    "@internal/mobile",
+    "@internal/server-web",
+    "@internal/subshell-protocol",
+    "@internal/tsconfig"
+  ],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  }
+}

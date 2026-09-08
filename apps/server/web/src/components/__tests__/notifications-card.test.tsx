@@ -1,0 +1,111 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { NotificationsCard } from "@/components/notifications-card";
+import type { PushState } from "@/lib/notifications";
+
+/**
+ * The card is a state→words table; the tests pin each row. The lib hooks come
+ * in through props (defaulted to the real ones in the component), so no
+ * globals need stubbing here.
+ */
+
+const noop = async (): Promise<PushState> => "off";
+
+function stubUserAgent(ua: string): () => void {
+  const nav = globalThis.navigator as unknown as Record<string, unknown>;
+  const prev = Object.getOwnPropertyDescriptor(nav, "userAgent");
+  Object.defineProperty(nav, "userAgent", { value: ua, configurable: true, writable: true });
+  return () => {
+    if (prev) Object.defineProperty(nav, "userAgent", prev);
+    else delete nav.userAgent;
+  };
+}
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("NotificationsCard", () => {
+  it("'off' offers the enable button and enablePush drives it to 'on'", async () => {
+    const enableCalls: number[] = [];
+    render(
+      <NotificationsCard
+        getState={async () => "off"}
+        enable={async () => {
+          enableCalls.push(1);
+          return "on";
+        }}
+        disable={noop}
+      />,
+    );
+    const button = await screen.findByRole("button", { name: "Enable notifications on this device" });
+    fireEvent.click(button);
+    await waitFor(() => screen.getByRole("button", { name: "Disable on this device" }));
+    expect(enableCalls).toHaveLength(1);
+  });
+
+  it("'on' offers the disable button and disablePush drives it back to 'off'", async () => {
+    const disableCalls: number[] = [];
+    render(
+      <NotificationsCard
+        getState={async () => "on"}
+        enable={noop}
+        disable={async () => {
+          disableCalls.push(1);
+          return "off";
+        }}
+      />,
+    );
+    const button = await screen.findByRole("button", { name: "Disable on this device" });
+    fireEvent.click(button);
+    await waitFor(() => screen.getByRole("button", { name: "Enable notifications on this device" }));
+    expect(disableCalls).toHaveLength(1);
+  });
+
+  it("'blocked' explains where the toggle lives instead of offering a button", async () => {
+    render(<NotificationsCard getState={async () => "blocked"} enable={noop} disable={noop} />);
+    expect(await screen.findByText("Allow notifications for subshell in your browser/OS settings.")).toBeDefined();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("'unconfigured' names the server-side cause", async () => {
+    render(<NotificationsCard getState={async () => "unconfigured"} enable={noop} disable={noop} />);
+    expect(
+      await screen.findByText("This instance cannot issue push keys (data directory not writable)."),
+    ).toBeDefined();
+  });
+
+  it("'unsupported' on a desktop UA shows the plain sentence only", async () => {
+    const undo = stubUserAgent("Mozilla/5.0 (X11; Linux x86_64) Chrome");
+    try {
+      render(<NotificationsCard getState={async () => "unsupported"} enable={noop} disable={noop} />);
+      expect(await screen.findByText("This browser does not support push notifications.")).toBeDefined();
+      expect(screen.queryByText(/Add to Home Screen/)).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  it("'unsupported' on iOS adds the Add-to-Home-Screen note", async () => {
+    const undo = stubUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari");
+    try {
+      render(<NotificationsCard getState={async () => "unsupported"} enable={noop} disable={noop} />);
+      expect(await screen.findByText(/Add to Home Screen/)).toBeDefined();
+    } finally {
+      undo();
+    }
+  });
+
+  it("a failing probe falls back to the actionable 'off' state", async () => {
+    render(
+      <NotificationsCard
+        getState={async () => {
+          throw new Error("offline");
+        }}
+        enable={noop}
+        disable={noop}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "Enable notifications on this device" })).toBeDefined();
+  });
+});

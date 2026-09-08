@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "node",
+  "description": "The bundled node page, and the ONLY surface allowed to drive the subshell CLI. That is why it is a separate window from the one showing a control plane's own UI: the boundary is the window and its origin, not a convention. There is deliberately no capability for the `main` window — a control plane can live on any host, so its origin cannot be enumerated here, and a window this app cannot pin gets no commands at all.",
+  "local": true,
+  "windows": [
+    "node"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-message",
+    "opener:allow-reveal-item-in-dir",
+    "allow-node-probe",
+    "allow-node-install-agent",
+    "allow-node-enroll",
+    "allow-node-service",
+    "allow-node-set-agent-bin",
+    "allow-node-open-path",
+    "allow-node-settings",
+    "allow-node-set-close-to-tray",
+    "allow-node-open-plane"
+  ]
+}

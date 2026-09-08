@@ -1,0 +1,63 @@
+version: 2
+
+updates:
+  # The actions in .github/workflows are pinned to commit SHAs, which cannot be
+  # updated by hand in any sane way. Dependabot raises a PR when a new release
+  # appears and rewrites both the SHA and its trailing version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      # Matches the type-enum in commitlint.config.js so the PR passes commit linting.
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # The Rust dependencies. Unlike the JS ones, these are NOT covered by
+  # syncpack — each crate has its own manifest and there is nothing to keep in
+  # sync across the workspace — and a Tauri app carries the webview and the
+  # security boundary, so a stale tauri is a stale ACL implementation.
+  #
+  # One entry per manifest: dependabot does not walk a directory tree, and the
+  # two apps carry INDEPENDENT lockfiles on purpose (crates/desktop-core is a
+  # path dependency, not a workspace member), so a bump to one says nothing
+  # about the other.
+  - package-ecosystem: cargo
+    directory: /apps/server/desktop/src-tauri
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: /apps/client/desktop/src-tauri
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directory: /crates/desktop-core
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+# Note: JS dependencies are deliberately not managed here. They are pinned exactly
+# and updated together via `bun run syncpack:update`, which keeps versions in sync
+# across the workspace — something per-package Dependabot PRs would fight with.

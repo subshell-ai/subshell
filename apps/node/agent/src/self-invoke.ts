@@ -1,0 +1,66 @@
+/**
+ * How this agent invokes ITSELF — the one place that decides it.
+ *
+ * The agent re-enters itself for two unrelated things: the service manager
+ * runs `<self> run`, and every pane it launches gets `<self> mcp` registered
+ * as its MCP server. Both have to answer the same awkward question — am I a
+ * compiled binary, or is `bun` running my entry script? — and getting it wrong
+ * produces a command that does not exist.
+ *
+ * They used to answer it separately, and only one of them answered it at all:
+ * `execLine` branched correctly while `commands/launch.ts` passed
+ * `process.execPath` bare, so a source-run agent registered `bun mcp` for its
+ * panes. `bun` has no `mcp` subcommand, so every pane launched from a dev
+ * agent got an MCP entry that could never start.
+ */
+import { basename, resolve } from "node:path";
+
+/** A command and its arguments, ready to spawn or to write into a unit file. */
+export interface SelfInvocation {
+  /** The executable — this binary, or the interpreter running it. */
+  command: string;
+  /** Everything after it, ending with the subcommand. */
+  args: string[];
+}
+
+/** The pieces of the running process the decision is made from. */
+export interface SelfInvokeDeps {
+  /** `process.execPath` — the compiled agent, or the `bun` running it. */
+  execPath: string;
+  /** `process.argv[1]` — the entry script under an interpreter; virtual or absent otherwise. */
+  argv1: string;
+}
+
+/**
+ * A compiled Bun binary carries a VIRTUAL argv[1] (`/$bunfs/root/...`), so
+ * "does argv1 look like a real entry script?" is what separates an interpreter
+ * launch from a compiled one — an actual JS/TS extension, and not the bunfs
+ * path. Mirrors the server's gate in `services/mcp-resolve.ts`.
+ */
+function looksLikeEntryScript(argv1: string): boolean {
+  return !argv1.startsWith("/$bunfs/") && /\.(?:[mc]?[jt])s$/.test(argv1);
+}
+
+/**
+ * Build `<self> <subcommand>`.
+ *
+ * Three rungs, in order, and the third is the one a bare entry-shape test
+ * would miss:
+ *
+ * 1. The basename says `subshell` — a compiled agent under its own name.
+ *    argv1 is ignored entirely, even when it looks like a script.
+ * 2. argv1 is a real entry script — `bun <entry> <subcommand>`. ABSOLUTE,
+ *    because a pane config spawns in the subshell's cwd where a relative
+ *    argv[1] would not exist.
+ * 3. Neither — a compiled binary someone renamed (the published artifact is
+ *    `subshell-node-cli-<triple>`, and nothing stops a user calling it `agent`).
+ *    Its argv1 is the bunfs path, so rung 2 must not claim it: treat it as
+ *    compiled, which is what it is.
+ */
+export function selfInvocation(subcommand: string, deps?: SelfInvokeDeps): SelfInvocation {
+  const execPath = deps?.execPath ?? process.execPath;
+  const argv1 = deps?.argv1 ?? process.argv[1] ?? "";
+  if (basename(execPath).startsWith("subshell")) return { command: execPath, args: [subcommand] };
+  if (looksLikeEntryScript(argv1)) return { command: execPath, args: [resolve(argv1), subcommand] };
+  return { command: execPath, args: [subcommand] };
+}

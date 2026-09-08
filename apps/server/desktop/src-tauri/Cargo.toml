@@ -1,0 +1,37 @@
+[package]
+name = "subshell-desktop"
+version = "0.1.0"
+license = "AGPL-3.0-only"
+description = "Subshell Server"
+edition = "2021"
+rust-version = "1.82"
+
+# The crate name must differ from the sidecar's stripped name
+# (`subshell-server-bundled`): tauri-build hard-errors when they collide.
+[lib]
+name = "subshell_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+# The tauri-free half, shared with `apps/client/desktop`. A standalone package
+# rather than a workspace member: this app keeps its own Cargo.lock and target/.
+subshell-desktop-core = { path = "../../../../crates/desktop-core" }
+tauri = { version = "2.11.5", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.7.3"
+tauri-plugin-notification = "2.3.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2.4.4"
+tauri-plugin-window-state = "2.4.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
