@@ -226,7 +226,17 @@ jobs:
             else
               # Tag BEFORE any build starts (spec §7.2): a failed build then
               # leaves tag-without-release, which is the retry state above.
-              git tag "$tag" "$GITHUB_SHA"
+              #
+              # `-f` because the self-hosted runners REUSE their workspace, so
+              # a tag created by an earlier cut is still in the local clone
+              # even after it is deleted from the remote — and the guard above
+              # asks the REMOTE. Without it, re-cutting a deleted version dies
+              # on `fatal: tag '<tag>' already exists`, which made the
+              # documented "delete the release+tag to re-cut" path impossible.
+              # Forcing is safe precisely because the remote check just proved
+              # the tag is absent there; the push below is still non-forced, so
+              # a tag that DOES exist upstream is never clobbered.
+              git tag -f "$tag" "$GITHUB_SHA"
               git push origin "$tag"
             fi
             [ -z "$appsjson" ] || appsjson="$appsjson,"
