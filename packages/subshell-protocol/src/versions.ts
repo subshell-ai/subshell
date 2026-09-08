@@ -51,8 +51,13 @@ export function semverLt(a: string, b: string): boolean {
  * floor, which passes; do not use a `minor` changeset on top of a hand-raised
  * version or the released client lands two versions clear of the floor for
  * nothing.)
+ *
+ * Reset to 0.1.0 on 2026-09-07 along with every app version, when the release
+ * history was cleared and the whole fleet re-cut from 0.1.0. The old 0.4.0
+ * floor described versions that no longer exist; the wire contract that
+ * actually gates nodes is still NODE_PROTOCOL_VERSION.
  */
-export const MIN_AGENT_VERSION = "0.4.0";
+export const MIN_AGENT_VERSION = "0.1.0";
 
 /**
  * Whether an agent reporting `version` may connect.
