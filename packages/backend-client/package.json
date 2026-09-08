@@ -2,6 +2,7 @@
   "name": "@internal/backend-client",
   "description": "Type-safe client for the backend API via Eden Treaty",
   "version": "1.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "private": true,
   "main": "dist/index.js",

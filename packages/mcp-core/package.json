@@ -2,6 +2,7 @@
   "name": "@internal/mcp-core",
   "description": "The `subshell mcp` stdio server shared by the server binary's mcp subcommand and the agent's mcp subcommand",
   "version": "1.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "private": true,
   "main": "dist/index.js",

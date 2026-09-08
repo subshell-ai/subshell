@@ -2,6 +2,7 @@
   "name": "@internal/desktop-server",
   "description": "Subshell Server \u2014 a Tauri shell that installs, runs and manages a local subshell-server",
   "version": "0.5.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
   "scripts": {

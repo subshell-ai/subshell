@@ -428,3 +428,39 @@ your VPN):
   `docs/superpowers/plans/`.
 - OpenAPI docs at `/docs` (Scalar UI).
 - `apps/server/api/.env.example` documents the dev env shape.
+
+## License
+
+Subshell is dual-licensed, and the line is the directory tree:
+
+| path | license |
+|---|---|
+| `apps/server/**` — the control plane (API, the SPA it serves, its desktop app) | **AGPL-3.0-only** |
+| everything else — the `subshell` node agent, the client apps, every shared package and crate | **Apache-2.0** |
+
+**Self-hosting Subshell is free.** No time limit, no user cap, no feature clock,
+no license key. That is not a trial — it is the deal, and it is written into
+both licenses and into the [CLA](CLA.md).
+
+The permissive half is permissive on purpose: write harness plugins, embed the
+node agent, and build tools on the subshell protocol without inheriting
+copyleft. The AGPL covers only the piece someone would fork into a competing
+hosted service — if you run a modified control plane as a network service, you
+owe your users its source.
+
+**Building an API client is not copyleft either.** `apps/server/LICENSE` carries
+an additional permission under AGPL section 7 — the *API Type Surface
+exception* — letting you use the control plane's TypeScript type declarations
+(routes, request/response shapes, WebSocket frames, MCP tools, the exported
+`App` type, and any `.d.ts` generated from them) under Apache-2.0 rather than
+the AGPL. Only the implementation is copyleft. So an SDK, a CLI, a bot or a
+dashboard built against Subshell's API carries no AGPL obligation, however you
+ship it.
+
+Contributions require a one-time [Contributor License Agreement](CLA.md). You
+keep the copyright in your work; the CLA grants the right to license it, which
+is what lets the server stay AGPL while non-AGPL commercial licenses remain
+available to organizations whose policies forbid the AGPL.
+
+Full text: [`LICENSE`](LICENSE) (Apache-2.0) and
+[`apps/server/LICENSE`](apps/server/LICENSE) (AGPL-3.0).

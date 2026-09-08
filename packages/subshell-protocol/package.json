@@ -2,6 +2,7 @@
   "name": "@internal/subshell-protocol",
   "description": "Subshell contract shared by the backend and frontend: WebSocket frames and upload limits",
   "version": "1.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "private": true,
   "main": "dist/index.js",
