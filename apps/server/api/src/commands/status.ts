@@ -255,12 +255,23 @@ export function syncPortListening(_host: string, port: number): boolean | null {
     if (sawAny) return false; // tables readable and silent — genuinely nobody listens
   }
   const args = process.platform === "darwin" ? ["-an", "-p", "tcp"] : ["-tnl"];
-  const res = Bun.spawnSync({ cmd: ["netstat", ...args], stdout: "pipe", stderr: "ignore", timeout: 1000 });
-  if (res.exitCode !== 0) return null; // no netstat — no answer available
+  // `netstat` lives in /usr/sbin on macOS — and a THROWN spawnSync (the
+  // binary simply is not on PATH, e.g. a GUI-launched CLI or `env -i`) never
+  // reaches exitCode. Measured 2026-09-07: `status` exited 1 with ZERO output
+  // on a Mac whose PATH lacked /usr/sbin. No netstat is no answer, not a
+  // failed command.
+  let out: string;
+  try {
+    const res = Bun.spawnSync({ cmd: ["netstat", ...args], stdout: "pipe", stderr: "ignore", timeout: 1000 });
+    if (res.exitCode !== 0) return null; // no netstat — no answer available
+    out = res.stdout.toString();
+  } catch {
+    return null;
+  }
   // Shared column layout on both spellings:
   //   Proto Recv-Q Send-Q Local-Address Foreign State  → f[3] local, f[5] LISTEN.
   // macOS separates the port with "." (127.0.0.1.3080), Linux with ":3080".
-  for (const line of res.stdout.toString().split("\n")) {
+  for (const line of out.split("\n")) {
     const f = line.trim().split(/\s+/);
     if (f.length < 6 || f[5] !== "LISTEN") continue;
     const local = f[3] ?? "";

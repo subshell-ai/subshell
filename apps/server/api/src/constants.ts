@@ -8,6 +8,21 @@ import {
   defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
 } from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
+import { loadConfigEnv } from "@/config-env.js";
+
+// The config.env layer is applied HERE, at the top of this module's body,
+// BEFORE the dotenvx call below and before a single `env.get` reads
+// process.env. It cannot live only in cli-bootstrap's body: that module's
+// first import is @/cli.js, whose graph reaches THIS file first, so ESM
+// evaluates constants before loadConfigEnv could run — a macOS/launchd boot
+// (no EnvironmentFile to mask it) then silently ignored config.env and booted
+// on defaults. Measured 2026-09-07: `database: /data/subshell.db` crash-loops
+// on the mac-mini. loadConfigEnv is SETDEFAULT-idempotent, so the
+// cli-bootstrap call remains harmless, and the same test-mode guard keeps
+// `bun test` from reading a developer's real config.
+if (process.env.SUBSHELL_TEST_MODE !== "1" && process.env.NODE_ENV !== "test") {
+  loadConfigEnv();
+}
 
 // A missing .env is not an error: deployments (Docker, systemd, CI) inject
 // real environment variables and ship no dotenv file — the host dev checkout

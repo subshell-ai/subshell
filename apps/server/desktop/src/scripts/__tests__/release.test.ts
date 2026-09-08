@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   DESKTOP_CLIENT_PRODUCT,
+  DESKTOP_SERVER_BUNDLE_ID,
   DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
@@ -337,7 +338,10 @@ describe("productName", () => {
   // rather than a silent one — and so it stays distinct from
   // `apps/client/desktop`'s, which shares none of that state.
   test("the bundle identifier is this app's own", () => {
-    expect(CONF.identifier).toBe("dev.subshell.server");
+    // The SAME constant the server CLI writes into the LaunchAgent plist's
+    // AssociatedBundleIdentifiers — Login-Items attribution fails silently
+    // (the entry shows the signing org) if these two ever drift.
+    expect(CONF.identifier).toBe(DESKTOP_SERVER_BUNDLE_ID);
     expect(CONF.identifier).not.toBe("dev.subshell.client");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -87,6 +87,63 @@ async function freePort(): Promise<number> {
   await new Promise<void>((res) => srv.close(() => res()));
   return port;
 }
+
+describe("entry-subprocess BOOT: config.env reaches the RUNNING process", () => {
+  // The launchd crash-loop class, reproduced without launchd. ESM evaluates
+  // the whole import graph before any module body runs, so a loadConfigEnv()
+  // call in cli-bootstrap's body landed AFTER constants.ts had already read
+  // process.env — silently no-op'ing the entire config.env layer on every
+  // non-systemd boot (measured 2026-09-07: the mac-mini service resolved
+  // `./data/subshell.db` against launchd's cwd `/` and crash-looped on
+  // `/data`). No CLI subcommand can prove this: `status` reports the layer
+  // from `resolveConfig()`, which reads the FILE regardless of whether the
+  // boot path applies it. Only a bare boot answers the real question.
+  test(
+    "boots with config.env's DATABASE_PATH, and never touches the ./data default",
+    async () => {
+      const port = await freePort();
+      const cwd = mkdtempSync(join(tmpdir(), `subshell-boot-test-${process.pid}-`));
+      const cfg = mkdtempSync(join(tmpdir(), `subshell-boot-cfg-${process.pid}-`));
+      const db = join(cfg, "boot.db");
+      writeFileSync(
+        join(cfg, "config.env"),
+        `SERVER_PORT=${port}\nDATABASE_PATH=${db}\nBETTER_AUTH_SECRET=boot-test-secret-long-enough-for-dev\n`,
+        { mode: 0o600 },
+      );
+      const proc = Bun.spawn({
+        cmd: [BUN, ENTRY],
+        cwd,
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          NODE_ENV: "development",
+          SUBSHELL_SERVER_CONFIG_DIR: cfg,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      try {
+        // Boot runs its migrations against that exact path within moments;
+        // a regression would die (no /data to write in — here it would
+        // create ./data under the temp cwd, asserted absent below) or open
+        // the wrong DB.
+        const deadline = Date.now() + TIMEOUT;
+        while (!existsSync(db)) {
+          if (proc.exitCode !== null) {
+            const err = await new Response(proc.stderr).text();
+            throw new Error(`boot exited ${proc.exitCode} without opening ${db}\n--- stderr ---\n${err}`);
+          }
+          if (Date.now() > deadline) throw new Error(`boot did not open ${db} within ${TIMEOUT}ms`);
+          await Bun.sleep(50);
+        }
+        // The default-relative litter the launchd bug produced is absent.
+        expect(sqliteLitter(cwd)).toEqual([]);
+      } finally {
+        proc.kill();
+      }
+    },
+    TIMEOUT,
+  );
+});
 
 describe("entry-subprocess CLI: configure must not boot", () => {
   test(

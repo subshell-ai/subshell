@@ -225,6 +225,17 @@ describe("installService — macOS (launchd agent)", () => {
     // tmux children (the live panes) with it.
     expect(plist).toInclude("<key>AbandonProcessGroup</key>");
     expect(plist).toInclude("<string>/usr/local/bin/subshell-server</string>");
+    // Login-Items attribution: without this key System Settings shows the
+    // SIGNING ORGANIZATION ("Disaresta, LLC") where the user looks for the
+    // app (launchd.plist(5)). Same shared constant the desktop app's own
+    // bundle identifier is pinned to — drift is silent association failure.
+    expect(plist).toInclude("<key>AssociatedBundleIdentifiers</key>");
+    // launchd starts agents with cwd `/` — a relative DATABASE_PATH then
+    // resolves against the root filesystem (measured crash-loop, 2026-09-07).
+    // The plist pins the config home as the working directory, mirroring the
+    // systemd unit's WorkingDirectory=.
+    expect(plist).toInclude("<key>WorkingDirectory</key>");
+    expect(plist).toInclude(`<string>${CONFIG}</string>`);
     // The log is the SERVER's own file — never the agent's subshell.log.
     expect(plist.split(LOG).length - 1).toBe(2); // StandardOutPath AND StandardErrorPath
     expect(plist).not.toInclude(join(HOME, "Library", "Logs", "subshell.log"));
@@ -498,17 +509,25 @@ function linuxStub(over: Record<string, string> = {}) {
  * `bootstrap` refuses), yet not running. `loaded: false` is the only shape
  * where `print` itself fails.
  */
-function darwinStub({ abandon = true, loaded = true, running = true, pid = 5150 } = {}) {
+function darwinStub({
+  abandon = true,
+  loaded = true,
+  running = true,
+  pid = 5150,
+  printError = null as { code: number; err: string } | null,
+  stateLine = "not running",
+} = {}) {
   const s = stub({
     platform: "darwin",
     respond: (cmd) => {
       if (cmd[0] === "plutil")
         return abandon ? { code: 0, out: "true\n", err: "" } : { code: 1, out: "", err: "No value at that key path" };
       if (cmd[1] === "print") {
+        if (printError) return { code: printError.code, out: "", err: printError.err };
         if (!loaded) return { code: 113, out: "", err: "" };
         return running
           ? { code: 0, out: `\tstate = running\n\tpid = ${pid}\n`, err: "" }
-          : { code: 0, out: "\tstate = not running\n", err: "" };
+          : { code: 0, out: `\tstate = ${stateLine}\n`, err: "" };
       }
       return { code: 0, out: "", err: "" };
     },
@@ -686,6 +705,37 @@ describe("queryService", () => {
       loaded: true,
     });
     expect(queryService(darwinStub({ loaded: false }).deps)).toMatchObject({ state: "stopped", loaded: false });
+  });
+
+  // The 2026-09-07 crash-loop was reported as a flat "stopped" with the
+  // reason thrown away. "spawn scheduled" (launchd throttling a repeatedly
+  // dying job) must be visible — "stopped" and "stopped AND KEEPING CRASHING"
+  // are different operator problems.
+  test("darwin: a non-running job carries launchd's raw state in detail", () => {
+    const state = queryService(darwinStub({ running: false, stateLine: "spawn scheduled" }).deps);
+    expect(state).toMatchObject({ state: "stopped", loaded: true, detail: "launchd: spawn scheduled" });
+  });
+
+  // Exit 113 ("Could not find service") is the documented unloaded answer;
+  // ANY other failure means the manager did not answer at all, and calling
+  // that "stopped" is a guess that discards the only diagnostic there is.
+  test("darwin: an unexpected launchctl print failure is 'unknown', output kept", () => {
+    const state = queryService(
+      darwinStub({ printError: { code: 1, err: "Bootstrap failed: 5: Input/output error" } }).deps,
+    );
+    expect(state.state).toBe("unknown");
+    expect(state.detail).toInclude("launchctl print failed (exit 1)");
+    expect(state.detail).toInclude("Input/output error");
+    // 113 keeps the classic stopped mapping.
+    expect(queryService(darwinStub({ loaded: false }).deps).detail).toBe("");
+  });
+
+  // The desktop console reveals the log; it must not re-derive platform
+  // paths. macOS: the plist's StandardOutPath. Linux: journald answers, so
+  // the JSON says null rather than inventing a file.
+  test("darwin reports the service log path; systemd reports null (journald)", () => {
+    expect(queryService(darwinStub().deps).logPath).toBe(LOG);
+    expect(queryService(stub().deps).logPath).toBeNull();
   });
 
   // plutil, not a regex: a binary1 plist that sets the key would read as

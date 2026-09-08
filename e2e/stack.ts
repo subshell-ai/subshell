@@ -84,6 +84,13 @@ export async function startStack(): Promise<void> {
       // spec would notice).
       NODE_ENV: "development",
       SUBSHELL_TEST_MODE: "false",
+      // The scratch dir contains no config.env — so the backend can't pick up
+      // a developer's real one. Since 2026-09-07 the boot path APPLIES that
+      // layer (constants.ts, before dotenvx), and SETDEFAULT semantics only
+      // protect keys this block sets explicitly; anything else a developer's
+      // ~/.config/subshell-server/config.env happens to carry
+      // (SUBSHELL_EMERGENCY_PASSWORD, TRUSTED_ORIGINS, …) would leak in.
+      SUBSHELL_SERVER_CONFIG_DIR: dir,
       SERVER_PORT: String(PORTS.backend),
       HOST: "127.0.0.1",
       DATABASE_PATH: path.join(dir, "subshell.db"),

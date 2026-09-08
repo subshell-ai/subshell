@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { DESKTOP_SERVER_BUNDLE_ID } from "@internal/subshell-protocol";
 import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
 
 /**
@@ -211,11 +212,22 @@ const xmlEscape = (s: string): string =>
 /**
  * launchd plist body: keep-alive agent logging to
  * `~/Library/Logs/subshell-server.log` (its own file — the agent's is
- * `subshell.log`). Only PATH is baked: config.env is loaded by the binary
- * itself (and by nothing the plist would need to see), so no
- * SUBSHELL_* exports belong here.
+ * `subshell.log`). No SUBSHELL_* exports belong here — config.env is loaded
+ * by the binary itself — but two placement keys do:
+ *
+ * - `WorkingDirectory=<config home>` — launchd starts agents with cwd `/`,
+ *   so a relative `DATABASE_PATH` (or Bun's cwd-based `.env` lookup) resolves
+ *   against the root filesystem. Measured 2026-09-07: `./data/subshell.db`
+ *   became `/data/subshell.db`, and the agent crash-looped on launchd's
+ *   respawn throttle. The systemd unit sets its own `WorkingDirectory=` for
+ *   the same reason; the plist now mirrors it.
+ * - `AssociatedBundleIdentifiers=<app bundle id>` — without it System
+ *   Settings attributes this legacy LaunchAgent to the SIGNING ORGANIZATION
+ *   (launchd.plist(5); Apple's ServiceManagement migration notes), so a GUI
+ *   user sees "Disaresta, LLC" with a generic icon where they look for
+ *   "Subshell Server". Inert where the app is not installed.
  */
-function launchdPlist(args: string[], logPath: string, pathEnv?: string): string {
+function launchdPlist(args: string[], logPath: string, configDir: string, pathEnv?: string): string {
   const argLines = args.map((a) => `\t\t<string>${xmlEscape(a)}</string>`).join("\n");
   // launchd also starts agents with a stock PATH, so a Homebrew tmux
   // (`/opt/homebrew/bin`, Apple Silicon) that passed the preflight would be
@@ -230,10 +242,16 @@ function launchdPlist(args: string[], logPath: string, pathEnv?: string): string
 <dict>
 \t<key>Label</key>
 \t<string>${LAUNCHD_LABEL}</string>
+\t<key>AssociatedBundleIdentifiers</key>
+\t<array>
+\t\t<string>${xmlEscape(DESKTOP_SERVER_BUNDLE_ID)}</string>
+\t</array>
 \t<key>ProgramArguments</key>
 \t<array>
 ${argLines}
 \t</array>
+\t<key>WorkingDirectory</key>
+\t<string>${xmlEscape(configDir)}</string>
 ${envBlock}\t<key>RunAtLoad</key>
 \t<true/>
 \t<key>KeepAlive</key>
@@ -349,7 +367,7 @@ export function installService(deps: ServiceDeps): CliResult {
   // darwin
   const path = plistPath(deps.home);
   const reinstall = deps.fileExists(path); // must be sampled BEFORE the overwrite
-  deps.writeFile(path, launchdPlist(execLine(deps), serverLogPath(deps.home), deps.pathEnv));
+  deps.writeFile(path, launchdPlist(execLine(deps), serverLogPath(deps.home), deps.configDir, deps.pathEnv));
   if (reinstall) {
     // Tolerated: bootout on a not-loaded service errors, and the fresh
     // bootstrap below is what actually carries the new definition.
@@ -494,6 +512,14 @@ export interface ServiceState {
   paneSafety: PaneSafety | null;
   /** Manager output worth quoting when something answered oddly; empty when it did not. */
   detail: string;
+  /**
+   * Where the service's own log lives, so no UI has to re-derive platform
+   * paths: macOS is the plist's `StandardOutPath` (`~/Library/Logs/…`);
+   * Linux is `null` — per-user systemd logs to journald, and the answer is
+   * `journalctl --user -u ${SYSTEMD_UNIT_NAME}`. Omitted when nothing is
+   * installed (there is no log to show).
+   */
+  logPath?: string | null;
 }
 
 /** systemd `show` emits `KEY=value` lines; absent properties come back empty, so "" and "missing" are one case. */
@@ -583,6 +609,11 @@ export function queryService(deps: ServiceDeps): ServiceState {
       pid: null,
       enabled: null,
       paneSafety: null,
+      // The log location is where logs would live once installed — and where
+      // an uninstalled-but-once-installed service's logs STILL are. The UI
+      // reveals this without platform knowledge, so it is spelled here even
+      // for not-installed (journald has no file to reveal → null).
+      logPath: deps.platform === "darwin" ? serverLogPath(deps.home) : null,
       detail: "",
     };
   }
@@ -613,6 +644,7 @@ function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {
       // Degraded but better than nothing: the file cannot see drop-ins, so a
       // `keeps` here is weaker evidence than a `keeps` from `show`.
       paneSafety: text === null ? "unknown" : killModeFromUnitText(text),
+      logPath: null, // journald owns the log on systemd; see ServiceState.logPath
       detail: `systemctl --user show failed (exit ${res.code}): ${cmdDetail(res)}`,
     };
   }
@@ -641,6 +673,7 @@ function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {
     // `enabled-runtime` starts at login too, for this boot.
     enabled: unitFileState === "" ? null : unitFileState.startsWith("enabled"),
     paneSafety: killMode === "" ? "unknown" : PANE_SPARING_KILL_MODES.has(killMode) ? "keeps" : "kills",
+    logPath: null, // journald owns the log on systemd; see ServiceState.logPath
     detail: notes(
       active === "failed" ? `unit is failed (SubState=${props.SubState ?? "?"})` : null,
       // A masked unit refuses every control verb; say it once here rather than
@@ -659,10 +692,30 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
   // "Background", not "Aqua") it reports a running gui/<uid> job as absent —
   // and every write here targets gui/<uid> explicitly. Asking the same domain
   // we write to is the only way the two can agree.
+  const logPath = serverLogPath(deps.home);
   const res = deps.runCmd(["launchctl", "print", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
   if (res.code !== 0) {
-    // Not loaded in this domain. With a plist ON DISK that is exactly
-    // "installed but stopped" — the state `bootout` leaves behind.
+    const why = oneLine(res.err) || oneLine(res.out);
+    // Exit 113 / "Could not find service" is the documented not-loaded answer,
+    // and with a plist ON DISK that is exactly "installed but stopped" — the
+    // state `bootout` leaves behind. ANY other non-zero exit means the
+    // manager did not answer, and "stopped" from that is a guess: report
+    // unknown and KEEP the output (a launchctl hiccup previously collapsed
+    // into a confident, undiagnosable "stopped").
+    const notLoaded = res.code === 113 || /could not find service/i.test(why);
+    if (!notLoaded) {
+      return {
+        installed: true,
+        definitionPath,
+        state: "unknown",
+        pid: null,
+        enabled,
+        loaded: false,
+        paneSafety,
+        logPath,
+        detail: `launchctl print failed (exit ${res.code}): ${why || "no output"}`,
+      };
+    }
     return {
       installed: true,
       definitionPath,
@@ -671,12 +724,18 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
       enabled,
       loaded: false,
       paneSafety,
+      logPath,
       detail: "",
     };
   }
   const { running, pid } = parseLaunchctlPrint(res.out);
-  // `print` answered, so the job IS bootstrapped — even when it reports no pid.
-  // That is the loaded-but-idle case, which is stopped and loaded at once.
+  // `print` answered, so the job IS bootstrapped — even when it reports no
+  // pid. That is the loaded-but-idle case, which is stopped and loaded at
+  // once. The raw launchd state rides along in `detail` verbatim — states
+  // are multi-word ("spawn scheduled" is a crash-throttled restart, not a
+  // plain stop), which is why this captures the line, not a \\S+ token; it
+  // is the difference between "stopped" and "stopped AND KEEPING CRASHING".
+  const rawState = res.out.match(/^\tstate = (.+)$/m)?.[1]?.trim();
   return {
     installed: true,
     definitionPath,
@@ -685,7 +744,8 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
     enabled,
     loaded: true,
     paneSafety,
-    detail: "",
+    logPath,
+    detail: running || rawState === undefined ? "" : `launchd: ${rawState}`,
   };
 }
 

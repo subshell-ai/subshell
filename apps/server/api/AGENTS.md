@@ -367,10 +367,18 @@ written into a journal are something an operator has to read around forever.
 
 `~/.config/subshell-server/config.env` — home overridden by
 `SUBSHELL_SERVER_CONFIG_DIR`; dir 0700, file 0600, written via temp +
-rename. The boot entry's first-imported `cli-bootstrap.ts` applies it with
-SETDEFAULT semantics BEFORE `constants.ts` runs dotenvx, so the precedence
-is **process env > config.env > `.env` (dotenvx, when the CWD has one) >
-built-in defaults**. `configure` owns four keys — `SERVER_PORT`, `HOST`,
+rename. `constants.ts` itself applies it with SETDEFAULT semantics at the
+top of its own module body, BEFORE its dotenvx call, so the precedence is
+**process env > config.env > `.env` (dotenvx, when the CWD has one) >
+built-in defaults**. The application lives in `constants.ts` rather than in
+`cli-bootstrap.ts` on purpose and by measurement (2026-09-07): the
+bootstrap's body runs AFTER the whole import graph has evaluated — its own
+first import (`@/cli.js` → `commands/status.js` → `constants.js`) reaches
+constants first — so a bootstrap-side apply silently did nothing on macOS,
+where launchd has no `EnvironmentFile` to mask the gap the way the systemd
+unit does. `cli-bootstrap.ts` keeps its (idempotent) call for the CLI path;
+the regression test spawns the real entry and asserts the FILE's value
+reaches the RUNNING process (`__tests__/cli-entry.test.ts`). `configure` owns four keys — `SERVER_PORT`, `HOST`,
 `APP_BASE_URL`, `DATABASE_PATH` — and `init` persists the secret (an
 existing value is never rotated). tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`
@@ -404,7 +412,21 @@ refuses on a host whose definition would kill panes (`--force` overrides),
 `service stop` warns and proceeds, and `service status` reports it as
 `teardown keeps panes`. Both destructive verbs fail CLOSED on an unreadable
 definition — `unknown` is not evidence of safety. macOS: launchd agent `dev.subshell.server` →
-`~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log`.
+`~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log` (reported as
+`logPath` in `service status --json` — the desktop app reveals it rather than
+re-deriving the platform path; Linux reports `null` because the journal holds
+the output). The plist carries `AssociatedBundleIdentifiers =
+[dev.subshell.server]` so System Settings' Login Items labels the job **Subshell
+Server** with the app's icon instead of falling back to the signing
+organization, and `WorkingDirectory=` the config home so a relative
+`DATABASE_PATH` lands there rather than in `/`. The bundle id is the protocol
+constant `DESKTOP_SERVER_BUNDLE_ID` — the plist label, the association and the
+desktop app's own identifier must stay one string or the attribution silently
+detaches. `service status` reports what launchd says VERBATIM: a crash-throttle
+wait shows as `launchd: spawn scheduled`, and a `launchctl print` failure that
+is not "Could not find service" (exit 113) is `state: unknown` with the stderr
+in `detail` — a manager that would not answer is not the same fact as a service
+that is stopped.
 
 ### MCP entrypoint resolution
 

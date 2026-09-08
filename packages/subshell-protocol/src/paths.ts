@@ -214,6 +214,24 @@ export const DESKTOP_SERVER_PRODUCT = "Subshell Server";
 export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 
 /**
+ * The macOS bundle identifier of `apps/server/desktop` (the `identifier` in
+ * its `tauri.conf.json`) — and the value the SERVER CLI writes into its
+ * LaunchAgent plist's `AssociatedBundleIdentifiers` key.
+ *
+ * Without that key, System Settings → Login Items attributes a legacy
+ * LaunchAgent to the SIGNING ORGANIZATION of whatever binary the job runs —
+ * "Disaresta, LLC" with a generic icon where the user looks for "Subshell
+ * Server" (documented in launchd.plist(5) and Apple's ServiceManagement
+ * migration notes). The plist the CLI writes must never drift from the app's
+ * identifier or the association fails silently, which is why the constant
+ * lives HERE, shared by both, and the desktop apps' tests pin it to their
+ * own bundle identifier. On a headless Mac with no app installed the key is
+ * inert — there is nothing to associate, and the org name is the honest
+ * answer.
+ */
+export const DESKTOP_SERVER_BUNDLE_ID = "dev.subshell.server";
+
+/**
  * Appended to every published desktop artifact name, so a downloaded file says
  * which of the two things it is — the app, or the CLI binary it wraps. The
  * counterpart of {@link CLI_SUFFIX}, which says the same thing from the other

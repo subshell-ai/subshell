@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   AGENT_SIDECAR_NAME,
   DESKTOP_CLIENT_PRODUCT,
+  DESKTOP_SERVER_BUNDLE_ID,
   DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
@@ -351,7 +352,9 @@ describe("productName", () => {
    */
   test("the bundle identifier matches the product name and is this app's own", () => {
     expect(CONF.identifier).toBe("dev.subshell.client");
-    expect(CONF.identifier).not.toBe("dev.subshell.server");
+    // Not even accidentally equal to the constant the server's LaunchAgent
+    // plist uses for its Login-Items association.
+    expect(CONF.identifier).not.toBe(DESKTOP_SERVER_BUNDLE_ID);
     expect(CONF.productName).toContain("Client");
   });
 });
