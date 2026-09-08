@@ -19,6 +19,20 @@ on:
       - synchronize
       - closed
 
+# SERIALISED per PR, never cancelled. A push and a sign-comment can arrive
+# together, and both runs write signatures/subshell.json in the same remote
+# repo — two concurrent commits there race, and the loser either fails or
+# clobbers. `cancel-in-progress: false` is the load-bearing half: the
+# issue_comment run is what RECORDS a signature, so cancelling it would leave
+# a contributor who signed with no record and no way out of the loop.
+#
+# Keyed on the PR number rather than github.ref, because pull_request_target
+# reports the BASE ref — every PR would share one group and serialise against
+# each other for no reason.
+concurrency:
+  group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
 permissions:
   actions: write
   contents: read
