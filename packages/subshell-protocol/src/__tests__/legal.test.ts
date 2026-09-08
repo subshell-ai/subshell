@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  COMPANY_URL,
   COPYRIGHT_HOLDER,
   COPYRIGHT_LINE,
   COPYRIGHT_YEAR,
@@ -18,6 +19,11 @@ describe("legal constants", () => {
   // contract, which is why CLA.md names this string specifically.
   test("the holder is the registered entity", () => {
     expect(COPYRIGHT_HOLDER).toBe("Disaresta, LLC");
+  });
+
+  test("the company URL is the holder's own site", () => {
+    expect(COMPANY_URL).toBe("https://disaresta.com");
+    expect(COMPANY_URL).not.toBe(LICENSE_URL);
   });
 
   // "Dual-licensed" alone leaves a reader unable to tell what governs the part

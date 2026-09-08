@@ -25,6 +25,7 @@ export {
 } from "./frames.js";
 export type { JsonValue } from "./json.js";
 export {
+  COMPANY_URL,
   COPYRIGHT_HOLDER,
   COPYRIGHT_LINE,
   COPYRIGHT_YEAR,

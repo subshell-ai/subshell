@@ -336,6 +336,44 @@ function typescriptCopyrightLine(): string {
   return `Copyright ${year} ${holder}`;
 }
 
+/** Paths of the two per-runtime constant files. */
+const LEGAL_TS = "packages/subshell-protocol/src/legal.ts";
+const LEGAL_RS = "crates/desktop-core/src/legal.rs";
+
+/**
+ * Every plain string constant the TS and Rust files BOTH declare, and whether
+ * they agree.
+ *
+ * Enumerating the shared names rather than checking a hand-written list: a
+ * constant added to one file and forgotten in the other is the likely mistake,
+ * and this reports the ones that exist in both and disagree without anyone
+ * having to remember to extend the check. `COPYRIGHT_LINE` is excluded — the TS
+ * side assembles it from a template, so it is compared by `collectNotices`.
+ */
+function sharedConstantDisagreements(): string[] {
+  const read = (path: string, pattern: RegExp): Map<string, string> => {
+    const source = readFileSync(resolve(REPO_ROOT, path), "utf8");
+    const found = new Map<string, string>();
+    for (const match of source.matchAll(pattern)) {
+      const [, name, value] = match;
+      if (name !== "COPYRIGHT_LINE") found.set(name, value);
+    }
+    return found;
+  };
+  const ts = read(LEGAL_TS, /^export const ([A-Z_]+) = "([^"]*)";$/gm);
+  const rs = read(LEGAL_RS, /^pub const ([A-Z_]+): &str = "([^"]*)";$/gm);
+
+  const problems: string[] = [];
+  for (const [name, value] of ts) {
+    const other = rs.get(name);
+    if (other === undefined) continue; // TS-only (e.g. the exception summary)
+    if (other !== value) {
+      problems.push(`${name}\n      ${LEGAL_TS}: ${value}\n      ${LEGAL_RS}: ${other}`);
+    }
+  }
+  return problems;
+}
+
 /** Every file's copyright line, keyed by path, for comparison. */
 function collectNotices(): { path: string; line: string }[] {
   const found: { path: string; line: string }[] = [];
@@ -415,6 +453,14 @@ if (leaks.length > 0) {
   );
 }
 
+const constantProblems = sharedConstantDisagreements();
+if (constantProblems.length > 0) {
+  failed = true;
+  console.error(`✗ ${constantProblems.length} constant(s) disagree between the TS and Rust copies:\n`);
+  for (const problem of constantProblems) console.error(`  ${problem}`);
+  console.error("");
+}
+
 const notices = collectNotices();
 const distinct = [...new Set(notices.map((n) => n.line))];
 if (distinct.length > 1) {
@@ -426,6 +472,7 @@ if (distinct.length > 1) {
   );
 } else {
   console.log(`✓ "${distinct[0]}" agrees across ${notices.length} files`);
+  console.log("✓ every constant shared by legal.ts and legal.rs agrees");
 }
 
 if (!failed) {

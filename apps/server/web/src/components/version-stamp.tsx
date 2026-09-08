@@ -1,4 +1,10 @@
-import { COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL } from "@internal/subshell-protocol";
+import {
+  COMPANY_URL,
+  COPYRIGHT_HOLDER,
+  COPYRIGHT_YEAR,
+  LICENSE_SUMMARY,
+  LICENSE_URL,
+} from "@internal/subshell-protocol";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 
 /**
@@ -43,7 +49,12 @@ export function VersionStamp() {
           other place that answers it. Not mono: it is prose, not a value to
           copy. */}
       <div className="space-y-1 text-muted-foreground">
-        <p>{COPYRIGHT_LINE}</p>
+        <p>
+          Copyright {COPYRIGHT_YEAR}{" "}
+          <a href={COMPANY_URL} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+            {COPYRIGHT_HOLDER}
+          </a>
+        </p>
         <p>
           {LICENSE_SUMMARY} ·{" "}
           <a href={LICENSE_URL} target="_blank" rel="noreferrer" className="underline hover:text-foreground">

@@ -1,4 +1,10 @@
-import { COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL } from "@internal/subshell-protocol";
+import {
+  COMPANY_URL,
+  COPYRIGHT_HOLDER,
+  COPYRIGHT_YEAR,
+  LICENSE_SUMMARY,
+  LICENSE_URL,
+} from "@internal/subshell-protocol";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -217,7 +223,17 @@ export default function Settings() {
           without this a user who installed Subshell on their phone has no way
           to find out what they may do with it. */}
       <View style={{ marginTop: 24, gap: 4 }}>
-        <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{COPYRIGHT_LINE}</Text>
+        <Pressable
+          onPress={() => void Linking.openURL(COMPANY_URL)}
+          hitSlop={8}
+          accessibilityRole="link"
+          accessibilityLabel={`Open ${COPYRIGHT_HOLDER}`}
+        >
+          <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
+            Copyright {COPYRIGHT_YEAR}{" "}
+            <Text style={{ color: colors.primary, textDecorationLine: "underline" }}>{COPYRIGHT_HOLDER}</Text>
+          </Text>
+        </Pressable>
         <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{LICENSE_SUMMARY}</Text>
         <Pressable
           onPress={() => void Linking.openURL(LICENSE_URL)}

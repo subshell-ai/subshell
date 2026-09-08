@@ -12,7 +12,9 @@
 //! the menu bar, and with nothing there to claim them they are swallowed. In a
 //! terminal app that is a correctness bug, not missing polish.
 
-use subshell_desktop_core::legal::{COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL};
+use subshell_desktop_core::legal::{
+    COMPANY_URL, COPYRIGHT_HOLDER, COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL,
+};
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -46,9 +48,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     // `env!("CARGO_PKG_VERSION")` here would confidently print
                     // the wrong version, and `productName` differs per app.
                     copyright: Some(COPYRIGHT_LINE.into()),
-                    license: Some(LICENSE_SUMMARY.into()),
-                    website: Some(LICENSE_URL.into()),
-                    website_label: Some("Licence".into()),
+                    // There is ONE link slot, and an About box's website
+                    // conventionally means the publisher — so the licence URL
+                    // rides inside the licence text instead of competing for
+                    // it. Not clickable there, but present, which is what the
+                    // obligation to state the terms actually needs.
+                    license: Some(format!("{LICENSE_SUMMARY}\n{LICENSE_URL}")),
+                    website: Some(COMPANY_URL.into()),
+                    website_label: Some(COPYRIGHT_HOLDER.into()),
                     ..Default::default()
                 }),
             )?,
