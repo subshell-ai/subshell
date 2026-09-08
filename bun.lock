@@ -30,7 +30,7 @@
     },
     "apps/client/desktop": {
       "name": "@internal/desktop-client",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/subshell-protocol": "workspace:*",
@@ -99,7 +99,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@internal/backend-errors": "workspace:*",
         "@internal/harnesses": "workspace:*",
@@ -118,7 +118,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -163,7 +163,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
       },
