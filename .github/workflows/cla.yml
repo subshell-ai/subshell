@@ -45,7 +45,15 @@ jobs:
           path-to-signatures: signatures/subshell.json
           remote-organization-name: subshell-ai
           remote-repository-name: cla-signatures
-          allowlist: theogravity,bot*,dependabot[bot],github-actions[bot]
+          # `Claude*` covers the `Co-Authored-By: Claude … <noreply@anthropic.com>`
+          # trailer on agent-assisted commits. GitHub's GraphQL `Commit.authors`
+          # includes co-authors, so the bot counts that trailer as a committer;
+          # the address maps to no GitHub account, so it can never sign and the
+          # PR blocks forever. Verified on #28: identical commit, trailer removed,
+          # fail → pass. Allowlisting is the right call rather than a workaround —
+          # the trailer is attribution, and Anthropic claims no copyright in the
+          # output, so there is nothing for a CLA to obtain.
+          allowlist: theogravity,Claude*,bot*,dependabot[bot],github-actions[bot]
           custom-notsigned-prcomment: >
             Thanks for the pull request. Before it can be merged, please read
             the [Contributor License Agreement](https://github.com/subshell-ai/subshell/blob/main/CLA.md)
