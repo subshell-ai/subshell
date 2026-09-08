@@ -36,6 +36,15 @@ permissions:
   # same trap release.yml documents.
   packages: read
 
+# Two Linux runners serve every workflow now, so a superseded push must not
+# keep them busy: pushing three times to a PR used to queue three full sets of
+# jobs, all but the last of them already irrelevant. release.yml deliberately
+# does the OPPOSITE (`cancel-in-progress: false`) — cancelling a release
+# mid-flight leaves a tag without a release — but CI has nothing to protect.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Testing
