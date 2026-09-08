@@ -13,6 +13,31 @@ If any of these fail, fix the issues before considering the task complete. Do no
 `pre-push` runs only the first two (types + lint) — CI owns the test suite. Run all three
 yourself before pushing anything you expect to be green on the first try.
 
+## Rust changes need a fourth command
+
+Those three commands do not touch Rust at all. If you changed anything under
+`crates/desktop-core` or either `apps/*/desktop/src-tauri`, also run:
+
+```bash
+bun run rust:check
+```
+
+It runs exactly what CI's Rust jobs run — `cargo fmt --check`, then
+`cargo clippy --all-targets -- -D warnings`, then `cargo test` — in all three
+crates.
+
+**`cargo check` on its own is not enough, and the two app crates cannot even be
+compiled without help.** `tauri-build` refuses to build when an `externalBin`
+path is missing, and the staged sidecar is a gitignored ~110 MB build input, so
+a plain `cargo clippy` there dies inside the build script instead of reporting a
+lint. `rust:check` stages a stub for the host triple first (the same trick
+test.yml uses) and removes only what it created, so a real sidecar staged by a
+release in progress is left alone.
+
+This was added after a hand-written import block failed `cargo fmt --check` on
+both desktop shards in CI — caught by neither `cargo check` nor clippy, and a
+full CI round trip to discover something a local command finds in seconds.
+
 ## `lint` vs `lint:check`
 
 - `bun run lint` runs biome with `--write --unsafe`: it **fixes** what it can and rarely reports a failure. Use it while working.

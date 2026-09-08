@@ -204,6 +204,17 @@ The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook — it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.
 
+```bash
+bun run rust:check         # fmt + clippy -D warnings + tests, all three Rust crates
+```
+
+`bun run test` is TypeScript only, so Rust changes need this as well. It also
+solves a problem `cargo` alone cannot: `tauri-build` refuses to build when an
+`externalBin` file is missing, and the sidecar is a gitignored ~110 MB build
+input — so `cargo clippy` in either desktop app dies in the build script on a
+clean checkout. The script stages a stub for the host triple exactly as
+`test.yml` does, and removes only the stub it created.
+
 **Never test against the live instance (`:3080`).** Scripted smoke tests use
 `e2e/stack.ts` (own backend on :3199, temp DB). On the live instance: never
 flip `allow_registrations` to mint a throwaway account — an admin session did

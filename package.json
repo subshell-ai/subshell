@@ -28,6 +28,7 @@
     "lint:check": "turbo run lint:check --continue --",
     "lint:packages": "syncpack lint",
     "lint:licenses": "bun scripts/license-fields.ts",
+    "rust:check": "bash scripts/rust-check.sh",
     "lint:licenses:fix": "bun scripts/license-fields.ts --fix",
     "lint:lockfile": "bun scripts/lockfile-workspace-versions.ts",
     "lint:lockfile:fix": "bun scripts/lockfile-workspace-versions.ts --fix",
