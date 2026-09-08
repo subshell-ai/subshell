@@ -432,6 +432,127 @@ describe("dispatchCli — status --json", () => {
     expect(v.service.definitionPath).toContain("subshell-server.service");
   });
 
+  /**
+   * The desktop console SEEDS its configure form from this view and passes
+   * every field back, so a key the view cannot report is a key the console
+   * silently clears on save. `TRUSTED_ORIGINS` therefore has to be here, and
+   * has to carry the `default` source when unset — that is how the form tells
+   * "the user chose this" from "nobody has chosen yet".
+   */
+  test("reports TRUSTED_ORIGINS with its layer, so the console can round-trip it", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), "TRUSTED_ORIGINS=http://box.local:3080\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, TRUSTED_ORIGINS: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    expect(JSON.parse(out[0] as string).settings.TRUSTED_ORIGINS).toEqual({
+      value: "http://box.local:3080",
+      source: "config.env",
+    });
+  });
+
+  test("an unset TRUSTED_ORIGINS reports the built-in list as source 'default'", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, TRUSTED_ORIGINS: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    expect(JSON.parse(out[0] as string).settings.TRUSTED_ORIGINS.source).toBe("default");
+  });
+
+  /**
+   * The diagnostic that replaced a boot-time check.
+   *
+   * Refusing at boot is impossible — `constants.ts` is imported by every
+   * subcommand, so a throw bricks the `configure` that would repair the value
+   * (the `SERVER_PORT=70000` precedent). And a boot WARNING cannot say which
+   * LAYER supplied the value, so it sends an operator to edit a config.env
+   * they already got right. `status` can: it is read-only, always exits 0,
+   * already carries per-key attribution, and the desktop console reads it —
+   * so the diagnosis lands on the surface someone runs BECAUSE sign-in is
+   * failing.
+   */
+  test("reports a stored origin the browser will never match, WITH its layer", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), "TRUSTED_ORIGINS=box.local:3080,http://ok.local:3080\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, TRUSTED_ORIGINS: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    const setting = JSON.parse(out[0] as string).settings.TRUSTED_ORIGINS;
+    expect(setting.source).toBe("config.env"); // the layer is the actionable half
+    expect(setting.problems).toHaveLength(1); // only the schemeless entry
+    expect(setting.problems[0].entry).toBe("box.local:3080");
+    expect(setting.problems[0].reason).toMatch(/scheme/i);
+  });
+
+  test("a usable list carries NO problems field at all", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), "TRUSTED_ORIGINS=http://box.local:3080\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, TRUSTED_ORIGINS: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    // Absent rather than `[]`: every other key's shape stays unchanged, and a
+    // console gating on `problems?.length` would draw an empty warning box.
+    expect(JSON.parse(out[0] as string).settings.TRUSTED_ORIGINS.problems).toBeUndefined();
+  });
+
+  test("reports a malformed APP_BASE_URL, which silently drops the instance's own origin", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), "APP_BASE_URL=box.local:3080\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, APP_BASE_URL: undefined }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    const setting = JSON.parse(out[0] as string).settings.APP_BASE_URL;
+    expect(setting.problems).toHaveLength(1);
+    expect(setting.problems[0].reason).toMatch(/own origin|allowlist/i);
+  });
+
+  /**
+   * The property that keeps the secret-scan test below valid without touching
+   * it: a problem's `entry` is always a slice of the setting's own value, so
+   * the diagnostic introduces no new class of data into the payload. Whoever
+   * later writes a reason mentioning another key has to break this first.
+   */
+  test("every problem entry is a substring of its own setting's value", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), `APP_BASE_URL=nope\nTRUSTED_ORIGINS=box.local:1,also-bad:2\n`);
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv(
+      { SUBSHELL_SERVER_CONFIG_DIR: dir, APP_BASE_URL: undefined, TRUSTED_ORIGINS: undefined },
+      async () => {
+        await dispatchCli(["status", "--json"], deps);
+      },
+    );
+    const settings = JSON.parse(out[0] as string).settings as Record<
+      string,
+      { value: string; problems?: { entry: string }[] }
+    >;
+    let seen = 0;
+    for (const setting of Object.values(settings)) {
+      for (const problem of setting.problems ?? []) {
+        expect(setting.value).toContain(problem.entry);
+        seen += 1;
+      }
+    }
+    expect(seen).toBeGreaterThan(0); // the assertion above must have actually run
+  });
+
+  test("the text view prints each problem under its setting", async () => {
+    const dir = newConfigDir();
+    writeFileSync(join(dir, "config.env"), "TRUSTED_ORIGINS=box.local:3080\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, TRUSTED_ORIGINS: undefined }, async () => {
+      await dispatchCli(["status"], deps);
+    });
+    const text = out.join("\n");
+    expect(text).toContain("TRUSTED_ORIGINS");
+    expect(text).toMatch(/scheme/i);
+  });
+
   // The auth secret is the one value in the whole view that must never be
   // renderable. A field added later cannot regress this without failing here.
   test("NEVER serializes the auth secret — only its two-state presence", async () => {

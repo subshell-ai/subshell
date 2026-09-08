@@ -2,6 +2,15 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnvFile } from "@/config-env.js";
+import {
+  baseUrlPort,
+  type ConfigKey,
+  FLAG_FOR_KEY,
+  isLoopbackUrl,
+  normalizeTrustedOrigins,
+  OWNED_KEYS,
+  validateValue,
+} from "./config-values.js";
 import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-install.js";
 
 /**
@@ -23,25 +32,25 @@ import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-instal
  * never import the boot graph at all: zero files, zero listeners, proven by
  * `src/__tests__/cli-entry.test.ts` in a real subprocess.
  *
- * Preservation contract for the rewrite: the four keys this flow owns
- * (`SERVER_PORT`, `HOST`, `APP_BASE_URL`, `DATABASE_PATH`) are written from
- * the answers; EVERY other key in the existing file — above all the
+ * Preservation contract for the rewrite: the four keys in {@link OWNED_KEYS}
+ * are written from the answers, {@link OPTIONAL_KEYS} is written or removed
+ * from its answer, and EVERY other key in the existing file — above all the
  * once-generated `BETTER_AUTH_SECRET` — is carried forward verbatim, key
  * order included. Comments are NOT preserved (documented in the file header
  * itself); `config.env` is generated output, not an edited artifact.
  *
- * Prompt defaults follow the file: when an interactive re-run finds a stored
- * value for a question, that value is the default (ENTER keeps it), so
- * pressing ENTER through a configured install no longer resets a customised
- * port/host/etc. to the built-ins. `--yes`/non-TTY semantics are unchanged —
- * built-in defaults + flags only.
+ * Defaults follow the FILE, in every mode: a stored value is the default for
+ * its question, so ENTER through an interactive re-run — and a `--yes` run
+ * given no flag for that key — keeps what is already configured rather than
+ * resetting it to a built-in. Flags outrank the file everywhere. See
+ * `dflt` in {@link runConfigure} for why non-interactive runs had to change.
  */
+
+export type { ConfigKey } from "./config-values.js";
+export { FLAG_FOR_KEY, OPTIONAL_KEYS, OWNED_KEYS } from "./config-values.js";
 
 /** Env var that skips the tmux preflight (mirrors the agent's escape hatch). */
 export const SKIP_TMUX_CHECK_ENV = "SUBSHELL_SERVER_SKIP_TMUX_CHECK";
-
-/** The four keys `configure` owns; the rest of config.env belongs to other writers. */
-export const OWNED_KEYS = ["SERVER_PORT", "HOST", "APP_BASE_URL", "DATABASE_PATH"] as const;
 
 /**
  * Fully injected seams for the init/configure commands — commands read
@@ -121,6 +130,12 @@ export interface ConfigureOpts {
   baseUrl?: string;
   /** `--db-path`: overrides the database-path question. */
   dbPath?: string;
+  /**
+   * `--trusted-origins`: overrides the extra-origins question. A
+   * comma-separated list of origins; the EMPTY string is a real answer
+   * meaning "no extras", and removes the key (see {@link OPTIONAL_KEYS}).
+   */
+  trustedOrigins?: string;
   /** `--yes` (also implied by non-TTY): accept all defaults/flags, ask nobody. */
   yes?: boolean;
 }
@@ -243,7 +258,7 @@ export function writeConfigEnv(dir: string, values: Record<string, string>): str
   const body = [
     "# subshell-server configuration — systemd EnvironmentFile syntax (bare KEY=value lines, no quotes).",
     "# Written by `subshell-server init`/`configure`: comments here do NOT survive a rewrite, but keys",
-    "# this tool does not own (e.g. BETTER_AUTH_SECRET, TRUSTED_ORIGINS) are carried forward verbatim.",
+    "# this tool does not own (e.g. BETTER_AUTH_SECRET) are carried forward verbatim.",
     ...Object.entries(values).map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");
@@ -253,69 +268,27 @@ export function writeConfigEnv(dir: string, values: Record<string, string>): str
   return target;
 }
 
-/** True for a URL string that parses and speaks http(s). */
-function isHttpUrl(value: string): boolean {
-  try {
-    const proto = new URL(value).protocol;
-    return proto === "http:" || proto === "https:";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Loopback test on a parsed URL's host — mirrors the frontend's
- * `add-node-dialog` helper (enroll-time loopback trap, spec 2026-08-31):
- * localhost, any 127.x, and the bracketed/bare IPv6 spellings.
- */
-function isLoopbackUrl(value: string): boolean {
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    return host === "localhost" || host.startsWith("127.") || host === "[::1]" || host === "::1";
-  } catch {
-    return false;
-  }
-}
-
-/** Validate one resolved value; null = acceptable, string = stderr message. */
-function validateOwned(key: (typeof OWNED_KEYS)[number], value: string): string | null {
-  if (/[\r\n]/.test(value)) {
-    return `invalid ${key}: the value must be a single line (it would corrupt config.env)`;
-  }
-  switch (key) {
-    case "SERVER_PORT": {
-      if (!/^\d+$/.test(value)) return `invalid port '${value}': expected an integer 1-65535`;
-      const n = Number.parseInt(value, 10);
-      if (n < 1 || n > 65535) return `invalid port '${value}': expected an integer 1-65535`;
-      return null;
-    }
-    case "HOST":
-      return value.trim() === ""
-        ? "invalid host: must not be empty (127.0.0.1 or 0.0.0.0 are the usual answers)"
-        : null;
-    case "APP_BASE_URL":
-      return isHttpUrl(value)
-        ? null
-        : `invalid base-url '${value}': expected a full http(s) URL (e.g. http://localhost:3080)`;
-    case "DATABASE_PATH":
-      return value.trim() === "" ? "invalid database path: must not be empty" : null;
-  }
-}
-
 /**
  * Run the configure flow: tmux preflight → read the existing config.env (an
  * unreadable one is refused BEFORE any question is spent) → resolve each
  * answer (flag > prompt under TTY-and-no-`--yes` > default) with immediate
- * per-answer validation → LAN/loopback warning → atomic
+ * per-answer validation → address warnings (loopback base URL on a LAN bind;
+ * a base URL naming a port the server will not listen on) → atomic
  * preservation-preserving rewrite of config.env. NOTHING is written before
  * the last validation passes.
  *
- * Interactive prompt defaults are the CURRENT stored values (falling back to
- * the built-ins per key when the file has none), so an ENTER-through re-run
- * keeps a customised install. `--yes`/non-TTY still answer with built-in
- * defaults + flags only.
+ * Defaults are the CURRENT stored values in EVERY mode, falling back to the
+ * built-ins per key when the file has none — see `dflt` below for why
+ * `--yes`/non-TTY had to stop answering with the built-ins alone. So an
+ * ENTER-through interactive re-run and a scripted run given no flag for a key
+ * both keep a customised install; flags outrank the file everywhere.
  *
- * @param opts - parsed flags (`--port --host --base-url --db-path --yes`)
+ * One consequence, handled in `resolve`: a value ALREADY in config.env can now
+ * fail validation and block the command, so such a refusal names the file it
+ * came from and the flag that replaces it.
+ *
+ * @param opts - parsed flags (`--port --host --base-url --trusted-origins
+ *   --db-path --yes`)
  * @param deps - injected stdio/IO/env seams; the command touches no other globals
  * @returns process exit code — 0 on success, 1 on refusal/validation failure
  *   (cli.ts hands this to `deps.exit`; the command never calls exit itself)
@@ -338,9 +311,20 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     return 1;
   }
 
-  /** Prompt default for one owned key: the stored value when interactive, else the built-in. */
-  const dflt = (key: (typeof OWNED_KEYS)[number], builtin: string): string =>
-    (interactive ? existing[key] : undefined) ?? builtin;
+  /**
+   * Default for one key: the STORED value, else the built-in — in every mode,
+   * interactive or not.
+   *
+   * `--yes`/non-TTY used to answer with the built-ins alone, which made a
+   * scripted re-run a RESET of every key it was not given a flag for. That
+   * contradicted `init`'s own idempotence contract, and it had a live victim:
+   * the desktop console's save is a non-interactive `init --yes --port … --host
+   * …`, so changing the port there repointed `DATABASE_PATH` at the config-dir
+   * default and threw away a customised `APP_BASE_URL` — the one key someone
+   * edits precisely because the default is wrong for their network. Flags
+   * still outrank the file, so nothing a caller ASKS for is affected.
+   */
+  const dflt = (key: ConfigKey, builtin: string): string => existing[key] ?? builtin;
   /** Resolve one answer (flag > trimmed prompt/ENTER-default > default); null = EOF. */
   const ask = (question: string, def: string, flag: string | undefined): string | null => {
     if (flag !== undefined) return flag.trim();
@@ -356,19 +340,36 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
    * returns 1 — every question is validated the moment it is answered, so an
    * interactive typo dies at that prompt, never after collecting the rest.
    */
-  const resolve = (
-    key: (typeof OWNED_KEYS)[number],
-    question: string,
-    def: string,
-    flag: string | undefined,
-  ): string | null => {
+  const resolve = (key: ConfigKey, question: string, def: string, flag: string | undefined): string | null => {
     const value = ask(question, def, flag);
     if (value === null) {
       deps.error("stdin closed before all answers were given — nothing was written.");
       return null;
     }
-    const invalid = validateOwned(key, value);
+    const invalid = validateValue(key, value);
     if (invalid) {
+      // A value BYTE-IDENTICAL to what is already stored is preserved, not
+      // refused, because preserving what the boot already reads grants
+      // nothing new — and refusing it wedged the whole command.
+      //
+      // The reachable case was the documented escape hatch: `docs/security.md`
+      // says an env var or a hand-edit bypasses this validator, so a wildcard
+      // (which better-auth genuinely honours) can be in config.env. But the
+      // desktop console seeds stored values and sends EVERY field on save, so
+      // changing the port re-sent the stored wildcard, this refused it, and the
+      // console could never save again — with nothing on the page explaining
+      // it, since `status` is deliberately silent about wildcards. The same
+      // shape blocked a hand-written unusable APP_BASE_URL.
+      //
+      // Only a CHANGED value has to satisfy the validator, so this is not an
+      // escape: a newly typed wildcard is still refused.
+      if (existing[key] === value) {
+        deps.log(
+          `warning: ${key} kept as found in ${join(deps.configDir, "config.env")} — ${invalid}. ` +
+            `This tool will not write that value; pass ${FLAG_FOR_KEY[key]} to replace it.`,
+        );
+        return value;
+      }
       deps.error(invalid);
       return null;
     }
@@ -394,6 +395,28 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     opts.baseUrl,
   );
   if (baseUrl === null) return 1;
+  // The OTHER addresses a browser may dial this instance on. `constants.ts`
+  // derives the allowlist from the port, a concrete HOST and the base URL —
+  // which, on the default LAN bind, is loopback only (a wildcard bind is a
+  // listen address, not one anyone visits). So a phone on the LAN or a second
+  // hostname sends an Origin nothing matches and sign-in dies on 403
+  // "Invalid origin". This is the key that fixes that, and it is asked here
+  // rather than left to a hand-edit because nothing about the failure names it.
+  // The question depends on whether there IS a stored list, because ENTER
+  // means different things in the two cases and the prompt has to say which.
+  // `ask` maps a blank answer to the default, and defaults follow the file — so
+  // on a re-run ENTER rewrites the stored list verbatim. A question reading
+  // "blank for none" therefore promised a clear that pressing ENTER does not
+  // perform, and no interactive answer performs: clearing is
+  // `--trusted-origins ""` (the one emptyable flag), which the prompt names
+  // instead of implying a route that does not exist.
+  const storedOrigins = dflt("TRUSTED_ORIGINS", "");
+  const originsQuestion =
+    storedOrigins === ""
+      ? "Other addresses browsers will use (comma-separated origins; blank for none)"
+      : 'Other addresses browsers will use (comma-separated origins; ENTER keeps the list shown, `--trusted-origins ""` clears it)';
+  const trustedOrigins = resolve("TRUSTED_ORIGINS", originsQuestion, storedOrigins, opts.trustedOrigins);
+  if (trustedOrigins === null) return 1;
   const dbPath = resolve(
     "DATABASE_PATH",
     "SQLite database file",
@@ -413,6 +436,25 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     );
   }
 
+  // The other half of the same trap, and a consequence of defaults now
+  // following the file: `--yes --port 4000` KEEPS a stored
+  // `http://box.local:3080` (correctly — it is not ours to rewrite), but that
+  // URL now names a dead port, so the derived allowlist covers `:4000`
+  // loopback and `box.local:3080` and browsing `box.local:4000` gets the exact
+  // 403 this key exists to prevent. An interactive run shows the stored URL as
+  // an editable default and the desktop form shows both fields; a scripted run
+  // is the one path where nothing would say it. A default-port base URL is a
+  // proxy, not a mismatch — see baseUrlPort.
+  const dialPort = baseUrlPort(baseUrl);
+  if (dialPort !== null && dialPort !== 80 && dialPort !== 443 && String(dialPort) !== port) {
+    deps.log(
+      `warning: APP_BASE_URL is ${baseUrl} but the server will listen on ${port} — unless a proxy or an ` +
+        `SSH forward on this host maps port ${dialPort} to ${port}, a browser dialing ${dialPort} reaches ` +
+        `nothing, and one dialing ${port} sends an origin this instance does not trust (403 "Invalid ` +
+        `origin"). Set --base-url to the address you actually browse, or add it to --trusted-origins.`,
+    );
+  }
+
   const values: Record<string, string> = {
     ...existing,
     SERVER_PORT: port,
@@ -420,9 +462,22 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     APP_BASE_URL: baseUrl,
     DATABASE_PATH: dbPath,
   };
+  // Present-or-absent, never present-and-empty (see OPTIONAL_KEYS). The delete
+  // is what makes "clear the extras" expressible at all: with the stored value
+  // as every default, omitting the flag PRESERVES the list, so an empty answer
+  // has to be the way to say "drop it".
+  const normalizedOrigins = normalizeTrustedOrigins(trustedOrigins);
+  if (normalizedOrigins === "") {
+    delete values.TRUSTED_ORIGINS;
+  } else {
+    values.TRUSTED_ORIGINS = normalizedOrigins;
+  }
   const target = writeConfigEnv(deps.configDir, values);
   deps.log(`wrote ${target} (0600)`);
   for (const key of OWNED_KEYS) deps.log(`  ${key} = ${values[key]}`);
+  // Only when set: a line reading `TRUSTED_ORIGINS = ` invites the reader to
+  // think an empty list was written, which is the one thing that never happens.
+  if (values.TRUSTED_ORIGINS) deps.log(`  TRUSTED_ORIGINS = ${values.TRUSTED_ORIGINS}`);
   deps.log("restart the server (or start it with: subshell-server) to apply.");
   return 0;
 }

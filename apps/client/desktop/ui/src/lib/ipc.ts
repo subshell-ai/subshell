@@ -279,6 +279,23 @@ export function nodeService(args: { verb: ServiceVerb; force: boolean }): Promis
 }
 
 /**
+ * Repoint this machine's node at a different control plane.
+ *
+ * The NON-destructive counterpart to {@link nodeEnroll}, and the distinction is
+ * the whole reason it exists: no setup key is spent, no second node row is
+ * minted, and the node key — whose only home is the 0600 `config.json` — is
+ * kept. So there is no confirmation phase; nothing here is unrecoverable.
+ *
+ * The Rust side also repoints this app's own stored plane address on success,
+ * so the two cannot drift (see `lib/plane-coherence.ts` for the drift this
+ * closes). The agent reads its config at start, so a repoint takes effect on
+ * the next restart of the daemon.
+ */
+export function nodeConfigure(args: { server: string }): Promise<ActionResult> {
+  return invoke<ActionResult>("node_configure", args);
+}
+
+/**
  * Register this machine as a node. TWO-PHASE, always.
  *
  * Call with `confirm: false` first. If the outcome says

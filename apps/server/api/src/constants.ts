@@ -235,22 +235,57 @@ export function emergencyLoginArmed(): boolean {
  */
 export function localOriginsFor(port: number, host: string, baseUrl?: string): string[] {
   const bracketed = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
-  const list = [`http://localhost:${port}`, `http://127.0.0.1:${port}`];
+  /**
+   * Every entry goes through `URL.origin`, and that is the difference between
+   * an allowlist and a list of strings that look like one.
+   *
+   * These used to be template literals, so on a DEFAULT-port deployment they
+   * were inert: bound to 80 with a concrete HOST, a browser sends
+   * `Origin: http://192.168.1.5` — no port, because 80 is the scheme default —
+   * and the derived `http://192.168.1.5:80` matched neither better-auth's
+   * equality nor either CORS branch. The symptom was the one this allowlist
+   * exists to prevent: the LAN address 403s "Invalid origin" while `localhost`
+   * works, because the base-URL entry below was normalized and these were not.
+   * It also lower-cases a mixed-case HOST, which a URL and DNS both do.
+   */
+  const serialized = (raw: string): string | null => {
+    try {
+      return new URL(raw).origin;
+    } catch {
+      return null;
+    }
+  };
+  const list = [`http://localhost:${port}`, `http://127.0.0.1:${port}`]
+    .map(serialized)
+    .filter((o): o is string => o !== null);
   if (bracketed && bracketed !== "0.0.0.0" && bracketed !== "[::]" && bracketed !== "::" && bracketed !== "*") {
-    list.push(`http://${bracketed}:${port}`);
+    // A HOST that cannot be spelled as a URL is skipped rather than pushed
+    // raw: an unparseable entry can only ever be dead weight in the list.
+    const hostOrigin = serialized(`http://${bracketed}:${port}`);
+    if (hostOrigin) list.push(hostOrigin);
   }
   if (baseUrl) {
-    try {
-      list.push(new URL(baseUrl).origin);
-    } catch {
-      // A malformed APP_BASE_URL is not worth a boot failure over; the
-      // explicit TRUSTED_ORIGINS list still applies.
-    }
+    const baseOrigin = serialized(baseUrl);
+    // A malformed APP_BASE_URL is not worth a boot failure over; the
+    // explicit TRUSTED_ORIGINS list still applies.
+    if (baseOrigin) list.push(baseOrigin);
   }
   // Deduped here because HOST is usually one of the loopback spellings, and a
   // duplicate would just echo through the final list.
   return [...new Set(list)];
 }
+
+/**
+ * The built-in `TRUSTED_ORIGINS` value — the dev Vite server's two ports,
+ * which is what makes a `bun run dev` browser session able to sign in.
+ *
+ * Exported because `commands/status.ts` reports the value a boot WOULD use and
+ * must not carry a second copy of it, and because `commands/configure.ts`
+ * REMOVES the key rather than writing it empty precisely because this default
+ * is non-empty: an empty line in config.env would beat `.env` in the
+ * precedence ladder and silently strip these on a developer's own machine.
+ */
+export const DEFAULT_TRUSTED_ORIGINS = "http://localhost:5174,http://localhost:5173";
 
 /**
  * Origins better-auth accepts on credentialed auth requests (and the CORS
@@ -274,7 +309,7 @@ export const TRUSTED_ORIGINS = [
     ...localOriginsFor(SERVER_PORT, HOST, APP_BASE_URL),
     ...env
       .get("TRUSTED_ORIGINS")
-      .default("http://localhost:5174,http://localhost:5173")
+      .default(DEFAULT_TRUSTED_ORIGINS)
       .asArray(",")
       .map((o) => o.trim()),
   ]),

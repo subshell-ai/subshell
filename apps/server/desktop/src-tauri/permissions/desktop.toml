@@ -26,7 +26,7 @@ commands.allow = ["desktop_install_server"]
 
 [[permission]]
 identifier = "allow-desktop-init"
-description = "Write config.env via `subshell-server init --yes`. Destructive: it rewrites an existing configuration."
+description = "Write config.env via `subshell-server init --yes`. Destructive: it rewrites an existing configuration — the port and bind address the server listens on, the public base URL browsers and remote nodes dial (which is also better-auth's passkey rpID, so changing it moves which host passkeys work on), and the list of extra origins allowed to sign in, which it can also CLEAR. Keys it is not given stay as stored."
 commands.allow = ["desktop_init"]
 
 [[permission]]

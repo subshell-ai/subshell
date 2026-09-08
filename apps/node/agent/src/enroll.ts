@@ -132,17 +132,45 @@ function assertTmux(): void {
   }
 }
 
-function normalizeServer(raw: string): string {
+/**
+ * The ONE control-plane URL normalization: http(s) only, trailing slashes
+ * stripped, otherwise stored exactly as typed. Shared with `configure.ts` —
+ * a repoint must write the same spelling an enroll would, or the two commands
+ * would disagree about the same address.
+ */
+export function normalizeServer(raw: string): string {
+  // Trimmed FIRST, and that is load-bearing rather than tidy: the URL
+  // constructor strips surrounding whitespace to parse, so a pasted
+  // "  http://x  " validates — and the old `raw.replace(/\/+$/, "")` then
+  // returned the padded string, because the trailing characters were spaces
+  // rather than slashes. That padding reached `config.json`, and `wsUrlFor`
+  // turned it into a dial URL with spaces in it. The Rust `validate_server_url`
+  // that Subshell Client's GUI uses has always trimmed, so leaving it out here
+  // made "one normalization" two.
+  const trimmed = raw.trim();
   let url: URL;
   try {
-    url = new URL(raw);
+    url = new URL(trimmed);
   } catch {
     throw new Error(`--server must be a full URL (e.g. https://subshell.example:5173), got '${raw}'`);
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`--server must be http(s), got '${raw}'`);
   }
-  return raw.replace(/\/+$/, "");
+  // Rebuilt from the parsed scheme and authority, which the URL parser has
+  // already lower-cased, rather than returned raw.
+  //
+  // Returning the raw string preserved a mixed-case scheme, and `wsUrlFor`
+  // derives the dial URL with `serverUrl.replace(/^http/, "ws")` — a
+  // CASE-SENSITIVE regex. Measured: `HTTP://X:3080` was stored verbatim and
+  // came out as `HTTP://X:3080/ws/node`, which is not a WebSocket URL at all,
+  // so the node could never connect and nothing said why.
+  //
+  // The PATH is kept verbatim (minus trailing slashes) because a control plane
+  // behind a reverse-proxy subpath is a real deployment and a path is
+  // case-sensitive; a fragment is dropped, being meaningless for a server
+  // address.
+  return `${url.protocol}//${url.host}${url.pathname}${url.search}`.replace(/\/+$/, "");
 }
 
 /**

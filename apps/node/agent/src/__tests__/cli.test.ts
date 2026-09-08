@@ -328,3 +328,87 @@ describe("service commands (stubbed service manager)", () => {
     expect(s.removed).toEqual([UNIT]);
   });
 });
+
+describe("configure — repoint an enrolled node", () => {
+  const enrolled = {
+    serverUrl: "http://localhost:3080",
+    nodeId: "11111111-2222-3333-4444-555555555555",
+    nodeKey: "subshell_secret_never_printed",
+    controlPublicKey: '{"kty":"EC","crv":"P-256"}',
+    dataDir: "/tmp/node-data",
+    name: "workstation",
+    nodeWsUrl: "ws://localhost:3080/ws/node",
+  };
+
+  test("`configure --server` exits 0 and reports the new address", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--server", "https://subshell.example"]);
+    expect(result.code).toBe(0);
+    expect(result.out).toInclude("https://subshell.example");
+  });
+
+  /**
+   * Same rule as `enroll --json` and `status --json`: the node key's only home
+   * is the 0600 config file. A GUI drives this command, so a leak here would
+   * land the bearer credential in a webview.
+   */
+  test("--json carries the address and identity but NEVER the node key", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--server", "https://subshell.example", "--json"]);
+    expect(result.code).toBe(0);
+    expect(result.out).not.toInclude(enrolled.nodeKey);
+    const body = JSON.parse(result.out);
+    expect(body).toMatchObject({
+      nodeId: enrolled.nodeId,
+      serverUrl: "https://subshell.example",
+      name: "workstation",
+    });
+    expect(body.nodeKey).toBeUndefined();
+  });
+
+  test("the human line says a restart is what applies it", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--server", "https://subshell.example"]);
+    expect(result.out).toMatch(/restart/i);
+  });
+
+  test("an unusable --server is exit 1 with the reason, not a usage dump", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--server", "subshell.example"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toInclude("--server");
+    expect(result.err).not.toInclude(USAGE_MARKER);
+  });
+
+  test("no --server is a usage error (exit 2)", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure"]);
+    expect(result.code).toBe(2);
+    expect(result.err).toInclude(USAGE_MARKER);
+  });
+
+  test("with no config, exit 1 pointing at enroll", async () => {
+    newHome();
+    const result = await run(["configure", "--server", "https://subshell.example"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/enroll/i);
+  });
+
+  test("rejects the flags it has no business taking", () => {
+    expect(() => parseArgs(["configure", "--key", "nsk_test_0123456789"])).toThrow(/not valid for 'configure'/);
+    expect(() => parseArgs(["configure", "--probe"])).toThrow(/not valid for 'configure'/);
+    // No --name: the plane owns a node's name, so offering one here would
+    // promise a rename this command cannot deliver (see configure.ts).
+    expect(() => parseArgs(["configure", "--name", "laptop"])).toThrow(/not valid for 'configure'/);
+  });
+
+  test("usage lists configure beside enroll", async () => {
+    const result = await run(["frobnicate"]);
+    expect(result.err).toInclude("subshell configure");
+  });
+});

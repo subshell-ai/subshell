@@ -106,6 +106,7 @@ pub fn run() {
             control::node_probe,
             control::node_install_agent,
             control::node_enroll,
+            control::node_configure,
             control::node_service,
             control::node_set_agent_bin,
             control::node_open_path,

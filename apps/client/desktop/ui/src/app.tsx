@@ -17,6 +17,7 @@
  * state does not imply — today only re-enrolment.
  */
 import { useState } from "react";
+import { NodePlaneCard } from "@/components/node-plane-card";
 import { OutputBlock } from "@/components/output-block";
 import { PlaneCard } from "@/components/plane-card";
 import { PrefsCard } from "@/components/prefs-card";
@@ -87,6 +88,14 @@ export function App() {
         onOpen={commands.openPlane}
         onOpenBrowser={commands.openPlaneUrl}
       />
+
+      {/*
+       * Between the two: `PlaneCard` is which plane this APP shows, and this
+       * is which plane this MACHINE reports to. Adjacent because the whole
+       * point is that they can disagree — the notice lives here, next to the
+       * value it would have you change.
+       */}
+      <NodePlaneCard probe={probe} settings={settings} busy={runner.busy} onRepoint={commands.repoint} />
 
       <StatusCard
         probe={probe}

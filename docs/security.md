@@ -317,6 +317,28 @@ consequences are:
   everything else here.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
+- **Repointing a node grants nothing** (2026-09-08). `subshell configure
+  --server <url>` rewrites `serverUrl` in the agent's own `config.json` — a
+  0600 file whose local OS user could already edit it by hand — keeping
+  `nodeId`, the node key, and the pinned `controlPublicKey`. So it spends no
+  setup key and mints no second node row, and the new control plane must still
+  hold the key matching that pin or every command it sends fails verification.
+  What it DOES do is send this node's key to the newly named host: the daemon
+  dials with `Authorization: Bearer <nodeKey>` on its next connect
+  (`apps/node/agent/src/daemon.ts`), so a repoint discloses a credential valid
+  on the OLD plane to whatever host was typed. That is no privilege gain — the
+  local user already holds that key and could send it anywhere — but it is why
+  a repoint should be treated as naming a host you trust, not merely as an
+  address correction. What changes otherwise is where this machine ANNOUNCES
+  itself, which is why the enroll-time `nodeWsUrl` is cleared with it (otherwise the daemon keeps
+  dialing the old host while the config names the new one). The old plane
+  simply loses the node. This is why the operation is deliberately not gated
+  behind a confirmation in Subshell Client, where re-enrolling is: it is
+  reversible, and it grants nothing. The corollary is that it only WORKS
+  between two names for one plane — a different plane refuses the node key and
+  the node goes offline until it is pointed back or enrolled afresh, which the
+  UI says. It also does not rename: `config.json`'s name never reaches the
+  plane outside the enroll body, so the plane owns a node's name.
 ### Directory allowlist (spec 2026-09-05)
 
 A node owner may restrict **where** subshells can be created on their machine:
@@ -445,14 +467,102 @@ anything — registration is open by default, and a dev-mode (`NODE_ENV` unset)
 boot runs on the placeholder `BETTER_AUTH_SECRET`, so on a network you do not
 own, bind loopback or set the env before first boot. Browsers on a LAN address
 also need `APP_BASE_URL` pointed at the name they use (or `TRUSTED_ORIGINS`) —
-the derived allowlist covers loopback spellings, not arbitrary host IPs.
+the derived allowlist covers loopback spellings, not arbitrary host IPs. Both
+are now settable from the CLI and the desktop console; see the allowlist note
+below.
 
 **CORS is a static allowlist.** The instance's own origins are derived at boot —
 both loopback spellings of `SERVER_PORT`, a concrete `HOST`, and the
-`APP_BASE_URL` origin — and `TRUSTED_ORIGINS` adds to them. It is deliberately
+`APP_BASE_URL` origin — and `TRUSTED_ORIGINS` adds to them. Every derived entry
+is serialized through `URL.origin` (fixed 2026-09-08). It used to be string
+concatenation for three of the four, which made them **inert on a default-port
+deployment**: bound to 80 with a concrete `HOST`, a browser sends
+`Origin: http://192.168.1.5` — no port, since 80 is the scheme default — so the
+derived `http://192.168.1.5:80` matched neither better-auth's equality nor
+either CORS branch, and the LAN address 403'd while `localhost` worked (the
+base-URL entry was the one that had been normalized). A mixed-case `HOST` failed
+the same way. It is deliberately
 **not** "trust the origin that matches the request host": that is precisely the
 DNS-rebinding hole the allowlist exists to close. Permissive CORS is acceptable
 here only because the service is not internet-facing.
+
+**Since 2026-09-08 the list is configurable without editing config.env** —
+`subshell-server configure --trusted-origins <origin,origin>` and a field in the
+Subshell Server console. This is a usability fix for a real trap rather than a
+widening of the model, and the DNS-rebinding rule above is untouched. The trap:
+on the default `0.0.0.0` bind the derived set is only the two loopback
+spellings (a wildcard bind is a listen address, not one anyone visits), so a
+phone or a LAN hostname sends an `Origin` nothing matches and sign-in dies on
+`403 Invalid origin` — with nothing in the failure naming the key that fixes it.
+
+Six properties of that surface are load-bearing:
+
+- **Every entry is validated by COMPONENT and stored canonicalized.** Both
+  consumers compare against the origin a browser actually sends, so acceptance
+  and canonicalization have to agree: the scheme must be http(s), there must be
+  a host, and a path, query or fragment is refused — then `URL.origin` is what
+  gets written. That admits the spellings people type (a trailing slash,
+  mixed-case hosts, the expanded IPv6 form, an explicit `:443`) and stores the
+  one form both consumers match. Accepting a spelling WITHOUT canonicalizing it
+  would write a config that 403s while the command reported success.
+  Credentials are the deliberate exception: `URL.origin` drops them silently,
+  so `http://u:p@host` is refused rather than quietly stripped.
+- **Wildcards are refused, and that refusal is the only thing making this
+  section's static-allowlist claim true.** The two consumers of this array are
+  each LOOSER than it reads, in different directions, so the CLI validator is
+  the narrow point:
+  - **better-auth** (`matchesOriginPattern`, 1.7.1) branches on the pattern:
+    an entry containing `*` or `?` goes to `wildcardMatch` instead of the exact
+    `pattern === getOrigin(url)` comparison. Measured: `TRUSTED_ORIGINS=https://*`
+    trusts **every** https origin, `https://evil.example` included. That
+    dissolves the allowlist entirely — and CORS does not save it, because CORS
+    is a browser courtesy rather than a server-side gate (a non-browser client
+    sends whatever `Origin` it likes, and better-auth's check is the only thing
+    in the way).
+  - **@elysiajs/cors** (1.4.2) tries an exact map hit and then strips the
+    scheme off the incoming `Origin` and compares the remainder — so a
+    SCHEMELESS entry (`box.local:3080`) is a scheme-wildcard there, matching
+    both `http://` and `https://`, while better-auth rejects it outright. A
+    schemeless entry therefore yields "CORS passes, sign-in 403s".
+
+  `validateValue` refuses both shapes (`config-values.ts`), so nothing the CLI
+  flag or the desktop console can write reaches either behaviour. It matters
+  that this is enforced rather than conventional: before these surfaces
+  existed, the key was reachable only by hand-editing config.env or setting
+  the env var — both of which still bypass the validator, and neither of which
+  a threat model can assume away. Adding wildcard support means revisiting this
+  section first.
+- **A value already on disk is preserved, not refused.** `configure` passes
+  through a resolved value byte-identical to what config.env already holds,
+  warning rather than failing, because preserving what the boot already reads
+  grants nothing new — and refusing it wedged the desktop console, which seeds
+  stored values and re-sends every field on save. So a hand-edited wildcard
+  (honoured by better-auth, refused by this writer) no longer makes the port
+  unchangeable from the GUI. Only a CHANGED value must satisfy the validator,
+  so this is not an escape hatch: a newly typed wildcard is still refused.
+- **The bypass is diagnosed, not blocked.** `subshell-server status` reports
+  per-entry `problems` for `TRUSTED_ORIGINS` and `APP_BASE_URL` — what a
+  browser will do with a value the boot accepted — together with the LAYER
+  that supplied it, and the desktop console renders it beside the field. That
+  is deliberately a diagnostic rather than a boot check: a throw in
+  `constants.ts` would brick the `configure` that repairs the value, and a boot
+  warning could not name the layer, so it would send an operator to edit a
+  `config.env` that was already right. Wildcards are excluded from the
+  diagnostic because better-auth honours them.
+- **The key is written or removed, never written empty.** Its built-in default
+  is a non-empty list (the dev Vite origins), and config.env outranks `.env` in
+  the precedence ladder, so a `TRUSTED_ORIGINS=` line would silently strip
+  those origins on a developer's machine. `--trusted-origins ""` therefore
+  removes the key rather than emptying it. A hand-written empty value is
+  likewise turned into "absent" by the next `configure` run, which knowingly
+  loses a deliberate "trust nothing extra" — the two states differ only in the
+  precedence ladder, where an empty value beats `.env`, and that is the footgun
+  the key avoids writing in the first place. Set the env var for that.
+- **`APP_BASE_URL` is also better-auth's passkey rpID** (§2, Passkeys), so
+  changing it moves which host passkeys work on — an existing passkey stops
+  working on the old address, the loopback-pinned desktop window included.
+  Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct
+  lever for "this instance is also reachable at".
 
 **Production refuses to boot on the placeholder secret.** With
 `NODE_ENV=production`, better-auth exits early unless a real

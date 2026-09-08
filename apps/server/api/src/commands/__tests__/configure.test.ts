@@ -132,6 +132,52 @@ describe("runConfigure — loopback / LAN warning", () => {
     expect(readCfg(dir).APP_BASE_URL).toBe("http://localhost:3080");
   });
 
+  /**
+   * The interaction between the preserve-the-file default and the base URL.
+   * `--yes --port 4000` on a config storing `http://box.local:3080` keeps that
+   * base URL — correctly, it is not ours to rewrite — but the port it names is
+   * now dead, so the derived allowlist covers `:4000` loopback and
+   * `box.local:3080`, and browsing `box.local:4000` gets the exact 403
+   * "Invalid origin" this key exists to prevent. Interactive runs show the
+   * stored URL as an editable default and the desktop form shows both fields;
+   * a scripted run is the one path where nothing says it.
+   */
+  test("a base URL naming a different port than the server listens on → warned", () => {
+    const { deps, dir, out } = makeDeps();
+    writeFileSync(envFile(dir), "APP_BASE_URL=http://box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, port: "4000" }, deps)).toBe(0);
+    const text = out.join("\n");
+    expect(text).toMatch(/warning/i);
+    expect(text).toContain("http://box.local:3080");
+    expect(text).toContain("4000");
+    // Warned, then accepted — same contract as the loopback warning.
+    expect(readCfg(dir).APP_BASE_URL).toBe("http://box.local:3080");
+    expect(readCfg(dir).SERVER_PORT).toBe("4000");
+  });
+
+  test("a base URL on the server's own port → no warning", () => {
+    const { deps, out } = makeDeps();
+    expect(runConfigure({ yes: true, port: "4000", baseUrl: "http://box.local:4000" }, deps)).toBe(0);
+    expect(out.join("\n")).not.toMatch(/warning/i);
+  });
+
+  /**
+   * A proxied deployment is the legitimate reason the two differ: the browser
+   * dials :443 and the server listens on 3080. Warning there would fire on
+   * every correct production config, which is how a warning becomes noise.
+   */
+  test("a default-port https base URL is a proxy, not a mismatch → no warning", () => {
+    const { deps, out } = makeDeps();
+    expect(runConfigure({ yes: true, port: "3080", baseUrl: "https://subshell.example" }, deps)).toBe(0);
+    expect(out.join("\n")).not.toMatch(/warning/i);
+  });
+
+  test("an explicit http default port is a proxy too → no warning", () => {
+    const { deps, out } = makeDeps();
+    expect(runConfigure({ yes: true, port: "3080", baseUrl: "http://subshell.example:80" }, deps)).toBe(0);
+    expect(out.join("\n")).not.toMatch(/warning/i);
+  });
+
   test("LAN bind + reachable base URL → no warning", () => {
     const { deps, out } = makeDeps();
     expect(runConfigure({ yes: true, host: "0.0.0.0", baseUrl: "http://10.0.0.5:3080" }, deps)).toBe(0);
@@ -203,12 +249,12 @@ describe("runConfigure — tmux offer-to-install (spec 2026-09-03)", () => {
         host.markInstalled();
         return 0;
       },
-      answers: ["y", "", "", "", ""],
+      answers: ["y", "", "", "", "", ""],
     });
     expect(runConfigure({}, deps)).toBe(0);
     expect(spawnArgv).toEqual(["sudo", "apt-get", "install", "-y", "tmux"]);
     expect(prompts[0]?.[0]).toMatch(/Install tmux now with apt-get\?/i);
-    expect(prompts).toHaveLength(5); // offer, then the four config questions
+    expect(prompts).toHaveLength(6); // offer, then the five config questions
     expect(err).toEqual([]); // the stderr REFUSAL never fires (the offer's own stdout preamble is not a refusal)
     expect(out.join("\n")).toMatch(/tmux installed/i);
     expect(readCfg(dir).SERVER_PORT).toBe("3080");
@@ -309,10 +355,10 @@ describe("runConfigure — tmux offer-to-install (spec 2026-09-03)", () => {
 });
 
 describe("runConfigure — interactive flow", () => {
-  test("four questions with defaults in brackets; ENTER (empty) accepts; answers trim", () => {
-    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["  9999  ", "", "", ""] });
+  test("five questions with defaults in brackets; ENTER (empty) accepts; answers trim", () => {
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["  9999  ", "", "", "", ""] });
     expect(runConfigure({}, deps)).toBe(0);
-    expect(prompts).toHaveLength(4);
+    expect(prompts).toHaveLength(5);
     expect(prompts[0]?.[1]).toBe("3080");
     // The host question names both spellings of the choice; the DEFAULT is now
     // the LAN bind (remote nodes and devices cannot reach a loopback socket).
@@ -320,7 +366,9 @@ describe("runConfigure — interactive flow", () => {
     expect(prompts[1]?.[1]).toBe("0.0.0.0");
     // The base-url default follows the ANSWERED port, not the built-in one.
     expect(prompts[2]?.[1]).toBe("http://localhost:9999");
-    expect(prompts[3]?.[1]).toBe(join(dir, "subshell.db"));
+    // No stored list, so the extra-origins question defaults to empty.
+    expect(prompts[3]?.[1]).toBe("");
+    expect(prompts[4]?.[1]).toBe(join(dir, "subshell.db"));
     const cfg = readCfg(dir);
     expect(cfg.SERVER_PORT).toBe("9999"); // trimmed answer
     expect(cfg.HOST).toBe("0.0.0.0"); // ENTER accepted the default
@@ -346,7 +394,7 @@ describe("runConfigure — interactive flow", () => {
 
 describe("runConfigure — interactive re-run defaults come from the file", () => {
   test("ENTER through a stored config keeps it: the port default is the CURRENT value, not the built-in", () => {
-    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", ""] });
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", "", ""] });
     writeFileSync(envFile(dir), "SERVER_PORT=9999\n", { mode: 0o600 });
     expect(runConfigure({}, deps)).toBe(0);
     expect(prompts[0]?.[1]).toBe("9999");
@@ -356,41 +404,54 @@ describe("runConfigure — interactive re-run defaults come from the file", () =
     expect(readCfg(dir).SERVER_PORT).toBe("9999");
   });
 
-  test("all four stored keys become the four prompt defaults; foreign keys carry through", () => {
-    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", ""] });
+  test("every stored key becomes its prompt default; foreign keys carry through", () => {
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", "", ""] });
     writeFileSync(
       envFile(dir),
       "SERVER_PORT=9999\n" +
         "HOST=0.0.0.0\n" +
         "APP_BASE_URL=https://public.example\n" +
+        "TRUSTED_ORIGINS=http://box.local:3080\n" +
         "DATABASE_PATH=/srv/db/subshell.db\n" +
         "BETTER_AUTH_SECRET=abc\n",
       { mode: 0o600 },
     );
     expect(runConfigure({}, deps)).toBe(0);
-    expect(prompts.map((p) => p[1])).toEqual(["9999", "0.0.0.0", "https://public.example", "/srv/db/subshell.db"]);
+    expect(prompts.map((p) => p[1])).toEqual([
+      "9999",
+      "0.0.0.0",
+      "https://public.example",
+      "http://box.local:3080",
+      "/srv/db/subshell.db",
+    ]);
     expect(readCfg(dir)).toMatchObject({
       SERVER_PORT: "9999",
       HOST: "0.0.0.0",
       APP_BASE_URL: "https://public.example",
+      TRUSTED_ORIGINS: "http://box.local:3080",
       DATABASE_PATH: "/srv/db/subshell.db",
       BETTER_AUTH_SECRET: "abc",
     });
   });
 
   test("flags still outrank stored values in an interactive run", () => {
-    const { deps, dir } = makeDeps({ isTTY: true, answers: ["", "", ""] });
+    const { deps, dir } = makeDeps({ isTTY: true, answers: ["", "", "", ""] });
     writeFileSync(envFile(dir), "SERVER_PORT=9999\n", { mode: 0o600 });
     expect(runConfigure({ port: "4100" }, deps)).toBe(0);
     expect(readCfg(dir).SERVER_PORT).toBe("4100");
     expect(readCfg(dir).APP_BASE_URL).toBe("http://localhost:4100");
   });
 
-  test("--yes ignores stored values: built-in defaults + flags only (semantics unchanged)", () => {
+  // `--yes` follows the file too. `init --yes` is idempotent by contract, and
+  // a non-interactive run that reset APP_BASE_URL/DATABASE_PATH to the
+  // built-ins broke that: the desktop console's "save" is a non-interactive
+  // run, so changing the port there silently repointed the database and threw
+  // away a customised base URL. Flags still outrank the file.
+  test("--yes follows stored values, so a scripted re-run is not a reset", () => {
     const { deps, dir } = makeDeps();
-    writeFileSync(envFile(dir), "SERVER_PORT=9999\nHOST=0.0.0.0\n", { mode: 0o600 });
+    writeFileSync(envFile(dir), "SERVER_PORT=9999\nHOST=127.0.0.1\n", { mode: 0o600 });
     expect(runConfigure({ yes: true }, deps)).toBe(0);
-    expect(readCfg(dir)).toMatchObject({ SERVER_PORT: "3080", HOST: "0.0.0.0" });
+    expect(readCfg(dir)).toMatchObject({ SERVER_PORT: "9999", HOST: "127.0.0.1" });
   });
 
   test("unreadable existing file is refused BEFORE any question is spent", () => {
@@ -413,7 +474,7 @@ describe("runConfigure — file hygiene", () => {
     const after = statSync(envFile(dir));
     expect(after.mode & 0o777).toBe(0o600);
     expect(after.ino).not.toBe(before.ino); // written via temp file + rename, never in place
-    expect(readCfg(dir).SERVER_PORT).toBe("3080");
+    expect(readCfg(dir).SERVER_PORT).toBe("1234"); // and the stored value survived the rewrite
   });
 
   test("config home is created 0700 when missing (mkdir -p)", () => {
@@ -430,5 +491,247 @@ describe("runConfigure — file hygiene", () => {
     const raw = readFileSync(envFile(dir), "utf8");
     expect(raw.split("\n")[0]).toMatch(/^#/);
     expect(raw).toMatch(/comment/i); // the drop-comment caveat is stated in the file itself
+  });
+});
+
+describe("runConfigure — TRUSTED_ORIGINS (the extra addresses browsers may dial)", () => {
+  test("a multi-entry list is written verbatim", () => {
+    const { deps, dir } = makeDeps();
+    expect(runConfigure({ yes: true, trustedOrigins: "http://box.local:3080,http://10.0.0.5:3080" }, deps)).toBe(0);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://box.local:3080,http://10.0.0.5:3080");
+  });
+
+  test("entries are trimmed, so a list typed with spaces round-trips", () => {
+    const { deps, dir } = makeDeps();
+    expect(runConfigure({ yes: true, trustedOrigins: "http://a.local:3080 , http://b.local:3080" }, deps)).toBe(0);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://a.local:3080,http://b.local:3080");
+  });
+
+  test("no flag preserves the stored list — a port change never drops the origins", () => {
+    const { deps, dir } = makeDeps();
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=http://box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, port: "4000" }, deps)).toBe(0);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://box.local:3080");
+    expect(readCfg(dir).SERVER_PORT).toBe("4000");
+  });
+
+  test("an empty flag REMOVES the key, rather than writing an empty line", () => {
+    const { deps, dir } = makeDeps();
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=http://box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, trustedOrigins: "" }, deps)).toBe(0);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBeUndefined();
+    expect(readFileSync(envFile(dir), "utf8")).not.toContain("TRUSTED_ORIGINS=");
+  });
+
+  test("a fresh install writes no TRUSTED_ORIGINS line at all", () => {
+    const { deps, dir } = makeDeps();
+    expect(runConfigure({ yes: true }, deps)).toBe(0);
+    expect(readFileSync(envFile(dir), "utf8")).not.toContain("TRUSTED_ORIGINS=");
+  });
+
+  for (const bad of [
+    "box.local:3080", // no scheme — the commonest way to write an origin wrong
+    "ftp://box.local:3080", // not a browser origin
+    "http://box.local:3080/app", // an origin has no path
+    "http://box.local:3080,", // a trailing comma leaves an empty entry
+    "http://a.local:3080,nope", // one good entry does not excuse the other
+  ]) {
+    test(`invalid trusted origin '${bad}' → exit 1, zero writes`, () => {
+      const { deps, dir, err } = makeDeps();
+      expect(runConfigure({ yes: true, trustedOrigins: bad }, deps)).toBe(1);
+      expect(err.join("\n")).toMatch(/trusted origin/i);
+      expect(() => readFileSync(envFile(dir))).toThrow();
+    });
+  }
+
+  /**
+   * A trailing slash is what a browser's address bar produces, and
+   * `URL.origin` discards it — so refusing it is refusing the commonest
+   * correct spelling. It matters more than taste: until this flow owned the
+   * key, `TRUSTED_ORIGINS` was carried forward verbatim and hand-written
+   * values are the expected input, and since defaults now follow the FILE a
+   * rejected stored value blocks every `configure`/`init` run — including the
+   * non-interactive `init --yes` the desktop console's save button IS.
+   */
+  test("one trailing slash is accepted and normalized away", () => {
+    const { deps, dir } = makeDeps();
+    expect(runConfigure({ yes: true, trustedOrigins: "http://box.local:3080/" }, deps)).toBe(0);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://box.local:3080");
+  });
+
+  test("a stored trailing-slash value does not block a run that never mentions it", () => {
+    const { deps, dir, err } = makeDeps();
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=http://box.local:3080/\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, port: "4000" }, deps)).toBe(0);
+    expect(err).toEqual([]);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://box.local:3080");
+    expect(readCfg(dir).SERVER_PORT).toBe("4000");
+  });
+
+  test("a real path is still refused — only the bare trailing slash is forgiven", () => {
+    const { deps, err } = makeDeps();
+    expect(runConfigure({ yes: true, trustedOrigins: "http://box.local:3080/app/" }, deps)).toBe(1);
+    expect(err.join("\n")).toMatch(/trusted origin/i);
+  });
+
+  test("the refusal names the offending entry, not just the list", () => {
+    const { deps, err } = makeDeps();
+    expect(runConfigure({ yes: true, trustedOrigins: "http://a.local:3080,nope" }, deps)).toBe(1);
+    expect(err.join("\n")).toContain("nope");
+  });
+
+  /**
+   * The prompt has to describe what ENTER actually does. `ask()` maps a blank
+   * answer to the DEFAULT, and since defaults now follow the file, the default
+   * on a re-run is the stored list — so a question reading "blank for none"
+   * told the operator that pressing ENTER would clear it, when pressing ENTER
+   * rewrites it verbatim. Clearing is `--trusted-origins ""`, and the question
+   * says so rather than implying an interactive route that does not exist.
+   */
+  test("with a stored list, the question says ENTER keeps it and names the way to clear", () => {
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", "", ""] });
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=http://old-laptop.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({}, deps)).toBe(0);
+    const question = prompts[3]?.[0] ?? "";
+    expect(question).not.toMatch(/blank for none/i);
+    expect(question).toMatch(/keeps/i);
+    expect(question).toContain("--trusted-origins");
+  });
+
+  test("with no stored list, blank really does mean none, and the question still says so", () => {
+    const { deps, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", "", ""] });
+    expect(runConfigure({}, deps)).toBe(0);
+    expect(prompts[3]?.[0] ?? "").toMatch(/blank for none/i);
+  });
+
+  test("interactive: asked after the base URL, defaulting to the stored list", () => {
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["", "", "", "", ""] });
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=http://box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({}, deps)).toBe(0);
+    expect(prompts).toHaveLength(5);
+    expect(prompts[3]?.[0]).toMatch(/origins/i);
+    expect(prompts[3]?.[1]).toBe("http://box.local:3080");
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://box.local:3080");
+  });
+});
+
+describe("runConfigure — a value already on disk never blocks a run", () => {
+  /**
+   * The wedge this closes, and it was reachable from the documented escape
+   * hatch. `docs/security.md` says an env var or a hand-edit bypasses the
+   * validator — so a wildcard CAN be in config.env, and better-auth honours
+   * it. But the console seeds the stored value and sends every field on save,
+   * so changing the PORT re-sent `--trusted-origins 'https://*'`, the
+   * validator refused it, and the console could never save again. Nothing on
+   * the page said why: `status` is deliberately silent about wildcards.
+   *
+   * The rule: a resolved value byte-identical to what is already stored is
+   * passed through with a warning. Preserving what the boot already reads
+   * grants nothing new; only a CHANGED value has to satisfy the validator.
+   */
+  test("a stored wildcard is preserved, so changing another key still works", () => {
+    const { deps, dir, out, err } = makeDeps();
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=https://*.example.com\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, port: "4000", trustedOrigins: "https://*.example.com" }, deps)).toBe(0);
+    expect(err).toEqual([]);
+    expect(readCfg(dir).SERVER_PORT).toBe("4000");
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("https://*.example.com");
+    // Warned, not silent: this tool would not WRITE that value.
+    const text = out.join("\n");
+    expect(text).toMatch(/warning/i);
+    expect(text).toContain("TRUSTED_ORIGINS");
+    expect(text).toContain(envFile(dir));
+  });
+
+  test("a stored unusable APP_BASE_URL likewise does not block a port change", () => {
+    const { deps, dir, err } = makeDeps();
+    writeFileSync(envFile(dir), "APP_BASE_URL=box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, port: "4000" }, deps)).toBe(0);
+    expect(err).toEqual([]);
+    expect(readCfg(dir).APP_BASE_URL).toBe("box.local:3080");
+    expect(readCfg(dir).SERVER_PORT).toBe("4000");
+  });
+
+  /** A CHANGED value still has to be valid — the pass-through is not an escape. */
+  test("a newly typed wildcard is still refused", () => {
+    const { deps, dir, err } = makeDeps();
+    writeFileSync(envFile(dir), "TRUSTED_ORIGINS=http://ok.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, trustedOrigins: "https://*" }, deps)).toBe(1);
+    expect(err.join("\n")).toMatch(/wildcard/i);
+    expect(readCfg(dir).TRUSTED_ORIGINS).toBe("http://ok.local:3080"); // untouched
+  });
+
+  test("a changed-but-still-bad value is refused, naming the flag that set it", () => {
+    const { deps, dir } = makeDeps();
+    writeFileSync(envFile(dir), "APP_BASE_URL=box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, baseUrl: "also-bad" }, deps)).toBe(1);
+    expect(readCfg(dir).APP_BASE_URL).toBe("box.local:3080");
+  });
+});
+
+describe("runConfigure — a preserved bad value is attributed to its source", () => {
+  /**
+   * The cost of defaults following the file: a value nobody typed in THIS run
+   * can fail validation. It is PRESERVED rather than refused (see the
+   * describe above — refusing wedged the console), but silence would be wrong
+   * too: the operator has to learn that the tool would not write it, where it
+   * came from, and how to replace it.
+   */
+  test("the warning names config.env and the flag that overrides it", () => {
+    const { deps, dir, out, err } = makeDeps();
+    writeFileSync(envFile(dir), "APP_BASE_URL=box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true }, deps)).toBe(0);
+    expect(err).toEqual([]);
+    const text = out.join("\n");
+    expect(text).toContain(envFile(dir)); // where it came from
+    expect(text).toContain("--base-url"); // how to replace it
+  });
+
+  test("a CHANGED bad value is a hard refusal, not a warning", () => {
+    const { deps, dir, err, out } = makeDeps();
+    writeFileSync(envFile(dir), "APP_BASE_URL=https://fine.example\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, baseUrl: "box.local:3080" }, deps)).toBe(1);
+    expect(err.join("\n")).toMatch(/base[- ]url/i);
+    expect(out.join("\n")).not.toMatch(/warning: APP_BASE_URL kept/);
+  });
+
+  test("the override the message names actually works", () => {
+    const { deps, dir, out } = makeDeps();
+    writeFileSync(envFile(dir), "APP_BASE_URL=box.local:3080\n", { mode: 0o600 });
+    expect(runConfigure({ yes: true, baseUrl: "http://box.local:3080" }, deps)).toBe(0);
+    expect(readCfg(dir).APP_BASE_URL).toBe("http://box.local:3080");
+    expect(out.join("\n")).not.toMatch(/warning: APP_BASE_URL kept/); // replaced, so nothing to warn about
+  });
+});
+
+describe("runConfigure — --yes preserves a stored config (idempotent by contract)", () => {
+  test("--yes with one flag keeps every OTHER stored value", () => {
+    const { deps, dir } = makeDeps();
+    writeFileSync(
+      envFile(dir),
+      "SERVER_PORT=9999\n" +
+        "HOST=127.0.0.1\n" +
+        "APP_BASE_URL=https://public.example\n" +
+        "DATABASE_PATH=/srv/db/subshell.db\n",
+      { mode: 0o600 },
+    );
+    expect(runConfigure({ yes: true, port: "4000" }, deps)).toBe(0);
+    expect(readCfg(dir)).toMatchObject({
+      SERVER_PORT: "4000", // the flag
+      HOST: "127.0.0.1", // stored, not the 0.0.0.0 built-in
+      APP_BASE_URL: "https://public.example", // stored, not derived from the new port
+      DATABASE_PATH: "/srv/db/subshell.db", // stored, not the configDir default
+    });
+  });
+
+  test("--yes on a fresh config still lands the built-in defaults", () => {
+    const { deps, dir } = makeDeps();
+    expect(runConfigure({ yes: true }, deps)).toBe(0);
+    expect(readCfg(dir)).toMatchObject({
+      SERVER_PORT: "3080",
+      HOST: "0.0.0.0",
+      APP_BASE_URL: "http://localhost:3080",
+      DATABASE_PATH: join(dir, "subshell.db"),
+    });
   });
 });

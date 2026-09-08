@@ -240,6 +240,57 @@ shares and subshell shares are two independent axes:
   deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-
   ish, a remote node dutifully dials the wrong machine — the enroll flow and
   Nodes page surface the resolved URL and warn on loopback.
+- **Repointing a node (`subshell configure --server`) is deliberately
+  UNPRIVILEGED and non-destructive**, and it changes no trust relationship. It
+  rewrites `serverUrl` in the agent's own `config.json` — a 0600 file the local
+  OS user already owns and could edit by hand — while keeping `nodeId`, the
+  node key and the pinned `controlPublicKey`. So it spends no setup key, mints
+  no second node row, and grants the new plane nothing: it must still hold the
+  key matching the pinned `controlPublicKey`, or every command it sends fails
+  verification. It DOES disclose, though — the daemon dials the newly named
+  host with `Authorization: Bearer <nodeKey>`, so a repoint hands a credential
+  valid on the OLD plane to whatever host was typed. No privilege gain (the
+  local user already holds that key), but a repoint names a host you trust
+  rather than just correcting an address. What changes otherwise is where this
+  machine ANNOUNCES itself, which is why it also clears the enroll-time
+  `nodeWsUrl` (otherwise the daemon keeps dialing the old host). The old plane
+  simply loses the node.
+
+## Which addresses a browser may use (`TRUSTED_ORIGINS`)
+
+The allowlist is DERIVED from the instance's own address plus an explicit
+`TRUSTED_ORIGINS` list, and never from the request's own Host — that is the
+DNS-rebinding hole the static list exists to close, and it stays closed. What
+changed (2026-09-08) is only that the list is now reachable from the
+`subshell-server` CLI (`--trusted-origins`) and the Subshell Server console
+instead of a hand-edit of config.env.
+
+That is a usability fix for a real trap, not a widening: on the default
+`0.0.0.0` bind the derived set is the two loopback spellings, so a phone or a
+LAN hostname sends an `Origin` nothing matches and sign-in dies on 403 "Invalid
+origin" — with nothing naming the key that fixes it. Two properties to keep:
+
+- **Every entry is validated by COMPONENT and stored canonicalized** (scheme
+  http(s), a host, no path/query/fragment → store `URL.origin`). Both
+  consumers match the origin a browser sends, so accepting a spelling without
+  canonicalizing it writes a config that 403s while reporting success.
+  Credentials are refused rather than silently stripped, since `URL.origin`
+  drops them.
+- **Wildcards are refused, and that refusal is load-bearing.** Both consumers
+  of this array are looser than the list reads: better-auth routes any entry
+  containing `*`/`?` through `wildcardMatch` (so `https://*` trusts EVERY
+  https origin — measured, 1.7.1), and `@elysiajs/cors` strips the scheme off
+  the incoming `Origin`, making a schemeless entry a scheme-wildcard there.
+  CORS is not a backstop for the first case: it is a browser courtesy, and a
+  non-browser client sends any `Origin` it likes. So `validateValue` is the
+  narrow point that makes "static allowlist" true of everything the CLI flag
+  and the desktop console can write. An env var or a hand-edit still bypasses
+  it. Adding wildcard support would need this section rewritten first.
+- **`APP_BASE_URL` is also better-auth's passkey rpID.** Changing it moves
+  which host passkeys work on, so an existing passkey stops working on the old
+  address — including the Subshell Server desktop app's own window, which is
+  pinned to loopback. Adding a LAN name to `TRUSTED_ORIGINS` does NOT have that
+  effect and is the right lever for "also reachable at".
 
 ## The desktop apps (`apps/server/desktop`, `apps/client/desktop`)
 

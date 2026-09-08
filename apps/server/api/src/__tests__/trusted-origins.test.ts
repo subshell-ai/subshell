@@ -43,6 +43,43 @@ describe("TRUSTED_ORIGINS", () => {
       expect(localOriginsFor(3080, "192.168.9.22")).toContain("http://192.168.9.22:3080");
     });
 
+    /**
+     * Every derived entry must be a SERIALIZED origin, because that is what a
+     * browser sends and what both consumers compare against.
+     *
+     * Three of the four entries were string concatenation, and on a
+     * default-port deployment that made them inert: bound to port 80 with a
+     * concrete HOST, a browser sends `Origin: http://192.168.1.5` (no port —
+     * 80 is the scheme default), so the derived `http://192.168.1.5:80`
+     * matched nothing in better-auth's equality NOR either of the CORS
+     * plugin's branches. The symptom is this whole feature's own bug report:
+     * browsing the LAN address 403s "Invalid origin" while `localhost` works,
+     * because the base-URL entry went through `.origin` and got normalized
+     * while the derived ones did not.
+     */
+    it("serializes every entry, so a default-port deployment is not silently inert", () => {
+      const list = localOriginsFor(80, "192.168.1.5", "http://localhost:80");
+      // What a browser on that box actually sends:
+      expect(list).toContain("http://192.168.1.5");
+      expect(list).toContain("http://localhost");
+      expect(list).toContain("http://127.0.0.1");
+      // And nothing carrying the redundant default port, which matches nothing.
+      expect(list.some((o) => o.endsWith(":80"))).toBe(false);
+    });
+
+    it("lower-cases a mixed-case bind host, as a URL and DNS both do", () => {
+      expect(localOriginsFor(3080, "Box.Local")).toContain("http://box.local:3080");
+      expect(localOriginsFor(3080, "Box.Local")).not.toContain("http://Box.Local:3080");
+    });
+
+    it("keeps a non-default port exactly as it is", () => {
+      expect(localOriginsFor(3080, "192.168.1.5")).toEqual([
+        "http://localhost:3080",
+        "http://127.0.0.1:3080",
+        "http://192.168.1.5:3080",
+      ]);
+    });
+
     it("brackets an IPv6 bind host the way URL syntax requires", () => {
       expect(localOriginsFor(3080, "::1")).toContain("http://[::1]:3080");
       expect(localOriginsFor(3080, "::")).not.toContain("http://[::]:3080");

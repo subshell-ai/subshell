@@ -266,6 +266,19 @@ afterEach(async () => {
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * The dial URL is built by string replacement on the scheme, so its CASE is
+ * load-bearing. `normalizeServer` lower-cases before persisting, but a
+ * hand-edited `config.json` can still carry `HTTP://` — and the
+ * case-sensitive form produced `HTTP://host/ws/node`, which is not a
+ * WebSocket URL at all, with nothing naming the reason.
+ */
+test("wsUrlFor tolerates a mixed-case scheme in a hand-edited config", () => {
+  expect(wsUrlFor("HTTP://box.local:3080")).toBe("ws://box.local:3080/ws/node");
+  expect(wsUrlFor("HTTPS://subshell.example")).toBe("wss://subshell.example/ws/node");
+  expect(wsUrlFor("Http://box.local:3080")).toBe("ws://box.local:3080/ws/node");
+});
+
 test("wsUrlFor derives wss/ws + /ws/node from the server URL", () => {
   expect(wsUrlFor("https://subshell.example")).toBe("wss://subshell.example/ws/node");
   expect(wsUrlFor("https://subshell.example:5173")).toBe("wss://subshell.example:5173/ws/node");

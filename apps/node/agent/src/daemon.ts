@@ -138,7 +138,13 @@ interface WsClose {
  * @returns the derived dial target for the node socket
  */
 export function wsUrlFor(serverUrl: string): string {
-  return `${serverUrl.replace(/^http/, "ws")}/ws/node`;
+  // Case-INSENSITIVE, as defence rather than as the primary guard:
+  // `normalizeServer` lower-cases the scheme before anything is persisted, so
+  // a config written by `enroll`/`configure` always arrives lower-case. This
+  // covers a hand-edited `config.json`, where the case-sensitive form silently
+  // produced `HTTP://…/ws/node` — not a WebSocket URL, and no error naming it.
+  const lowerScheme = serverUrl.replace(/^https?:/i, (scheme) => scheme.toLowerCase());
+  return `${lowerScheme.replace(/^http/, "ws")}/ws/node`;
 }
 
 /**

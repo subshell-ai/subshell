@@ -139,6 +139,8 @@ usage:
   subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
+                      --trusted-origins <origin,origin>   other addresses browsers will
+                                                          use (empty clears the list)
 
 config precedence: process env > config.env > .env > built-in defaults
 `;
@@ -376,15 +378,32 @@ const SERVICE_FLAGS: Partial<Record<ServiceCommand, ReadonlySet<string>>> = {
 const NO_FLAGS: ReadonlySet<string> = new Set();
 
 /** Value-taking flags of `init`/`configure` (client `cli.ts` pattern — no flag library). */
-const CONFIG_VALUE_FLAGS = new Set(["--port", "--host", "--base-url", "--db-path"]);
+const CONFIG_VALUE_FLAGS = new Set(["--port", "--host", "--base-url", "--db-path", "--trusted-origins"]);
+
+/**
+ * Value flags whose EMPTY value is a real answer rather than a typo.
+ *
+ * Only `--trusted-origins`: an empty origin list means "no extras", and since
+ * `configure` now defaults every key to its stored value, passing empty is the
+ * only way a non-interactive caller can CLEAR a configured list. An empty
+ * port, host, base URL or db path stays the refusal it always was.
+ */
+const CONFIG_EMPTYABLE_FLAGS = new Set(["--trusted-origins"]);
 
 /**
  * Hand-rolled `init`/`configure` flag parser: `--port <n> --host <h>
- * --base-url <u> --db-path <p> --yes`, with the `--flag=value` form accepted
- * alongside (split on the FIRST `=`, so values may contain `=`). Raw strings
- * — range/URL validation is the command's job (its messages are unit-tested);
- * this layer only owns shape: unknown flag, stray positional, missing or
- * empty value, and `--yes` with a value all mean "usage + exit 1".
+ * --base-url <u> --trusted-origins <o,o> --db-path <p> --yes`, with the
+ * `--flag=value` form accepted alongside (split on the FIRST `=`, so values
+ * may contain `=`). Raw strings — range/URL validation is the command's job
+ * (its messages are unit-tested); this layer only owns shape: unknown flag,
+ * stray positional, missing value, and `--yes` with a value all mean "usage +
+ * exit 1".
+ *
+ * An EMPTY value is a usage error too, EXCEPT for the flags in
+ * {@link CONFIG_EMPTYABLE_FLAGS} — today just `--trusted-origins`, where an
+ * empty list is a real answer and the only way to clear a stored one. A value
+ * shadowed by the next flag (`--trusted-origins --yes`) stays an error either
+ * way.
  *
  * @returns the parsed options, or null after writing the error line
  */
@@ -392,7 +411,10 @@ function parseConfigFlags(rest: string[], error: (line: string) => void): Config
   const opts: ConfigureOpts = {};
   const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string | null => {
     const value = inline ?? next;
-    if (value === undefined || (inline === undefined && value.startsWith("--")) || value === "") {
+    // A MISSING value, or one shadowed by the next flag, is always an error.
+    // An EMPTY one is an error except for the flags that accept it.
+    const emptyIsAnswer = CONFIG_EMPTYABLE_FLAGS.has(flag);
+    if (value === undefined || (inline === undefined && value.startsWith("--")) || (value === "" && !emptyIsAnswer)) {
       error(`subshell-server: flag '${flag}' requires a value`);
       return null;
     }
@@ -434,6 +456,9 @@ function parseConfigFlags(rest: string[], error: (line: string) => void): Config
         break;
       case "--db-path":
         opts.dbPath = value;
+        break;
+      case "--trusted-origins":
+        opts.trustedOrigins = value;
         break;
     }
   }

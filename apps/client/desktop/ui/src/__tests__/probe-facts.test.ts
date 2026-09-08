@@ -40,13 +40,19 @@ describe("probeFacts", () => {
     expect(value(list, "found via")?.value).toBe("the installed service definition");
   });
 
-  it("flags a loopback control plane without calling it an error", () => {
+  /**
+   * The node's control-plane address belongs to `node-plane-card`, which is the
+   * only surface that can change it — and which carries the loopback warning
+   * now (`__tests__/repoint.test.tsx` pins that). Restating it here would be a
+   * second copy of one address on one page.
+   */
+  it("does NOT restate the node's control-plane address", () => {
     const list = facts({
       probe: makeProbe({ status: { nodeId: "abc", serverUrl: "http://localhost:3080", online: true } }),
       settings: undefined,
       enrolledNode: null,
     });
-    expect(value(list, "control plane")?.tone).toBe("warn");
+    expect(value(list, "control plane")).toBeUndefined();
   });
 
   // The CLI's own sentence for why it could not read a config — "no config at

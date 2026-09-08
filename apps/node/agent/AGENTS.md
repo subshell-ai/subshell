@@ -1,4 +1,4 @@
-# Client AGENTS.md
+# Node agent AGENTS.md
 
 App-specific documentation for `subshell` (`@internal/node`) — the node
 daemon: it enrolls with the control plane, holds the `/ws/node` socket, and
@@ -37,12 +37,56 @@ bun run verify-types     # tsc --noEmit
   `compile:release` preflights and refuses otherwise. The client imports
   packages, never `apps/server/api` code, and never opens the app database.
 
+## Repointing vs re-enrolling
+
+`enroll` is not the way to change a node's address. It overwrites
+`config.json`, mints a SECOND node row on the plane, spends a single-use
+24-hour setup key, and discards the node key whose only home was that 0600
+file — none of which is what "the control plane moved" wants, and that move is
+routine (it is what fixing a loopback `APP_BASE_URL` IS). `configure`
+(`src/configure.ts`) rewrites the address and keeps the identity.
+
+**It clears `nodeWsUrl`, and that is the load-bearing part.** That field is what
+the OLD plane reported about ITSELF at enroll (ledger 17c) and `resolveWsUrl`
+PREFERS it over any derivation — so carrying it forward would leave the daemon
+dialing the old host while `serverUrl` named the new one, a divergence no
+surface displays. Cleared, `wsUrlFor(serverUrl)` derives from the address
+actually configured; a plane behind a reverse-proxy subpath re-reports its own
+ws URL at its next enroll. Renaming alone does not touch it — the address did
+not change.
+
+`normalizeServer` is exported from `enroll.ts` and shared, so a repoint writes
+the same spelling an enroll would; two commands disagreeing about one address
+is the bug that shape prevents.
+
+**It does not rename, and deliberately takes no `--name`.** `config.json`'s
+`name` reaches the control plane in exactly ONE place — the enroll POST body
+(`enroll.ts`) — and is absent from `readyEvent` (`daemon.ts`) and the inventory
+event. So writing it on a repoint would change what local `subshell status`
+prints and leave the Nodes page showing the old name forever. Renaming is the
+plane's own operation (`PATCH /api/nodes/:id`).
+
+**It works only between two names for ONE plane.** The identity is kept, so a
+genuinely different control plane holds no key bound to this node row and
+`/ws/node` refuses the socket 401 (`node-ws-handler.ts`) — the node goes
+offline, with the reason only in its own log. Recovering means pointing it back
+or enrolling with a setup key from the new plane. Joining a different plane is
+an `enroll`, not a `configure`.
+
 ## CLI (`src/cli.ts` — hand-rolled parser, no flag library)
 
 ```
 subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
                                    # --json prints {nodeId,serverUrl,name,dataDir,configPath}
                                    # (never the nodeKey) so a GUI need not scrape the human line
+subshell configure --server <url> [--json]
+                                   # repoint an ALREADY-enrolled node at a different
+                                   # control plane. Keeps nodeId/nodeKey/
+                                   # controlPublicKey, spends NO setup key, mints no second
+                                   # node row — the non-destructive answer to "the server
+                                   # moved", which `enroll` is not. CLEARS nodeWsUrl when the
+                                   # address changes (see above). Restart to apply.
+                                   # Takes NO --name: see above.
 subshell run                       # foreground daemon (what the service unit runs)
 subshell service install|uninstall # systemd user unit / launchd agent
 subshell service status [--json]   # what the service MANAGER reports; always exits 0
