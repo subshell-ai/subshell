@@ -186,7 +186,7 @@ describe("dispatchCli — status", () => {
     expect(text).toContain("SERVER_PORT");
     expect(text).toContain("4321");
     expect(text).toContain("(config.env)");
-    expect(text).toContain("127.0.0.1"); // HOST default
+    expect(text).toContain("0.0.0.0"); // HOST default (LAN by default; loopback is an opt-out)
     expect(text).toContain("data/subshell.db"); // DATABASE_PATH default
     // The secret is reported set but its value NEVER crosses stdout.
     expect(text).toContain("BETTER_AUTH_SECRET");
@@ -425,6 +425,9 @@ describe("dispatchCli — status --json", () => {
     expect(v.settings.SERVER_PORT).toEqual({ value: "4321", source: "config.env" });
     // A machine consumer gets a NUMBER; the raw text stays available so a
     // malformed value can still be quoted back at the operator.
+    // This file stores HOST=127.0.0.1, so the dial host and the bind host are
+    // the same address here — the wildcard case (0.0.0.0 dialed as loopback)
+    // is covered by the text-view test above.
     expect(v.listen).toMatchObject({ host: "127.0.0.1", port: 4321, portRaw: "4321", portValid: true });
     expect(v.service.definitionPath).toContain("subshell-server.service");
   });

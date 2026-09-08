@@ -16,7 +16,7 @@ subshells spawn as tmux-backed PTYs on the machine running the app; Docker is se
 
 ```
 browser ──•── /                   Elysia serves built frontend (SPA)
-          │                       + API + WS + auth on ONE port (default 127.0.0.1:3080)
+          │                       + API + WS + auth on ONE port (default 0.0.0.0:3080)
           ├─ /api/...             REST/JSON (better-auth at /api/auth/*)
           ├─ /ws                  subshell attach WebSocket (?subshell=&token=)
           └─ /docs                OpenAPI (Scalar UI)
@@ -117,7 +117,8 @@ packages/tsconfig          shared TS config (scaffold)
 Headlines only — **[security.md](security.md)** is the authoritative threat
 model, including the accepted risks and what is deliberately not defended.
 
-- Binds loopback by default; Docker compose binds `127.0.0.1`
+- Binds all interfaces by default (`HOST=0.0.0.0`; `127.0.0.1` re-narrows to loopback);
+  Docker compose binds `127.0.0.1`
 - All `/api/*` except auth + setup-status requires a session (401 JSON otherwise)
 - WS attach requires a **short-lived (30s) single-use token** issued by the authenticated
   REST endpoint — replay-resistant (verified: second use gets `4001 unauthorized`)

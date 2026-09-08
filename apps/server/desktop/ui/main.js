@@ -240,7 +240,10 @@ function buildForm() {
   wrap.style.width = "100%";
   for (const [name, label, placeholder] of [
     ["port", "Port", "3080"],
-    ["host", "Host", "127.0.0.1"],
+    // Blank inherits the CLI default, which since 2026-09-07 is 0.0.0.0 — a
+    // loopback bind is unreachable from every other machine, and remote nodes
+    // and devices are the point of a control plane. Type 127.0.0.1 to opt out.
+    ["host", "Host", "0.0.0.0"],
   ]) {
     const cell = document.createElement("div");
     const l = document.createElement("label");

@@ -434,7 +434,18 @@ and it never fails the post.
 
 ## 8. Network boundary
 
-**Binding.** Loopback by default (`HOST=127.0.0.1`).
+**Binding.** `HOST=0.0.0.0` by default — the LAN bind. A loopback socket is
+unreachable from every other machine, and remote nodes and client devices are
+the point of a control plane, so since 2026-09-07 a fresh install listens on
+all interfaces; `HOST=127.0.0.1` in `config.env` restores loopback-only. This
+sits inside the trusted-network posture of this section, not against it: every
+`/api/*` route still requires a session or key. It does mean a first-run
+instance is reachable from the local network before an operator touches
+anything — registration is open by default, and a dev-mode (`NODE_ENV` unset)
+boot runs on the placeholder `BETTER_AUTH_SECRET`, so on a network you do not
+own, bind loopback or set the env before first boot. Browsers on a LAN address
+also need `APP_BASE_URL` pointed at the name they use (or `TRUSTED_ORIGINS`) —
+the derived allowlist covers loopback spellings, not arbitrary host IPs.
 
 **CORS is a static allowlist.** The instance's own origins are derived at boot —
 both loopback spellings of `SERVER_PORT`, a concrete `HOST`, and the

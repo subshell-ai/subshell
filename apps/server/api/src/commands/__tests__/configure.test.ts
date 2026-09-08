@@ -23,7 +23,7 @@ describe("runConfigure — non-interactive (--yes / non-TTY)", () => {
     expect(err).toEqual([]);
     const cfg = readCfg(dir);
     expect(cfg.SERVER_PORT).toBe("3080");
-    expect(cfg.HOST).toBe("127.0.0.1");
+    expect(cfg.HOST).toBe("0.0.0.0");
     expect(cfg.APP_BASE_URL).toBe("http://localhost:3080");
     expect(cfg.DATABASE_PATH).toBe(join(dir, "subshell.db"));
     // config home owns a secret file: 0600 on the file, 0700 on the dir.
@@ -73,7 +73,7 @@ describe("runConfigure — rewrite preservation", () => {
     expect(cfg.BETTER_AUTH_SECRET).toBe("s3cr3t-value-not-to-be-touched");
     expect(cfg.TRUSTED_ORIGINS).toBe("http://elsewhere:5174"); // foreign key preserved
     expect(cfg.SERVER_PORT).toBe("4000"); // owned key overwritten by the flow
-    expect(cfg.HOST).toBe("127.0.0.1");
+    expect(cfg.HOST).toBe("0.0.0.0");
     // Existing keys keep their file position; a rewrite never re-invents values.
     expect(readFileSync(envFile(dir), "utf8")).toContain("s3cr3t-value-not-to-be-touched");
   });
@@ -138,9 +138,12 @@ describe("runConfigure — loopback / LAN warning", () => {
     expect(out.join("\n")).not.toMatch(/warning/i);
   });
 
+  // An explicit loopback opt-out is the single-machine setup now; a DEFAULT
+  // run binds 0.0.0.0 and therefore warns about its loopback base URL (the
+  // test above pins that).
   test("loopback bind + loopback base URL → no warning (single-machine setup)", () => {
     const { deps, out } = makeDeps();
-    expect(runConfigure({ yes: true }, deps)).toBe(0);
+    expect(runConfigure({ yes: true, host: "127.0.0.1" }, deps)).toBe(0);
     expect(out.join("\n")).not.toMatch(/warning/i);
   });
 });
@@ -311,15 +314,16 @@ describe("runConfigure — interactive flow", () => {
     expect(runConfigure({}, deps)).toBe(0);
     expect(prompts).toHaveLength(4);
     expect(prompts[0]?.[1]).toBe("3080");
-    // The host question must carry the literal choice text the brief mandates.
-    expect(prompts[1]?.[0]).toContain("bind LAN? type 0.0.0.0");
-    expect(prompts[1]?.[1]).toBe("127.0.0.1");
+    // The host question names both spellings of the choice; the DEFAULT is now
+    // the LAN bind (remote nodes and devices cannot reach a loopback socket).
+    expect(prompts[1]?.[0]).toContain("0.0.0.0 serves the LAN");
+    expect(prompts[1]?.[1]).toBe("0.0.0.0");
     // The base-url default follows the ANSWERED port, not the built-in one.
     expect(prompts[2]?.[1]).toBe("http://localhost:9999");
     expect(prompts[3]?.[1]).toBe(join(dir, "subshell.db"));
     const cfg = readCfg(dir);
     expect(cfg.SERVER_PORT).toBe("9999"); // trimmed answer
-    expect(cfg.HOST).toBe("127.0.0.1"); // ENTER accepted the default
+    expect(cfg.HOST).toBe("0.0.0.0"); // ENTER accepted the default
     expect(cfg.APP_BASE_URL).toBe("http://localhost:9999");
     expect(cfg.DATABASE_PATH).toBe(join(dir, "subshell.db"));
   });
@@ -386,7 +390,7 @@ describe("runConfigure — interactive re-run defaults come from the file", () =
     const { deps, dir } = makeDeps();
     writeFileSync(envFile(dir), "SERVER_PORT=9999\nHOST=0.0.0.0\n", { mode: 0o600 });
     expect(runConfigure({ yes: true }, deps)).toBe(0);
-    expect(readCfg(dir)).toMatchObject({ SERVER_PORT: "3080", HOST: "127.0.0.1" });
+    expect(readCfg(dir)).toMatchObject({ SERVER_PORT: "3080", HOST: "0.0.0.0" });
   });
 
   test("unreadable existing file is refused BEFORE any question is spent", () => {

@@ -379,8 +379,8 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   if (port === null) return 1;
   const host = resolve(
     "HOST",
-    "Bind address — stay loopback-only, or bind LAN? type 0.0.0.0",
-    dflt("HOST", "127.0.0.1"),
+    "Bind address — 0.0.0.0 serves the LAN (what remote nodes and devices need); type 127.0.0.1 to stay loopback-only",
+    dflt("HOST", "0.0.0.0"),
     opts.host,
   );
   if (host === null) return 1;

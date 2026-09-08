@@ -105,7 +105,7 @@ export function collectStatus(deps: StatusDeps): StatusView {
   // sync deliberately — importing constants here would run dotenvx in a CLI
   // process). SERVER_PORT/HOST/APP_BASE_URL defaults live there.
   const portRaw = cfg.get("SERVER_PORT") ?? "3080";
-  const host = cfg.get("HOST") ?? "127.0.0.1";
+  const host = cfg.get("HOST") ?? "0.0.0.0";
 
   // Can THIS process spawn `subshell mcp`? Every subshell create registers it
   // into the harness config, so an unresolvable entrypoint means create 500s.

@@ -22,7 +22,7 @@ const env = envVar.from(process.env, {}, () => {});
 
 export const SERVER_PORT = env.get("SERVER_PORT").default("3080").asPortNumber();
 
-export const HOST = env.get("HOST").default("127.0.0.1").asString();
+export const HOST = env.get("HOST").default("0.0.0.0").asString();
 
 /**
  * True when this process is running the test suite.
@@ -240,10 +240,10 @@ export function localOriginsFor(port: number, host: string, baseUrl?: string): s
 /**
  * Origins better-auth accepts on credentialed auth requests (and the CORS
  * plugin allows). better-auth always trusts its own baseURL too, but that is
- * ONE spelling: the app binds `127.0.0.1` by default while the base URL says
- * `localhost`, so a browser pointed at the address the boot log prints
- * (http://127.0.0.1:3080) sent an origin nothing matched and first-run setup
- * died on 403 "Invalid origin". The list is therefore DERIVED from this
+ * ONE spelling: while the app bound `127.0.0.1` by default (pre-2026-09-07)
+ * and the base URL said `localhost`, a browser pointed at the address the
+ * boot log printed (http://127.0.0.1:3080) sent an origin nothing matched and
+ * first-run setup died on 403 "Invalid origin". The list is therefore DERIVED from this
  * instance's own address (see {@link localOriginsFor}) and then extended with
  * `TRUSTED_ORIGINS` (comma-separated) — in dev that is the Vite server, whose
  * port the drift guard in `__tests__/trusted-origins.test.ts` keeps in sync

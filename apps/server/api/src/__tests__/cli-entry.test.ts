@@ -112,7 +112,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       const parsed = parseEnvFile(text);
       expect(parsed).toMatchObject({
         SERVER_PORT: "3080", // built-in default — the sentinel env value must NOT leak in
-        HOST: "127.0.0.1",
+        HOST: "0.0.0.0", // the LAN-bind default (loopback is an explicit opt-out)
         APP_BASE_URL: "http://localhost:3080",
         DATABASE_PATH: join(cfg, "subshell.db"),
       });

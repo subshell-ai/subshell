@@ -360,7 +360,8 @@ Per-subshell MCP env (injected by the backend into each harness, not set by you)
 Summary only — the full threat model, including what is deliberately *not*
 defended against, is **[docs/security.md](docs/security.md)**.
 
-- Binds loopback by default; Docker compose binds `127.0.0.1` too.
+- Binds all interfaces (`0.0.0.0`) by default — remote nodes and devices cannot reach a loopback
+  socket; set `HOST=127.0.0.1` to stay loopback-only. Docker compose binds `127.0.0.1`.
 - All `/api/*` (except auth + setup status) requires a session cookie **or** a bearer API
   key (per-subshell tokens; admin-managed system keys); WS attach requires a short-lived
   single-use token issued by the authenticated REST endpoint. Admin surfaces reject bearer
