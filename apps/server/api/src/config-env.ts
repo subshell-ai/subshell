@@ -7,11 +7,14 @@ import { join } from "node:path";
  * (spec 2026-09-03, plan 2): **process env > config.env > `.env`-via-dotenvx
  * (already in place) > built-in defaults**.
  *
- * Deliberately dependency-light — node builtins only. Nothing in this module
- * runs at import time: `loadConfigEnv()` is a no-arg action the boot entry
- * takes EXPLICITLY as its first act (imported first by `cli-bootstrap.ts`),
- * so merely importing this file (e.g. from a test) reads no user config and
- * mutates nothing.
+ * Deliberately dependency-light — node builtins only, which is what lets
+ * `constants.ts` import and apply the layer at the TOP of its own module
+ * body, before its dotenvx call. It cannot live in `cli-bootstrap.ts`'s
+ * body: that body runs after the whole import graph has evaluated, and the
+ * graph reaches `constants.ts` first — measured 2026-09-07, when the layer
+ * was silently dead under launchd (systemd's `EnvironmentFile` masked it).
+ * Nothing here runs at IMPORT — `loadConfigEnv()` is an action, so merely
+ * importing this file (e.g. from a test) reads no user config.
  */
 
 /**
@@ -127,8 +130,10 @@ export function resolveConfig(): ResolvedConfigEnv {
  * a key already present (real environment, incl. anything `.env`-via-dotenvx
  * filled) is NEVER overwritten; that is what makes the ladder
  * `process env > config.env > .env > defaults` hold, PROVIDED this runs
- * before the dotenvx call in `constants.ts` (the boot entry's first-imported
- * `cli-bootstrap.ts` is what guarantees that ordering).
+ * before the dotenvx call in `constants.ts` — which it does by construction,
+ * because the application sits at the top of `constants.ts` itself, above
+ * that dotenvx call. (`cli-bootstrap.ts` keeps a second, idempotent call for
+ * the pure-CLI path.)
  *
  * A missing file is silent (`false`); an unreadable one throws with the path.
  *

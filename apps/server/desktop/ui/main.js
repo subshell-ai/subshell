@@ -164,15 +164,18 @@ function renderFacts() {
     } else if (svc.paneSafety === "unknown") {
       fact(dl, "teardown", "unknown — the definition could not be read", "warn-text");
     }
-    // Where the server's own output goes. macOS: a file the plist names,
-    // revealed in the file manager. Linux: the journal, and the row says the
-    // command. An OLD server reports neither — no field at all — and gets no
-    // row rather than a wrong one.
-    if (typeof svc.logPath === "string") {
-      fact(dl, "logs", svc.logPath, null, revealAction("logs"));
-    } else if (svc.logPath === null) {
-      fact(dl, "logs", "the systemd journal — journalctl --user -u subshell-server.service -f");
-    }
+  }
+  // Where the server's own output goes. macOS: a file the plist names,
+  // revealed in the file manager. Linux: the journal, and the row says the
+  // command. OUTSIDE the installed block on purpose: the CLI answers `logPath`
+  // even when nothing is installed, because logs written by a since-stopped
+  // or uninstalled server are still sitting there — "open the log" is exactly
+  // the question asked when the service is down. An OLD server reports
+  // neither shape — no field at all — and gets no row rather than a wrong one.
+  if (svc && typeof svc.logPath === "string") {
+    fact(dl, "logs", svc.logPath, null, revealAction("logs"));
+  } else if (svc && svc.logPath === null) {
+    fact(dl, "logs", "the systemd journal — journalctl --user -u subshell-server.service -f");
   }
 }
 
@@ -305,6 +308,7 @@ function renderStep() {
   const tmuxMissing = probe !== null && !probe.tmux;
   tmuxWarn.hidden = !tmuxMissing;
   for (const b of actions.querySelectorAll("button")) {
+    if (b.dataset.always === "1") continue;
     b.disabled = busy || (tmuxMissing && b.dataset.tmux === "1");
   }
   for (const i of actions.querySelectorAll("input")) i.disabled = busy;
@@ -346,6 +350,10 @@ function buildTmuxWarning() {
   const copy = document.createElement("button");
   copy.type = "button";
   copy.textContent = "Copy";
+  // Opted OUT of the busy-disable: the warning's whole moment is "an action
+  // is refused until you install something" — being unable to copy the fix
+  // while a re-probe is in flight is the worst possible timing.
+  copy.dataset.always = "1";
   copy.addEventListener("click", () => {
     navigator.clipboard
       .writeText(TMUX_INSTALL_CMD)

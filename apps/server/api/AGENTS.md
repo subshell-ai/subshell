@@ -378,7 +378,13 @@ constants first — so a bootstrap-side apply silently did nothing on macOS,
 where launchd has no `EnvironmentFile` to mask the gap the way the systemd
 unit does. `cli-bootstrap.ts` keeps its (idempotent) call for the CLI path;
 the regression test spawns the real entry and asserts the FILE's value
-reaches the RUNNING process (`__tests__/cli-entry.test.ts`). `configure` owns four keys — `SERVER_PORT`, `HOST`,
+reaches the RUNNING process (`__tests__/cli-entry.test.ts`). One visible
+consequence: `bun run dev` now honours the developer's own config.env too —
+a `configure`d `DATABASE_PATH` relocates the dev server on its next restart.
+That is the point (one machine, one configuration), but it is why
+`e2e/stack.ts` points `SUBSHELL_SERVER_CONFIG_DIR` at its own temp dir —
+anything that boots the server for test purposes and wants stock config must
+override the home, not merely avoid setting variables. `configure` owns four keys — `SERVER_PORT`, `HOST`,
 `APP_BASE_URL`, `DATABASE_PATH` — and `init` persists the secret (an
 existing value is never rotated). tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`

@@ -286,3 +286,30 @@ describe("entry-subprocess CLI: configure must not boot", () => {
     TIMEOUT,
   );
 });
+
+// ---------------------------------------------------------------------------
+// The port probe when its fallback tool is not where PATH says it is.
+// ---------------------------------------------------------------------------
+
+describe("syncPortListening with a PATH that has no netstat", () => {
+  // Measured 2026-09-07: `subshell-server status` exited 1 printing NOTHING on
+  // a Mac whose PATH lacked /usr/sbin. `Bun.spawnSync` THROWS when the binary
+  // is simply not found — it never reaches `exitCode` — and the throw escaped
+  // the whole command. No netstat is no ANSWER (null, rendered as the hint
+  // "not listening"), never a failed command.
+  //
+  // The netstat branch is unreachable on Linux CI (the /proc tables answer
+  // first), which is exactly why the probe takes the platform as an argument
+  // for this test: it exercises the OTHER hosts' code path here.
+  test("unspawable netstat is null — it does not throw and is not a confident false", () => {
+    const emptyBin = mkdtempSync(join(tmpdir(), `subshell-status-nopath-${process.pid}-`));
+    const saved = process.env.PATH;
+    process.env.PATH = emptyBin; // no directory here holds netstat, on any OS
+    try {
+      expect(syncPortListening("127.0.0.1", 43555, "darwin")).toBeNull();
+      expect(syncPortListening("127.0.0.1", 43555, "freebsd")).toBeNull();
+    } finally {
+      process.env.PATH = saved;
+    }
+  });
+});

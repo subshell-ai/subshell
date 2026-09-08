@@ -902,6 +902,21 @@ describe("controlService", () => {
     expect(s.calls.at(-1)).toEqual(["launchctl", "bootout", "gui/1000/dev.subshell.server"]);
   });
 
+  // The fail-open hole `state: unknown` could have dug: `loaded` is false
+  // there only because nothing ANSWERED, and a no-op keyed on that alone
+  // would answer "already stopped" for a daemon running behind a flaky
+  // manager. Stop attempts the bootout and lets the manager's real answer
+  // speak — this verb ends live panes when it guesses.
+  test("darwin: stop on an UNANSWERABLE manager attempts the bootout, never 'already stopped'", () => {
+    const s = darwinStub({ printError: { code: 5, err: "Could not read domain: Input/output error" } });
+    const r = controlService(s.deps, "stop");
+    expect(r.out).not.toContain("already stopped");
+    expect(s.calls.some((c) => c[1] === "bootout")).toBe(true);
+    // The stub's bootout answers 0 — as a real one would for a loaded job —
+    // so the success here is the BOOTOUT's, not a shortcut's.
+    expect(r.code).toBe(0);
+  });
+
   test("darwin: restart of a running job is kickstart -k (the README's own line)", () => {
     const s = darwinStub();
     const r = controlService(s.deps, "restart");

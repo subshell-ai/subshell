@@ -780,7 +780,14 @@ export async function controlService(
     // and a later `bootstrap` fails with "service already loaded". Gating on
     // the run state reported success on exactly that job and booted out
     // nothing.
-    if (state.loaded === false) return { code: 0, out: "subshell is already stopped.\n", err: "" };
+    // AND `state === "stopped"`: an UNKNOWN state also carries loaded=false
+    // (print never answered, so loadedness is unknown too), and licensing the
+    // no-op off that would answer "already stopped" for a daemon running
+    // behind a flaky manager — the exact collapse this file just stopped
+    // making. On unknown, fall through and let bootout answer.
+    if (state.state === "stopped" && state.loaded === false) {
+      return { code: 0, out: "subshell is already stopped.\n", err: "" };
+    }
     // `bootout`, not a kill: KeepAlive is true, so launchd restarts anything
     // that merely dies. Unloading the job is the only thing that stays stopped.
     const res = await deps.runCmd(["launchctl", "bootout", target]);

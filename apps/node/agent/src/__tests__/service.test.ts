@@ -727,6 +727,20 @@ describe("controlService", () => {
     expect(s.calls.at(-1)).toEqual(["launchctl", "bootstrap", "gui/1000", PLIST]);
   });
 
+  // The fail-open hole `state: unknown` could have dug: `loaded` is false
+  // there only because nothing ANSWERED, and a no-op keyed on that alone
+  // would answer "already stopped" for a daemon running behind a flaky
+  // manager. Stop attempts the bootout and lets the manager's real answer
+  // speak — this verb ends live panes when it guesses. (Port of the server
+  // CLI's same fix, review 2026-09-08.)
+  test("darwin: stop on an UNANSWERABLE manager attempts the bootout, never 'already stopped'", async () => {
+    const s = darwinServiceStub({ printError: { code: 5, err: "Could not read domain: Input/output error" } });
+    const r = await controlService(s.deps, "stop");
+    expect(r.out).not.toContain("already stopped");
+    expect(s.calls.some((c) => c[1] === "bootout")).toBe(true);
+    expect(r.code).toBe(0); // the stub's bootout answers 0 — the success is ITS, not a shortcut's
+  });
+
   test("darwin: start on an already-running job is a no-op success", async () => {
     const s = darwinServiceStub();
     const before = s.calls.length;

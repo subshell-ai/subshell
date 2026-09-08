@@ -595,7 +595,12 @@ pub fn control_plane_url(probe: &Probe) -> Result<String, String> {
         .and_then(|u| u.get("value"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| "the server has not reported a base URL yet".to_string())?;
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+    // Case-insensitive: a scheme is one per RFC 3986, and refusing
+    // `HTTP://plane.example` would be a false negative the user experiences
+    // as a broken button, not as safety. The value OPENED is still the
+    // original — only the test is lowercased.
+    let lowered = url.to_ascii_lowercase();
+    if !lowered.starts_with("http://") && !lowered.starts_with("https://") {
         return Err(format!("refusing to open a non-http(s) URL: {url}"));
     }
     Ok(url.to_string())
@@ -1029,6 +1034,14 @@ mod tests {
         );
         assert!(control_plane_url(&with(json!("file:///etc/passwd"))).is_err());
         assert!(control_plane_url(&with(json!("javascript:alert(1)"))).is_err());
+        assert!(control_plane_url(&with(json!("x"))).is_err());
+        // Schemes are case-insensitive per RFC 3986; the refusal of
+        // `HTTP://…` would be a broken button, not safety. The ORIGINAL —
+        // not the lowercased test copy — is what is returned.
+        assert_eq!(
+            control_plane_url(&with(json!("HTTP://Plane.Example"))).unwrap(),
+            "HTTP://Plane.Example"
+        );
         assert!(control_plane_url(&probe_with(None, None, true)).is_err());
     }
 

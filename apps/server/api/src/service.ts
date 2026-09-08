@@ -104,8 +104,14 @@ export interface ServiceDeps {
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
 export const SYSTEMD_UNIT_NAME = "subshell-server.service";
-/** launchd label (plist: `~/Library/LaunchAgents/<label>.plist`). */
-export const LAUNCHD_LABEL = "dev.subshell.server";
+/**
+ * launchd label (plist: `~/Library/LaunchAgents/<label>.plist`) — the SAME
+ * string as the Subshell Server app's bundle identifier and the plist's
+ * `AssociatedBundleIdentifiers` entry, pinned together by the shared protocol
+ * constant: if the label drifted from the app identity the Login-Items
+ * attribution would detach silently and nothing would error.
+ */
+export const LAUNCHD_LABEL = DESKTOP_SERVER_BUNDLE_ID;
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
@@ -516,8 +522,10 @@ export interface ServiceState {
    * Where the service's own log lives, so no UI has to re-derive platform
    * paths: macOS is the plist's `StandardOutPath` (`~/Library/Logs/…`);
    * Linux is `null` — per-user systemd logs to journald, and the answer is
-   * `journalctl --user -u ${SYSTEMD_UNIT_NAME}`. Omitted when nothing is
-   * installed (there is no log to show).
+   * `journalctl --user -u ${SYSTEMD_UNIT_NAME}`. Set on EVERY return,
+   * including not-installed: logs written by a since-uninstalled service
+   * are still sitting there, and "is there a log to open" is exactly the
+   * question asked in the states where nothing is running.
    */
   logPath?: string | null;
 }
@@ -826,7 +834,14 @@ export function controlService(deps: ServiceDeps, verb: ServiceVerb, opts: { for
     // and a later `bootstrap` fails with "service already loaded". Gating on
     // the run state reported success on exactly that job and booted out
     // nothing.
-    if (state.loaded === false) return { code: 0, out: "subshell-server is already stopped.\n", err: "" };
+    // AND `state === "stopped"`: an UNKNOWN state also carries loaded=false
+    // (print never answered, so loadedness is unknown too), and licensing the
+    // no-op off that would answer "already stopped" for a daemon running
+    // behind a flaky manager — the exact collapse this file just stopped
+    // making. On unknown, fall through and let bootout answer.
+    if (state.state === "stopped" && state.loaded === false) {
+      return { code: 0, out: "subshell-server is already stopped.\n", err: "" };
+    }
     // `bootout`, not a kill: KeepAlive is true, so launchd restarts anything
     // that merely dies. Unloading the job is the only thing that stays stopped.
     const res = deps.runCmd(["launchctl", "bootout", target]);

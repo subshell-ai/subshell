@@ -235,8 +235,12 @@ export function serviceStateLines(state: ServiceState): string[] {
  * Returns null when no source is available (degrades to "not listening" —
  * this is a hint line, not an oracle).
  */
-export function syncPortListening(_host: string, port: number): boolean | null {
-  if (process.platform === "linux") {
+export function syncPortListening(
+  _host: string,
+  port: number,
+  platform: NodeJS.Platform = process.platform,
+): boolean | null {
+  if (platform === "linux") {
     let sawAny = false;
     for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
       let text: string;
@@ -254,7 +258,7 @@ export function syncPortListening(_host: string, port: number): boolean | null {
     }
     if (sawAny) return false; // tables readable and silent — genuinely nobody listens
   }
-  const args = process.platform === "darwin" ? ["-an", "-p", "tcp"] : ["-tnl"];
+  const args = platform === "darwin" ? ["-an", "-p", "tcp"] : ["-tnl"];
   // `netstat` lives in /usr/sbin on macOS — and a THROWN spawnSync (the
   // binary simply is not on PATH, e.g. a GUI-launched CLI or `env -i`) never
   // reaches exitCode. Measured 2026-09-07: `status` exited 1 with ZERO output
