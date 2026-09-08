@@ -23,6 +23,12 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    // CI runs inside a container AS ROOT (the self-hosted fleet's builder
+    // image), and Chromium refuses to start as root with its sandbox on:
+    // "Running as root without --no-sandbox is not supported". Scoped to CI
+    // on purpose — a developer's run keeps the sandbox, which is the whole
+    // reason not to just set this unconditionally.
+    launchOptions: { args: process.env.CI ? ["--no-sandbox"] : [] },
   },
   projects: [
     // Desktop specs run everywhere EXCEPT the mobile projects, which only

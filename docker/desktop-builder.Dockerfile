@@ -25,6 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   tmux        — this is now the CI image too (test.yml), and both the
 #                 TmuxRunner suite and the e2e session-lifecycle specs drive a
 #                 REAL tmux server
+#   jq          — the compiled-binary smoke reads package.json's version with it
 #
 # Deliberately NOT installed: patchelf. It is a linuxdeploy requirement, and
 # AppImage is not a target here — leaving it in would invite a future reader to
@@ -46,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
       dpkg-dev \
       tmux \
+      jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Pinned to the floor the repo asserts (`assertBunFloor("1.4.0")`).

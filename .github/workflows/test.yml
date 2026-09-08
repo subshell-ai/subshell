@@ -30,6 +30,11 @@ on:
 
 permissions:
   contents: read
+  # The container jobs pull ghcr.io/subshell-ai/desktop-builder, which inherits
+  # this repo's visibility. Without this the runner's docker pull is DENIED and
+  # the job dies in "Initialize containers" before a single step runs — the
+  # same trap release.yml documents.
+  packages: read
 
 jobs:
   test:
@@ -49,11 +54,26 @@ jobs:
       # The TmuxRunner suite drives a real tmux server. Idempotent so it costs
       # nothing once the image bakes tmux in (it is in the Dockerfile now, but
       # a PR still pulls whatever tag `main` last published).
-      - name: Ensure tmux
+      - name: Ensure tmux and jq
         run: |
           set -euo pipefail
-          command -v tmux >/dev/null || { apt-get update && apt-get install -y --no-install-recommends tmux; }
-          tmux -V
+          missing=()
+          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          tmux -V && jq --version
+
+      # tsdown/rolldown run under NODE, not bun (their bin shebang is
+      # `#!/usr/bin/env node`), and rolldown imports `styleText` from
+      # `node:util` — Node 20.12+. The fleet's system node is 18.19, and
+      # Ubuntu 24.04's apt node is 18 too, so this is the only way to get a
+      # new enough one. ubuntu-latest happened to ship 20+, which is why
+      # nothing needed it before.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
 
       - name: Cache Bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -260,11 +280,26 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The session-lifecycle spec spawns real tmux sessions (stub harness).
-      - name: Ensure tmux
+      - name: Ensure tmux and jq
         run: |
           set -euo pipefail
-          command -v tmux >/dev/null || { apt-get update && apt-get install -y --no-install-recommends tmux; }
-          tmux -V
+          missing=()
+          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          tmux -V && jq --version
+
+      # tsdown/rolldown run under NODE, not bun (their bin shebang is
+      # `#!/usr/bin/env node`), and rolldown imports `styleText` from
+      # `node:util` — Node 20.12+. The fleet's system node is 18.19, and
+      # Ubuntu 24.04's apt node is 18 too, so this is the only way to get a
+      # new enough one. ubuntu-latest happened to ship 20+, which is why
+      # nothing needed it before.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
 
       - name: Cache Bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
