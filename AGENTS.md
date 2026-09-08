@@ -472,6 +472,39 @@ tauri-typed window/tray/menu layer, because the two window models genuinely
 differ and an abstraction over one real consumer and one guess is worse than
 the duplication.
 
+### Which runners run what, and why it is split
+
+**Only releases use the self-hosted fleet.** `release.yml`,
+`desktop-builder-image.yml` and `reset-linux-runner-workspace.yml` run on
+`[self-hosted, Linux, X64]` (two runners: `subshell-runner-b`, `-c`) and
+`mac-builder` `[self-hosted, macOS, ARM64]`. Every PR check —
+`test.yml` (Testing, Desktop core, both Desktop Rust shards, End-to-end),
+`lint.yml` and `cla.yml` — runs on GitHub-hosted `ubuntu-latest`.
+
+The fleet therefore sits idle during PR checks, and that is CORRECT rather
+than waste. Three reasons, in order of how much they matter:
+
+- **Self-hosted runners REUSE their workspace.** That is the defect class this
+  repo has already been bitten by twice: a tag deleted upstream but still
+  present in the runner's clone made re-cutting a release impossible until
+  `git tag -f` (see the plan job), and a container job writing as root leaves
+  files the runner user cannot delete, killing every later
+  `actions/checkout` with `EACCES` — which is the whole reason
+  `reset-linux-runner-workspace.yml` exists. A test suite that boots real
+  servers and a real tmux is the last thing that should inherit cross-run
+  state. Hosted runners are ephemeral.
+- **Two runners, four `test.yml` jobs.** Moving CI over would SERIALISE PR
+  feedback and contend with releases, not speed anything up.
+- The release jobs are on the fleet because they genuinely need those
+  machines: macOS signing/notarisation needs `mac-builder`'s keychain and
+  secrets, and the Linux shards cross-compile inside
+  `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04` for a pinned glibc floor.
+  Nothing in CI needs a particular host.
+
+The repo is private, so hosted minutes are metered (roughly 12 per push).
+That is the cost of the split and it is worth paying; three idle runners are
+not a bug to fix.
+
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
 The four pipelines run sharded in CI and ship as **GitHub Releases** under
