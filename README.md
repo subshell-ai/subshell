@@ -462,7 +462,7 @@ keep the copyright in your work; the CLA grants the right to license it, which
 is what lets the server stay AGPL while non-AGPL commercial licenses remain
 available to organizations whose policies forbid the AGPL.
 
-**Commercial licensing.** Subshell is copyright Disaresta. If your organization
+**Commercial licensing.** Subshell is copyright Disaresta, LLC. If your organization
 cannot use AGPL-licensed software, non-AGPL commercial licenses for the control
 plane are available — contact Theo Gravity <theo@disaresta.com>.
 

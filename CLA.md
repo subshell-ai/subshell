@@ -3,9 +3,9 @@
 Thank you for contributing to Subshell.
 
 This Contributor License Agreement ("Agreement") records the terms under which
-You contribute to Subshell. It protects You, it protects Disaresta ("the
-Maintainer"), which owns the Subshell copyright, and it protects everyone who
-relies on the project. **You keep the copyright in everything You write.**
+You contribute to Subshell. It protects You, it protects Disaresta, LLC ("the
+Maintainer"), which owns the Subshell copyright, and it protects everyone
+who relies on the project. **You keep the copyright in everything You write.**
 This Agreement grants the Maintainer a licence to use it — it does not take
 it away from You.
 
