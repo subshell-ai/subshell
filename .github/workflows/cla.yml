@@ -45,7 +45,7 @@ jobs:
           path-to-signatures: signatures/subshell.json
           remote-organization-name: subshell-ai
           remote-repository-name: cla-signatures
-          allowlist: theogravity,bot*,dependabot[bot],github-actions[bot]
+          allowlist: bot*,dependabot[bot],github-actions[bot]
           custom-notsigned-prcomment: >
             Thanks for the pull request. Before it can be merged, please read
             the [Contributor License Agreement](https://github.com/subshell-ai/subshell/blob/main/CLA.md)
