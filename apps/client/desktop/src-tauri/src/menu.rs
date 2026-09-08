@@ -22,9 +22,7 @@
 //! and a setup key that cannot reasonably be typed by hand, so a missing ⌘V
 //! here is not missing polish, it is an app that cannot be used.
 
-use subshell_desktop_core::legal::{
-    COMPANY_URL, COPYRIGHT_HOLDER, COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL,
-};
+use subshell_desktop_core::legal::{COMPANY_URL, COPYRIGHT_HOLDER, COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL};
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Wry};
 

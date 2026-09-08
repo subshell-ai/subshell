@@ -12,9 +12,7 @@
 //! the menu bar, and with nothing there to claim them they are swallowed. In a
 //! terminal app that is a correctness bug, not missing polish.
 
-use subshell_desktop_core::legal::{
-    COMPANY_URL, COPYRIGHT_HOLDER, COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL,
-};
+use subshell_desktop_core::legal::{COMPANY_URL, COPYRIGHT_HOLDER, COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL};
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, Wry};
 
