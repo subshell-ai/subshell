@@ -16,6 +16,12 @@ on:
       - docker/desktop-builder.Dockerfile
       - .github/workflows/desktop-builder-image.yml
 
+# Two concurrent builds push the SAME tag, so the loser's work is discarded —
+# cancel the superseded one instead of paying for it twice on the fleet.
+concurrency:
+  group: desktop-builder-image
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write

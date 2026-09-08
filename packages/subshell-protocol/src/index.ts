@@ -25,6 +25,17 @@ export {
 } from "./frames.js";
 export type { JsonValue } from "./json.js";
 export {
+  COMPANY_URL,
+  COPYRIGHT_HOLDER,
+  COPYRIGHT_LINE,
+  COPYRIGHT_YEAR,
+  LICENSE_EXCEPTION_SUMMARY,
+  LICENSE_SUMMARY,
+  LICENSE_URL,
+  licenseNotice,
+  PRODUCT_NAME,
+} from "./legal.js";
+export {
   type HarnessSessionWire,
   isNodeSubshellId,
   NODE_CLOSE_SUPERSEDED,

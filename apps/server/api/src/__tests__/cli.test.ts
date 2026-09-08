@@ -68,6 +68,32 @@ describe("dispatchCli — boot-path passthrough", () => {
 });
 
 describe("dispatchCli — version", () => {
+  // The server binary ships bare too (a GitHub Release asset, or a file
+  // copied onto a host), so `license` is its accompanying licence file.
+  test("license prints the copyright, both halves of the split, and the URL", async () => {
+    const { deps, out, err, exits } = collectingDeps();
+    expect(await dispatchCli(["license"], deps)).toBe(true);
+    expect(err).toEqual([]);
+    expect(exits).toEqual([0]);
+    const text = out.join("\n");
+    expect(text).toContain("Copyright 2026 Disaresta, LLC");
+    expect(text).toContain("AGPL-3.0-only");
+    expect(text).toContain("Apache-2.0");
+    expect(text).toContain("https://github.com/subshell-ai/subshell/blob/main/LICENSE");
+    expect(text.split("\n")[0]).toMatch(/^subshell-server \d+\.\d+\.\d+$/);
+  });
+
+  // `version` is compared for EXACT equality by the release smoke
+  // (.github/workflows/release.yml), so it must stay one bare line — that
+  // constraint is the reason `license` exists separately at all.
+  test("version stays exactly one line and gains nothing from license", async () => {
+    const { deps, out } = collectingDeps();
+    expect(await dispatchCli(["version"], deps)).toBe(true);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/^subshell-server \d+\.\d+\.\d+$/);
+    expect(out[0]).not.toContain("Copyright");
+  });
+
   test("prints `subshell-server <package.json version>` and reports handled", async () => {
     const { deps, out, err, exits } = collectingDeps();
     expect(await dispatchCli(["version"], deps)).toBe(true);

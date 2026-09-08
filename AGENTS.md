@@ -204,6 +204,17 @@ The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook — it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.
 
+```bash
+bun run rust:check         # fmt + clippy -D warnings + tests, all three Rust crates
+```
+
+`bun run test` is TypeScript only, so Rust changes need this as well. It also
+solves a problem `cargo` alone cannot: `tauri-build` refuses to build when an
+`externalBin` file is missing, and the sidecar is a gitignored ~110 MB build
+input — so `cargo clippy` in either desktop app dies in the build script on a
+clean checkout. The script stages a stub for the host triple exactly as
+`test.yml` does, and removes only the stub it created.
+
 **Never test against the live instance (`:3080`).** Scripted smoke tests use
 `e2e/stack.ts` (own backend on :3199, temp DB). On the live instance: never
 flip `allow_registrations` to mint a throwaway account — an admin session did
@@ -460,6 +471,72 @@ each app's `control.rs`, its binary-resolution ladder, and the whole
 tauri-typed window/tray/menu layer, because the two window models genuinely
 differ and an abstraction over one real consumer and one guess is worse than
 the duplication.
+
+### Everything runs on the self-hosted fleet
+
+**No workflow uses GitHub-hosted runners.** Everything targets
+`[self-hosted, Linux, X64]`, plus `mac-builder` `[self-hosted, macOS, ARM64]`
+for the darwin release shards. The repo is private, so hosted minutes are
+metered and CI was spending roughly 12 per push — that cost, not a technical
+preference, is why everything moved. Runners are added and removed over time,
+so nothing here should depend on how many there are.
+
+`test.yml`'s four jobs run **inside the repo's own builder image**
+(`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
+image as well as the release one). It already carried bun 1.4.0, rustup stable
+and Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
+CI's sake. That is what let `setup-bun`, `dtolnay/rust-toolchain` and every
+`sudo apt-get` disappear from the workflow — **nothing on the fleet assumes
+passwordless root**, which is a property release.yml has always had and this
+change keeps. Inside a container we simply ARE root, which is also what makes
+Playwright's `install-deps` possible.
+
+`lint.yml` and `cla.yml` run BARE on the fleet — bun and a JS action need no
+system libraries, and staying out of a container means they never root-own the
+shared workspace.
+
+Four things this arrangement makes load-bearing:
+
+- **Every container job must end in the un-root step**, `if: always()`, copied
+  from release.yml. A container writes as root onto a PERSISTENT workspace, so
+  without it the next job on that runner dies inside `actions/checkout` with
+  `EACCES` — which reads like a checkout bug rather than a leftover, and is the
+  failure `reset-linux-runner-workspace.yml` exists to repair.
+- **Every job needs `timeout-minutes`.** The fleet is finite, so one hung job
+  starves every other workflow, releases included. The GitHub default of 360
+  minutes is not a timeout, it is an outage.
+- **The workspace persists between runs.** That is the defect class behind
+  `git tag -f` in the release plan job: a tag deleted upstream survived in the
+  runner's clone, so re-cutting a release was impossible. Anything that reads
+  git state, rather than just the checked-out tree, has to prune first.
+- **Disk is the standing cost, and none of it is self-limiting.** Every change
+  to `docker/desktop-builder.Dockerfile` moves the image tag and strands the
+  previous ~2 GB layer set forever, on every runner that pulled it. A full
+  runner does not fail politely: it dies in `actions/checkout` or a cargo link
+  step on whichever machine took the job, which reads as flake.
+  `runner-maintenance.yml` prunes docker daily and REPORTS usage, failing past
+  85% so a filling machine is named rather than discovered. It leaves the
+  workspaces alone on purpose — `target/`, `node_modules` and the turbo cache
+  surviving between runs is why CI is faster here than on hosted runners, and
+  they plateau. Fleet-wide coverage without being able to address a runner
+  comes from a matrix: `runs-on` selects by LABEL, so it fans out over 7 legs
+  and leans on a runner taking ONE job at a time, which puts N concurrent legs
+  on N distinct machines.
+
+**Not done deliberately: running the containers as a non-root user.** It
+would restore the one test skipped under root
+(`uploads-route.test.ts`, which chmods a directory to 0500 — root ignores
+permission bits) and let both the Chromium `--no-sandbox` workaround and all
+four un-root steps go. It needs `container.options: --user 1000`, and that
+HARDCODES a uid the un-root step currently discovers at runtime with `stat`,
+which is why the un-root step is correct on every runner. On a fleet being
+actively grown, a hardcoded uid fails nondeterministically on whichever
+machine was provisioned differently — a bad trade for one test.
+
+One thing that did NOT materialise: the expected slowdown. Queueing was
+supposed to make PR feedback worse than hosted CI, and every job came in
+faster instead — persistent caches and better hardware more than covered the
+lost parallelism.
 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 

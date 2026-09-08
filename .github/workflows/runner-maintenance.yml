@@ -1,0 +1,101 @@
+name: Runner maintenance
+
+# Reclaim disk on the self-hosted Linux fleet, and make its usage VISIBLE.
+#
+# Since CI moved off GitHub-hosted runners every job's leftovers now live on
+# machines nobody watches, and the growth is not self-limiting: each change to
+# docker/desktop-builder.Dockerfile moves the image tag and strands the whole
+# previous layer set (~2 GB), forever. A full runner does not fail politely —
+# it fails in `actions/checkout` or a cargo link step, on whichever machine
+# happens to pick up the job, which reads as flake rather than as a disk.
+#
+# WHAT THIS DELIBERATELY DOES NOT TOUCH: the workspaces. `target/`,
+# `node_modules` and the turbo cache persisting between runs is exactly why CI
+# got FASTER on the fleet than on hosted runners (Testing 2m20s vs 3m04s), and
+# they plateau rather than grow without bound. Docker is the unbounded one.
+#
+# `docker system prune -f` removes stopped containers, dangling (untagged)
+# images, unused networks and build cache. It leaves TAGGED images alone, so
+# desktop-builder:ubuntu24.04 survives and no job pays a re-pull; the stranded
+# older layer sets are precisely what becomes dangling when the tag moves.
+# `--volumes` is NOT passed — nothing here should decide a volume is unused.
+
+on:
+  schedule:
+    # Daily, off-peak. Cheap and idempotent, so frequent beats clever.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+# Nothing is read from the repo and nothing is written to GitHub.
+permissions: {}
+
+concurrency:
+  group: runner-maintenance
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune and report (leg ${{ matrix.leg }})
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # There is no way to address a specific runner — `runs-on` selects by
+        # LABEL and every Linux box shares the same set. This exploits the one
+        # property that does hold: a runner executes ONE job at a time, so N
+        # concurrent legs occupy N distinct runners. More legs than runners
+        # simply means the surplus queues and prunes an already-pruned machine,
+        # which is harmless. Raise this if the fleet grows past it.
+        leg: [1, 2, 3, 4, 5, 6, 7]
+    steps:
+      # No checkout on purpose: nothing here needs the repo, and not checking
+      # out means this job cannot disturb the workspace it is reporting on.
+      - name: Prune and report
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner:    ${RUNNER_NAME:-unknown}"
+          echo "workspace: ${RUNNER_WORKSPACE:-unknown}"
+          echo
+
+          target="${RUNNER_WORKSPACE:-$HOME}"
+          # `df -Pk` + awk rather than `df --output=`: POSIX output is a
+          # stable single line with fixed columns, where --output is GNU-only
+          # and interacts badly with -B. Under `set -e` a df that errors would
+          # turn a maintenance run red for no reason at all.
+          avail_kb() { df -Pk "$1" | awk 'NR==2 {print $4}'; }
+          used_pct_of() { df -Pk "$1" | awk 'NR==2 {gsub(/%/,"",$5); print $5}'; }
+
+          before="$(avail_kb "$target")"
+          echo "── before ──"
+          df -h "$target" | tail -1
+
+          echo
+          echo "── docker ──"
+          docker system df || echo "docker system df unavailable"
+          docker system prune -f
+          docker builder prune -f || true
+
+          echo
+          echo "── after ──"
+          df -h "$target" | tail -1
+          after="$(avail_kb "$target")"
+          echo "reclaimed: $(( (after - before) / 1024 )) MB"
+
+          # The largest workspace directories, so unbounded growth somewhere
+          # other than docker is visible before it becomes an outage.
+          echo
+          echo "── biggest workspace dirs ──"
+          du -xhd 2 "${RUNNER_WORKSPACE:-$HOME}/.." 2>/dev/null | sort -rh | head -12 || true
+
+          # Fail LOUDLY rather than leave a full runner to be discovered as
+          # flake in an unrelated job. A red maintenance run names the machine.
+          used_pct="$(used_pct_of "$target")"
+          echo
+          echo "disk used on ${RUNNER_NAME:-unknown}: ${used_pct}%"
+          if [ "$used_pct" -ge 85 ]; then
+            echo "::error::${RUNNER_NAME:-unknown} is ${used_pct}% full after pruning — needs attention beyond docker"
+            exit 1
+          fi
+          echo "::notice::${RUNNER_NAME:-unknown} at ${used_pct}% after pruning, $(( after / 1048576 )) GB free"

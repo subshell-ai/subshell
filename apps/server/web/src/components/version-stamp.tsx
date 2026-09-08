@@ -1,3 +1,10 @@
+import {
+  COMPANY_URL,
+  COPYRIGHT_HOLDER,
+  COPYRIGHT_YEAR,
+  LICENSE_SUMMARY,
+  LICENSE_URL,
+} from "@internal/subshell-protocol";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 
 /**
@@ -31,9 +38,30 @@ function Row({ label, value }: { label: string; value: string | undefined }) {
 export function VersionStamp() {
   const { data } = usePublicSettings();
   return (
-    <dl className="space-y-1 text-xs">
-      <Row label="Server" value={data?.serverVersion} />
-      <Row label="App build" value={__BUILD_ID__} />
-    </dl>
+    <div className="space-y-3 text-xs">
+      <dl className="space-y-1">
+        <Row label="Server" value={data?.serverVersion} />
+        <Row label="App build" value={__BUILD_ID__} />
+      </dl>
+      {/* Ownership and licence sit with the version because this is the block
+          people screenshot into a bug report or quote when asking what they
+          may do with Subshell — and because a web UI, unlike the CLIs, has no
+          other place that answers it. Not mono: it is prose, not a value to
+          copy. */}
+      <div className="space-y-1 text-muted-foreground">
+        <p>
+          Copyright {COPYRIGHT_YEAR}{" "}
+          <a href={COMPANY_URL} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+            {COPYRIGHT_HOLDER}
+          </a>
+        </p>
+        <p>
+          {LICENSE_SUMMARY} ·{" "}
+          <a href={LICENSE_URL} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+            Full text
+          </a>
+        </p>
+      </div>
+    </div>
   );
 }

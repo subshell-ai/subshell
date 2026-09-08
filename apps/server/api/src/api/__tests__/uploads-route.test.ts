@@ -140,7 +140,17 @@ describe("subshell uploads route", () => {
     expect(res.status).toBe(409);
   });
 
-  it("read-only working directory -> 409", async () => {
+  // ROOT IGNORES PERMISSION BITS, so a 0500 directory is still writable and
+  // this scenario cannot be constructed at all — the upload succeeds and the
+  // status is not 409. It is not a flaky test or a behaviour change: as any
+  // other user, including every developer's own machine, it holds.
+  //
+  // Only CI is affected, and only since CI moved into a container on the
+  // self-hosted fleet (GitHub-hosted runners ran as an unprivileged user, so
+  // this passed there by circumstance rather than by design). The way to get
+  // the coverage back is to run that job as a non-root user; until then this
+  // is an honest skip rather than a weakened assertion.
+  it.skipIf(process.getuid?.() === 0)("read-only working directory -> 409", async () => {
     const ws = tempWorkDir();
     const id = await makeSubshell(ownerId, ws);
     chmodSync(ws, 0o500);

@@ -1,5 +1,28 @@
 name: Test
 
+# EVERY job here runs on the self-hosted fleet, inside the repo's own builder
+# image — GitHub-hosted minutes are metered on a private repo and this is the
+# workflow that spends them (roughly 9 of the ~12 per push).
+#
+# The image (docker/desktop-builder.Dockerfile) already carries bun 1.4.0,
+# rustup stable and Tauri's system dependencies, which is why the jobs below
+# no longer install any of that: `setup-bun`, `dtolnay/rust-toolchain` and
+# every `sudo apt-get` are gone. Nothing on the fleet is assumed — note that
+# release.yml, which has always run there, never invokes sudo either, so
+# passwordless root on the host is NOT something this repo relies on. Inside a
+# container we simply ARE root, which is also what makes Playwright's
+# `install-deps` possible.
+#
+# THE COST OF THE CONTAINER is that it writes as root onto a PERSISTENT
+# workspace, so every job ends with an un-root step (`if: always()`) copied
+# from release.yml. Without it the next job on that runner dies in
+# `actions/checkout` with `EACCES`, which reads like a checkout bug rather than
+# a leftover — the failure `reset-linux-runner-workspace.yml` exists to repair.
+#
+# `timeout-minutes` on every job is not boilerplate: the fleet is finite, so a
+# hung job starves every other workflow, releases included. GitHub's 360-minute
+# default is an outage, not a timeout.
+
 on:
   pull_request:
   push:
@@ -8,19 +31,71 @@ on:
 
 permissions:
   contents: read
+  # The container jobs pull ghcr.io/subshell-ai/desktop-builder, which inherits
+  # this repo's visibility. Without this the runner's docker pull is DENIED and
+  # the job dies in "Initialize containers" before a single step runs — the
+  # same trap release.yml documents.
+  packages: read
+
+# The fleet serves every workflow now, so a superseded push must not keep it
+# busy: pushing three times to a PR used to queue three full sets of jobs, all
+# but the last of them already irrelevant. release.yml deliberately
+# does the OPPOSITE (`cancel-in-progress: false`) — cancelling a release
+# mid-flight leaves a tag without a release — but CI has nothing to protect.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: Testing
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        # A container job defaults to `sh`, not bash, and these steps use
+        # `set -o pipefail`. Same reason release.yml sets it.
+        shell: bash
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Use Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The TmuxRunner suite drives a real tmux server. Idempotent so it costs
+      # nothing once the image bakes tmux in (it is in the Dockerfile now, but
+      # a PR still pulls whatever tag `main` last published).
+      - name: Ensure tmux and jq
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          tmux -V && jq --version
+
+      # tsdown/rolldown run under NODE, not bun — their bin shebang is
+      # `#!/usr/bin/env node` — so the repo has always had a Node requirement
+      # it never declared, and CI silently inherited whatever the host had.
+      # ubuntu-latest shipped 20+; the fleet has 18.19, and rolldown needs
+      # `styleText` from `node:util` (20.12+), so the build broke on the move.
+      #
+      # Pinned to the `engines.node` the root package.json now declares, NOT
+      # to rolldown's floor — Ubuntu 24.04's apt node is 18, so the image
+      # cannot supply this and setup-node is the only route.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          bun-version: 1.4.0
+          node-version: 24
 
       - name: Cache Bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -36,10 +111,6 @@ jobs:
           path: node_modules/.cache/turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
-
-      # The TmuxRunner suite drives a real tmux server.
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -78,29 +149,55 @@ jobs:
           if printf '%s' "$status_out" | grep -q "via self"; then echo "renamed compiled binary self-resolved its mcp entrypoint"; exit 1; fi
           echo "compiled-binary smoke OK: version + clean mcp refusal + renamed-artifact fall-through"
 
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
   # The shared Rust library both desktop apps depend on. Its own job because it
   # has NO tauri dependency and therefore none of Tauri's system deps — it is a
   # ~30-second job, and keeping it separate means the apps' matrix legs do not
   # each re-run it.
   desktop-core-rust:
     name: Desktop core (Rust)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Use Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The image installs rustup with `--profile minimal`, which does NOT
+      # carry rustfmt or clippy — and this job is nothing but those two plus
+      # tests. Idempotent, so it is a no-op once the image bakes them in.
+      - name: Ensure rustfmt and clippy
+        run: |
+          set -euo pipefail
+          rustup component add rustfmt clippy
+          cargo fmt --version && cargo clippy --version
 
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
+          # CARGO_HOME is /usr/local/cargo in the image, not ~/.cargo.
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
             crates/desktop-core/target
           key: ${{ runner.os }}-cargo-core-${{ hashFiles('crates/desktop-core/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-core-
@@ -112,14 +209,31 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo test
 
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
   # The two Tauri apps' Rust halves. Deliberately their OWN job rather than part
-  # of `bun run test`: that command runs on a plain ubuntu-latest with no Rust
-  # toolchain (and none of Tauri's system deps), which is exactly why cargo is
-  # kept out of the turbo build graph.
+  # of `bun run test`: cargo is kept out of the turbo build graph, and these
+  # need Tauri's system deps — which is exactly what the builder image carries,
+  # so the old `sudo apt-get install libwebkit2gtk…` step is gone.
   desktop-rust:
     name: Desktop (Rust) — ${{ matrix.app }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     strategy:
+      # Both legs may queue rather than run side by side, depending on how much
+      # of the fleet is free — which is fine: measured on the fleet these are
+      # ~1m10s each against ~2m on GitHub-hosted, because the workspace (and so
+      # `target/`) persists between runs.
       fail-fast: false
       matrix:
         # `app` is the component id (also the release tag prefix); `dir` is
@@ -136,34 +250,34 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Tauri links against the system webview at BUILD time, so even
-      # `cargo test --lib` needs these.
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            build-essential curl wget file libxdo-dev libssl-dev pkg-config
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Use Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+      - name: Ensure rustfmt and clippy
+        run: |
+          set -euo pipefail
+          rustup component add rustfmt clippy
 
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
             apps/${{ matrix.dir }}/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
           restore-keys: ${{ runner.os }}-cargo-${{ matrix.app }}-
 
       # `tauri-build` REFUSES TO BUILD when an `externalBin` file is missing,
       # and the staged sidecar is a gitignored ~110 MB build input — so a clean
-      # checkout cannot compile this crate at all without one.
+      # checkout cannot compile this crate at all without one. `bun run
+      # rust:check` does the same thing locally.
       #
       # A stub is the right answer here rather than a real build. This job tests
       # the Rust logic — the resolution ladder, the ExecStart parser, the
@@ -188,17 +302,59 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo test
 
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
   e2e:
     name: End-to-end
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Use Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The session-lifecycle spec spawns real tmux sessions (stub harness).
+      - name: Ensure tmux and jq
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          tmux -V && jq --version
+
+      # tsdown/rolldown run under NODE, not bun — their bin shebang is
+      # `#!/usr/bin/env node` — so the repo has always had a Node requirement
+      # it never declared, and CI silently inherited whatever the host had.
+      # ubuntu-latest shipped 20+; the fleet has 18.19, and rolldown needs
+      # `styleText` from `node:util` (20.12+), so the build broke on the move.
+      #
+      # Pinned to the `engines.node` the root package.json now declares, NOT
+      # to rolldown's floor — Ubuntu 24.04's apt node is 18, so the image
+      # cannot supply this and setup-node is the only route.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          bun-version: 1.4.0
+          node-version: 24
 
       - name: Cache Bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -215,10 +371,6 @@ jobs:
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
-      # The session-lifecycle spec spawns real tmux sessions (stub harness).
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
-
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
@@ -233,6 +385,16 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package.json') }}
           restore-keys: ${{ runner.os }}-playwright-
 
+      # `install-browsers` is `playwright install chromium` — it fetches the
+      # browser but NOT the shared libraries it dlopens, which ubuntu-latest
+      # happened to already have and a bare ubuntu:24.04 image does not. A
+      # chromium that downloads fine and then cannot launch is the failure this
+      # avoids. Kept out of the package script deliberately: `install-deps`
+      # needs root, which a developer's machine should not be asked for.
+      - name: Install Chromium system libraries
+        working-directory: e2e
+        run: bunx playwright install-deps chromium
+
       - name: Install Chromium
         run: bun run test:e2e:install
 
@@ -246,3 +408,11 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 7
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"

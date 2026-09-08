@@ -111,9 +111,11 @@ jobs:
 
       # The runner ships node 18 and no gh; the changesets action shells out to
       # `npx changeset`, so pin a modern node for it (bun stays as-is below).
+      # Version tracks the root package.json's `engines.node`, which is now
+      # declared rather than inherited from whatever the host had.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
       - run: bun install --frozen-lockfile
 
@@ -338,10 +340,12 @@ jobs:
 
       # tsdown/rolldown bins carry a `#!/usr/bin/env node` shebang and need
       # node >= 20.12 (util.styleText); the Linux runners ship node 18 (macOS
-      # ships 22 — that asymmetry only shows up here, never on hosted CI).
+      # ships 22 — an asymmetry that used to show up only here, and now bites
+      # test.yml/lint.yml too since they moved onto the same fleet).
+      # Version tracks the root package.json's `engines.node`.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
       - run: bun install --frozen-lockfile
 
@@ -693,6 +697,30 @@ jobs:
           fi
           echo "path=$out" >> "$GITHUB_OUTPUT"
 
+      # Both licences oblige us to hand a recipient the terms — Apache-2.0
+      # §4(a) says so outright — and what we publish is a BARE binary plus a
+      # .sha256, downloaded straight into ~/.local/bin with no file beside it.
+      # The CLIs answer `license`, but a release page should not require
+      # running the binary to learn what you may do with it.
+      #
+      # Staged under one directory with distinct basenames because softprops
+      # uploads by basename: two files called LICENSE would collide silently.
+      - id: legal
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          mkdir -p legal
+          cp repo/LICENSE legal/LICENSE
+          cp repo/NOTICE legal/NOTICE
+          # The control plane is the AGPL half; its full text (with the
+          # section 7 API Type Surface exception) rides along for the two
+          # components that actually ship it.
+          case "$APP" in
+            server|desktop-server) cp repo/apps/server/LICENSE legal/LICENSE-AGPL-3.0 ;;
+          esac
+          ls -la legal
+
       # Draft first: a failed upload never ships a live release.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -701,7 +729,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: true
           body_path: ${{ steps.notes.outputs.path }}
-          files: dist/${{ matrix.app }}-*/*
+          files: |
+            dist/${{ matrix.app }}-*/*
+            legal/*
           fail_on_unmatched_files: true
 
       # Same tag + draft omitted = update the existing draft and publish it

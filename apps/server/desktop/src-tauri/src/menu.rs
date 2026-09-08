@@ -12,6 +12,7 @@
 //! the menu bar, and with nothing there to claim them they are swallowed. In a
 //! terminal app that is a correctness bug, not missing polish.
 
+use subshell_desktop_core::legal::{COMPANY_URL, COPYRIGHT_HOLDER, COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL};
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -28,7 +29,34 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "Subshell Server",
         true,
         &[
-            &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::about(
+                app,
+                None,
+                Some(AboutMetadata {
+                    // Tauri renders an EMPTY About box from
+                    // `AboutMetadata::default()` — no version, no copyright, no
+                    // licence. For the one app surface whose entire job is to
+                    // say what this software is and who owns it, that is the
+                    // whole content missing, not a rough edge.
+                    //
+                    // `name` and `version` are deliberately left unset: Tauri
+                    // then falls back to the BUNDLE's own values, which are the
+                    // right ones. The crate is 0.1.0 while the app ships 0.5.0
+                    // (tauri.conf.json reads ../package.json), so
+                    // `env!("CARGO_PKG_VERSION")` here would confidently print
+                    // the wrong version, and `productName` differs per app.
+                    copyright: Some(COPYRIGHT_LINE.into()),
+                    // There is ONE link slot, and an About box's website
+                    // conventionally means the publisher — so the licence URL
+                    // rides inside the licence text instead of competing for
+                    // it. Not clickable there, but present, which is what the
+                    // obligation to state the terms actually needs.
+                    license: Some(format!("{LICENSE_SUMMARY}\n{LICENSE_URL}")),
+                    website: Some(COMPANY_URL.into()),
+                    website_label: Some(COPYRIGHT_HOLDER.into()),
+                    ..Default::default()
+                }),
+            )?,
             &PredefinedMenuItem::separator(app)?,
             &item(DesktopAction::GoPreferences, "Preferences…", Some("CmdOrCtrl+,"))?,
             &MenuItem::with_id(app, "console", "Server…", true, None::<&str>)?,

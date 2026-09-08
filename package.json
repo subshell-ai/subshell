@@ -28,6 +28,7 @@
     "lint:check": "turbo run lint:check --continue --",
     "lint:packages": "syncpack lint",
     "lint:licenses": "bun scripts/license-fields.ts",
+    "rust:check": "bash scripts/rust-check.sh",
     "lint:licenses:fix": "bun scripts/license-fields.ts --fix",
     "lint:lockfile": "bun scripts/lockfile-workspace-versions.ts",
     "lint:lockfile:fix": "bun scripts/lockfile-workspace-versions.ts --fix",
@@ -66,7 +67,8 @@
     "typescript": "7.0.2"
   },
   "engines": {
-    "bun": ">=1.4.0"
+    "bun": ">=1.4.0",
+    "node": ">=24"
   },
   "engineStrict": true,
   "packageManager": "bun@1.4.0",
