@@ -14,6 +14,8 @@
  * refusal differently are two surfaces that drift.
  */
 
+import { CONFIG_FIELDS, configPayload, fieldProblems, seedForm } from "./config-form.js";
+
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 const dialog = () => window.__TAURI__.dialog;
 const el = (id) => document.getElementById(id);
@@ -32,7 +34,7 @@ let problem = "";
  * and submitted whatever the fresh inputs happened to hold. The typed value is
  * the state; the input is a view of it.
  */
-const form = { port: "", host: "" };
+let form = seedForm(undefined);
 /** Which step the action area currently shows, so focus survives a re-render. */
 let renderedStep = null;
 
@@ -201,15 +203,15 @@ const STEPS = Object.assign(Object.create(null), {
   },
   unreachable: {
     body: "A subshell-server was found, but it did not answer.",
-    hint: "Nothing has been changed. Retry, or choose a different binary — this app will not rewrite a configuration it cannot read. If the answer you expect is a different port, edit it here.",
+    hint: "Nothing has been changed. Retry, or choose a different binary — this app will not rewrite a configuration it cannot read. If the answer you expect is a different port or address, edit it here.",
     actions: () => [
       ["Retry", act(null), true],
       ["Choose a different one…", pickBinary],
-      ["Change port or host…", showConfigure],
+      ["Change addresses…", showConfigure],
     ],
   },
   init: {
-    body: "The server has no config.env yet. Choose a port and host.",
+    body: "The server has no config.env yet. Choose the port and the addresses it will answer to.",
     hint: "Written to ~/.config/subshell-server/config.env (0600), with a fresh auth secret.",
     form: true,
     actions: () => [["Create configuration", doInit, true, true]],
@@ -219,7 +221,7 @@ const STEPS = Object.assign(Object.create(null), {
     hint: "A systemd user unit on Linux, a launchd agent on macOS. Installing also starts it.",
     actions: () => [
       ["Install and start as a service", service("install", true), true, true],
-      ["Change port or host…", showConfigure],
+      ["Change addresses…", showConfigure],
     ],
   },
   start: {
@@ -227,7 +229,7 @@ const STEPS = Object.assign(Object.create(null), {
     actions: () => [
       ["Start", service("start", true), true, true],
       ["Uninstall service", service("uninstall")],
-      ["Change port or host…", showConfigure],
+      ["Change addresses…", showConfigure],
     ],
   },
   ready: {
@@ -236,7 +238,7 @@ const STEPS = Object.assign(Object.create(null), {
       ["Open Subshell Server", openMain, true],
       ["Restart", doRestart, false, true],
       ["Stop", doStop],
-      ["Change port or host…", showConfigure],
+      ["Change addresses…", showConfigure],
     ],
   },
   // Reached from any configured step, not from the probe: this is an edit of
@@ -246,8 +248,10 @@ const STEPS = Object.assign(Object.create(null), {
   // those steps stick, and a step that cannot say "change it" strands the
   // user in the one state they need to leave.
   configure: {
-    body: "Change the port or host this server listens on.",
-    hint: "config.env is rewritten. The running server keeps its current settings until it restarts.",
+    body: "Change the addresses this server listens on and answers to.",
+    hint:
+      "Sign-in fails with “Invalid origin” from any address the server does not know about, so list every " +
+      "one you browse from. config.env is rewritten; the running server keeps its current settings until it restarts.",
     form: true,
     actions: () => [
       ["Save and restart", doConfigure, true, true],
@@ -377,22 +381,26 @@ function buildTmuxWarning() {
 /** Built once and MOVED between action rebuilds; `hidden` is recomputed every render. */
 const tmuxWarn = buildTmuxWarning();
 
-/** The init form, seeded from what the server itself reports rather than from a third copy of its defaults. */
+/**
+ * The init/configure form, seeded from what the server itself reports rather
+ * than from a second copy of its defaults — see `seedForm` for why a
+ * `default`-sourced value is deliberately left blank.
+ *
+ * A field the user has already typed into wins over the probe: every guarded
+ * action ends with a re-probe, so re-seeding here would overwrite what someone
+ * is in the middle of typing.
+ */
 function buildForm() {
-  const settings = probe?.status?.settings ?? {};
-  form.port = form.port || settings.SERVER_PORT?.value || "";
-  form.host = form.host || settings.HOST?.value || "";
+  const seeded = seedForm(probe?.status?.settings);
+  for (const { name } of CONFIG_FIELDS) form[name] = form[name] || seeded[name];
   const wrap = document.createElement("div");
   wrap.className = "grid2";
   wrap.style.width = "100%";
-  for (const [name, label, placeholder] of [
-    ["port", "Port", "3080"],
-    // Blank inherits the CLI default, which since 2026-09-07 is 0.0.0.0 — a
-    // loopback bind is unreachable from every other machine, and remote nodes
-    // and devices are the point of a control plane. Type 127.0.0.1 to opt out.
-    ["host", "Host", "0.0.0.0"],
-  ]) {
+  for (const field of CONFIG_FIELDS) {
+    const { name, label, placeholder, numeric, wide, hint } = field;
     const cell = document.createElement("div");
+    // A URL and a comma-separated list do not fit half a two-column grid.
+    if (wide) cell.className = "span2";
     const l = document.createElement("label");
     l.htmlFor = `field-${name}`;
     l.textContent = label;
@@ -400,11 +408,37 @@ function buildForm() {
     input.id = `field-${name}`;
     input.value = form[name];
     input.placeholder = placeholder;
-    if (name === "port") input.inputMode = "numeric";
+    input.spellcheck = false;
+    input.autocapitalize = "off";
+    if (numeric) input.inputMode = "numeric";
     input.addEventListener("input", () => {
       form[name] = input.value;
     });
     cell.append(l, input);
+    if (hint) {
+      const h = document.createElement("p");
+      h.className = "hint";
+      h.textContent = hint;
+      cell.append(h);
+    }
+    // What `status` says a BROWSER will do with the value currently stored —
+    // beside the field that changes it, which is the whole reason those
+    // problems travel as data rather than as a line of CLI output.
+    //
+    // These describe the STORED value and stay put while the field is edited.
+    // A guard that hid them on edit was tried and removed: `buildForm` runs
+    // only when the step changes, so it never re-ran on input and the guard
+    // was dead code behind a comment claiming otherwise. Re-rendering per
+    // keystroke to make it true would rebuild the inputs and lose focus — and
+    // a problem about the value on disk is still true while someone types a
+    // replacement, so there is nothing to hide. It clears on save, when the
+    // re-probe reports the new value.
+    for (const problem of fieldProblems(probe?.status?.settings, name)) {
+      const warn = document.createElement("p");
+      warn.className = "hint warn-text";
+      warn.textContent = problem.reason;
+      cell.append(warn);
+    }
     wrap.append(cell);
   }
   return wrap;
@@ -495,7 +529,7 @@ function guard(fn, settle = false) {
 const act = (cmd, args) => guard(() => (cmd ? invoke(cmd, args) : null));
 const service = (verb, settle) => guard(() => invoke("desktop_service", { verb, force: false }), settle);
 
-const doInit = guard(() => invoke("desktop_init", { port: form.port, host: form.host }));
+const doInit = guard(() => invoke("desktop_init", configPayload(form)));
 const openMain = guard(() => invoke("desktop_open_main"));
 
 /**
@@ -543,11 +577,13 @@ const doStop = guard(async () => {
   return result;
 });
 
-/** Open the configure form, seeded from what the server currently reports. */
+/**
+ * Open the configure form, RESEEDED from what the server currently reports —
+ * an edit starts from the stored configuration, not from whatever a previous
+ * visit to the form left behind.
+ */
 function showConfigure() {
-  const settings = probe?.status?.settings ?? {};
-  form.port = settings.SERVER_PORT?.value ?? "";
-  form.host = settings.HOST?.value ?? "";
+  form = seedForm(probe?.status?.settings);
   override = "configure";
   renderedStep = null;
   render();
@@ -567,7 +603,7 @@ function cancelConfigure() {
  * Doing both here is what makes the button mean what it says.
  */
 const doConfigure = guard(async () => {
-  const written = await invoke("desktop_init", { port: form.port, host: form.host });
+  const written = await invoke("desktop_init", configPayload(form));
   if (!written.ok) return written;
   override = null;
   // No service yet: the file IS the whole action, and there is nothing to

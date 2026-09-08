@@ -301,9 +301,9 @@ it, so never make a bare invocation mean anything else.
 | Command | |
 | --- | --- |
 | `version` | print `subshell-server <version>` and exit |
-| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`) |
+| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
 | `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
-| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --db-path --yes` |
+| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes` |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
 | `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
@@ -384,9 +384,84 @@ a `configure`d `DATABASE_PATH` relocates the dev server on its next restart.
 That is the point (one machine, one configuration), but it is why
 `e2e/stack.ts` points `SUBSHELL_SERVER_CONFIG_DIR` at its own temp dir —
 anything that boots the server for test purposes and wants stock config must
-override the home, not merely avoid setting variables. `configure` owns four keys — `SERVER_PORT`, `HOST`,
-`APP_BASE_URL`, `DATABASE_PATH` — and `init` persists the secret (an
-existing value is never rotated). tmux preflight: `init`, `configure` and
+override the home, not merely avoid setting variables. `configure` owns five keys — `SERVER_PORT`, `HOST`,
+`APP_BASE_URL`, `DATABASE_PATH` and `TRUSTED_ORIGINS` — and `init` persists the
+secret (an existing value is never rotated).
+
+Two things about that set are load-bearing and were both bugs first:
+
+- **Defaults follow the FILE, in every mode.** A stored value is the default
+  for its question, so ENTER through an interactive re-run *and* a `--yes` run
+  given no flag for that key both keep what is configured. `--yes` used to
+  answer with the built-ins alone, which made a scripted re-run a RESET of
+  every unflagged key — contradicting `init`'s own idempotence contract, and
+  with a live victim: the desktop console's save is a non-interactive
+  `init --yes --port … --host …`, so changing the port there repointed
+  `DATABASE_PATH` at the config-dir default and threw away a customised
+  `APP_BASE_URL`. Flags still outrank the file everywhere. The other half of
+  that interaction is WARNED rather than silently fixed: preserving a stored
+  `http://box.local:3080` across `--port 4000` leaves a base URL naming a dead
+  port (and an allowlist around the wrong origin), so `configure` says so when
+  the base URL names a concrete non-default port that disagrees with the bind
+  port. A default-port base URL is a PROXY, not a mismatch — warning on
+  `https://subshell.example` in front of `:3080` would fire on every correct
+  production config.
+- **`TRUSTED_ORIGINS` is written or REMOVED, never written empty**
+  (`OPTIONAL_KEYS` in `commands/configure.ts`). The other four have a built-in
+  default worth writing down; this one's built-in default is a non-empty list
+  (the dev Vite origins), so a `TRUSTED_ORIGINS=` line would be a
+  SETDEFAULT-visible empty value that beats `.env` in the ladder and silently
+  strips those origins on a developer's own machine. `--trusted-origins` is
+  therefore the ONE value flag whose empty value is accepted — that is how
+  "clear the list" is said, now that omitting a flag means "keep the stored
+  value". Entries are validated by COMPONENT (http(s) scheme, a host, no
+  path/query/fragment) and STORED as `URL.origin`, so the spellings people type
+  — a trailing slash, a mixed-case host, expanded IPv6, an explicit `:443` —
+  are accepted and written in the one form both consumers match; embedded
+  credentials are refused rather than silently dropped. The refusal names the
+  offending entry. **Wildcards are refused explicitly**, before that check,
+  because `URL.origin` round-trips them: better-auth routes any `*`/`?`
+  pattern through `wildcardMatch`, so `https://*` would trust every https
+  origin. See `docs/security.md` §8 — that refusal is what makes the
+  static-allowlist claim true of anything these surfaces can write.
+
+`localOriginsFor` serializes every derived entry through `URL.origin`, and that
+is load-bearing rather than tidy: as string concatenation, `http://<host>:80`
+on a port-80 deployment matched nothing a browser sends (80 is the scheme
+default, so the `Origin` header carries no port), and a mixed-case `HOST` never
+matched either — a derived entry that LOOKS like it covers the LAN address
+while being dead weight. Extend the `localOriginsFor` describe in
+`__tests__/trusted-origins.test.ts` when touching it; `port: 80` and an
+uppercase host are the cases that catch this class.
+
+**Why the diagnostics live in `status` and not at boot.** Neither refusing nor
+warning at boot works. A throw in `constants.ts` would brick every subcommand,
+`configure` included — the one command that could repair the value, which is
+the `SERVER_PORT=70000` precedent already in the tree. And a boot WARNING
+cannot name the LAYER the value came from, so a process-env override of a
+correct `config.env` would send the operator to edit the file they got right.
+`status` is read-only, always exits 0, already carries per-key attribution, and
+is what the desktop console reads — so the diagnosis reaches the surface
+someone runs BECAUSE sign-in is failing, and the console renders it beside the
+field that changes it. `originProblem`/`baseUrlProblem` live in
+`commands/config-values.ts` and share primitives with the validator rather than
+duplicating it: a `status` that called a value unusable when `configure` would
+accept it (or the reverse) would make the tool look broken instead of the
+config. Wildcards are the deliberate silence — better-auth honours them, so
+flagging one would be a lint against a supported feature.
+
+Why the key is asked about at all: `constants.ts` derives the allowlist from
+the port, a CONCRETE `HOST` and the base URL. On the default `0.0.0.0` bind the
+host is skipped (a wildcard is a listen address, not one anyone visits) and
+`APP_BASE_URL` defaults to `http://localhost:<port>` — so the whole derived set
+is the two loopback spellings, and a phone or a second hostname on the LAN
+sends an `Origin` nothing matches and sign-in dies on 403 "Invalid origin".
+Nothing about that failure names the key that fixes it, which is why it is a
+question rather than a hand-edit. `DEFAULT_TRUSTED_ORIGINS` lives in
+`constants.ts` and is imported by `status`, so the reported default cannot
+drift from the one the boot uses.
+
+tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`
 node launches every pane through it); escape hatch
 `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`. On an INTERACTIVE run the preflight

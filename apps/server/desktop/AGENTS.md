@@ -24,7 +24,7 @@ so serving the SPA ourselves would mean an auth rework, not a build change.
 ```bash
 bun run dev:app             # tauri dev (needs a staged sidecar — see below)
 bun run compile             # tauri build --debug
-bun run test                # bun test src   (the TS half)
+bun run test                # bun test src test  (the release script + the console's pure half)
 cd src-tauri && cargo test  # the Rust half — the ladder, the parsers, the policy
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
@@ -256,7 +256,42 @@ and pins `on_navigation` to the origin it was opened with — three independent
 gates, because the window holds privileged globals.
 
 The console has a real CSP (`script-src 'self'`), which is why its logic lives
-in `ui/main.js` rather than inline.
+in `ui/main.js` rather than inline — and why `ui/config-form.js` is a sibling
+ES module rather than anything bundled.
+
+**The configure form's seeding rule is a contract, not a rendering.** A save is
+a non-interactive `init --yes`, and `configure` resolves every key it was given
+no flag for to that key's STORED value — so what the form sends decides whether
+a save preserves config.env or rewrites it, and both ways of getting it wrong
+are silent. `ui/config-form.js` holds the two pure halves (`seedForm`,
+`configPayload`, `fieldProblems`) and `test/config-form.test.js` covers them —
+OUTSIDE `ui/`, because `frontendDist` is `../ui` and that whole directory is
+copied into the shipped bundle, so a `ui/__tests__/` would put a file importing
+`bun:test` inside the installed app. `package.json`'s `test` runs
+`bun test src test`, and a guard in that same file fails if any test source
+reappears under the asset root:
+
+- A field is seeded only when `status --json` reports its `source` as something
+  other than `default`. `status` reports the value the server WOULD boot with,
+  so every key always has a value, and seeding a `default`-sourced one would
+  materialize a built-in into config.env as though someone had chosen it.
+
+  **What that rule does NOT do is prevent the stale-port case**, and it is
+  worth being exact because the reverse is easy to assume. `APP_BASE_URL` is in
+  `OWNED_KEYS`, so it is written on every save — which means after the FIRST
+  save it is `config.env`-sourced forever, the field is always seeded, and
+  changing only the port leaves a base URL naming a port nothing listens on.
+  The guard there is `configure`'s port-mismatch warning, not the seeding
+  rule; the console shows the CLI's stdout verbatim, so the warning is what
+  the user actually reads. The seeding rule's job is narrower and still worth
+  having: a fresh install does not get its built-ins frozen into the file, and
+  a base URL the user never chose keeps being derived from the port they
+  answer.
+- Every field is sent every time, empty included, because an omitted flag now
+  means "keep the file". The Rust side (`init_args`) turns an empty
+  `port`/`host`/`base_url` into an omitted flag — the CLI refuses an empty value
+  for those — while `trusted_origins` is passed through even when empty, since
+  it is the one emptyable flag and the only way to clear a list.
 
 ## Native chrome
 

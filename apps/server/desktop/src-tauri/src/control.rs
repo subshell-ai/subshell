@@ -336,25 +336,55 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
     }
 }
 
-/// `subshell-server init --yes` with the operator's port/host.
+/// The `init --yes` argv for one set of console answers.
+///
+/// Split out of [`desktop_init`] so the assembly is testable without a Tauri
+/// app handle — the command itself is then just "resolve the binary, run this".
+///
+/// Two rules, and they differ per field. `port`/`host`/`base_url`: an empty
+/// field must not become an empty flag VALUE, because the CLI refuses one,
+/// where OMITTING the flag correctly falls back to its own default (and the
+/// base URL to a derivation from the answered port). `trusted_origins`: `None`
+/// means "say nothing", `Some("")` means "say none" — the CLI accepts an empty
+/// value for that one flag precisely so a list can be cleared, and since a
+/// stored value is now every key's default, collapsing the two would make
+/// clearing impossible.
+fn init_args(port: &str, host: &str, base_url: &str, trusted_origins: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec!["init".into(), "--yes".into()];
+    for (flag, value) in [("--port", port), ("--host", host), ("--base-url", base_url)] {
+        if !value.trim().is_empty() {
+            args.extend([flag.to_string(), value.to_string()]);
+        }
+    }
+    if let Some(origins) = trusted_origins {
+        args.extend(["--trusted-origins".to_string(), origins.to_string()]);
+    }
+    args
+}
+
+/// `subshell-server init --yes` with the addresses the operator typed.
+///
+/// The console passes every field it shows, not just the changed ones: it
+/// seeds the form from `status --json`, and `configure` now defaults an
+/// unflagged key to its STORED value — so an omitted flag means "keep what is
+/// on disk", which is not what a form someone just edited means.
 #[tauri::command(async)]
-pub fn desktop_init(settings: State<'_, SettingsState>, port: String, host: String) -> ActionResult {
+pub fn desktop_init(
+    settings: State<'_, SettingsState>,
+    port: String,
+    host: String,
+    base_url: String,
+    trusted_origins: Option<String>,
+) -> ActionResult {
     let server = server_bin::resolve(settings.get().binary_path.as_deref());
-    let Some(mut cmd) = server_cmd(&server, &["init", "--yes"]) else {
+    let args = init_args(&port, &host, &base_url, trusted_origins.as_deref());
+    let Some(cmd) = server_cmd(&server, &args.iter().map(String::as_str).collect::<Vec<_>>()) else {
         return ActionResult {
             ok: false,
             stdout: String::new(),
             stderr: "no subshell-server found".into(),
         };
     };
-    // An empty field must not become an empty flag value: the CLI would refuse
-    // it, where omitting the flag correctly falls back to its own default.
-    if !port.trim().is_empty() {
-        cmd.extend(["--port".into(), port]);
-    }
-    if !host.trim().is_empty() {
-        cmd.extend(["--host".into(), host]);
-    }
     run(&cmd, ACTION_TIMEOUT).into()
 }
 
@@ -699,6 +729,54 @@ mod tests {
 
     fn configured() -> serde_json::Value {
         json!({"configEnv": {"exists": true}, "settings": {}, "listen": {"portValid": true, "port": 3080, "listening": true}})
+    }
+
+    /// The console is the only place these four are typed together, and it
+    /// passes ALL of them every time — it seeds from `status --json`, so an
+    /// omitted flag would mean "keep whatever is stored", which is not what a
+    /// form the user just edited means.
+    #[test]
+    fn init_args_carry_every_non_empty_field() {
+        assert_eq!(
+            init_args(
+                "3080",
+                "0.0.0.0",
+                "http://box.local:3080",
+                Some("http://box.local:3080")
+            ),
+            vec![
+                "init",
+                "--yes",
+                "--port",
+                "3080",
+                "--host",
+                "0.0.0.0",
+                "--base-url",
+                "http://box.local:3080",
+                "--trusted-origins",
+                "http://box.local:3080",
+            ]
+        );
+    }
+
+    /// An empty field must not become an empty flag VALUE: the CLI refuses one
+    /// for these three, where omitting the flag correctly falls back to its own
+    /// default (and, for the base URL, to a derivation from the answered port).
+    #[test]
+    fn init_args_omit_empty_port_host_and_base_url() {
+        assert_eq!(init_args("  ", "", "   ", None), vec!["init", "--yes"]);
+    }
+
+    /// `--trusted-origins ""` is the ONE emptyable flag, and passing it is how
+    /// clearing the list is expressed — `None` (nothing to say) and `Some("")`
+    /// (say "none") are different requests and must not collapse.
+    #[test]
+    fn init_args_pass_an_empty_trusted_origins_as_an_explicit_clear() {
+        assert_eq!(
+            init_args("", "", "", Some("")),
+            vec!["init", "--yes", "--trusted-origins", ""]
+        );
+        assert_eq!(init_args("", "", "", None), vec!["init", "--yes"]);
     }
 
     #[test]

@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
+import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
-import { NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { DEFAULT_TRUSTED_ORIGINS, NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, serviceArtifactPath } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
@@ -31,16 +32,48 @@ export interface StatusDeps {
 /** Where a resolved setting came from — the layer attribution `status` prints in parentheses. */
 export type SettingSource = "process env" | "config.env" | "default";
 
+/** One unusable piece of a setting's value. */
+export interface SettingProblem {
+  /**
+   * The offending entry — one comma-separated item, or the whole value for a
+   * single-valued key. ALWAYS a slice of the setting's own `value`, which is
+   * what keeps this field from introducing a new class of data into the view
+   * (pinned by `__tests__/cli.test.ts`).
+   */
+  entry: string;
+  /** What a browser will actually do, in one sentence. Rendered verbatim by both views. */
+  reason: string;
+}
+
 /** One resolved setting plus the layer it came from. */
 export interface StatusSetting {
   /** The effective value the server would boot with. */
   value: string;
   /** Which layer of `process env > config.env > .env > defaults` supplied it. */
   source: SettingSource;
+  /**
+   * Per-entry problems with this value; ABSENT when it is usable, never `[]`
+   * — so every other key's shape is unchanged and a consumer gating on
+   * `problems?.length` cannot draw an empty warning.
+   *
+   * Diagnostic, never a verdict. The boot ACCEPTS these values; this says what
+   * a browser will do with them. Deliberately no `ok` boolean: the moment
+   * there is one, a caller branches on it and someone later makes it block a
+   * save — and the decision here was warn-don't-refuse, because refusing at
+   * boot would brick the `configure` that repairs the value.
+   *
+   * It exists because a boot-time check cannot work. `constants.ts` is
+   * imported by every subcommand, so a throw there kills `configure` too; and
+   * a boot WARNING cannot name the LAYER a value came from, so it sends an
+   * operator to edit a config.env they already got right. `status` carries the
+   * layer, is read-only, always exits 0, and is already what the desktop
+   * console reads.
+   */
+  problems?: SettingProblem[];
 }
 
-/** The four keys `configure` owns, and the only ones `status` resolves. */
-export type StatusSettingKey = "SERVER_PORT" | "HOST" | "APP_BASE_URL" | "DATABASE_PATH";
+/** The keys `configure` owns, and the only ones `status` resolves. */
+export type StatusSettingKey = "SERVER_PORT" | "HOST" | "APP_BASE_URL" | "DATABASE_PATH" | "TRUSTED_ORIGINS";
 
 /**
  * Everything `status` knows, as data.
@@ -57,7 +90,7 @@ export interface StatusView {
   version: string;
   /** The config file's resolved path, and whether it is there. A consumer branches on `exists` to offer `init`. */
   configEnv: { path: string; exists: boolean };
-  /** The four `configure`-owned keys, each with its layer attribution. */
+  /** The `configure`-owned keys, each with its layer attribution. */
   settings: Record<StatusSettingKey, StatusSetting>;
   /** Presence only — never the value. */
   authSecret: { state: "set" | "missing"; source: SettingSource };
@@ -99,7 +132,35 @@ export function collectStatus(deps: StatusDeps): StatusView {
     if (cfg.values[key] === process.env[key]) return "config.env";
     return "process env";
   };
-  const setting = (key: string, value: string): StatusSetting => ({ value, source: tag(key) });
+  /**
+   * Build one setting, attaching problems only when `probe` finds any.
+   *
+   * The predicates live in `commands/config-values.ts` beside the validator
+   * `configure` uses, and share its primitives — a `status` that called a
+   * value unusable when `configure` would accept it (or the reverse) would
+   * make the tool look broken rather than the config.
+   */
+  const setting = (key: string, value: string, probe?: (v: string) => SettingProblem[]): StatusSetting => {
+    const found = probe?.(value) ?? [];
+    return { value, source: tag(key), ...(found.length > 0 ? { problems: found } : {}) };
+  };
+
+  /** Per-entry problems for a comma-separated origin list. */
+  const originProblems = (value: string): SettingProblem[] =>
+    value
+      .split(",")
+      .map((raw) => raw.trim())
+      .filter(Boolean)
+      .flatMap((entry) => {
+        const reason = originProblem(entry);
+        return reason === null ? [] : [{ entry, reason }];
+      });
+
+  /** The base URL is single-valued, so the whole value is the entry. */
+  const baseUrlProblems = (value: string): SettingProblem[] => {
+    const reason = baseUrlProblem(value);
+    return reason === null ? [] : [{ entry: value, reason }];
+  };
 
   // Mirrors of constants.ts defaults (imported by the boot path only; kept in
   // sync deliberately — importing constants here would run dotenvx in a CLI
@@ -132,8 +193,18 @@ export function collectStatus(deps: StatusDeps): StatusView {
     settings: {
       SERVER_PORT: setting("SERVER_PORT", portRaw),
       HOST: setting("HOST", host),
-      APP_BASE_URL: setting("APP_BASE_URL", cfg.get("APP_BASE_URL") ?? `http://localhost:${portRaw}`),
+      APP_BASE_URL: setting("APP_BASE_URL", cfg.get("APP_BASE_URL") ?? `http://localhost:${portRaw}`, baseUrlProblems),
       DATABASE_PATH: setting("DATABASE_PATH", cfg.get("DATABASE_PATH") ?? DEFAULT_DATABASE_PATH),
+      // Reported with the real built-in default rather than an empty string,
+      // because the point of this view is "what WOULD this boot with" — the
+      // boot trusts those two dev origins when the key is unset, and saying
+      // "" here would be a lie a consumer could act on. Consumers that need
+      // "has anyone chosen this" read `source === "default"`.
+      TRUSTED_ORIGINS: setting(
+        "TRUSTED_ORIGINS",
+        cfg.get("TRUSTED_ORIGINS") ?? DEFAULT_TRUSTED_ORIGINS,
+        originProblems,
+      ),
     },
     authSecret: {
       state: cfg.get("BETTER_AUTH_SECRET") !== undefined ? "set" : "missing",
@@ -164,6 +235,9 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
   const field = (key: StatusSettingKey): void => {
     const s = v.settings[key];
     log(`${key.padEnd(20)} = ${s.value}  (${s.source})`);
+    // Indented under the value it is about, and printed VERBATIM — both views
+    // render what the object says rather than computing a second wording.
+    for (const problem of s.problems ?? []) log(`${" ".repeat(23)}! ${problem.reason}`);
   };
 
   log(`subshell-server ${v.version}`);
@@ -171,6 +245,7 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
   field("SERVER_PORT");
   field("HOST");
   field("APP_BASE_URL");
+  field("TRUSTED_ORIGINS");
   field("DATABASE_PATH");
   // Never echo the secret — masked/missing is all status reveals.
   const secretText = v.authSecret.state === "set" ? "set (masked)" : "MISSING";
@@ -266,7 +341,23 @@ export function syncPortListening(
   // failed command.
   let out: string;
   try {
-    const res = Bun.spawnSync({ cmd: ["netstat", ...args], stdout: "pipe", stderr: "ignore", timeout: 1000 });
+    const res = Bun.spawnSync({
+      cmd: ["netstat", ...args],
+      stdout: "pipe",
+      stderr: "ignore",
+      timeout: 1000,
+      // `env` passed EXPLICITLY, and it is what makes the guard above real
+      // rather than aspirational. Measured on bun 1.4.0: `Bun.spawnSync`
+      // resolves the binary from a snapshot of the environment taken at
+      // PROCESS START, so with `env` omitted a PATH that no longer holds
+      // /usr/sbin is ignored — netstat is found and answers anyway. That is
+      // why the regression test for the 2026-09-07 GUI-launched-CLI failure
+      // could never reproduce it: mutating `process.env.PATH` changed nothing.
+      // Passing the live `process.env` makes resolution honour the environment
+      // this process is actually running under, which is the only version of
+      // "no netstat on PATH" a caller can observe or a test can arrange.
+      env: process.env,
+    });
     if (res.exitCode !== 0) return null; // no netstat — no answer available
     out = res.stdout.toString();
   } catch {

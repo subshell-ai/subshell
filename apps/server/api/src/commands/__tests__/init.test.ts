@@ -56,7 +56,7 @@ describe("runInit — idempotence", () => {
     expect(runInit({ yes: true }, deps)).toBe(0);
     const cfg = readCfg(dir);
     expect(cfg.BETTER_AUTH_SECRET).toBe("legacy-secret");
-    expect(cfg.SERVER_PORT).toBe("3080"); // configure flow still owns/rewrites its keys
+    expect(cfg.SERVER_PORT).toBe("2222"); // the flow rewrites its keys, from the file's own values
     expect(out.join("\n")).toMatch(/left untouched/i);
   });
 
@@ -99,7 +99,7 @@ describe("runInit — tmux preflight", () => {
         installed = true;
         return 0;
       },
-      answers: ["y", "", "", "", ""],
+      answers: ["y", "", "", "", "", ""],
     });
     expect(runInit({}, deps)).toBe(0);
     expect(prompts[0]?.[0]).toMatch(/Install tmux now with apt-get\?/i);

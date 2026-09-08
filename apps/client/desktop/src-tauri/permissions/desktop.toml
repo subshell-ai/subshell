@@ -32,6 +32,11 @@ description = "Register this machine as a node via `subshell enroll`. Destructiv
 commands.allow = ["node_enroll"]
 
 [[permission]]
+identifier = "allow-node-configure"
+description = "Repoint this machine's node at a different control plane via `subshell configure`. NON-destructive, which is what separates it from enroll: it spends no setup key, mints no second node row, and keeps the node key — so it only works when both addresses are one plane under two names; a different plane refuses the node key and the node goes offline until it is pointed back or enrolled afresh. It also repoints this app's own stored plane address, so the two cannot diverge. It does not rename: the plane owns a node's name."
+commands.allow = ["node_configure"]
+
+[[permission]]
 identifier = "allow-node-service"
 description = "Drive one `subshell service` verb. Includes stop and restart, which end every subshell running on this machine unless the installed unit keeps them."
 commands.allow = ["node_service"]

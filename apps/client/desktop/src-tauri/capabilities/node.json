@@ -14,6 +14,7 @@
     "allow-node-probe",
     "allow-node-install-agent",
     "allow-node-enroll",
+    "allow-node-configure",
     "allow-node-service",
     "allow-node-set-agent-bin",
     "allow-node-open-path",

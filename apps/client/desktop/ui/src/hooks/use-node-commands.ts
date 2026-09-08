@@ -21,6 +21,7 @@ import { asks, finished } from "@/lib/actions";
 import { pickAgentBinaryPath } from "@/lib/dialog";
 import {
   type EnrolledNodeBody,
+  nodeConfigure,
   nodeEnroll,
   nodeInstallAgent,
   nodeOpenPath,
@@ -54,6 +55,8 @@ export interface NodeCommands {
   rewrite: () => void;
   /** Register this machine. Two-phase, always. */
   enroll: () => void;
+  /** Repoint this machine's node at another control plane. Non-destructive, so one click. */
+  repoint: (server: string) => void;
   /** Reveal one of the app's own directories or files. */
   openPath: (target: OpenTarget) => void;
   /** Choose an agent binary by hand. */
@@ -253,6 +256,19 @@ export function useNodeCommands(args: {
           },
         });
       }),
+
+    /**
+     * Repointing is the ONE address change that costs nothing, and that is why
+     * it is a single click where {@link NodeCommands.enroll} is two.
+     * `configure` spends no setup key, mints no second node row and keeps the
+     * node key — so there is nothing here to confirm, and asking would teach
+     * the user that this is as dangerous as re-enrolling, which is the
+     * confusion the separate command exists to remove.
+     *
+     * It DOES re-probe: `serverUrl` is a probe fact, and the divergence notice
+     * is computed from it.
+     */
+    repoint: (server) => runner.run(async () => finished(await nodeConfigure({ server }))),
 
     openPath: (target) =>
       runner.run(async () => {

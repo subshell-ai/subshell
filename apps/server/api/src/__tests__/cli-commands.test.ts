@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
+import { FLAG_FOR_KEY } from "../commands/configure.js";
 import { parseEnvFile } from "../config-env.js";
 
 /**
@@ -112,6 +113,75 @@ describe("dispatchCli — configure", () => {
     expect(cfgOf(skipped.dir).SERVER_PORT).toBe("3080");
   });
 
+  test("--trusted-origins takes a comma-separated list", async () => {
+    const { deps, dir, exits } = harness();
+    expect(
+      await dispatchCli(
+        ["configure", "--trusted-origins", "http://box.local:3080,http://10.0.0.5:3080", "--yes"],
+        deps,
+      ),
+    ).toBe(true);
+    expect(exits).toEqual([0]);
+    expect(cfgOf(dir).TRUSTED_ORIGINS).toBe("http://box.local:3080,http://10.0.0.5:3080");
+  });
+
+  /**
+   * The ONE flag whose empty value is a real answer: "no extra origins". Every
+   * other value flag keeps the refusal — an empty port is a typo, an empty
+   * origin list is a choice — and since a stored value is now the default,
+   * this is the only way a caller can CLEAR the list.
+   */
+  test("--trusted-origins accepts an EMPTY value, and it clears the stored list", async () => {
+    for (const argv of [
+      ["configure", "--trusted-origins", "", "--yes"],
+      ["configure", "--trusted-origins=", "--yes"],
+    ]) {
+      const { deps, dir, exits } = harness();
+      writeFileSync(join(dir, "config.env"), "TRUSTED_ORIGINS=http://box.local:3080\n", { mode: 0o600 });
+      expect(await dispatchCli(argv, deps)).toBe(true);
+      expect(exits).toEqual([0]);
+      expect(cfgOf(dir).TRUSTED_ORIGINS).toBeUndefined();
+    }
+  });
+
+  test("--trusted-origins still refuses a MISSING value, or one shadowed by a flag", async () => {
+    for (const argv of [
+      ["configure", "--trusted-origins"],
+      ["configure", "--trusted-origins", "--yes"],
+    ]) {
+      const { deps, exits } = harness();
+      expect(await dispatchCli(argv, deps)).toBe(true);
+      expect(exits).toEqual([1]);
+    }
+  });
+
+  test("an unusable trusted origin exits 1 with zero writes", async () => {
+    const { deps, dir, exits, err } = harness();
+    expect(await dispatchCli(["configure", "--trusted-origins", "box.local:3080", "--yes"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toMatch(/trusted origin/i);
+    expect(() => readFileSync(join(dir, "config.env"))).toThrow();
+  });
+
+  /**
+   * `configure.ts` names a flag per key so a refusal can say how to get past a
+   * bad STORED value. A renamed flag would leave that message pointing at one
+   * the parser rejects — advice that fails when followed. Asserted through the
+   * parser rather than by exporting its flag set: what matters is that each
+   * named flag is actually accepted.
+   */
+  test("every flag configure.ts advertises in a refusal is one the parser accepts", async () => {
+    // Acceptance is the whole claim — that following the advice does not die on
+    // `unknown flag`. What each flag then DOES with its value is covered
+    // per-flag above; there is no single value that is invalid for all five
+    // (an empty origin list is legal, and almost any string is a valid host).
+    for (const [key, flag] of Object.entries(FLAG_FOR_KEY)) {
+      const { deps, err } = harness();
+      expect(await dispatchCli(["configure", `${flag}=x`, "--yes"], deps)).toBe(true);
+      expect(err.join("\n"), `${key} → ${flag}`).not.toContain("unknown flag");
+    }
+  });
+
   test("validation failure exits 1 with zero writes", async () => {
     const { deps, dir, exits, err } = harness();
     expect(await dispatchCli(["configure", "--port", "70000", "--yes"], deps)).toBe(true);
@@ -154,6 +224,7 @@ describe("dispatchCli — init", () => {
     expect(text).toContain("init");
     expect(text).toContain("configure");
     expect(text).toContain("--base-url");
+    expect(text).toContain("--trusted-origins");
   });
 });
 

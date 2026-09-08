@@ -208,7 +208,7 @@ are free-form and are not `productName`.
 ```
 src-tauri/src/
 ├── agent_bin.rs   the resolution ladder for `subshell`, and the bundled-vs-installed policy
-├── control.rs     the eight `node_*` commands, and Probe
+├── control.rs     the eleven `node_*` commands, and Probe
 ├── windows.rs     the two windows — the plane's page, and the bundled node page
 ├── tray.rs        tray icon + menu (an explicit id; a Menu attached, or Linux may not register it)
 ├── menu.rs        the macOS menu bar — module-gated, because Linux has none
@@ -306,7 +306,27 @@ The same rules the Subshell Server console enforces, and for the same reasons
 - **`enroll` has no already-enrolled guard.** It overwrites `config.json`, mints
   a SECOND node row on the server, and discards the old node key whose only home
   was that 0600 file. `node_enroll` therefore takes a `confirm` flag and spawns
-  nothing until it is true.
+  nothing until it is true. **`node_configure` is the non-destructive one** —
+  `subshell configure --server` repoints an enrolled node, keeps its identity
+  and spends no setup key, so it is deliberately ONE click with no confirm
+  phase. Asking there would teach the user that a repoint costs what a
+  re-enrol costs, which is the confusion the separate command removes.
+- **This app holds TWO control-plane addresses.** Its own `planeUrl` (what the
+  plane window opens) and the node's `serverUrl` in `config.json` (what the
+  daemon dials). `plane_url_from` falls back to the second only when the first
+  is unset, so once a preference exists the two drift freely — and every
+  surface showed exactly one of them, which made a drift invisible: the app
+  would show a plane while this machine's subshells reported to another.
+  `node_configure` now writes BOTH, and `lib/plane-coherence.ts` +
+  `components/node-plane-card.tsx` name the pairs that predate it (or that a
+  CLI `subshell enroll` made behind the app's back). One address known is not a
+  drift — an un-enrolled client has no `serverUrl`, a CLI-enrolled machine no
+  stored `planeUrl` — so the notice stays silent there.
+- **The node's plane address is shown in ONE place**,
+  `components/node-plane-card.tsx`, and deliberately not as a `probe-facts`
+  row: it is the only address on the page that can be changed, so it lives with
+  the control that changes it, and the enroll-time loopback warning moved with
+  it. A `probe-facts` test pins its absence.
 - **A setup key is single-use and lasts 24 hours.** Everything checkable is
   checked before the server consumes it, but a 409 (name already taken) or a 500
   arrives AFTER — and spends it. Those say "mint a new key", never "retry".

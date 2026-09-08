@@ -110,6 +110,17 @@ pub enum AgentCommand {
         key: String,
         name: Option<String>,
     },
+    /// `configure --json` — repoint an ALREADY-enrolled node.
+    ///
+    /// The non-destructive counterpart to [`AgentCommand::Enroll`], and the
+    /// reason it is a separate variant rather than a flag on that one: it
+    /// carries no setup key, keeps this node's id and node key, and mints no
+    /// second node row. "The control plane moved" had no other answer.
+    ///
+    /// Carries no name, because the CLI takes none: `config.json`'s name never
+    /// reaches the plane outside the enroll body, so a rename here would move
+    /// a local display string and leave the Nodes page unchanged.
+    Configure { server: String },
 }
 
 impl AgentCommand {
@@ -141,6 +152,12 @@ impl AgentCommand {
                 args.push("--json".into());
                 args
             }
+            AgentCommand::Configure { server } => {
+                // `--json` for the same reason enroll uses it: the node id and
+                // the stored address come back as data, never screen-scraped
+                // off a human line. The body omits the node key.
+                vec!["configure".into(), "--server".into(), server.clone(), "--json".into()]
+            }
         }
     }
 
@@ -149,7 +166,9 @@ impl AgentCommand {
     fn timeout(&self) -> Duration {
         match self {
             AgentCommand::Status | AgentCommand::ServiceStatus => QUERY_TIMEOUT,
-            AgentCommand::Service { .. } | AgentCommand::Enroll { .. } => ACTION_TIMEOUT,
+            AgentCommand::Service { .. } | AgentCommand::Enroll { .. } | AgentCommand::Configure { .. } => {
+                ACTION_TIMEOUT
+            }
         }
     }
 }
@@ -729,6 +748,54 @@ pub fn node_service(settings: State<'_, SettingsState>, verb: ServiceCommand, fo
     }
 }
 
+/// Repoint this machine's node at a different control plane.
+///
+/// The non-destructive sibling of [`node_enroll`], and the reason it needs no
+/// confirmation gate: it spends no setup key, mints no second node row, and
+/// keeps the node key whose only home is `config.json`. Nothing here is
+/// unrecoverable, so nothing here has to be asked about twice.
+///
+/// On success the app's own `planeUrl` is repointed TOO. Those are two
+/// independent values — `plane_url_from` falls back to the node's `serverUrl`
+/// only when no preference is stored — so leaving it alone would show a plane
+/// at one address while this machine's daemon talked to another, with no
+/// surface naming the difference. A repoint is a statement about which control
+/// plane this machine belongs to, and both halves of the app should hear it.
+///
+/// The URL is validated HERE, before anything spawns: the same
+/// [`validate_server_url`] the enroll form and the plane window use, so all
+/// three refuse the same strings with the same words.
+#[tauri::command(async)]
+pub fn node_configure(settings: State<'_, SettingsState>, server: Option<String>) -> ActionResult {
+    let server = match server.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        Some(raw) => match validate_server_url(&raw) {
+            Ok(url) => url,
+            Err(e) => return ActionResult::refused(e),
+        },
+        None => return ActionResult::refused("enter the control plane's URL to repoint this node"),
+    };
+    let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
+    let command = AgentCommand::Configure { server: server.clone() };
+    let Some(out) = run_agent(agent.as_ref(), &command) else {
+        return ActionResult::refused(NO_AGENT);
+    };
+    // Only on success: a refused repoint must not move the app's own address
+    // to a plane this machine is not actually pointed at.
+    if out.ok() {
+        // A settings write that fails is worth saying so — the repoint itself
+        // landed, and the two values are now the divergence this exists to
+        // prevent, which the caller can only explain if it is told.
+        if let Err(e) = settings.update(|s| s.plane_url = Some(server.clone())) {
+            return ActionResult {
+                ok: true,
+                stdout: out.stdout,
+                stderr: format!("the node was repointed, but this app could not remember the address: {e}"),
+            };
+        }
+    }
+    out.into()
+}
+
 // ---------------------------------------------------------------------------
 // Enrollment
 // ---------------------------------------------------------------------------
@@ -814,7 +881,25 @@ pub fn validate_server_url(raw: &str) -> Result<String, String> {
     if url.host_str().filter(|h| !h.is_empty()).is_none() {
         return Err(format!("'{trimmed}' names no host"));
     }
-    Ok(trimmed.trim_end_matches('/').to_string())
+    // Rebuilt from the PARSED scheme and authority, which `tauri::Url` has
+    // already lower-cased, rather than returned raw.
+    //
+    // The raw form preserved a mixed-case scheme, and this string is what the
+    // page shows, what is persisted as `planeUrl`, and what is handed to
+    // `subshell configure --server`. The agent's `wsUrlFor` derives its dial
+    // URL by string-replacing the scheme, so `HTTP://host` became
+    // `HTTP://host/ws/node` — not a WebSocket URL, and nothing said why. The
+    // agent normalizes on write too (`normalizeServer`); this keeps the two
+    // spellings of "one normalization" in agreement.
+    //
+    // The path is kept (minus trailing slashes) because a control plane behind
+    // a reverse-proxy subpath is a real deployment and a path is
+    // case-sensitive.
+    let path = url.path().trim_end_matches('/');
+    let query = url.query().map(|q| format!("?{q}")).unwrap_or_default();
+    let host = url.host_str().unwrap_or_default();
+    let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
+    Ok(format!("{}://{host}{port}{path}{query}", url.scheme()))
 }
 
 /// Whether a control-plane URL points at this machine.
@@ -1355,6 +1440,36 @@ mod command_set_tests {
         assert!(!without.args().iter().any(|a| a == "--name"));
     }
 
+    /// `configure` is the NON-destructive repoint, and its argv is what proves
+    /// it: no `--key` (it spends no setup key) and no `--data-dir` (the
+    /// identity directory belongs to the enrollment that made it). No `--name`
+    /// either — the plane owns a node's name, and the CLI rejects the flag.
+    #[test]
+    fn configure_repoints_without_a_setup_key_or_a_rename() {
+        let args = AgentCommand::Configure {
+            server: "https://subshell.example".into(),
+        }
+        .args();
+        assert_eq!(args, ["configure", "--server", "https://subshell.example", "--json"]);
+        for forbidden in ["--key", "--data-dir", "--name"] {
+            assert!(!args.iter().any(|a| a == forbidden), "{forbidden} must not appear");
+        }
+    }
+
+    /// A repoint dials no control plane — it rewrites one local file — but it
+    /// does go through the same spawn machinery as an enroll, and the CLI does
+    /// its own fs work. The action deadline, not the query one.
+    #[test]
+    fn a_repoint_gets_the_action_deadline() {
+        assert_eq!(
+            AgentCommand::Configure {
+                server: "https://subshell.example".into(),
+            }
+            .timeout(),
+            ACTION_TIMEOUT
+        );
+    }
+
     // A read must never wait 90 seconds, and an enroll must never be killed at
     // 15 — the CLI's own network deadline is 30.
     #[test]
@@ -1844,13 +1959,45 @@ mod validation_tests {
         );
     }
 
-    // The parser's normalized spelling is NOT what is returned: the CLI
-    // persists the string it was handed, so the two must agree.
+    /// The scheme is lower-cased, matching `normalizeServer` in
+    /// `apps/node/agent/src/enroll.ts`.
+    ///
+    /// This value is what the page shows, what gets persisted as `planeUrl`,
+    /// and what is handed to `subshell configure --server`. The agent's
+    /// `wsUrlFor` builds its dial URL by string-replacing the scheme, so a
+    /// mixed-case one produced `HTTP://host/ws/node` — not a WebSocket URL.
+    /// The agent now normalizes on write regardless, so this is the two
+    /// spellings of "one normalization" agreeing rather than the only guard.
     #[test]
-    fn the_original_spelling_is_what_comes_back() {
+    fn a_mixed_case_scheme_is_lowercased_like_the_agent_does() {
+        assert_eq!(
+            validate_server_url("HTTP://Box.Local:3080").unwrap(),
+            "http://box.local:3080"
+        );
+        assert_eq!(
+            validate_server_url("HTTPS://Subshell.Example").unwrap(),
+            "https://subshell.example"
+        );
+    }
+
+    /// The parser's normalized spelling IS what comes back — and this test
+    /// used to assert the opposite.
+    ///
+    /// Its original reason was sound: "the CLI persists the string it was
+    /// handed, so the two must agree". That premise inverted when
+    /// `normalizeServer` (`apps/node/agent/src/enroll.ts`) started
+    /// canonicalizing on write — it had to, because it returned a mixed-case
+    /// scheme verbatim and the agent's `wsUrlFor` replaces the scheme with a
+    /// case-sensitive match, so `HTTP://host` was dialed as
+    /// `HTTP://host/ws/node`, which is not a WebSocket URL. With the CLI
+    /// canonicalizing, AGREEMENT now requires canonicalizing here too:
+    /// returning the raw spelling would make this app display and persist an
+    /// address the CLI does not store.
+    #[test]
+    fn the_parsers_spelling_is_what_comes_back_because_the_cli_stores_that() {
         assert_eq!(
             validate_server_url("http://Box.Local:3080").unwrap(),
-            "http://Box.Local:3080"
+            "http://box.local:3080"
         );
     }
 

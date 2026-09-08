@@ -1,6 +1,7 @@
 import { readMcpEnv } from "@internal/mcp-core";
 import { licenseNotice, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type AgentConfig, configPath, loadConfig } from "./config.js";
+import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, readLock } from "./lock.js";
@@ -40,6 +41,11 @@ const USAGE = `subshell — node agent daemon
 
 usage:
   subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
+  subshell configure --server <url> [--json]
+                          repoint an ALREADY-enrolled node at a different control
+                          plane — keeps this node's identity and spends no setup
+                          key; restart the agent to apply. Does NOT rename: the
+                          plane owns a node's name (the Nodes page)
   subshell run
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell service status [--json]     (what the service manager reports)
@@ -53,7 +59,7 @@ usage:
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["enroll", "license", "mcp", "run", "service", "status", "version"]);
+const COMMANDS = new Set(["configure", "enroll", "license", "mcp", "run", "service", "status", "version"]);
 /**
  * Bare flags accepted IN THE COMMAND SLOT. argv[0] is the command here, so
  * `subshell --version` would otherwise die as `unknown command '--version'`
@@ -99,6 +105,11 @@ const subcommandFlagUnion = (command: string): string[] => [
   ...new Set(Object.values(SUBCOMMAND_FLAGS[command] ?? {}).flat()),
 ];
 const COMMAND_FLAGS: Record<string, string[]> = {
+  // No --key and no --data-dir: this command spends no setup key, and the
+  // identity directory belongs to the enrollment that created it. No --name
+  // either — see configure.ts: the plane never reads this file's name outside
+  // the enroll body, so a rename here would be a lie.
+  configure: ["--server", "--json"],
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   license: [],
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
@@ -314,6 +325,34 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
         }
         return { code: 0, out: `Enrolled as ${enrolled.nodeId} — next: subshell run\n`, err: "" };
+      }
+      case "configure": {
+        // A usage error, not a runtime one: "configure with no flags" is a
+        // mistyped command, and the usage block is the answer to it. Every
+        // other refusal here is the command's own (exit 1, no usage dump).
+        const server = parsed.flags.server;
+        if (server === undefined) throw new UsageError("configure requires --server <url>");
+        const next = await runConfigure({ server });
+        if (parsed.flags.json) {
+          // Same rule as enroll/status --json: the nodeKey is NEVER here. A
+          // GUI drives this command, so a leak would land the node's bearer
+          // credential in a webview.
+          const body = {
+            nodeId: next.nodeId,
+            serverUrl: next.serverUrl,
+            name: next.name,
+            dataDir: next.dataDir,
+            configPath: configPath(),
+          };
+          return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
+        }
+        return {
+          code: 0,
+          out:
+            `node ${next.nodeId} "${next.name}" now points at ${next.serverUrl}\n` +
+            "restart the agent to apply it: subshell service restart (or restart `subshell run`)\n",
+          err: "",
+        };
       }
       case "status": {
         // NON-DESTRUCTIVE by default (fix wave 1): a live `daemon.lock` (pid alive, same

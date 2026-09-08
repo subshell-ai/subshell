@@ -7,7 +7,7 @@
  * `service status --json` bodies. Nothing here decides anything.
  */
 import type { AgentChoice, AgentSource, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
-import { isLoopback, type Tone } from "@/lib/steps";
+import type { Tone } from "@/lib/steps";
 
 /** One `dt`/`dd` pair. */
 export interface Fact {
@@ -80,13 +80,10 @@ export function probeFacts(args: {
     const named = enrolledNode?.nodeId === st.nodeId && enrolledNode?.name ? ` "${enrolledNode.name}"` : "";
     out.push({ key: "node", value: st.nodeId + named });
   }
-  if (st?.serverUrl) {
-    out.push({
-      key: "control plane",
-      value: st.serverUrl,
-      tone: isLoopback(st.serverUrl) ? "warn" : undefined,
-    });
-  }
+  // The node's own control-plane address is deliberately NOT a fact here.
+  // `components/node-plane-card.tsx` owns it, because it is the one address on
+  // this page that can be CHANGED — and an address shown in two cards is two
+  // places to keep in step. The loopback warning moved with it.
   // Named because the re-enroll warning refers to it: this 0600 file is the
   // node key's only home, and "discards the current node key" is abstract until
   // the user can see which file is about to be overwritten.
