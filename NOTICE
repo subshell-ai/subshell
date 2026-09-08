@@ -1,7 +1,7 @@
 Subshell
-Copyright 2026 Disaresta
+Copyright 2026 Disaresta, LLC
 
-This product includes software developed by Disaresta.
+This product includes software developed by Disaresta, LLC.
 
 Portions of this repository are NOT covered by the Apache License 2.0:
 the contents of apps/server/ -- the Subshell control plane -- are licensed
