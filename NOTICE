@@ -1,7 +1,7 @@
 Subshell
-Copyright 2026 Theo Gravity
+Copyright 2026 Disaresta
 
-This product includes software developed by Theo Gravity.
+This product includes software developed by Disaresta.
 
 Portions of this repository are NOT covered by the Apache License 2.0:
 the contents of apps/server/ -- the Subshell control plane -- are licensed

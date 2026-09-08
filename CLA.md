@@ -3,10 +3,11 @@
 Thank you for contributing to Subshell.
 
 This Contributor License Agreement ("Agreement") records the terms under which
-You contribute to Subshell. It protects You, it protects Theo Gravity ("the
-Maintainer"), and it protects everyone who relies on the project. **You keep the
-copyright in everything You write.** This Agreement grants the Maintainer a
-licence to use it — it does not take it away from You.
+You contribute to Subshell. It protects You, it protects Disaresta ("the
+Maintainer"), which owns the Subshell copyright, and it protects everyone who
+relies on the project. **You keep the copyright in everything You write.**
+This Agreement grants the Maintainer a licence to use it — it does not take
+it away from You.
 
 ## Why this exists
 
@@ -116,3 +117,5 @@ inaccurate.
 Open a pull request. A bot will comment with a one-line statement to post,
 recording your acceptance against your GitHub account. You sign once; the
 signature covers all of your future contributions.
+
+Questions about this Agreement: Theo Gravity <theo@disaresta.com>.

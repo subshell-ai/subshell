@@ -23,7 +23,11 @@ AGPL. Only the control plane's implementation is copyleft.
 Self-hosting Subshell is free under both licenses: no time limit, no user cap,
 and no feature clock.
 
-Copyright 2026 Theo Gravity
+Commercial licensing: if your organization cannot use AGPL-licensed
+software, non-AGPL commercial licenses for apps/server/ are available.
+Contact Theo Gravity <theo@disaresta.com>.
+
+Copyright 2026 Disaresta
 
 ===============================================================================
 
