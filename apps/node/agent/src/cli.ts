@@ -1,5 +1,5 @@
 import { readMcpEnv } from "@internal/mcp-core";
-import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { licenseNotice, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type AgentConfig, configPath, loadConfig } from "./config.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
@@ -46,13 +46,14 @@ usage:
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell status [--json] [--probe]
   subshell version        (also --version, -v)
+  subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane — internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["enroll", "mcp", "run", "service", "status", "version"]);
+const COMMANDS = new Set(["enroll", "license", "mcp", "run", "service", "status", "version"]);
 /**
  * Bare flags accepted IN THE COMMAND SLOT. argv[0] is the command here, so
  * `subshell --version` would otherwise die as `unknown command '--version'`
@@ -99,6 +100,7 @@ const subcommandFlagUnion = (command: string): string[] => [
 ];
 const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
+  license: [],
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
   run: [],
   // Derived, never hand-listed: the command-level check is the union and the
@@ -223,6 +225,13 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
     switch (parsed.command) {
       case "version":
         return { code: 0, out: `subshell ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
+      // Separate from `version` on purpose: `version` is a machine contract
+      // (the release smoke matches it, scripts parse it), and this binary
+      // ships as a bare single file with no LICENSE beside it — so this
+      // subcommand is how a recipient gets the terms both licences oblige us
+      // to hand over.
+      case "license":
+        return { code: 0, out: licenseNotice("subshell", AGENT_VERSION), err: "" };
       case "mcp": {
         // The stdio MCP server for one subshell pane (spec §6.4). It is NOT
         // an enrolled-daemon command: no config, no lock, no socket — just the

@@ -22,6 +22,7 @@
 //! and a setup key that cannot reasonably be typed by hand, so a missing ⌘V
 //! here is not missing polish, it is an app that cannot be used.
 
+use subshell_desktop_core::legal::{COPYRIGHT_LINE, LICENSE_SUMMARY, LICENSE_URL};
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Wry};
 
@@ -37,7 +38,29 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "Subshell Client",
         true,
         &[
-            &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::about(
+                app,
+                None,
+                Some(AboutMetadata {
+                    // Tauri renders an EMPTY About box from
+                    // `AboutMetadata::default()` — no version, no copyright, no
+                    // licence. For the one app surface whose entire job is to
+                    // say what this software is and who owns it, that is the
+                    // whole content missing, not a rough edge.
+                    //
+                    // `name` and `version` are deliberately left unset: Tauri
+                    // then falls back to the BUNDLE's own values, which are the
+                    // right ones. The crate is 0.1.0 while the app ships 0.5.0
+                    // (tauri.conf.json reads ../package.json), so
+                    // `env!("CARGO_PKG_VERSION")` here would confidently print
+                    // the wrong version, and `productName` differs per app.
+                    copyright: Some(COPYRIGHT_LINE.into()),
+                    license: Some(LICENSE_SUMMARY.into()),
+                    website: Some(LICENSE_URL.into()),
+                    website_label: Some("Licence".into()),
+                    ..Default::default()
+                }),
+            )?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,

@@ -300,6 +300,63 @@ function auditGraph(workspaces: Workspace[]): { unlisted: string[]; leaks: strin
 }
 
 // ---------------------------------------------------------------------------
+// Stage 3: the human-facing notices
+// ---------------------------------------------------------------------------
+
+/**
+ * The copyright line, as three files independently spell it.
+ *
+ * Two runtimes cannot share a constant, so the TypeScript and Rust halves are
+ * duplicated by necessity and the root LICENSE is a third copy in prose. A
+ * drifted copyright line is invisible — nobody re-reads an About box — and it
+ * is the one string that has to be right, because it names who owns the work.
+ */
+const NOTICE_SOURCES: { path: string; pattern: RegExp; what: string }[] = [
+  {
+    path: "packages/subshell-protocol/src/legal.ts",
+    pattern: /^export const COPYRIGHT_LINE = `Copyright \$\{COPYRIGHT_YEAR\} \$\{COPYRIGHT_HOLDER\}`;$/m,
+    what: "template",
+  },
+  {
+    path: "crates/desktop-core/src/legal.rs",
+    pattern: /^pub const COPYRIGHT_LINE: &str = "(?<line>[^"]+)";$/m,
+    what: "literal",
+  },
+  { path: "LICENSE", pattern: /^(?<line>Copyright \d{4} .+)$/m, what: "literal" },
+  { path: "NOTICE", pattern: /^(?<line>Copyright \d{4} .+)$/m, what: "literal" },
+  { path: "apps/server/LICENSE", pattern: /^Copyright \(C\) (?<line>\d{4} .+)$/m, what: "agpl" },
+];
+
+/** Reads the TS holder/year, which are assembled rather than written out. */
+function typescriptCopyrightLine(): string {
+  const source = readFileSync(resolve(REPO_ROOT, "packages/subshell-protocol/src/legal.ts"), "utf8");
+  const holder = source.match(/^export const COPYRIGHT_HOLDER = "([^"]+)";$/m)?.[1];
+  const year = source.match(/^export const COPYRIGHT_YEAR = "([^"]+)";$/m)?.[1];
+  if (!holder || !year) throw new Error("legal.ts: COPYRIGHT_HOLDER/COPYRIGHT_YEAR not found");
+  return `Copyright ${year} ${holder}`;
+}
+
+/** Every file's copyright line, keyed by path, for comparison. */
+function collectNotices(): { path: string; line: string }[] {
+  const found: { path: string; line: string }[] = [];
+  for (const source of NOTICE_SOURCES) {
+    if (source.what === "template") {
+      // The TS constant is built from two others; compare the assembled value.
+      found.push({ path: source.path, line: typescriptCopyrightLine() });
+      continue;
+    }
+    const text = readFileSync(resolve(REPO_ROOT, source.path), "utf8");
+    const match = text.match(source.pattern);
+    if (!match) throw new Error(`${source.path}: no copyright line matched`);
+    const line = match.groups?.line ?? "";
+    // apps/server/LICENSE writes the GNU-conventional `Copyright (C) <year>
+    // <holder>`; normalise so it compares against the others.
+    found.push({ path: source.path, line: source.what === "agpl" ? `Copyright ${line}` : line });
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -356,6 +413,19 @@ if (leaks.length > 0) {
       "  apps/server/LICENSE carves out of the AGPL under section 7. A value import is\n" +
       "  outside that carve-out. Make it `import type`, or reconsider the edge.\n",
   );
+}
+
+const notices = collectNotices();
+const distinct = [...new Set(notices.map((n) => n.line))];
+if (distinct.length > 1) {
+  failed = true;
+  console.error(`✗ the copyright line disagrees across ${notices.length} files:\n`);
+  for (const notice of notices) console.error(`  ${notice.path}\n      ${notice.line}`);
+  console.error(
+    "\n  These are separate copies by necessity (two runtimes, plus prose), so\n  nothing but this check keeps them equal.\n",
+  );
+} else {
+  console.log(`✓ "${distinct[0]}" agrees across ${notices.length} files`);
 }
 
 if (!failed) {

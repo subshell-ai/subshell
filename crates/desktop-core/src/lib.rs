@@ -57,6 +57,7 @@
 //! shipped app's users have on disk — an app that starts reading a different
 //! settings file has silently forgotten every preference they set.
 
+pub mod legal;
 pub mod proc;
 pub mod settings;
 pub mod shell_env;

@@ -130,6 +130,35 @@ describe("missing required flags", () => {
   });
 });
 
+describe("license", () => {
+  // The binary ships bare — a download renamed into ~/.local/bin with no
+  // LICENSE beside it — so this subcommand is how a recipient gets the terms
+  // Apache-2.0 §4(a) obliges us to hand over.
+  test("prints the copyright, the licence and the full-text URL, exit 0", async () => {
+    const res = await run(["license"]);
+    expect(res.code).toBe(0);
+    expect(res.err).toBe("");
+    expect(res.out).toContain("Copyright 2026 Disaresta, LLC");
+    expect(res.out).toContain("Apache-2.0");
+    expect(res.out).toContain("https://github.com/subshell-ai/subshell/blob/main/LICENSE");
+    expect(res.out.split("\n")[0]).toMatch(/^subshell \d+\.\d+\.\d+$/);
+  });
+
+  // The whole reason `license` is its own subcommand: `version` is a machine
+  // contract (the release smoke matches it, scripts parse it), so it must not
+  // have grown any of this.
+  test("version stays a single line and gains nothing from license", async () => {
+    const version = await run(["version"]);
+    expect(version.out).toMatch(/^subshell \d+\.\d+\.\d+ \(node protocol v\d+\)\n$/);
+    expect(version.out).not.toContain("Copyright");
+  });
+
+  test("takes no flags", async () => {
+    const res = await run(["license", "--json"]);
+    expect(res.code).toBe(2);
+  });
+});
+
 describe("--version / -v in the command slot", () => {
   // argv[0] IS the command in this parser, so `subshell --version` used to
   // die as `unknown command '--version'` — accurate about the parser and

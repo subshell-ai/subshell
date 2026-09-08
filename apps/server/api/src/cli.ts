@@ -1,6 +1,7 @@
 import { readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { runSubshellMcp } from "@internal/mcp-core";
+import { licenseNotice } from "@internal/subshell-protocol";
 import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { runInit } from "@/commands/init.js";
 import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
@@ -125,6 +126,7 @@ const USAGE = `subshell-server — the Subshell control plane
 usage:
   subshell-server                run the server (boot path: no subcommand)
   subshell-server version        print the version and exit
+  subshell-server license        print the copyright and licence and exit
   subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env
   subshell-server configure      (re)write config.env; interactive unless --yes
@@ -180,6 +182,17 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
   switch (command) {
     case "version":
       log(`subshell-server ${SERVER_VERSION}`);
+      exit(0);
+      return true;
+    // Separate from `version` on purpose: `version` is a machine contract —
+    // the release smoke compares its output for EXACT equality — and this
+    // binary ships as a bare single file with no LICENSE beside it, so this
+    // subcommand is how a recipient gets the terms both licences oblige us to
+    // hand over. `licenseNotice` already ends in a newline, so it is written
+    // with the trailing blank line trimmed to keep `log`'s one-line-per-call
+    // shape.
+    case "license":
+      log(licenseNotice("subshell-server", SERVER_VERSION).trimEnd());
       exit(0);
       return true;
     case "status": {

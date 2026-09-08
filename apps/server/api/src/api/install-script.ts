@@ -1,3 +1,4 @@
+import { COPYRIGHT_LINE } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
@@ -184,6 +185,11 @@ echo "==> enrolling with $SERVER"
 
 echo "==> installed and enrolled. start the agent with:  \\"$DEST\\" run"
 echo "    the agent runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default agent data dir})."
+# A piped-curl install is a distribution, and the recipient never sees a
+# LICENSE file: what lands is one bare binary. Naming the terms once here, and
+# pointing at the subcommand that prints them in full, is the only moment this
+# path has to do that.
+echo "    ${COPYRIGHT_LINE}. Apache-2.0 — run \\"$DEST\\" license for the full notice."
 `;
 }
 
