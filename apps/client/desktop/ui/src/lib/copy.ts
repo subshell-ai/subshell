@@ -63,18 +63,32 @@ export const ENROLL_NOTES: readonly string[] = [
 ];
 
 /**
+ * The install command for this machine, named in the hint so the advice is
+ * one keystroke from action. The same two installers `commands/tmux-install.ts`
+ * offers interactively, and the same pair the server console shows beside its
+ * disabled buttons.
+ */
+export const TMUX_INSTALL_CMD = /Macintosh|Mac OS X/.test(navigator.userAgent)
+  ? "brew install tmux"
+  : "sudo apt-get install tmux";
+
+/**
  * The tmux sentence for the screen that is about to need it, or nothing.
  *
  * Two different sentences because the consequence differs. `enroll` preflights
  * tmux before its network call, so a missing one costs a message; the daemon
  * does not, so it comes up ONLINE with an empty harness inventory and 409s
  * every launch — which is the failure nobody attributes to tmux.
+ *
+ * The actions that need tmux are also DISABLED while this says "not found"
+ * (see `StepAction.needsTmux`) — the sentence explains, the disabled button
+ * refuses.
  */
 export function tmuxHint(probe: Probe | undefined, which: "enroll" | "service"): string {
   if (probe?.tmux) return "";
   return which === "enroll"
-    ? "tmux was not found on the login PATH. `subshell enroll` checks for it before its network call, so a missing " +
-        "tmux costs a message rather than the setup key — but install it before enrolling."
-    : "tmux was not found on the login PATH. The node will come up online with no harnesses and refuse every " +
-        "launch — install tmux, then restart the service.";
+    ? `tmux was not found on the login PATH, so enrolling is disabled. \`subshell enroll\` also checks for it before ` +
+        `its network call, so a missing tmux costs a message rather than the setup key — install it (${TMUX_INSTALL_CMD}) to continue.`
+    : `tmux was not found on the login PATH, so starting the service is disabled: the node would come up online ` +
+        `with no harnesses and refuse every launch. Install it (${TMUX_INSTALL_CMD}), then start or restart the service.`;
 }

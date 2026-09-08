@@ -232,6 +232,17 @@ export const DESKTOP_CLIENT_PRODUCT = "Subshell Client";
 export const DESKTOP_SERVER_BUNDLE_ID = "dev.subshell.server";
 
 /**
+ * The macOS bundle identifier of `apps/client/desktop` — and the value the
+ * NODE AGENT writes as BOTH its LaunchAgent label and its
+ * `AssociatedBundleIdentifiers` entry, for the same Login-Items reason as
+ * above: whoever installed the node through Subshell Client looks for
+ * "Subshell Client" there, not for the signing organization. It is the same
+ * string by DESIGN (the agent's service belongs to the app that installs it),
+ * and the client app's tests pin it to its own bundle identifier.
+ */
+export const DESKTOP_CLIENT_BUNDLE_ID = "dev.subshell.client";
+
+/**
  * Appended to every published desktop artifact name, so a downloaded file says
  * which of the two things it is — the app, or the CLI binary it wraps. The
  * counterpart of {@link CLI_SUFFIX}, which says the same thing from the other

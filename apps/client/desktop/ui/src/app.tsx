@@ -81,7 +81,12 @@ export function App() {
         </p>
       </header>
 
-      <PlaneCard settings={settings} busy={runner.busy} onOpen={commands.openPlane} />
+      <PlaneCard
+        settings={settings}
+        busy={runner.busy}
+        onOpen={commands.openPlane}
+        onOpenBrowser={commands.openPlaneUrl}
+      />
 
       <StatusCard
         probe={probe}

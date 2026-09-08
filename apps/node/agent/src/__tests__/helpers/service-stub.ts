@@ -106,17 +106,36 @@ export function linuxServiceStub(over: Record<string, string> = {}): Stub {
  * `bootstrap` refuses), yet not running. `loaded: false` is the only shape
  * where `print` itself fails.
  */
-export function darwinServiceStub({ abandon = true, loaded = true, running = true, pid = 5150 } = {}): Stub {
+export function darwinServiceStub({
+  abandon = true,
+  loaded = true,
+  running = true,
+  pid = 5150,
+  // A NON-113 print failure — the manager refusing to answer at all, which
+  // must not collapse into "stopped". Wins over `loaded`/`running`.
+  printError,
+  // The literal top-level state line for the not-running shape ("spawn
+  // scheduled" — launchd states are multi-word).
+  stateLine = "not running",
+}: {
+  abandon?: boolean;
+  loaded?: boolean;
+  running?: boolean;
+  pid?: number;
+  printError?: { code: number; err: string };
+  stateLine?: string;
+} = {}): Stub {
   const s = serviceStub({
     platform: "darwin",
     respond: (cmd) => {
       if (cmd[0] === "plutil")
         return abandon ? { code: 0, out: "true\n", err: "" } : { code: 1, out: "", err: "No value at that key path" };
       if (cmd[1] === "print") {
+        if (printError) return { code: printError.code, out: "", err: printError.err };
         if (!loaded) return { code: 113, out: "", err: "" };
         return running
           ? { code: 0, out: `\tstate = running\n\tpid = ${pid}\n`, err: "" }
-          : { code: 0, out: "\tstate = not running\n", err: "" };
+          : { code: 0, out: `\tstate = ${stateLine}\n`, err: "" };
       }
       return { code: 0, out: "", err: "" };
     },

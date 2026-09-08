@@ -112,6 +112,7 @@ pub fn run() {
             control::node_settings,
             control::node_set_close_to_tray,
             control::node_open_plane,
+            control::node_open_plane_url,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

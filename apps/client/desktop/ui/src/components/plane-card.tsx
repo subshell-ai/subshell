@@ -26,7 +26,7 @@
  * the plane" and "register this machine" one gesture, which is exactly the
  * conflation the app's two windows exist to undo.
  */
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Globe } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,8 +39,10 @@ export function PlaneCard(props: {
   busy: boolean;
   /** `null` opens the settled address; a string opens (and remembers) that one. */
   onOpen: (url: string | null) => void;
+  /** The SAME settled address, in the system browser — a different browser, a share, passkeys the webview has no. */
+  onOpenBrowser: () => void;
 }) {
-  const { settings, busy, onOpen } = props;
+  const { settings, busy, onOpen, onOpenBrowser } = props;
   const known = settings?.planeUrl ?? null;
   const [typed, setTyped] = useState("");
   /** Whether the user asked to retype a plane that is already settled. */
@@ -69,6 +71,15 @@ export function PlaneCard(props: {
               disabled={busy}
             >
               Change
+            </Button>
+            {/*
+             * Two doors on the same address, and the Rust side re-reads it for
+             * both — neither takes a URL from this page. The window is the app;
+             * the browser is for whatever the app's webview is wrong for.
+             */}
+            <Button variant="outline" size="sm" onClick={onOpenBrowser} disabled={busy}>
+              <Globe aria-hidden />
+              In browser
             </Button>
             <Button size="sm" onClick={() => onOpen(null)} disabled={busy}>
               <ExternalLink aria-hidden />

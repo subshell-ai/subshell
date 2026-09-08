@@ -118,6 +118,56 @@ describe("probeFacts", () => {
     expect(value(list, "chosen binary")?.value).toBe("/opt/subshell/subshell");
   });
 
+  // The manager row says what launchd/systemd said, not just a coarse word:
+  // "launchd: spawn scheduled" is a crash-throttled restart, and a plain
+  // "stopped" hides the crash loop — the 2026-09-07 lesson, ported from the
+  // server console. And an unanswerable manager is BAD, not merely noted:
+  // it is not the same fact as a stopped service.
+  it("carries the manager's verbatim detail, and reddens an unknown state", () => {
+    const scheduled = facts({
+      probe: makeProbe({
+        service: { installed: true, state: "stopped", pid: null, detail: "launchd: spawn scheduled" },
+      }),
+      settings: undefined,
+      enrolledNode: null,
+    });
+    expect(value(scheduled, "manager")?.value).toInclude("launchd: spawn scheduled");
+    expect(value(scheduled, "manager")?.tone).toBeUndefined();
+
+    const unknown = facts({
+      probe: makeProbe({
+        service: { installed: true, state: "unknown", detail: "launchctl print failed (exit 5): …" },
+      }),
+      settings: undefined,
+      enrolledNode: null,
+    });
+    expect(value(unknown, "manager")?.tone).toBe("bad");
+    expect(value(unknown, "manager")?.value).toInclude("launchctl print failed");
+  });
+
+  // Where the agent's own output goes — the file on macOS, the journal
+  // sentence where the platform has no file. The reveal buttons act on these;
+  // the rows make them READABLE, which is what the server console added.
+  it("shows the log location the CLI reported", () => {
+    const mac = facts({
+      probe: makeProbe({
+        paths: {
+          configDir: "/Users/u/.config/subshell",
+          configFile: "/Users/u/.config/subshell/config.json",
+          dataDir: "/Users/u/.config/subshell/data",
+          agentLog: "/Users/u/Library/Logs/subshell.log",
+          agentLogHint: null,
+        },
+      }),
+      settings: undefined,
+      enrolledNode: null,
+    });
+    expect(value(mac, "logs")?.value).toBe("/Users/u/Library/Logs/subshell.log");
+    // The default fixture is the Linux shape — the hint, not a path.
+    const linux = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null });
+    expect(value(linux, "logs")?.value).toInclude("journalctl --user -u subshell.service");
+  });
+
   it("always reports tmux, and marks its absence as bad", () => {
     expect(value(facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }), "tmux")?.tone).toBeUndefined();
     const missing = facts({ probe: makeProbe({ tmux: null }), settings: undefined, enrolledNode: null });

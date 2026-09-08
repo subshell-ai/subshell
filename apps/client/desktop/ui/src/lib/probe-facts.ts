@@ -111,7 +111,16 @@ export function probeFacts(args: {
     out.push({ key: "service", value: svc.definitionPath ?? "unknown" });
     const pid = svc.pid ? ` (pid ${svc.pid})` : "";
     const login = svc.enabled === true ? " — starts at login" : svc.enabled === false ? " — not enabled at login" : "";
-    out.push({ key: "manager", value: `${svc.state ?? "unknown"}${pid}${login}` });
+    // `detail` is what the MANAGER said, verbatim — "launchd: spawn scheduled"
+    // is the crash-throttle wait, and "stopped" alone hides the fact that the
+    // job keeps trying and failing. An unknown state is red: a manager that
+    // would not answer is not the same fact as a service that is stopped.
+    const detail = svc.detail ? ` — ${svc.detail}` : "";
+    out.push({
+      key: "manager",
+      value: `${svc.state ?? "unknown"}${pid}${login}${detail}`,
+      tone: svc.state === "unknown" ? "bad" : undefined,
+    });
     // The one fact neither systemctl nor launchctl will tell them, and the
     // reason a restart can be refused outright.
     if (svc.paneSafety === "kills") {
@@ -119,7 +128,11 @@ export function probeFacts(args: {
     } else if (svc.paneSafety === "unknown") {
       out.push({ key: "teardown", value: "unknown — the definition could not be read", tone: "warn" });
     }
-    if (svc.state === "unknown" && svc.detail) out.push({ key: "service detail", value: svc.detail, tone: "warn" });
+    // Where the agent's own output goes. macOS: the file the plist names, and
+    // the "Open the agent log" button reveals it. Linux: the journal, and the
+    // row says so — the hint sentence is the Rust side's, not a copy here.
+    if (probe.paths?.agentLog) out.push({ key: "logs", value: probe.paths.agentLog });
+    else if (probe.paths?.agentLogHint) out.push({ key: "logs", value: probe.paths.agentLogHint });
   }
 
   // From the PROBE, not from `status`: tmux is a hard stop on `enroll` — which

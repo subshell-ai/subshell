@@ -25,6 +25,7 @@ import {
   nodeInstallAgent,
   nodeOpenPath,
   nodeOpenPlane,
+  nodeOpenPlaneUrl,
   nodeService,
   nodeSetAgentBin,
   nodeSetCloseToTray,
@@ -63,6 +64,8 @@ export interface NodeCommands {
   setCloseToTray: (enabled: boolean) => void;
   /** Show a control plane's UI. `null` opens the address already settled. */
   openPlane: (url: string | null) => void;
+  /** Open the settled control-plane address in the SYSTEM browser. */
+  openPlaneUrl: () => void;
 }
 
 export function useNodeCommands(args: {
@@ -303,6 +306,16 @@ export function useNodeCommands(args: {
         async () => {
           const opened = await nodeOpenPlane({ url });
           return finished({ ok: true, stdout: `Opened ${opened}`, stderr: "" });
+        },
+        { reprobe: false },
+      ),
+
+    /** As {@link openPlane}: the browser is not this machine's state either. */
+    openPlaneUrl: () =>
+      runner.run(
+        async () => {
+          await nodeOpenPlaneUrl();
+          return finished(null);
         },
         { reprobe: false },
       ),

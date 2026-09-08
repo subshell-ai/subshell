@@ -1,5 +1,6 @@
 ---
 "@internal/server": patch
+"@internal/node": patch
 "@internal/desktop-server": patch
 "@internal/desktop-client": patch
 ---
@@ -22,3 +23,13 @@ icon instead of the signing organisation.
 
 Both desktop apps: close-to-tray now defaults ON, clamped off (switch
 disabled, refusal kept honest) on desktops where no tray answers.
+
+The node side got the same treatment. `subshell service status` reports the
+manager verbatim (crash-throttle `spawn scheduled`, and an unanswerable
+launchd is `unknown` with its stderr, not a confident "stopped") and names
+its log file; the macOS login-items entry for a node now reads Subshell
+Client with its icon. Subshell Client's page opens the control plane in the
+system browser, shows the log location and the manager's own words, and
+disables Enroll / Install / Start / Restart — with the install command named
+— while tmux is missing; its install button now says it also starts, because
+that is what the CLI does.

@@ -25,6 +25,15 @@ export interface StepAction {
   primary?: boolean;
   /** Spends a credential, or ends sessions. */
   danger?: boolean;
+  /**
+   * Pointless without tmux, so DISABLED while the probe cannot find it (the
+   * step card applies the gate; the copy explains it). `enroll` refuses
+   * outright on a missing tmux, and a node whose service starts without one
+   * comes up online with an empty harness inventory and 409s every launch —
+   * the exact failure nobody attributes to tmux. A button that only produces
+   * a refusal teaches the user to click through warnings.
+   */
+  needsTmux?: boolean;
 }
 
 /** What a step puts on the screen. */
@@ -115,7 +124,7 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
     body: "This machine has an agent but is not registered with a control plane yet.",
     notes: ENROLL_NOTES,
     form: true,
-    actions: [{ label: "Enroll this machine", onClick: ctx.commands.enroll, primary: true }],
+    actions: [{ label: "Enroll this machine", onClick: ctx.commands.enroll, primary: true, needsTmux: true }],
     hint: tmuxHint(ctx.probe, "enroll"),
   }),
 
@@ -134,7 +143,7 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
       notes: [lead, ...ENROLL_NOTES],
       form: true,
       actions: [
-        { label: "Enroll this machine", onClick: ctx.commands.enroll, danger: true },
+        { label: "Enroll this machine", onClick: ctx.commands.enroll, danger: true, needsTmux: true },
         { label: "Cancel", onClick: ctx.onCancelEnroll },
       ],
       hint: tmuxHint(ctx.probe, "enroll"),
@@ -149,9 +158,13 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
     ],
     actions: [
       {
-        label: "Run automatically in the background",
+        // Says both halves because the CLI's `install` does both — enable AND
+        // start. A button that named only the backgrounding would leave the
+        // user reaching for a Start that the next probe already answers.
+        label: "Install and start the background service",
         onClick: () => ctx.commands.service("install", { settle: true }),
         primary: true,
+        needsTmux: true,
       },
       ...pathActions(ctx),
       ...reenrollAction(ctx),
@@ -162,7 +175,12 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
   stopped: (ctx) => ({
     body: "The background service is installed, but the agent is not running.",
     actions: [
-      { label: "Start", onClick: () => ctx.commands.service("start", { settle: true }), primary: true },
+      {
+        label: "Start",
+        onClick: () => ctx.commands.service("start", { settle: true }),
+        primary: true,
+        needsTmux: true,
+      },
       { label: "Uninstall the service", onClick: ctx.commands.uninstall },
       ...rewriteAction(ctx),
       ...pathActions(ctx),
@@ -178,7 +196,7 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
         "missing tmux, an unreachable control plane, or a node key the server no longer recognises.",
     ],
     actions: [
-      { label: "Restart", onClick: ctx.commands.restart, primary: true },
+      { label: "Restart", onClick: ctx.commands.restart, primary: true, needsTmux: true },
       { label: "Stop", onClick: () => ctx.commands.service("stop") },
       // Reachable from here too: a crash-looping agent is exactly the case
       // where someone wants the supervision off while they investigate.
@@ -193,7 +211,7 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
   online: (ctx) => ({
     body: "This machine is registered and its agent is online. Sessions can be launched here from the browser.",
     actions: [
-      { label: "Restart", onClick: ctx.commands.restart },
+      { label: "Restart", onClick: ctx.commands.restart, needsTmux: true },
       { label: "Stop", onClick: () => ctx.commands.service("stop") },
       { label: "Uninstall the service", onClick: ctx.commands.uninstall },
       ...rewriteAction(ctx),

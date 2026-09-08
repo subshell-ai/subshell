@@ -60,3 +60,8 @@ commands.allow = ["node_set_close_to_tray"]
 identifier = "allow-node-open-plane"
 description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only, and that window is granted no commands of its own."
 commands.allow = ["node_open_plane"]
+
+[[permission]]
+identifier = "allow-node-open-plane-url"
+description = "Open the control plane's address in the system browser. The URL is re-read from this app's own stored ladder and http(s)-validated; none of it comes from the page."
+commands.allow = ["node_open_plane_url"]

@@ -72,10 +72,14 @@ describe("a failure message always reaches the screen", () => {
 
     fireEvent.click(button("Open the agent log"));
 
-    await waitFor(() => expect(screen.getByText(JOURNALCTL)).toBeTruthy());
+    // Scoped to the FAILURE LINE (a <p>), not the page: the same sentence is
+    // also the `logs` fact's value now, and a duplicate would make a bare
+    // getByText ambiguous — and ambiguity is how this regression could hide.
+    const problemShown = () => screen.getAllByText(JOURNALCTL).some((el) => el.tagName === "P");
+    await waitFor(() => expect(problemShown()).toBe(true));
     // The re-probe definitely happened, and the message is still on screen.
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
-    expect(screen.getByText(JOURNALCTL)).toBeTruthy();
+    expect(problemShown()).toBe(true);
   });
 
   it("shows a probe's own error when no action has anything to say", async () => {
@@ -808,5 +812,73 @@ describe("the facts", () => {
     fireEvent.click(button("Enroll this machine"));
 
     await waitFor(() => expect(screen.getByText(/11111111-2222-3333-4444-555555555555 "workstation"/)).toBeTruthy());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The tmux hard stop, and the plane's second door
+// ---------------------------------------------------------------------------
+
+describe("tmux is a hard stop, not a hint", () => {
+  // Ported from the server console: the CLI refuses (or degrades far from the
+  // cause), and a live button that only produces that outcome trains the user
+  // to click through warnings. The buttons that DO work without tmux — Stop,
+  // Uninstall, the reveals — must stay live; disabling those strands the box.
+  it("disables what cannot work without tmux, and nothing else", async () => {
+    await boot({ probe: makeProbe({ tmux: null, step: "stopped" }) });
+    expect(button("Start").disabled).toBe(true);
+    expect(button("Uninstall the service").disabled).toBe(false);
+    expect(button("Open the agent log").disabled).toBe(false);
+    // The hint names the install command, so the refusal is one step from action.
+    expect(screen.getByText(/brew install tmux|sudo apt-get install tmux/)).toBeTruthy();
+  });
+
+  it("re-enables on the probe that finds tmux — the gate is not remembered", async () => {
+    const fake = await boot({ probe: makeProbe({ tmux: null, step: "stopped" }) });
+    expect(button("Start").disabled).toBe(true);
+    fake.setProbe(makeProbe({ step: "stopped" }));
+    fireEvent.click(button("Refresh"));
+    await waitFor(() => expect(button("Start").disabled).toBe(false));
+  });
+
+  it("gates the online Restart too — a tmux-less node 409s every launch", async () => {
+    await boot({ probe: makeProbe({ tmux: null }) });
+    expect(button("Restart").disabled).toBe(true);
+    expect(button("Stop").disabled).toBe(false);
+  });
+
+  it("the install button says it also starts, because the CLI's install does", async () => {
+    await boot({ probe: makeProbe({ step: "no-service" }) });
+    expect(button("Install and start the background service")).toBeTruthy();
+  });
+});
+
+describe("the plane's second door", () => {
+  // The in-app window stays primary; this opens the SAME settled address in
+  // the system browser, and the command takes no URL argument by design.
+  it("opens the settled plane URL in the system browser", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: "https://plane.example" }),
+      handlers: { node_open_plane_url: () => null },
+    });
+    fireEvent.click(button("In browser"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
+    // And it asked for NOTHING but the intent — no URL crossed the boundary.
+    expect(fake.callsTo("node_open_plane_url")[0]).toEqual({});
+  });
+
+  it("rejection reaches the problem line, like every command", async () => {
+    await boot({
+      settings: makeSettings({ planeUrl: "https://plane.example" }),
+      handlers: {
+        node_open_plane_url: () => {
+          throw "no control plane yet — enter its URL, or enrol this machine first";
+        },
+      },
+    });
+    fireEvent.click(button("In browser"));
+    await waitFor(() =>
+      expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
+    );
   });
 });

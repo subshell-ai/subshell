@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseArgs, run } from "../cli.js";
 import { saveConfig } from "../config.js";
 import { newHome } from "../test-preload.js";
-import { darwinServiceStub, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
+import { darwinServiceStub, LOG, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
 
 /** A line only the usage block carries — proof an exit-2 path printed it. */
 const USAGE_MARKER = "subshell — node agent daemon";
@@ -219,6 +219,7 @@ describe("service commands (stubbed service manager)", () => {
       "detail",
       "enabled",
       "installed",
+      "logPath",
       "paneSafety",
       "pid",
       "state",
@@ -230,12 +231,22 @@ describe("service commands (stubbed service manager)", () => {
       pid: 4242,
       enabled: true,
       paneSafety: "keeps",
+      // Linux: the unit redirects nothing — the journal holds the output, and
+      // the CONSUMER says so instead of inventing a path.
+      logPath: null,
     });
   });
 
   test("`service status --json` on darwin reports the launchd view", async () => {
     const res = await run(["service", "status", "--json"], { service: darwinServiceStub().deps });
-    expect(JSON.parse(res.out)).toMatchObject({ state: "running", pid: 5150, paneSafety: "keeps" });
+    expect(JSON.parse(res.out)).toMatchObject({
+      state: "running",
+      pid: 5150,
+      paneSafety: "keeps",
+      // The plist's own StandardOutPath, so the desktop reveals what launchd
+      // actually writes rather than re-deriving the platform path.
+      logPath: LOG,
+    });
   });
 
   // The 0600 config file is the nodeKey's only home (the `status --json` rule),

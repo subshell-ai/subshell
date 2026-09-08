@@ -89,8 +89,16 @@ unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`
 (`Restart=always`) + `systemctl --user enable --now`; success prints the
 linger hint (`loginctl enable-linger $USER` keeps the daemon across logout).
 macOS: `~/Library/LaunchAgents/dev.subshell.client.plist` (KeepAlive, log at
-`~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. Other
-platforms: explicit refusal pointing at `subshell run` inside tmux/screen.
+`~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. The plist
+carries `AssociatedBundleIdentifiers=[dev.subshell.client]` so System Settings
+→ Login Items labels the job **Subshell Client** with the app's icon instead
+of the signing organization — the label and the association are the ONE
+protocol constant `DESKTOP_CLIENT_BUNDLE_ID`, which is also Subshell Client's
+own bundle id (the app's tests pin it; `LAUNCHD_LABEL` is that same constant).
+`service status` also reports `logPath` (that file on macOS, `null` on Linux —
+the unit redirects nothing and the journal holds the output), so a GUI reveals
+what the plist names instead of re-deriving a platform path. Other platforms:
+explicit refusal pointing at `subshell run` inside tmux/screen.
 The unit/plist bake the installing shell's `PATH` (`Environment=PATH=` /
 `EnvironmentVariables`) so a Homebrew/Nix tmux that passed the enroll preflight
 is still found when the service manager — which starts units with a stock PATH —
@@ -105,7 +113,12 @@ the EFFECTIVE systemd `KillMode` comes from `systemctl show` (a unit-file grep
 cannot see a drop-in under `subshell.service.d/`), and launchd state comes from
 `launchctl print gui/<uid>/<label>` — the legacy `launchctl list` resolves an
 IMPLICIT domain and reports a running gui job as absent over SSH, while every
-write here targets `gui/<uid>` explicitly. Start is `bootstrap` falling back to
+write here targets `gui/<uid>` explicitly. A `print` that answers reports its
+state VERBATIM in `detail` (`launchd: spawn scheduled` = the crash-throttle
+wait, not a plain stop), and one that fails for anything other than
+"Could not find service" (exit 113) is `state: unknown` with the stderr kept —
+a manager that would not answer is not the same fact as a daemon that is
+stopped. Start is `bootstrap` falling back to
 `kickstart -k`; restart is `kickstart -k` (a bare `kickstart` on a running job
 changes nothing); stop is `bootout` (KeepAlive undoes a mere kill), and on
 Linux `stop`, never `disable --now` — un-enabling is what uninstall is for.

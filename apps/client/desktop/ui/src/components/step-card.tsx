@@ -65,7 +65,11 @@ export function StepCard(props: {
               size="sm"
               variant={action.danger ? "destructive" : action.primary ? "default" : "outline"}
               onClick={action.onClick}
-              disabled={busy}
+              // The tmux gate: a hard stop the CLI would refuse anyway, shown
+              // as disabled BEFORE the click. `probe === undefined` is "not
+              // read yet" — buttons stay live then, because the first probe
+              // landing is what reveals whether this gate applies at all.
+              disabled={busy || (action.needsTmux === true && probe !== undefined && !probe.tmux)}
             >
               {action.label}
             </Button>

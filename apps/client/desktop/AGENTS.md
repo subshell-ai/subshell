@@ -242,7 +242,41 @@ CLI.
 
 Command names live in that file and in `capabilities/node.json`. Changing one
 without the other produces a command that is refused at runtime with a message
-about permissions, not a compile error.
+about permissions, not a compile error. `ui/src/__tests__/ipc-acl.test.ts`
+reads both files and the invocations in `ui/src/lib/ipc.ts`, and fails on any
+three-way mismatch — add the command in all three or the test names the one
+you missed.
+
+## The node page is the console (parity with the server app)
+
+The same rules the Subshell Server console enforces, and for the same reasons
+(2026-09-08 port):
+
+- **Reveals name an intent, never a path.** `node_open_path` takes the closed
+  `config-dir | data-dir | agent-log` enum; the Linux `agent-log` rejection IS
+  the `journalctl` command, and the facts list now also shows the log location
+  (the CLI's `logPath` shape: a file on macOS, the journal sentence on Linux)
+  so it is readable without clicking.
+- **The plane's second door.** `node_open_plane_url` opens the settled control
+  plane in the SYSTEM browser — for the browser the in-app window is wrong
+  for (a different profile, a share, passkeys). Like the server app's twin,
+  the page passes NO URL: the command re-reads the same ladder
+  `node_open_plane` points a window at, and `validate_server_url` admits
+  http(s) only.
+- **tmux is a gate, not a caption.** `StepAction.needsTmux` disables Enroll /
+  Install-and-start / Start / Restart while the probe cannot find tmux —
+  `enroll` refuses CLI-side and a tmux-less node comes up online with no
+  harnesses, so a live button only manufactures the failure. Stop, Uninstall
+  and the reveals stay live (disabling those strands the box), the hint names
+  the install command (`TMUX_INSTALL_CMD`), and the gate reads the CURRENT
+  probe, so installing tmux and refreshing re-arms the buttons.
+- **The manager row says what the manager said.** `probe-facts` appends the
+  service `detail` verbatim (`launchd: spawn scheduled` is the crash-throttle
+  wait) and paints `state: unknown` bad — a manager that would not answer is
+  not the same fact as a stopped agent. That detail is the AGENT CLI's: the
+  classification was ported into `apps/node/agent/src/service.ts` from the
+  server CLI's 2026-09-07 hardening, plist association included
+  (`AssociatedBundleIdentifiers`, one constant with the app's bundle id).
 
 ## Things that will bite
 

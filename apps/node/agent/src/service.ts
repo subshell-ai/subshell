@@ -1,6 +1,7 @@
 import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { DESKTOP_CLIENT_BUNDLE_ID } from "@internal/subshell-protocol";
 import type { CliResult } from "./cli.js";
 import { selfInvocation } from "./self-invoke.js";
 
@@ -51,8 +52,15 @@ export interface ServiceDeps {
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
 export const SYSTEMD_UNIT_NAME = "subshell.service";
-/** launchd label (plist: `~/Library/LaunchAgents/<label>.plist`). */
-export const LAUNCHD_LABEL = "dev.subshell.client";
+/**
+ * launchd label (plist: `~/Library/LaunchAgents/<label>.plist`) — the SAME
+ * string as Subshell Client's bundle identifier, which is also what the plist
+ * names in `AssociatedBundleIdentifiers`: the agent's service belongs to the
+ * app that installs it, and Login Items should say so rather than naming the
+ * signing organization. The server CLI's twin constant and both apps' pin
+ * tests hold the two spellings together.
+ */
+export const LAUNCHD_LABEL = DESKTOP_CLIENT_BUNDLE_ID;
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
@@ -123,7 +131,14 @@ WantedBy=default.target
 const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** launchd plist body: keep-alive agent logging to ~/Library/Logs/subshell.log. */
+/**
+ * launchd plist body: keep-alive agent logging to ~/Library/Logs/subshell.log.
+ *
+ * `AssociatedBundleIdentifiers=<client bundle id>` is what makes System
+ * Settings → Login Items label this job "Subshell Client" with the app's icon
+ * instead of the SIGNING ORGANIZATION (launchd.plist(5)); inert-but-correct
+ * where the app is not installed.
+ */
 function launchdPlist(args: string[], logPath: string, pathEnv?: string): string {
   const argLines = args.map((a) => `\t\t<string>${xmlEscape(a)}</string>`).join("\n");
   // launchd also starts agents with a stock PATH, so a Homebrew tmux
@@ -139,6 +154,10 @@ function launchdPlist(args: string[], logPath: string, pathEnv?: string): string
 <dict>
 \t<key>Label</key>
 \t<string>${LAUNCHD_LABEL}</string>
+\t<key>AssociatedBundleIdentifiers</key>
+\t<array>
+\t\t<string>${DESKTOP_CLIENT_BUNDLE_ID}</string>
+\t</array>
 \t<key>ProgramArguments</key>
 \t<array>
 ${argLines}
@@ -394,6 +413,13 @@ export interface ServiceState {
   installed: boolean;
   /** Where that definition lives (or would), `null` on a platform with no per-user manager. */
   definitionPath: string | null;
+  /**
+   * The daemon's own log FILE where the platform has one (the launchd plist
+   * names it), `null` on Linux, where the systemd user unit redirects nothing
+   * and the output is in the journal. A consumer (the desktop app) reveals
+   * this rather than re-deriving a platform path it does not own.
+   */
+  logPath?: string | null;
   /** The manager's view of the process. */
   state: ServiceRunState;
   /** Main PID when the manager reports one, else `null`. */
@@ -506,11 +532,16 @@ const notes = (...parts: (string | null)[]): string => parts.filter((p) => p !==
  * status`, the desktop app's poll) wants a picture rather than an exception.
  */
 export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
+  // Set on EVERY return below, including the early ones: a consumer deciding
+  // "is there a log file to reveal" needs the answer even when nothing is
+  // running, and the platform branch belongs to the CLI, not to the desktop.
+  const logPath = deps.platform === "darwin" ? launchLogPath(deps.home) : null;
   const definitionPath = serviceArtifactPath(deps.platform, deps.home);
   if (definitionPath === null) {
     return {
       installed: false,
       definitionPath: null,
+      logPath,
       state: "not-installed",
       pid: null,
       enabled: null,
@@ -522,6 +553,7 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
     return {
       installed: false,
       definitionPath,
+      logPath,
       state: "not-installed",
       pid: null,
       enabled: null,
@@ -550,6 +582,7 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
     return {
       installed: true,
       definitionPath,
+      logPath: deps.platform === "darwin" ? launchLogPath(deps.home) : null,
       state: "unknown",
       pid: null,
       enabled: null,
@@ -579,6 +612,7 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
   return {
     installed: true,
     definitionPath,
+    logPath: deps.platform === "darwin" ? launchLogPath(deps.home) : null,
     state,
     pid: Number.isInteger(mainPid) && mainPid > 0 ? mainPid : null,
     // `enabled-runtime` starts at login too, for this boot.
@@ -602,13 +636,34 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
   // "Background", not "Aqua") it reports a running gui/<uid> job as absent —
   // and every write here targets gui/<uid> explicitly. Asking the same domain
   // we write to is the only way the two can agree.
+  const logPath = deps.platform === "darwin" ? launchLogPath(deps.home) : null;
   const res = await deps.runCmd(["launchctl", "print", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
   if (res.code !== 0) {
-    // Not loaded in this domain. With a plist ON DISK that is exactly
-    // "installed but stopped" — the state `bootout` leaves behind.
+    const why = oneLine(res.err) || oneLine(res.out);
+    // Exit 113 / "Could not find service" is the documented not-loaded answer,
+    // and with a plist ON DISK that is exactly "installed but stopped" — the
+    // state `bootout` leaves behind. ANY other non-zero exit means the
+    // manager did not answer, and "stopped" from that is a guess: report
+    // unknown and KEEP the output — a manager that would not answer is not
+    // the same fact as a daemon that is stopped.
+    const notLoaded = res.code === 113 || /could not find service/i.test(why);
+    if (!notLoaded) {
+      return {
+        installed: true,
+        definitionPath,
+        logPath,
+        state: "unknown",
+        pid: null,
+        enabled,
+        loaded: false,
+        paneSafety,
+        detail: `launchctl print failed (exit ${res.code}): ${why || "no output"}`,
+      };
+    }
     return {
       installed: true,
       definitionPath,
+      logPath,
       state: "stopped",
       pid: null,
       enabled,
@@ -620,15 +675,20 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
   const { running, pid } = parseLaunchctlPrint(res.out);
   // `print` answered, so the job IS bootstrapped — even when it reports no pid.
   // That is the loaded-but-idle case, which is stopped and loaded at once.
+  // The raw launchd state rides along in `detail` verbatim — states are
+  // multi-word ("spawn scheduled" is a crash-throttled restart, not a plain
+  // stop), which is why this captures the LINE, not a \S+ token.
+  const rawState = res.out.match(/^\tstate = (.+)$/m)?.[1]?.trim();
   return {
     installed: true,
     definitionPath,
+    logPath,
     state: running ? "running" : "stopped",
     pid,
     enabled,
     loaded: true,
     paneSafety,
-    detail: "",
+    detail: running || rawState === undefined ? "" : `launchd: ${rawState}`,
   };
 }
 

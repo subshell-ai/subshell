@@ -1163,6 +1163,25 @@ pub fn node_open_plane(
     Ok(resolved)
 }
 
+/// Open the control plane's address in the SYSTEM browser.
+///
+/// The in-app plane window stays the primary route; this is for taking the
+/// SAME address somewhere a shell cannot — a different browser, a share, a
+/// profile with passkeys the webview has no. Like the server app's twin, the
+/// page names the INTENT and no URL argument crosses the boundary: this
+/// re-reads the same ladder `node_open_plane` points a window at, so the
+/// browser can only ever be sent to the address the page is already showing
+/// (http(s)-validated by [`validate_server_url`], which the window also
+/// relies on).
+#[tauri::command(async)]
+pub fn node_open_plane_url(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
+    let url = resolve_plane_url(&settings)
+        .ok_or_else(|| "no control plane yet — enter its URL, or enrol this machine first".to_string())?;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
 /// The directories and files the window may ask to reveal.
 ///
 /// A closed enum, not a path: the page names a member and this side decides

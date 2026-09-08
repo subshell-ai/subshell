@@ -344,3 +344,15 @@ export function nodeSetCloseToTray(args: { enabled: boolean }): Promise<void> {
 export function nodeOpenPlane(args: { url: string | null }): Promise<string> {
   return invoke<string>("node_open_plane", args);
 }
+
+/**
+ * Open the settled control-plane address in the SYSTEM browser.
+ *
+ * No URL argument: the Rust side re-reads the same ladder `nodeOpenPlane`
+ * points a window at, so the browser can only be sent to the address this
+ * page is already showing. For the sessions the in-app window is wrong for —
+ * a different profile, a share, passkeys the webview has no.
+ */
+export function nodeOpenPlaneUrl(): Promise<void> {
+  return invoke<void>("node_open_plane_url");
+}

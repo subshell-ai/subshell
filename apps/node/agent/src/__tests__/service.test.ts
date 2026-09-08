@@ -112,6 +112,11 @@ describe("installService — macOS (launchd agent)", () => {
     expect(res.code).toBe(0);
     const plist = s.files.get(PLIST) ?? ""; // "" on a miss ⇒ the first toInclude below fails loudly
     expect(plist).toInclude("<string>dev.subshell.client</string>");
+    // The Login-Items attribution: without it System Settings labels this job
+    // with the SIGNING ORGANIZATION ("Disaresta, LLC") instead of Subshell
+    // Client, and the value must equal the app's bundle identifier — both are
+    // the one DESKTOP_CLIENT_BUNDLE_ID constant this label is also built from.
+    expect(plist).toInclude("<key>AssociatedBundleIdentifiers</key>");
     expect(plist).toInclude("<key>KeepAlive</key>");
     expect(plist).toInclude("<key>RunAtLoad</key>");
     // launchd's twin of KillMode=process: a stopped agent must not take its
@@ -502,6 +507,42 @@ describe("queryService", () => {
       state: "stopped",
       loaded: false,
     });
+  });
+
+  // Exit 113 ("Could not find service") legitimately means not-loaded; ANY
+  // other non-zero print means the manager REFUSED TO ANSWER, and "stopped"
+  // from that is a guess. A crash-looping job previously read as a confident,
+  // undiagnosable stop (the server CLI's 2026-09-07 incident, same shape).
+  test("darwin: a print failure that is not 'not loaded' is unknown, with the output kept", async () => {
+    const notFound = await queryService(darwinServiceStub({ loaded: false }).deps);
+    expect(notFound).toMatchObject({ state: "stopped", detail: "" });
+
+    const s = darwinServiceStub({ printError: { code: 5, err: "Could not read domain: Input/output error" } });
+    const unknown = await queryService(s.deps);
+    expect(unknown.state).toBe("unknown");
+    expect(unknown.detail).toInclude("exit 5");
+    expect(unknown.detail).toInclude("Input/output error");
+  });
+
+  // launchd states are MULTI-WORD — "spawn scheduled" is the crash-throttle
+  // wait, and a \S+ capture would report just "spawn". The verbatim line is
+  // the difference between "stopped" and "stopped AND KEEPING CRASHING".
+  test("darwin: the raw state line rides into detail verbatim", async () => {
+    const state = await queryService(darwinServiceStub({ running: false, stateLine: "spawn scheduled" }).deps);
+    expect(state).toMatchObject({ state: "stopped", detail: "launchd: spawn scheduled" });
+    // A running job answers its own question; no editorializing.
+    expect((await queryService(darwinServiceStub().deps)).detail).toBe("");
+  });
+
+  // logPath is the reveal answer: the file the PLIST names on macOS, an
+  // honest null on Linux where the unit redirects nothing (journal). Set even
+  // when nothing is installed — "is there a log to open" is asked in exactly
+  // the states where the service is not running.
+  test("logPath is the CLI's own platform answer on every state", async () => {
+    expect((await queryService(darwinServiceStub().deps)).logPath).toBe(LOG);
+    expect((await queryService(linuxServiceStub().deps)).logPath).toBeNull();
+    const fresh = stub({ platform: "darwin" });
+    expect((await queryService(fresh.deps)).logPath).toBe(LOG);
   });
 
   // plutil, not a regex: a binary1 plist that sets the key would read as

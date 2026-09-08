@@ -19,6 +19,7 @@
     "allow-node-open-path",
     "allow-node-settings",
     "allow-node-set-close-to-tray",
-    "allow-node-open-plane"
+    "allow-node-open-plane",
+    "allow-node-open-plane-url"
   ]
 }
