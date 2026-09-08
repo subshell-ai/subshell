@@ -17,6 +17,9 @@
     "allow-desktop-set-server-bin",
     "allow-desktop-open-main",
     "allow-desktop-open-console",
+    "allow-desktop-open-path",
+    "allow-desktop-open-control-plane",
+    "opener:allow-reveal-item-in-dir",
     "allow-desktop-settings",
     "allow-desktop-set-close-to-tray"
   ]

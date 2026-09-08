@@ -46,20 +46,23 @@ impl SettingsPaths {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     /// An explicit binary chosen by the user; outranks every discovery rung but the env override.
     pub binary_path: Option<String>,
     /// Whether closing the window hides it to the tray instead of quitting.
     ///
-    /// Defaults OFF everywhere, and it is only ever HONOURED where
+    /// DEFAULTS ON, and it is only ever HONOURED where
     /// [`crate::tray::tray_support`] says an icon would actually be drawn —
     /// this field is a stored preference, never a capability. On a desktop
     /// with no StatusNotifier host the icon is silently invisible, so hiding
     /// into it would make the app unreachable with no error to explain it;
-    /// `crate::tray::effective_close_to_tray` is the clamp that stops a
-    /// settings file from carrying that preference onto such a machine.
+    /// `crate::tray::effective_close_to_tray` is the clamp that makes the
+    /// ON default safe: it turns this off on READ where no tray answered,
+    /// the UI shows the switch disabled with the reason, and the setter
+    /// refuses `true`. The unreachability hazard is prevented by the clamp,
+    /// not by the default.
     pub close_to_tray: bool,
     /// Reserved for Phase 4; persisted now so the file shape does not change later.
     pub open_at_login: bool,
@@ -74,6 +77,20 @@ pub struct Settings {
     /// two apps share the file FORMAT, not the file — each keys its own
     /// directory off its own [`SettingsPaths`].
     pub plane_url: Option<String>,
+}
+
+/// Hand-written because exactly one field is not a zero value: `close_to_tray`
+/// defaults ON (clamped on READ by `crate::tray::effective_close_to_tray`
+/// where no tray answers). Everything else keeps the derive's zero.
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            binary_path: None,
+            close_to_tray: true,
+            open_at_login: false,
+            plane_url: None,
+        }
+    }
 }
 
 impl Settings {
@@ -143,11 +160,14 @@ mod tests {
         linux_dir: "example-app",
     };
 
-    // On a fresh Linux install the tray may not exist at all; close-to-tray
-    // must never be the default there or the window becomes unreachable.
+    // Default ON since 2026-09-07 (user request): the tray-resident controller
+    // is the point of these apps. What makes the default safe on a Linux
+    // desktop with no StatusNotifier host is NOT an off default but
+    // `effective_close_to_tray`, which clamps this off on READ, disables the
+    // switch in the UI with the reason, and refuses an explicit `true`.
     #[test]
-    fn close_to_tray_defaults_off() {
-        assert!(!Settings::default().close_to_tray);
+    fn close_to_tray_defaults_on() {
+        assert!(Settings::default().close_to_tray);
     }
 
     #[test]

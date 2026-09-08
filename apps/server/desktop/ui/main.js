@@ -46,13 +46,45 @@ function show(result) {
   out.classList.toggle("output-bad", result?.ok === false);
 }
 
-function fact(dl, key, value, cls) {
+/**
+ * One facts row, optionally carrying an action — a path to reveal in the
+ * file manager, the control plane to open in a browser.
+ *
+ * The action names an intent, never a path: the Rust side re-reads the path
+ * from its own probe, so a row can only ever reveal the fact it is showing.
+ */
+function fact(dl, key, value, cls, action) {
   const dt = document.createElement("dt");
   dt.textContent = key;
   const dd = document.createElement("dd");
   dd.textContent = value;
   if (cls) dd.className = cls;
+  if (action) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "mini";
+    b.textContent = action.label;
+    b.addEventListener("click", action.run);
+    dd.append(b);
+  }
   dl.append(dt, dd);
+}
+
+/** Reveal one of the CLI's own paths. Success is visible in the file manager, so only the failure needs surfacing. */
+function reveal(target) {
+  invoke("desktop_open_path", { target }).catch((err) => {
+    problem = String(err?.message ?? err);
+    render();
+  });
+}
+const revealAction = (target, label = "Reveal") => ({ label, run: () => reveal(target) });
+
+/** Open the control plane's URL in the SYSTEM browser — the address row shows, not a URL from this side. */
+function openControlPlane() {
+  invoke("desktop_open_control_plane").catch((err) => {
+    problem = String(err?.message ?? err);
+    render();
+  });
 }
 
 function renderFacts() {
@@ -61,7 +93,13 @@ function renderFacts() {
   const svc = probe?.service ?? null;
   const st = probe?.status ?? null;
   if (probe?.server) {
-    fact(dl, "server", `${probe.server.version ?? "?"} — ${probe.server.argv.join(" ")}`);
+    fact(
+      dl,
+      "server",
+      `${probe.server.version ?? "?"} — ${probe.server.argv.join(" ")}`,
+      null,
+      revealAction("server-dir"),
+    );
     fact(dl, "found via", probe.server.source);
   }
   if (probe?.bundledVersion) {
@@ -73,8 +111,26 @@ function renderFacts() {
           : "";
     fact(dl, "bundled", probe.bundledVersion + note, note ? "warn-text" : null);
   }
-  if (st?.configEnv) fact(dl, "config.env", `${st.configEnv.path} (${st.configEnv.exists ? "present" : "missing"})`);
-  if (st?.settings?.APP_BASE_URL) fact(dl, "base URL", st.settings.APP_BASE_URL.value);
+  // The Reveal on a missing config.env would only answer "does not exist
+  // yet", so the row earns its button once the file does.
+  if (st?.configEnv) {
+    fact(
+      dl,
+      "config.env",
+      `${st.configEnv.path} (${st.configEnv.exists ? "present" : "missing"})`,
+      null,
+      st.configEnv.exists ? revealAction("config-env") : null,
+    );
+  }
+  // The name says what it is — the address OTHER machines use — and it opens
+  // in the system browser, where a LAN host or TLS cert is the user's own
+  // browser problem, not something to point the privileged window at.
+  if (st?.settings?.APP_BASE_URL) {
+    fact(dl, "control plane URL", st.settings.APP_BASE_URL.value, null, {
+      label: "Open in browser",
+      run: openControlPlane,
+    });
+  }
   // From the PROBE, not from `status` — tmux is a hard stop on `init` and
   // `service install`, and on a clean machine there is no server to ask yet.
   if (probe) {
@@ -93,13 +149,29 @@ function renderFacts() {
     fact(dl, "port", `something is already listening on ${st.listen.portRaw}`, "warn-text");
   }
   if (svc?.installed) {
-    fact(dl, "service", svc.definitionPath);
-    fact(dl, "manager", svc.state + (svc.pid ? ` (pid ${svc.pid})` : ""));
+    fact(dl, "service", svc.definitionPath, null, revealAction("service-definition"));
+    // `detail` carries what the manager said verbatim — `launchd: spawn
+    // scheduled` is the crash-throttle state, and "stopped" alone hides it.
+    fact(
+      dl,
+      "manager",
+      svc.state + (svc.pid ? ` (pid ${svc.pid})` : "") + (svc.detail ? ` — ${svc.detail}` : ""),
+      svc.state === "unknown" ? "bad-text" : null,
+    );
     // The one fact neither systemctl nor launchctl will tell them.
     if (svc.paneSafety === "kills") {
       fact(dl, "teardown", "kills live panes — reinstall the service definition", "warn-text");
     } else if (svc.paneSafety === "unknown") {
       fact(dl, "teardown", "unknown — the definition could not be read", "warn-text");
+    }
+    // Where the server's own output goes. macOS: a file the plist names,
+    // revealed in the file manager. Linux: the journal, and the row says the
+    // command. An OLD server reports neither — no field at all — and gets no
+    // row rather than a wrong one.
+    if (typeof svc.logPath === "string") {
+      fact(dl, "logs", svc.logPath, null, revealAction("logs"));
+    } else if (svc.logPath === null) {
+      fact(dl, "logs", "the systemd journal — journalctl --user -u subshell-server.service -f");
     }
   }
 }
@@ -126,48 +198,56 @@ const STEPS = Object.assign(Object.create(null), {
   },
   unreachable: {
     body: "A subshell-server was found, but it did not answer.",
-    hint: "Nothing has been changed. Retry, or choose a different binary — this app will not rewrite a configuration it cannot read.",
+    hint: "Nothing has been changed. Retry, or choose a different binary — this app will not rewrite a configuration it cannot read. If the answer you expect is a different port, edit it here.",
     actions: () => [
       ["Retry", act(null), true],
       ["Choose a different one…", pickBinary],
+      ["Change port or host…", showConfigure],
     ],
   },
   init: {
     body: "The server has no config.env yet. Choose a port and host.",
     hint: "Written to ~/.config/subshell-server/config.env (0600), with a fresh auth secret.",
     form: true,
-    actions: () => [["Create configuration", doInit, true]],
+    actions: () => [["Create configuration", doInit, true, true]],
   },
   "install-service": {
     body: "Configured. Install it as a background service so it starts at login.",
-    hint: "A systemd user unit on Linux, a launchd agent on macOS.",
-    actions: () => [["Install as a service", service("install"), true]],
+    hint: "A systemd user unit on Linux, a launchd agent on macOS. Installing also starts it.",
+    actions: () => [
+      ["Install and start as a service", service("install", true), true, true],
+      ["Change port or host…", showConfigure],
+    ],
   },
   start: {
     body: "The service is installed but not running.",
     actions: () => [
-      ["Start", service("start"), true],
+      ["Start", service("start", true), true, true],
       ["Uninstall service", service("uninstall")],
+      ["Change port or host…", showConfigure],
     ],
   },
   ready: {
     body: "The server is running.",
     actions: () => [
       ["Open Subshell Server", openMain, true],
-      ["Restart", doRestart],
+      ["Restart", doRestart, false, true],
       ["Stop", doStop],
       ["Change port or host…", showConfigure],
     ],
   },
-  // Reached from `ready`, not from the probe: this is an edit of a working
-  // configuration, so it is something the user asks for rather than something
-  // the machine's state implies.
+  // Reached from any configured step, not from the probe: this is an edit of
+  // a configuration, so it is something the user asks for rather than
+  // something the machine's state implies. Reachable from `start`,
+  // `install-service` and `unreachable` too — a wrong port is exactly why
+  // those steps stick, and a step that cannot say "change it" strands the
+  // user in the one state they need to leave.
   configure: {
     body: "Change the port or host this server listens on.",
     hint: "config.env is rewritten. The running server keeps its current settings until it restarts.",
     form: true,
     actions: () => [
-      ["Save and restart", doConfigure, true],
+      ["Save and restart", doConfigure, true, true],
       ["Cancel", cancelConfigure],
     ],
   },
@@ -213,22 +293,81 @@ function renderStep() {
       actions.append(button(`Update server to ${probe.bundledVersion}`, doUpdateServer, false));
     }
     if (step.form) actions.append(buildForm());
-    for (const [label, handler, primary] of step.actions()) {
-      actions.append(button(label, handler, primary));
+    for (const [label, handler, primary, needsTmux] of step.actions()) {
+      actions.append(button(label, handler, primary, needsTmux));
     }
+    // Appended last and RE-CHECKED every render, not rebuilt with the step:
+    // installing tmux and pressing Refresh does not change the step, and a
+    // warning or a disabled button that survived its own fix would be worse
+    // than never having one.
+    actions.append(tmuxWarn);
   }
-  for (const b of actions.querySelectorAll("button")) b.disabled = busy;
+  const tmuxMissing = probe !== null && !probe.tmux;
+  tmuxWarn.hidden = !tmuxMissing;
+  for (const b of actions.querySelectorAll("button")) {
+    b.disabled = busy || (tmuxMissing && b.dataset.tmux === "1");
+  }
   for (const i of actions.querySelectorAll("input")) i.disabled = busy;
 }
 
-function button(label, handler, primary) {
+function button(label, handler, primary, needsTmux) {
   const b = document.createElement("button");
   b.type = "button";
   b.textContent = label;
   if (primary) b.className = "primary";
+  // The CLI refuses init/configure/service-install without tmux; a button
+  // that only produces the refusal is a button that teaches the user to
+  // ignore it. Flagged on the element, applied every render (see renderStep).
+  if (needsTmux) b.dataset.tmux = "1";
   b.addEventListener("click", handler);
   return b;
 }
+
+/**
+ * tmux advice per platform. The CLI's own interactive preflight offers to run
+ * the installer; this is the non-interactive twin for the disabled buttons —
+ * the same commands `commands/tmux-install.ts` uses.
+ */
+const IS_MAC = /Macintosh|Mac OS X/.test(navigator.userAgent);
+const TMUX_INSTALL_CMD = IS_MAC ? "brew install tmux" : "sudo apt-get install tmux";
+
+function buildTmuxWarning() {
+  const wrap = document.createElement("div");
+  wrap.className = "tmux-warning";
+  wrap.hidden = true;
+  const p = document.createElement("p");
+  p.textContent =
+    "tmux was not found on the login PATH. The server launches every pane through it, so configuring and " +
+    "starting are disabled until it is installed.";
+  const row = document.createElement("div");
+  row.className = "row";
+  const code = document.createElement("code");
+  code.textContent = TMUX_INSTALL_CMD;
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.textContent = "Copy";
+  copy.addEventListener("click", () => {
+    navigator.clipboard
+      .writeText(TMUX_INSTALL_CMD)
+      .then(() => {
+        copy.textContent = "Copied";
+      })
+      .catch(() => {
+        copy.textContent = "Copy failed";
+      })
+      .finally(() => {
+        setTimeout(() => {
+          copy.textContent = "Copy";
+        }, 1600);
+      });
+  });
+  row.append(code, copy);
+  wrap.append(p, row);
+  return wrap;
+}
+
+/** Built once and MOVED between action rebuilds; `hidden` is recomputed every render. */
+const tmuxWarn = buildTmuxWarning();
 
 /** The init form, seeded from what the server itself reports rather than from a third copy of its defaults. */
 function buildForm() {
@@ -297,10 +436,26 @@ async function refresh() {
 }
 
 /**
+ * How many extra probes a service action may wait on. A SETTLE, never a
+ * poll: each attempt is two CLI spawns, and the manager flips state in well
+ * under a second — the point is only that ONE re-probe lands mid-transition
+ * and reads "installed but not running" on a server that came up fine.
+ * Same budget the Subshell Client's action runner uses, for the same reason.
+ */
+const SETTLE_ATTEMPTS = 2;
+const SETTLE_DELAY_MS = 1500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
  * Wrap an action so two cannot run at once, the UI always re-renders, and a
  * rejection is surfaced instead of leaving every button disabled forever.
+ *
+ * `settle` asks for the extra re-probes: pass it when the action's WHOLE
+ * POINT is a running server (install, start, restart), so the console lands
+ * on `ready` rather than mid-transition. Stop and uninstall never pass it —
+ * waiting for a `ready` that must not arrive is polling with extra steps.
  */
-function guard(fn) {
+function guard(fn, settle = false) {
   return async () => {
     if (busy) return;
     busy = true;
@@ -317,6 +472,10 @@ function guard(fn) {
     }
     try {
       await refresh();
+      for (let i = 0; settle && i < SETTLE_ATTEMPTS && probe?.next !== "ready"; i += 1) {
+        await sleep(SETTLE_DELAY_MS);
+        await refresh();
+      }
     } catch (err) {
       problem = problem || `Could not read this machine's state: ${String(err?.message ?? err)}`;
     }
@@ -326,7 +485,7 @@ function guard(fn) {
 }
 
 const act = (cmd, args) => guard(() => (cmd ? invoke(cmd, args) : null));
-const service = (verb) => guard(() => invoke("desktop_service", { verb, force: false }));
+const service = (verb, settle) => guard(() => invoke("desktop_service", { verb, force: false }), settle);
 
 const doInit = guard(() => invoke("desktop_init", { port: form.port, host: form.host }));
 const openMain = guard(() => invoke("desktop_open_main"));
@@ -346,7 +505,7 @@ const doUpdateServer = guard(async () => {
     { title: "Update the server", kind: kills ? "warning" : "info", okLabel: "Update" },
   );
   return proceed ? invoke("desktop_install_server") : null;
-});
+}, true);
 
 /**
  * Restart is refused outright when the installed definition would kill live
@@ -368,7 +527,7 @@ const doRestart = guard(async () => {
     okLabel: "Restart anyway",
   });
   return proceed ? invoke("desktop_service", { verb: "restart", force: true }) : first;
-});
+}, true);
 
 /** Stop warns rather than refusing, so the warning is the thing to surface. */
 const doStop = guard(async () => {
@@ -403,9 +562,18 @@ const doConfigure = guard(async () => {
   const written = await invoke("desktop_init", { port: form.port, host: form.host });
   if (!written.ok) return written;
   override = null;
+  // No service yet: the file IS the whole action, and there is nothing to
+  // restart — the reachable-from-`install-service` case must not answer a
+  // save with a restart failure.
+  if (!probe?.service?.installed) {
+    return {
+      ...written,
+      stdout: `${written.stdout}\nSaved. It takes effect when the service is installed and started.`,
+    };
+  }
   const restarted = await invoke("desktop_service", { verb: "restart", force: false });
   return restarted.ok ? restarted : { ...restarted, stdout: `${written.stdout}\n${restarted.stdout}` };
-});
+}, true);
 
 /** The Rust side validates the chosen file and returns an Err for anything that is not a server. */
 const pickBinary = guard(async () => {

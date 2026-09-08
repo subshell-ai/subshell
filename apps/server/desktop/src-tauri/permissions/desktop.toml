@@ -65,6 +65,16 @@ description = "Choose whether closing the window hides it to the tray."
 commands.allow = ["desktop_set_close_to_tray"]
 
 [[permission]]
+identifier = "allow-desktop-open-path"
+description = "Reveal one of a fixed set of the server's own files or directories in the OS file manager. The set is closed in Rust; the page names a member, never a path."
+commands.allow = ["desktop_open_path"]
+
+[[permission]]
+identifier = "allow-desktop-open-control-plane"
+description = "Open the server's own control plane URL in the system browser. The address is re-read from `status --json` and validated as http(s); no URL comes from the page."
+commands.allow = ["desktop_open_control_plane"]
+
+[[permission]]
 identifier = "allow-desktop-notify"
 description = "Show one native notification. The shape is fixed here — a title and a body, nothing schedulable or enumerable — so the server-origin page never receives the notification plugin itself."
 commands.allow = ["desktop_notify"]

@@ -70,6 +70,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::ShellReady::new())
         .invoke_handler(tauri::generate_handler![
@@ -80,6 +81,8 @@ pub fn run() {
             control::desktop_set_server_bin,
             control::desktop_open_main,
             control::desktop_open_console,
+            control::desktop_open_path,
+            control::desktop_open_control_plane,
             control::desktop_notify,
             control::desktop_shell_ready,
             control::desktop_settings,

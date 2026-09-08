@@ -10,10 +10,12 @@
 //!
 //! - Every tray action also exists in the window UI or the menu bar. The tray
 //!   is a shortcut, never the only route to anything.
-//! - `close_to_tray` defaults OFF, and both the setter and the window-close
-//!   handler gate on `subshell_desktop_core::tray`'s PROBE of that bus rather
-//!   than on the platform — so a KDE user gets the feature and a stock GNOME
-//!   user cannot hide a window into an icon nothing renders. `single-instance`
+//! - `close_to_tray` DEFAULTS ON (2026-09-07), and both the setter and the
+//!   window-close handler gate on `subshell_desktop_core::tray`'s PROBE of that
+//!   bus rather than on the platform — so a KDE user gets the feature and a
+//!   stock GNOME user cannot hide a window into an icon nothing renders: the
+//!   clamp, not the default, is what makes the ON default safe.
+//!   `single-instance`
 //!   — relaunching — is the only way back from that, which is why the check is
 //!   re-run at the moment of hiding.
 //!

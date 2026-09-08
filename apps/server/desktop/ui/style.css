@@ -63,9 +63,15 @@ h1 {
 .facts dt {
   color: var(--muted);
 }
+/* A row can carry a small action (Reveal in the file manager, open the
+   control plane in a browser) beside its value. */
 .facts dd {
   margin: 0;
   word-break: break-all;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
 }
 .chip {
   display: inline-flex;
@@ -111,6 +117,12 @@ button.primary {
   color: var(--primary-fg);
   border-color: transparent;
   font-weight: 600;
+}
+button.mini {
+  padding: 0 8px;
+  font-size: 11px;
+  flex: none;
+  color: var(--muted);
 }
 .actions {
   display: flex;
@@ -210,4 +222,26 @@ pre:empty {
 }
 [hidden] {
   display: none;
+}
+/* The tmux hard-stop notice: same amber as the facts warnings, full width
+   of the action area because it explains why parts of it are disabled. */
+.tmux-warning {
+  width: 100%;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.tmux-warning p {
+  margin: 0 0 8px;
+  color: var(--warn);
+}
+.tmux-warning code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
 }

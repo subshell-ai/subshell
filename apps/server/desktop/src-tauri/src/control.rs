@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{Settings, SettingsState};
@@ -508,6 +509,126 @@ pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> 
     crate::windows::open_main(&app, &origin)
 }
 
+/// The files and directories the console may ask to reveal.
+///
+/// A closed enum, not a path: the page names a member and this side decides
+/// what that member is, so there is no argument through which a reveal could
+/// be pointed anywhere else — the same shape `apps/client/desktop`'s
+/// `node_open_path` uses for the same reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OpenTarget {
+    /// The `config.env` path the CLI resolved.
+    ConfigEnv,
+    /// The directory holding the server binary this app would run.
+    ServerDir,
+    /// The service definition on disk (the systemd unit / launchd plist).
+    ServiceDefinition,
+    /// The server's own log file, where the platform has one.
+    Logs,
+}
+
+/// What to say when there is no log FILE to reveal.
+///
+/// The reason is platform-specific, so the string is too: the systemd user
+/// unit redirects nothing, so on Linux the server's output is in the journal
+/// and no file will ever appear; the macOS plist names one and the CLI
+/// reports it, so a null there is a server too old to have answered.
+const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
+    "the server has not reported a log file yet — update it to a version that names one"
+} else {
+    "the server logs to the systemd journal on Linux — run `journalctl --user -u subshell-server.service -f`"
+};
+
+/// Resolve one target to a path, or explain why there is none.
+///
+/// Takes the [`Probe`] because every path here is one the CLI already knows:
+/// the desktop never re-derives platform paths (the log location moved once
+/// already, and a second copy of the rule would have missed it). When the
+/// installed server does not know a fact, the console says so rather than
+/// guessing it from this side.
+pub fn resolve_open_target(target: OpenTarget, probe: &Probe) -> Result<String, String> {
+    match target {
+        OpenTarget::ConfigEnv => field(&probe.status, "configEnv")
+            .and_then(|c| c.get("path"))
+            .and_then(|p| p.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| "the server has not reported its config.env path yet".to_string()),
+        OpenTarget::ServerDir => probe
+            .server
+            .as_ref()
+            .and_then(|s| s.argv.first())
+            .map(std::path::Path::new)
+            .and_then(|p| p.parent())
+            .map(|d| d.display().to_string())
+            .ok_or_else(|| "no server binary has been found yet".to_string()),
+        OpenTarget::ServiceDefinition => match field(&probe.service, "definitionPath") {
+            Some(serde_json::Value::String(p)) => Ok(p.clone()),
+            // Explicit null is the CLI's own answer: no per-user service
+            // manager on this platform, or none installed.
+            _ => Err("no service definition is installed on this machine".to_string()),
+        },
+        OpenTarget::Logs => match field(&probe.service, "logPath") {
+            Some(serde_json::Value::String(p)) => Ok(p.clone()),
+            // A reported `null` and an absent field are DIFFERENT facts with
+            // different fixes: "this platform has no log file" (journal hint)
+            // versus "this server build predates the field" (upgrade it).
+            // Anything else the field could hold is the second case too —
+            // a server that reports garbage about its own paths wants an
+            // update, not a reveal of a `true`.
+            Some(serde_json::Value::Null) => Err(NO_LOG_FILE.to_string()),
+            _ => Err("the installed server does not report its log path — update it".to_string()),
+        },
+    }
+}
+
+/// The address the console shows as the control plane URL, or why there isn't one.
+///
+/// Read from the server's own `status --json` rather than passed in: the page
+/// names the INTENT and this side re-reads the value it is displaying, so a
+/// command argument can never send the browser somewhere the user has not
+/// already seen on the row. The scheme check is the belt on that braces —
+/// this opens a URL, never a path, and never to a `file:`/`mailto:` handler.
+pub fn control_plane_url(probe: &Probe) -> Result<String, String> {
+    let url = field(&probe.status, "settings")
+        .and_then(|s| s.get("APP_BASE_URL"))
+        .and_then(|u| u.get("value"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "the server has not reported a base URL yet".to_string())?;
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(format!("refusing to open a non-http(s) URL: {url}"));
+    }
+    Ok(url.to_string())
+}
+
+/// Reveal one of a fixed set of the server's own files or directories.
+#[tauri::command(async)]
+pub fn desktop_open_path(app: AppHandle, settings: State<'_, SettingsState>, target: OpenTarget) -> Result<(), String> {
+    let probe = probe_now(settings.get().binary_path.as_deref());
+    let path = resolve_open_target(target, &probe)?;
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("{path} does not exist yet"));
+    }
+    app.opener()
+        .reveal_item_in_dir(&path)
+        .map_err(|e| format!("could not reveal {path}: {e}"))
+}
+
+/// Open the control plane's URL in the SYSTEM browser.
+///
+/// The in-app `main` window stays the fast path for the usual loopback case;
+/// this exists because the row is the configured base URL, which may name a
+/// LAN address that window is deliberately never pointed at (see
+/// [`Probe::origin`]).
+#[tauri::command(async)]
+pub fn desktop_open_control_plane(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
+    let probe = probe_now(settings.get().binary_path.as_deref());
+    let url = control_plane_url(&probe)?;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
 /// Show a native notification, and focus the app when it is clicked.
 ///
 /// A dedicated command rather than granting the server-origin page the whole
@@ -852,5 +973,78 @@ mod tests {
     #[test]
     fn the_tray_refusal_says_detected() {
         assert!(NO_TRAY.contains("detected"));
+    }
+
+    // The reveal targets each read the CLI's own reported fact. A typo in a
+    // key path here fails SILENTLY at the type level — every field is
+    // `serde_json::Value` — and surfaces as "not reported yet" on a machine
+    // where the fact exists, so the happy paths are pinned as hard as the
+    // refusals.
+    #[test]
+    fn reveal_targets_resolve_the_paths_the_cli_reported() {
+        let p = probe_with(
+            Some(json!({"configEnv": {"path": "/c/config.env", "exists": true}, "settings": {}})),
+            Some(json!({"definitionPath": "/s/dev.subshell.server.plist", "logPath": "/l/server.log"})),
+            true,
+        );
+        assert_eq!(resolve_open_target(OpenTarget::ConfigEnv, &p).unwrap(), "/c/config.env");
+        assert_eq!(resolve_open_target(OpenTarget::ServerDir, &p).unwrap(), "/x");
+        assert_eq!(
+            resolve_open_target(OpenTarget::ServiceDefinition, &p).unwrap(),
+            "/s/dev.subshell.server.plist"
+        );
+        assert_eq!(resolve_open_target(OpenTarget::Logs, &p).unwrap(), "/l/server.log");
+    }
+
+    #[test]
+    fn a_target_with_no_reported_path_explains_itself() {
+        let p = probe_with(None, None, false);
+        assert!(resolve_open_target(OpenTarget::ConfigEnv, &p).is_err());
+        assert!(resolve_open_target(OpenTarget::ServerDir, &p).is_err());
+        assert!(resolve_open_target(OpenTarget::ServiceDefinition, &p).is_err());
+        // Absent field is the UPGRADE message, not the journalctl one — the
+        // two nulls mean different things and the user's next action differs.
+        let err = resolve_open_target(OpenTarget::Logs, &p).unwrap_err();
+        assert!(err.contains("update"), "{err}");
+    }
+
+    // The Linux case: the CLI ANSWERS with a null because the journal holds
+    // the output. The answer must name the command, not a missing file.
+    #[test]
+    fn a_reported_null_log_path_answers_with_the_hint() {
+        let p = probe_with(None, Some(json!({"definitionPath": null, "logPath": null})), true);
+        let err = resolve_open_target(OpenTarget::Logs, &p).unwrap_err();
+        assert!(err == NO_LOG_FILE, "{err}");
+    }
+
+    // The page never passes a URL, but the guard is the last thing between a
+    // config value and the OS handler list, so it is pinned as data.
+    #[test]
+    fn the_control_plane_url_must_be_http_or_https() {
+        let with =
+            |v: serde_json::Value| probe_with(Some(json!({"settings": {"APP_BASE_URL": {"value": v}}})), None, true);
+        assert_eq!(
+            control_plane_url(&with(json!("https://plane.example"))).unwrap(),
+            "https://plane.example"
+        );
+        assert!(control_plane_url(&with(json!("file:///etc/passwd"))).is_err());
+        assert!(control_plane_url(&with(json!("javascript:alert(1)"))).is_err());
+        assert!(control_plane_url(&probe_with(None, None, true)).is_err());
+    }
+
+    // The wire spelling the console page sends, pinned because the enum is
+    // private to Rust and a kebab-case drift is a runtime rejection only.
+    #[test]
+    fn open_targets_deserialize_the_pages_wire_names() {
+        for (raw, want) in [
+            ("config-env", OpenTarget::ConfigEnv),
+            ("server-dir", OpenTarget::ServerDir),
+            ("service-definition", OpenTarget::ServiceDefinition),
+            ("logs", OpenTarget::Logs),
+        ] {
+            let got: OpenTarget = serde_json::from_str(&json!(raw).to_string()).unwrap();
+            assert_eq!(got, want, "{raw}");
+        }
+        assert!(serde_json::from_str::<OpenTarget>(&json!("home").to_string()).is_err());
     }
 }

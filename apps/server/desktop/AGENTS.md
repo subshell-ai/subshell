@@ -234,6 +234,21 @@ exists, drop this app's own title bar, and display one notification with a
 fixed shape. Nothing that touches the CLI, the config, the service or the
 filesystem is reachable from a page the server serves.
 
+**The opener surface is the same rule with paths.** `desktop_open_path` takes
+a CLOSED enum (`config-env | server-dir | service-definition | logs`), never a
+path — the page names an intent and the Rust side re-reads the path from its
+own fresh probe, so a row can only ever reveal the fact it is showing (the
+client's `node_open_path` for the same reason). `logs` is answered entirely by
+the CLI's `service status --json → logPath`: a null is the journal-hint case,
+an absent field is an old server, and the console never re-derives a platform
+path. `desktop_open_control_plane` opens the server's own `APP_BASE_URL` in the
+SYSTEM browser (the address may name a LAN host the privileged `main` window
+is deliberately never pointed at) — no URL crosses the IPC boundary from the
+page, and the re-read value must be http(s). Both commands are console-only;
+`main` gains neither. The `opener:allow-reveal-item-in-dir` grant in
+`capabilities/console.json` covers the plugin side; the app commands are gated
+by their own permission entries here.
+
 `main`'s page is served by the subshell-server this app manages, so it is
 treated as remote content. `capabilities/main.json` carries `remote.urls`
 scoped to loopback, and `open_main` additionally refuses a non-loopback origin
@@ -250,7 +265,7 @@ in `ui/main.js` rather than inline.
 | Menu bar | full `NSMenu` | none — a GTK menu bar is per-window chrome, not a system bar |
 | Tray | icon + menu, click opens | icon + menu only; **click events are never emitted** |
 | Title bar | Overlay, negotiated (below) | ordinary |
-| Close to tray | offered, default off | offered where a tray is **detected**, default off |
+| Close to tray | offered, **default on** | offered where a tray is **detected**, default on; clamped off where none answers |
 
 `PredefinedMenuItem::{cut,copy,paste,select_all}` come FIRST in the Edit menu
 and are not decoration: without them ⌘C/⌘V do not work at all in a Tauri macOS
@@ -377,3 +392,19 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   reports `minos 13.0` for the Bun-compiled server and 11.0 for the Rust
   binary; the bundle floor is the max of the two, and getting it wrong means an
   app that installs and then cannot start its own server.
+- **macOS Login Items attributes a legacy LaunchAgent to the SIGNING
+  ORGANIZATION** unless the plist declares the app — so an install without
+  `AssociatedBundleIdentifiers` shows as "Disaresta, LLC" with no icon, which
+  users read as malware, not as their own server. The plist template
+  (`apps/server/api/src/service.ts`) declares `dev.subshell.server`, the one
+  string that `DESKTOP_SERVER_BUNDLE_ID` (protocol), the plist label and this
+  app's `identifier` all share — pin tests on both sides hold them together,
+  because if they drift the association detaches silently and nothing errors.
+- **`service status` reports launchd/systemd VERBATIM, and the console passes
+  it through.** `launchd: spawn scheduled` is the crash-throttle wait — the
+  service IS the one you installed and it IS trying; a manager command that
+  fails for any reason other than "Could not find service" (exit 113) answers
+  `state: unknown` with the stderr in `detail`, which the console shows in
+  red. A manager that would not answer is not the same fact as a stopped
+  service, and flattening the two is how the 2026-09-07 crash loop read as
+  "stopped" with no explanation.

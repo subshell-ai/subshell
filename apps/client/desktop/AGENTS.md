@@ -300,7 +300,9 @@ about permissions, not a compile error.
   asks, by shelling out to
   `busctl --user get-property … IsStatusNotifierHostRegistered`, and every
   non-affirmative outcome — no bus, no watcher, no tool, a timeout — means "no
-  tray". Close-to-tray still defaults OFF; `node_set_close_to_tray` refuses
+  tray". Close-to-tray defaults ON since 2026-09-07 (the tray-resident
+  controller is the point of these apps) and the CLAMP, not the default, is
+  what makes that safe on a tray-less desktop; `node_set_close_to_tray` refuses
   `true` where none answered; `node_settings` clamps the stored value on READ
   too; and the window-close handler **re-probes**, which is the guard that
   actually protects the user — the setting may have been made on a session that
