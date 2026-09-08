@@ -195,9 +195,10 @@ so the release script does not predict names. It globs `bundle/<dir>` for the
 ONE artifact that appeared and publishes it under the name
 `desktopArtifactFileName` chooses (space-free: these are download URLs and
 shell arguments). The `.app` inside that mounted image is `Subshell Client.app`,
-space included, which is why the smoke quotes its paths. The DMG is published
-signed, notarized and stapled — Tauri's bundler does all three when `APPLE_*`
-is set, and the smoke's `stapler validate` on the IMAGE is what proves it.
+space included, which is why the smoke quotes its paths. Tauri only SIGNS the
+image (it notarizes/staples the `.app` and stops), so the pipeline runs
+`notarizeAndStapleDmg` before digesting — and the smoke's `stapler validate` on
+the IMAGE is what proves it.
 
 The window title, tray tooltip and menu titles read "Subshell Client" — those
 are free-form and are not `productName`.

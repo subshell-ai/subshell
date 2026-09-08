@@ -50,6 +50,7 @@ import {
   assertBunFloor,
   type BuiltArtifact,
   digestFile,
+  notarizeAndStapleDmg,
   parseScope,
   publishArtifacts,
   selectBundleOutput,
@@ -82,8 +83,9 @@ export const DESKTOP_RELEASE_DIR_ENV = "SUBSHELL_DESKTOP_RELEASE_DIR";
  * Tauri's own versioning — so the only durable fact is the extension.
  *
  * `intermediates` are directories the bundler legitimately fills but whose
- * contents are never published: building a DMG first produces the `.app`
- * under `macos/`, and the image under `dmg/` is what gets shipped.
+ * contents are never published: building a DMG produces the `.app` under
+ * `macos/` and stages create-dmg's support files under `share/`, and the image
+ * under `dmg/` is what gets shipped.
  */
 export function bundleKind(triple: string): {
   bundles: string;
@@ -91,7 +93,8 @@ export function bundleKind(triple: string): {
   suffix: string;
   intermediates: readonly string[];
 } {
-  if (triple === "darwin-arm64") return { bundles: "dmg", dir: "dmg", suffix: ".dmg", intermediates: ["macos"] };
+  if (triple === "darwin-arm64")
+    return { bundles: "dmg", dir: "dmg", suffix: ".dmg", intermediates: ["macos", "share"] };
   if (triple === "linux-x64") return { bundles: "deb", dir: "deb", suffix: ".deb", intermediates: [] };
   throw new Error(`no bundler for '${triple}' (known: ${DESKTOP_TARGETS.join(", ")})`);
 }
@@ -120,6 +123,8 @@ export interface DesktopReleaseDeps {
   move: (from: string, to: string) => Promise<void>;
   /** Entry names directly under a directory — how the bundler's output is FOUND. */
   list: (dir: string) => Promise<string[]>;
+  /** Run a command capturing combined output — what notarytool's verdict is READ from. */
+  runCapture: (argv: string[]) => Promise<{ code: number; output: string }>;
   log: (line: string) => void;
 }
 
@@ -245,11 +250,10 @@ export function bundleArtifact(bundleRoot: string, triple: string, version: stri
  * Finds the bundler's output by globbing `bundle/<dir>` for the one entry with
  * the right extension — exactly one, or a refusal (see
  * {@link selectBundleOutput}) — and renames it into this repo's published
- * name. Both artifacts are single FILES: the DMG is published because Tauri
- * signs, notarizes and staples it in the same build (its bundler drives the
- * whole chain when the `APPLE_*` env vars are present), so there is nothing to
- * archive and the digest describes the exact bytes a user downloads. The CI
- * smoke is the backstop for Tauri's famously silent staple step.
+ * name. Both artifacts are single FILES, so nothing is archived and the digest
+ * describes the exact bytes a user downloads. Tauri only SIGNS the image —
+ * {@link notarizeAndStapleDmg} completes notarization and stapling right after
+ * this step, BEFORE the digest, and the CI smoke re-validates the staple.
  */
 export async function collectArtifact(
   deps: DesktopReleaseDeps,
@@ -280,6 +284,13 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
   },
   move: rename,
   list: (dir) => readdir(dir),
+  runCapture: async (argv) => {
+    const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
+    // Both pipes drained BEFORE awaiting exit — a child outgrowing the pipe
+    // buffer while nobody reads it is the classic deadlock.
+    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+    return { code: await proc.exited, output: `${out}${err}` };
+  },
   log: (line) => console.log(line),
 };
 
@@ -318,6 +329,11 @@ async function main(): Promise<void> {
       }
       assertBundleSet(await listDirs(bundleRoot), triple);
       const path = await collectArtifact(deps, bundleRoot, triple, version);
+      // Tauri signs the image but stops there; the digest below must describe
+      // the NOTARIZED, STAPLED bytes, so the chain completes first.
+      if (triple === "darwin-arm64" && !(await notarizeAndStapleDmg(path, deps))) {
+        throw new Error(`the ${triple} DMG failed notarization/stapling — nothing published`);
+      }
       artifacts.set(triple, { path, digest: await digestFile(path) });
     }
   } finally {

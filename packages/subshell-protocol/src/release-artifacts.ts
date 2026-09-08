@@ -177,3 +177,90 @@ export function selectBundleOutput(entries: readonly string[], suffix: string, w
       " — refusing to publish an arbitrary one",
   );
 }
+
+/**
+ * The notarization credentials, in Tauri's own env spelling — the same three
+ * the release workflow exports for the desktop darwin shards and the Tauri
+ * CLI itself reads: `APPLE_API_KEY_PATH` is a throwaway `.p8` materialized for
+ * the run, `APPLE_API_KEY` is its Key ID, `APPLE_API_ISSUER` the issuer UUID.
+ * Any one missing reads as "no notarization credentials" (local builds).
+ */
+export interface DmgNotaryEnv {
+  /** Index signature so `process.env` passes as an env source (same shape `runSignHook` takes). */
+  [key: string]: string | undefined;
+  APPLE_API_KEY_PATH?: string | undefined;
+  APPLE_API_KEY?: string | undefined;
+  APPLE_API_ISSUER?: string | undefined;
+}
+
+/** Effects for {@link notarizeAndStapleDmg}, injected so tests run nothing. */
+export interface NotaryToolDeps {
+  /** Run a command to completion; resolves to its exit code and combined output. */
+  runCapture: (argv: string[]) => Promise<{ code: number; output: string }>;
+  log: (line: string) => void;
+}
+
+/**
+ * Complete the DMG's signature chain: submit the image for notarization and
+ * staple the ticket to it.
+ *
+ * This exists because Tauri 2.11's dmg flow SIGNS the image but neither
+ * notarizes nor staples it — notarization runs against the `.app`, and a
+ * user's first download is the IMAGE, which Gatekeeper assesses on its own
+ * (on current macOS an unnotarized disk image is blocked outright, staple or
+ * no staple inside it). So the desktop pipelines run this between the bundler
+ * and the digest: the published `.sha256` describes the stapled bytes, and the
+ * CI smoke's `stapler validate` on the image checks the work rather than
+ * hoping.
+ *
+ * Two refusals, both learned elsewhere in this repo:
+ * the verdict is read from notarytool's OUTPUT (`status: Accepted`), never
+ * inferred from the exit code, and `stapler staple` must actually exit 0 —
+ * Tauri's own staple step skips both checks, which is how a silent staple
+ * failure became this module's reason to exist.
+ *
+ * @param dmgPath - the signed image to notarize and staple, in place
+ * @param deps - runner + logger
+ * @param env - credential source (default `process.env`)
+ * @returns true when the image may proceed to digest/publish (accepted AND
+ *   stapled, or skipped for want of credentials — CI guards the secrets
+ *   separately, and the smoke fails loud if the staple is then missing)
+ */
+export async function notarizeAndStapleDmg(
+  dmgPath: string,
+  deps: NotaryToolDeps,
+  env: DmgNotaryEnv = process.env,
+): Promise<boolean> {
+  const key = env.APPLE_API_KEY_PATH;
+  const keyId = env.APPLE_API_KEY;
+  const issuer = env.APPLE_API_ISSUER;
+  if (!key || !keyId || !issuer) {
+    deps.log("no notarization credentials (APPLE_API_KEY_PATH/-KEY/-ISSUER) — publishing the DMG UNSIGNED by Apple");
+    return true;
+  }
+  deps.log(`notarizing ${dmgPath}…`);
+  const submit = await deps.runCapture([
+    "xcrun",
+    "notarytool",
+    "submit",
+    dmgPath,
+    "--key",
+    key,
+    "--key-id",
+    keyId,
+    "--issuer",
+    issuer,
+    "--wait",
+  ]);
+  if (!/status:\s*Accepted/.test(submit.output)) {
+    deps.log(`notarytool did not report "status: Accepted":\n${submit.output}`);
+    return false;
+  }
+  const staple = await deps.runCapture(["xcrun", "stapler", "staple", dmgPath]);
+  if (staple.code !== 0) {
+    deps.log(`stapler staple failed (exit ${staple.code}):\n${staple.output}`);
+    return false;
+  }
+  deps.log("notarization accepted and stapled to the image");
+  return true;
+}

@@ -253,14 +253,16 @@ export const DESKTOP_SUFFIX = "Desktop";
  * spaced name — that is what the user installs and what the bundle identifier
  * belongs to — so anything handling that path has to quote it.
  *
- * macOS ships a DMG: a notarized, stapled one. Tauri 2.11's bundler signs the
- * `.app`, builds the image, signs it, notarizes it and staples the ticket when
- * the `APPLE_*` env vars are present (release.yml exports them for the darwin
- * shards) — the old "Tauri signs a DMG but neither notarizes nor staples it"
- * premise described tauri#7533 and is gone. The CI smoke is the guarantee: it
- * validates the staple ON THE IMAGE and fails the shard if that step was
- * silent, which is what a stapled image is for — Gatekeeper answers from the
- * ticket instead of reaching Apple's servers.
+ * macOS ships a DMG — a notarized, stapled one, and the STAPLING IS OURS.
+ * Tauri 2.11 signs the `.app`, notarizes and staples IT, then builds and signs
+ * the image but never notarizes or staples the image itself (measured on run
+ * 34197988517; the tauri#7533 gap this repo once cited as reason to avoid
+ * DMGs turns out to still be there — what changed is that the fix is three
+ * commands the pipeline owns, not a reason to ship a tarball).
+ * `notarizeAndStapleDmg` in `release-artifacts.ts` completes the chain BEFORE
+ * the digest, and the CI smoke validates the staple ON THE IMAGE — which is
+ * what a stapled image is for: Gatekeeper answers from the ticket instead of
+ * reaching Apple's servers.
  *
  * @param product - {@link DESKTOP_SERVER_PRODUCT} or {@link DESKTOP_CLIENT_PRODUCT}
  * @param target - a {@link DesktopTarget}

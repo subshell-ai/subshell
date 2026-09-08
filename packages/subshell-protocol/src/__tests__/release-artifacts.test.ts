@@ -8,6 +8,8 @@ import {
   assertBunFloor,
   type BuiltArtifact,
   digestFile,
+  type NotaryToolDeps,
+  notarizeAndStapleDmg,
   parseScope,
   publishArtifacts,
   runSignHook,
@@ -190,5 +192,88 @@ describe("selectBundleOutput", () => {
     expect(() => selectBundleOutput(["a_1_amd64.deb", "b_1_amd64.deb"], ".deb", "bundle/deb")).toThrow(
       /2 \.deb bundles in bundle\/deb, expected exactly one/,
     );
+  });
+});
+
+/**
+ * Tauri signs the DMG and stops; this is the step that makes the image the
+ * user downloads notarized AND stapled. The two invariants under test are the
+ * ones the repo paid for elsewhere: the verdict is READ from notarytool's
+ * output (an exit code has never implied acceptance here), and a staple that
+ * did not happen must fail the cut rather than ship a silent gatekeeper wall.
+ */
+describe("notarizeAndStapleDmg", () => {
+  const CREDS = { APPLE_API_KEY_PATH: "/tmp/notary.p8", APPLE_API_KEY: "KEYID", APPLE_API_ISSUER: "ISSUER" };
+  const DMG = "/w/bundle/dmg/Subshell Server_0.1.0_aarch64.dmg";
+
+  /** A recording fake: scripted per-command results, nothing executed. */
+  function fake(over: { submit?: { code: number; output: string }; staple?: { code: number; output: string } } = {}) {
+    const calls: string[][] = [];
+    const deps: NotaryToolDeps = {
+      runCapture: async (argv) => {
+        calls.push(argv);
+        if (argv[2] === "submit") return over.submit ?? { code: 0, output: "Current status: Accepted." };
+        return over.staple ?? { code: 0, output: "The asset has been successfully stapled." };
+      },
+      log: () => {},
+    };
+    return { deps, calls };
+  }
+
+  test("no credentials is a skip, not a failure — and nothing runs", async () => {
+    const f = fake();
+    expect(await notarizeAndStapleDmg(DMG, f.deps, {})).toBe(true);
+    expect(f.calls).toEqual([]);
+  });
+
+  // Partial credentials are as unusable as none, and reading only one of the
+  // three would silently notarize with the wrong identity's key.
+  test("any credential missing is a skip", async () => {
+    for (const partial of [{}, { APPLE_API_KEY_PATH: "/k.p8" }, { APPLE_API_KEY_PATH: "/k.p8", APPLE_API_KEY: "ID" }]) {
+      const f = fake();
+      expect(await notarizeAndStapleDmg(DMG, f.deps, partial)).toBe(true);
+      expect(f.calls).toEqual([]);
+    }
+  });
+
+  test("submits the IMAGE with the three credentials and --wait", async () => {
+    const f = fake();
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(true);
+    expect(f.calls[0]).toEqual([
+      "xcrun",
+      "notarytool",
+      "submit",
+      DMG,
+      "--key",
+      "/tmp/notary.p8",
+      "--key-id",
+      "KEYID",
+      "--issuer",
+      "ISSUER",
+      "--wait",
+    ]);
+    expect(f.calls[1]).toEqual(["xcrun", "stapler", "staple", DMG]);
+  });
+
+  // The exact failure the exit-code rule exists for: notarytool has exited 0
+  // while reporting an unaccepted submission.
+  test("an exit-0 Invalid verdict refuses, and nothing is stapled", async () => {
+    const f = fake({ submit: { code: 0, output: "Current status: Invalid. The binary is signed..." } });
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(false);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  test("a submission that did not even finish refuses", async () => {
+    const f = fake({ submit: { code: 1, output: "connection reset" } });
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(false);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  // Accepted but never stapled = Gatekeeper answers online or not at all;
+  // Tauri's own silent-staple failure is the precedent this refuses.
+  test("a failed staple fails the cut AFTER acceptance", async () => {
+    const f = fake({ staple: { code: 7, output: "Could not open package" } });
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(false);
+    expect(f.calls).toHaveLength(2);
   });
 });

@@ -406,20 +406,23 @@ Artifacts are `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` /
 `Subshell-Client-Desktop-<version>-darwin-arm64.dmg` and
 `subshell-server-desktop_<version>_amd64.deb` /
 `subshell-client-desktop_<version>_amd64.deb` (no AppImage: `linuxdeploy` cannot
-cross-compile and downloads at build time). The DMG is what users expect and
-what current Tauri ships verified: its bundler signs the `.app`, builds the
-image, signs, notarizes and STAPLES it when the `APPLE_*` env vars are present —
-and the CI smoke mounts the image and `stapler validate`s the IMAGE itself,
-because Tauri's staple step never inspects its own exit status. (The old "no
-DMG: Tauri signs one but neither notarizes nor staples it" rule described
-tauri#7533 and is retired.)
+cross-compile and downloads at build time). The old "no DMG" rule was never
+quite wrong: Tauri signs the image but still (2.11.5, measured) neither
+notarizes nor staples IT — it stops at the `.app`. What changed is that the gap
+is three commands, not a reason to ship tarballs: after `tauri build`, each
+desktop pipeline runs `notarizeAndStapleDmg` (`@internal/subshell-protocol/release-artifacts`)
+with the notary API credentials release.yml already exports, BEFORE the digest
+— so the `.sha256` describes the stapled bytes — and the CI smoke mounts the
+image and `stapler validate`s it, which is the check that the step actually
+happened.
 
 **Those published names are chosen HERE, not read off the bundler**
 (`desktopArtifactFileName` in `@internal/subshell-protocol`), and they are
 space-free because they are download URLs and shell arguments. What Tauri
 emits is discovered instead: each pipeline asserts exactly one requested
-bundle directory (the `macos/` directory a DMG build also fills with the
-`.app` intermediate is tolerated, never published), then GLOBS it for the one
+bundle directory (the `macos/` and `share/` directories a DMG build also
+fills — the `.app` intermediate and create-dmg's staging area — are tolerated,
+never published), then GLOBS it for the one
 `.deb` / `.dmg` that appeared (`selectBundleOutput` — zero or several is a
 refusal, never a pick) and renames it into the published name. Discovery
 rather than prediction, because the `.deb` name goes through Debian's own
@@ -591,9 +594,10 @@ which is why they share their own smoke, parameterized by app id.
   unit invokes. `node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
   installed as `subshell`. The 1.3.x companion-binary era is retired.
   `desktop-server-vX.Y.Z` carries
-  `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` (signed, notarized and
-  stapled by Tauri's bundler; the smoke mounts it and validates the image's own
-  staple) and `subshell-server-desktop_<version>_amd64.deb` (linux-x64);
+  `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` (Tauri signs it; the
+  pipeline notarizes and staples the image before digesting; the smoke mounts
+  it and validates the image's own staple) and
+  `subshell-server-desktop_<version>_amd64.deb` (linux-x64);
   `desktop-client-vX.Y.Z` carries `Subshell-Client-Desktop-<version>-darwin-arm64.dmg`
   and `subshell-client-desktop_<version>_amd64.deb`. Each with a
   `.sha256` — and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).

@@ -64,6 +64,7 @@ function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean; listing?: s
       listed.push(dir);
       return listing;
     },
+    runCapture: async () => ({ code: 0, output: "" }),
     log: (l) => logs.push(l),
     ...rest,
   };
@@ -144,7 +145,7 @@ describe("bundle selection", () => {
       bundles: "dmg",
       dir: "dmg",
       suffix: ".dmg",
-      intermediates: ["macos"],
+      intermediates: ["macos", "share"],
     });
     expect(bundleKind("linux-x64")).toEqual({ bundles: "deb", dir: "deb", suffix: ".deb", intermediates: [] });
   });
@@ -165,7 +166,9 @@ describe("bundle selection", () => {
 
 describe("assertBundleSet", () => {
   test("accepts the requested bundle, plus the DMG's .app intermediate", () => {
-    expect(() => assertBundleSet(["dmg", "macos"], "darwin-arm64")).not.toThrow();
+    // `share` is create-dmg's staging area the dmg bundler fills — a real
+    // measured output of `tauri build --bundles dmg`, tolerated like macos/.
+    expect(() => assertBundleSet(["dmg", "macos", "share"], "darwin-arm64")).not.toThrow();
     expect(() => assertBundleSet(["deb"], "linux-x64")).not.toThrow();
   });
 

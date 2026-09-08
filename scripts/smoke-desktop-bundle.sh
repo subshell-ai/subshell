@@ -202,9 +202,10 @@ echo "smoke: verifying the image container"
 # still blocked on first launch. codesign on a .dmg checks its outer signature;
 # the staple on the IMAGE (not just the app) is the ticket that answers offline.
 codesign --verify --strict --verbose=2 "$DIST/$ARTIFACT" || fail "codesign --verify failed on the image"
-# Tauri's staple step calls .output() and never inspects the exit status, so a
-# stapling failure is SILENT and the build still reports success — this check
-# is the reason the DMG can be trusted at all.
+# Tauri only signs the image; the release pipeline itself notarizes and staples
+# it (notarizeAndStapleDmg). This validates that step from the OUTSIDE — the
+# same posture that caught Tauri's app-staple step never checking its own
+# exit status.
 xcrun stapler validate "$DIST/$ARTIFACT" || fail "the notarization ticket is not stapled to the image"
 
 [ -x "$APP_BUNDLE/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"

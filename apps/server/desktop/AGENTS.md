@@ -146,15 +146,16 @@ Three things about that table are load-bearing:
   name goes through Debian's own package-name sanitizer and the `.dmg` name
   through Tauri's own versioning, neither knowable without running the bundler
   — which is what frees `productName` to carry a space. The `macos/` directory
-  a DMG build also fills (the `.app` the image is made from) is a tolerated
-  intermediate under `assertBundleSet` and is never published.
+  a DMG build also fills (the `.app` the image is made from, plus create-dmg's
+  `share/` staging area) is a tolerated intermediate under `assertBundleSet`
+  and is never published.
 - **The `.app` inside the DMG keeps its space** — so does the mounted volume.
   A space in a bundle path is therefore a real case: the published image name
   is space-free, and `scripts/smoke-desktop-bundle.sh` mounts with `hdiutil`
-  and quotes every path it builds from `PRODUCT`. The DMG is published because
-  current Tauri signs, notarizes AND staples the image when `APPLE_*` is set —
-  and the smoke validates the staple on the image itself, which is the check
-  that catches Tauri's silent staple failure.
+  and quotes every path it builds from `PRODUCT`. Tauri only SIGNS the image
+  (2.11.5 — it notarizes/staples the `.app` and stops), so the pipeline runs
+  `notarizeAndStapleDmg` between `collectArtifact` and the digest, and the
+  smoke's `stapler validate` on the IMAGE is what proves that step happened.
 - **The identifier is an identity, not a label.** It keys the macOS settings
   directory, the notification permission grant, the single-instance lock and
   the window-state store, and macOS tracks an app BY it — so it must stay
