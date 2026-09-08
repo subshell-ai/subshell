@@ -28,7 +28,10 @@ permissions:
 jobs:
   cla:
     name: CLA signature
-    runs-on: ubuntu-latest
+    # A JS action and nothing else — the runner supplies its own node, so this
+    # needs no container and no toolchain.
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
     steps:
       - name: Check or record the CLA signature
         if: (github.event.issue.pull_request && contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')) || github.event_name == 'pull_request_target'

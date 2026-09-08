@@ -12,7 +12,11 @@ permissions:
 jobs:
   lint:
     name: Linting
-    runs-on: ubuntu-latest
+    # Bare on the fleet rather than in the builder image: this job needs only
+    # bun, and staying out of a container means it never root-owns the shared
+    # workspace, so there is nothing to un-root afterwards.
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

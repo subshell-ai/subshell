@@ -472,38 +472,46 @@ tauri-typed window/tray/menu layer, because the two window models genuinely
 differ and an abstraction over one real consumer and one guess is worse than
 the duplication.
 
-### Which runners run what, and why it is split
+### Everything runs on the self-hosted fleet
 
-**Only releases use the self-hosted fleet.** `release.yml`,
-`desktop-builder-image.yml` and `reset-linux-runner-workspace.yml` run on
-`[self-hosted, Linux, X64]` (two runners: `subshell-runner-b`, `-c`) and
-`mac-builder` `[self-hosted, macOS, ARM64]`. Every PR check —
-`test.yml` (Testing, Desktop core, both Desktop Rust shards, End-to-end),
-`lint.yml` and `cla.yml` — runs on GitHub-hosted `ubuntu-latest`.
+**No workflow uses GitHub-hosted runners.** The fleet is two Linux boxes
+(`subshell-runner-b`, `-c`, labels `[self-hosted, Linux, X64]`) plus
+`mac-builder` `[self-hosted, macOS, ARM64]`. The repo is private, so hosted
+minutes are metered and CI was spending roughly 12 per push — that cost, not a
+technical preference, is why everything moved.
 
-The fleet therefore sits idle during PR checks, and that is CORRECT rather
-than waste. Three reasons, in order of how much they matter:
+`test.yml`'s four jobs run **inside the repo's own builder image**
+(`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
+image as well as the release one). It already carried bun 1.4.0, rustup stable
+and Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
+CI's sake. That is what let `setup-bun`, `dtolnay/rust-toolchain` and every
+`sudo apt-get` disappear from the workflow — **nothing on the fleet assumes
+passwordless root**, which is a property release.yml has always had and this
+change keeps. Inside a container we simply ARE root, which is also what makes
+Playwright's `install-deps` possible.
 
-- **Self-hosted runners REUSE their workspace.** That is the defect class this
-  repo has already been bitten by twice: a tag deleted upstream but still
-  present in the runner's clone made re-cutting a release impossible until
-  `git tag -f` (see the plan job), and a container job writing as root leaves
-  files the runner user cannot delete, killing every later
-  `actions/checkout` with `EACCES` — which is the whole reason
-  `reset-linux-runner-workspace.yml` exists. A test suite that boots real
-  servers and a real tmux is the last thing that should inherit cross-run
-  state. Hosted runners are ephemeral.
-- **Two runners, four `test.yml` jobs.** Moving CI over would SERIALISE PR
-  feedback and contend with releases, not speed anything up.
-- The release jobs are on the fleet because they genuinely need those
-  machines: macOS signing/notarisation needs `mac-builder`'s keychain and
-  secrets, and the Linux shards cross-compile inside
-  `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04` for a pinned glibc floor.
-  Nothing in CI needs a particular host.
+`lint.yml` and `cla.yml` run BARE on the fleet — bun and a JS action need no
+system libraries, and staying out of a container means they never root-own the
+shared workspace.
 
-The repo is private, so hosted minutes are metered (roughly 12 per push).
-That is the cost of the split and it is worth paying; three idle runners are
-not a bug to fix.
+Three things this arrangement makes load-bearing:
+
+- **Every container job must end in the un-root step**, `if: always()`, copied
+  from release.yml. A container writes as root onto a PERSISTENT workspace, so
+  without it the next job on that runner dies inside `actions/checkout` with
+  `EACCES` — which reads like a checkout bug rather than a leftover, and is the
+  failure `reset-linux-runner-workspace.yml` exists to repair.
+- **Every job needs `timeout-minutes`.** With two Linux runners, one hung job
+  starves every other workflow, releases included. The GitHub default of 360
+  minutes is not a timeout, it is an outage.
+- **The workspace persists between runs.** That is the defect class behind
+  `git tag -f` in the release plan job: a tag deleted upstream survived in the
+  runner's clone, so re-cutting a release was impossible. Anything that reads
+  git state, rather than just the checked-out tree, has to prune first.
+
+Two jobs, two runners, so `desktop-rust`'s matrix legs QUEUE rather than run
+side by side; PR feedback is slower than it was on hosted runners. That is the
+trade being made deliberately.
 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
