@@ -46,6 +46,20 @@ function probeConstants(env: Record<string, string | undefined>): ProbeResult {
       // without it macOS falls back to /tmp and the temp-dir assertions below
       // compare two different roots.
       TMPDIR: process.env.TMPDIR,
+      // An EMPTY config home, and it is required rather than tidy. `HOME`
+      // travels, and `constants.ts` applies the config.env layer at import —
+      // so without this the probe reads the DEVELOPER'S OWN
+      // ~/.config/subshell-server/config.env and reports their `DATABASE_PATH`
+      // instead of the default this suite is asserting. Machine-dependent:
+      // green on CI and on a clean checkout, red for anyone who has ever run
+      // `subshell-server init`. It is also the rule this repo already
+      // documents (apps/server/api/AGENTS.md, and why `e2e/stack.ts` does the
+      // same): anything booting the server for test purposes and wanting
+      // stock config must OVERRIDE the home, not merely avoid setting vars.
+      //
+      // Before `...env`, so a case that wants a real config.env can still
+      // point this at its own fixture.
+      SUBSHELL_SERVER_CONFIG_DIR: mkdtempSync(join(tmpdir(), "subshell-constants-probe-cfg-")),
       ...env,
     } as Record<string, string>,
     stdout: "pipe",

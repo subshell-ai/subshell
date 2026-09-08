@@ -341,7 +341,23 @@ export function syncPortListening(
   // failed command.
   let out: string;
   try {
-    const res = Bun.spawnSync({ cmd: ["netstat", ...args], stdout: "pipe", stderr: "ignore", timeout: 1000 });
+    const res = Bun.spawnSync({
+      cmd: ["netstat", ...args],
+      stdout: "pipe",
+      stderr: "ignore",
+      timeout: 1000,
+      // `env` passed EXPLICITLY, and it is what makes the guard above real
+      // rather than aspirational. Measured on bun 1.4.0: `Bun.spawnSync`
+      // resolves the binary from a snapshot of the environment taken at
+      // PROCESS START, so with `env` omitted a PATH that no longer holds
+      // /usr/sbin is ignored — netstat is found and answers anyway. That is
+      // why the regression test for the 2026-09-07 GUI-launched-CLI failure
+      // could never reproduce it: mutating `process.env.PATH` changed nothing.
+      // Passing the live `process.env` makes resolution honour the environment
+      // this process is actually running under, which is the only version of
+      // "no netstat on PATH" a caller can observe or a test can arrange.
+      env: process.env,
+    });
     if (res.exitCode !== 0) return null; // no netstat — no answer available
     out = res.stdout.toString();
   } catch {
