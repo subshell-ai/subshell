@@ -19,8 +19,9 @@ name: Test
 # `actions/checkout` with `EACCES`, which reads like a checkout bug rather than
 # a leftover — the failure `reset-linux-runner-workspace.yml` exists to repair.
 #
-# `timeout-minutes` on every job is not boilerplate: there are TWO Linux
-# runners, so a hung job starves every other workflow, releases included.
+# `timeout-minutes` on every job is not boilerplate: the fleet is finite, so a
+# hung job starves every other workflow, releases included. GitHub's 360-minute
+# default is an outage, not a timeout.
 
 on:
   pull_request:
@@ -36,9 +37,9 @@ permissions:
   # same trap release.yml documents.
   packages: read
 
-# Two Linux runners serve every workflow now, so a superseded push must not
-# keep them busy: pushing three times to a PR used to queue three full sets of
-# jobs, all but the last of them already irrelevant. release.yml deliberately
+# The fleet serves every workflow now, so a superseded push must not keep it
+# busy: pushing three times to a PR used to queue three full sets of jobs, all
+# but the last of them already irrelevant. release.yml deliberately
 # does the OPPOSITE (`cancel-in-progress: false`) — cancelling a release
 # mid-flight leaves a tag without a release — but CI has nothing to protect.
 concurrency:
@@ -229,7 +230,10 @@ jobs:
       run:
         shell: bash
     strategy:
-      # Two runners, two legs — they will queue rather than run side by side.
+      # Both legs may queue rather than run side by side, depending on how much
+      # of the fleet is free — which is fine: measured on the fleet these are
+      # ~1m10s each against ~2m on GitHub-hosted, because the workspace (and so
+      # `target/`) persists between runs.
       fail-fast: false
       matrix:
         # `app` is the component id (also the release tag prefix); `dir` is

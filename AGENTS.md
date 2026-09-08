@@ -474,11 +474,12 @@ the duplication.
 
 ### Everything runs on the self-hosted fleet
 
-**No workflow uses GitHub-hosted runners.** The fleet is two Linux boxes
-(`subshell-runner-b`, `-c`, labels `[self-hosted, Linux, X64]`) plus
-`mac-builder` `[self-hosted, macOS, ARM64]`. The repo is private, so hosted
-minutes are metered and CI was spending roughly 12 per push — that cost, not a
-technical preference, is why everything moved.
+**No workflow uses GitHub-hosted runners.** Everything targets
+`[self-hosted, Linux, X64]`, plus `mac-builder` `[self-hosted, macOS, ARM64]`
+for the darwin release shards. The repo is private, so hosted minutes are
+metered and CI was spending roughly 12 per push — that cost, not a technical
+preference, is why everything moved. Runners are added and removed over time,
+so nothing here should depend on how many there are.
 
 `test.yml`'s four jobs run **inside the repo's own builder image**
 (`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
@@ -501,7 +502,7 @@ Three things this arrangement makes load-bearing:
   without it the next job on that runner dies inside `actions/checkout` with
   `EACCES` — which reads like a checkout bug rather than a leftover, and is the
   failure `reset-linux-runner-workspace.yml` exists to repair.
-- **Every job needs `timeout-minutes`.** With two Linux runners, one hung job
+- **Every job needs `timeout-minutes`.** The fleet is finite, so one hung job
   starves every other workflow, releases included. The GitHub default of 360
   minutes is not a timeout, it is an outage.
 - **The workspace persists between runs.** That is the defect class behind
@@ -509,9 +510,10 @@ Three things this arrangement makes load-bearing:
   runner's clone, so re-cutting a release was impossible. Anything that reads
   git state, rather than just the checked-out tree, has to prune first.
 
-Two jobs, two runners, so `desktop-rust`'s matrix legs QUEUE rather than run
-side by side; PR feedback is slower than it was on hosted runners. That is the
-trade being made deliberately.
+One thing that did NOT materialise: the expected slowdown. Queueing was
+supposed to make PR feedback worse than hosted CI, and every job came in
+faster instead — persistent caches and better hardware more than covered the
+lost parallelism.
 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 

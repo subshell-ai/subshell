@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Two Linux runners serve every workflow now, so a superseded push must not
+# The fleet serves every workflow now, so a superseded push must not
 # keep them busy: pushing three times to a PR used to queue three full sets of
 # jobs, all but the last of them already irrelevant. release.yml deliberately
 # does the OPPOSITE (`cancel-in-progress: false`) — cancelling a release
