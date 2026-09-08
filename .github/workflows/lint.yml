@@ -26,16 +26,19 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      # tsdown/rolldown run under NODE, not bun (their bin shebang is
-      # `#!/usr/bin/env node`), and rolldown imports `styleText` from
-      # `node:util` — Node 20.12+. The fleet's system node is 18.19, and
-      # Ubuntu 24.04's apt node is 18 too, so this is the only way to get a
-      # new enough one. ubuntu-latest happened to ship 20+, which is why
-      # nothing needed it before.
+      # tsdown/rolldown run under NODE, not bun — their bin shebang is
+      # `#!/usr/bin/env node` — so the repo has always had a Node requirement
+      # it never declared, and CI silently inherited whatever the host had.
+      # ubuntu-latest shipped 20+; the fleet has 18.19, and rolldown needs
+      # `styleText` from `node:util` (20.12+), so the build broke on the move.
+      #
+      # Pinned to the `engines.node` the root package.json now declares, NOT
+      # to rolldown's floor — Ubuntu 24.04's apt node is 18, so the image
+      # cannot supply this and setup-node is the only route.
       - name: Use Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Cache Bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -111,9 +111,11 @@ jobs:
 
       # The runner ships node 18 and no gh; the changesets action shells out to
       # `npx changeset`, so pin a modern node for it (bun stays as-is below).
+      # Version tracks the root package.json's `engines.node`, which is now
+      # declared rather than inherited from whatever the host had.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
       - run: bun install --frozen-lockfile
 
@@ -338,10 +340,12 @@ jobs:
 
       # tsdown/rolldown bins carry a `#!/usr/bin/env node` shebang and need
       # node >= 20.12 (util.styleText); the Linux runners ship node 18 (macOS
-      # ships 22 — that asymmetry only shows up here, never on hosted CI).
+      # ships 22 — an asymmetry that used to show up only here, and now bites
+      # test.yml/lint.yml too since they moved onto the same fleet).
+      # Version tracks the root package.json's `engines.node`.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
 
       - run: bun install --frozen-lockfile
 
