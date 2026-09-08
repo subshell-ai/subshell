@@ -92,15 +92,15 @@ describe("sidecar naming", () => {
 });
 
 describe("published artifacts", () => {
-  test("macOS ships a tarball, Linux a versioned deb", () => {
+  test("macOS ships a versioned, tripled DMG, Linux a versioned deb", () => {
     expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toBe(
-      "Subshell-Server-Desktop.app.tar.gz",
+      "Subshell-Server-Desktop-1.2.3-darwin-arm64.dmg",
     );
     expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe(
       "subshell-server-desktop_1.2.3_amd64.deb",
     );
     expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "darwin-arm64", "0.1.0")).toBe(
-      "Subshell-Client-Desktop.app.tar.gz",
+      "Subshell-Client-Desktop-0.1.0-darwin-arm64.dmg",
     );
     expect(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "linux-x64", "0.1.0")).toBe(
       "subshell-client-desktop_0.1.0_amd64.deb",
@@ -109,7 +109,7 @@ describe("published artifacts", () => {
 
   // The published name is a download URL and a shell argument, so it is
   // space-free — while the product name it comes from is not, and the `.app`
-  // inside the tarball keeps its spaced name. That split is the whole reason
+  // inside the DMG keeps its spaced name. That split is the whole reason
   // the pipelines glob for what the bundler emitted instead of predicting it:
   // the emitted `.deb` name goes through Debian's own sanitizer.
   test("every published name is space-free, whatever the product is called", () => {
@@ -120,16 +120,18 @@ describe("published artifacts", () => {
     }
     // Whitespace collapses to one hyphen rather than being dropped, so two
     // products cannot slug to the same file name.
-    expect(desktopArtifactFileName("Two  Words", "darwin-arm64", "1.0.0")).toBe("Two-Words-Desktop.app.tar.gz");
+    expect(desktopArtifactFileName("Two  Words", "darwin-arm64", "1.0.0")).toBe(
+      "Two-Words-Desktop-1.0.0-darwin-arm64.dmg",
+    );
     expect(desktopArtifactFileName(" Padded ", "linux-x64", "1.0.0")).toBe("padded-desktop_1.0.0_amd64.deb");
   });
 
-  test("the deb is lowercased and the tarball is not", () => {
+  test("the deb is lowercased and the dmg is not", () => {
     expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")).toBe(
       desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3").toLowerCase(),
     );
     expect(desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")).toMatch(
-      /^Subshell-Server-Desktop\./,
+      /^Subshell-Server-Desktop-/,
     );
   });
 
@@ -266,9 +268,15 @@ describe("the published artifact set (all four producers)", () => {
   });
 
   // The platform triple stays LAST in a CLI name — the thing a human scans a
-  // downloads folder for, and what `.sha256` attaches to.
-  test("a CLI name ends with its triple", () => {
+  // downloads folder for, and what `.sha256` attaches to. The desktop DMG ends
+  // with the triple too, extension after it; its `.deb` sibling ends with the
+  // Debian arch for the same reason.
+  test("every name ends with its platform", () => {
     for (const target of SERVER_TARGETS) expect(serverArtifactFileName(target).endsWith(target)).toBe(true);
     for (const target of NODE_TARGETS) expect(nodeArtifactFileName(target).endsWith(target)).toBe(true);
+    for (const product of [DESKTOP_SERVER_PRODUCT, DESKTOP_CLIENT_PRODUCT]) {
+      expect(desktopArtifactFileName(product, "darwin-arm64", VERSION).endsWith("-darwin-arm64.dmg")).toBe(true);
+      expect(desktopArtifactFileName(product, "linux-x64", VERSION).endsWith("_amd64.deb")).toBe(true);
+    }
   });
 });

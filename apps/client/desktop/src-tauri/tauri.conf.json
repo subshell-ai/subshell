@@ -23,7 +23,7 @@
       "binaries/subshell-node-bundled"
     ],
     "targets": [
-      "app",
+      "dmg",
       "deb"
     ],
     "category": "DeveloperTool",

@@ -166,7 +166,7 @@ its own.
 | bundle identifier | `dev.subshell.server` | `dev.subshell.client` |
 | `productName` | `Subshell Server` | `Subshell Client` |
 | sidecar stem | `subshell-server-bundled` | `subshell-node-bundled` |
-| published `.app.tar.gz` | `Subshell-Server-Desktop.app.tar.gz` | `Subshell-Client-Desktop.app.tar.gz` |
+| published `.dmg` | `Subshell-Server-Desktop-<v>-darwin-arm64.dmg` | `Subshell-Client-Desktop-<v>-darwin-arm64.dmg` |
 | published `.deb` | `subshell-server-desktop_<v>_amd64.deb` | `subshell-client-desktop_<v>_amd64.deb` |
 
 Both packages can be installed on one machine and both put a binary in
@@ -188,14 +188,16 @@ Cargo crate names and sidecar stems are deliberately not renamed in step with
 the products: the crate name is the `/usr/bin` binary in the `.deb`, and the
 sidecar stem names the binary this app WRAPS rather than the app.
 
-`productName` may contain a space: Tauri derives the `.app` directory name and
-the `.deb` file name from it, and the Debian one goes through a package-name
-sanitizer nobody can predict without running the Linux bundler — so the release
-script does not predict it. It globs `bundle/<dir>` for the ONE artifact that
-appeared and publishes it under the name `desktopArtifactFileName` chooses
-(space-free: these are download URLs and shell arguments). The `.app` inside
-that tarball is `Subshell Client.app`, space included, which is why the tar
-call and the smoke quote their paths.
+`productName` may contain a space: Tauri derives the `.app` directory name, the
+DMG volume and the `.deb` file name from it, and the Debian one goes through a
+package-name sanitizer nobody can predict without running the Linux bundler —
+so the release script does not predict names. It globs `bundle/<dir>` for the
+ONE artifact that appeared and publishes it under the name
+`desktopArtifactFileName` chooses (space-free: these are download URLs and
+shell arguments). The `.app` inside that mounted image is `Subshell Client.app`,
+space included, which is why the smoke quotes its paths. The DMG is published
+signed, notarized and stapled — Tauri's bundler does all three when `APPLE_*`
+is set, and the smoke's `stapler validate` on the IMAGE is what proves it.
 
 The window title, tray tooltip and menu titles read "Subshell Client" — those
 are free-form and are not `productName`.

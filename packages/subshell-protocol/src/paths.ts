@@ -202,8 +202,8 @@ export function desktopSidecarFileName(sidecarName: string, target: string): str
  * handles it, and a PREDICTED name could not have survived the space at all.
  *
  * Must equal `productName` in each app's `tauri.conf.json` (pinned by test in
- * both apps): that is the string the release script tars and the smoke looks
- * for inside the tarball.
+ * both apps): that is the string Tauri names the `.app` (and the DMG volume)
+ * after, and what the smoke looks for inside the mounted image.
  */
 export const DESKTOP_SERVER_PRODUCT = "Subshell Server";
 
@@ -236,7 +236,7 @@ export const DESKTOP_SUFFIX = "Desktop";
  * carries {@link CLI_SUFFIX}, because all four ship from the same repo into the
  * same downloads folder: `subshell-server_0.5.0_amd64.deb` next to
  * `subshell-server-darwin-arm64` said nothing about which was the app, so
- * `Subshell Server` publishes as `Subshell-Server-Desktop.app.tar.gz` /
+ * `Subshell Server` publishes as `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` /
  * `subshell-server-desktop_<version>_amd64.deb` and the server CLI as
  * `subshell-server-cli-<triple>` (the agent as `subshell-node-cli-<triple>`).
  *
@@ -249,20 +249,26 @@ export const DESKTOP_SUFFIX = "Desktop";
  * NOT collide (that is what the `-bundled` sidecar suffix is for), so this is
  * package identity only, and the lever if it ever matters is `productName`.
  *
- * The `.app` INSIDE the tarball keeps its real, spaced name — that is what the
- * user installs and what the bundle identifier belongs to — so anything
- * handling that path has to quote it.
+ * The `.app` INSIDE the DMG (and the mounted volume's name) keeps its real,
+ * spaced name — that is what the user installs and what the bundle identifier
+ * belongs to — so anything handling that path has to quote it.
  *
- * macOS ships a tarball rather than a DMG, which Tauri signs but neither
- * notarizes nor staples.
+ * macOS ships a DMG: a notarized, stapled one. Tauri 2.11's bundler signs the
+ * `.app`, builds the image, signs it, notarizes it and staples the ticket when
+ * the `APPLE_*` env vars are present (release.yml exports them for the darwin
+ * shards) — the old "Tauri signs a DMG but neither notarizes nor staples it"
+ * premise described tauri#7533 and is gone. The CI smoke is the guarantee: it
+ * validates the staple ON THE IMAGE and fails the shard if that step was
+ * silent, which is what a stapled image is for — Gatekeeper answers from the
+ * ticket instead of reaching Apple's servers.
  *
  * @param product - {@link DESKTOP_SERVER_PRODUCT} or {@link DESKTOP_CLIENT_PRODUCT}
  * @param target - a {@link DesktopTarget}
- * @param version - the app version, for the Debian file name
+ * @param version - the app version; both spellings embed it (plus the arch/triple)
  */
 export function desktopArtifactFileName(product: string, target: string, version: string): string {
   const slug = `${product.trim().replace(/\s+/g, "-")}-${DESKTOP_SUFFIX}`;
-  if (target === "darwin-arm64") return `${slug}.app.tar.gz`;
+  if (target === "darwin-arm64") return `${slug}-${version}-darwin-arm64.dmg`;
   if (target === "linux-x64") return `${slug.toLowerCase()}_${version}_amd64.deb`;
   throw new Error(`no desktop artifact name for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);
 }

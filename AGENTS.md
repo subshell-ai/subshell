@@ -402,27 +402,34 @@ packages cannot share a name, so a future server-CLI `.deb` would collide with
 (that is what the `-bundled` sidecar suffix buys), so this is package identity
 only, and the lever if it ever matters is `productName`.
 
-Artifacts are `Subshell-Server-Desktop.app.tar.gz` /
-`Subshell-Client-Desktop.app.tar.gz` (no DMG: Tauri signs one but neither notarizes nor
-staples it) and `subshell-server-desktop_<version>_amd64.deb` /
+Artifacts are `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` /
+`Subshell-Client-Desktop-<version>-darwin-arm64.dmg` and
+`subshell-server-desktop_<version>_amd64.deb` /
 `subshell-client-desktop_<version>_amd64.deb` (no AppImage: `linuxdeploy` cannot
-cross-compile and downloads at build time).
+cross-compile and downloads at build time). The DMG is what users expect and
+what current Tauri ships verified: its bundler signs the `.app`, builds the
+image, signs, notarizes and STAPLES it when the `APPLE_*` env vars are present —
+and the CI smoke mounts the image and `stapler validate`s the IMAGE itself,
+because Tauri's staple step never inspects its own exit status. (The old "no
+DMG: Tauri signs one but neither notarizes nor staples it" rule described
+tauri#7533 and is retired.)
 
 **Those published names are chosen HERE, not read off the bundler**
 (`desktopArtifactFileName` in `@internal/subshell-protocol`), and they are
 space-free because they are download URLs and shell arguments. What Tauri
-emits is discovered instead: each pipeline asserts exactly one bundle
-directory, then GLOBS it for the one `.deb` / `.app` that appeared
-(`selectBundleOutput` — zero or several is a refusal, never a pick) and renames
-or tars it into the published name. Discovery rather than prediction, because
-the `.deb` name goes through Debian's own package-name sanitizer and is not
-knowable without running the Linux bundler — which is also what frees
-`productName` to be anything, spaces included.
+emits is discovered instead: each pipeline asserts exactly one requested
+bundle directory (the `macos/` directory a DMG build also fills with the
+`.app` intermediate is tolerated, never published), then GLOBS it for the one
+`.deb` / `.dmg` that appeared (`selectBundleOutput` — zero or several is a
+refusal, never a pick) and renames it into the published name. Discovery
+rather than prediction, because the `.deb` name goes through Debian's own
+package-name sanitizer and is not knowable without running the Linux bundler
+— which is also what frees `productName` to be anything, spaces included.
 
-The `.app` INSIDE the tarball keeps its real name — `Subshell Server.app`,
-space and all — because that is what the user installs and what the bundle
-identifier belongs to. A space in a bundle path is therefore a real case: the
-release script's `tar` passes it as one `Bun.spawn` argv element, and
+The `.app` INSIDE the DMG — and the mounted volume — keep their real name,
+`Subshell Server`, space and all, because that is what the user installs and
+what the bundle identifier belongs to. A space in a bundle path is therefore
+a real case: the published image name is space-free, and
 `scripts/smoke-desktop-bundle.sh` quotes every path built from `PRODUCT`.
 
 **The two apps' identities are four-way distinct on purpose** — crate name,
@@ -583,13 +590,13 @@ which is why they share their own smoke, parameterized by app id.
   triple would leave `subshell-server-cli`, which is not the name the service
   unit invokes. `node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
   installed as `subshell`. The 1.3.x companion-binary era is retired.
-  `desktop-server-vX.Y.Z` carries `Subshell-Server-Desktop.app.tar.gz`
-  (darwin-arm64, signed + notarized + stapled) and
-  `subshell-server-desktop_<version>_amd64.deb` (linux-x64); `desktop-client-vX.Y.Z`
-  carries `Subshell-Client-Desktop.app.tar.gz` and
-  `subshell-client-desktop_<version>_amd64.deb`. Each with a
-  `.sha256` — no DMG (Tauri signs one but neither notarizes nor staples it) and
-  no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
+  `desktop-server-vX.Y.Z` carries
+  `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` (signed, notarized and
+  stapled by Tauri's bundler; the smoke mounts it and validates the image's own
+  staple) and `subshell-server-desktop_<version>_amd64.deb` (linux-x64);
+  `desktop-client-vX.Y.Z` carries `Subshell-Client-Desktop-<version>-darwin-arm64.dmg`
+  and `subshell-client-desktop_<version>_amd64.deb`. Each with a
+  `.sha256` — and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a
   server-only or agent-only fix does not reach desktop users until the matching
   desktop cut, which is why a security-relevant release should be dispatched as

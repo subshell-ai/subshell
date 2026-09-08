@@ -145,8 +145,13 @@ describe("stageSidecar", () => {
 
 describe("bundle selection", () => {
   test("each target names one bundler, one output directory and one extension", () => {
-    expect(bundleKind("darwin-arm64")).toEqual({ bundles: "app", dir: "macos", suffix: ".app" });
-    expect(bundleKind("linux-x64")).toEqual({ bundles: "deb", dir: "deb", suffix: ".deb" });
+    expect(bundleKind("darwin-arm64")).toEqual({
+      bundles: "dmg",
+      dir: "dmg",
+      suffix: ".dmg",
+      intermediates: ["macos"],
+    });
+    expect(bundleKind("linux-x64")).toEqual({ bundles: "deb", dir: "deb", suffix: ".deb", intermediates: [] });
   });
 
   test("an unknown target has no bundler", () => {
@@ -165,20 +170,25 @@ describe("bundle selection", () => {
 });
 
 describe("assertBundleSet", () => {
-  test("accepts exactly the requested bundle", () => {
-    expect(() => assertBundleSet(["macos"], "darwin-arm64")).not.toThrow();
+  test("accepts the requested bundle, plus the DMG's .app intermediate", () => {
+    expect(() => assertBundleSet(["dmg", "macos"], "darwin-arm64")).not.toThrow();
     expect(() => assertBundleSet(["deb"], "linux-x64")).not.toThrow();
   });
 
   // The publish glob takes everything under the artifact directory, so a
-  // surplus bundle is shipped rather than ignored.
+  // surplus bundle is shipped rather than ignored. `macos` is tolerated ONLY
+  // as the intermediate the DMG is built from — its contents are never read.
   test("refuses a surplus bundle rather than shipping it", () => {
     expect(() => assertBundleSet(["deb", "appimage"], "linux-x64")).toThrow(/unexpected bundle output/);
-    expect(() => assertBundleSet(["macos", "dmg"], "darwin-arm64")).toThrow(/dmg/);
+    expect(() => assertBundleSet(["dmg", "macos", "appimage"], "darwin-arm64")).toThrow(/appimage/);
+    expect(() => assertBundleSet(["macos"], "linux-x64")).toThrow(/unexpected bundle output/);
   });
 
   test("refuses a missing bundle", () => {
     expect(() => assertBundleSet([], "linux-x64")).toThrow(/no deb bundle/);
+    // An .app-only listing means the image step never ran — the intermediate
+    // is not a publishable artifact, whatever else it once was.
+    expect(() => assertBundleSet(["macos"], "darwin-arm64")).toThrow(/no dmg bundle/);
   });
 });
 
@@ -186,13 +196,13 @@ describe("bundleArtifact", () => {
   const ROOT = "/w/apps/client/desktop/src-tauri/target/release/bundle";
 
   // The bundler's own name is passed IN (globbed), because Tauri derives it
-  // from productName and the Debian one goes through a package-name sanitizer.
-  // What is pinned here is the mapping onto the name this repo publishes.
-  test("maps the emitted .app to the tarball this repo publishes", () => {
-    expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", "Subshell Client.app")).toEqual({
-      source: `${ROOT}/macos/Subshell Client.app`,
-      artifact: `${ROOT}/macos/Subshell-Client-Desktop.app.tar.gz`,
-      archive: true,
+  // from productName (and its own dmg versioning), and the Debian one goes
+  // through a package-name sanitizer. What is pinned here is the mapping onto
+  // the name this repo publishes.
+  test("maps the emitted .dmg onto the versioned, tripled name this repo publishes", () => {
+    expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", "Subshell Client_1.2.3_aarch64.dmg")).toEqual({
+      source: `${ROOT}/dmg/Subshell Client_1.2.3_aarch64.dmg`,
+      artifact: `${ROOT}/dmg/Subshell-Client-Desktop-1.2.3-darwin-arm64.dmg`,
     });
   });
 
@@ -202,16 +212,15 @@ describe("bundleArtifact", () => {
     expect(bundleArtifact(ROOT, "linux-x64", "1.2.3", "Subshell Client_1.2.3_amd64.deb")).toEqual({
       source: `${ROOT}/deb/Subshell Client_1.2.3_amd64.deb`,
       artifact: `${ROOT}/deb/subshell-client-desktop_1.2.3_amd64.deb`,
-      archive: false,
     });
   });
 
   // Whatever the bundler called it, the published name is ours — that is the
   // point of the glob, and the reason productName may contain a space.
   test("the published name never depends on what the bundler emitted", () => {
-    for (const emitted of ["Subshell Client.app", "subshell-client.app", "Whatever.app"]) {
+    for (const emitted of ["Subshell Client_1.2.3_aarch64.dmg", "subshell-client_1.2.3_aarch64.dmg", "Whatever.dmg"]) {
       expect(bundleArtifact(ROOT, "darwin-arm64", "1.2.3", emitted).artifact).toBe(
-        `${ROOT}/macos/Subshell-Client-Desktop.app.tar.gz`,
+        `${ROOT}/dmg/Subshell-Client-Desktop-1.2.3-darwin-arm64.dmg`,
       );
     }
   });
@@ -235,24 +244,16 @@ describe("bundleArtifact", () => {
 describe("collectArtifact", () => {
   const ROOT = "/w/bundle";
 
-  // An AppleDouble `._` member surviving into the archive breaks the extracted
-  // bundle's signature, and the failure then reads as a signing bug. The
-  // spaced `.app` name is one argv element, so nothing has to quote it.
-  test("archives the emitted .app with --no-mac-metadata, from its own directory", async () => {
-    const s = stub({ listing: ["Subshell Client.app"] });
+  // The DMG is one signed, notarized, stapled FILE — renamed, never re-wrapped.
+  // Re-archiving or re-writing it would change the exact bytes the digest (and
+  // the staple's own container) describe. The spaced name rides one rename.
+  test("renames the emitted .dmg onto the published name, running nothing", async () => {
+    const s = stub({ listing: ["Subshell Client_1.2.3_aarch64.dmg"] });
     const out = await collectArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3");
-    expect(s.listed).toEqual([`${ROOT}/macos`]);
-    expect(out).toBe(`${ROOT}/macos/Subshell-Client-Desktop.app.tar.gz`);
-    expect(s.runs).toHaveLength(1);
-    expect(s.runs[0]?.argv).toEqual([
-      "tar",
-      "--no-mac-metadata",
-      "-czf",
-      `${ROOT}/macos/Subshell-Client-Desktop.app.tar.gz`,
-      "-C",
-      `${ROOT}/macos`,
-      "Subshell Client.app",
-    ]);
+    expect(s.listed).toEqual([`${ROOT}/dmg`]);
+    expect(out).toBe(`${ROOT}/dmg/Subshell-Client-Desktop-1.2.3-darwin-arm64.dmg`);
+    expect(s.moves).toEqual([[`${ROOT}/dmg/Subshell Client_1.2.3_aarch64.dmg`, out]]);
+    expect(s.runs).toEqual([]);
   });
 
   // The .deb is renamed rather than re-wrapped: one file already, published
@@ -277,17 +278,10 @@ describe("collectArtifact", () => {
   // canonical name is indistinguishable from a correct cut.
   test("refuses an empty or ambiguous bundle directory rather than guessing", async () => {
     const empty = stub({ listing: [] });
-    await expect(collectArtifact(empty.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/no \.app in/);
-    const many = stub({ listing: ["One.app", "Two.app"] });
+    await expect(collectArtifact(empty.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/no \.dmg in/);
+    const many = stub({ listing: ["One.dmg", "Two.dmg"] });
     await expect(collectArtifact(many.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/expected exactly one/);
     expect(many.runs).toEqual([]);
-  });
-
-  // A failed archive must fail the cut: publishing the previous run's tarball
-  // would ship an app nobody built.
-  test("a failed archive is a failed target", async () => {
-    const s = stub({ listing: ["Subshell Client.app"], run: async () => 2 });
-    await expect(collectArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/could not archive/);
   });
 });
 
@@ -335,10 +329,11 @@ describe("hostTarget", () => {
 describe("productName", () => {
   const CONF = JSON.parse(readFileSync(join(import.meta.dir, "../../../src-tauri/tauri.conf.json"), "utf8"));
 
-  // The bundler names the `.app` directory from `productName`, and this
-  // pipeline tars whatever it finds — so a drift here would not break the
-  // build. It would publish `Subshell-Client-Desktop.app.tar.gz` containing an `.app`
-  // called something else, which is a worse failure: a silent one.
+  // The bundler names the `.app`, the DMG volume and the DMG file from
+  // `productName`, and this pipeline publishes whatever single `.dmg` the glob
+  // finds — so a drift here would not break the build. It would ship an image
+  // whose app (and volume) are called something else, which the smoke would
+  // hunt for by the contract name and not find: a failure at the wrong layer.
   test("is the product name the release contract publishes under", () => {
     expect(CONF.productName).toBe(DESKTOP_CLIENT_PRODUCT);
   });

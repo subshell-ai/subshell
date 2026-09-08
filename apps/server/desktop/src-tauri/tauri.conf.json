@@ -19,7 +19,7 @@
       "binaries/subshell-server-bundled"
     ],
     "targets": [
-      "app",
+      "dmg",
       "deb"
     ],
     "category": "DeveloperTool",

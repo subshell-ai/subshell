@@ -34,13 +34,14 @@ GLIBC_FLOOR="2.39"
 #
 # Three names per app, and they are deliberately three:
 #
-#   PRODUCT  `productName` — what the bundler CALLS the `.app` INSIDE the
-#            tarball, spaces included. That is the app the user installs and
-#            what the bundle identifier belongs to, so every path built from it
-#            is quoted here.
-#   TARBALL  the PUBLISHED macOS asset name. Space-free, because it is a
-#            download URL and a shell argument, and chosen by the repo
-#            (`desktopArtifactFileName`) rather than read off the bundler.
+#   PRODUCT  `productName` — what the bundler CALLS the `.app` (and the volume)
+#            INSIDE the disk image, spaces included. That is the app the user
+#            installs and what the bundle identifier belongs to, so every path
+#            built from it is quoted here.
+#   DMG      the PUBLISHED macOS asset name, version and triple included.
+#            Space-free, because it is a download URL and a shell argument, and
+#            chosen by the repo (`desktopArtifactFileName`) rather than read off
+#            the bundler.
 #   PKG      the PUBLISHED Debian file-name stem — lowercase, as a Debian
 #            package name has to be.
 #
@@ -53,7 +54,7 @@ GLIBC_FLOOR="2.39"
 case "$APP" in
   desktop-server)
     PRODUCT="Subshell Server"
-    TARBALL="Subshell-Server-Desktop.app.tar.gz"
+    DMG="Subshell-Server-Desktop-${VERSION}-darwin-arm64.dmg"
     PKG="subshell-server-desktop"
     SIDECAR="subshell-server-bundled"
     SIDECAR_PREFIX="subshell-server "
@@ -61,7 +62,7 @@ case "$APP" in
     ;;
   desktop-client)
     PRODUCT="Subshell Client"
-    TARBALL="Subshell-Client-Desktop.app.tar.gz"
+    DMG="Subshell-Client-Desktop-${VERSION}-darwin-arm64.dmg"
     PKG="subshell-client-desktop"
     SIDECAR="subshell-node-bundled"
     SIDECAR_PREFIX="subshell "
@@ -72,7 +73,7 @@ esac
 
 case "$TRIPLE" in
   linux-x64) ARTIFACT="${PKG}_${VERSION}_amd64.deb" ;;
-  darwin-arm64) ARTIFACT="$TARBALL" ;;
+  darwin-arm64) ARTIFACT="$DMG" ;;
   *) fail "unknown triple '$TRIPLE'" ;;
 esac
 
@@ -174,20 +175,37 @@ if [ "$TRIPLE" = "linux-x64" ]; then
 fi
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+MNT="$WORK/mnt"
+mkdir -p "$MNT"
+# The detach belongs in the cleanup: a failed check between attach and the
+# script's end must not leave the volume mounted on the runner forever.
+cleanup() {
+  hdiutil detach "$MNT" -quiet >/dev/null 2>&1 || true
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
 
-echo "smoke: extracting the app bundle"
-tar xzf "$DIST/$ARTIFACT" -C "$WORK"
-# The published tarball is space-free; the `.app` inside it is NOT — it carries
-# the product name a user sees. Every path derived from it is quoted.
-APP_BUNDLE="$WORK/$PRODUCT.app"
-[ -d "$APP_BUNDLE" ] || fail "the tarball does not contain '$PRODUCT.app'"
+echo "smoke: mounting the disk image"
+hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DIST/$ARTIFACT" >/dev/null
+# The published image name is space-free; the `.app` inside it is NOT — it
+# carries the product name a user sees. Every path derived from it is quoted.
+APP_BUNDLE="$MNT/$PRODUCT.app"
+if [ ! -d "$APP_BUNDLE" ]; then
+  echo "--- the mounted volume's contents ---" >&2
+  ls -la "$MNT" >&2 || true
+  fail "the image does not contain '$PRODUCT.app'"
+fi
 
-# An AppleDouble member that survives into the archive breaks the extracted
-# bundle's signature, and the failure looks like a signing bug rather than a
-# packaging one.
-members="$(tar tzf "$DIST/$ARTIFACT")"
-case "$members" in *"/._"*) fail "the archive carries AppleDouble (._) members" ;; esac
+echo "smoke: verifying the image container"
+# The container is what the user downloads and what Gatekeeper assesses BEFORE
+# the app ever runs — a signed, notarized app inside an unattested image is
+# still blocked on first launch. codesign on a .dmg checks its outer signature;
+# the staple on the IMAGE (not just the app) is the ticket that answers offline.
+codesign --verify --strict --verbose=2 "$DIST/$ARTIFACT" || fail "codesign --verify failed on the image"
+# Tauri's staple step calls .output() and never inspects the exit status, so a
+# stapling failure is SILENT and the build still reports success — this check
+# is the reason the DMG can be trusted at all.
+xcrun stapler validate "$DIST/$ARTIFACT" || fail "the notarization ticket is not stapled to the image"
 
 [ -x "$APP_BUNDLE/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"
 check_sidecar_runs "$APP_BUNDLE/Contents/MacOS/$SIDECAR"
@@ -199,8 +217,5 @@ sig="$(codesign -dvv "$APP_BUNDLE/Contents/MacOS/$SIDECAR" 2>&1 || true)"
 case "$sig" in *"flags="*"runtime"*) ;; *) fail "the sidecar is not signed with the hardened runtime" ;; esac
 assess="$(spctl -a -vvv -t exec "$APP_BUNDLE" 2>&1 || true)"
 case "$assess" in *"source=Notarized Developer ID"*) ;; *) fail "Gatekeeper does not see a notarized Developer ID app: $assess" ;; esac
-# Tauri's staple_app calls .output() and never inspects the exit status, so a
-# stapling failure is SILENT and the build still reports success.
-xcrun stapler validate "$APP_BUNDLE" || fail "the notarization ticket is not stapled"
 
 echo "smoke: ok"
