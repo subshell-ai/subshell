@@ -1,4 +1,5 @@
 import { userInfo } from "node:os";
+import { readCommandBounded } from "./bounded-exec.js";
 
 /**
  * The PATH a SERVICE does not have.
@@ -71,29 +72,19 @@ export function resetLoginPathForTests(): void {
 }
 
 async function probe(): Promise<string[]> {
-  try {
-    const proc = Bun.spawn([loginShell(), "-l", "-c", 'printf %s "$PATH"'], {
-      stdout: "pipe",
-      stderr: "ignore",
-      stdin: "ignore",
-    });
-    // A profile that blocks (a prompt, a network call) must not wedge the
-    // caller: this is a diagnostic, and an empty answer is a fine one.
-    const timer = setTimeout(() => proc.kill(), PROBE_TIMEOUT_MS);
-    try {
-      const text = await new Response(proc.stdout).text();
-      await proc.exited;
-      if (proc.exitCode !== 0) return [];
-      return text
-        .trim()
-        .split(":")
-        .filter((entry) => entry.length > 0);
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    // No shell, no spawn permission, nothing usable. Not an error worth
-    // raising: the caller has already tried PATH and the known locations.
-    return [];
-  }
+  // A profile that blocks (a prompt, a network call, a backgrounded job) must
+  // not wedge the caller: this is a diagnostic, and an empty answer is a fine
+  // one. `readCommandBounded` races the read rather than only killing the
+  // process, which matters here more than anywhere: a login profile is exactly
+  // the kind of script that leaves a child holding stdout, and killing the
+  // shell would then never end the read.
+  const result = await readCommandBounded([loginShell(), "-l", "-c", 'printf %s "$PATH"'], PROBE_TIMEOUT_MS);
+  // No shell, no spawn permission, a timeout, or a profile that failed. Not an
+  // error worth raising: the caller has already tried PATH, the known
+  // locations and the version-manager layouts.
+  if (result?.exitCode !== 0) return [];
+  return result.text
+    .trim()
+    .split(":")
+    .filter((entry) => entry.length > 0);
 }

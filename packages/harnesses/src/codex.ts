@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
+import { probeVersion } from "./version-probe.js";
 
 /** Known Codex settings, applied as per-invocation CLI flags. */
 const CODEX_SETTINGS_FIELDS: SettingsField[] = [
@@ -130,14 +131,7 @@ export class CodexPlugin implements HarnessPlugin {
 
   async getVersion(): Promise<string | null> {
     const binary = await this.findBinary();
-    if (!binary) return null;
-    try {
-      const proc = Bun.spawn({ cmd: [binary, "--version"], stdout: "pipe", stderr: "pipe" });
-      const out = await new Response(proc.stdout).text();
-      return out.trim() || null;
-    } catch {
-      return null;
-    }
+    return binary ? await probeVersion(binary) : null;
   }
 
   buildCommand(input: BuildCommandInput): string[] {

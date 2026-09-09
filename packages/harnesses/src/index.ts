@@ -27,6 +27,7 @@ export {
   type DetectionResult,
   detectBinary,
 } from "./binary-lookup.js";
+export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
 export { ClaudeCodePlugin } from "./claude-code.js";
 export { CodexPlugin } from "./codex.js";
 export { HermesPlugin } from "./hermes.js";
@@ -53,3 +54,4 @@ export type {
 export { MCP_SERVER_NAME } from "./types.js";
 export { validateGenericProfile } from "./validate.js";
 export { versionManagerBins } from "./version-manager-paths.js";
+export { probeVersion, VERSION_PROBE_TIMEOUT_MS } from "./version-probe.js";

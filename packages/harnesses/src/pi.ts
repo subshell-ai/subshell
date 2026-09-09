@@ -10,6 +10,7 @@ import type {
 } from "./types.js";
 import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
+import { probeVersion } from "./version-probe.js";
 
 /** pi per-invocation overrides, applied as CLI flags. */
 const PI_SETTINGS_FIELDS: SettingsField[] = [
@@ -105,14 +106,7 @@ export class PiPlugin implements HarnessPlugin {
 
   async getVersion(): Promise<string | null> {
     const binary = await this.findBinary();
-    if (!binary) return null;
-    try {
-      const proc = Bun.spawn({ cmd: [binary, "--version"], stdout: "pipe", stderr: "pipe" });
-      const out = await new Response(proc.stdout).text();
-      return out.trim() || null;
-    } catch {
-      return null;
-    }
+    return binary ? await probeVersion(binary) : null;
   }
 
   buildCommand(input: BuildCommandInput): string[] {

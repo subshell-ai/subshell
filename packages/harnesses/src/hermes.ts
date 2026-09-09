@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 import { MCP_SERVER_NAME } from "./types.js";
 import { validateGenericProfile } from "./validate.js";
+import { probeVersion } from "./version-probe.js";
 
 /** Hermes per-invocation overrides, applied as CLI flags (no config file writes). */
 const HERMES_SETTINGS_FIELDS: SettingsField[] = [
@@ -118,20 +119,16 @@ export class HermesPlugin implements HarnessPlugin {
   async getVersion(): Promise<string | null> {
     const binary = await this.findBinary();
     if (!binary) return null;
-    try {
-      const proc = Bun.spawn({ cmd: [binary, "--version"], stdout: "pipe", stderr: "pipe" });
-      const out = await new Response(proc.stdout).text();
-      const firstLine =
-        out
-          .split("\n")
-          .map((l) => l.trim())
-          .find(Boolean) ?? null;
-      if (!firstLine) return null;
-      const match = firstLine.match(/\d+\.\d+(?:\.\d+)?/);
-      return match ? match[0] : firstLine;
-    } catch {
-      return null;
-    }
+    const out = await probeVersion(binary);
+    if (!out) return null;
+    const firstLine =
+      out
+        .split("\n")
+        .map((l) => l.trim())
+        .find(Boolean) ?? null;
+    if (!firstLine) return null;
+    const match = firstLine.match(/\d+\.\d+(?:\.\d+)?/);
+    return match ? match[0] : firstLine;
   }
 
   buildCommand(input: BuildCommandInput): string[] {
