@@ -2,7 +2,12 @@ import { afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
-import { INSTANCE_NAME_KEY, INSTANCE_NAME_MAX, resolveInstanceName, setInstanceName } from "@/services/instance-name.js";
+import {
+  INSTANCE_NAME_KEY,
+  INSTANCE_NAME_MAX,
+  resolveInstanceName,
+  setInstanceName,
+} from "@/services/instance-name.js";
 import { localHostname } from "@/services/nodes/seed-local.js";
 
 /**

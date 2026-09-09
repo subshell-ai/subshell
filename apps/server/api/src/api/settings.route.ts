@@ -7,7 +7,12 @@ import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { audit } from "@/services/audit.js";
-import { INSTANCE_NAME_KEY, INSTANCE_NAME_MAX, resolveInstanceName, setInstanceName } from "@/services/instance-name.js";
+import {
+  INSTANCE_NAME_KEY,
+  INSTANCE_NAME_MAX,
+  resolveInstanceName,
+  setInstanceName,
+} from "@/services/instance-name.js";
 import { SERVER_VERSION } from "@/version.js";
 
 const SettingsSchema = t.Object({
