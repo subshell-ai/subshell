@@ -5,6 +5,7 @@ export {
   detectBinary,
 } from "./binary-lookup.js";
 export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
+export { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
 export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.js";
 export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";
 export { adaptPlugin } from "./plugin-adapter.js";

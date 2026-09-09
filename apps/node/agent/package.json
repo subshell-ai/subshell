@@ -1,6 +1,6 @@
 {
   "name": "@internal/node",
-  "description": "subshell — node client daemon: enrolls with the control plane and executes signed commands",
+  "description": "subshell \u2014 node client daemon: enrolls with the control plane and executes signed commands",
   "version": "0.1.2",
   "license": "Apache-2.0",
   "type": "module",
@@ -27,9 +27,10 @@
   },
   "dependencies": {
     "@internal/backend-errors": "workspace:*",
-    "@internal/pane-runtime": "workspace:*",
     "@internal/mcp-core": "workspace:*",
+    "@internal/pane-runtime": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
     "jose": "6.2.9",
     "loglayer": "9.4.0"
   },
