@@ -1,5 +1,11 @@
 //! Subshell Server — a native shell around a locally managed `subshell-server`.
 
+// macOS-only, like its one consumer. `menu.rs` is the last thing that
+// dispatches a `DesktopAction` now that the tray does not, and a GTK menu bar
+// is per-window chrome rather than a system bar so there is no Linux menu to
+// carry it. Gated at the MODULE rather than left to its call site, because
+// clippy on Linux is then right to call the whole thing dead code.
+#[cfg(target_os = "macos")]
 mod bridge;
 mod control;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so

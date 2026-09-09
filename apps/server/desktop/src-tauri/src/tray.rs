@@ -45,25 +45,26 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
-use crate::bridge::{dispatch, DesktopAction};
-
-/// The tray items whose usefulness depends on a RUNNING server, held so their
-/// enabled state can follow it.
+/// "Open Dashboard", held so its enabled state can follow the server.
 ///
-/// Both of these need the server's own SPA, which does not exist until the
-/// server answers on its port. They used to be permanently enabled and to fall
-/// back to opening the console — so with no server every item in the menu did
-/// the same thing, and the menu offered two ways to reach a window it never
-/// named. Disabling them is what makes the menu describe what is actually
-/// available.
-pub struct ServerDependentItems {
-    /// "Open Dashboard" — the server's own SPA.
-    open: MenuItem<Wry>,
-    /// "New Subshell…" — dispatched INTO that SPA, so it needs it too.
-    new_subshell: MenuItem<Wry>,
-}
+/// It needs the server's own SPA, which does not exist until the server
+/// answers on its port. It used to be permanently enabled and to fall back to
+/// opening the console — so with no server every item in the menu did the same
+/// thing, and the menu offered two ways to reach a window it never named.
+///
+/// **There is deliberately no "New Subshell…" here.** It dispatched an action
+/// INTO the SPA, so being enabled required more than a running server: a
+/// server with no users yet is sitting on the setup wizard, and the item was
+/// live while there was nothing to create a subshell in. Nothing this side can
+/// see distinguishes those states — `status --json` carries no user state by
+/// design (the CLI never opens the database), `ShellReady` fires from the SPA
+/// root on purpose so a first launch is not left staring at a hidden window,
+/// and there is no HTTP client here to ask `/api/setup/status`. So the item is
+/// gone rather than gated: the tray is a shortcut and never the only route,
+/// and creating a subshell is a thing the SPA already offers.
+pub struct DashboardItem(MenuItem<Wry>);
 
-/// Enable or disable the tray items that need a running server.
+/// Enable or disable the one tray item that needs a running server.
 ///
 /// Driven by `desktop_probe`, which every console refresh and every console
 /// action already runs — including the one at startup, since `setup` opens the
@@ -74,9 +75,8 @@ pub struct ServerDependentItems {
 /// the items enabled until the next probe. That is a known staleness rather
 /// than a silent one: clicking then re-probes and reports the real error.
 pub fn set_server_ready(app: &AppHandle, ready: bool) {
-    if let Some(items) = app.try_state::<ServerDependentItems>() {
-        let _ = items.open.set_enabled(ready);
-        let _ = items.new_subshell.set_enabled(ready);
+    if let Some(item) = app.try_state::<DashboardItem>() {
+        let _ = item.0.set_enabled(ready);
     }
 }
 
@@ -87,22 +87,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // console's first render enables them if the server is already up.
     let open = MenuItem::with_id(app, "tray:open", "Open Dashboard", false, None::<&str>)?;
     let console = MenuItem::with_id(app, "console", "Manage server…", true, None::<&str>)?;
-    let new_subshell = MenuItem::with_id(
-        app,
-        DesktopAction::NewSubshell.id(),
-        "New Subshell…",
-        false,
-        None::<&str>,
-    )?;
-    app.manage(ServerDependentItems {
-        open: open.clone(),
-        new_subshell: new_subshell.clone(),
-    });
+    app.manage(DashboardItem(open.clone()));
     let menu = Menu::with_items(
         app,
         &[
             &open,
-            &new_subshell,
             &PredefinedMenuItem::separator(app)?,
             &console,
             &PredefinedMenuItem::separator(app)?,
@@ -161,16 +150,9 @@ fn on_menu(app: &AppHandle, id: &str) {
         "console" => {
             let _ = crate::windows::open_console(app);
         }
-        _ => {
-            if let Some(action) = DesktopAction::from_id(id) {
-                // Same gate: enabled means the SPA is reachable. Opening it
-                // first is what makes the action land somewhere.
-                open_dashboard(app);
-                if app.get_webview_window("main").is_some() {
-                    dispatch(app, action);
-                }
-            }
-        }
+        // No other ids exist: the tray dispatches no DesktopAction, so nothing
+        // here reaches the SPA's own action bridge (see `DashboardItem`).
+        _ => {}
     }
 }
 
