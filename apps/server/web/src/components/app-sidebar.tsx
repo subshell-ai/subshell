@@ -232,7 +232,7 @@ export function AppSidebar({
     >
       {headerAbove}
       {/* Brand — collapsed: a centered /s mark that expands the rail */}
-      <div className="flex items-center justify-between px-3 py-4">
+      <div className="flex items-center justify-between px-3 pt-4">
         {collapsed ? (
           <button
             type="button"
@@ -275,6 +275,15 @@ export function AppSidebar({
           </>
         )}
       </div>
+      {/* Which plane am I looking at? Only when expanded — the collapsed rail
+          has no room for text, and the wordmark alone is the brand, not the
+          instance. Server-resolved, so it is never blank. */}
+      {!collapsed && publicSettings?.instanceName && (
+        <p className="truncate px-3 pb-3 text-muted-foreground text-xs" title={publicSettings.instanceName}>
+          {publicSettings.instanceName}
+        </p>
+      )}
+      {collapsed && <div className="pb-3" />}
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
         {visibleNavItems(publicSettings?.viewerIsAdmin).map((item) => {

@@ -12,3 +12,6 @@ export const NAME_MAX_DEFAULT = 120;
 
 /** Node display names. */
 export const NODE_NAME_MAX = 64;
+
+/** Instance display name (`settings.route.ts`). */
+export const INSTANCE_NAME_MAX = 64;

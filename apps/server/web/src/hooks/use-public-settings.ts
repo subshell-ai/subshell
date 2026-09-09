@@ -11,6 +11,12 @@ export interface PublicSettings {
   /** True while SUBSHELL_EMERGENCY_PASSWORD is set (spec 2026-08-31 §6) */
   emergencyLoginActive: boolean;
   /**
+   * Operator-chosen name for this control plane, falling back server-side to
+   * the host's own name — never blank (spec 2026-09-08). Rendered in the
+   * sidebar so a person running several planes can tell them apart.
+   */
+  instanceName: string;
+  /**
    * The server's own base URL (APP_BASE_URL) — what it bakes into rendered
    * install commands (spec 2026-08-31 Phase 3). May point at loopback, which
    * the Nodes dialog warns about; a remote node must dial a reachable address.

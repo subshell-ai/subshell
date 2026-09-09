@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -6,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
+import { apiFetch } from "@/lib/api";
 import { safeRedirect } from "@/lib/redirect";
 import { passkeysSupported } from "@/lib/webauthn";
 
@@ -23,6 +25,15 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const { redirect } = Route.useSearch();
   const { data: user, isLoading } = useCurrentUser();
+  // Its OWN query rather than a slice of ["setup-status"]: that one is cached
+  // with an infinite stale time because `needsSetup` is true exactly once in
+  // an instance's life, and a renameable value must not inherit that.
+  const { data: instance } = useQuery({
+    queryKey: ["instance-name"],
+    queryFn: () => apiFetch<{ instanceName: string }>("/api/settings/instance"),
+    staleTime: 30_000,
+  });
+  const instanceName = instance?.instanceName;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +82,11 @@ function LoginPage() {
       <img src="/icons/wordmark-96.png" srcSet="/icons/wordmark-192.png 2x" alt="Subshell" className="h-14 w-auto" />
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Sign in to Subshell</CardTitle>
+          {/* Name the plane you are about to hand a password to. The read is
+              anonymous by design (spec 2026-09-08) and deliberately not
+              load-bearing: while it is pending or failed, the form is
+              unchanged and fully usable. */}
+          <CardTitle>Sign in to {instanceName ?? "Subshell"}</CardTitle>
           <CardDescription>Manage your agent harness subshells.</CardDescription>
         </CardHeader>
         <CardContent>

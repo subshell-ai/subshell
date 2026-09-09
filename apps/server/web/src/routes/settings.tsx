@@ -6,6 +6,7 @@ import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { PageHeader } from "@/components/page-header";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { InstanceNameCard } from "@/components/instance-name-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -85,6 +86,8 @@ function SettingsPage() {
           server-side gates remain the actual enforcement either way. */}
       {viewerIsAdmin === undefined ? null : viewerIsAdmin ? (
         <>
+          <InstanceNameCard />
+
           <Card>
             <CardHeader>
               <CardTitle>Registration</CardTitle>
