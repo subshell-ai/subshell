@@ -6,7 +6,6 @@ import { ChannelsRepository } from "@/db/repositories/channels.repository.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import type { Repositories } from "@/db/repositories/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -63,7 +62,6 @@ export class ApiContext {
       nodes: new NodesRepository(params.db),
       nodeShares: new NodeSharesRepository(params.db),
       nodeSetupKeys: new NodeSetupKeysRepository(params.db),
-      nodeHarnesses: new NodeHarnessesRepository(params.db),
       nodeAllowedDirs: new NodeAllowedDirsRepository(params.db),
     };
     this.services = {} as Services;

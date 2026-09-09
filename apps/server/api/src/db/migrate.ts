@@ -23,6 +23,7 @@ import * as userMetaReplayLinesMigration from "@/db/migrations/0020-user-meta-re
 import * as nodeAllowedDirsMigration from "@/db/migrations/0021-node-allowed-dirs.js";
 import * as localNodeNameMigration from "@/db/migrations/0022-local-node-name.js";
 import * as nodePluginsMigration from "@/db/migrations/0023-node-plugins.js";
+import * as dropNodeHarnessesMigration from "@/db/migrations/0024-drop-node-harnesses.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -57,6 +58,7 @@ export async function runMigrations(): Promise<void> {
           "0021-node-allowed-dirs": nodeAllowedDirsMigration,
           "0022-local-node-name": localNodeNameMigration,
           "0023-node-plugins": nodePluginsMigration,
+          "0024-drop-node-harnesses": dropNodeHarnessesMigration,
         };
       },
     },

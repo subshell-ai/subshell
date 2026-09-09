@@ -5,7 +5,6 @@ import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { db } from "@/db/index.js";
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -56,7 +55,6 @@ type View = {
 
 const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes).use(setupRoutes);
 const nodes = new NodesRepository(db);
-const _nodeHarnesses = new NodeHarnessesRepository(db);
 const nodeShares = new NodeSharesRepository(db);
 
 /** The plugin instance (its `isInstalled` is the per-test probe seam). */

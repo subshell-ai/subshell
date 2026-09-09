@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { restoreLocalNode } from "@/services/__tests__/helpers/local-node.js";
@@ -241,26 +240,5 @@ describe("NodesRepository", () => {
     await repo.deleteById(n.id);
     expect(await repo.findById(n.id)).toBeUndefined();
     expect(await repo.countPinnedProfiles(n.id)).toBe(0); // profile survived, unpinned
-  });
-});
-
-describe("NodeHarnessesRepository", () => {
-  const nodes = new NodesRepository(db);
-  const harnesses = new NodeHarnessesRepository(db);
-
-  it("setEnabled upserts; enabledStates reads explicit rows only; clearForNode wipes", async () => {
-    const n = await mkNode(nodes, unique("u"));
-    expect((await harnesses.enabledStates(n.id)).size).toBe(0);
-    await harnesses.setEnabled(n.id, "claude-code", true);
-    await harnesses.setEnabled(n.id, "hermes", false);
-    await harnesses.setEnabled(n.id, "hermes", false); // upsert, not a duplicate
-    const states = await harnesses.enabledStates(n.id);
-    expect(states.size).toBe(2);
-    expect(states.get("claude-code")).toBe(true);
-    expect(states.get("hermes")).toBe(false);
-    await harnesses.setEnabled(n.id, "claude-code", false);
-    expect((await harnesses.enabledStates(n.id)).get("claude-code")).toBe(false);
-    await harnesses.clearForNode(n.id);
-    expect((await harnesses.enabledStates(n.id)).size).toBe(0);
   });
 });

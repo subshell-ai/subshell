@@ -4,7 +4,6 @@ import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { effectiveHarnessStates, INVENTORY_TTL_MS, readAgentInventory } from "../inventory.js";
@@ -23,7 +22,6 @@ const H2 = "hermes";
 const H3 = "pi";
 
 const nodes = new NodesRepository(db);
-const _nodeHarnesses = new NodeHarnessesRepository(db);
 const OWNER = `inv-owner-${crypto.randomUUID().slice(0, 8)}`;
 
 function freshAt(): string {
