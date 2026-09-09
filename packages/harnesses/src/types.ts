@@ -1,3 +1,5 @@
+import type { DetectionResult } from "./binary-lookup.js";
+
 /**
  * Shared types for harness plugins. These are consumed by both the backend
  * (registry, subshell runner) and the frontend (profile editor forms).
@@ -167,7 +169,14 @@ export interface HarnessPlugin {
   enabledByDefault: boolean;
   /** Whether the harness binary is currently installed/usable. */
   isInstalled(): Promise<boolean>;
-  /** Resolves the binary path or null if not found. */
+  /**
+   * Resolves the binary, reporting WHY when there is not one.
+   *
+   * The reason is what lets a surface tell "install it" apart from "your
+   * PLUGIN_PATH is wrong", which are the same `null` to {@link findBinary}.
+   */
+  detect(): Promise<DetectionResult>;
+  /** Resolves the binary path or null if not found. The path-only view of {@link detect}. */
   findBinary(): Promise<string | null>;
   /** Reads the installed version, or null. */
   getVersion(): Promise<string | null>;

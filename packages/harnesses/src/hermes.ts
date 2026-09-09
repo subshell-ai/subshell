@@ -1,4 +1,4 @@
-import { findBinary } from "./binary-lookup.js";
+import { type DetectionResult, detectBinary } from "./binary-lookup.js";
 import { shellQuote } from "./shell.js";
 import type {
   BuildCommandInput,
@@ -99,15 +99,23 @@ export class HermesPlugin implements HarnessPlugin {
     this.#binaryOverride = binaryOverride;
   }
 
-  async findBinary(): Promise<string | null> {
+  async detect(): Promise<DetectionResult> {
     if (this.#binaryOverride) {
-      return (await Bun.file(this.#binaryOverride).exists()) ? this.#binaryOverride : null;
+      // An injected override that does not exist is the same class of mistake
+      // as a bad HERMES_PATH: the caller said where it is and was wrong.
+      return (await Bun.file(this.#binaryOverride).exists())
+        ? { path: this.#binaryOverride }
+        : { path: null, reason: "override-invalid" };
     }
-    return findBinary(this.binaryName, "HERMES_PATH", PLUGIN_KNOWN_PATHS);
+    return detectBinary(this.binaryName, "HERMES_PATH", PLUGIN_KNOWN_PATHS);
+  }
+
+  async findBinary(): Promise<string | null> {
+    return (await this.detect()).path;
   }
 
   async isInstalled(): Promise<boolean> {
-    return (await this.findBinary()) !== null;
+    return (await this.detect()).path !== null;
   }
 
   /**

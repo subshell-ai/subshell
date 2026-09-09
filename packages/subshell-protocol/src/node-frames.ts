@@ -243,7 +243,21 @@ export type NodeEvent =
     }
   | {
       type: "inventory";
-      harnesses: { harnessId: string; installed: boolean; version?: string; binaryPath?: string }[];
+      harnesses: {
+        harnessId: string;
+        installed: boolean;
+        version?: string;
+        binaryPath?: string;
+        /**
+         * Why the binary was not found (2026-09-09 §7). Optional on the wire
+         * and absent from agents older than the field, so a reader treats
+         * absence as unknown. Additive, which is why NODE_PROTOCOL_VERSION
+         * does not move for it: nothing an older agent sends becomes invalid.
+         */
+        reason?: "not-on-path" | "override-invalid";
+        /** ISO 8601 stamp of when this entry was probed. Also optional, also additive. */
+        checkedAt?: string;
+      }[];
       ts: string;
     }
   | { type: "heartbeat"; ts: string }

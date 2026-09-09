@@ -3,10 +3,15 @@ import type { HarnessPlugin } from "../index.js";
 import { ALL_HARNESSES } from "../index.js";
 import { scanHarnesses, scanOne } from "../inventory.js";
 
-/** Minimal plugin whose probes are scripted per-test. */
-function stubPlugin(
-  overrides: Partial<Pick<HarnessPlugin, "isInstalled" | "findBinary" | "getVersion">>,
-): HarnessPlugin {
+/**
+ * Minimal plugin whose probes are scripted per-test.
+ *
+ * `detect` is the one `scanOne` actually calls; `isInstalled` and `findBinary`
+ * are here only so the object satisfies the interface. A stub that scripts
+ * `isInstalled` and expects `scanOne` to notice is testing a call that no
+ * longer happens, which is exactly what these tests used to do.
+ */
+function stubPlugin(overrides: Partial<HarnessPlugin>): HarnessPlugin {
   return {
     id: "stub",
     name: "Stub",
@@ -15,6 +20,7 @@ function stubPlugin(
     installHint: { command: "", docsUrl: "" },
     ttyRequired: true,
     enabledByDefault: true,
+    detect: async () => ({ path: "/usr/bin/stub" }),
     isInstalled: async () => true,
     findBinary: async () => "/usr/bin/stub",
     getVersion: async () => "1.2.3",
@@ -22,6 +28,10 @@ function stubPlugin(
     ...overrides,
   } as unknown as HarnessPlugin;
 }
+
+/** A fixed clock, so an expectation can name the stamp it wants. */
+const AT = new Date("2026-09-09T12:00:00.000Z");
+const AT_ISO = "2026-09-09T12:00:00.000Z";
 
 describe("scanHarnesses", () => {
   it("returns one entry per built-in harness with consistent optionals", async () => {
@@ -37,34 +47,66 @@ describe("scanHarnesses", () => {
       }
     }
   });
+
+  it("gives one batch a single stamp", async () => {
+    // The entries were probed together, so a reader comparing them must not
+    // see them drift by milliseconds.
+    for (const e of await scanHarnesses(AT)) expect(e.checkedAt).toBe(AT_ISO);
+  });
 });
 
 describe("scanOne", () => {
-  it("reports a clean installed entry with path + version", async () => {
-    expect(await scanOne(stubPlugin({}))).toEqual({
+  it("reports a clean installed entry with path, version and stamp", async () => {
+    expect(await scanOne(stubPlugin({}), AT)).toEqual({
       harnessId: "stub",
       installed: true,
       binaryPath: "/usr/bin/stub",
       version: "1.2.3",
+      checkedAt: AT_ISO,
     });
   });
 
-  it("a rejecting isInstalled yields installed:false instead of failing the scan", async () => {
+  it("stamps a not-found entry and carries its reason", async () => {
+    const entry = await scanOne(stubPlugin({ detect: async () => ({ path: null, reason: "not-on-path" }) }), AT);
+    expect(entry).toEqual({ harnessId: "stub", installed: false, reason: "not-on-path", checkedAt: AT_ISO });
+  });
+
+  it("carries override-invalid through unchanged", async () => {
+    const entry = await scanOne(stubPlugin({ detect: async () => ({ path: null, reason: "override-invalid" }) }), AT);
+    expect(entry.reason).toBe("override-invalid");
+  });
+
+  it("a rejecting detect yields installed:false instead of failing the scan", async () => {
     const entry = await scanOne(
       stubPlugin({
-        isInstalled: async () => {
+        detect: async () => {
           throw new Error("EACCES probing");
         },
       }),
+      AT,
     );
-    expect(entry).toEqual({ harnessId: "stub", installed: false });
+    // Stamped, but claiming NO reason: the probe failed, which is a different
+    // thing from having looked and not found it.
+    expect(entry).toEqual({ harnessId: "stub", installed: false, checkedAt: AT_ISO });
   });
 
-  it("a rejecting findBinary/getVersion also degrades to installed:false", async () => {
+  it("a rejecting getVersion also degrades to installed:false", async () => {
     const throwing = async (): Promise<never> => {
       throw new Error("probe exploded");
     };
-    expect(await scanOne(stubPlugin({ findBinary: throwing }))).toEqual({ harnessId: "stub", installed: false });
-    expect(await scanOne(stubPlugin({ getVersion: throwing }))).toEqual({ harnessId: "stub", installed: false });
+    expect(await scanOne(stubPlugin({ getVersion: throwing }), AT)).toEqual({
+      harnessId: "stub",
+      installed: false,
+      checkedAt: AT_ISO,
+    });
+  });
+
+  it("omits version when the probe returns nothing, keeping the path", async () => {
+    expect(await scanOne(stubPlugin({ getVersion: async () => null }), AT)).toEqual({
+      harnessId: "stub",
+      installed: true,
+      binaryPath: "/usr/bin/stub",
+      checkedAt: AT_ISO,
+    });
   });
 });
