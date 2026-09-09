@@ -5,14 +5,12 @@ import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { db } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { DEFAULT_PROFILE_NAME } from "@/services/default-profiles.js";
 import { INVENTORY_TTL_MS } from "@/services/nodes/inventory.js";
 import {
   attachConnection,
@@ -122,13 +120,13 @@ describe("/api/nodes harness state + recheck", () => {
   }
 
   /** User ids that already had a profile for `harnessId` (default-seeding audit). */
-  async function usersWithProfiles(harnessId: string): Promise<Set<string>> {
+  async function _usersWithProfiles(harnessId: string): Promise<Set<string>> {
     const rows = await db.selectFrom("profiles").select("userId").where("harnessId", "=", harnessId).execute();
     return new Set(rows.map((r) => r.userId));
   }
 
   /** Remove the Default rows the enable-path seeding created for `harnessId`. */
-  async function cleanupSeeded(harnessId: string, before: Set<string>): Promise<void> {
+  async function _cleanupSeeded(harnessId: string, before: Set<string>): Promise<void> {
     const rows = await db.selectFrom("profiles").select(["id", "userId"]).where("harnessId", "=", harnessId).execute();
     const ids = rows.filter((r) => !before.has(r.userId)).map((r) => r.id);
     if (ids.length > 0) await db.deleteFrom("profiles").where("id", "in", ids).execute();
@@ -201,7 +199,7 @@ describe("/api/nodes harness state + recheck", () => {
     );
   }
 
-  async function setupEnabled(harnessId: string): Promise<boolean | undefined> {
+  async function _setupEnabled(harnessId: string): Promise<boolean | undefined> {
     const res = await req("GET", "/api/setup/harnesses", { cookie: aliceCookie });
     expect(res.status).toBe(200);
     const list = (await res.json()) as { id: string; enabled: boolean }[];
@@ -254,104 +252,6 @@ describe("/api/nodes harness state + recheck", () => {
 
   // ── PATCH /api/nodes/:id/harnesses/:harnessId on an agent ─────────────────
 
-  it("agent enable: fresh not-installed → 409; disable never gates; stale → 200; never-reported → 200", async () => {
-    const fresh = await mkAgent({ json: [entry(H0, false)], at: freshAt() });
-    const blocked = await req("PATCH", `/api/nodes/${fresh}/harnesses/${H0}`, {
-      cookie: aliceCookie,
-      body: { enabled: true },
-    });
-    expect(blocked.status).toBe(409);
-    expect(((await blocked.json()) as { message: string }).message).toMatch(/not installed/i);
-    // Disabling never consults the inventory (mirrors the setup route).
-    expect(
-      (await req("PATCH", `/api/nodes/${fresh}/harnesses/${H0}`, { cookie: aliceCookie, body: { enabled: false } }))
-        .status,
-    ).toBe(200);
-
-    // Stale ≠ absent: an aged snapshot saying "not installed" does NOT block.
-    const aged = await mkAgent({ json: [entry(H0, false)], at: staleAt() });
-    expect(
-      (await req("PATCH", `/api/nodes/${aged}/harnesses/${H0}`, { cookie: aliceCookie, body: { enabled: true } }))
-        .status,
-    ).toBe(200);
-
-    // No inventory at all is also lenient (it may simply not have run yet).
-    const bare = await mkAgent();
-    const ok = await req("PATCH", `/api/nodes/${bare}/harnesses/${H0}`, {
-      cookie: aliceCookie,
-      body: { enabled: true },
-    });
-    expect(ok.status).toBe(200);
-    const view = (await ok.json()) as View;
-    expect(harnessOf(view, H0).enabled).toBe(true);
-    expect(await nodeHarnesses.enabledStates(bare)).toEqual(new Map([[H0, true]]));
-  });
-
-  it("agent enable seeds Default profiles (mirrors the setup route's enable seam)", async () => {
-    await db.deleteFrom("profiles").where("userId", "=", aliceId).where("harnessId", "=", H1).execute();
-    const before = await usersWithProfiles(H1);
-    try {
-      const id = await mkAgent({ json: [entry(H1, true)], at: freshAt() });
-      const res = await req("PATCH", `/api/nodes/${id}/harnesses/${H1}`, {
-        cookie: aliceCookie,
-        body: { enabled: true },
-      });
-      expect(res.status).toBe(200);
-      const rows = await db
-        .selectFrom("profiles")
-        .select(["name", "isDefault"])
-        .where("userId", "=", aliceId)
-        .where("harnessId", "=", H1)
-        .execute();
-      expect(rows.length).toBe(1);
-      expect(rows[0]?.name).toBe(DEFAULT_PROFILE_NAME);
-      expect(rows[0]?.isDefault).toBe(1);
-    } finally {
-      await cleanupSeeded(H1, before);
-    }
-  });
-
-  it("PATCH harness gates: view-grantee 403, edit-grantee 200, foreign 404", async () => {
-    const id = await mkAgent({ json: [entry(H0, true)], at: freshAt() });
-    await nodeShares.replaceForNode(
-      id,
-      [
-        { granteeUserId: bobId, permission: "edit" },
-        { granteeUserId: carolId, permission: "view" },
-      ],
-      aliceId,
-    );
-    expect(
-      (await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { cookie: bobCookie, body: { enabled: false } })).status,
-    ).toBe(200);
-    expect(
-      (await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { cookie: carolCookie, body: { enabled: true } })).status,
-    ).toBe(403);
-    expect(
-      (await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { cookie: outCookie, body: { enabled: true } })).status,
-    ).toBe(404);
-  });
-
-  it("PATCH harness: unknown node 404, unknown harness 404, unauthenticated 401, bearer 403", async () => {
-    const id = await mkAgent();
-    expect(
-      (
-        await req("PATCH", `/api/nodes/nope-${crypto.randomUUID()}/harnesses/${H0}`, {
-          cookie: aliceCookie,
-          body: { enabled: true },
-        })
-      ).status,
-    ).toBe(404);
-    expect(
-      (await req("PATCH", `/api/nodes/${id}/harnesses/not-a-harness`, { cookie: aliceCookie, body: { enabled: true } }))
-        .status,
-    ).toBe(404);
-    expect((await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { body: { enabled: true } })).status).toBe(401);
-    expect(
-      (await req("PATCH", `/api/nodes/${id}/harnesses/${H0}`, { bearer: subshellKey, body: { enabled: true } })).status,
-    ).toBe(403);
-  });
-
   // ── POST /api/nodes/:id/recheck ────────────────────────────────────────────
 
   function fakeSocket(): NodeSocket & { sent: string[] } {
@@ -403,6 +303,74 @@ describe("/api/nodes harness state + recheck", () => {
     }
   }
 
+  /* --------------------------------------------------------------- */
+  /* Plugin management (spec 2026-09-09 §6). The node OWNS its set:    */
+  /* the server sends a command and mirrors the answer.                */
+  /* --------------------------------------------------------------- */
+
+  it("plugin install/uninstall on an OFFLINE node is refused, not queued", async () => {
+    // Deliberately unlike allowed-dirs, which queues and replays on reconnect:
+    // there the control plane owns a security control, so a node running stale
+    // rules must be corrected. Here the node owns the setting, so queueing
+    // would let this page show a plugin the node is not running.
+    const id = await mkAgent();
+
+    const install = await req("POST", `/api/nodes/${id}/plugins`, {
+      cookie: aliceCookie,
+      body: { pluginId: "claude-code" },
+    });
+    expect(install.status).toBe(409);
+    expect(JSON.stringify(await install.json())).toMatch(/offline/i);
+
+    const remove = await req("DELETE", `/api/nodes/${id}/plugins/claude-code`, { cookie: aliceCookie });
+    expect(remove.status).toBe(409);
+  });
+
+  it("plugin management is OWNER-only, not merely configure-capable", async () => {
+    // Any node share, even `view`, already lets a grantee launch there. An
+    // `edit` grantee who could install a plugin would face no restriction at
+    // all, which is why this is gated like the directory allowlist.
+    const id = await mkAgent();
+    await nodeShares.replaceForNode(id, [{ granteeUserId: bobId, permission: "edit" }], aliceId);
+
+    const asEdit = await req("POST", `/api/nodes/${id}/plugins`, {
+      cookie: bobCookie,
+      body: { pluginId: "claude-code" },
+    });
+    expect(asEdit.status).toBe(403);
+
+    // And an invisible node is 404, never 403: ids must not be probeable.
+    const asOutsider = await req("POST", `/api/nodes/${id}/plugins`, {
+      cookie: outCookie,
+      body: { pluginId: "claude-code" },
+    });
+    expect(asOutsider.status).toBe(404);
+  });
+
+  it("plugin management refuses machine credentials and anonymous callers", async () => {
+    const id = await mkAgent();
+    const anon = await req("POST", `/api/nodes/${id}/plugins`, { body: { pluginId: "claude-code" } });
+    expect(anon.status).toBe(401);
+
+    const bearer = await req("POST", `/api/nodes/${id}/plugins`, {
+      bearer: subshellKey,
+      body: { pluginId: "claude-code" },
+    });
+    expect(bearer.status).toBe(403);
+  });
+
+  it("the control-plane host is not managed through this route by a non-admin", async () => {
+    // `local`'s manage gate is admin-only, so an ordinary owner never reaches
+    // the command path at all. (An admin gets 400 instead: `local` has no
+    // socket to send a command over, and phase 2 leaves its plugin set to the
+    // seeding step rather than pretending this route can reach it.)
+    const res = await req("POST", "/api/nodes/local/plugins", {
+      cookie: aliceCookie,
+      body: { pluginId: "claude-code" },
+    });
+    expect(res.status).toBe(403);
+  });
+
   it("recheck offline → 409 NODE_OFFLINE", async () => {
     const id = await mkAgent();
     const res = await req("POST", `/api/nodes/${id}/recheck`, { cookie: aliceCookie });
@@ -439,44 +407,6 @@ describe("/api/nodes harness state + recheck", () => {
   });
 
   // ── local node: thin alias over the setup-route store ─────────────────────
-
-  it("local PATCH ↔ setup PATCH agree on ONE store (harness_plugins; never node_harnesses)", async () => {
-    const prior = (await new HarnessPluginsRepository(db).getEnabledStates([H0])).get(H0);
-    const before = await usersWithProfiles(H0);
-    const stub = pluginOf(H0);
-    const origInstalled = stub.isInstalled.bind(stub);
-    stub.isInstalled = async () => true; // enable re-probes — this machine may lack the binary
-    try {
-      // 1) disable via the NODE route (carol: Everyone/edit on `local` — any
-      //    cookie user, matching today's setup-route semantics) → setup GET sees it
-      expect(
-        (await req("PATCH", `/api/nodes/local/harnesses/${H0}`, { cookie: carolCookie, body: { enabled: false } }))
-          .status,
-      ).toBe(200);
-      expect(await setupEnabled(H0)).toBe(false);
-      expect(harnessOf(await getNodeView("local"), H0).enabled).toBe(false);
-
-      // 2) enable via the SETUP route → the node view sees it
-      expect(
-        (await req("PATCH", `/api/setup/harnesses/${H0}`, { cookie: aliceCookie, body: { enabled: true } })).status,
-      ).toBe(200);
-      expect(harnessOf(await getNodeView("local"), H0).enabled).toBe(true);
-
-      // 3) enable via the NODE route → setup GET sees it (idempotent re-enable)
-      expect(
-        (await req("PATCH", `/api/nodes/local/harnesses/${H0}`, { cookie: bobCookie, body: { enabled: true } })).status,
-      ).toBe(200);
-      expect(await setupEnabled(H0)).toBe(true);
-
-      // ONE store: the node route wrote harness_plugins, NOT a node_harnesses row.
-      expect((await nodeHarnesses.enabledStates("local")).size).toBe(0);
-    } finally {
-      stub.isInstalled = origInstalled;
-      if (prior === undefined) await db.deleteFrom("harnessPlugins").where("id", "=", H0).execute();
-      else await new HarnessPluginsRepository(db).setEnabled(H0, prior);
-      await cleanupSeeded(H0, before);
-    }
-  });
 
   it("local view: live probe drives installed, inventoryStale is always false", async () => {
     const stub = pluginOf(H2);

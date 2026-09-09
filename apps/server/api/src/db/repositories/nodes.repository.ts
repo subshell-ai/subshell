@@ -141,6 +141,21 @@ export class NodesRepository extends BaseRepository {
       .execute();
   }
 
+  /**
+   * Mirror the node's own plugin report.
+   *
+   * The node OWNS its plugin set, so this is a cache of what it said rather
+   * than a decision the control plane made.
+   */
+  async recordPluginReport(id: string, plugins: unknown): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .updateTable("nodes")
+      .set({ pluginsJson: JSON.stringify(plugins), pluginsAt: now, updatedAt: now })
+      .where("id", "=", id)
+      .execute();
+  }
+
   /** Persist the status projection (the live socket stays authoritative). */
   async setStatus(id: string, status: NodeStatus): Promise<void> {
     await this.db

@@ -99,7 +99,7 @@ export interface NodeVerifiedKey {
 /** Repository slice the socket touches (full `NodesRepository` satisfies it). */
 export type NodeWsNodesRepo = Pick<
   NodesRepository,
-  "findById" | "applyReady" | "applyInventory" | "touch" | "setStatus"
+  "findById" | "applyReady" | "applyInventory" | "recordPluginReport" | "touch" | "setStatus"
 >;
 
 /** Everything the handler reaches outside its own module. */
@@ -320,6 +320,10 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       return;
     case "inventory":
       await deps.nodes.applyInventory(nodeId, JSON.stringify(event.harnesses));
+      // The node's DECLARATION rides the same event. Absent from a pre-v6
+      // agent, and absent is left alone rather than written as `[]`: "never
+      // reported" and "offers nothing" are different facts.
+      if (event.plugins) await deps.nodes.recordPluginReport(nodeId, event.plugins);
       return;
     case "output":
       // Tail subscribers (spec §3.3): unknown subId = nobody is watching that

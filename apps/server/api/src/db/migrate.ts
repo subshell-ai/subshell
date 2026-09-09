@@ -22,6 +22,7 @@ import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.j
 import * as userMetaReplayLinesMigration from "@/db/migrations/0020-user-meta-replay-lines.js";
 import * as nodeAllowedDirsMigration from "@/db/migrations/0021-node-allowed-dirs.js";
 import * as localNodeNameMigration from "@/db/migrations/0022-local-node-name.js";
+import * as nodePluginsMigration from "@/db/migrations/0023-node-plugins.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -55,6 +56,7 @@ export async function runMigrations(): Promise<void> {
           "0020-user-meta-replay-lines": userMetaReplayLinesMigration,
           "0021-node-allowed-dirs": nodeAllowedDirsMigration,
           "0022-local-node-name": localNodeNameMigration,
+          "0023-node-plugins": nodePluginsMigration,
         };
       },
     },
