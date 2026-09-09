@@ -128,6 +128,39 @@ Package names follow the same words: `@internal/server`, `@internal/server-web`,
 `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`,
 `@internal/mobile`.
 
+### Plugins are packages, and the node loads them
+
+A **plugin** teaches Subshell how to drive one agent CLI. Five ship built in
+(`packages/plugins/*`, published as `@subshell-ai/plugin-<id>`), and the
+contract a third party builds against is `@subshell-ai/plugin-api`.
+
+Three facts about the shape, each measured rather than assumed:
+
+- **A plugin cannot import anything of ours at runtime.** It is loaded from
+  disk by a compiled binary, which has no `node_modules` beside it, so a bare
+  specifier does not resolve. Everything reaches a plugin through a
+  `PluginHost` passed to the factory it default-exports, and a plugin's build
+  inlines `plugin-api` rather than importing it.
+- **Identity lives in `package.json`**, under a `subshell` key: id, type,
+  name, entry, and the detection data. So listing a plugin and probing for its
+  binary read JSON only, and a node can detect that `claude` is installed
+  before the Claude Code plugin is.
+- **Built-ins are imported STATICALLY; only runtime-installed plugins use the
+  loader.** Built-ins live inside the binary, so `bun build --compile` has to
+  see them and a first run needs no network. `plugin-runtime.ts` holds the
+  repo's one sanctioned `await import()`, and `.claude/rules/code-style.md`
+  names that exception.
+
+**`type` is for humans, `capabilities()` is for code.** The type
+(`agent-harness`, `terminal`) groups and labels; the launch pipeline branches
+on capabilities, which are validated at load, so a plugin claiming `resume`
+without one is refused rather than producing a restart that silently begins a
+fresh conversation.
+
+A plugin runs in the agent's process with that user's privileges and no
+sandbox. Installing one is the same trust decision as installing the CLI it
+drives; `docs/security.md` carries the rest.
+
 ### The licence boundary IS this directory line
 
 Subshell is dual-licensed, and the split is exactly the `server` grouping

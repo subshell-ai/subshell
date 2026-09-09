@@ -820,6 +820,33 @@ Recorded so they are decisions rather than surprises:
 8. **The post bus is in-process**, so a multi-process deployment would silently
    lose cross-process wakeups.
 
+## 11.9 Plugins run as the node's OS user, in the agent process
+
+A plugin (`@subshell-ai/plugin-*`) is JavaScript the agent imports and calls.
+It has `node:fs`, the network, and the ability to spawn processes, because it
+runs inside the agent with that user's privileges. **No sandbox is claimed.**
+
+This is the same trust level as the harness CLI the plugin drives, and as the
+agent binary itself, but it is a NEW WAY TO REACH IT: before plugins, only a
+release could add executable behaviour to a node.
+
+What contains what:
+
+- **A plugin that fails to load is reported, never fatal.** The loader wraps
+  the import and the factory, so a broken plugin costs its own row rather than
+  the daemon (`packages/pane-runtime/src/plugin-runtime.ts`). Built-ins get
+  the same treatment through the lazily-built registry.
+- **Containment is not isolation.** A plugin that loads successfully and then
+  misbehaves is not constrained by any of this. The `PluginRuntime` interface
+  exists so a Worker per plugin is a later change of one class, not a rewrite.
+- **The entry path is checked twice** (manifest, then the resolved path) so a
+  plugin cannot name a file outside its own directory. That stops a mistake,
+  not an attacker who already controls the plugin directory: `resolve` is
+  textual and does not follow symlinks.
+
+Installing a plugin is therefore an explicit act with a named source, never
+something a catalog does on its own.
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer
