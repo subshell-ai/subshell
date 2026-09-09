@@ -519,7 +519,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // (spec §5.3); the memo in buildInventoryEvent coalesces the double
         // probe into one scan.
         const pushInventory = (label: string): Promise<void> =>
-          buildInventoryEvent(nowMs())
+          buildInventoryEvent(nowMs(), undefined, config.dataDir)
             .then((inv) => send(ws, inv))
             .catch((err: unknown) => log(`${label}: ${err instanceof Error ? err.message : String(err)}`));
         void buildSubshellsReport(ctx)

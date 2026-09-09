@@ -29,7 +29,7 @@ import type { JsonValue } from "./json.js";
  * goes offline, while an agent that lags is refused just as clearly — the
  * Nodes page names it either way.
  */
-export const NODE_PROTOCOL_VERSION = 5;
+export const NODE_PROTOCOL_VERSION = 6;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -224,6 +224,43 @@ export type NodeCommandBody =
   | { type: "ping" };
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
+/**
+ * One installed plugin, as the node describes it.
+ *
+ * Everything the control plane needs about a plugin it cannot import: enough
+ * to list it, render its profile editor, label its exit codes and explain its
+ * MCP setup. A plugin that failed to load still appears, carrying `broken`,
+ * so a node page can say why rather than dropping the row.
+ */
+export interface PluginReportWire {
+  /** Plugin id */
+  id: string;
+  /** Display name */
+  name: string;
+  /** What kind of thing it provides */
+  type: string;
+  /** Package version installed on the node */
+  version: string;
+  /** Optional emoji/glyph */
+  icon?: string;
+  /** One-line description */
+  description: string;
+  /** Which optional members it implements */
+  capabilities: string[];
+  /** Settings rendered in the profile editor */
+  profileSettings?: unknown[];
+  /** Known env var suggestions */
+  suggestedEnv?: { key: string; description: string }[];
+  /** Known CLI flag suggestions */
+  suggestedFlags?: { flag: string; description: string }[];
+  /** How this harness obtains the subshell MCP tools */
+  mcpSetup?: unknown;
+  /** Exit code to human label, for the codes the plugin names */
+  exitStatuses?: Record<string, string>;
+  /** Why it cannot be used, when it cannot */
+  broken?: string;
+}
+
 export type NodeEvent =
   | {
       type: "ready";
@@ -258,6 +295,17 @@ export type NodeEvent =
         /** ISO 8601 stamp of when this entry was probed. Also optional, also additive. */
         checkedAt?: string;
       }[];
+      /**
+       * The plugins this node has INSTALLED, which is its declaration of what
+       * it offers (protocol v6).
+       *
+       * The control plane holds no plugin code for a machine it does not run
+       * on, so everything it needs to render and validate a plugin travels
+       * here as data. Absent from a pre-v6 agent, which the exact-match
+       * protocol gate refuses anyway; optional only so the type describes the
+       * wire rather than asserting a version.
+       */
+      plugins?: PluginReportWire[];
       ts: string;
     }
   | { type: "heartbeat"; ts: string }

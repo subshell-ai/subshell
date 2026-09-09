@@ -1,5 +1,6 @@
 import { type HarnessInventoryEntry, scanHarnesses } from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
+import { buildPluginReports } from "./plugin-report.js";
 
 /** The `inventory` event shape (spec §3.3) — what the backend's `applyInventory` persists. */
 export type InventoryEvent = Extract<NodeEvent, { type: "inventory" }>;
@@ -53,10 +54,15 @@ export function resetInventoryScanCache(): void {
 export async function buildInventoryEvent(
   nowMs: number = Date.now(),
   scan: () => Promise<HarnessInventoryEntry[]> = scanHarnesses,
+  dataDir?: string,
 ): Promise<InventoryEvent> {
   return {
     type: "inventory",
     harnesses: await scanCoalesced(nowMs, scan),
+    // The node's DECLARATION, which is what the control plane mirrors. Absent
+    // rather than empty when no data dir was supplied, so a caller that cannot
+    // read the plugins directory does not assert that the node has none.
+    ...(dataDir ? { plugins: await buildPluginReports(dataDir) } : {}),
     ts: new Date(nowMs).toISOString(),
   };
 }

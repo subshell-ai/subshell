@@ -115,7 +115,7 @@ describe("parseNodeCommandBody", () => {
     // Matched EXACTLY: there is no compat window and no per-feature gating,
     // because the server and the agent ship together. Bump this whenever a
     // frame changes and release both sides.
-    expect(NODE_PROTOCOL_VERSION).toBe(5);
+    expect(NODE_PROTOCOL_VERSION).toBe(6);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

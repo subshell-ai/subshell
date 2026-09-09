@@ -246,7 +246,7 @@ export async function execRemovePaths(ctx: CommandContext, cmd: Cmd<"remove_path
  */
 export async function execInventory(ctx: CommandContext): Promise<CommandResult> {
   try {
-    ctx.ws.send(await buildInventoryEvent(ctx.nowMs()));
+    ctx.ws.send(await buildInventoryEvent(ctx.nowMs(), undefined, ctx.config.dataDir));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `inventory: ${err instanceof Error ? err.message : String(err)}` };

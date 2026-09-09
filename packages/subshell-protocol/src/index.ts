@@ -45,6 +45,7 @@ export {
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
   type NodeEvent,
+  type PluginReportWire,
   type ProfileDefinitionWire,
   parseNodeCommandBody,
   parseNodeEvent,
