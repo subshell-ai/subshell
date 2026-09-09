@@ -20,19 +20,9 @@ import type { Kysely } from "kysely";
  * seeded after migrations run.
  */
 export async function up(db: Kysely<any>): Promise<void> {
-  await db
-    .updateTable("nodes")
-    .set({ name: "Server" })
-    .where("id", "=", "local")
-    .where("kind", "=", "local")
-    .execute();
+  await db.updateTable("nodes").set({ name: "Server" }).where("id", "=", "local").where("kind", "=", "local").execute();
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  await db
-    .updateTable("nodes")
-    .set({ name: "Local" })
-    .where("id", "=", "local")
-    .where("kind", "=", "local")
-    .execute();
+  await db.updateTable("nodes").set({ name: "Local" }).where("id", "=", "local").where("kind", "=", "local").execute();
 }

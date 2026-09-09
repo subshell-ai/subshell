@@ -12,6 +12,7 @@ import { nodesRoutes } from "@/api/nodes/index.js";
 import { notificationsRoutes } from "@/api/notifications.route.js";
 import { profileRoutes } from "@/api/profiles.route.js";
 import { settingsRoutes } from "@/api/settings.route.js";
+import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
@@ -66,11 +67,21 @@ const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use
  */
 const adminRoutes = new Elysia().use(adminStatusRoutes);
 
+/**
+ * The anonymous surface — routes that deliberately do NOT `.use(authGuard)`.
+ * Its own group rather than an addition to `coreRoutes`, which already carries
+ * the most: the depth budget above is the whole reason these groups exist.
+ * Keeping it separate also means "what can be read without a credential?" is a
+ * question this file answers by itself.
+ */
+const publicRoutes = new Elysia().use(instancePublicRoutes);
+
 export const routes = new Elysia()
   .use(coreRoutes)
   .use(computeRoutes)
   .use(commsRoutes)
   .use(adminRoutes)
+  .use(publicRoutes)
   .onError(({ error }) => {
     // Keep API errors JSON-shaped and small; the global error handler also runs.
     throw error;

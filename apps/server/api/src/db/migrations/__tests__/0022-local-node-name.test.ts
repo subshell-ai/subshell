@@ -52,7 +52,10 @@ describe("migration 0022-local-node-name", () => {
     // The rewrite is scoped by kind AND id: a user's own machine may legitimately
     // be named "Local", and it is not this migration's business.
     const db = await migratedDb();
-    await db.insertInto("nodes").values(nodeRow({ id: "a1", kind: "agent", ownerUserId: "u1" })).execute();
+    await db
+      .insertInto("nodes")
+      .values(nodeRow({ id: "a1", kind: "agent", ownerUserId: "u1" }))
+      .execute();
 
     await localNodeNameMigration.up(db);
 
