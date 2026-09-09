@@ -307,10 +307,12 @@ function renderStep() {
     for (const [label, handler, primary, needsTmux] of step.actions()) {
       actions.append(button(label, handler, primary, needsTmux));
     }
-    // Appended last and RE-CHECKED every render, not rebuilt with the step:
-    // installing tmux and pressing Refresh does not change the step, and a
-    // warning or a disabled button that survived its own fix would be worse
-    // than never having one.
+    // Appended last and RE-CHECKED every render, not rebuilt with the step.
+    // Installing tmux does not change which step you are on, so a warning (or
+    // a disabled button) rebuilt only on a step change would survive its own
+    // fix — worse than never having one. With the background poll this is what
+    // makes the fix land on its own: tmux appears, the next tick re-checks,
+    // and the buttons enable without the user doing anything.
     actions.append(tmuxWarn);
   }
   const tmuxMissing = probe !== null && !probe.tmux;
@@ -464,7 +466,6 @@ function renderChip() {
           : probe.server
             ? "Not installed as a service"
             : "No server found";
-  el("refresh").disabled = busy;
 }
 
 function render() {
@@ -698,8 +699,6 @@ el("close-to-tray").addEventListener("change", async () => {
 el("tray-recheck").addEventListener("click", () => {
   void loadPrefs();
 });
-
-el("refresh").addEventListener("click", act(null));
 
 /**
  * How often the console re-reads the machine on its own.

@@ -11,9 +11,12 @@
     <p class="sub">Install, configure and run a Subshell control plane on this machine.</p>
 
     <div class="card">
+      <!-- No Refresh button: the console re-probes itself every few seconds
+           (POLL_MS in main.js), so a button would only ever save the user the
+           remainder of one interval — while being the one control that implies
+           the rest of the panel might be stale. -->
       <div class="row">
         <span class="chip"><span class="dot" id="dot"></span><span id="state">Checking…</span></span>
-        <button type="button" id="refresh">Refresh</button>
       </div>
       <dl class="facts" id="facts"></dl>
     </div>
