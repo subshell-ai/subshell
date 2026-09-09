@@ -700,6 +700,60 @@ el("tray-recheck").addEventListener("click", () => {
 });
 
 el("refresh").addEventListener("click", act(null));
+
+/**
+ * How often the console re-reads the machine on its own.
+ *
+ * The manager's whole subject is state this app does not own — a service that
+ * can be started, stopped or crash from anywhere — so a console that only
+ * refreshes when asked shows a stale answer and puts the burden of noticing on
+ * the user. It also drives the TRAY's enabled state (`desktop_probe` is the
+ * one place that updates), so without this a server started elsewhere leaves
+ * the tray disabled until someone opens this window and clicks.
+ *
+ * This is the poll that `SETTLE_ATTEMPTS` deliberately is NOT, so it pays the
+ * same cost honestly: each tick is a few short CLI spawns. What makes it
+ * affordable is that the expensive parts happen ONCE per process, not per
+ * probe — the login-shell PATH probe and the bundled binary's version are both
+ * memoized behind a `OnceLock` in the Rust half. Five seconds is chosen to be
+ * faster than a person reaches for the button and slower than the manager
+ * changes its mind.
+ */
+const POLL_MS = 5000;
+
+/**
+ * A background re-probe. Skipped in two cases, both of which would make it
+ * harmful rather than merely wasteful:
+ *
+ * - **`busy`** — an action owns the state, ends in its own re-probe, and may
+ *   be mid-SETTLE. A poll landing in the middle would race that and could
+ *   render a transition as the final answer.
+ * - **hidden** — a window closed to the tray is watched by nobody, and paying
+ *   CLI spawns forever for a view no one can see is the cost with none of the
+ *   benefit. Best-effort: platforms differ on whether a hidden native window
+ *   reports `document.hidden`, so this is a saving, not a guarantee.
+ *
+ * A failed poll is swallowed on purpose. `refresh` already records the CLI's
+ * own words in `problem`, and a transient failure nobody asked about must not
+ * become an unhandled rejection.
+ */
+async function poll() {
+  if (busy || document.hidden) return;
+  try {
+    await refresh();
+  } catch {
+    return;
+  }
+  render();
+}
+
+setInterval(() => void poll(), POLL_MS);
+// A window being shown again should not wait out the rest of the interval —
+// that is exactly when its contents are most likely to be stale.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void poll();
+});
+
 render();
 void act(null)();
 void loadPrefs();
