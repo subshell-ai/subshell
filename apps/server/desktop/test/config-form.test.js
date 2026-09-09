@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_FIELDS, configPayload, fieldProblems, seedForm } from "../ui/config-form.js";
+import {
+  CONFIG_FIELDS,
+  configPayload,
+  derivedBaseUrl,
+  effectiveForm,
+  explicitFields,
+  fieldProblems,
+} from "../ui/config-form.js";
 
 /**
  * The console's configure form is the only place these four keys are typed
@@ -23,41 +30,12 @@ import { CONFIG_FIELDS, configPayload, fieldProblems, seedForm } from "../ui/con
 const settings = (entries) =>
   Object.fromEntries(Object.entries(entries).map(([key, [value, source]]) => [key, { value, source }]));
 
-describe("seedForm", () => {
-  test("seeds every field a user (or config.env) has actually chosen", () => {
+describe("effectiveForm", () => {
+  test("prefills port, bind address and base URL with what the server would boot with", () => {
+    // The fields used to be blank whenever the value was derived, which left
+    // the reader to notice greyed placeholder text to learn the configuration.
     expect(
-      seedForm(
-        settings({
-          SERVER_PORT: ["9000", "config.env"],
-          HOST: ["127.0.0.1", "config.env"],
-          APP_BASE_URL: ["http://box.local:9000", "config.env"],
-          TRUSTED_ORIGINS: ["http://box.local:9000", "config.env"],
-        }),
-      ),
-    ).toEqual({
-      port: "9000",
-      host: "127.0.0.1",
-      baseUrl: "http://box.local:9000",
-      trustedOrigins: "http://box.local:9000",
-    });
-  });
-
-  /**
-   * A `default`-sourced value is what the server WOULD boot with, not a choice
-   * anyone made. Seeding it would turn every built-in into a stored value on
-   * the next save, and a base URL nobody chose would stop being derived from
-   * the port they answer.
-   *
-   * It does NOT protect a later port change, and it is worth not claiming it
-   * does: `APP_BASE_URL` is always written, so it is `config.env`-sourced from
-   * the first save onward and is seeded from then on. `configure`'s
-   * port-mismatch warning is the guard there — and deriving it here instead
-   * would silently rewrite a correct port-forward config (`SERVER_PORT=4000`
-   * reached over `http://localhost:9000`).
-   */
-  test("leaves a default-sourced value BLANK, so the CLI keeps deriving it", () => {
-    expect(
-      seedForm(
+      effectiveForm(
         settings({
           SERVER_PORT: ["3080", "default"],
           HOST: ["0.0.0.0", "default"],
@@ -65,16 +43,58 @@ describe("seedForm", () => {
           TRUSTED_ORIGINS: ["http://localhost:5174,http://localhost:5173", "default"],
         }),
       ),
-    ).toEqual({ port: "", host: "", baseUrl: "", trustedOrigins: "" });
+    ).toEqual({
+      port: "3080",
+      host: "0.0.0.0",
+      baseUrl: "http://localhost:3080",
+      // NOT prefilled: its default is the dev Vite origins, which would be a
+      // bizarre thing to show someone configuring a real instance.
+      trustedOrigins: "",
+    });
   });
 
-  test("a process-env value is a real choice too — it is what the boot will see", () => {
-    expect(seedForm(settings({ SERVER_PORT: ["4000", "process env"] })).port).toBe("4000");
+  test("shows a chosen value over a derived one", () => {
+    expect(effectiveForm(settings({ SERVER_PORT: ["4000", "config.env"] })).port).toBe("4000");
   });
 
-  test("a missing settings map yields an all-blank form rather than throwing", () => {
-    expect(seedForm(undefined)).toEqual({ port: "", host: "", baseUrl: "", trustedOrigins: "" });
-    expect(seedForm({})).toEqual({ port: "", host: "", baseUrl: "", trustedOrigins: "" });
+  test("is empty before the first probe lands", () => {
+    expect(effectiveForm(undefined)).toEqual({ port: "", host: "", baseUrl: "", trustedOrigins: "" });
+    expect(effectiveForm({})).toEqual({ port: "", host: "", baseUrl: "", trustedOrigins: "" });
+  });
+});
+
+describe("explicitFields", () => {
+  test("marks only what somebody chose", () => {
+    const e = explicitFields(
+      settings({
+        SERVER_PORT: ["4000", "config.env"],
+        HOST: ["0.0.0.0", "default"],
+        APP_BASE_URL: ["http://box.local:4000", "process env"],
+      }),
+    );
+    expect(e.port).toBe(true);
+    expect(e.baseUrl).toBe(true);
+    expect(e.host).toBeUndefined();
+    expect(e.trustedOrigins).toBeUndefined();
+  });
+
+  test("an empty chosen value is not a choice", () => {
+    expect(explicitFields(settings({ TRUSTED_ORIGINS: ["", "config.env"] })).trustedOrigins).toBeUndefined();
+  });
+
+  test("nothing is explicit before the first probe", () => {
+    expect(explicitFields(undefined)).toEqual({});
+  });
+});
+
+describe("derivedBaseUrl", () => {
+  test("mirrors the CLI's derivation, so a prefilled base URL can follow the port", () => {
+    expect(derivedBaseUrl("4000")).toBe("http://localhost:4000");
+    expect(derivedBaseUrl(" 9000 ")).toBe("http://localhost:9000");
+  });
+
+  test("falls back to the default port for an empty field mid-edit", () => {
+    expect(derivedBaseUrl("")).toBe("http://localhost:3080");
   });
 });
 
@@ -120,14 +140,57 @@ describe("configPayload", () => {
 });
 
 describe("CONFIG_FIELDS", () => {
-  test("declares one row per form key, and every key seedForm fills", () => {
-    expect(CONFIG_FIELDS.map((f) => f.name).sort()).toEqual(Object.keys(seedForm({})).sort());
+  test("declares one row per form key, and every key effectiveForm fills", () => {
+    expect(CONFIG_FIELDS.map((f) => f.name).sort()).toEqual(Object.keys(effectiveForm({})).sort());
   });
 
   test("every field names the status key it seeds from", () => {
     for (const field of CONFIG_FIELDS) {
       expect(field.settingKey).toMatch(/^[A-Z_]+$/);
     }
+  });
+});
+
+describe("configPayload", () => {
+  const filled = {
+    port: "3080",
+    host: "0.0.0.0",
+    baseUrl: "http://localhost:3080",
+    trustedOrigins: "http://box.local:3080",
+  };
+
+  test("sends every field when nothing is known about choices", () => {
+    expect(configPayload(filled)).toEqual(filled);
+  });
+
+  test("a value nobody chose is sent EMPTY, so the CLI keeps deriving it", () => {
+    // The fields are prefilled, so without this the derived base URL would be
+    // written into config.env and would then name a dead port after the next
+    // port change. This is the failure the whole form was added to fix.
+    expect(configPayload(filled, { port: true })).toEqual({
+      port: "3080",
+      host: "",
+      baseUrl: "",
+      trustedOrigins: "",
+    });
+  });
+
+  test("a CHOSEN value is sent even when untouched, or saving would wipe it", () => {
+    // trustedOrigins is the emptyable flag: an empty one means "no extra
+    // addresses". Opening Configure and saving without touching the field must
+    // not clear a stored list.
+    expect(
+      configPayload(filled, explicitFields(settings({ TRUSTED_ORIGINS: ["http://box.local:3080", "config.env"] }))),
+    ).toEqual({ port: "", host: "", baseUrl: "", trustedOrigins: "http://box.local:3080" });
+  });
+
+  test("clearing a chosen field still clears it", () => {
+    // The user typed in it, so it is explicit, and empty means empty.
+    expect(configPayload({ ...filled, trustedOrigins: "" }, { trustedOrigins: true }).trustedOrigins).toBe("");
+  });
+
+  test("trims what it sends", () => {
+    expect(configPayload({ port: "  4000  " }, { port: true }).port).toBe("4000");
   });
 });
 
@@ -212,6 +275,26 @@ describe("the console's own asset root and stylesheet", () => {
    * console walked the user to a wall it already knew about. Pinned at the
    * source, since the flag lives in a DOM path these tests do not run.
    */
+  /**
+   * The form is prefilled, so `configPayload` decides what to send from an
+   * `explicit` map rather than from blankness. That map MUST be seeded from
+   * `explicitFields` when the configure form opens: keyed on editing alone,
+   * opening Configure and saving without touching the addresses field sends an
+   * empty `trustedOrigins`, which means "no extra addresses" and wipes a
+   * stored list. Pinned at the source because this wiring lives in `main.js`,
+   * which imports Tauri and cannot be loaded here.
+   */
+  test("the configure form seeds `explicit` from explicitFields, not from editing alone", () => {
+    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
+    const fn = js.slice(js.indexOf("function showConfigure()"));
+    const body = fn.slice(0, fn.indexOf("\n}"));
+    expect(body).toContain("explicitFields(");
+    // And every send goes through the map.
+    for (const call of js.match(/configPayload\([^)]*\)/g) ?? []) {
+      expect(call).toBe("configPayload(form, explicit)");
+    }
+  });
+
   test("every setup-advancing console action is tmux-gated", () => {
     const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
 

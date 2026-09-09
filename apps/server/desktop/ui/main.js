@@ -14,7 +14,14 @@
  * refusal differently are two surfaces that drift.
  */
 
-import { CONFIG_FIELDS, configPayload, fieldProblems, seedForm } from "./config-form.js";
+import {
+  CONFIG_FIELDS,
+  configPayload,
+  derivedBaseUrl,
+  effectiveForm,
+  explicitFields,
+  fieldProblems,
+} from "./config-form.js";
 
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 const dialog = () => window.__TAURI__.dialog;
@@ -34,7 +41,17 @@ let problem = "";
  * and submitted whatever the fresh inputs happened to hold. The typed value is
  * the state; the input is a view of it.
  */
-let form = seedForm(undefined);
+let form = effectiveForm(undefined);
+/**
+ * Which fields to send: chosen before this form opened, or typed into since.
+ *
+ * The inputs are PREFILLED with the effective configuration, so blankness no
+ * longer distinguishes "nobody chose this" from "someone chose empty". This
+ * does. A field not in here is sent empty, which is how the CLI is told to
+ * keep deriving it, and a field already in config.env starts in here so that
+ * saving without touching it cannot wipe it: see `explicitFields`.
+ */
+let explicit = Object.create(null);
 /** Which step the action area currently shows, so focus survives a re-render. */
 let renderedStep = null;
 
@@ -426,16 +443,22 @@ const tmuxWarn = buildTmuxWarning();
 
 /**
  * The init/configure form, seeded from what the server itself reports rather
- * than from a second copy of its defaults — see `seedForm` for why a
- * `default`-sourced value is deliberately left blank.
+ * than from a second copy of its defaults. See `configPayload` for why a
+ * value nobody chose is still SENT as empty.
  *
  * A field the user has already typed into wins over the probe: every guarded
  * action ends with a re-probe, so re-seeding here would overwrite what someone
  * is in the middle of typing.
  */
 function buildForm() {
-  const seeded = seedForm(probe?.status?.settings);
+  const seeded = effectiveForm(probe?.status?.settings);
   for (const { name } of CONFIG_FIELDS) form[name] = form[name] || seeded[name];
+  // Additive, and needed because the `init` step is reached without going
+  // through `showConfigure`: a value already chosen (an env var, on a machine
+  // with no config.env yet) must still be sent back rather than dropped.
+  for (const [name, on] of Object.entries(explicitFields(probe?.status?.settings))) {
+    if (on) explicit[name] = true;
+  }
   const wrap = document.createElement("div");
   wrap.className = "grid2";
   wrap.style.width = "100%";
@@ -456,6 +479,16 @@ function buildForm() {
     if (numeric) input.inputMode = "numeric";
     input.addEventListener("input", () => {
       form[name] = input.value;
+      explicit[name] = true;
+      // An untouched base URL FOLLOWS the port. The save is already safe
+      // without this (unedited fields are sent empty, so the CLI re-derives),
+      // but a filled field still reading `http://localhost:3080` after the
+      // port became 4000 looks exactly like the value about to be written.
+      if (name === "port" && explicit.baseUrl !== true) {
+        form.baseUrl = derivedBaseUrl(input.value);
+        const mirror = document.getElementById("field-baseUrl");
+        if (mirror) mirror.value = form.baseUrl;
+      }
     });
     cell.append(l, input);
     if (hint) {
@@ -571,7 +604,7 @@ function guard(fn, settle = false) {
 const act = (cmd, args) => guard(() => (cmd ? invoke(cmd, args) : null));
 const service = (verb, settle) => guard(() => invoke("desktop_service", { verb, force: false }), settle);
 
-const doInit = guard(() => invoke("desktop_init", configPayload(form)));
+const doInit = guard(() => invoke("desktop_init", configPayload(form, explicit)));
 const openMain = guard(() => invoke("desktop_open_main"));
 
 /**
@@ -625,7 +658,8 @@ const doStop = guard(async () => {
  * visit to the form left behind.
  */
 function showConfigure() {
-  form = seedForm(probe?.status?.settings);
+  form = effectiveForm(probe?.status?.settings);
+  explicit = explicitFields(probe?.status?.settings);
   override = "configure";
   renderedStep = null;
   render();
@@ -645,7 +679,7 @@ function cancelConfigure() {
  * Doing both here is what makes the button mean what it says.
  */
 const doConfigure = guard(async () => {
-  const written = await invoke("desktop_init", configPayload(form));
+  const written = await invoke("desktop_init", configPayload(form, explicit));
   if (!written.ok) return written;
   override = null;
   // No service yet: the file IS the whole action, and there is nothing to
