@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { buildHarnessCommand, getHarness, type McpRegistration, type ProfileDefinition } from "@internal/pane-runtime";
+import { buildHarnessCommand, type McpRegistration, type ProfileDefinition } from "@internal/pane-runtime";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { enforceMode } from "../fs-mode.js";
+import { resolveLaunchPlugin } from "../launch-plugin.js";
 import { log } from "../log.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
 import { selfInvocation } from "../self-invoke.js";
@@ -49,8 +50,12 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.cwd}` };
   }
 
-  const harness = getHarness(cmd.harnessId);
-  if (!harness) return { ok: false, error: `unknown harness: ${cmd.harnessId}` };
+  // Resolved against what THIS node has INSTALLED, not against the registry
+  // compiled into the binary. A signature proves who sent the launch, never
+  // whether this machine offers the plugin (see launch-plugin.ts).
+  const resolved = await resolveLaunchPlugin(ctx.config.dataDir, cmd.harnessId);
+  if ("error" in resolved) return { ok: false, error: resolved.error };
+  const harness = resolved.plugin;
   const binary = await harness.findBinary();
   if (!binary) {
     // Message CLASS contract: the backend maps `/binary missing/i` on a launch

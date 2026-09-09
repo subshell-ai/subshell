@@ -16,6 +16,7 @@ import {
   stopWatcher,
 } from "../commands/report.js";
 import type { AgentConfig } from "../config.js";
+import { installEmbedded } from "../plugins-dir.js";
 import { selfInvocation } from "../self-invoke.js";
 import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
 import { captureLogs } from "./helpers/capture-logs.js";
@@ -58,9 +59,18 @@ afterEach(() => {
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
 /** A fresh temp dataDir per test (mcp/subshells writes are file-visible). */
-function freshDataDir(tag: string): string {
+/**
+ * A data dir with claude-code INSTALLED, which every launch case needs now.
+ *
+ * The node resolves a launch against its own installed set rather than the
+ * registry compiled into the binary (`launch-plugin.ts`), so a data dir with
+ * an empty plugins directory offers nothing and every launch is refused. That
+ * is the gate working; these cases are about what happens after it.
+ */
+async function freshDataDir(tag: string): Promise<string> {
   const dir = join(base, tag);
   mkdirSync(dir, { recursive: true });
+  await installEmbedded(dir, "claude-code");
   return dir;
 }
 
@@ -240,7 +250,7 @@ function methodsOf(calls: Array<{ method: string }>): string[] {
 
 describe("execLaunch (spec §6.4/§7)", () => {
   it("happy launch: meta recorded BEFORE newSubshell, call ORDER newSubshell→pipePane(logPath)→resize, {ok:true}", async () => {
-    const dataDir = freshDataDir("happy");
+    const dataDir = await freshDataDir("happy");
     const events: NodeEvent[] = [];
     let probe: Promise<SubshellMeta | undefined> | undefined;
     let paneCmd = "";
@@ -293,7 +303,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("resume pin rides the argv (§6.4: harnessSession = BuildCommandInput.harnessSession)", async () => {
-    const dataDir = freshDataDir("resume-pin");
+    const dataDir = await freshDataDir("resume-pin");
     let paneCmd = "";
     const { ctx } = makeCtx(
       dataDir,
@@ -307,7 +317,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("no geometry on the wire ⇒ no resizeWindow call", async () => {
-    const dataDir = freshDataDir("no-geometry");
+    const dataDir = await freshDataDir("no-geometry");
     const { ctx, calls } = makeCtx(dataDir, { newSubshell: () => {}, pipePane: () => {} }, []);
     const result = await dispatchCommand(ctx, launchCmd({ cols: undefined, rows: undefined }));
     expect(result).toEqual({ ok: true });
@@ -316,15 +326,17 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("unknown harness ⇒ ok:false, NO tmux calls", async () => {
-    const dataDir = freshDataDir("unknown-harness");
+    const dataDir = await freshDataDir("unknown-harness");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
     const result = await dispatchCommand(ctx, launchCmd({ harnessId: "no-such-harness" }));
-    expect(result).toEqual({ ok: false, error: "unknown harness: no-such-harness" });
+    // The message changed with the gate: the node now answers from what it has
+    // INSTALLED rather than from what its binary knows about.
+    expect(result).toEqual({ ok: false, error: "plugin 'no-such-harness' is not installed on this node" });
     expect(calls).toEqual([]);
   });
 
   it("findBinary null ⇒ ok:false 'harness binary missing: <id>' and NO tmux calls, NO meta", async () => {
-    const dataDir = freshDataDir("no-binary");
+    const dataDir = await freshDataDir("no-binary");
     process.env.CLAUDE_PATH = join(base, "definitely-not-executable");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
     const result = await dispatchCommand(ctx, launchCmd());
@@ -335,7 +347,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("a malformed subshell id is refused before ANY harness/tmux/meta work", async () => {
-    const dataDir = freshDataDir("bad-id");
+    const dataDir = await freshDataDir("bad-id");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
     const result = await dispatchCommand(ctx, launchCmd({ subshellId: "../evil" }));
     expect(result).toEqual({ ok: false, error: "invalid subshell id" });
@@ -343,7 +355,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("newSubshell throws ⇒ ok:false + meta FORGOTTEN (rollback) + no watcher + no pipePane", async () => {
-    const dataDir = freshDataDir("newsubshell-throws");
+    const dataDir = await freshDataDir("newsubshell-throws");
     const { ctx, calls } = makeCtx(
       dataDir,
       {
@@ -361,7 +373,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("mcp path outside dataDir ⇒ ok:false 'mcp path refused', no spawn, no writes", async () => {
-    const dataDir = freshDataDir("mcp-refused");
+    const dataDir = await freshDataDir("mcp-refused");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
     const result = await dispatchCommand(
       ctx,
@@ -373,7 +385,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("mcp happy ⇒ file exists mode 600 with exact local-dialect content; --mcp-config rides the pane argv", async () => {
-    const dataDir = freshDataDir("mcp-happy");
+    const dataDir = await freshDataDir("mcp-happy");
     const mcpFile = join(dataDir, "mcp", `${S1}.json`);
     let paneCmd = "";
     const { ctx } = makeCtx(
@@ -399,7 +411,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("mcp content drift ⇒ one warn line and the LOCAL content wins over the wire value", async () => {
-    const dataDir = freshDataDir("mcp-drift");
+    const dataDir = await freshDataDir("mcp-drift");
     const mcpFile = join(dataDir, "mcp", `${S1}.json`);
     const { lines, restore } = captureLogs();
     let ctx: CommandContext | undefined;
@@ -428,7 +440,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("bestEffortLog + throwing pipePane ⇒ one warn line, still {ok:true}, resize + watcher run", async () => {
-    const dataDir = freshDataDir("best-effort-pipe");
+    const dataDir = await freshDataDir("best-effort-pipe");
     const { lines, restore } = captureLogs();
     try {
       const { ctx, calls } = makeCtx(
@@ -454,7 +466,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("bestEffortLog wraps mkdir TOO: throwing subshells-dir mkdir ⇒ warn + {ok:true}, pipePane skipped", async () => {
-    const dataDir = freshDataDir("best-effort-mkdir");
+    const dataDir = await freshDataDir("best-effort-mkdir");
     const { lines, restore } = captureLogs();
     try {
       const { ctx, calls } = makeCtx(
@@ -478,7 +490,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("STRICT default: throwing log attach fails the launch (createSubshell parity), NO watcher", async () => {
-    const dataDir = freshDataDir("strict-mkdir");
+    const dataDir = await freshDataDir("strict-mkdir");
     const { ctx, calls } = makeCtx(
       dataDir,
       {
@@ -500,7 +512,7 @@ describe("execLaunch (spec §6.4/§7)", () => {
   });
 
   it("throwing resizeWindow is log-and-continue (geometry is cosmetic)", async () => {
-    const dataDir = freshDataDir("resize-throws");
+    const dataDir = await freshDataDir("resize-throws");
     const { lines, restore } = captureLogs();
     try {
       const { ctx } = makeCtx(
@@ -553,7 +565,7 @@ async function launchWithSabotagedSubshellsDir(
 
 describe("exit watcher (report.ts) — one shared tick", () => {
   it("pane death ⇒ ONE exit event {exitCode, at}, supervision dropped, meta forgotten", async () => {
-    const dataDir = freshDataDir("watcher-death");
+    const dataDir = await freshDataDir("watcher-death");
     const events: NodeEvent[] = [];
     let ticks = 0;
     const { ctx, calls } = makeCtx(
@@ -579,7 +591,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("paneExitCode null (server gone before a status was read) ⇒ exitCode null rides the event", async () => {
-    const dataDir = freshDataDir("watcher-null");
+    const dataDir = await freshDataDir("watcher-null");
     const events: NodeEvent[] = [];
     const { ctx, calls } = makeCtx(dataDir, { listSubshellNames: () => [], paneExitCode: () => null }, events);
     // NO meta record on purpose: the watcher must probe the socket it was
@@ -591,7 +603,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("execKill and execTerminate STOP supervision — a dead-on-arrival pane never reports after a deliberate kill", async () => {
-    const dataDir = freshDataDir("watcher-kill");
+    const dataDir = await freshDataDir("watcher-kill");
     const events: NodeEvent[] = [];
     const { ctx } = makeCtx(
       dataDir,
@@ -621,7 +633,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("batching: 3 supervised panes on ONE socket ⇒ one list-sessions per tick, zero per-pane has-sessions", async () => {
-    const dataDir = freshDataDir("watcher-batch");
+    const dataDir = await freshDataDir("watcher-batch");
     const events: NodeEvent[] = [];
     const { ctx, calls } = makeCtx(
       dataDir,
@@ -646,7 +658,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("grouping: 2 panes on sock-a + 1 on sock-b ⇒ one spawn PER SOCKET per tick — exactly 4 over 2 ticks, not 6", async () => {
-    const dataDir = freshDataDir("watcher-group");
+    const dataDir = await freshDataDir("watcher-group");
     const { ctx, calls } = makeCtx(
       dataDir,
       { listSubshellNames: (socket) => (socket === "sock-a" ? [S1, S2] : [S3]) },
@@ -673,7 +685,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("two panes vanish on ONE tick ⇒ two independent exit events, each exactly once", async () => {
-    const dataDir = freshDataDir("watcher-double");
+    const dataDir = await freshDataDir("watcher-double");
     const events: NodeEvent[] = [];
     let tick = 0;
     const { ctx } = makeCtx(
@@ -699,7 +711,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
      only run for the registration the tick actually owned. */
 
   it("relaunch DURING the tick's gated forget ⇒ the newer registration survives: one exit event, meta kept, tails not swept, supervision kept", async () => {
-    const dataDir = freshDataDir("watcher-relaunch");
+    const dataDir = await freshDataDir("watcher-relaunch");
     const events: NodeEvent[] = [];
     const gated = new GateHeldMetaStore(dataDir);
     const { ctx } = makeCtx(
@@ -747,7 +759,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("execKill landing mid-tick (while the batched answer is being processed) ⇒ the deliberately killed id reports nothing", async () => {
-    const dataDir = freshDataDir("watcher-kill-midt");
+    const dataDir = await freshDataDir("watcher-kill-midt");
     const events: NodeEvent[] = [];
     const gated = new GateHeldMetaStore(dataDir);
     const { ctx } = makeCtx(
@@ -782,8 +794,8 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     expect(ctx.watchTick).toBeUndefined();
   });
 
-  it("arm-once + tokens: re-registration mints a fresh token and replaces the entry, but never re-arms the shared interval", () => {
-    const dataDir = freshDataDir("watcher-armonce");
+  it("arm-once + tokens: re-registration mints a fresh token and replaces the entry, but never re-arms the shared interval", async () => {
+    const dataDir = await freshDataDir("watcher-armonce");
     const { ctx } = makeCtx(dataDir, {}, []);
     const spy = spyOn(globalThis, "setInterval");
     try {
@@ -805,7 +817,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
   });
 
   it("regression: plain natural death with a live tail ⇒ exactly ONE exit event, meta forgotten, tail stopped, loop drains when empty", async () => {
-    const dataDir = freshDataDir("watcher-natural");
+    const dataDir = await freshDataDir("watcher-natural");
     const events: NodeEvent[] = [];
     const { ctx } = makeCtx(dataDir, { listSubshellNames: () => [], paneExitCode: () => 6 }, events);
     await recordMeta(ctx.meta, S1, "n-sock");
@@ -836,7 +848,7 @@ describe("exit watcher (report.ts) — one shared tick", () => {
  */
 describe("exit watcher — unreachable threshold (design §1)", () => {
   it("blip: ok:false then ok:true-with-pane ⇒ ZERO exit events, counter reset by the ok tick", async () => {
-    const dataDir = freshDataDir("watcher-blip");
+    const dataDir = await freshDataDir("watcher-blip");
     const events: NodeEvent[] = [];
     let tick = 0;
     const { ctx, calls } = makeCtx(
@@ -869,7 +881,7 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
   });
 
   it("sustained: two consecutive ok:false ticks ⇒ EXACTLY ONE exit {exitCode: null}, forgotten + tails dropped", async () => {
-    const dataDir = freshDataDir("watcher-sustained");
+    const dataDir = await freshDataDir("watcher-sustained");
     const events: NodeEvent[] = [];
     const { ctx } = makeCtx(
       dataDir,
@@ -898,7 +910,7 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
   });
 
   it("confirmed death unchanged: ok:true with the pane absent ⇒ immediate exit on the FIRST tick", async () => {
-    const dataDir = freshDataDir("watcher-confirmed");
+    const dataDir = await freshDataDir("watcher-confirmed");
     const events: NodeEvent[] = [];
     const { ctx } = makeCtx(
       dataDir,
@@ -918,7 +930,7 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
   });
 
   it("relaunch resets the budget: blip (1) ⇒ same-id re-registration (fresh 0) ⇒ blip again ⇒ still zero exits", async () => {
-    const dataDir = freshDataDir("watcher-relaunch-budget");
+    const dataDir = await freshDataDir("watcher-relaunch-budget");
     const events: NodeEvent[] = [];
     const { ctx } = makeCtx(
       dataDir,
@@ -951,7 +963,7 @@ describe("exit watcher — unreachable threshold (design §1)", () => {
 
 describe("buildSubshellsReport (spec §3.3)", () => {
   it("one row per recorded meta: alive ⇒ null exit, dead ⇒ paneExitCode", async () => {
-    const dataDir = freshDataDir("subshells-report");
+    const dataDir = await freshDataDir("subshells-report");
     const { ctx } = makeCtx(dataDir, { hasSubshell: (_s, id) => id === S1, paneExitCode: () => 2 }, []);
     await recordMeta(ctx.meta, S1, "sock-a");
     await recordMeta(ctx.meta, S2, "sock-b");
@@ -966,7 +978,7 @@ describe("buildSubshellsReport (spec §3.3)", () => {
   });
 
   it("no metas ⇒ an empty subshells list (still a valid event)", async () => {
-    const dataDir = freshDataDir("subshells-report-empty");
+    const dataDir = await freshDataDir("subshells-report-empty");
     const { ctx } = makeCtx(dataDir, {}, []);
     expect(await buildSubshellsReport(ctx)).toEqual({ type: "subshells_report", subshells: [] });
   });
@@ -982,7 +994,7 @@ const HAS_TMUX = Bun.which("tmux");
 it.skipIf(!HAS_TMUX)(
   "smoke (real tmux): launch a stub harness pane, kill it, receive the exit event",
   async () => {
-    const dataDir = freshDataDir("smoke");
+    const dataDir = await freshDataDir("smoke");
     const workDir = join(base, "smoke-work");
     mkdirSync(workDir, { recursive: true });
     const stub = join(base, "stub-harness");
