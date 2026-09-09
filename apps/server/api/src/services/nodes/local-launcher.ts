@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
 import { stripAnsi } from "@internal/backend-errors";
-import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/harnesses";
+import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/pane-runtime";
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_BACKSTOP_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";

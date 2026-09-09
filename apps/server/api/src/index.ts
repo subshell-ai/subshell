@@ -14,7 +14,7 @@
 // biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
 import "./cli-bootstrap.js";
 import { resolve } from "node:path";
-import { getHarness } from "@internal/harnesses";
+import { getHarness } from "@internal/pane-runtime";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
 import { isCliEngaged } from "@/cli.js";

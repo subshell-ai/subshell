@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
+import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
 import { TAIL_BACKSTOP_MS } from "@/services/nodes/log-tail.js";
 import { LocalLauncher } from "../local-launcher.js";

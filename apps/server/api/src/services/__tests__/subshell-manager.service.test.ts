@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHarnessCommand, ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/harnesses";
+import { buildHarnessCommand, ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import type { NodeCommandBody, NodeProbeEntry } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";

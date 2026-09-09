@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tmuxSocketFor } from "@internal/harnesses";
+import { tmuxSocketFor } from "@internal/pane-runtime";
 import {
   NODE_MAX_FRAME_BYTES,
   type NodeEvent,

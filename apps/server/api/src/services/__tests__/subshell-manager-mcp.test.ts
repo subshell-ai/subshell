@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TmuxRunner } from "@internal/harnesses";
+import { TmuxRunner } from "@internal/pane-runtime";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import * as initMigration from "@/db/migrations/0001-init.js";

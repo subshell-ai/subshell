@@ -1,4 +1,4 @@
-import { ALL_HARNESSES, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/harnesses";
+import { ALL_HARNESSES, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";

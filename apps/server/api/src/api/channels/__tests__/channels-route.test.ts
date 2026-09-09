@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { TmuxRunner } from "@internal/harnesses";
 import { generateKeypair } from "@internal/mcp-core";
+import { TmuxRunner } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { channelRoutes } from "@/api/channels/index.js";

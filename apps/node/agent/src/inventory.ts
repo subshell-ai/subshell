@@ -1,4 +1,4 @@
-import { type HarnessInventoryEntry, scanHarnesses } from "@internal/harnesses";
+import { type HarnessInventoryEntry, scanHarnesses } from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
 
 /** The `inventory` event shape (spec §3.3) — what the backend's `applyInventory` persists. */

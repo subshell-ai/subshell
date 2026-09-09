@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { unlinkSync } from "node:fs";
-import { ClaudeCodePlugin, HermesPlugin } from "@internal/harnesses";
+import { ClaudeCodePlugin, HermesPlugin } from "@internal/pane-runtime";
 import { registerSubshellMcp, subshellMcpConfigPath } from "@/services/mcp-launch.js";
 
 /**

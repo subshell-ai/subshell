@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { ALL_HARNESSES } from "@internal/harnesses";
+import { ALL_HARNESSES } from "@internal/pane-runtime";
 import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied

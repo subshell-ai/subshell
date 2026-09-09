@@ -1,5 +1,5 @@
 import { realpath, stat, unlink } from "node:fs/promises";
-import { getHarness, tmuxSocketFor } from "@internal/harnesses";
+import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent } from "../inventory.js";
@@ -148,7 +148,7 @@ export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise
 
 /**
  * `probe_resume` (spec §6.4): run the harness plugin's OWN resume probe on this
- * machine (identical `@internal/harnesses` code as the local path). Unknown
+ * machine (identical `@internal/pane-runtime` code as the local path). Unknown
  * harness → failure; a harness without the capability can never resume.
  */
 export async function execProbeResume(_ctx: CommandContext, cmd: Cmd<"probe_resume">): Promise<CommandResult> {

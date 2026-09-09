@@ -9,7 +9,7 @@ import {
   type ProfileDefinition,
   type TmuxRunner,
   tmuxSocketFor,
-} from "@internal/harnesses";
+} from "@internal/pane-runtime";
 import { dirAllowed, type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";

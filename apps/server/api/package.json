@@ -36,7 +36,7 @@
     "@elysiajs/cors": "1.4.2",
     "@elysiajs/openapi": "1.4.15",
     "@internal/backend-errors": "workspace:*",
-    "@internal/harnesses": "workspace:*",
+    "@internal/pane-runtime": "workspace:*",
     "@internal/mcp-core": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
     "@loglayer/elysia": "2.4.0",

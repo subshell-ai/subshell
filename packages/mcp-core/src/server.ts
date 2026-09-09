@@ -228,7 +228,7 @@ const EXTEND_INTERVAL_MS = 12 * 60 * 60 * 1000;
 export function createSubshellMcpServer(deps: { api: ToolApi; own: IdentityKeyPair }): McpServer {
   const server = new McpServer(
     {
-      // Keep in sync with MCP_SERVER_NAME in @internal/harnesses (the config registration key every adapter uses).
+      // Keep in sync with MCP_SERVER_NAME in @internal/pane-runtime (the config registration key every adapter uses).
       name: "subshell",
       version: "1.0.0",
     },

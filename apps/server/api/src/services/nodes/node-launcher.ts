@@ -1,4 +1,4 @@
-import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@internal/harnesses";
+import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@internal/pane-runtime";
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {

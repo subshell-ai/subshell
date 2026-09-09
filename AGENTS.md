@@ -73,7 +73,8 @@ subshell/
 │   ├── backend-errors/             # Error emission and handling for the backend
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
 │   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits, shared-pane sizing
-│   ├── harnesses/                  # Harness plugin interface, built-in harness plugins, TmuxRunner
+│   ├── plugin-api/                 # @subshell-ai/plugin-api — the contract a plugin implements (published)
+│   ├── pane-runtime/               # Running a pane here: binary detection, plugin loading, argv, TmuxRunner
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── e2e/                            # Playwright suite — its own backend on :3199, real tmux (see e2e/AGENTS.md)
 ├── brand/                          # Wordmark/palette masters + generators (`bun run brand:generate`)
@@ -688,10 +689,10 @@ which is why they share their own smoke, parameterized by app id.
 The Turbo pipeline ensures correct build order:
 
 1. `@internal/backend-errors`, `@internal/subshell-protocol`, and `@internal/mcp-core` build first (no internal deps)
-2. `@internal/server` (`apps/server/api`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core
+2. `@internal/server` (`apps/server/api`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core
 3. `@internal/backend-client` depends on server (imports the `App` type for Eden Treaty)
 4. `apps/server/web` depends on backend-client and subshell-protocol
-5. `@internal/node` (`apps/node/agent`) depends on backend-errors, subshell-protocol, harnesses, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:node` (and the reverse hazard: the build wipes `apps/node/agent/dist/subshell`)
+5. `@internal/node` (`apps/node/agent`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:node` (and the reverse hazard: the build wipes `apps/node/agent/dist/subshell`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 

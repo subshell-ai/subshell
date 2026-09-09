@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { getHarness } from "@internal/harnesses";
+import { getHarness } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
 import { HarnessStateError, toggleLocalHarness } from "@/api/harness-utils.js";

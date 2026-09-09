@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { TmuxRunner } from "@internal/harnesses";
+import { TmuxRunner } from "@internal/pane-runtime";
 import {
   type CommandClaims,
   JtiLru,

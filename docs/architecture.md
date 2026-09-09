@@ -197,7 +197,7 @@ A stdio MCP server (SDK v2) the harness spawns per subshell.
 ### Registration per harness
 
 How the child gets spawned is the harness plugin's dialect decision
-(`packages/harnesses`), not a backend special case:
+(`packages/pane-runtime`), not a backend special case:
 
 - **claude-code** — the backend writes a per-subshell `mcpServers` file; the
   plugin's `mcpRegistration` returns its content plus the activating

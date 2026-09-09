@@ -80,7 +80,7 @@ export function isNodeSubshellId(id: string): boolean {
 }
 
 /**
- * Structural JSON mirror of `@internal/harnesses`' `ProfileDefinition`.
+ * Structural JSON mirror of `@internal/pane-runtime`' `ProfileDefinition`.
  *
  * Deliberately a copy: subshell-protocol is bundled by the frontend and must
  * not pull harnesses (which imports node:fs) at runtime (spec §3.2). The

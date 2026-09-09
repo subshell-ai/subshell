@@ -1,4 +1,4 @@
-import { getHarness } from "@internal/harnesses";
+import { getHarness } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { getAllHarnessIds, harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";

@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@internal/backend-errors": "workspace:*",
-    "@internal/harnesses": "workspace:*",
+    "@internal/pane-runtime": "workspace:*",
     "@internal/mcp-core": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
     "jose": "6.2.9",

@@ -309,7 +309,7 @@ async function main(): Promise<void> {
   // gate here fails in a second rather than after a full cargo build.
   const harnessesDist = join(REPO_ROOT, "packages", "harnesses", "dist");
   if (!deps.exists(join(harnessesDist, "index.mjs")) && !deps.exists(join(harnessesDist, "index.js"))) {
-    console.error("the workspace dists are missing (packages/harnesses/dist) — run `bunx turbo build` first");
+    console.error("the workspace dists are missing (packages/pane-runtime/dist). Run `bunx turbo build` first");
     process.exit(1);
   }
 

@@ -1,5 +1,5 @@
 import { basename, resolve } from "node:path";
-import type { McpLaunchSpec } from "@internal/harnesses";
+import type { McpLaunchSpec } from "@internal/pane-runtime";
 
 /**
  * Pure resolution of HOW `subshell mcp` gets spawned in this deployment —

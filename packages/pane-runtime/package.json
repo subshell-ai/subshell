@@ -1,6 +1,6 @@
 {
-  "name": "@internal/harnesses",
-  "description": "Harness plugin interface and built-in agent harness plugins",
+  "name": "@internal/pane-runtime",
+  "description": "Running a subshell pane on this machine: binary detection, plugin loading, argv, tmux",
   "version": "1.0.0",
   "license": "Apache-2.0",
   "type": "module",

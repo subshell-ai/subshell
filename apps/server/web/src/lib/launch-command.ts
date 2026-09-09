@@ -4,7 +4,7 @@
  */
 
 /**
- * Display-only twin of `shellQuote` in `@internal/harnesses` (the backend and
+ * Display-only twin of `shellQuote` in `@internal/pane-runtime` (the backend and
  * plugins execute with that one; the frontend cannot import it) —
  * `it's` becomes `'it'\''s'`, so the preview is paste-ready in any shell.
  */

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TmuxRunner } from "@internal/harnesses";
+import type { TmuxRunner } from "@internal/pane-runtime";
 import {
   type ControlKeyPair,
   generateControlKeys,

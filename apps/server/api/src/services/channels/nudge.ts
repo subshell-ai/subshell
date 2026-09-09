@@ -1,4 +1,4 @@
-import { TmuxRunner } from "@internal/harnesses";
+import { TmuxRunner } from "@internal/pane-runtime";
 import { IS_TEST } from "@/constants.js";
 import { logger } from "@/utils/logger.js";
 

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { HarnessPlugin, McpLaunchSpec, McpRegistration } from "@internal/harnesses";
+import type { HarnessPlugin, McpLaunchSpec, McpRegistration } from "@internal/pane-runtime";
 import { APP_BASE_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { resolveMcpLaunch } from "@/services/mcp-resolve.js";
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";

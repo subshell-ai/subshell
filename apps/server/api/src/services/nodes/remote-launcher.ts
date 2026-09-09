@@ -1,4 +1,4 @@
-import type { HarnessPlugin } from "@internal/harnesses";
+import type { HarnessPlugin } from "@internal/pane-runtime";
 import {
   type NodeCommandBody,
   type NodeProbeEntry,

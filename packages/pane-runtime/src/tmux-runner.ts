@@ -247,7 +247,7 @@ export class TmuxRunner {
     // POSIX-single-quoted. The previous JSON.stringify-based escaping did
     // NOT neutralize `$`, backticks or `;` — JSON string escaping and shell
     // quoting are different languages. shellQuote is the same quoter the
-    // pane commands are baked with (canonical source: @internal/harnesses).
+    // pane commands are baked with (canonical source: @internal/pane-runtime).
     //
     // The subshell parentheses scope the umask to this `cat`, so nothing else
     // tmux's shell may go on to run inherits it.

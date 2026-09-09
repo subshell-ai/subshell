@@ -1,4 +1,4 @@
-import { ALL_HARNESSES } from "@internal/harnesses";
+import { ALL_HARNESSES } from "@internal/pane-runtime";
 import { sql } from "kysely";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db as appDb } from "@/db/index.js";

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { getHarness } from "@internal/harnesses";
+import { getHarness } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { ALL_HARNESSES } from "@internal/harnesses";
+import { ALL_HARNESSES } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";

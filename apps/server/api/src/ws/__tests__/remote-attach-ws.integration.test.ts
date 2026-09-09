@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { appendFileSync } from "node:fs";
-import { tmuxSocketFor } from "@internal/harnesses";
+import { tmuxSocketFor } from "@internal/pane-runtime";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";

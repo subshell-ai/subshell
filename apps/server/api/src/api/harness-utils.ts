@@ -1,4 +1,4 @@
-import { ALL_HARNESSES, getHarness, type HarnessPlugin, scanOne } from "@internal/harnesses";
+import { ALL_HARNESSES, getHarness, type HarnessPlugin, scanOne } from "@internal/pane-runtime";
 import type { Static } from "elysia";
 import type { HarnessInfoSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";

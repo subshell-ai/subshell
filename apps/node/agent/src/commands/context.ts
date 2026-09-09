@@ -1,4 +1,4 @@
-import type { TmuxRunner } from "@internal/harnesses";
+import type { TmuxRunner } from "@internal/pane-runtime";
 import type { JsonValue, NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import type { AgentConfig } from "../config.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";

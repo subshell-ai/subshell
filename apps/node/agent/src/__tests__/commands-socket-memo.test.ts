@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tmuxSocketFor } from "@internal/harnesses";
+import { tmuxSocketFor } from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";

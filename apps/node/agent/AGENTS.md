@@ -32,7 +32,7 @@ bun run verify-types     # tsc --noEmit
   documented duplicate of the server's default in `apps/server/api/src/constants.ts`).
 - **`turbo build` wipes the compiled `dist/subshell`** (shared `dist/` with
   the tsdown output) — re-create with `cd apps/node/agent && bun run compile`.
-- Workspace deps (`harnesses`, `subshell-protocol`, `mcp-core`, `backend-errors`):
+- Workspace deps (`pane-runtime`, `subshell-protocol`, `mcp-core`, `backend-errors`):
   the compiled binary BUNDLES their dists, so `turbo build` must run first —
   `compile:release` preflights and refuses otherwise. The client imports
   packages, never `apps/server/api` code, and never opens the app database.

@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { tmuxSocketFor } from "@internal/harnesses";
+import { tmuxSocketFor } from "@internal/pane-runtime";
 import { type NodeCommandBody, parseNodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";

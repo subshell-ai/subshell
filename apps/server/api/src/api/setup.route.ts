@@ -1,4 +1,4 @@
-import { ALL_HARNESSES } from "@internal/harnesses";
+import { ALL_HARNESSES } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { ForbiddenError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
 import { harnessInfo, toggleLocalHarness } from "@/api/harness-utils.js";

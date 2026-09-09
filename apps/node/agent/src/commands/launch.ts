@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { buildHarnessCommand, getHarness, type McpRegistration, type ProfileDefinition } from "@internal/harnesses";
+import { buildHarnessCommand, getHarness, type McpRegistration, type ProfileDefinition } from "@internal/pane-runtime";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { enforceMode } from "../fs-mode.js";
 import { log } from "../log.js";
