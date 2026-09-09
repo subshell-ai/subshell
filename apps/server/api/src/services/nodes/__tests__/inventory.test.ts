@@ -108,27 +108,73 @@ describe("services/nodes/inventory", () => {
   });
 
   describe("effectiveHarnessStates (local)", () => {
-    it("harness_plugins state × live probe; never stale; no version", async () => {
+    it("harness_plugins state × live probe, with the version, reason and stamp an agent reports", async () => {
       const node = await mkNode("local");
-      const stubs = ALL_HARNESSES.map((h) => ({ h, orig: h.isInstalled.bind(h) }));
+      // The local branch probes through `scanOne`, so `detect` is what has to
+      // be stubbed. It used to stub `isInstalled`, which `scanOne` no longer
+      // calls at all — a stub on it would silently probe the real machine.
+      const stubs = ALL_HARNESSES.map((h) => ({
+        h,
+        detect: h.detect.bind(h),
+        getVersion: h.getVersion.bind(h),
+      }));
       const prior = (await new HarnessPluginsRepository(db).getEnabledStates([H0])).get(H0);
-      // The local branch probes via the plugin registry — force two states:
-      const probeTargets: Record<string, boolean> = { [H0]: true, [H1]: false };
-      for (const s of stubs) s.h.isInstalled = async () => probeTargets[s.h.id] ?? false;
+      const found: Record<string, boolean> = { [H0]: true, [H1]: false };
+      for (const s of stubs) {
+        s.h.detect = async () =>
+          found[s.h.id] ? { path: `/usr/bin/${s.h.id}` } : { path: null, reason: "override-invalid" as const };
+        s.h.getVersion = async () => "7.7.7";
+      }
       await new HarnessPluginsRepository(db).setEnabled(H0, false);
       try {
         const report = await effectiveHarnessStates(node);
         expect(report.stale).toBe(false);
+
         const e0 = report.harnesses.find((h) => h.harnessId === H0);
-        expect(e0).toMatchObject({ enabled: false, installed: true });
-        expect(e0?.version).toBeUndefined(); // local entries carry no version (setup GET owns that probe)
+        // Local now carries a version too. It used not to, which meant the
+        // node page showed one for an agent and nothing for the host.
+        expect(e0).toMatchObject({ enabled: false, installed: true, version: "7.7.7" });
+        expect(e0?.reason).toBeUndefined();
+        expect(typeof e0?.checkedAt).toBe("string");
+
         const e1 = report.harnesses.find((h) => h.harnessId === H1);
-        expect(e1).toMatchObject({ enabled: true, installed: false });
+        expect(e1).toMatchObject({ enabled: true, installed: false, reason: "override-invalid" });
+        expect(e1?.version).toBeUndefined();
       } finally {
-        for (const s of stubs) s.h.isInstalled = s.orig;
+        for (const s of stubs) {
+          s.h.detect = s.detect;
+          s.h.getVersion = s.getVersion;
+        }
         if (prior === undefined) await db.deleteFrom("harnessPlugins").where("id", "=", H0).execute();
         else await new HarnessPluginsRepository(db).setEnabled(H0, prior);
       }
+    });
+
+    it("gives every local entry one shared stamp", async () => {
+      const node = await mkNode("local");
+      const report = await effectiveHarnessStates(node);
+      const stamps = new Set(report.harnesses.map((h) => h.checkedAt));
+      expect(stamps.size).toBe(1);
+    });
+  });
+
+  describe("effectiveHarnessStates carries detection facts from an agent inventory", () => {
+    it("passes reason and checkedAt straight through", async () => {
+      const node = await mkNode("agent", {
+        json: [{ harnessId: H0, installed: false, reason: "override-invalid", checkedAt: "2026-09-09T12:00:00.000Z" }],
+        at: freshAt(),
+      });
+      const e0 = (await effectiveHarnessStates(node)).harnesses.find((h) => h.harnessId === H0);
+      expect(e0?.reason).toBe("override-invalid");
+      expect(e0?.checkedAt).toBe("2026-09-09T12:00:00.000Z");
+    });
+
+    it("reports neither for an agent too old to send them", async () => {
+      const node = await mkNode("agent", { json: [entry(H0, true, "1.0")], at: freshAt() });
+      const e0 = (await effectiveHarnessStates(node)).harnesses.find((h) => h.harnessId === H0);
+      // Absent is unknown, never a default that asserts something false.
+      expect(e0?.reason).toBeUndefined();
+      expect(e0?.checkedAt).toBeUndefined();
     });
   });
 

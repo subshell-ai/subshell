@@ -31,7 +31,7 @@ export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
 export { ClaudeCodePlugin } from "./claude-code.js";
 export { CodexPlugin } from "./codex.js";
 export { HermesPlugin } from "./hermes.js";
-export { type HarnessInventoryEntry, scanHarnesses } from "./inventory.js";
+export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.js";
 export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";
 export { OpencodePlugin } from "./opencode.js";
 export { PiPlugin } from "./pi.js";

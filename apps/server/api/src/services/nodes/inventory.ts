@@ -1,4 +1,4 @@
-import { ALL_HARNESSES, type HarnessInventoryEntry } from "@internal/harnesses";
+import { ALL_HARNESSES, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/harnesses";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
@@ -34,6 +34,10 @@ export interface EffectiveHarnessState {
   installed: boolean;
   /** Version from the inventory (agent nodes only — the local view skips the `--version` probe) */
   version?: string;
+  /** Why the binary was not found, when it was not. Absent when installed, and absent from older agents. */
+  reason?: DetectionReason;
+  /** ISO 8601 stamp of when this entry was probed. Absent from older agents. */
+  checkedAt?: string;
 }
 
 /** The full per-node harness picture plus the freshness verdict on its source. */
@@ -107,12 +111,24 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
 
   if (node.kind === "local") {
     const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
+    // One clock for the batch, and `scanOne` rather than a bare isInstalled():
+    // the local branch reports the same reason and stamp an agent does, from
+    // the same function, so the two halves of this merge cannot disagree about
+    // what an entry means.
+    const now = new Date();
     const harnesses = await Promise.all(
-      ALL_HARNESSES.map(async (h) => ({
-        harnessId: h.id,
-        enabled: states.get(h.id) ?? h.enabledByDefault,
-        installed: await h.isInstalled(),
-      })),
+      ALL_HARNESSES.map(async (h) => {
+        const entry = await scanOne(h, now);
+        const state: EffectiveHarnessState = {
+          harnessId: h.id,
+          enabled: states.get(h.id) ?? h.enabledByDefault,
+          installed: entry.installed,
+        };
+        if (entry.version) state.version = entry.version;
+        if (entry.reason) state.reason = entry.reason;
+        if (entry.checkedAt) state.checkedAt = entry.checkedAt;
+        return state;
+      }),
     );
     return { harnesses, stale: false };
   }
@@ -127,6 +143,8 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
       installed: entry?.installed === true,
     };
     if (entry?.version) state.version = entry.version;
+    if (entry?.reason) state.reason = entry.reason;
+    if (entry?.checkedAt) state.checkedAt = entry.checkedAt;
     return state;
   });
   return { harnesses, stale: inv.stale };

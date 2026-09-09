@@ -87,6 +87,32 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect(res.status).toBe(200);
     });
 
+    it("every harness reports when detection ran, and why it failed when it did", async () => {
+      const res = await anonymousGet("/api/setup/harnesses");
+      const body = (await res.json()) as {
+        id: string;
+        installed: boolean;
+        checkedAt?: string;
+        reason?: string;
+        version?: string;
+      }[];
+      expect(body.length).toBeGreaterThan(0);
+      for (const h of body) {
+        // The stamp is what lets a surface say how old its answer is, which is
+        // the difference between the live local probe and an agent's cache.
+        expect(typeof h.checkedAt).toBe("string");
+        expect(Number.isFinite(Date.parse(h.checkedAt ?? ""))).toBe(true);
+        if (h.installed) {
+          expect(h.reason).toBeUndefined();
+        } else {
+          // A missing binary must say WHICH kind of missing, or the UI can only
+          // offer an install command that may be the wrong advice entirely.
+          expect(h.reason === "not-on-path" || h.reason === "override-invalid").toBe(true);
+          expect(h.version).toBeUndefined();
+        }
+      }
+    });
+
     it("anonymous GET /status still works", async () => {
       const res = await anonymousGet("/api/setup/status");
       expect(res.status).toBe(200);

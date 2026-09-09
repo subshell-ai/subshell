@@ -42,6 +42,18 @@ export const NodeHarnessViewSchema = t.Object({
     description: "local: live binary probe; enrolled node: cached inventory (false until the first inventory lands)",
   }),
   version: t.Optional(t.String({ description: "Installed version from the node's inventory (enrolled nodes)" })),
+  reason: t.Optional(
+    t.Union([t.Literal("not-on-path"), t.Literal("override-invalid")], {
+      description:
+        "Why the binary was not found, when it was not. Per entry rather than per node, because one harness can be missing while another has a bad env override",
+    }),
+  ),
+  checkedAt: t.Optional(
+    t.String({
+      description:
+        "ISO 8601 stamp of when this entry was probed. Absent from a node running an agent older than the field",
+    }),
+  ),
 });
 
 /**

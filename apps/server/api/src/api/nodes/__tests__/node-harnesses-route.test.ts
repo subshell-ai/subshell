@@ -40,7 +40,14 @@ const H0 = "claude-code";
 const H1 = "opencode";
 const H2 = "hermes";
 
-type HarnessEntry = { harnessId: string; enabled: boolean; installed: boolean; version?: string };
+type HarnessEntry = {
+  harnessId: string;
+  enabled: boolean;
+  installed: boolean;
+  version?: string;
+  reason?: "not-on-path" | "override-invalid";
+  checkedAt?: string;
+};
 type View = {
   id: string;
   kind: string;
@@ -473,14 +480,37 @@ describe("/api/nodes harness state + recheck", () => {
 
   it("local view: live probe drives installed, inventoryStale is always false", async () => {
     const stub = pluginOf(H2);
-    const orig = stub.isInstalled.bind(stub);
-    stub.isInstalled = async () => true;
+    // `detect`, not `isInstalled`: the local branch resolves through `scanOne`,
+    // which asks the plugin once for path-and-reason. A stub on `isInstalled`
+    // is never consulted and silently probes the real machine instead.
+    const origDetect = stub.detect.bind(stub);
+    const origVersion = stub.getVersion.bind(stub);
+    stub.detect = async () => ({ path: `/usr/bin/${H2}` });
+    stub.getVersion = async () => "3.3.3";
     try {
       const view = await getNodeView("local");
       expect(view.inventoryStale).toBe(false);
-      expect(harnessOf(view, H2).installed).toBe(true);
+      const row = harnessOf(view, H2);
+      expect(row.installed).toBe(true);
+      expect(row.version).toBe("3.3.3");
+      expect(typeof row.checkedAt).toBe("string");
+      expect(row.reason).toBeUndefined();
     } finally {
-      stub.isInstalled = orig;
+      stub.detect = origDetect;
+      stub.getVersion = origVersion;
+    }
+  });
+
+  it("local view: a not-found harness says which kind of not-found", async () => {
+    const stub = pluginOf(H2);
+    const origDetect = stub.detect.bind(stub);
+    stub.detect = async () => ({ path: null, reason: "override-invalid" as const });
+    try {
+      const row = harnessOf(await getNodeView("local"), H2);
+      expect(row.installed).toBe(false);
+      expect(row.reason).toBe("override-invalid");
+    } finally {
+      stub.detect = origDetect;
     }
   });
 });

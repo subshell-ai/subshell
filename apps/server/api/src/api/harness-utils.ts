@@ -1,4 +1,4 @@
-import { ALL_HARNESSES, getHarness, type HarnessPlugin } from "@internal/harnesses";
+import { ALL_HARNESSES, getHarness, type HarnessPlugin, scanOne } from "@internal/harnesses";
 import type { Static } from "elysia";
 import type { HarnessInfoSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
@@ -42,22 +42,32 @@ export class HarnessStateError extends Error {
 }
 
 /**
- * Report one plugin with fresh detection: install state and version are
- * probed per request (a re-check is just another GET), enabled state comes
- * from the lazily-written `harnessPlugins` row.
+ * Report one plugin with fresh detection: install state, version, the reason
+ * a lookup failed and when it ran are probed per request (a re-check is just
+ * another GET); enabled state comes from the lazily-written `harnessPlugins`
+ * row.
+ *
+ * The probe is {@link scanOne}, the SAME function the node agent runs against
+ * its own filesystem, so a local row and an agent row cannot disagree about
+ * what an entry means. This used to be a second, hand-rolled implementation
+ * here, which is how the server came to report neither a reason nor a
+ * timestamp while the agent reported both, and how it came to walk the lookup
+ * ladder twice per harness per request.
  */
 export async function harnessInfo(id: string, enabled: boolean): Promise<Static<typeof HarnessInfoSchema>> {
   const h = getHarness(id);
   if (!h) throw new HarnessStateError("Unknown harness", 404);
-  const installed = await h.isInstalled();
+  const entry = await scanOne(h);
   return {
     id: h.id,
     name: h.name,
     binary: h.binaryName,
     description: h.description,
     icon: h.icon,
-    installed,
-    version: installed ? ((await h.getVersion()) ?? undefined) : undefined,
+    installed: entry.installed,
+    version: entry.version,
+    reason: entry.reason,
+    checkedAt: entry.checkedAt,
     enabled,
     install: h.installHint,
   };
