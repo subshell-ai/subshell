@@ -89,29 +89,50 @@ function openControlPlane() {
   });
 }
 
+/**
+ * Which rung of the resolution ladder found the server, in words.
+ *
+ * `probe.server.source` is the wire form of `ServerSource` — `local-bin`,
+ * `well-known` — which is right for a protocol and unreadable in a fact list
+ * a first-time user is looking at. Falls back to the raw value, so a rung
+ * added to a newer Rust half still renders something rather than nothing.
+ */
+const SOURCE_LABELS = Object.assign(Object.create(null), {
+  env: "the SUBSHELL_SERVER_BIN environment variable",
+  configured: "a path you chose in this app",
+  service: "the installed service definition",
+  "local-bin": "~/.local/bin, where this app installs it",
+  path: "your login PATH",
+  "well-known": "a standard install directory",
+});
+
 function renderFacts() {
   const dl = el("facts");
   dl.textContent = "";
   const svc = probe?.service ?? null;
   const st = probe?.status ?? null;
   if (probe?.server) {
+    // "server in use", not "server": this row and the one below it are two
+    // DIFFERENT servers — the one that would actually run, and the copy this
+    // app carries — and "server" beside "bundled" gave a new reader no way to
+    // tell which was which.
     fact(
       dl,
-      "server",
+      "server in use",
       `${probe.server.version ?? "?"} — ${probe.server.argv.join(" ")}`,
       null,
       revealAction("server-dir"),
     );
-    fact(dl, "found via", probe.server.source);
+    fact(dl, "found via", SOURCE_LABELS[probe.server.source] ?? probe.server.source);
   }
   if (probe?.bundledVersion) {
     const note =
       probe.serverChoice === "adopt-installed"
-        ? " — the installed server is newer, so it is the one in use"
+        ? " — newer one already installed, so that is the one in use"
         : probe.serverChoice === "upgrade-available"
-          ? " — newer than the installed one"
+          ? " — newer than the one in use"
           : "";
-    fact(dl, "bundled", probe.bundledVersion + note, note ? "warn-text" : null);
+    fact(dl, "shipped in this app", probe.bundledVersion + note, note ? "warn-text" : null);
   }
   // The Reveal on a missing config.env would only answer "does not exist
   // yet", so the row earns its button once the file does.
