@@ -55,11 +55,11 @@ export function LocalLaunchCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Launch on this host</CardTitle>
+        <CardTitle>Launch on the server</CardTitle>
         <CardDescription>
           Allow launching subshells on this control-plane host. Turning it off makes the host unselectable in the
           new-subshell node picker — subshells cannot start anywhere until another node is shared for launching. This
-          only removes or reinstalls the Everyone grant; custom per-user shares on this host are kept.
+          only removes or reinstalls the Everyone grant; custom per-user shares on it are kept.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -72,7 +72,7 @@ export function LocalLaunchCard() {
             disabled={setShares.isPending || existing === undefined}
             aria-label="Allow launching subshells on this control-plane host"
           />
-          <Label>{on ? "Everyone can launch here" : "Local launching is off"}</Label>
+          <Label>{on ? "Everyone can launch here" : "Launching on the server is off"}</Label>
         </div>
         {error && (
           <p role="alert" className="text-destructive text-sm">

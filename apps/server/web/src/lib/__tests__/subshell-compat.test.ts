@@ -77,9 +77,12 @@ describe("buildProfileOptions", () => {
 });
 
 describe("buildNodeOptions", () => {
+  // The label now comes from the ROW's own name — it used to come from a
+  // hardcoded caller argument, which is why this fixture could be called
+  // "host" while the option read "Local".
   const LOCAL = node({
     id: "local",
-    name: "host",
+    name: "Server",
     kind: "local",
     access: "view",
     harnesses: [CLAUDE_ON],
@@ -89,7 +92,7 @@ describe("buildNodeOptions", () => {
   const AGENT = node({ id: "a1", name: "mac-mini", harnesses: [] });
   it("without a profile, only offline agents are disabled and labels carry the platform", () => {
     const opts = buildNodeOptions([LOCAL, AGENT], null, null);
-    expect(opts[0]).toEqual({ value: "local", label: "Local · linux/x64", disabled: false });
+    expect(opts[0]).toEqual({ value: "local", label: "Server · linux/x64", disabled: false });
     expect(opts[1]).toEqual({ value: "a1", label: "mac-mini", disabled: false });
   });
   it("a selected profile greys nodes lacking its harness", () => {
@@ -99,7 +102,7 @@ describe("buildNodeOptions", () => {
   });
   it("the suggestion suffix keys off suggestionId alone — the caller passes only validated suggestions", () => {
     const opts = buildNodeOptions([LOCAL, AGENT], PROF, "local");
-    expect(opts[0]?.label).toBe("Local · linux/x64 · default for this profile");
+    expect(opts[0]?.label).toBe("Server · linux/x64 · default for this profile");
   });
   it("a stale inventory hedges the node-side missing-harness reason (mirror of the profile side)", () => {
     const stale = node({ id: "a9", name: "ghost", harnesses: [], inventoryStale: true });

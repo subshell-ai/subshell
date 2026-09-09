@@ -69,7 +69,9 @@ export function CloneSubshellDialog({
   const node = (nodeData?.nodes ?? []).find((n) => n.id === cloneNodeId(source));
   // Same display grammar as the launch pickers, so the rows read identical.
   const profileLabel = profile ? profileOptionLabel(profile) : source.harnessId;
-  const nodeLabel = node ? nodeOptionLabel(node, "Local") : cloneNodeId(source);
+  // `cloneNodeId` still feeds the create request, where `local` is the correct
+  // IDENTIFIER — but it is never rendered: an id is not a label.
+  const nodeLabel = node ? nodeOptionLabel(node) : "its original node";
 
   async function launch() {
     try {

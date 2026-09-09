@@ -37,7 +37,7 @@ export function NodeSharingDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Share node"
-      description="Let others see this machine or run subshells on it. Sharing is private by default."
+      description="Let others see this node or run subshells on it. Sharing is private by default."
       isLoading={shares.isLoading}
       serverGrants={serverGrants}
       roster={roster.data ?? []}

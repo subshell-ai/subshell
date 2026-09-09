@@ -14,27 +14,26 @@ export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
 }
 
 /**
- * The option label for a node in a picker: the local machine renders under a
- * caller-chosen friendly name (the launch picker says "Local", the profile pin
- * says "Local (this host)"), an online agent under its own name, and an offline
- * agent with the " — offline" suffix — a disabled option still needs to explain
- * itself. Each label carries a ` · {os}/{arch}` platform suffix when the node
- * has reported both (a young agent's ready may still be in flight), with
- * " — offline" kept as the LAST segment. Kept as one function so the
- * disabled-state wording (spec §5.6) cannot drift between the pickers; the
- * e2e-pinned item text and the Base UI `items` map must render the SAME string,
- * so both call this.
+ * The option label for a node in a picker: the node's OWN name — an admin- or
+ * owner-chosen string for every kind, the control-plane host included — plus a
+ * ` · {os}/{arch}` platform suffix when the node has reported both (a young
+ * agent's ready may still be in flight), with " — offline" kept as the LAST
+ * segment, because a disabled option still needs to explain itself.
+ *
+ * It reads `name` for every kind on purpose. This used to take the local
+ * label from its CALLER, and four callers each passed their own hardcoded
+ * string — so renaming the control-plane host's node reached the Nodes page
+ * and silently missed the launch picker, the profile pin, the clone dialog and
+ * the compat matrix. Kept as one function so the disabled-state wording (spec
+ * §5.6) cannot drift between the pickers; the e2e-pinned item text and the
+ * Base UI `items` map must render the SAME string, so both call this.
+ *
  * @param node - The node row from `GET /api/nodes`
- * @param localLabel - The label for the control-plane host's own entry
  */
-export function nodeOptionLabel(
-  node: Pick<Node, "kind" | "status" | "name" | "os" | "arch">,
-  localLabel: string,
-): string {
-  const base = node.kind === "local" ? localLabel : node.name;
+export function nodeOptionLabel(node: Pick<Node, "kind" | "status" | "name" | "os" | "arch">): string {
   // "mac-mini · darwin/arm64" — only when the node actually reported both
   // (a young agent's ready may still be in flight).
   const platform = node.os !== null && node.arch !== null ? ` · ${node.os}/${node.arch}` : "";
   const offline = isOfflineAgent(node) ? " — offline" : "";
-  return `${base}${platform}${offline}`;
+  return `${node.name}${platform}${offline}`;
 }

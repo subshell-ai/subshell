@@ -46,7 +46,7 @@ export function RuntimeCard({ status }: { status: AdminStatus }) {
         {runtime.databasePath} ({formatBytes(runtime.databaseBytes)})
       </Fact>
       <Fact label="tmux" mono wide>
-        {runtime.tmuxPath ?? <Badge variant="warning">not found — local subshells cannot launch</Badge>}
+        {runtime.tmuxPath ?? <Badge variant="warning">not found — subshells cannot launch on the server</Badge>}
       </Fact>
       <Fact label="MCP entrypoint" mono wide>
         {runtime.mcpEntrypoint ? (

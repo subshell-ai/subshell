@@ -67,6 +67,21 @@ describe("NodeRow", () => {
     expect(screen.getByText("shared · edit")).toBeDefined();
   });
 
+  it("names the control-plane host's machine rather than calling it the reader's", () => {
+    // "this machine" is false for every user who is not sitting at the server,
+    // and this is the row most likely to be misread as one's own laptop.
+    render(
+      <NodeRow
+        node={{ ...BASE, id: "local", kind: "local", name: "Server", hostname: "theo-desktop" }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText(/theo-desktop/)).toBeTruthy();
+    expect(screen.queryByText(/this machine/i)).toBeNull();
+  });
+
   it("enables Share for a non-owner manager (admin on local — server-derived canManage)", async () => {
     render(
       <NodeRow

@@ -16,13 +16,18 @@ export function osLabel(os: string | null): string {
 }
 
 /**
- * One row of the Nodes list: name + machine line, the OS/arch chip, the
+ * One row of the Nodes list: name + hostname line, the OS/arch chip, the
  * status badge, installed-and-enabled harness chips, the access badge, and
  * the overflow menu. Delete/Share are gated on `node.canManage` — the
  * SERVER's answer (real owner, or admin on `local`) so admins keep the
  * surfaces the routes actually let them use; shown DISABLED rather than
  * hidden for non-managers so the row reads the same to everyone. `local` is
  * undeletable server-side, so its Delete is disabled even for a manager.
+ *
+ * The second line is the node's HOSTNAME for every kind. The control-plane
+ * host used to read "this machine" here, which is false for every user who is
+ * not sitting at it — and it is the one row a person is most likely to
+ * misread as their own laptop.
  */
 export function NodeRow({
   node,
@@ -45,7 +50,7 @@ export function NodeRow({
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{node.name}</p>
         <p className="truncate text-muted-foreground text-xs">
-          {node.kind === "local" ? "this machine" : (node.hostname ?? node.id)}
+          {node.hostname ?? node.id}
           {node.lastSeenAt ? ` · seen ${relativeElapsed(node.lastSeenAt)}` : ""}
           {node.agentVersion ? ` · v${node.agentVersion}` : ""}
         </p>

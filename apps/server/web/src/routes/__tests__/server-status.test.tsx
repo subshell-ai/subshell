@@ -163,7 +163,7 @@ describe("Server status page", () => {
     );
     try {
       renderPage();
-      await waitFor(() => expect(screen.getByText(/local subshells cannot launch/)).toBeDefined());
+      await waitFor(() => expect(screen.getByText(/subshells cannot launch on the server/)).toBeDefined());
       expect(screen.getByText(/creating a subshell will fail/)).toBeDefined();
     } finally {
       restore();

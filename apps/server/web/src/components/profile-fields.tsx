@@ -185,7 +185,7 @@ export function ProfileFields({
                 { value: "any", label: "Any node (default)" },
                 ...nodes.map((n) => ({
                   value: n.id,
-                  label: nodeOptionLabel(n, "Local (this host)"),
+                  label: nodeOptionLabel(n),
                 })),
               ]}
             >
@@ -196,7 +196,7 @@ export function ProfileFields({
                 <SelectItem value="any">Any node (default)</SelectItem>
                 {nodes.map((n) => (
                   <SelectItem key={n.id} value={n.id}>
-                    {nodeOptionLabel(n, "Local (this host)")}
+                    {nodeOptionLabel(n)}
                   </SelectItem>
                 ))}
               </SelectContent>

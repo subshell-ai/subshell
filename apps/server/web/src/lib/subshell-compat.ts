@@ -83,7 +83,7 @@ export function buildNodeOptions(
   return nodes.map((n) => {
     const offline = isOfflineAgent(n);
     const fit = !offline && profile !== null ? harnessFitsNode(n, profile.harnessId) : null;
-    const label = nodeOptionLabel(n, "Local") + (n.id === suggestionId ? " · default for this profile" : "");
+    const label = nodeOptionLabel(n) + (n.id === suggestionId ? " · default for this profile" : "");
     const opt: ComboboxOption = { value: n.id, label, disabled: offline || fit !== null };
     if (fit !== null && profile !== null) {
       const stale = fit === "not-installed" && n.inventoryStale;
