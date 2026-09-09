@@ -1,0 +1,53 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Every child of the root frame that needs a SESSION must say so where it is
+ * mounted.
+ *
+ * `shellGate` decides what the frame paints and is tested on its own, but it
+ * deliberately returns "render" on `/login` and `/setup` (those pages must
+ * paint) and on the two fail-open branches — offline, and a setup-status query
+ * that did not answer. So "the gate let us render" is NOT "somebody is signed
+ * in", and a child that assumes otherwise is mounted on a first-run wizard.
+ *
+ * `DesktopBridge` was exactly that: `{desktop && <DesktopBridge />}`, with no
+ * session check at all, while every sibling carried one. It listens for the
+ * native chrome's actions, and `new-subshell` opens a DIALOG rather than
+ * navigating — so no route gate had anything to say about it, and the tray
+ * could open the quick-add launch dialog over the setup wizard of an instance
+ * with no users yet.
+ *
+ * Asserted at the source because this is JSX in `Shell`, not a value any pure
+ * function returns. The check is deliberately loose about WHICH guard: some of
+ * these use `!!user`, and the rail uses `!bare` alone on purpose, because a
+ * server outage is not a sign-out (regression #8) and the frame is meant to
+ * survive it. What is not acceptable, and what this catches, is a child with
+ * no session-related condition whatsoever.
+ */
+const ROOT = join(import.meta.dir, "../__root.tsx");
+
+/** Frame children that must not mount for an anonymous visitor. */
+const SESSION_ONLY = [
+  "DesktopBridge",
+  "DesktopNotifications",
+  "EmergencyLoginBanner",
+  "LiveSubshellsFeedProvider",
+  "MobileTopBar",
+  "DesktopSidebar",
+];
+
+describe("the root frame's session-only children", () => {
+  const source = readFileSync(ROOT, "utf8");
+
+  for (const name of SESSION_ONLY) {
+    test(`${name} is mounted behind a session check`, () => {
+      // The JSX line that mounts it, not the import.
+      const line = source.split("\n").find((l) => l.includes(`<${name}`) && !l.trimStart().startsWith("import"));
+      expect(line, `no JSX mounting ${name}`).toBeDefined();
+      const guarded = /\buser\b/.test(line ?? "") || /\bbare\b/.test(line ?? "");
+      expect(guarded, `${name} mounts with no session check: ${line?.trim()}`).toBe(true);
+    });
+  }
+});

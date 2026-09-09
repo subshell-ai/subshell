@@ -136,8 +136,14 @@ function Shell() {
     <QuickAddProvider>
       {/* Inside the provider on purpose — the bridge opens the quick-add
         dialogs, and a hook called in this component's own body would sit
-        above the context it needs. */}
-      {desktop && <DesktopBridge />}
+        above the context it needs.
+
+        Signed-in only, like every other child of this frame. It used to carry
+        `desktop &&` alone, and the gate returns "render" on /setup and /login
+        (those pages must paint) — so on a brand-new instance the tray's "New
+        Subshell" opened the quick-add dialog over the setup wizard. A dialog
+        is not a route, so no route gate had anything to say about it. */}
+      {desktop && !!user && !bare && <DesktopBridge />}
       <div
         className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
         style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
