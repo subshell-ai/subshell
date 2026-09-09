@@ -1,7 +1,7 @@
 import { allHarnesses, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
+import type { PluginReportWire } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 
 /**
@@ -89,6 +89,43 @@ export function readAgentInventory(node: NodeTable, now: number = Date.now()): A
   return { entries, fresh, stale: !fresh };
 }
 
+/** Parsed `nodes.plugins_json`: what the node said it has installed. */
+export interface NodePluginSet {
+  /** `pluginId → report`, in the order the node listed them */
+  entries: Map<string, PluginReportWire>;
+  /** True when the node has never reported, which is NOT "offers nothing" */
+  neverReported: boolean;
+}
+
+/**
+ * Parse one node row's reported plugin set.
+ *
+ * Pure, like {@link readAgentInventory}, so the view and the launch gate share
+ * one parser and one idea of what a junk payload means.
+ *
+ * `neverReported` is the distinction that matters: a node running an agent
+ * older than protocol v6 reports nothing at all, and rendering that as "this
+ * node offers no plugins" would be a confident lie about a machine that simply
+ * has not been asked.
+ */
+export function readNodePlugins(node: NodeTable): NodePluginSet {
+  const entries = new Map<string, PluginReportWire>();
+  if (!node.pluginsJson) return { entries, neverReported: true };
+  try {
+    const parsed: unknown = JSON.parse(node.pluginsJson);
+    if (Array.isArray(parsed)) {
+      for (const e of parsed) {
+        const entry = e as Partial<PluginReportWire>;
+        if (typeof entry?.id === "string") entries.set(entry.id, entry as PluginReportWire);
+      }
+    }
+  } catch {
+    // Junk reads as an empty report rather than a throw, same as the inventory
+    // parser. A node that reported garbage HAS reported.
+  }
+  return { entries, neverReported: false };
+}
+
 // NOTE (ledger 17b): the strict agent launch gate that used to live here as
 // `agentInventoryInstalled` is now the ONE predicate `agentHarnessUsable` in
 // `api/harness-utils.ts` (gate rule deduped with the batch path there).
@@ -133,13 +170,21 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
     return { harnesses, stale: false };
   }
 
-  const states = await new NodeHarnessesRepository(db).enabledStates(node.id);
+  // An agent's rows come from what the NODE declared, not from the registry
+  // compiled into this server crossed with a table this server owned. That
+  // table is gone: a plugin being installed on the node IS it being offered
+  // there, so `enabled` is true for every row that exists.
   const inv = readAgentInventory(node);
-  const harnesses = allHarnesses().map((h) => {
-    const entry = inv.entries.get(h.id);
+  const declared = readNodePlugins(node);
+  const harnesses = [...declared.entries.values()].map((report) => {
+    // Two different facts, deliberately kept apart: the node has the PLUGIN
+    // installed (it is in this list at all), and the plugin's BINARY was
+    // detected there (the harness inventory). A node can have the claude-code
+    // plugin and no `claude` on its PATH.
+    const entry = inv.entries.get(report.id);
     const state: EffectiveHarnessState = {
-      harnessId: h.id,
-      enabled: states.get(h.id) ?? h.enabledByDefault,
+      harnessId: report.id,
+      enabled: true,
       installed: entry?.installed === true,
     };
     if (entry?.version) state.version = entry.version;

@@ -129,6 +129,19 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       nodeId,
       JSON.stringify([{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude" }]),
     );
+    // And the node's DECLARATION: since phase 2 a plugin is launchable only
+    // when the node says it has it installed, so an inventory alone offers
+    // nothing.
+    await nodesRepo.recordPluginReport(nodeId, [
+      {
+        id: "claude-code",
+        name: "Claude Code",
+        type: "agent-harness",
+        version: "1.0.0",
+        description: "",
+        capabilities: [],
+      },
+    ]);
   });
 
   afterAll(async () => {

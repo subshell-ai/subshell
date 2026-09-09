@@ -56,7 +56,7 @@ type View = {
 
 const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes).use(setupRoutes);
 const nodes = new NodesRepository(db);
-const nodeHarnesses = new NodeHarnessesRepository(db);
+const _nodeHarnesses = new NodeHarnessesRepository(db);
 const nodeShares = new NodeSharesRepository(db);
 
 /** The plugin instance (its `isInstalled` is the per-test probe seam). */
@@ -116,6 +116,24 @@ describe("/api/nodes harness state + recheck", () => {
       ...(inv ? { inventoryJson: JSON.stringify(inv.json), inventoryAt: inv.at } : {}),
     });
     createdNodeIds.push(id);
+    if (inv) {
+      // An inventory alone offers nothing since phase 2: the node must also
+      // DECLARE the plugin. These fixtures declare whatever they inventory.
+      const ids = inv.json
+        .map((e) => (e as { harnessId?: string }).harnessId)
+        .filter((h): h is string => typeof h === "string");
+      await nodes.recordPluginReport(
+        id,
+        ids.map((h) => ({
+          id: h,
+          name: h,
+          type: "agent-harness",
+          version: "1.0.0",
+          description: "",
+          capabilities: [],
+        })),
+      );
+    }
     return id;
   }
 
@@ -220,20 +238,27 @@ describe("/api/nodes harness state + recheck", () => {
 
   // ── agent node view: inventory-backed harness states ─────────────────────
 
-  it("view: fresh inventory drives installed/version; node_harnesses rows override enabled", async () => {
+  it("view: the rows are what the NODE declared, crossed with its inventory", async () => {
     const id = await mkAgent({ json: [entry(H0, true, "9.9.9"), entry(H1, false)], at: freshAt() });
-    await nodeHarnesses.setEnabled(id, H0, false);
 
     const view = await getNodeView(id);
     expect(view.inventoryStale).toBe(false);
+
+    // Declared and its binary found.
     const e0 = harnessOf(view, H0);
     expect(e0.installed).toBe(true);
     expect(e0.version).toBe("9.9.9");
-    expect(e0.enabled).toBe(false); // explicit row overrides the plugin default
+    // Every row that exists is offered: the node having the plugin IS that.
+    expect(e0.enabled).toBe(true);
+
+    // Declared, binary absent. Two different facts, deliberately separate: a
+    // node can have the plugin and not the program it drives.
     const e1 = harnessOf(view, H1);
     expect(e1.installed).toBe(false);
-    expect(e1.enabled).toBe(true); // absent row → plugin default
-    expect(harnessOf(view, H2).installed).toBe(false); // never reported → false
+    expect(e1.enabled).toBe(true);
+
+    // Not declared: no row at all, rather than a row saying "off".
+    expect(view.harnesses.find((h) => h.harnessId === H2)).toBeUndefined();
   });
 
   it("view: inventoryStale is true for an aged AND for a never-reported snapshot", async () => {
@@ -244,10 +269,13 @@ describe("/api/nodes harness state + recheck", () => {
     // strict launch gate (harnessUsable) treats stale as not-installed.
     expect(harnessOf(v1, H0).installed).toBe(true);
 
+    // A node that has never reported has no rows at all. That is the honest
+    // rendering: it has not been asked, which is neither "offers nothing" nor
+    // "offers everything", and inventing rows would assert one of them.
     const never = await mkAgent();
     const v2 = await getNodeView(never);
     expect(v2.inventoryStale).toBe(true);
-    expect(harnessOf(v2, H0).installed).toBe(false);
+    expect(v2.harnesses).toEqual([]);
   });
 
   // ── PATCH /api/nodes/:id/harnesses/:harnessId on an agent ─────────────────

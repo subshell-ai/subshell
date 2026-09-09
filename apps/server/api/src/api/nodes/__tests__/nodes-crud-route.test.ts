@@ -216,7 +216,10 @@ describe("/api/nodes registry CRUD", () => {
     expect(seen?.kind).toBe("agent");
     expect(seen?.capabilities).toEqual([]);
     expect(Array.isArray(seen?.harnesses)).toBe(true);
-    expect(seen?.harnesses.length).toBeGreaterThan(0);
+    // Empty, and correctly so: this node has never reported a plugin set, and
+    // since phase 2 the rows come from the node's own declaration rather than
+    // from the registry this server was built with.
+    expect(seen?.harnesses).toEqual([]);
     expect(seen?.harnesses.every((h) => typeof h.harnessId === "string" && typeof h.enabled === "boolean")).toBe(true);
     expect(aliceNodes.some((n) => n.id === theirs.id)).toBe(false);
     // The seeded local node is visible to everyone (Everyone/edit share).

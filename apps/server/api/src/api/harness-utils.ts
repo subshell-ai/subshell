@@ -3,11 +3,15 @@ import type { Static } from "elysia";
 import type { HarnessInfoSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
-import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { ensureDefaultProfilesForHarness } from "@/services/default-profiles.js";
-import { type AgentInventory, readAgentInventory } from "@/services/nodes/inventory.js";
+import {
+  type AgentInventory,
+  type NodePluginSet,
+  readAgentInventory,
+  readNodePlugins,
+} from "@/services/nodes/inventory.js";
 import { logger } from "@/utils/logger.js";
 
 /** All known harness plugin ids. */
@@ -155,13 +159,14 @@ export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID):
  * caller supplies the state map and the parsed inventory, so the batch path
  * reads the rows and parses the snapshot once for the whole set.
  */
-function agentHarnessUsable(
-  plugin: HarnessPlugin,
-  nodeStates: Map<string, boolean> | undefined,
-  inv: AgentInventory,
-): boolean {
-  if (!(nodeStates?.get(plugin.id) ?? plugin.enabledByDefault)) return false;
-  return inv.fresh && inv.entries.get(plugin.id)?.installed === true;
+function agentHarnessUsable(pluginId: string, declared: NodePluginSet, inv: AgentInventory): boolean {
+  // Two conditions, and they are different facts: the node DECLARED the
+  // plugin (it is installed there), and its BINARY was seen recently. The
+  // enable table that used to be the first condition is gone; a node offering
+  // a plugin is now the node having installed it.
+  if (!declared.entries.has(pluginId)) return false;
+  if (declared.entries.get(pluginId)?.broken) return false;
+  return inv.fresh && inv.entries.get(pluginId)?.installed === true;
 }
 
 /**
@@ -170,8 +175,7 @@ function agentHarnessUsable(
  * single {@link agentHarnessUsable} predicate.
  */
 async function agentHarnessUsableForNode(node: NodeTable, plugin: HarnessPlugin): Promise<boolean> {
-  const states = await new NodeHarnessesRepository(db).enabledStates(node.id);
-  return agentHarnessUsable(plugin, states, readAgentInventory(node));
+  return agentHarnessUsable(plugin.id, readNodePlugins(node), readAgentInventory(node));
 }
 
 /**
@@ -190,10 +194,12 @@ export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<
   }
 
   if (node && node.kind === "agent") {
-    const nodeStates = await new NodeHarnessesRepository(db).enabledStates(node.id);
+    // Iterate what the NODE declared rather than this server's registry: a
+    // node can have a plugin this build has never heard of.
+    const declared = readNodePlugins(node);
     const inv = readAgentInventory(node);
-    for (const h of allHarnesses()) {
-      if (agentHarnessUsable(h, nodeStates, inv)) usable.add(h.id);
+    for (const id of declared.entries.keys()) {
+      if (agentHarnessUsable(id, declared, inv)) usable.add(id);
     }
     return usable;
   }

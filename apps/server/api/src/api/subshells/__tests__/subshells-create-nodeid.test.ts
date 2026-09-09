@@ -225,6 +225,19 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       nodeId,
       JSON.stringify([{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude" }]),
     );
+    // And the node's DECLARATION: since phase 2 the gate is "the node says it
+    // has the plugin" AND "its binary was seen", so an inventory alone offers
+    // nothing.
+    await nodes.recordPluginReport(nodeId, [
+      {
+        id: "claude-code",
+        name: "Claude Code",
+        type: "agent-harness",
+        version: "1.0.0",
+        description: "",
+        capabilities: [],
+      },
+    ]);
     const cmds: NodeCommandBody[] = [];
     let conn: NodeConnection;
     const ws: NodeSocket = {

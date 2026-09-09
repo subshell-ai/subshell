@@ -23,7 +23,7 @@ const H2 = "hermes";
 const H3 = "pi";
 
 const nodes = new NodesRepository(db);
-const nodeHarnesses = new NodeHarnessesRepository(db);
+const _nodeHarnesses = new NodeHarnessesRepository(db);
 const OWNER = `inv-owner-${crypto.randomUUID().slice(0, 8)}`;
 
 function freshAt(): string {
@@ -40,6 +40,11 @@ function entry(harnessId: string, installed: boolean, version?: string): Record<
 describe("services/nodes/inventory", () => {
   const createdNodeIds: string[] = [];
 
+  /**
+   * A node row. For an agent, the inventory's harness ids are ALSO recorded as
+   * its declaration: since phase 2 a plugin is offered only when the node says
+   * it has it installed, so an inventory alone means "offers nothing".
+   */
   async function mkNode(kind: "local" | "agent", inv?: { json: unknown[]; at: string | null }): Promise<NodeTable> {
     const id = kind === "local" ? `local-${crypto.randomUUID().slice(0, 8)}` : crypto.randomUUID();
     await nodes.create({
@@ -51,6 +56,22 @@ describe("services/nodes/inventory", () => {
       ...(inv ? { inventoryJson: JSON.stringify(inv.json), inventoryAt: inv.at } : {}),
     });
     createdNodeIds.push(id);
+    if (kind === "agent" && inv) {
+      const ids = inv.json
+        .map((e) => (e as { harnessId?: string }).harnessId)
+        .filter((h): h is string => typeof h === "string");
+      await nodes.recordPluginReport(
+        id,
+        ids.map((h) => ({
+          id: h,
+          name: h,
+          type: "agent-harness",
+          version: "1.0.0",
+          description: "",
+          capabilities: [],
+        })),
+      );
+    }
     return (await nodes.findById(id)) as NodeTable;
   }
 
@@ -63,21 +84,25 @@ describe("services/nodes/inventory", () => {
   });
 
   describe("effectiveHarnessStates (agent)", () => {
-    it("merges inventory × per-node rows; defaults where no row/entry; junk JSON reads empty", async () => {
+    it("lists what the NODE declared, crossed with its inventory; junk JSON reads empty", async () => {
       const node = await mkNode("agent", { json: [entry(H0, true, "9.9.9"), entry(H1, false)], at: freshAt() });
-      await nodeHarnesses.setEnabled(node.id, H0, false);
 
       const report = await effectiveHarnessStates(node);
       expect(report.stale).toBe(false);
-      expect(report.harnesses.length).toBe(allHarnesses().length);
+      // One row per DECLARED plugin, not one per plugin this server was built
+      // with: a node can have a plugin this build has never heard of.
+      expect(report.harnesses.length).toBe(2);
 
+      // `enabled` is true for every row that exists: the node declaring a
+      // plugin IS it being offered there. The only false-ish state left is a
+      // plugin the node did not declare, which has no row at all.
       const e0 = report.harnesses.find((h) => h.harnessId === H0);
-      expect(e0).toMatchObject({ enabled: false, installed: true, version: "9.9.9" });
+      expect(e0).toMatchObject({ enabled: true, installed: true, version: "9.9.9" });
       const e1 = report.harnesses.find((h) => h.harnessId === H1);
       expect(e1).toMatchObject({ enabled: true, installed: false });
       expect(e1?.version).toBeUndefined();
-      const e2 = report.harnesses.find((h) => h.harnessId === H2);
-      expect(e2).toMatchObject({ enabled: true, installed: false }); // no row → plugin default; no entry → false
+      // Undeclared: absent, not a row saying "off".
+      expect(report.harnesses.find((h) => h.harnessId === H2)).toBeUndefined();
     });
 
     it("stale rule: fresh=false, aged=true (values still reported), absent=true", async () => {
@@ -189,19 +214,24 @@ describe("services/nodes/inventory", () => {
       expect(await usableHarnessIds("local")).toEqual(await usableHarnessIds());
     });
 
-    it("agent gate is STRICT: installed ∧ enabled ∧ FRESH snapshot", async () => {
+    it("agent gate is STRICT: declared ∧ installed ∧ FRESH snapshot", async () => {
+      // The enable table is gone. A plugin is offered because the NODE has it
+      // installed, so the gate's first condition is the node's declaration
+      // rather than a row this server owned.
       const node = await mkNode("agent", { json: [entry(H0, true), entry(H1, false)], at: freshAt() });
-      await nodeHarnesses.setEnabled(node.id, H0, true);
-      await nodeHarnesses.setEnabled(node.id, H1, true);
 
       expect(await harnessUsable(H0, node.id)).toBe(true);
-      expect(await harnessUsable(H1, node.id)).toBe(false); // explicit not-installed
-      expect(await harnessUsable(H2, node.id)).toBe(false); // no entry → unknown → not usable
+      expect(await harnessUsable(H1, node.id)).toBe(false); // declared, binary absent
+      expect(await harnessUsable(H2, node.id)).toBe(false); // not declared at all
 
-      // Disable overrides an installed+fresh report.
-      await nodeHarnesses.setEnabled(node.id, H0, false);
-      expect(await harnessUsable(H0, node.id)).toBe(false);
-      await nodeHarnesses.setEnabled(node.id, H0, true);
+      // Undeclaring it is what "disable" became: the node no longer says it
+      // has the plugin, so the gate refuses even a fresh installed report.
+      await nodes.recordPluginReport(node.id, []);
+      const undeclared = (await nodes.findById(node.id)) as NodeTable;
+      expect(await harnessUsable(H0, undeclared.id)).toBe(false);
+      await nodes.recordPluginReport(node.id, [
+        { id: H0, name: H0, type: "agent-harness", version: "1.0.0", description: "", capabilities: [] },
+      ]);
 
       // Aged snapshot: the gate flips to false even though the view still
       // reports installed=true — the two paths are deliberately separate.
@@ -213,9 +243,11 @@ describe("services/nodes/inventory", () => {
       expect(report.stale).toBe(true);
     });
 
-    it("agent gate: never-reported inventory is NOT usable (leniency is only on the enable WRITE)", async () => {
+    it("agent gate: a node that has never reported is NOT usable", async () => {
+      // Never-reported is not "offers everything" and not "offers nothing
+      // deliberately": it is a node that has not been asked, and launching
+      // there would be a guess.
       const node = await mkNode("agent");
-      await nodeHarnesses.setEnabled(node.id, H0, true);
       expect(await harnessUsable(H0, node.id)).toBe(false);
     });
 
@@ -230,11 +262,14 @@ describe("services/nodes/inventory", () => {
         json: [entry(H0, true), entry(H1, true), entry(H3, true)],
         at: freshAt(),
       });
-      await nodeHarnesses.setEnabled(node.id, H0, true);
-      await nodeHarnesses.setEnabled(node.id, H1, false); // disabled despite installed
-      await nodeHarnesses.setEnabled(node.id, H3, true); // enabled + installed
-      // H2: enabled by default, NO inventory entry → excluded (strict).
-      expect(await usableHarnessIds(node.id)).toEqual(new Set([H0, H3]));
+      // Declared: H0 and H3. H1's binary is installed but the node does not
+      // say it has the plugin, which is what "disabled" became.
+      await nodes.recordPluginReport(node.id, [
+        { id: H0, name: H0, type: "agent-harness", version: "1.0.0", description: "", capabilities: [] },
+        { id: H3, name: H3, type: "agent-harness", version: "1.0.0", description: "", capabilities: [] },
+      ]);
+      const declared = (await nodes.findById(node.id)) as NodeTable;
+      expect(await usableHarnessIds(declared.id)).toEqual(new Set([H0, H3]));
       expect(await usableHarnessIds(crypto.randomUUID())).toEqual(new Set());
     });
   });
