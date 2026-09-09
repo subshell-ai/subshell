@@ -78,21 +78,39 @@ The root `AGENTS.md` rule holds: no word may name two things.
 Keeping those apart is what stops `type` becoming the overloaded word the rule
 forbids: adding a type touches labels, adding a capability touches the pipeline.
 
-**"harness" becomes a plugin type and stops being a package.** See §14 for the
-open decision about `packages/harnesses`.
+**"harness" becomes a plugin type and stops being a package.** §14 carries the
+split that makes that true.
 
 ## 4. The plugin contract
 
 ### 4.1 Packages
 
-| path | npm name | published | holds |
-|---|---|---|---|
-| `packages/plugin-api/` | `@subshell-ai/plugin-api` | yes | types plus small pure helpers a plugin author bundles in at build time |
-| `packages/plugin-host/` | none (`@internal/plugin-host`) | no | the loader, the host object, the registry, detection. Used by the agent and by the server |
-| `packages/plugins/<id>/` | `@subshell-ai/plugin-<id>` | yes | the five built-ins, one package each |
+**Only one of these three holds plugins.** The other two are the host side of
+the boundary, and saying so plainly matters, because an earlier draft of this
+section listed all three under "what a plugin is" and read as though the
+loader were itself a plugin.
+
+| path | npm name | published | is it a plugin? | holds |
+|---|---|---|---|---|
+| `packages/plugins/<id>/` | `@subshell-ai/plugin-<id>` | yes | **yes** | the five built-ins, one package each |
+| `packages/plugin-api/` | `@subshell-ai/plugin-api` | yes | no | the contract a plugin author compiles against: types plus small pure helpers they bundle in at build time |
+| `packages/pane-runtime/` | none (`@internal/pane-runtime`) | no | no | everything a machine needs to actually run a pane: find the binary, load the plugin describing it, build the argv, spawn it under tmux |
 
 All three are Apache-2.0, outside `apps/server/**`. This is the "third parties
 can write harness plugins" rationale in the root `AGENTS.md` finally delivered.
+
+`pane-runtime` is `packages/harnesses` renamed, minus the five plugin classes,
+plus the loader (§14). **The loader is deliberately not its own package.** It
+has exactly the same two consumers as tmux control and binary detection (the
+server and the agent), it runs at the same moment in the same call path, and
+those three concerns change together. A separate `plugin-host` package would
+draw a boundary with nothing on the other side of it, and would put the word
+"plugin" on something that is not one.
+
+`pane` is the right word rather than `node` or `harness`: `node` already means
+a machine that runs agents, `harness` is about to mean a plugin type, and both
+would reintroduce the overload this rename exists to remove. `pane` is already
+used precisely here (`pane-stream.ts`, `pane-geometry.ts`, pane logs).
 
 ### 4.2 Identity lives in `package.json`
 
@@ -196,7 +214,7 @@ resume probe and hooks merge) is exactly what a manifest could not express.
   and the two that touch the filesystem are already bounded.
 
 `.claude/rules/code-style.md` gains a narrow, named exception: `await import()`
-is permitted in `plugin-host`'s loader and nowhere else. The rule's reasoning is
+is permitted in `pane-runtime`'s plugin loader and nowhere else. The rule's reasoning is
 inverted in place rather than deleted, because there the bundler's blindness is
 the mechanism and not the bug.
 
@@ -212,7 +230,7 @@ file exists on either side.
 | `local` | `<SUBSHELL_SERVER_DATA_DIR>/plugins/<id>/` |
 
 The control-plane host is a node like any other and loads plugins through the
-same `@internal/plugin-host`.
+same `@internal/pane-runtime`.
 
 **The node reports, the server mirrors.** The existing `inventory` event grows
 to carry, per plugin: id, type, name, version, capabilities, the settings
@@ -442,28 +460,38 @@ New paragraphs for `docs/security.md`:
   builds the launch command. That is the existing exposure of §"Nodes" restated
   for a new actor.
 
-## 14. Open decisions
+## 14. The `packages/harnesses` split (settled 2026-09-09)
 
-**`packages/harnesses` names two things.** Once `agent-harness` is a plugin
-type, a package holding `TmuxRunner`, `launch.ts` and `binary-lookup` cannot
-also be called "harnesses" without breaking the vocabulary rule. Proposal:
+Once `agent-harness` is a plugin type, a package holding `TmuxRunner`,
+`launch.ts` and `binary-lookup` cannot also be called "harnesses" without
+breaking the vocabulary rule. The package holds three unrelated concerns, and
+that is the reason it splits rather than merely being renamed:
 
-- host services (`binary-lookup`, `login-path`, `inventory`) move into
-  `plugin-host`;
-- pane machinery (`TmuxRunner`, `launch`, `curatedEnv`) becomes
-  `packages/pane-runtime`;
-- `packages/harnesses` ceases to exist.
+| concern | files | consumers | becomes |
+|---|---|---|---|
+| the five plugin implementations | `claude-code.ts`, `codex.ts`, `hermes.ts`, `opencode.ts`, `pi.ts`, `index.ts` | server, agent | `packages/plugins/<id>/` |
+| finding binaries | `binary-lookup.ts`, `login-path.ts`, `version-manager-paths.ts`, `version-probe.ts`, `bounded-exec.ts`, `inventory.ts` | server, agent | stays, in `pane-runtime` |
+| running a pane | `tmux-runner.ts`, `launch.ts`, `shell.ts` | server, agent; `validateWorkingDir` also web | stays, in `pane-runtime` |
 
-It is a large mechanical diff for a naming fix, so it is called out rather than
-folded silently into phase 1. The phases below assume it happens in phase 1,
-where the files are being moved anyway.
+Only the first row leaves. The other two have identical consumers, so they are
+one package: `packages/pane-runtime`, which is `packages/harnesses` renamed
+with the plugin classes removed and the loader added.
+
+An earlier draft split those two rows into `plugin-host` and `pane-runtime`.
+That was two names for one set of consumers, and worse, it put "plugin" on a
+package that holds none. Rejected.
+
+`packages/harnesses` ceases to exist. It is a large mechanical diff for what
+began as a naming fix, but it is the diff phase 1 is already making: the plugin
+classes move regardless, and renaming what is left costs one extra pass over
+the same import sites.
 
 ## 15. Phases
 
 | phase | what | user-visible |
 |---|---|---|
 | 0 | detection reasons, timestamps, one code path, bounded version probe | fixes the reported bug |
-| 1 | plugin contract, host, loader; the five built-ins move to `packages/plugins/*`; agent and server load through the host; the §14 rename | nothing |
+| 1 | plugin contract and loader; the five built-ins move to `packages/plugins/*`; `packages/harnesses` becomes `packages/pane-runtime` (§14); agent and server load through it | nothing |
 | 2 | node owns the declared set: plugins directory, reporting, protocol v6, `node_harnesses` dropped | the node page reflects the node |
 | 3 | npm install/uninstall/update, embedded built-ins, CLI verbs, the publishing pipeline | plugins become installable |
 | 4 | setup step 2, node Plugins card, node window card | the new UX |
