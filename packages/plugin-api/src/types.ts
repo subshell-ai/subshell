@@ -216,6 +216,15 @@ export interface SubshellPlugin {
 
   /** Maps a harness exit code to a human label (null = unknown). */
   exitStatus?(code: number): string | null;
+  /**
+   * Interprets the raw stdout of the version probe.
+   *
+   * Probing is the host's job (it owns the deadline); making sense of the
+   * output is the plugin's, because only the plugin knows its harness prints
+   * a banner rather than a bare semver. Omit it and the trimmed output is
+   * used as-is, which is right for every harness that prints just a version.
+   */
+  parseVersion?(raw: string): string | null;
   /** Overrides manifest-driven detection. Almost no plugin needs this. */
   detect?(): Promise<DetectionResult>;
   /** Restart-resume support. Declare the `resume` capability with it. */
@@ -252,3 +261,38 @@ export type PluginFactory = (host: PluginHost) => SubshellPlugin;
  * is what harnesses surface in wire tool ids (`mcp__<name>__<tool>`).
  */
 export const MCP_SERVER_NAME = "subshell";
+
+/**
+ * Checks that a plugin's declared capabilities match what it implements.
+ *
+ * `capabilities()` is what the host branches on, so a declaration that
+ * disagrees with the members present is a bug that surfaces late and
+ * confusingly: a plugin claiming `resume` without a `resume` object produces a
+ * restart that silently starts a fresh conversation instead of continuing one.
+ * A plugin implementing something it does not declare is the same problem
+ * inverted, and is how a capability quietly stops being read.
+ * @param plugin - the object a factory returned
+ * @returns one sentence per mismatch; empty when they agree
+ */
+export function capabilityMismatches(plugin: SubshellPlugin): string[] {
+  const declared = new Set(plugin.capabilities());
+  const problems: string[] = [];
+
+  /** `mcp` covers either dialect: a per-subshell file, or one-time manual steps. */
+  const implemented: Record<PluginCapability, boolean> = {
+    mcp: Boolean(plugin.mcpRegistration ?? plugin.mcpSetup),
+    resume: Boolean(plugin.resume),
+    attention: plugin.supportsAttentionHooks === true,
+    settings: Boolean(plugin.profileSettings),
+  };
+
+  for (const capability of PLUGIN_CAPABILITIES) {
+    if (declared.has(capability) && !implemented[capability]) {
+      problems.push(`declares the "${capability}" capability but implements none of its members`);
+    }
+    if (!declared.has(capability) && implemented[capability]) {
+      problems.push(`implements "${capability}" members but does not declare the capability`);
+    }
+  }
+  return problems;
+}

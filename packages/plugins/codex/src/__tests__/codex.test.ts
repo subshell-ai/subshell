@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { CodexPlugin } from "../codex.js";
-import type { McpLaunchSpec, ProfileDefinition } from "../types.js";
+import type { McpLaunchSpec, ProfileDefinition } from "@subshell-ai/plugin-api";
+import { createTestHost } from "@subshell-ai/plugin-api/testing";
+import createPlugin, { manifest } from "../index.js";
 
-const plugin = new CodexPlugin();
+const plugin = createPlugin(createTestHost());
 
 function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
@@ -13,11 +14,13 @@ const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/subshel
 
 describe("CodexPlugin", () => {
   it("has stable metadata", () => {
-    expect(plugin.id).toBe("codex");
-    expect(plugin.name).toBe("Codex");
-    expect(plugin.binaryName).toBe("codex");
-    expect(plugin.ttyRequired).toBe(true);
-    expect(plugin.enabledByDefault).toBe(true);
+    // Identity moved to package.json so the host can list and detect this
+    // plugin without importing or running a line of it.
+    expect(manifest.id).toBe("codex");
+    expect(manifest.name).toBe("Codex");
+    expect(manifest.type).toBe("agent-harness");
+    expect(manifest.detect?.binaryName).toBe("codex");
+    expect(manifest.detect?.envOverride).toBe("CODEX_PATH");
   });
 
   it("buildCommand: bare launch with no profile extra", () => {
@@ -150,24 +153,12 @@ describe("CodexPlugin", () => {
   });
 
   it("reports auto setup", () => {
-    expect(plugin.mcpSetup(launch).mode).toBe("auto");
+    expect(plugin.mcpSetup?.(launch).mode).toBe("auto");
   });
 
   it("validateProfile: delegates to the generic checks", () => {
     expect(plugin.validateProfile(profile({ name: " " })).valid).toBe(false);
     expect(plugin.validateProfile(profile({ flags: ["pure"] })).valid).toBe(false);
     expect(plugin.validateProfile(profile()).valid).toBe(true);
-  });
-
-  it("finds a binary via explicit override", async () => {
-    const withOverride = new CodexPlugin(process.execPath);
-    expect(await withOverride.isInstalled()).toBe(true);
-    expect(await withOverride.getVersion()).not.toBeNull();
-  });
-
-  it("returns null version for a missing binary override", async () => {
-    const missing = new CodexPlugin("/definitely/not/here");
-    expect(await missing.isInstalled()).toBe(false);
-    expect(await missing.getVersion()).toBeNull();
   });
 });

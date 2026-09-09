@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { ALL_HARNESSES } from "@internal/pane-runtime";
+import { allHarnesses } from "@internal/pane-runtime";
 import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
@@ -69,7 +69,7 @@ describe("services/nodes/inventory", () => {
 
       const report = await effectiveHarnessStates(node);
       expect(report.stale).toBe(false);
-      expect(report.harnesses.length).toBe(ALL_HARNESSES.length);
+      expect(report.harnesses.length).toBe(allHarnesses().length);
 
       const e0 = report.harnesses.find((h) => h.harnessId === H0);
       expect(e0).toMatchObject({ enabled: false, installed: true, version: "9.9.9" });
@@ -113,7 +113,7 @@ describe("services/nodes/inventory", () => {
       // The local branch probes through `scanOne`, so `detect` is what has to
       // be stubbed. It used to stub `isInstalled`, which `scanOne` no longer
       // calls at all — a stub on it would silently probe the real machine.
-      const stubs = ALL_HARNESSES.map((h) => ({
+      const stubs = allHarnesses().map((h) => ({
         h,
         detect: h.detect.bind(h),
         getVersion: h.getVersion.bind(h),
@@ -180,7 +180,7 @@ describe("services/nodes/inventory", () => {
 
   describe("harnessUsable / usableHarnessIds with a nodeId", () => {
     it("zero-arg and explicit 'local' agree, verbatim", async () => {
-      for (const h of ALL_HARNESSES) {
+      for (const h of allHarnesses()) {
         expect(await harnessUsable(h.id, "local")).toBe(await harnessUsable(h.id));
       }
       expect(await usableHarnessIds("local")).toEqual(await usableHarnessIds());

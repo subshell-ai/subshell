@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { ALL_HARNESSES } from "../index.js";
+import { allHarnesses } from "../index.js";
 
 /**
  * The contract `scanOne` depends on: every plugin can say why, and its two
  * views of the same lookup cannot disagree.
  */
 describe("every plugin implements detect()", () => {
-  for (const plugin of ALL_HARNESSES) {
+  for (const plugin of allHarnesses()) {
     it(`${plugin.id} agrees with its own findBinary()`, async () => {
       const result = await plugin.detect();
       expect(result.path).toBe(await plugin.findBinary());

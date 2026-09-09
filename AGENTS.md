@@ -74,6 +74,12 @@ subshell/
 │   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
 │   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits, shared-pane sizing
 │   ├── plugin-api/                 # @subshell-ai/plugin-api — the contract a plugin implements (published)
+│   ├── plugins/                    # the built-in plugins (grouping dir, not a package)
+│   │   ├── claude-code/            # @subshell-ai/plugin-claude-code (published)
+│   │   ├── codex/                  # @subshell-ai/plugin-codex (published)
+│   │   ├── hermes/                 # @subshell-ai/plugin-hermes (published)
+│   │   ├── opencode/               # @subshell-ai/plugin-opencode (published)
+│   │   └── pi/                     # @subshell-ai/plugin-pi (published)
 │   ├── pane-runtime/               # Running a pane here: binary detection, plugin loading, argv, TmuxRunner
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── e2e/                            # Playwright suite — its own backend on :3199, real tmux (see e2e/AGENTS.md)

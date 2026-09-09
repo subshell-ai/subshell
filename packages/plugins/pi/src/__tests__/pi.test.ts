@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { PiPlugin } from "../pi.js";
-import type { ProfileDefinition } from "../types.js";
+import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import { createTestHost } from "@subshell-ai/plugin-api/testing";
+import createPlugin, { manifest } from "../index.js";
 
-const plugin = new PiPlugin();
+const plugin = createPlugin(createTestHost());
 
 function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
@@ -10,10 +11,13 @@ function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition 
 
 describe("PiPlugin", () => {
   it("has stable metadata", () => {
-    expect(plugin.id).toBe("pi");
-    expect(plugin.name).toBe("pi");
-    expect(plugin.ttyRequired).toBe(true);
-    expect(plugin.enabledByDefault).toBe(true);
+    // Identity moved to package.json so the host can list and detect this
+    // plugin without importing or running a line of it.
+    expect(manifest.id).toBe("pi");
+    expect(manifest.name).toBe("pi");
+    expect(manifest.type).toBe("agent-harness");
+    expect(manifest.detect?.binaryName).toBe("pi");
+    expect(manifest.detect?.envOverride).toBe("PI_PATH");
   });
 
   it("buildCommand: maps settings and forwards the subshell name", () => {
@@ -60,11 +64,5 @@ describe("PiPlugin", () => {
   it("validateProfile: delegates to the generic checks", () => {
     expect(plugin.validateProfile(profile({ env: { X: 1 as unknown as string } })).valid).toBe(false);
     expect(plugin.validateProfile(profile()).valid).toBe(true);
-  });
-
-  it("returns null version for a missing binary override", async () => {
-    const missing = new PiPlugin("/definitely/not/here");
-    expect(await missing.isInstalled()).toBe(false);
-    expect(await missing.getVersion()).toBeNull();
   });
 });

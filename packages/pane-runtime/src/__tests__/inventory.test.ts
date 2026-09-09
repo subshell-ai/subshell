@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { HarnessPlugin } from "../index.js";
-import { ALL_HARNESSES } from "../index.js";
+import { allHarnesses } from "../index.js";
 import { scanHarnesses, scanOne } from "../inventory.js";
 
 /**
@@ -36,7 +36,11 @@ const AT_ISO = "2026-09-09T12:00:00.000Z";
 describe("scanHarnesses", () => {
   it("returns one entry per built-in harness with consistent optionals", async () => {
     const entries = await scanHarnesses();
-    expect(entries.map((e) => e.harnessId).sort()).toEqual(ALL_HARNESSES.map((h) => h.id).sort());
+    expect(entries.map((e) => e.harnessId).sort()).toEqual(
+      allHarnesses()
+        .map((h) => h.id)
+        .sort(),
+    );
     for (const e of entries) {
       expect(typeof e.installed).toBe("boolean");
       if (!e.installed) {

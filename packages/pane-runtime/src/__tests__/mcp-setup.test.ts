@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { CodexPlugin } from "../codex.js";
-import { HermesPlugin } from "../hermes.js";
 import { getHarness } from "../index.js";
-import { OpencodePlugin } from "../opencode.js";
-import { PiPlugin } from "../pi.js";
 import type { McpLaunchSpec } from "../types.js";
 
 /**
@@ -33,7 +29,7 @@ describe("ClaudeCodePlugin MCP registration", () => {
 
 describe("OpencodePlugin MCP registration", () => {
   it("renders the opencode mcp dialect and points OPENCODE_CONFIG at the file", () => {
-    const reg = new OpencodePlugin().mcpRegistration?.(bunLaunch, "/data/sess.json");
+    const reg = getHarness("opencode")!.mcpRegistration?.(bunLaunch, "/data/sess.json");
     expect(reg?.env).toEqual({ OPENCODE_CONFIG: "/data/sess.json" });
     const doc = JSON.parse(reg?.fileContent ?? "{}") as {
       mcp: { subshell: { type: string; command: string[]; enabled: boolean } };
@@ -47,17 +43,17 @@ describe("OpencodePlugin MCP registration", () => {
     });
   });
   it("carries no secrets in the generated file", () => {
-    const reg = new OpencodePlugin().mcpRegistration?.(launch, "/x.json");
+    const reg = getHarness("opencode")!.mcpRegistration?.(launch, "/x.json");
     expect(reg?.fileContent).not.toMatch(/KEY|TOKEN/);
   });
   it("reports auto setup", () => {
-    expect(new OpencodePlugin().mcpSetup(launch).mode).toBe("auto");
+    expect(getHarness("opencode")!.mcpSetup(launch).mode).toBe("auto");
   });
 });
 
 describe("CodexPlugin MCP registration", () => {
   it("renders per-invocation -c config overrides (TOML values) and no wiring env", () => {
-    const reg = new CodexPlugin().mcpRegistration?.(bunLaunch, "/data/sess.json");
+    const reg = getHarness("codex")!.mcpRegistration?.(bunLaunch, "/data/sess.json");
     // The -c argv IS the wiring: codex reads ~/.codex/config.toml under
     // CODEX_HOME (the user's auth.json lives there), and subshell never touches
     // it — so no env is returned and the user's own servers are untouched.
@@ -74,17 +70,17 @@ describe("CodexPlugin MCP registration", () => {
     expect(reg?.fileContent).toContain('command = "/usr/bin/bun"');
   });
   it("carries no secrets in the generated file", () => {
-    const reg = new CodexPlugin().mcpRegistration?.(launch, "/x.json");
+    const reg = getHarness("codex")!.mcpRegistration?.(launch, "/x.json");
     expect(reg?.fileContent).not.toMatch(/KEY|TOKEN/);
   });
   it("reports auto setup", () => {
-    expect(new CodexPlugin().mcpSetup(launch).mode).toBe("auto");
+    expect(getHarness("codex")!.mcpSetup(launch).mode).toBe("auto");
   });
 });
 
 describe("HermesPlugin manual MCP setup", () => {
   it("emits a non-interactive hermes mcp add command with --args last", () => {
-    const info = new HermesPlugin().mcpSetup(bunLaunch);
+    const info = getHarness("hermes")!.mcpSetup(bunLaunch);
     if (info.mode !== "manual") throw new Error("hermes must be manual");
     expect(info.steps[0].command).toBe(
       "hermes mcp add subshell --command '/usr/bin/bun' --args '/opt/subshell/dist/mcp/main.js'",
@@ -92,7 +88,7 @@ describe("HermesPlugin manual MCP setup", () => {
     expect(info.steps[1].command).toBe("hermes mcp remove subshell");
   });
   it("omits --args entirely for an arg-less launch", () => {
-    const info = new HermesPlugin().mcpSetup(launch);
+    const info = getHarness("hermes")!.mcpSetup(launch);
     if (info.mode !== "manual") throw new Error("hermes must be manual");
     expect(info.steps[0].command).toBe("hermes mcp add subshell --command '/opt/subshell/subshell-mcp'");
     expect(info.steps[0].command).not.toContain("--args");
@@ -101,7 +97,7 @@ describe("HermesPlugin manual MCP setup", () => {
 
 describe("PiPlugin manual MCP setup", () => {
   it("emits the adapter install + the mcpServers snippet the adapter reads", () => {
-    const info = new PiPlugin().mcpSetup(bunLaunch);
+    const info = getHarness("pi")!.mcpSetup(bunLaunch);
     if (info.mode !== "manual") throw new Error("pi must be manual");
     expect(info.steps[0].command).toBe("pi install npm:pi-mcp-adapter");
     const snippet = JSON.parse(info.steps[1].command) as { mcpServers: Record<string, unknown> };

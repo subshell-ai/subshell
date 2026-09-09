@@ -1,4 +1,4 @@
-import { ALL_HARNESSES } from "@internal/pane-runtime";
+import { allHarnesses } from "@internal/pane-runtime";
 import { sql } from "kysely";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db as appDb } from "@/db/index.js";
@@ -48,9 +48,11 @@ export const DEFAULT_PROFILE_NAME = "Default";
  * rule `harness-utils` uses, so a seeded harness and a listed harness agree).
  */
 async function enabledHarnessIds(db: Db): Promise<string[]> {
-  const ids = ALL_HARNESSES.map((h) => h.id);
+  const ids = allHarnesses().map((h) => h.id);
   const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
-  return ALL_HARNESSES.filter((h) => states.get(h.id) ?? h.enabledByDefault).map((h) => h.id);
+  return allHarnesses()
+    .filter((h) => states.get(h.id) ?? h.enabledByDefault)
+    .map((h) => h.id);
 }
 
 /**

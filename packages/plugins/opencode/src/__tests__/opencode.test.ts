@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { OpencodePlugin } from "../opencode.js";
-import type { ProfileDefinition } from "../types.js";
+import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import { createTestHost } from "@subshell-ai/plugin-api/testing";
+import createPlugin, { manifest } from "../index.js";
 
-const plugin = new OpencodePlugin();
+const plugin = createPlugin(createTestHost());
 
 function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
@@ -10,10 +11,13 @@ function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition 
 
 describe("OpencodePlugin", () => {
   it("has stable metadata", () => {
-    expect(plugin.id).toBe("opencode");
-    expect(plugin.name).toBe("OpenCode");
-    expect(plugin.ttyRequired).toBe(true);
-    expect(plugin.enabledByDefault).toBe(true);
+    // Identity moved to package.json so the host can list and detect this
+    // plugin without importing or running a line of it.
+    expect(manifest.id).toBe("opencode");
+    expect(manifest.name).toBe("OpenCode");
+    expect(manifest.type).toBe("agent-harness");
+    expect(manifest.detect?.binaryName).toBe("opencode");
+    expect(manifest.detect?.envOverride).toBe("OPENCODE_PATH");
   });
 
   it("buildCommand: bare launch with no profile extra", () => {
@@ -69,17 +73,5 @@ describe("OpencodePlugin", () => {
     expect(plugin.validateProfile(profile({ name: " " })).valid).toBe(false);
     expect(plugin.validateProfile(profile({ flags: ["pure"] })).valid).toBe(false);
     expect(plugin.validateProfile(profile()).valid).toBe(true);
-  });
-
-  it("finds a binary via explicit override", async () => {
-    const withOverride = new OpencodePlugin(process.execPath);
-    expect(await withOverride.isInstalled()).toBe(true);
-    expect(await withOverride.getVersion()).not.toBeNull();
-  });
-
-  it("returns null version for a missing binary override", async () => {
-    const missing = new OpencodePlugin("/definitely/not/here");
-    expect(await missing.isInstalled()).toBe(false);
-    expect(await missing.getVersion()).toBeNull();
   });
 });

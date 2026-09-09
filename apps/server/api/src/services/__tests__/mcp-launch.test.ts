@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { unlinkSync } from "node:fs";
-import { getHarness, HermesPlugin } from "@internal/pane-runtime";
+import { getHarness } from "@internal/pane-runtime";
 import { registerSubshellMcp, subshellMcpConfigPath } from "@/services/mcp-launch.js";
 
 /**
@@ -21,6 +21,6 @@ describe("registerSubshellMcp", () => {
   it("manual harness: returns undefined and writes nothing to register", () => {
     // hermes has no mcpRegistration — the subshell launch carries no MCP wiring
     // beyond SUBSHELL_* (asserted end-to-end in subshell-manager-mcp.test.ts).
-    expect(registerSubshellMcp(new HermesPlugin(), "launch-test-hermes")).toBeUndefined();
+    expect(registerSubshellMcp(getHarness("hermes")!, "launch-test-hermes")).toBeUndefined();
   });
 });

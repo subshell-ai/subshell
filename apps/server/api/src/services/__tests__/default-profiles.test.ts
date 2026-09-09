@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { ALL_HARNESSES } from "@internal/pane-runtime";
+import { allHarnesses } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
@@ -27,14 +27,16 @@ const profiles = new ProfilesRepository(db);
 
 // Registry-order harness used for the disable/enable cases; the registry is a
 // static compile-time list, so destructuring can only fail if it were empty.
-const [firstHarness] = ALL_HARNESSES;
+const [firstHarness] = allHarnesses();
 if (!firstHarness) throw new Error("harness registry must not be empty");
 
 /** The harness ids currently enabled — the exact set a seed should cover. */
 async function enabledIds(): Promise<string[]> {
-  const ids = ALL_HARNESSES.map((h) => h.id);
+  const ids = allHarnesses().map((h) => h.id);
   const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
-  return ALL_HARNESSES.filter((h) => states.get(h.id) ?? h.enabledByDefault).map((h) => h.id);
+  return allHarnesses()
+    .filter((h) => states.get(h.id) ?? h.enabledByDefault)
+    .map((h) => h.id);
 }
 
 /** A fresh user with no profiles, distinct email per call. */
@@ -190,5 +192,5 @@ describe("system user exclusion", () => {
 /** The effective enabled state (row override, else the plugin's own default). */
 async function effectiveEnabled(harnessId: string): Promise<boolean> {
   const states = await new HarnessPluginsRepository(db).getEnabledStates([harnessId]);
-  return states.get(harnessId) ?? ALL_HARNESSES.find((h) => h.id === harnessId)?.enabledByDefault ?? true;
+  return states.get(harnessId) ?? allHarnesses().find((h) => h.id === harnessId)?.enabledByDefault ?? true;
 }

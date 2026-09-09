@@ -171,8 +171,7 @@ function projectSlug(cwd: string): string {
  *   claude --settings <json> --name <subshell> [profile flags] [extra flags]
  * Settings are passed as a JSON string via `--settings` (per-invocation, so
  * profile config never needs to write into the user's real ~/.claude).
- */
-/**
+ *
  * Identity, detection and install guidance live in this package's
  * package.json `subshell` block, NOT here: the host reads them without
  * importing or executing a line of this file, which is what lets it list a

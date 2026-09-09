@@ -1,17 +1,18 @@
-import { validateGenericProfile } from "@subshell-ai/plugin-api";
-import { type DetectionResult, detectBinary } from "./binary-lookup.js";
-import type {
-  BuildCommandInput,
-  HarnessPlugin,
-  McpLaunchSpec,
-  McpRegistration,
-  McpSetupInfo,
-  ProfileDefinition,
-  ProfileValidationResult,
-  SettingsField,
-} from "./types.js";
-import { MCP_SERVER_NAME } from "./types.js";
-import { probeVersion } from "./version-probe.js";
+import {
+  type BuildCommandInput,
+  MCP_SERVER_NAME,
+  type McpLaunchSpec,
+  type McpRegistration,
+  type McpSetupInfo,
+  type PluginCapability,
+  type PluginFactory,
+  type PluginHost,
+  type ProfileDefinition,
+  type ProfileValidationResult,
+  type SettingsField,
+  type SubshellPlugin,
+  validateGenericProfile,
+} from "@subshell-ai/plugin-api";
 
 /** Known Codex settings, applied as per-invocation CLI flags. */
 const CODEX_SETTINGS_FIELDS: SettingsField[] = [
@@ -55,10 +56,6 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   },
 ];
 
-// HOME-relative fallbacks (findBinary joins these to $HOME — absolute paths
-// would NOT reset the join, so brew/npm-global system dirs come via PATH).
-const PLUGIN_KNOWN_PATHS = [".local/bin/codex", ".npm-global/bin/codex", ".bun/bin/codex"];
-
 /** A TOML basic string from an ASCII-safe JS string. */
 function tomlString(value: string): string {
   // JSON.stringify emits exactly TOML's basic-string syntax for these shapes
@@ -96,51 +93,15 @@ function tomlStringArray(values: string[]): string {
  * the subshell's baked SUBSHELL_* pane env for its credential, like every
  * harness.
  * (Flags/values verified against @openai/codex 2026-09 help output.)
+ *
+ * Identity, detection and install guidance live in this package's
+ * package.json `subshell` block, NOT here: the host reads them without
+ * importing or executing a line of this file.
+ *
+ * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-export class CodexPlugin implements HarnessPlugin {
-  readonly id = "codex";
-  readonly name = "Codex";
-  readonly binaryName = "codex";
-  readonly description = "OpenAI's agentic coding CLI (interactive TUI)";
-  readonly icon = "📖";
-  readonly ttyRequired = true;
-  readonly enabledByDefault = true;
-  readonly installHint = {
-    // Official standalone installer (also `npm install -g @openai/codex`).
-    command: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-    docsUrl: "https://learn.chatgpt.com/docs/codex/cli",
-  };
-
-  /** Binary override; injectable for tests. */
-  readonly #binaryOverride: string | null;
-
-  constructor(binaryOverride: string | null = null) {
-    this.#binaryOverride = binaryOverride;
-  }
-
-  async detect(): Promise<DetectionResult> {
-    if (this.#binaryOverride) {
-      // An injected override that does not exist is the same class of mistake
-      // as a bad CODEX_PATH: the caller said where it is and was wrong.
-      return (await Bun.file(this.#binaryOverride).exists())
-        ? { path: this.#binaryOverride }
-        : { path: null, reason: "override-invalid" };
-    }
-    return detectBinary(this.binaryName, "CODEX_PATH", PLUGIN_KNOWN_PATHS);
-  }
-
-  async findBinary(): Promise<string | null> {
-    return (await this.detect()).path;
-  }
-
-  async isInstalled(): Promise<boolean> {
-    return (await this.detect()).path !== null;
-  }
-
-  async getVersion(): Promise<string | null> {
-    const binary = await this.findBinary();
-    return binary ? await probeVersion(binary) : null;
-  }
+const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
+  capabilities: (): PluginCapability[] => ["mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, profile, extraFlags, mcp } = input;
@@ -161,13 +122,13 @@ export class CodexPlugin implements HarnessPlugin {
 
     if (extraFlags) args.push(...extraFlags);
     return args;
-  }
+  },
 
   /**
    * Codex config fragment registering subshell as a stdio MCP server — the
    * exact `[mcp_servers.subshell]` block `~/.codex/config.toml` expects. The
    * block is NOT what activates the server on subshell launches: `buildCommand`
-   * splices live `-c` overrides instead (see the class doc), so this file is a
+   * splices live `-c` overrides instead (see the module doc), so this file is a
    * manual-setup reference a user may append to their own config.
    */
   mcpRegistration(launch: McpLaunchSpec, _configPath: string): McpRegistration {
@@ -198,7 +159,7 @@ export class CodexPlugin implements HarnessPlugin {
       // the backend bakes into the pane regardless of this registration.
       env: undefined,
     };
-  }
+  },
 
   /** Auto: `buildCommand` wires `-c mcp_servers.subshell.*` into every subshell. */
   mcpSetup(_launch: McpLaunchSpec): McpSetupInfo {
@@ -207,21 +168,24 @@ export class CodexPlugin implements HarnessPlugin {
       summary:
         "Subshell registers itself with every Codex subshell automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified).",
     };
-  }
+  },
 
   validateProfile(profile: ProfileDefinition): ProfileValidationResult {
     return validateGenericProfile(profile);
-  }
+  },
 
-  settingsFields(): SettingsField[] {
+  profileSettings(): SettingsField[] {
     return CODEX_SETTINGS_FIELDS;
-  }
+  },
 
   suggestedEnv(): { key: string; description: string }[] {
     return SUGGESTED_ENV;
-  }
+  },
 
   suggestedFlags(): { flag: string; description: string }[] {
     return SUGGESTED_FLAGS;
-  }
-}
+  },
+});
+
+export default createPlugin;
+export { manifest } from "./manifest.js";

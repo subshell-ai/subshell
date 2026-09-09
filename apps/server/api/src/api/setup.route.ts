@@ -1,4 +1,4 @@
-import { ALL_HARNESSES } from "@internal/pane-runtime";
+import { allHarnesses } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { ForbiddenError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
 import { harnessInfo, toggleLocalHarness } from "@/api/harness-utils.js";
@@ -19,7 +19,7 @@ const EnableBodySchema = t.Object({
 
 async function enabledStatesById(): Promise<Map<string, boolean>> {
   const repo = new HarnessPluginsRepository(db);
-  return await repo.getEnabledStates(ALL_HARNESSES.map((h) => h.id));
+  return await repo.getEnabledStates(allHarnesses().map((h) => h.id));
 }
 
 /** Counts `user_meta` rows — the instance's "a user exists" truth. */
@@ -129,7 +129,7 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
       await requireHarnessAccess(request, false);
       const states = await enabledStatesById();
       return await Promise.all(
-        ALL_HARNESSES.map(async (h) => await harnessInfo(h.id, states.get(h.id) ?? h.enabledByDefault)),
+        allHarnesses().map(async (h) => await harnessInfo(h.id, states.get(h.id) ?? h.enabledByDefault)),
       );
     },
     {

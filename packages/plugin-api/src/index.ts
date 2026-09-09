@@ -8,6 +8,7 @@ export {
 } from "./manifest.js";
 export {
   type BuildCommandInput,
+  capabilityMismatches,
   type DetectionReason,
   type DetectionResult,
   type HarnessResume,

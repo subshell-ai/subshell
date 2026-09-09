@@ -1,4 +1,4 @@
-import { ALL_HARNESSES, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
+import { allHarnesses, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
 import { db } from "@/db/index.js";
 import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodeHarnessesRepository } from "@/db/repositories/node-harnesses.repository.js";
@@ -107,7 +107,7 @@ export function readAgentInventory(node: NodeTable, now: number = Date.now()): A
  * @param node - the node row to resolve for
  */
 export async function effectiveHarnessStates(node: NodeTable): Promise<EffectiveHarnessReport> {
-  const ids = ALL_HARNESSES.map((h) => h.id);
+  const ids = allHarnesses().map((h) => h.id);
 
   if (node.kind === "local") {
     const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
@@ -117,7 +117,7 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
     // what an entry means.
     const now = new Date();
     const harnesses = await Promise.all(
-      ALL_HARNESSES.map(async (h) => {
+      allHarnesses().map(async (h) => {
         const entry = await scanOne(h, now);
         const state: EffectiveHarnessState = {
           harnessId: h.id,
@@ -135,7 +135,7 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
 
   const states = await new NodeHarnessesRepository(db).enabledStates(node.id);
   const inv = readAgentInventory(node);
-  const harnesses = ALL_HARNESSES.map((h) => {
+  const harnesses = allHarnesses().map((h) => {
     const entry = inv.entries.get(h.id);
     const state: EffectiveHarnessState = {
       harnessId: h.id,

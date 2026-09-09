@@ -56,6 +56,7 @@ const MANIFEST_GLOBS = [
   "package.json",
   "apps/*/*/package.json",
   "packages/*/package.json",
+  "packages/plugins/*/package.json",
   "e2e/package.json",
   "crates/*/Cargo.toml",
   "apps/*/*/src-tauri/Cargo.toml",
@@ -205,7 +206,12 @@ interface Workspace {
 /** Reads every workspace package.json into a name→metadata record. */
 function collectWorkspaces(): Workspace[] {
   const workspaces: Workspace[] = [];
-  for (const pattern of ["apps/*/*/package.json", "packages/*/package.json", "e2e/package.json"]) {
+  for (const pattern of [
+    "apps/*/*/package.json",
+    "packages/*/package.json",
+    "packages/plugins/*/package.json",
+    "e2e/package.json",
+  ]) {
     for (const match of new Glob(pattern).scanSync({ cwd: REPO_ROOT, absolute: false })) {
       const path = match.replaceAll("\\", "/");
       const parsed = JSON.parse(readFileSync(resolve(REPO_ROOT, path), "utf8")) as {

@@ -1,5 +1,13 @@
+/**
+ * The pre-extraction opencode plugin, frozen as a REFERENCE.
+ *
+ * `plugin-parity.test.ts` compares the extracted package against this to prove
+ * the move changed nothing that gets executed. Deleted with that test once the
+ * extraction has been reviewed and shipped; nothing else may import it.
+ * @internal
+ */
 import { validateGenericProfile } from "@subshell-ai/plugin-api";
-import { type DetectionResult, detectBinary } from "./binary-lookup.js";
+import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
   HarnessPlugin,
@@ -9,9 +17,9 @@ import type {
   ProfileDefinition,
   ProfileValidationResult,
   SettingsField,
-} from "./types.js";
-import { MCP_SERVER_NAME } from "./types.js";
-import { probeVersion } from "./version-probe.js";
+} from "../../types.js";
+import { MCP_SERVER_NAME } from "../../types.js";
+import { probeVersion } from "../../version-probe.js";
 
 /** Known opencode settings, applied as per-invocation CLI flags. */
 const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [

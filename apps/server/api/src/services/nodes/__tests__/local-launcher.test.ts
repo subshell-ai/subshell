@@ -166,7 +166,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
   const scripted = new ScriptedTmux();
   const launcher2 = new LocalLauncher({ tmux: scripted });
   const pi = getHarness("pi");
-  if (!pi) throw new Error("pi harness plugin missing from ALL_HARNESSES");
+  if (!pi) throw new Error("pi harness plugin missing from allHarnesses()");
   const plan = (bestEffortLog: boolean): LaunchPlan => ({
     id: `launch-besteffort-${process.pid}`,
     socket: tmuxSocketFor(`launch-besteffort-${process.pid}`),

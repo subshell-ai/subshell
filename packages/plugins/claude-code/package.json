@@ -22,11 +22,9 @@
     "test": "bun test",
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@subshell-ai/plugin-api": "workspace:*"
-  },
   "devDependencies": {
     "@internal/tsconfig": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
     "@types/bun": "1.3.14",
     "hash-runner": "4.0.0",
     "tsdown": "0.22.14",
@@ -44,7 +42,7 @@
     "type": "agent-harness",
     "name": "Claude Code",
     "description": "Anthropic's agentic coding assistant (interactive CLI)",
-    "icon": "🤖",
+    "icon": "\ud83e\udd16",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "claude",

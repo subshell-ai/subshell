@@ -53,8 +53,11 @@ describe("PluginRuntime", () => {
   });
 
   it("refuses an entry that resolves outside the package directory", async () => {
-    // The manifest check catches the literal `..`; this is the belt to that
-    // braces, in case a symlink or a clever spelling gets past it.
+    // The manifest check catches the literal `..`; this re-checks the value
+    // actually imported. It does NOT defeat a symlink: `resolve` is textual,
+    // so a `dist` symlinked outside the package still resolves inside it.
+    // Nothing here is a sandbox (see the loader's module doc); this stops a
+    // mistake, not an attacker who already controls the plugin directory.
     const result = await runtime().load(join(FIXTURES, "good"), { entryOverrideForTests: "../throws/index.js" });
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;

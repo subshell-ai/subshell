@@ -2,7 +2,7 @@ import { unlinkSync } from "node:fs";
 import { hostname } from "node:os";
 import { stripAnsi } from "@internal/backend-errors";
 import {
-  ALL_HARNESSES,
+  allHarnesses,
   getHarness,
   type HarnessPlugin,
   type McpRegistration,
@@ -1287,7 +1287,7 @@ export class SubshellManagerService {
 
   /** Whether any harness is installed at all (setup wizard uses this). */
   async anyHarnessInstalled(): Promise<boolean> {
-    for (const h of ALL_HARNESSES) {
+    for (const h of allHarnesses()) {
       if (await h.isInstalled()) return true;
     }
     return false;

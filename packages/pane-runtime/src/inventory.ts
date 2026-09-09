@@ -1,5 +1,5 @@
 import type { DetectionReason } from "./binary-lookup.js";
-import { ALL_HARNESSES, type HarnessPlugin } from "./index.js";
+import { allHarnesses, type HarnessPlugin } from "./index.js";
 
 /** One row of a node's harness inventory (spec 2026-08-31 §3.3, extended 2026-09-09 §7). */
 export interface HarnessInventoryEntry {
@@ -64,5 +64,5 @@ export async function scanOne(h: HarnessPlugin, now: Date = new Date()): Promise
 export async function scanHarnesses(now: Date = new Date()): Promise<HarnessInventoryEntry[]> {
   // One stamp for the batch: the entries were probed together and a reader
   // comparing them should not see them drift by milliseconds.
-  return Promise.all(ALL_HARNESSES.map((h) => scanOne(h, now)));
+  return Promise.all(allHarnesses().map((h) => scanOne(h, now)));
 }

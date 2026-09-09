@@ -1,8 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import type { BuildCommandInput, ProfileDefinition, SubshellPlugin } from "@subshell-ai/plugin-api";
+import type { BuildCommandInput, PluginCapability, ProfileDefinition, SubshellPlugin } from "@subshell-ai/plugin-api";
 import { createInProcessRuntime } from "../plugin-runtime.js";
+import type { HarnessPlugin } from "../types.js";
 import { ClaudeCodePlugin } from "./fixtures/claude-code-legacy.js";
+import { CodexPlugin } from "./fixtures/codex-legacy.js";
+import { HermesPlugin } from "./fixtures/hermes-legacy.js";
+import { OpencodePlugin } from "./fixtures/opencode-legacy.js";
+import { PiPlugin } from "./fixtures/pi-legacy.js";
 
 /**
  * The extraction must not change what gets executed.
@@ -128,3 +133,90 @@ describe("claude-code parity", () => {
     expect(loaded.supportsAttentionHooks).toBe(true);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* The other four. Same proof, less logic to compare.                  */
+/* ------------------------------------------------------------------ */
+
+/** Cases every one of the four is checked against. */
+const SHARED_CASES: { name: string; input: BuildCommandInput }[] = [
+  { name: "bare", input: input({ binary: "/bin/tool" }) },
+  { name: "named subshell", input: input({ binary: "/bin/tool", subshellName: "review" }) },
+  {
+    name: "mcp args",
+    input: input({ binary: "/bin/tool", mcp: { fileContent: "{}", args: ["-c", "x=1"] } }),
+  },
+  {
+    name: "settings drive flags",
+    input: input({
+      binary: "/bin/tool",
+      profile: {
+        ...BLANK,
+        settings: {
+          model: "m",
+          agent: "a",
+          auto: true,
+          provider: "p",
+          toolsets: "t",
+          sandbox: "s",
+          askForApproval: "never",
+          thinking: "high",
+        },
+      },
+    }),
+  },
+  {
+    name: "profile flags are whole tokens",
+    input: input({ binary: "/bin/tool", profile: { ...BLANK, flags: ["--append", "two words"] } }),
+  },
+  { name: "extra flags come last", input: input({ binary: "/bin/tool", extraFlags: ["--verbose"] }) },
+];
+
+/**
+ * `legacy` is typed as the INTERFACE rather than inferred, because `as const`
+ * over the four classes widens it to a union and optional chaining cannot
+ * narrow a property that some members simply do not declare (hermes and pi
+ * have no `mcpRegistration`).
+ */
+const OTHERS: { id: string; legacy: () => HarnessPlugin; caps: PluginCapability[] }[] = [
+  { id: "opencode", legacy: () => new OpencodePlugin(), caps: ["mcp", "settings"] },
+  { id: "hermes", legacy: () => new HermesPlugin(), caps: ["mcp", "settings"] },
+  { id: "pi", legacy: () => new PiPlugin(), caps: ["mcp", "settings"] },
+  { id: "codex", legacy: () => new CodexPlugin(), caps: ["mcp", "settings"] },
+];
+
+for (const { id, legacy, caps } of OTHERS) {
+  describe(`${id} parity`, () => {
+    const load = async (): Promise<SubshellPlugin> => {
+      const result = await createInProcessRuntime().load(join(import.meta.dir, "..", "..", "..", "plugins", id));
+      if ("error" in result) throw new Error(`${id} failed to load: ${result.error}`);
+      return result.plugin;
+    };
+
+    for (const c of SHARED_CASES) {
+      it(`builds the same argv: ${c.name}`, async () => {
+        expect((await load()).buildCommand(c.input)).toEqual(legacy().buildCommand(c.input));
+      });
+    }
+
+    it("renders the same MCP registration and setup", async () => {
+      const launch = { command: "/bin/subshell-server", args: ["mcp"] };
+      const loaded = await load();
+      const old = legacy();
+      expect(loaded.mcpRegistration?.(launch, "/tmp/mcp.json")).toEqual(old.mcpRegistration?.(launch, "/tmp/mcp.json"));
+      expect(loaded.mcpSetup?.(launch)).toEqual(old.mcpSetup(launch));
+    });
+
+    it("offers the same profile-editor reference data", async () => {
+      const loaded = await load();
+      const old = legacy();
+      expect(loaded.profileSettings?.()).toEqual(old.settingsFields());
+      expect(loaded.suggestedEnv?.()).toEqual(old.suggestedEnv());
+      expect(loaded.suggestedFlags?.()).toEqual(old.suggestedFlags());
+    });
+
+    it("declares the capabilities it implements", async () => {
+      expect((await load()).capabilities().sort()).toEqual([...caps].sort());
+    });
+  });
+}

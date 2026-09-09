@@ -1,16 +1,17 @@
-import { validateGenericProfile } from "@subshell-ai/plugin-api";
-import { type DetectionResult, detectBinary } from "./binary-lookup.js";
-import type {
-  BuildCommandInput,
-  HarnessPlugin,
-  McpLaunchSpec,
-  McpSetupInfo,
-  ProfileDefinition,
-  ProfileValidationResult,
-  SettingsField,
-} from "./types.js";
-import { MCP_SERVER_NAME } from "./types.js";
-import { probeVersion } from "./version-probe.js";
+import {
+  type BuildCommandInput,
+  MCP_SERVER_NAME,
+  type McpLaunchSpec,
+  type McpSetupInfo,
+  type PluginCapability,
+  type PluginFactory,
+  type PluginHost,
+  type ProfileDefinition,
+  type ProfileValidationResult,
+  type SettingsField,
+  type SubshellPlugin,
+  validateGenericProfile,
+} from "@subshell-ai/plugin-api";
 
 /** pi per-invocation overrides, applied as CLI flags. */
 const PI_SETTINGS_FIELDS: SettingsField[] = [
@@ -55,8 +56,6 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   { flag: "--offline", description: "Skip startup network operations" },
 ];
 
-const PLUGIN_KNOWN_PATHS = [".bun/bin/pi"];
-
 /**
  * Built-in harness: pi (pi.dev, Earendil Works).
  *
@@ -72,50 +71,15 @@ const PLUGIN_KNOWN_PATHS = [".bun/bin/pi"];
  * installed once per host. mcpSetup() surfaces the exact steps (install +
  * the standard mcpServers snippet the adapter reads from ~/.config/mcp/mcp.json
  * or a project .mcp.json); the spawned child inherits each subshell's SUBSHELL_* env.
+ *
+ * Identity, detection and install guidance live in this package's
+ * package.json `subshell` block, NOT here: the host reads them without
+ * importing or executing a line of this file.
+ *
+ * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-export class PiPlugin implements HarnessPlugin {
-  readonly id = "pi";
-  readonly name = "pi";
-  readonly binaryName = "pi";
-  readonly description = "Minimal, extensible agent harness from pi.dev (interactive TUI)";
-  readonly icon = "π";
-  readonly ttyRequired = true;
-  readonly enabledByDefault = true;
-  readonly installHint = {
-    command: "curl -fsSL https://pi.dev/install.sh | sh",
-    docsUrl: "https://pi.dev/docs",
-  };
-
-  /** Binary override; injectable for tests. */
-  readonly #binaryOverride: string | null;
-
-  constructor(binaryOverride: string | null = null) {
-    this.#binaryOverride = binaryOverride;
-  }
-
-  async detect(): Promise<DetectionResult> {
-    if (this.#binaryOverride) {
-      // An injected override that does not exist is the same class of mistake
-      // as a bad PI_PATH: the caller said where it is and was wrong.
-      return (await Bun.file(this.#binaryOverride).exists())
-        ? { path: this.#binaryOverride }
-        : { path: null, reason: "override-invalid" };
-    }
-    return detectBinary(this.binaryName, "PI_PATH", PLUGIN_KNOWN_PATHS);
-  }
-
-  async findBinary(): Promise<string | null> {
-    return (await this.detect()).path;
-  }
-
-  async isInstalled(): Promise<boolean> {
-    return (await this.detect()).path !== null;
-  }
-
-  async getVersion(): Promise<string | null> {
-    const binary = await this.findBinary();
-    return binary ? await probeVersion(binary) : null;
-  }
+const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
+  capabilities: (): PluginCapability[] => ["mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, profile, subshellName, extraFlags } = input;
@@ -133,7 +97,7 @@ export class PiPlugin implements HarnessPlugin {
 
     if (extraFlags) args.push(...extraFlags);
     return args;
-  }
+  },
 
   /**
    * Manual, two-step setup: pi has no built-in MCP, so the community
@@ -157,21 +121,24 @@ export class PiPlugin implements HarnessPlugin {
         },
       ],
     };
-  }
+  },
 
   validateProfile(profile: ProfileDefinition): ProfileValidationResult {
     return validateGenericProfile(profile);
-  }
+  },
 
-  settingsFields(): SettingsField[] {
+  profileSettings(): SettingsField[] {
     return PI_SETTINGS_FIELDS;
-  }
+  },
 
   suggestedEnv(): { key: string; description: string }[] {
     return SUGGESTED_ENV;
-  }
+  },
 
   suggestedFlags(): { flag: string; description: string }[] {
     return SUGGESTED_FLAGS;
-  }
-}
+  },
+});
+
+export default createPlugin;
+export { manifest } from "./manifest.js";

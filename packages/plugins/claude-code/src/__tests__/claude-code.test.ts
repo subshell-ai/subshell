@@ -3,13 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
-import { createPluginHost } from "./host-stub.js";
 
-const plugin = createPlugin(createPluginHost());
+const plugin = createPlugin(createTestHost());
 
 describe("ClaudeCodePlugin.exitStatus", () => {
-  const p = createPlugin(createPluginHost());
+  const p = createPlugin(createTestHost());
   it("maps known codes", () => {
     expect(p.exitStatus?.(10)).toContain("loop");
     expect(p.exitStatus?.(1)).toContain("error");

@@ -1,4 +1,4 @@
-import { ALL_HARNESSES, getHarness, type HarnessPlugin, scanOne } from "@internal/pane-runtime";
+import { allHarnesses, getHarness, type HarnessPlugin, scanOne } from "@internal/pane-runtime";
 import type { Static } from "elysia";
 import type { HarnessInfoSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
@@ -12,7 +12,7 @@ import { logger } from "@/utils/logger.js";
 
 /** All known harness plugin ids. */
 export function getAllHarnessIds(): string[] {
-  return ALL_HARNESSES.map((h) => h.id);
+  return allHarnesses().map((h) => h.id);
 }
 
 /**
@@ -192,14 +192,14 @@ export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<
   if (node && node.kind === "agent") {
     const nodeStates = await new NodeHarnessesRepository(db).enabledStates(node.id);
     const inv = readAgentInventory(node);
-    for (const h of ALL_HARNESSES) {
+    for (const h of allHarnesses()) {
       if (agentHarnessUsable(h, nodeStates, inv)) usable.add(h.id);
     }
     return usable;
   }
 
   const states = await harnessEnabledStates();
-  for (const h of ALL_HARNESSES) {
+  for (const h of allHarnesses()) {
     if ((states.get(h.id) ?? h.enabledByDefault) && (await h.isInstalled())) usable.add(h.id);
   }
   return usable;
