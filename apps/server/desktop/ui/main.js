@@ -136,7 +136,9 @@ function renderFacts() {
   // From the PROBE, not from `status` — tmux is a hard stop on `init` and
   // `service install`, and on a clean machine there is no server to ask yet.
   if (probe) {
-    fact(dl, "tmux", probe.tmux ?? "NOT FOUND — install it before continuing", probe.tmux ? null : "bad-text");
+    // Just the fact: the amber warning directly below says what it blocks
+    // and offers the command, so an instruction here is the third telling.
+    fact(dl, "tmux", probe.tmux ?? "NOT FOUND", probe.tmux ? null : "bad-text");
   }
   // An unresolved MCP entrypoint means every subshell create 500s. It is the
   // one status fact that predicts a failure the user would otherwise meet
@@ -194,8 +196,10 @@ const STEPS = Object.assign(Object.create(null), {
     actions: () => [["Choose subshell-server…", pickBinary, true]],
   },
   "install-server": {
-    body: "Ready to install the bundled subshell-server to ~/.local/bin.",
-    hint: "Nothing is downloaded — the server ships inside this app.",
+    // States the machine, like every other step, rather than the app's own
+    // readiness — which the tmux gate can make false while this is on screen.
+    body: "No server is installed. This app ships one.",
+    hint: "Installing copies it to ~/.local/bin — nothing is downloaded.",
     actions: () => [
       // tmux-gated like every other step that advances setup: installing the
       // binary does not itself need tmux, but the step immediately after it
@@ -216,13 +220,18 @@ const STEPS = Object.assign(Object.create(null), {
   },
   init: {
     body: "The server has no config.env yet. Choose the port and the addresses it will answer to.",
-    hint: "Written to ~/.config/subshell-server/config.env (0600), with a fresh auth secret.",
+    // Forward tense: this sits under the form, BEFORE the button is pressed.
+    // "Written to …" read as a report of a write that had already happened.
+    // And the secret is generated exactly ONCE — a value already in the file
+    // wins and an environment one is adopted, so "a fresh auth secret" was
+    // wrong on both of those paths (`commands/init.ts`).
+    hint: "Creates ~/.config/subshell-server/config.env (0600), and an auth secret if there is not one already.",
     form: true,
     actions: () => [["Create configuration", doInit, true, true]],
   },
   "install-service": {
-    body: "Configured. Install it as a background service so it starts at login.",
-    hint: "A systemd user unit on Linux, a launchd agent on macOS. Installing also starts it.",
+    body: "Configured, but not installed as a background service.",
+    hint: "A systemd user unit on Linux, a launchd agent on macOS. Installing also starts it, and it starts at login from then on.",
     actions: () => [
       ["Install and start as a service", service("install", true), true, true],
       ["Change addresses…", showConfigure],
@@ -239,7 +248,8 @@ const STEPS = Object.assign(Object.create(null), {
   ready: {
     body: "The server is running.",
     actions: () => [
-      ["Open Subshell Server", openMain, true],
+      // The tray's item for this same window says "Open Dashboard".
+      ["Open Dashboard", openMain, true],
       ["Restart", doRestart, false, true],
       ["Stop", doStop],
       ["Change addresses…", showConfigure],
@@ -255,7 +265,7 @@ const STEPS = Object.assign(Object.create(null), {
     body: "Change the addresses this server listens on and answers to.",
     hint:
       "Sign-in fails with “Invalid origin” from any address the server does not know about, so list every " +
-      "one you browse from. config.env is rewritten; the running server keeps its current settings until it restarts.",
+      "one you browse from. Saving rewrites config.env and restarts the server, which reads these once at boot.",
     form: true,
     actions: () => [
       ["Save and restart", doConfigure, true, true],
@@ -352,7 +362,7 @@ function buildTmuxWarning() {
   const p = document.createElement("p");
   p.textContent =
     "tmux was not found on the login PATH. The server launches every pane through it, so installing, " +
-    "configuring and starting are disabled until it is installed.";
+    "configuring and starting are disabled until tmux is installed.";
   const row = document.createElement("div");
   row.className = "row";
   const code = document.createElement("code");
