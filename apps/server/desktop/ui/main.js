@@ -197,7 +197,11 @@ const STEPS = Object.assign(Object.create(null), {
     body: "Ready to install the bundled subshell-server to ~/.local/bin.",
     hint: "Nothing is downloaded — the server ships inside this app.",
     actions: () => [
-      ["Install server", act("desktop_install_server"), true],
+      // tmux-gated like every other step that advances setup: installing the
+      // binary does not itself need tmux, but the step immediately after it
+      // (Create configuration) refuses without one — so an enabled button here
+      // just walks the user into that wall.
+      ["Install server", act("desktop_install_server"), true, true],
       ["Choose an existing one…", pickBinary],
     ],
   },
@@ -345,8 +349,8 @@ function buildTmuxWarning() {
   wrap.hidden = true;
   const p = document.createElement("p");
   p.textContent =
-    "tmux was not found on the login PATH. The server launches every pane through it, so configuring and " +
-    "starting are disabled until it is installed.";
+    "tmux was not found on the login PATH. The server launches every pane through it, so installing, " +
+    "configuring and starting are disabled until it is installed.";
   const row = document.createElement("div");
   row.className = "row";
   const code = document.createElement("code");

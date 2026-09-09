@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
@@ -235,9 +235,15 @@ fn bundled_version() -> Option<String> {
 }
 
 /// Look at the machine and report what it would take to reach a running server.
+///
+/// Also the ONE place the tray's enabled state is updated from. Every console
+/// refresh and every console action runs this, including the first render at
+/// startup, so the tray follows the server without a poll of its own.
 #[tauri::command(async)]
-pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
-    probe_now(settings.get().binary_path.as_deref())
+pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Probe {
+    let p = probe_now(settings.get().binary_path.as_deref());
+    crate::tray::set_server_ready(&app, p.next == ProbeStep::Ready);
+    p
 }
 
 fn probe_now(configured: Option<&str>) -> Probe {
@@ -532,11 +538,24 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
 /// Open (or focus) the window that shows the server's own UI.
 #[tauri::command(async)]
 pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
-    let probe = probe_now(settings.get().binary_path.as_deref());
+    let _ = settings;
+    open_main_now(&app)
+}
+
+/// `desktop_open_main`'s body, reachable without a command context.
+///
+/// The tray needs the same thing the console's button does, and a tray menu
+/// handler has no `State` argument — so the settings are read off the app
+/// handle here instead. Kept as one function because the origin must come from
+/// a FRESH probe either way: a `configure` can move the port, and a cached
+/// origin would open a window pointed at a server that is no longer there.
+pub fn open_main_now(app: &AppHandle) -> Result<(), String> {
+    let configured = app.state::<SettingsState>();
+    let probe = probe_now(configured.get().binary_path.as_deref());
     let origin = probe
         .origin()
         .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
-    crate::windows::open_main(&app, &origin)
+    crate::windows::open_main(app, &origin)
 }
 
 /// The files and directories the console may ask to reveal.

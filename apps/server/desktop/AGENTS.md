@@ -55,9 +55,13 @@ Check what is missing rather than guessing, since a missing library surfaces as
 a `cargo` link error deep in a build script rather than as a clear message:
 
 ```bash
-for p in webkit2gtk-4.1 gtk+-3.0 libsoup-3.0 ayatana-appindicator3-0.1 librsvg-2.0 libxdo openssl; do
+for p in webkit2gtk-4.1 gtk+-3.0 libsoup-3.0 ayatana-appindicator3-0.1 librsvg-2.0 openssl; do
   pkg-config --exists "$p" && echo "OK      $p" || echo "MISSING $p"
 done
+# `libxdo-dev` ships NO pkg-config file on Debian/Ubuntu, so it is checked
+# separately — asking pkg-config about it reports a false MISSING on a host
+# where it is installed.
+dpkg -l libxdo-dev >/dev/null 2>&1 && echo "OK      libxdo-dev" || echo "MISSING libxdo-dev"
 ```
 
 ## Commands

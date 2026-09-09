@@ -199,6 +199,63 @@ describe("the console's own asset root and stylesheet", () => {
    * from the ordinary field hint directly above them. No test can see a
    * computed colour here, so the ORDER is what gets pinned.
    */
+  /**
+   * `renderStep` disables buttons flagged `data-tmux` while the probe finds no
+   * tmux, and the flag is the 4th argument to `button()`. Every step that
+   * ADVANCES setup must carry it: the CLI refuses `init`, `configure` and
+   * `service install` without tmux, so an enabled button there only produces
+   * the refusal.
+   *
+   * "Install server" was the one that did not. Installing the binary does not
+   * itself need tmux — which is why it looked correct — but the step
+   * immediately after it is `Create configuration`, which refuses. So the
+   * console walked the user to a wall it already knew about. Pinned at the
+   * source, since the flag lives in a DOM path these tests do not run.
+   */
+  test("every setup-advancing console action is tmux-gated", () => {
+    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
+
+    /** The `[...]` starting at `from`, found by bracket depth rather than by regex. */
+    const entryAt = (from) => {
+      let depth = 0;
+      for (let i = from; i < js.length; i++) {
+        if (js[i] === "[") depth++;
+        else if (js[i] === "]" && --depth === 0) return js.slice(from + 1, i);
+      }
+      throw new Error("unbalanced action entry");
+    };
+
+    /** Split on TOP-LEVEL commas: a handler like `service("install", true)` has its own. */
+    const args = (entry) => {
+      const out = [];
+      let depth = 0;
+      let start = 0;
+      for (let i = 0; i < entry.length; i++) {
+        const c = entry[i];
+        if (c === "(" || c === "[") depth++;
+        else if (c === ")" || c === "]") depth--;
+        else if (c === "," && depth === 0) {
+          out.push(entry.slice(start, i).trim());
+          start = i + 1;
+        }
+      }
+      out.push(entry.slice(start).trim());
+      return out;
+    };
+
+    for (const label of [
+      "Install server",
+      "Create configuration",
+      "Install and start as a service",
+      "Start",
+      "Save and restart",
+    ]) {
+      const at = js.indexOf(`["${label}",`);
+      expect(at, `no action entry found for "${label}"`).toBeGreaterThan(-1);
+      expect(args(entryAt(at))[3], `"${label}" is not tmux-gated`).toBe("true");
+    }
+  });
+
   test("`.warn-text` is declared after `.hint`, or a combined class renders muted", () => {
     const css = readFileSync(join(ROOT, "ui/style.css"), "utf8");
     const hint = css.indexOf(".hint {");

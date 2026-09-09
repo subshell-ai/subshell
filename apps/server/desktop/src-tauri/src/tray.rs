@@ -43,21 +43,61 @@
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Wry};
 
 use crate::bridge::{dispatch, DesktopAction};
 
+/// The tray items whose usefulness depends on a RUNNING server, held so their
+/// enabled state can follow it.
+///
+/// Both of these need the server's own SPA, which does not exist until the
+/// server answers on its port. They used to be permanently enabled and to fall
+/// back to opening the console — so with no server every item in the menu did
+/// the same thing, and the menu offered two ways to reach a window it never
+/// named. Disabling them is what makes the menu describe what is actually
+/// available.
+pub struct ServerDependentItems {
+    /// "Open Dashboard" — the server's own SPA.
+    open: MenuItem<Wry>,
+    /// "New Subshell…" — dispatched INTO that SPA, so it needs it too.
+    new_subshell: MenuItem<Wry>,
+}
+
+/// Enable or disable the tray items that need a running server.
+///
+/// Driven by `desktop_probe`, which every console refresh and every console
+/// action already runs — including the one at startup, since `setup` opens the
+/// console and its first render probes. So the tray settles within a moment of
+/// launch and tracks every transition the console causes.
+///
+/// A server that dies from OUTSIDE this app (killed by hand, crashed) leaves
+/// the items enabled until the next probe. That is a known staleness rather
+/// than a silent one: clicking then re-probes and reports the real error.
+pub fn set_server_ready(app: &AppHandle, ready: bool) {
+    if let Some(items) = app.try_state::<ServerDependentItems>() {
+        let _ = items.open.set_enabled(ready);
+        let _ = items.new_subshell.set_enabled(ready);
+    }
+}
+
 /// Build the tray icon. Failure is not fatal — an app without a tray still works.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "tray:open", "Open Subshell Server", true, None::<&str>)?;
-    let console = MenuItem::with_id(app, "console", "Server…", true, None::<&str>)?;
+    // Both start DISABLED: at build time nothing has probed yet, and claiming
+    // the SPA is reachable before knowing is the failure being fixed. The
+    // console's first render enables them if the server is already up.
+    let open = MenuItem::with_id(app, "tray:open", "Open Dashboard", false, None::<&str>)?;
+    let console = MenuItem::with_id(app, "console", "Manage server…", true, None::<&str>)?;
     let new_subshell = MenuItem::with_id(
         app,
         DesktopAction::NewSubshell.id(),
         "New Subshell…",
-        true,
+        false,
         None::<&str>,
     )?;
+    app.manage(ServerDependentItems {
+        open: open.clone(),
+        new_subshell: new_subshell.clone(),
+    });
     let menu = Menu::with_items(
         app,
         &[
@@ -115,20 +155,41 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
-        "tray:open" => show_main(app),
+        // Only reachable while ENABLED, i.e. while a probe said the server is
+        // ready — so this opens the SPA rather than substituting the console.
+        "tray:open" => open_dashboard(app),
         "console" => {
             let _ = crate::windows::open_console(app);
         }
         _ => {
             if let Some(action) = DesktopAction::from_id(id) {
+                // Same gate: enabled means the SPA is reachable. Opening it
+                // first is what makes the action land somewhere.
+                open_dashboard(app);
                 if app.get_webview_window("main").is_some() {
-                    show_main(app);
                     dispatch(app, action);
-                } else {
-                    let _ = crate::windows::open_console(app);
                 }
             }
         }
+    }
+}
+
+/// Focus the SPA window, creating it if this is the first time.
+///
+/// Creating it needs the server's own base URL, which only a probe knows, so
+/// this re-probes rather than caching an origin that a `configure` could have
+/// moved. A failure is reported to stderr and leaves the tray alone: the item
+/// was enabled on the last probe's word, and a server that has since gone is
+/// the console's story to tell, not a dialog's.
+fn open_dashboard(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return;
+    }
+    if let Err(err) = crate::control::open_main_now(app) {
+        eprintln!("subshell: could not open the dashboard: {err}");
     }
 }
 

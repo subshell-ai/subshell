@@ -59,7 +59,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             )?,
             &PredefinedMenuItem::separator(app)?,
             &item(DesktopAction::GoPreferences, "Preferences…", Some("CmdOrCtrl+,"))?,
-            &MenuItem::with_id(app, "console", "Server…", true, None::<&str>)?,
+            // Same label as the tray's, and for the same reason: "Server…"
+            // did not say which of the app's two windows it opens.
+            &MenuItem::with_id(app, "console", "Manage server…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &item(DesktopAction::SignOut, "Sign Out", None)?,
             &PredefinedMenuItem::separator(app)?,
