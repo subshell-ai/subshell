@@ -1,0 +1,254 @@
+/**
+ * The contract a Subshell plugin implements.
+ *
+ * A plugin is loaded from disk by a compiled binary, which means it CANNOT
+ * import anything of ours at runtime. Measured on bun 1.4.2: a bare specifier
+ * from a plugin file fails to resolve, because there is no `node_modules`
+ * beside it. Everything a plugin needs therefore arrives through
+ * {@link PluginHost}, handed to the factory it default-exports.
+ *
+ * This package is types plus PURE helpers only. A plugin bundles it in at
+ * build time, so anything with runtime behaviour would freeze at the version
+ * the plugin was built against; a filesystem probe that did that would keep
+ * searching last year's install locations forever. Those belong on the host.
+ */
+
+/**
+ * What kind of thing a plugin provides.
+ *
+ * For humans: it groups and labels in the UI and filters the catalog. Code
+ * branches on {@link PluginCapability} instead, so adding a type here touches
+ * labels while adding a capability touches the launch pipeline.
+ */
+export type PluginType = "agent-harness" | "terminal";
+
+/** Every {@link PluginType}, for anything that has to iterate or validate them. */
+export const PLUGIN_TYPES: readonly PluginType[] = ["agent-harness", "terminal"];
+
+/**
+ * What a plugin can DO. The launch pipeline and the UI read this; neither
+ * branches on {@link PluginType}.
+ */
+export type PluginCapability = "mcp" | "resume" | "attention" | "settings";
+
+/** Every {@link PluginCapability}, for validation. */
+export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = ["mcp", "resume", "attention", "settings"];
+
+/** A harness profile as defined by the user (decoded JSON blobs). */
+export interface ProfileDefinition {
+  /** Human-friendly profile name */
+  name: string;
+  /** Optional longer description */
+  description?: string | null;
+  /** Extra environment variables to set on the subshell */
+  env: Record<string, string>;
+  /** Extra CLI flags to pass to the harness binary */
+  flags: string[];
+  /** Settings blob passed to the harness (e.g. claude --settings JSON) */
+  settings: Record<string, unknown> | null;
+  /** If true, only this profile's config sources apply (isolation) */
+  configIsolation: boolean;
+  /** If true, new subshells from this profile auto-restart on exit */
+  restartOnExit?: boolean;
+}
+
+/** Snapshot of a single field-level validation error on a profile. */
+export interface ProfileValidationIssue {
+  /** Field name (e.g. "name", "env", "settings") */
+  field: string;
+  /** Human-readable problem description */
+  message: string;
+}
+
+export interface ProfileValidationResult {
+  valid: boolean;
+  issues: ProfileValidationIssue[];
+}
+
+/** Everything a plugin needs to build a launch command. */
+export interface BuildCommandInput {
+  /** Resolved absolute path to the harness binary */
+  binary: string;
+  /** Working directory the harness runs in */
+  cwd: string;
+  /** The validated profile being used */
+  profile: ProfileDefinition;
+  /** Subshell display name ("" = let the harness pick a default) */
+  subshellName: string;
+  /** Any additional CLI flags from route/request context */
+  extraFlags?: string[];
+  /**
+   * The subshell's MCP registration (channels + subshell orchestration), as
+   * produced by this plugin's own `mcpRegistration` and already written to
+   * disk. Plugins consume ONLY `mcp.args`: splice them where the dialect needs
+   * them (claude right after the binary). `mcp.env` is baked into the pane by
+   * the host before the command runs; plugins must not consume it themselves.
+   * Undefined = no registration for this launch.
+   */
+  mcp?: McpRegistration;
+  /**
+   * Conversation identity for restart-resume; set only when this plugin
+   * declares the `resume` capability. `mode: "start"` means the conversation
+   * is NEW and must be created under exactly this id (pin it, because the host
+   * stores it and later resumes by it); `mode: "resume"` names an EXISTING
+   * conversation to continue (the host only asks after {@link HarnessResume.canResume}
+   * confirmed it survives).
+   */
+  harnessSession?: { id: string; mode: "start" | "resume" };
+}
+
+/**
+ * Restart-resume, implemented only by plugins that can continue a previous
+ * conversation.
+ *
+ * The ids here are HARNESS conversation ids (a claude transcript uuid, say),
+ * never subshell ids: the host pins {@link allocateHarnessSessionId} at launch,
+ * stores it on the subshell row, and consults {@link canResume} before every
+ * restart to choose between continuing and starting fresh.
+ */
+export interface HarnessResume {
+  /** Allocates the HARNESS conversation id to pin at launch (a uuid for claude). */
+  allocateHarnessSessionId(): string;
+  /**
+   * Whether the harness conversation `harnessSessionId` (last run in `cwd`)
+   * still exists and can be resumed. False means the host launches a fresh
+   * conversation rather than handing the harness an id it would reject.
+   */
+  canResume(harnessSessionId: string, cwd: string): boolean;
+}
+
+/** How to spawn the `subshell mcp` stdio server. */
+export interface McpLaunchSpec {
+  /** Executable to run (the self command, the interpreter, or the agent binary) */
+  command: string;
+  /** Arguments for the executable (e.g. the mcp entry script path) */
+  args: string[];
+}
+
+/** Per-subshell MCP registration rendered in the plugin's own config dialect. */
+export interface McpRegistration {
+  /** File content the harness reads, written to the subshell's config path */
+  fileContent: string;
+  /** argv the harness needs to load the file (e.g. claude's ["--mcp-config", path]) */
+  args?: string[];
+  /**
+   * Extra pane env the harness needs to discover the file (e.g. OPENCODE_CONFIG).
+   * Consumed by the HOST, which bakes it into the pane env ahead of profile env;
+   * plugins never read it back.
+   */
+  env?: Record<string, string>;
+}
+
+/** One copy-paste line shown in the profile editor for manual-setup harnesses. */
+export interface McpSetupStep {
+  /** What the user should do, and where the text goes */
+  label: string;
+  /** Copyable command or snippet */
+  command: string;
+}
+
+/**
+ * How a harness obtains the `subshell mcp` tools.
+ *
+ * Discriminated on purpose: auto harnesses explain themselves in one line and
+ * manual harnesses carry steps, and a plugin cannot mix the two.
+ */
+export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStep[] };
+
+/** A single option in a plugin's settings editor. */
+export interface SettingsField {
+  /** Key into the settings object (e.g. "permissionMode") */
+  key: string;
+  /** Property label */
+  label: string;
+  /** Short description for the editor */
+  description?: string;
+  /** One of: string, boolean, number, select */
+  type: "string" | "boolean" | "number" | "select";
+  /** Choices when type === "select" */
+  choices?: string[];
+  /** Default value when unset */
+  default?: string | boolean | number;
+}
+
+/** Why a binary was not found. Mirrors the host's own detection reasons. */
+export type DetectionReason = "not-on-path" | "override-invalid";
+
+/** A detection answer: the path, or the reason there is not one. */
+export type DetectionResult = { path: string; reason?: undefined } | { path: null; reason: DetectionReason };
+
+/**
+ * Everything the host lends a plugin, because a plugin can import none of it.
+ *
+ * This is also the version boundary: a host at a higher `apiVersion` keeps
+ * older plugins working by keeping the fields they were compiled against, so
+ * members are ADDED here and never removed or retyped.
+ */
+export interface PluginHost {
+  /** The API version this host implements. Always >= the plugin's own. */
+  readonly apiVersion: number;
+  /** Resolve a binary through the host's full lookup ladder. */
+  findBinary(name: string, envOverride: string, knownPaths: string[]): Promise<string | null>;
+  /** The same lookup, reporting why it failed. */
+  detectBinary(name: string, envOverride: string, knownPaths: string[]): Promise<DetectionResult>;
+  /** Run a short command with a deadline; trimmed stdout, or null. */
+  probeVersion(binary: string, args?: string[]): Promise<string | null>;
+  /** POSIX-quote one argument for a shell command line. */
+  shellQuote(value: string): string;
+  /** Structured logging, namespaced to the plugin. */
+  log: { debug(message: string): void; warn(message: string): void };
+}
+
+/**
+ * The plugin itself.
+ *
+ * Only the first three members are required. Everything else is a capability
+ * the plugin opts into and declares from {@link capabilities}, so a `terminal`
+ * plugin is a binary and an argv rather than eight stubs.
+ */
+export interface SubshellPlugin {
+  /** Builds the argv (no shell) used to launch a subshell. */
+  buildCommand(input: BuildCommandInput): string[];
+  /** Validates a profile definition before saving. */
+  validateProfile(profile: ProfileDefinition): ProfileValidationResult;
+  /** Which optional members below are meaningful on this plugin. */
+  capabilities(): PluginCapability[];
+
+  /** Maps a harness exit code to a human label (null = unknown). */
+  exitStatus?(code: number): string | null;
+  /** Overrides manifest-driven detection. Almost no plugin needs this. */
+  detect?(): Promise<DetectionResult>;
+  /** Restart-resume support. Declare the `resume` capability with it. */
+  resume?: HarnessResume;
+  /**
+   * True when `buildCommand` wires this harness's native "needs attention"
+   * reporting into the launch. The host's quiet-output idle watcher skips
+   * these. Declare the `attention` capability with it.
+   */
+  supportsAttentionHooks?: boolean;
+  /**
+   * Renders the per-subshell MCP registration in this harness's config format.
+   * Omit when the harness cannot consume a per-subshell config file; the host
+   * then surfaces one-time manual setup via {@link mcpSetup} instead.
+   */
+  mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
+  /** How users obtain the subshell MCP tools here. Declare the `mcp` capability with it. */
+  mcpSetup?(launch: McpLaunchSpec): McpSetupInfo;
+  /** Settings rendered in the PROFILE editor and stored on the profile. */
+  profileSettings?(): SettingsField[];
+  /** Known extra env var suggestions for the profile editor. */
+  suggestedEnv?(): { key: string; description: string }[];
+  /** Known CLI flag suggestions for the profile editor. */
+  suggestedFlags?(): { flag: string; description: string }[];
+}
+
+/** What a plugin module default-exports. */
+export type PluginFactory = (host: PluginHost) => SubshellPlugin;
+
+/**
+ * The MCP server name every harness registers the built-in `subshell mcp`
+ * server under: the config object key, and the `hermes mcp add|remove`
+ * argument alike. The server reports the same name in its MCP handshake, which
+ * is what harnesses surface in wire tool ids (`mcp__<name>__<tool>`).
+ */
+export const MCP_SERVER_NAME = "subshell";
