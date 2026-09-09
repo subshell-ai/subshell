@@ -15,6 +15,11 @@
 "$schema" = "schemas/schema.json"
 
 [[permission]]
+identifier = "allow-desktop-logs"
+description = "Read a tail of the server's own log (the journal on Linux, the plist's log file on macOS). Takes no path."
+commands.allow = ["desktop_logs"]
+
+[[permission]]
 identifier = "allow-desktop-probe"
 description = "Read what it would take to reach a running server. Read-only."
 commands.allow = ["desktop_probe"]

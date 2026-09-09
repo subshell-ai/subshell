@@ -11,6 +11,7 @@
     "dialog:allow-open",
     "dialog:allow-message",
     "allow-desktop-probe",
+    "allow-desktop-logs",
     "allow-desktop-install-server",
     "allow-desktop-init",
     "allow-desktop-service",

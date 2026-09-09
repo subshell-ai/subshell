@@ -63,6 +63,56 @@ function show(result) {
   const out = el("output");
   out.textContent = parts.join("\n\n");
   out.classList.toggle("output-bad", result?.ok === false);
+  // A result is what the user just asked for, so it takes the foreground.
+  // `show(null)` at the start of every action clears the old text but must
+  // NOT steal the tab, or the pane would flick to an empty box and back.
+  if (parts.length > 0) showPane("output");
+}
+
+/** Which pane is in front. The log unless a command has just spoken. */
+let pane = "log";
+
+/**
+ * Bring one pane forward.
+ *
+ * Two tabs over one region rather than two stacked panes, because the window
+ * is 620px by default and a second always-on block pushed the step actions off
+ * the bottom on a machine with several facts to report.
+ */
+function showPane(next) {
+  pane = next;
+  for (const id of ["log", "output"]) {
+    el(id).hidden = id !== pane;
+    const tab = el(`tab-${id}`);
+    tab.setAttribute("aria-selected", String(id === pane));
+  }
+  el("pane-source").textContent = pane === "log" ? logSource : "";
+}
+
+/** Where the log came from, captioned beside the tabs. */
+let logSource = "";
+
+/**
+ * Pull the log tail and render it.
+ *
+ * Rides the same tick as the probe (see `poll`), so the pane follows the
+ * server without a mechanism of its own. Two behaviours worth keeping:
+ *
+ * - It STICKS to the bottom only when it is already there. Re-tailing while
+ *   someone has scrolled up to read would yank the view out from under them.
+ * - A note (no entries yet, no service installed) is rendered as the pane's
+ *   text rather than as an error, because during setup it is the ordinary
+ *   answer and an error banner would teach the user to ignore the pane.
+ */
+async function refreshLog() {
+  const tail = await invoke("desktop_logs");
+  const box = el("log");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  box.textContent = tail.text || tail.note || "";
+  box.classList.toggle("muted-text", !tail.text);
+  logSource = tail.text || tail.note ? tail.source : "";
+  if (pane === "log") el("pane-source").textContent = logSource;
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
 /**
@@ -835,6 +885,17 @@ async function poll() {
     return;
   }
   render();
+  // Separate try: a log tail that cannot be read must not stop the probe's
+  // result from being rendered.
+  try {
+    await refreshLog();
+  } catch {
+    /* the pane keeps its last content */
+  }
+}
+
+for (const id of ["log", "output"]) {
+  el(`tab-${id}`).addEventListener("click", () => showPane(id));
 }
 
 setInterval(() => void poll(), POLL_MS);
@@ -844,6 +905,8 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) void poll();
 });
 
+showPane("log");
 render();
 void act(null)();
 void loadPrefs();
+void refreshLog().catch(() => {});

@@ -39,7 +39,18 @@
       </div>
     </div>
 
-    <pre id="output" aria-live="polite"></pre>
+    <!-- One region, two tabs. The server's log is what the pane shows by
+         default, because it is true all the time; a command's output takes
+         over when there is one, because it is what you just asked for. -->
+    <div class="card pane">
+      <div class="row pane-tabs" role="tablist">
+        <button type="button" id="tab-log" role="tab" data-pane="log">Server log</button>
+        <button type="button" id="tab-output" role="tab" data-pane="output">Command output</button>
+        <span class="pane-source" id="pane-source"></span>
+      </div>
+      <pre id="log" aria-live="polite"></pre>
+      <pre id="output" aria-live="polite" hidden></pre>
+    </div>
 
     <script type="module" src="./main.js"></script>
   </body>

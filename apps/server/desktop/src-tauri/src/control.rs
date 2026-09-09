@@ -535,6 +535,126 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
     effective_close_to_tray(settings.get().close_to_tray, tray_support())
 }
 
+/// Longest log tail the console renders. Enough to cover a boot and a restart,
+/// small enough that the pane stays a pane rather than a transcript.
+const LOG_TAIL_LINES: usize = 200;
+
+/// A tail of the server's own log, for the console's log pane.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogTail {
+    /// The lines, oldest first, ready to render. Empty when there is nothing
+    /// to show, which is not an error: a server that has never started has no
+    /// log, and that is the ordinary state of a machine mid-setup.
+    pub text: String,
+    /// Where these came from, in words, for the pane to caption itself.
+    pub source: String,
+    /// Why the tail is empty, when it is. `None` when there is text.
+    pub note: Option<String>,
+}
+
+/// The last {@link LOG_TAIL_LINES} lines of the server's log.
+///
+/// **Takes no argument**, deliberately: a path parameter would be an
+/// arbitrary-file-read reachable from the page, which is the same reason
+/// `desktop_open_path` names a closed enum instead. This side decides what
+/// "the server's log" is.
+///
+/// The two platforms genuinely differ in MECHANISM, not just in path. Linux
+/// has no log file at all: the unit's output goes to the journal, so the tail
+/// is a `journalctl` query. macOS has a file the plist names, and the CLI is
+/// the authority on where (`service status --json` reports `logPath`), so it
+/// is asked rather than the path being re-derived here.
+///
+/// Never an `Err`: every outcome is a caption the pane can render, because a
+/// missing log during setup is normal and an error banner for it would train
+/// the user to ignore the pane.
+#[tauri::command(async)]
+pub fn desktop_logs(settings: State<'_, SettingsState>) -> LogTail {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = settings;
+        journal_tail()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        file_tail(settings.get().binary_path.as_deref())
+    }
+}
+
+/// The systemd journal for the user unit this app installs.
+#[cfg(target_os = "linux")]
+fn journal_tail() -> LogTail {
+    let source = "the systemd journal".to_string();
+    let out = run(
+        &[
+            "journalctl".into(),
+            "--user".into(),
+            "-u".into(),
+            "subshell-server.service".into(),
+            "-n".into(),
+            LOG_TAIL_LINES.to_string(),
+            "--no-pager".into(),
+        ],
+        QUERY_TIMEOUT,
+    );
+    if !out.ok() {
+        // A unit that was never installed is the common case here, and the
+        // journal says so in its own words rather than failing.
+        return LogTail {
+            text: String::new(),
+            source,
+            note: Some(first_line(&out.stderr).unwrap_or_else(|| "the journal could not be read".into())),
+        };
+    }
+    let text = out.stdout.trim_end().to_string();
+    let empty = text.is_empty() || text.starts_with("-- No entries");
+    LogTail {
+        note: empty.then(|| "no entries yet for subshell-server.service".to_string()),
+        text: if empty { String::new() } else { text },
+        source,
+    }
+}
+
+/// The log file the installed service definition names.
+#[cfg(not(target_os = "linux"))]
+fn file_tail(configured: Option<&str>) -> LogTail {
+    let probe = probe_now(configured);
+    let path = match field(&probe.service, "logPath") {
+        Some(serde_json::Value::String(p)) => p.clone(),
+        _ => {
+            return LogTail {
+                text: String::new(),
+                source: "the server's log file".to_string(),
+                note: Some("no log file yet; the service has not been installed".to_string()),
+            }
+        }
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(body) => {
+            let lines: Vec<&str> = body.lines().collect();
+            let tail = lines[lines.len().saturating_sub(LOG_TAIL_LINES)..].join("\n");
+            let empty = tail.trim().is_empty();
+            LogTail {
+                note: empty.then(|| "the log file is empty".to_string()),
+                text: if empty { String::new() } else { tail },
+                source: path,
+            }
+        }
+        // Not an error: launchd creates the file on first start.
+        Err(err) => LogTail {
+            text: String::new(),
+            source: path,
+            note: Some(format!("could not be read: {err}")),
+        },
+    }
+}
+
+/// The first non-empty line of a command's stderr, trimmed.
+fn first_line(text: &str) -> Option<String> {
+    text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
+}
+
 /// Open (or focus) the window that shows the server's own UI.
 #[tauri::command(async)]
 pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
@@ -981,6 +1101,52 @@ mod tests {
             true,
         );
         assert_eq!(p.origin(), None);
+    }
+
+    /// The two capability files, parsed.
+    fn grants(file: &str) -> Vec<String> {
+        let raw = match file {
+            "console" => include_str!("../capabilities/console.json"),
+            _ => include_str!("../capabilities/main.json"),
+        };
+        let v: serde_json::Value = serde_json::from_str(raw).expect("capability file is valid JSON");
+        v["permissions"]
+            .as_array()
+            .expect("permissions is an array")
+            .iter()
+            .map(|p| p.as_str().expect("permission is a string").to_string())
+            .collect()
+    }
+
+    /// The REMOTE window's grant list, pinned whole.
+    ///
+    /// That window loads a page this repo did not ship, so every command it can
+    /// reach is reachable by an XSS in the server's SPA. The list is asserted
+    /// exactly rather than by absence of specific entries, because the failure
+    /// to catch is a command added to it by habit — a test that only forbade
+    /// today's names would not see tomorrow's.
+    #[test]
+    fn the_remote_window_is_granted_only_what_cannot_touch_the_cli() {
+        assert_eq!(
+            grants("main"),
+            vec![
+                "core:window:allow-start-dragging",
+                "allow-desktop-open-console",
+                "allow-desktop-shell-ready",
+                "allow-desktop-notify",
+            ]
+        );
+    }
+
+    /// Reading the server's log is a console-only surface.
+    ///
+    /// It takes no path, so it is not an arbitrary-file read, but it does hand
+    /// back the server's own log lines — and the remote window is the one place
+    /// whose page we do not control.
+    #[test]
+    fn only_the_console_may_read_the_logs() {
+        assert!(grants("console").contains(&"allow-desktop-logs".to_string()));
+        assert!(!grants("main").contains(&"allow-desktop-logs".to_string()));
     }
 
     // An IPv6 base URL falls back to 127.0.0.1 rather than producing an origin

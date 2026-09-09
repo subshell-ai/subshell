@@ -75,6 +75,7 @@ pub fn run() {
         .manage(windows::ShellReady::new())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
+            control::desktop_logs,
             control::desktop_install_server,
             control::desktop_init,
             control::desktop_service,

@@ -257,3 +257,42 @@ pre:empty {
   font-size: 13.5px;
   overflow-wrap: anywhere;
 }
+
+/* The log / output pane. One region with two tabs, so the log can be ambient
+   while a command's output still gets the foreground when there is one. */
+.pane {
+  padding-top: 10px;
+}
+.pane-tabs {
+  gap: 6px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.pane-tabs button {
+  font-size: 13px;
+  padding: 3px 9px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.pane-tabs button[aria-selected="true"] {
+  color: var(--fg);
+  background: var(--bg);
+  border-color: var(--border);
+}
+/* Which log this is, so a reader does not have to guess between a journal and
+   a file. Pushed right, and truncated rather than wrapping a long path. */
+.pane-source {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+/* A pane showing why it is empty rather than log lines. */
+.muted-text {
+  color: var(--muted);
+}
