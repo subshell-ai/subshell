@@ -133,6 +133,14 @@ small Elysia group sharing the `/api/settings` prefix rather than as an
 exemption inside `settingsRoutes`, which is what keeps `viewerIsAdmin`,
 `appBaseUrl` and `nodeArtifactTargets` from becoming anonymous by accident.
 
+**Why not ride `GET /api/setup/status`,** which is already anonymous, already
+fetched by every page including login, and would cost no new surface: because
+`__root.tsx` caches it with an infinite stale time, on the stated grounds that
+`needsSetup` is true exactly once in an instance's life. The instance name is
+mutable and must not inherit that cache, and a second query against the same
+URL to get different cache semantics is worse than a second route. A dedicated
+endpoint also keeps the anonymous payload narrow enough to assert on.
+
 **This is a deliberate pre-auth disclosure**, the first in the app outside the
 first-run setup window. It discloses one operator-chosen string to anyone who
 can reach the port. Sound on the trusted-network posture and useful — knowing

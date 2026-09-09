@@ -88,6 +88,37 @@ principals; the fourth is a websocket credential and nothing else.
 
 Plaintext keys are shown exactly once, at creation, and never again.
 
+### The anonymous surface
+
+Authentication is required on every `/api/*` route except the auth endpoints,
+`GET /api/setup/status`, and one read added in spec 2026-09-08:
+
+`GET /api/settings/instance` → `{ instanceName }`. The operator-chosen display
+name for this control plane, or this host's own name when unset, served to a
+caller holding **no credential**. It is read by the sign-in page and is what
+lets a person tell which plane is about to receive their password when several
+answer on the same VPN — a property worth having rather than a disclosure
+merely tolerated. What it costs is exactly one operator-chosen string, readable
+by anyone who can reach the port.
+
+Three properties hold it there, and all three are load-bearing:
+
+- **It is its own route module.** `authGuard` is a scoped Elysia plugin applied
+  to the whole `/api/settings` group, so an exemption *inside* that group is not
+  expressible; a separate module without `.use(authGuard)` is. That boundary is
+  why `viewerIsAdmin`, `appBaseUrl` and `nodeArtifactTargets` — all on the
+  signed-in `GET /api/settings/public` — did not become anonymous with it.
+- **Its entire key set is asserted by test**, not just the field it should
+  carry. A field added to this response later cannot quietly become public.
+- **The value is normalized on read as well as write** (`normalizeLabel`), so a
+  row written by an older release or edited by hand cannot carry CR/LF into a
+  log record or an anonymous response body.
+
+It is deliberately NOT folded into the already-anonymous `GET
+/api/setup/status`, which the frontend caches with an infinite stale time
+because `needsSetup` is true exactly once in an instance's life. A renameable
+value must not inherit that cache.
+
 ### Passkeys
 
 WebAuthn credentials (`@better-auth/passkey`) mint the **same session cookie** as

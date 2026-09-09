@@ -90,11 +90,12 @@ test("nodes: Local renders online; Add-node mints a setup key + install command"
   await page.goto("/nodes");
   await expect(page.getByRole("heading", { name: "Nodes" })).toBeVisible();
 
-  // The boot-seeded control-plane node: name + machine line + online badge.
-  // On this pristine-registry run `Local` is the only node, so the page-level
-  // texts are unambiguous.
-  await expect(page.getByText("Local", { exact: true })).toBeVisible();
-  await expect(page.getByText("this machine", { exact: false })).toBeVisible();
+  // The boot-seeded control-plane node: name + hostname line + online badge.
+  // On this pristine-registry run `Server` is the only node, so the page-level
+  // texts are unambiguous. The row shows the HOSTNAME rather than claiming to
+  // be "this machine", which is false for anyone not sitting at the server.
+  await expect(page.getByText("Server", { exact: true })).toBeVisible();
+  await expect(page.getByText("this machine", { exact: false })).not.toBeVisible();
   await expect(page.getByText("online", { exact: true })).toBeVisible();
 
   // Add node → name it → one-time reveal.

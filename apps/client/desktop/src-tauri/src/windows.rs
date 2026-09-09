@@ -88,7 +88,11 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
         return Ok(w);
     }
     WebviewWindowBuilder::new(app, NODE_LABEL, WebviewUrl::App("index.html".into()))
-        .title("Subshell Client — this machine")
+        // "Node", not "this machine": the two windows sit side by side in a
+        // screenshot and in the window list, where "this machine" does not say
+        // WHICH of them it means — and the word this app uses for a machine
+        // that runs agents is "node".
+        .title("Subshell Client — Node")
         .inner_size(760.0, 720.0)
         .min_inner_size(NODE_MIN_WIDTH, NODE_MIN_HEIGHT)
         .resizable(true)

@@ -73,6 +73,27 @@ quotable — it is the thing that gets screenshotted into an issue.
 WS attach requires a short-lived (30 s) single-use token minted through an authenticated
 REST call — replay-resistant.
 
+**One anonymous read exists** (spec 2026-09-08): `GET /api/settings/instance`
+returns `{ instanceName }` — the operator-chosen name for this control plane,
+or the host's own name when unset — to a caller with **no credential at all**.
+It is the only pre-auth read outside the first-run setup window, and it exists
+so the sign-in page can say which plane is asking for your password; on a
+posture where several instances answer on one VPN, that is a security property
+rather than a leak. Two things keep it narrow: it lives in its own route module
+(`api/settings-public.route.ts`) precisely because `authGuard` is scoped to the
+whole settings group, so nothing about `GET /api/settings/public` —
+`viewerIsAdmin`, `appBaseUrl`, `nodeArtifactTargets` — is anonymous; and a test
+asserts the response's ENTIRE key set, so a field added later cannot go
+anonymous by accident. The value is normalized on the way out as well as in, so
+a hand-edited row cannot put control characters into a log line.
+
+**Naming a node is an admin act on exactly one row.** The control-plane host's
+`local` node is renameable (`PATCH /api/nodes/:id`, cookie-only); its
+`canManage` already resolves to admin, so no permission concept was added.
+**Renaming an enrolled agent stays owner-only** — an admin's instance-wide
+`edit` still does not confer it. Node names are normalized like every other
+label, because a node name reaches log lines and menu labels.
+
 ## Subshell sharing (spec 2026-08-31)
 
 A subshell is **private to its owner by default** — it is absent (404, never 403) from

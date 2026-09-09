@@ -26,6 +26,27 @@ shipped as *Subshell Client* while being the node GUI, the real clients carried
 no client branding, and the `client-v*` tag published the agent binary. The full
 argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md`.
 
+**Display labels are not vocabulary, and `local` is not a label** (spec
+2026-09-08). Two names an operator chooses now sit on top of these words:
+
+- The control-plane host's node row is **named by an admin**, defaulting to
+  **"Server"**. `local` remains its id, its `kind`, and its route path —
+  identifiers, per the rule below that directory names and component ids are a
+  different thing from labels. What changed is that **nothing rendered derives
+  from the id**: the launch pickers, the profile pin, the clone dialog and the
+  compat matrix all read `node.name`, so a rename reaches every surface.
+- The instance itself has a **display name** (a `settings` row, admin-editable,
+  defaulting to this host's hostname), rendered in the sidebar and on the
+  sign-in page so a person running several planes can tell them apart.
+
+Defaulting a node's label to "Server" does put that word near a machine that
+runs agents, so it is worth being explicit that nothing the rule governs
+acquired a second meaning: the id is `local`, the release-component id, tag
+prefix and package name for the control plane are still `server`, and the
+directory is still `apps/server/`. It is a string an admin owns and can change
+in one field — which is the point of the change, since the old fixed "Local"
+read to every other user as *their* machine.
+
 ### Directory Structure
 
 The tree under `apps/` IS the taxonomy: one grouping directory per word above,
