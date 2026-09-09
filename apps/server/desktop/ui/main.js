@@ -98,12 +98,12 @@ function openControlPlane() {
  * added to a newer Rust half still renders something rather than nothing.
  */
 const SOURCE_LABELS = Object.assign(Object.create(null), {
-  env: "the SUBSHELL_SERVER_BIN environment variable",
-  configured: "a path you chose in this app",
-  service: "the installed service definition",
-  "local-bin": "~/.local/bin, where this app installs it",
-  path: "your login PATH",
-  "well-known": "a standard install directory",
+  env: "named by SUBSHELL_SERVER_BIN",
+  configured: "you chose this path",
+  service: "named by the installed service",
+  "local-bin": "installed by this app",
+  path: "on your login PATH",
+  "well-known": "in a standard install directory",
 });
 
 function renderFacts() {
@@ -112,14 +112,12 @@ function renderFacts() {
   const svc = probe?.service ?? null;
   const st = probe?.status ?? null;
   if (probe?.server) {
-    fact(
-      dl,
-      "server version",
-      `${probe.server.version ?? "?"} — ${probe.server.argv.join(" ")}`,
-      null,
-      revealAction("server-dir"),
-    );
-    fact(dl, "found via", SOURCE_LABELS[probe.server.source] ?? probe.server.source);
+    // Two rows, each holding what its label promises: WHAT it is, then WHERE
+    // it came from. "server version" used to carry the path as well, and the
+    // rung sat in a third row answering the same question the path did.
+    fact(dl, "server cli", probe.server.version ?? "unknown version");
+    const how = SOURCE_LABELS[probe.server.source] ?? probe.server.source;
+    fact(dl, "found at", `${probe.server.argv.join(" ")} — ${how}`, null, revealAction("server-dir"));
   }
   // There used to be a second version row here, for the copy of the server
   // this app carries inside itself. It went through three labels and none of
