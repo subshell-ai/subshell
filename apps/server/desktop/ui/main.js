@@ -266,12 +266,14 @@ const STEPS = Object.assign(Object.create(null), {
     body: "The server has no config.env yet. Choose the port and the addresses it will answer to.",
     // Forward tense: this sits under the form, BEFORE the button is pressed.
     // "Written to …" read as a report of a write that had already happened.
-    // And the secret is generated exactly ONCE — a value already in the file
-    // wins and an environment one is adopted, so "a fresh auth secret" was
-    // wrong on both of those paths (`commands/init.ts`).
-    hint: "Creates ~/.config/subshell-server/config.env (0600), and an auth secret if there is not one already.",
+    // And the secret is generated exactly ONCE, since a value already in the
+    // file wins and an environment one is adopted, so "a fresh auth secret"
+    // was wrong on both of those paths (`commands/init.ts`).
+    hint:
+      "Creates ~/.config/subshell-server/config.env (0600), and an auth secret if there is not one already, then " +
+      "installs the background service and starts it.",
     form: true,
-    actions: () => [["Create configuration", doInit, true, true]],
+    actions: () => [["Save and start", doInit, true, true]],
   },
   "install-service": {
     body: "Configured, but not installed as a background service.",
@@ -604,7 +606,25 @@ function guard(fn, settle = false) {
 const act = (cmd, args) => guard(() => (cmd ? invoke(cmd, args) : null));
 const service = (verb, settle) => guard(() => invoke("desktop_service", { verb, force: false }), settle);
 
-const doInit = guard(() => invoke("desktop_init", configPayload(form, explicit)));
+/**
+ * First-run configure: write config.env, then install and start the service.
+ *
+ * One button rather than two steps. Configuring and then being asked to
+ * install a service is a distinction that serves our state machine, not the
+ * person setting this up: there is no reason to write a configuration on this
+ * machine and NOT run the server it configures. The `install-service` step is
+ * still reachable for the case that genuinely means something, a config that
+ * already exists with no service installed.
+ *
+ * Same shape as `doConfigure`: if the write fails, stop and report it rather
+ * than acting on a configuration that is not there.
+ */
+const doInit = guard(async () => {
+  const written = await invoke("desktop_init", configPayload(form, explicit));
+  if (!written.ok) return written;
+  const installed = await invoke("desktop_service", { verb: "install", force: false });
+  return installed.ok ? installed : { ...installed, stdout: `${written.stdout}\n${installed.stdout}` };
+}, true);
 const openMain = guard(() => invoke("desktop_open_main"));
 
 /**

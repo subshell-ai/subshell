@@ -328,7 +328,7 @@ describe("the console's own asset root and stylesheet", () => {
 
     for (const label of [
       "Install server",
-      "Create configuration",
+      "Save and start",
       "Install and start as a service",
       "Start",
       "Save and restart",
