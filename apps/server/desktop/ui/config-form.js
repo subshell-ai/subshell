@@ -18,6 +18,14 @@
  * The placeholders are the CLI's defaults, deliberately duplicated as HINT
  * TEXT only: nothing here is ever SENT, so a drifted placeholder misleads but
  * cannot misconfigure. The real defaults stay in `commands/configure.ts`.
+ *
+ * `trustedOrigins` is the ONE exception, and deliberately so: its real default
+ * is `DEFAULT_TRUSTED_ORIGINS`, the two dev Vite origins, which as a suggestion
+ * to a person configuring an instance would be actively misleading. Its
+ * placeholder is an EXAMPLE instead, and shows two different SHAPES — one
+ * behind a proxy on the scheme's default port, one dialled directly — because
+ * a pair that both carried a port read as though a port were part of the
+ * format.
  */
 export const CONFIG_FIELDS = [
   { name: "port", label: "Port", settingKey: "SERVER_PORT", placeholder: "3080", numeric: true },
@@ -37,9 +45,12 @@ export const CONFIG_FIELDS = [
     name: "trustedOrigins",
     label: "Other addresses browsers will use",
     settingKey: "TRUSTED_ORIGINS",
-    placeholder: "http://box.local:3080, http://10.0.0.5:3080",
+    // Two SHAPES, not two hosts: one behind a proxy on the scheme's default
+    // port (so no port at all) and one dialled directly. A pair that both
+    // carried `:3080` read as though a port were part of the format.
+    placeholder: "https://subshell.example.com, http://10.0.0.5:3080",
     wide: true,
-    hint: "One full address per entry, comma-separated — each named exactly, no wildcards. Sign-in from an address that is not listed here (or above) fails with “Invalid origin”. Loopback is always allowed.",
+    hint: "One full address per entry, comma-separated — each named exactly, no wildcards. Include a port only if the address uses one; behind a reverse proxy on 443 there is none. Sign-in from an address that is not listed here (or above) fails with “Invalid origin”. Loopback is always allowed.",
   },
 ];
 
