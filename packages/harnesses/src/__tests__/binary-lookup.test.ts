@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findBinaryWithOptions } from "../binary-lookup.js";
+import { detectBinary, detectBinaryWithOptions, findBinaryWithOptions } from "../binary-lookup.js";
 import { loginPathEntries, resetLoginPathForTests } from "../login-path.js";
 
 /**
@@ -88,6 +88,121 @@ describe("findBinaryWithOptions", () => {
     });
     expect(found).not.toBeNull();
     expect(login.some((d) => found === join(d, "sh"))).toBe(true);
+  });
+});
+
+/**
+ * The same rungs, reporting WHY rather than answering `null` twice over.
+ *
+ * "Not found" collapsed two situations that want different answers on screen:
+ * nothing is installed, and an explicit override points at nothing. The second
+ * used to render an install command, which cannot help an operator whose
+ * `THING_PATH` is simply wrong.
+ */
+describe("detectBinaryWithOptions", () => {
+  afterEach(resetLoginPathForTests);
+
+  /** A directory holding one executable of the given name. */
+  function dirWith(name: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "harness-detect-"));
+    const file = join(dir, name);
+    writeFileSync(file, "#!/bin/sh\nexit 0\n");
+    chmodSync(file, 0o755);
+    return dir;
+  }
+
+  it("reports override-invalid when the override points at nothing", async () => {
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { THING_PATH: "/nope/thing" },
+      pathEntries: [dirWith("thing")],
+    });
+    expect(result.path).toBeNull();
+    expect(result.reason).toBe("override-invalid");
+  });
+
+  it("reports not-on-path when nothing is found and no override is set", async () => {
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { HOME: join(tmpdir(), "definitely-absent") },
+      pathEntries: [],
+    });
+    expect(result.path).toBeNull();
+    expect(result.reason).toBe("not-on-path");
+  });
+
+  it("returns the path and no reason when found on PATH", async () => {
+    const dir = dirWith("thing");
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], { env: {}, pathEntries: [dir] });
+    expect(result.path).toBe(join(dir, "thing"));
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("returns the path and no reason for a good override", async () => {
+    const good = join(dirWith("thing"), "thing");
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { THING_PATH: good },
+      pathEntries: [],
+    });
+    expect(result.path).toBe(good);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("returns the path and no reason for a known location under HOME", async () => {
+    const home = mkdtempSync(join(tmpdir(), "harness-detect-home-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "thing"), "#!/bin/sh\n");
+    chmodSync(join(bin, "thing"), 0o755);
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", ["bin/thing"], {
+      env: { HOME: home },
+      pathEntries: [],
+    });
+    expect(result.path).toBe(join(bin, "thing"));
+    expect(result.reason).toBeUndefined();
+  });
+});
+
+/**
+ * The rung that was added and then never ran.
+ *
+ * `detectBinary` used to build `pathEntries` from `process.env.PATH` before
+ * delegating. That key means "the caller is describing the world it wants
+ * searched" and suppresses the login-shell rung, and an array is truthy, so
+ * every production caller skipped rung 4 while the rung's own test, which
+ * omits the key, kept passing. The service-PATH bug rung 4 exists to fix was
+ * therefore still live after the fix landed. These pin the entry point rather
+ * than the helper, because the helper was never the broken half.
+ */
+describe("detectBinary reaches the login-shell rung", () => {
+  afterEach(() => {
+    resetLoginPathForTests();
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+  });
+
+  let savedPath: string | undefined;
+
+  it("finds a binary that only the login PATH can reach", async () => {
+    savedPath = process.env.PATH;
+    // With no PATH at all, rungs 2 and 3 cannot answer, so only the login
+    // shell can. `sh` is on every POSIX login PATH, which makes this
+    // deterministic rather than dependent on what this machine has installed.
+    process.env.PATH = "";
+    const result = await detectBinary("sh", "SH_PATH_XYZ", []);
+    const login = await loginPathEntries();
+    if (login.length === 0) return; // A container with no usable login profile.
+    expect(result.path).not.toBeNull();
+    expect(login.some((d) => result.path === join(d, "sh"))).toBe(true);
+  });
+
+  it("still lets an injected pathEntries suppress the login rung", async () => {
+    savedPath = process.env.PATH;
+    process.env.PATH = "";
+    const result = await detectBinaryWithOptions("sh", "SH_PATH_XYZ", [], {
+      env: { HOME: join(tmpdir(), "definitely-absent") },
+      pathEntries: [],
+    });
+    expect(result.path).toBeNull();
+    expect(result.reason).toBe("not-on-path");
   });
 });
 

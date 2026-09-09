@@ -22,6 +22,11 @@ export function getHarness(id: string): HarnessPlugin | undefined {
   return ALL_HARNESSES.find((h) => h.id === id);
 }
 
+export {
+  type DetectionReason,
+  type DetectionResult,
+  detectBinary,
+} from "./binary-lookup.js";
 export { ClaudeCodePlugin } from "./claude-code.js";
 export { CodexPlugin } from "./codex.js";
 export { HermesPlugin } from "./hermes.js";
@@ -47,3 +52,4 @@ export type {
 } from "./types.js";
 export { MCP_SERVER_NAME } from "./types.js";
 export { validateGenericProfile } from "./validate.js";
+export { versionManagerBins } from "./version-manager-paths.js";
