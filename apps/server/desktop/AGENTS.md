@@ -304,39 +304,121 @@ The console has a real CSP (`script-src 'self'`), which is why its logic lives
 in `ui/main.js` rather than inline — and why `ui/config-form.js` is a sibling
 ES module rather than anything bundled.
 
-**The configure form's seeding rule is a contract, not a rendering.** A save is
-a non-interactive `init --yes`, and `configure` resolves every key it was given
-no flag for to that key's STORED value — so what the form sends decides whether
-a save preserves config.env or rewrites it, and both ways of getting it wrong
-are silent. `ui/config-form.js` holds the two pure halves (`seedForm`,
-`configPayload`, `fieldProblems`) and `test/config-form.test.js` covers them —
-OUTSIDE `ui/`, because `frontendDist` is `../ui` and that whole directory is
-copied into the shipped bundle, so a `ui/__tests__/` would put a file importing
-`bun:test` inside the installed app. `package.json`'s `test` runs
-`bun test src test`, and a guard in that same file fails if any test source
-reappears under the asset root:
+**What the configure form SENDS is a contract, not a rendering.** A save is a
+non-interactive `init --yes`, and `configure` resolves every key it was given no
+flag for to that key's STORED value, so what the form sends decides whether a
+save preserves config.env or rewrites it, and both ways of getting it wrong are
+silent. `ui/config-form.js` holds the pure halves (`effectiveForm`,
+`explicitFields`, `derivedBaseUrl`, `configPayload`, `fieldProblems`) and
+`test/config-form.test.js` covers them, OUTSIDE `ui/`, because `frontendDist`
+is `../ui` and that whole directory is copied into the shipped bundle, so a
+`ui/__tests__/` would put a file importing `bun:test` inside the installed app.
+`package.json`'s `test` runs `bun test src test`, and a guard in that same file
+fails if any test source reappears under the asset root.
 
-- A field is seeded only when `status --json` reports its `source` as something
-  other than `default`. `status` reports the value the server WOULD boot with,
-  so every key always has a value, and seeding a `default`-sourced one would
-  materialize a built-in into config.env as though someone had chosen it.
+The fields are PREFILLED with the effective configuration (2026-09-09), which
+moved that contract rather than removing it:
 
-  **What that rule does NOT do is prevent the stale-port case**, and it is
-  worth being exact because the reverse is easy to assume. `APP_BASE_URL` is in
-  `OWNED_KEYS`, so it is written on every save — which means after the FIRST
-  save it is `config.env`-sourced forever, the field is always seeded, and
-  changing only the port leaves a base URL naming a port nothing listens on.
-  The guard there is `configure`'s port-mismatch warning, not the seeding
-  rule; the console shows the CLI's stdout verbatim, so the warning is what
-  the user actually reads. The seeding rule's job is narrower and still worth
-  having: a fresh install does not get its built-ins frozen into the file, and
-  a base URL the user never chose keeps being derived from the port they
-  answer.
-- Every field is sent every time, empty included, because an omitted flag now
-  means "keep the file". The Rust side (`init_args`) turns an empty
-  `port`/`host`/`base_url` into an omitted flag — the CLI refuses an empty value
-  for those — while `trusted_origins` is passed through even when empty, since
-  it is the one emptyable flag and the only way to clear a list.
+- **Blankness used to mean "nobody chose this"**, which is how the CLI was told
+  to keep deriving a value. A filled form cannot say that, so `explicitFields`
+  does: a field is sent only when its `status --json` `source` is something
+  other than `default`, or the user has typed in it since. `configPayload`
+  sends an empty string for anything else, and the Rust side turns that into an
+  omitted flag.
+- **It keys on CHOSEN, not on EDITED, and the difference is a data-loss bug.**
+  `trusted_origins` is the one emptyable flag: empty means "no extra
+  addresses". Keyed on editing alone, opening the form and saving without
+  touching that field sends empty and WIPES a stored list. So a value already
+  in config.env is sent even when untouched.
+- **`trustedOrigins` is never prefilled.** Its default is
+  `DEFAULT_TRUSTED_ORIGINS`, the two dev Vite origins, which as a suggestion to
+  someone configuring an instance would be actively misleading. Its label says
+  `(optional)` and it stays blank.
+- **A prefilled base URL follows the port while nobody has edited it**
+  (`derivedBaseUrl`). The save is safe without that, since an unedited field is
+  sent empty and the CLI re-derives — but a filled field reading
+  `http://localhost:3080` beside a port of 4000 looks like what is about to be
+  written.
+
+**What none of this does is prevent the stale-port case**, and it is worth
+being exact because the reverse is easy to assume. `APP_BASE_URL` is in
+`OWNED_KEYS`, so it is written on every save, which means after the FIRST save
+it is `config.env`-sourced forever, always sent, and changing only the port
+leaves a base URL naming a port nothing listens on. The guard there is
+`configure`'s port-mismatch warning, not anything here; the console shows the
+CLI's stdout verbatim, so that warning is what the user actually reads. What
+this side buys is narrower and still worth having: a fresh install does not get
+its built-ins frozen into the file.
+
+**First-run configure also installs and starts the service.** "Save and start"
+writes config.env and then installs the service, because there is no reason to
+configure a server on this machine and not run it. That takes a fresh machine
+to two clicks and a form. It is not one click, and that is deliberate: the
+form's prefilled values come from asking the INSTALLED server for its own
+settings, so merging the install step would show an empty form on exactly the
+run where prefill helps. The `install-service` step remains for the case that
+means something, a config that already exists with no service.
+
+## The console's own panes
+
+The bottom of the console is ONE region with two tabs: the server log, which is
+true all the time, and the last command's output, which takes the foreground
+when there is one. Two tabs rather than two stacked panes because a second
+always-on block pushed the step actions off the bottom of a 620px window.
+
+`desktop_logs` is console-only and **takes no argument**. A path parameter
+would be an arbitrary-file read reachable from a page, which is the same reason
+`desktop_open_path` names a closed enum. The platforms differ in MECHANISM,
+not just in path: Linux has no log file at all, so the tail is a `journalctl`
+query against the user unit, while macOS has the file the plist names and the
+CLI stays the authority on where. It never returns an `Err` — no service yet,
+no entries yet, and a file launchd has not created are the ordinary states of a
+machine mid-setup, and an error banner for them would train the user to ignore
+the pane.
+
+The console **re-probes itself every 5 seconds** (`POLL_MS`), so there is no
+Refresh button: the manager's whole subject is state this app does not own, and
+a button could only ever save the remainder of one interval while implying the
+rest of the panel might be stale. The poll skips while an action is in flight
+(it would race that action's own settle) and while the window is hidden, and it
+re-probes at once on becoming visible. It is also what drives the tray's
+enabled state, since `desktop_probe` is the one place that updates.
+
+## Windows, and getting them in front
+
+**`show` + `unminimize` + `set_focus` does not raise a window on Linux.** A
+Wayland compositor refuses an activation request from a surface that is not
+already active, so `set_focus` returns `Ok` and nothing moves. That is
+invisible with one window and a bug the moment two exist, which is this app's
+normal shape: "Manage server" brought the console back UNDERNEATH the
+dashboard, so nothing appeared to happen. Every site goes through
+`windows::raise`, which adds a momentary always-on-top on Linux, cleared from a
+short-lived thread — a compositor that coalesces set-and-clear never raises at
+all.
+
+**The console is MINIMIZED when the dashboard appears, never hidden**
+(`tuck_console`). A hidden window is reachable only through the tray, and the
+Linux tray icon is drawn only where a StatusNotifier host is registered, so
+hiding would strand the console on a stock GNOME exactly as `close_to_tray`
+would. It is called only where the dashboard becomes VISIBLE — the focus path,
+the handshake, the six-second fallback — because the window is created hidden
+and tucking at creation would leave nothing on screen at all.
+
+**The window-state plugin restores size and position but NOT maximized or
+fullscreen**, and a newly created dashboard clears both. A window maximized
+once otherwise reopens maximized forever, and a compositor maximizing it on
+the user's behalf is enough to latch that. Cleared on creation only, so
+maximizing during a session still sticks for that session.
+
+**The tray has no "New Subshell".** It dispatched an action INTO the SPA, so
+being enabled needed more than a running server: a server with no users is
+sitting on the setup wizard. Nothing this side can see distinguishes those
+states — `status --json` carries no user state by design, `ShellReady` fires
+from the SPA root on purpose, and there is no HTTP client here to ask
+`/api/setup/status`. The tray is a shortcut and never the only route, so the
+item is gone rather than gated. That leaves `menu.rs` as the only consumer of
+`bridge.rs`, and since the menu bar is macOS-only, `bridge` is gated at the
+MODULE — on Linux it is otherwise entirely dead code.
 
 ## Native chrome
 
