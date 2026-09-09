@@ -54,7 +54,7 @@ export function harnessToggleErrorMessage(err: unknown): string {
   // The HTTP status, not its string rendering: ApiError carries it as a
   // number (lib/api.ts), so this survives message/format changes.
   if (err instanceof ApiError && err.status === 409)
-    return "Not installed on this node yet — install it, then re-check.";
+    return "Not installed on this node yet. Install it, then re-check.";
   return "Could not change the harness state.";
 }
 

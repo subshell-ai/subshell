@@ -90,7 +90,7 @@ export function AddNodeDialog({
       setBaselineCount(nodeCount);
       setName("");
     } catch (err) {
-      setFormError(errMessage(err, "Something went wrong — no key was created."));
+      setFormError(errMessage(err, "Something went wrong. No key was created."));
     }
   }
 
@@ -127,7 +127,7 @@ export function AddNodeDialog({
   // needs the key) stays a step-2 thing.
   const missingNote = missingTargets.length > 0 && (
     <p className="text-amber-600 text-xs dark:text-amber-400">
-      This server has no agent binary published for: {missingTargets.join(", ")} — the install command 404s on those
+      This server has no agent binary published for: {missingTargets.join(", ")}. The install command 404s on those
       machines. Publish the binaries on the server (run <code className="font-mono">bun run release:node</code> from a
       checkout, or copy the binaries from a node-vX.Y.Z GitHub Release into its node-artifacts dir), or install the
       agent another way and enroll directly.
@@ -148,7 +148,7 @@ export function AddNodeDialog({
             <DialogHeader>
               <DialogTitle>Run this on the new machine</DialogTitle>
               <DialogDescription>
-                The setup key below is shown once — copy the command now; a lost key means creating a new one.
+                The setup key below is shown once. Copy the command now; a lost key means creating a new one.
               </DialogDescription>
             </DialogHeader>
             <div className="flex items-center gap-2">
@@ -167,17 +167,17 @@ export function AddNodeDialog({
             {unknownNote}
             {isLoopbackUrl(baseUrl) && (
               <p className="text-amber-600 text-xs dark:text-amber-400">
-                APP_BASE_URL points at loopback ({baseUrl}) — a remote node cannot dial this machine from itself;
-                replace the host with this machine's VPN/LAN address (or set APP_BASE_URL).
+                APP_BASE_URL points at loopback ({baseUrl}). A remote node cannot dial this machine from itself; replace
+                the host with this machine's VPN/LAN address (or set APP_BASE_URL).
               </p>
             )}
             <p className="text-destructive text-xs">
               Single-use, expires in 24 h. This is the only time the full key is shown.
             </p>
             {enrolled ? (
-              <p className="text-sm text-success">Node enrolled — close this dialog to see it in the list.</p>
+              <p className="text-sm text-success">Node enrolled. Close this dialog to see it in the list.</p>
             ) : (
-              <p className="text-muted-foreground text-sm">Waiting for enrollment — run the command on that machine.</p>
+              <p className="text-muted-foreground text-sm">Waiting for enrollment. Run the command on that machine.</p>
             )}
             <DialogFooter>
               <Button onClick={close}>Done</Button>
@@ -187,7 +187,7 @@ export function AddNodeDialog({
           <form onSubmit={(e) => void submit(e)}>
             <DialogHeader>
               <DialogTitle>Add a node</DialogTitle>
-              <DialogDescription>Name the machine — a single-use setup key is created for it.</DialogDescription>
+              <DialogDescription>Name the machine. A single-use setup key is created for it.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
               <Label htmlFor="node-name">Node name</Label>

@@ -147,8 +147,8 @@ function SetupPage() {
           {step === 1 && (
             <div className="space-y-3">
               <p className="text-muted-foreground text-sm">
-                Install a coding-agent CLI and switch it on to run real subshells. You can change this later in Settings
-                — a blank default profile is already set up for every harness.
+                Install a coding-agent CLI and switch it on to run real subshells. You can change this later in
+                Settings, and a blank default profile is already set up for every harness.
               </p>
               {/* First-run dead-end fix: while the registry is in flight the
                   step used to show nothing, and an error left it blank forever. */}

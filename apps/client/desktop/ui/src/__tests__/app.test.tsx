@@ -328,7 +328,7 @@ describe("enrolment is two-phase", () => {
     typeInto("Setup key", "nsk_short");
     fireEvent.click(button("Enroll this machine"));
 
-    await waitFor(() => expect(screen.getByText(/include the scheme/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Include the scheme/)).toBeTruthy());
     expect(screen.getByText(/partial paste/)).toBeTruthy();
     expect(fake.callsTo("node_enroll").length).toBe(0);
   });
@@ -781,12 +781,12 @@ describe("the facts", () => {
     expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
     expect(screen.getByText("https://subshell.example.com")).toBeTruthy();
     expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
-    expect(screen.getByText(/online — last heartbeat 4s ago/)).toBeTruthy();
+    expect(screen.getByText(/online \(last heartbeat 4s ago\)/)).toBeTruthy();
   });
 
   it("shouts when tmux is missing, because a node without it refuses every launch", async () => {
     await boot({ probe: makeProbe({ tmux: null }) });
-    expect(screen.getByText(/NOT FOUND — enroll refuses/)).toBeTruthy();
+    expect(screen.getByText(/NOT FOUND: enroll refuses/)).toBeTruthy();
   });
 
   it("shows the node name only when this session chose it", async () => {

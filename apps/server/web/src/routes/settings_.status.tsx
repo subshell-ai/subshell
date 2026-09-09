@@ -82,7 +82,7 @@ function ServerStatusPage() {
         </>
       ) : (
         <p className="text-muted-foreground text-sm">
-          Server status is for instance admins — your settings live under{" "}
+          Server status is for instance admins; your settings live under{" "}
           <Link to="/preferences" className="underline">
             Preferences
           </Link>{" "}

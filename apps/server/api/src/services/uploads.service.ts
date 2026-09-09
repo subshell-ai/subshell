@@ -362,7 +362,7 @@ export async function writeUploadRemote(nodeId: string, workingRealPath: string,
     throw new UploadError("Upload target must be an absolute path on the node");
   }
   logger.debug(
-    `remote upload to node "${nodeId}": ${bytes.byteLength} bytes -> ${path} (git-exclude skipped — node-side git is operator-controlled)`,
+    `remote upload to node "${nodeId}": ${bytes.byteLength} bytes -> ${path} (git-exclude skipped: node-side git is operator-controlled)`,
   );
 
   const chunkCount = Math.max(1, Math.ceil(bytes.byteLength / UPLOAD_CHUNK_BYTES));

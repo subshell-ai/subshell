@@ -28,7 +28,7 @@ export const getSubshellLogRoute = new Elysia()
       detail: {
         operationId: "getSubshellLogTail",
         tags: ["subshells"],
-        description: "Tail of the subshell's pane log (ANSI-stripped) — why a harness exited, if it did",
+        description: "Tail of the subshell's pane log (ANSI-stripped): why a harness exited, if it did",
       },
     },
   );

@@ -85,7 +85,7 @@ export function NodePlaneCard(props: {
              */}
             <p className="text-muted-foreground text-xs">
               Repointing keeps this node's identity, so it works when both are the same control plane under two names. A
-              different control plane holds no key for this node and will refuse it — the node would go offline, and
+              different control plane holds no key for this node and will refuse it. The node would go offline, and
               joining that one means enrolling with a setup key from it.
             </p>
             {/*
@@ -98,7 +98,7 @@ export function NodePlaneCard(props: {
              */}
             <p className="text-muted-foreground text-xs">
               This notice clears as soon as the file changes, but the running agent keeps using the old address until it
-              restarts — restart it below to finish the move.
+              restarts. Restart it below to finish the move.
             </p>
             <div>
               {/*
@@ -139,7 +139,7 @@ export function NodePlaneCard(props: {
               Control plane this node reports to
             </Label>
             <p className="text-muted-foreground text-xs">
-              Keeps this node's identity — no setup key is spent — so this works when the new address is the same
+              Keeps this node's identity, and no setup key is spent, so this works when the new address is the same
               control plane under another name. A different control plane holds no key for this node and will refuse it.
               The agent reads its configuration at start, so restart it afterwards to apply, and this app's own
               control-plane window moves to the new address too.

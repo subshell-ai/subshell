@@ -102,7 +102,7 @@ function mockExplore(tree: Record<string, unknown>, opts: { nodeCode?: string; n
           JSON.stringify({
             errId: "t",
             code: opts.nodeCode,
-            message: "The subshell app on this node is too old to browse folders there — update it.",
+            message: "The subshell app on this node is too old to browse folders there. Update it.",
             statusCode: opts.nodeStatus ?? 409,
           }),
           { status: opts.nodeStatus ?? 409 },
@@ -202,7 +202,7 @@ describe("DirectoryPickerInput", () => {
     try {
       renderField({ value: "/srv", nodeId: "node-7", nodeName: "Mac Mini" });
       fireEvent.focus(screen.getByRole("textbox"));
-      await screen.findByText(/Mac Mini is too old to browse folders there — update it\./);
+      await screen.findByText(/Mac Mini is too old to browse folders there\. Update it\./);
       expect(screen.queryByText("Couldn't browse this path.")).toBeNull();
       // Neither the path-correction branch nor Start over applies: the path
       // was fine, the AGENT is not.

@@ -45,7 +45,7 @@ const CreateUserResponseSchema = t.Object({
 const ListUsersResponseSchema = t.Object({
   viewerIsAdmin: t.Boolean({
     description:
-      "True only for a cookie-session admin — mirrors the POST gate, so machine credentials never see the admin UI",
+      "True only for a cookie-session admin; mirrors the POST gate, so machine credentials never see the admin UI",
   }),
   users: t.Array(UserRowSchema, { description: "All users with roles, newest first" }),
 });
@@ -92,7 +92,7 @@ const RoleResponseSchema = t.Object({
 const PasswordBodySchema = t.Object({
   password: t.String({
     description:
-      "New password, at least 8 characters. Never logged, echoed, or audited — the length bound is checked in the handler precisely so a rejection cannot quote it",
+      "New password, at least 8 characters. Never logged, echoed, or audited; the length bound is checked in the handler precisely so a rejection cannot quote it",
   }),
 });
 
@@ -100,7 +100,7 @@ const PasswordResponseSchema = t.Object({
   id: t.String({ description: "User id" }),
   email: t.String({ description: "User email" }),
   sessionsRevoked: t.Number({
-    description: "How many of that user's sessions were signed out — a reset always evicts every one of them",
+    description: "How many of that user's sessions were signed out; a reset always evicts every one of them",
   }),
 });
 
@@ -253,7 +253,7 @@ const adminOnly = new Elysia()
         operationId: "resetUserPassword",
         tags: ["users"],
         description:
-          "Sets another user's password and signs out all of their sessions (admin only, cookie session). Refuses on self — use Account, which requires the current password",
+          "Sets another user's password and signs out all of their sessions (admin only, cookie session). Refuses on self; use Account, which requires the current password",
       },
     },
   )

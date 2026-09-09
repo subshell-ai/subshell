@@ -37,7 +37,7 @@ export const getNodeSharesRoute = new Elysia()
       detail: {
         operationId: "getNodeShares",
         tags: ["nodes"],
-        description: "List a node's sharing grants (manager only — owner, or admin on local)",
+        description: "List a node's sharing grants (manager only: owner, or admin on local)",
       },
     },
   );

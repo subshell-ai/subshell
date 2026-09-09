@@ -224,7 +224,7 @@ export class SubshellManagerService {
     if (!facts) throw new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId);
     if (!facts.capabilities.includes("mcp")) {
       logger.debug(
-        `subshell ${subshellId}: node "${nodeId}" did not advertise the "mcp" capability — subshell mcp not registered for this launch`,
+        `subshell ${subshellId}: node "${nodeId}" did not advertise the "mcp" capability; subshell mcp not registered for this launch`,
       );
       return { facts };
     }
@@ -658,7 +658,7 @@ export class SubshellManagerService {
         if (!isNodeOfflineError(err)) throw err;
         killUnverified = true;
         logger.warn(
-          `subshell ${id}: node "${row.nodeId}" is offline — pane kill UNVERIFIED, retiring the row anyway (spec §5.6)`,
+          `subshell ${id}: node "${row.nodeId}" is offline; pane kill UNVERIFIED, retiring the row anyway (spec §5.6)`,
         );
       }
     }
@@ -800,7 +800,7 @@ export class SubshellManagerService {
       // launch through anyway. The backoff schedule set above re-tries on
       // the next tick; the node coming back is what unblocks the restart.
       if (isNodeOffline(fresh.nodeId)) {
-        logger.debug(`subshell ${fresh.id}: auto-restart deferred — node "${fresh.nodeId}" has no live connection`);
+        logger.debug(`subshell ${fresh.id}: auto-restart deferred: node "${fresh.nodeId}" has no live connection`);
         return false;
       }
       // A restart IS a new subshell, so it obeys the same rule the create
@@ -811,7 +811,7 @@ export class SubshellManagerService {
       // makes the next tick respawn the pane.
       if (!(await harnessUsable(fresh.harnessId, fresh.nodeId))) {
         logger.debug(
-          `subshell ${fresh.id}: auto-restart deferred — harness "${fresh.harnessId}" is disabled or not installed`,
+          `subshell ${fresh.id}: auto-restart deferred: harness "${fresh.harnessId}" is disabled or not installed`,
         );
         return false;
       }

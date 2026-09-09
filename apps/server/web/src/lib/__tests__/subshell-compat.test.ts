@@ -118,6 +118,6 @@ describe("buildNodeOptions", () => {
       PROF,
       null,
     );
-    expect(opts[0]).toEqual({ value: "a2", label: "old — offline", disabled: true });
+    expect(opts[0]).toEqual({ value: "a2", label: "old (offline)", disabled: true });
   });
 });

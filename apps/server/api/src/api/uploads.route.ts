@@ -87,7 +87,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
             409,
             apiErrorBody({
               code: BackendErrorCodes.NODE_OFFLINE,
-              message: `The subshell's node "${row.nodeId}" is offline — start its agent and retry`,
+              message: `The subshell's node "${row.nodeId}" is offline; start its agent and retry`,
             }),
           );
         }
@@ -114,7 +114,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
                   409,
                   apiErrorBody({
                     code: BackendErrorCodes.NODE_OFFLINE,
-                    message: "The node dropped the connection mid-upload — re-run the upload",
+                    message: "The node dropped the connection mid-upload; re-run the upload",
                   }),
                 )
               : status(
@@ -130,7 +130,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
                     // re-running the upload NEVER succeeds — only a relaunch
                     // does. Do not promise a self-heal here.
                     message:
-                      "The node failed to store the file — the agent only accepts files for a running subshell; restart the subshell and upload again",
+                      "The node failed to store the file; the agent only accepts files for a running subshell; restart the subshell and upload again",
                   }),
                 );
           }

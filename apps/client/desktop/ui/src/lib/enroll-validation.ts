@@ -43,7 +43,7 @@ export function validateEnroll(values: EnrollValues): EnrollValidation {
       parsed = null;
     }
     if (parsed === null) {
-      errors.server = `'${server}' is not a full URL — include the scheme, e.g. https://subshell.example.com`;
+      errors.server = `'${server}' is not a full URL. Include the scheme, e.g. https://subshell.example.com`;
     } else if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       errors.server = `The server URL must be http or https, not '${parsed.protocol.replace(":", "")}'.`;
     } else if (parsed.hostname === "") {
@@ -59,7 +59,7 @@ export function validateEnroll(values: EnrollValues): EnrollValidation {
 
   const nameLength = [...name].length;
   if (nameLength > MAX_NODE_NAME_LEN) {
-    errors.name = `That name is ${nameLength} characters — the control plane accepts at most ${MAX_NODE_NAME_LEN}.`;
+    errors.name = `That name is ${nameLength} characters. The control plane accepts at most ${MAX_NODE_NAME_LEN}.`;
   }
 
   return {

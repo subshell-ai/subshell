@@ -74,7 +74,7 @@ function NodeDetailPage() {
       <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
         <PageHeader title="Node" subtitle="Machine details" />
         <ErrorBanner
-          message="Couldn't load this node — it may not exist, or it may be private to its owner."
+          message="Couldn't load this node. It may not exist, or it may be private to its owner."
           className="rounded-md border"
           action={
             <Button
@@ -249,10 +249,10 @@ function NodeDetailPage() {
           </Button>
           {recheck.isError && (
             <p role="alert" className="text-destructive text-sm">
-              {errMessage(recheck.error, "Re-check failed — the node may be offline.")}
+              {errMessage(recheck.error, "Re-check failed. The node may be offline.")}
             </p>
           )}
-          {recheck.isSuccess && <p className="text-success text-xs">Re-check sent — inventory will refresh shortly.</p>}
+          {recheck.isSuccess && <p className="text-success text-xs">Re-check sent. Inventory will refresh shortly.</p>}
         </div>
       )}
 

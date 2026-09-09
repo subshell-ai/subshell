@@ -199,7 +199,7 @@ export function originProblem(entry: string): string | null {
   // better-auth reads it as a pattern that matches nothing.
   if (url !== null && (url.search !== "" || url.hash !== "")) {
     const part = url.search !== "" ? "query" : "fragment";
-    return `'${entry}' carries a ${part}, and an Origin header never does — it will not match`;
+    return `'${entry}' carries a ${part}, and an Origin header never does; it will not match`;
   }
   if (/[*?]/.test(entry)) return null;
   if (!isHttpOrigin(entry)) {
@@ -226,7 +226,7 @@ export function originProblem(entry: string): string | null {
       const usable = isHttpOrigin(candidate) && !hasCredentials(candidate);
       return (
         `'${entry}' has no http(s) scheme, so a browser's Origin header can never equal it` +
-        (usable ? ` — browsers send e.g. "${canonicalOrigin(candidate)}"` : "")
+        (usable ? `: browsers send e.g. "${canonicalOrigin(candidate)}"` : "")
       );
     }
     // A WRONG scheme is a different mistake, and it needs a different
@@ -238,14 +238,14 @@ export function originProblem(entry: string): string | null {
     // Has a scheme, but the parser could not make a URL of it — an
     // out-of-range port, a malformed host, no authority at all.
     if (url === null) {
-      return `'${entry}' could not be parsed as a URL — check the host and the port`;
+      return `'${entry}' could not be parsed as a URL; check the host and the port`;
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-      const usable = url.host === "" ? "" : ` — browsers send e.g. "http://${url.host}"`;
+      const usable = url.host === "" ? "" : `: browsers send e.g. "http://${url.host}"`;
       return `'${entry}' uses the '${url.protocol}' scheme, and a browser's Origin is only ever http(s)${usable}`;
     }
     // Query and fragment are handled above, so a survivor here is a path.
-    return `'${entry}' carries a path, and an Origin header never does — it will not match`;
+    return `'${entry}' carries a path, and an Origin header never does; it will not match`;
   }
   const canonical = canonicalOrigin(entry);
   if (canonical !== entry) {
@@ -267,7 +267,7 @@ export function baseUrlProblem(value: string): string | null {
   if (isHttpUrl(value)) return null;
   return (
     `'${value}' is not a full http(s) URL, so this instance's own origin is missing from the ` +
-    'allowlist — sign-in from the address you browse will fail with 403 "Invalid origin"'
+    'allowlist; sign-in from the address you browse will fail with 403 "Invalid origin"'
   );
 }
 
@@ -306,7 +306,7 @@ function validateTrustedOrigins(value: string): string | null {
     // field — can write.
     if (/[*?]/.test(entry)) {
       return (
-        `invalid trusted origin '${entry}': wildcards are not accepted — this list must name each ` +
+        `invalid trusted origin '${entry}': wildcards are not accepted; this list must name each ` +
         "address exactly, because a pattern would let an origin nobody enumerated sign in"
       );
     }
@@ -314,7 +314,7 @@ function validateTrustedOrigins(value: string): string | null {
     // than about a shape that would otherwise look acceptable.
     if (hasCredentials(entry)) {
       return (
-        `invalid trusted origin '${entry}': it carries a username or password, and an origin cannot — ` +
+        `invalid trusted origin '${entry}': it carries a username or password, and an origin cannot; ` +
         "drop the credentials rather than having them silently discarded"
       );
     }
@@ -353,7 +353,7 @@ export function validateValue(key: ConfigKey, value: string): string | null {
       // route back. `status` already applies exactly this rule when deciding
       // `portValid`; this is the writer agreeing with both of its readers.
       if (String(n) !== value) {
-        return `invalid port '${value}': write it as '${n}' — a leading zero is refused when the server boots`;
+        return `invalid port '${value}': write it as '${n}'; a leading zero is refused when the server boots`;
       }
       return null;
     }

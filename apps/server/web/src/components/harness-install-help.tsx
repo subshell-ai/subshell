@@ -26,7 +26,7 @@ export function HarnessInstallHelp({
   if (harness.installed) {
     return (
       <p className="text-muted-foreground text-xs">
-        Installed but disabled — its profiles are hidden until you enable it.
+        Installed but disabled. Its profiles are hidden until you enable it.
       </p>
     );
   }
@@ -51,7 +51,7 @@ export function HarnessInstallHelp({
   return (
     <div className="space-y-2">
       <p className="text-muted-foreground text-xs">
-        Not installed — the <code className="font-mono">{harness.id}</code> command wasn't found. To install it:
+        Not installed: the <code className="font-mono">{harness.id}</code> command wasn't found. To install it:
       </p>
       <CopyCommandRow text={harness.install.command} />
       <div className="flex items-center gap-3 text-xs">

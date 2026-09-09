@@ -57,7 +57,7 @@ export async function loadOrCreateIdentity(dataDir: string): Promise<AgentIdenti
       // Best-effort quarantine; the refusal below stands either way.
     }
     throw new Error(
-      `identity file '${file}' is unreadable (${reason}) — refusing to overwrite existing key material` +
+      `identity file '${file}' is unreadable (${reason}); refusing to overwrite existing key material` +
         (quarantined ? `; moved it aside to '${quarantined}'` : "; could not move it aside"),
     );
   }

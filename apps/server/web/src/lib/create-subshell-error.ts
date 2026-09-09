@@ -21,10 +21,10 @@ import { ApiError, errMessage } from "@/lib/api";
 export function createSubshellErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     if (err.code === BackendErrorCodes.NODE_OFFLINE) {
-      return "That node is offline — start its subshell or pick another node.";
+      return "That node is offline. Start its subshell or pick another node.";
     }
     if (err.code === BackendErrorCodes.NODE_UNREACHABLE) {
-      return "The node did not answer — try again shortly.";
+      return "The node did not answer. Try again shortly.";
     }
   }
   return errMessage(err, fallback);

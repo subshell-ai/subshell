@@ -34,7 +34,7 @@ function EditProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle>Couldn't load this profile</CardTitle>
-            <CardDescription>The request failed — check your connection, then try again.</CardDescription>
+            <CardDescription>The request failed. Check your connection, then try again.</CardDescription>
           </CardHeader>
           <CardContent className="flex gap-2">
             <Button onClick={() => void refetch()}>Retry</Button>

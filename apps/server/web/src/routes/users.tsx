@@ -127,7 +127,7 @@ function UsersPage() {
         <Card>
           <CardHeader>
             <CardTitle>Users</CardTitle>
-            <CardDescription>Couldn&apos;t load the roster — check your connection or sign in again.</CardDescription>
+            <CardDescription>Couldn&apos;t load the roster. Check your connection or sign in again.</CardDescription>
           </CardHeader>
         </Card>
       </main>
@@ -274,7 +274,7 @@ function UsersPage() {
                 first; the trail follows its vocabulary. */}
             {auditIsError ? (
               <p className="text-muted-foreground text-sm">
-                Couldn&apos;t load the audit trail — check your connection or sign in again.
+                Couldn&apos;t load the audit trail. Check your connection or sign in again.
               </p>
             ) : auditIsLoading ? (
               <p className="text-muted-foreground text-sm">Loading…</p>

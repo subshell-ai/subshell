@@ -75,7 +75,7 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
           {grid && settled ? (
             <>
               Pane is {grid.cols}×{grid.rows}
-              {pinnedId ? " — pinned" : " — sized so every device fits"}
+              {pinnedId ? " (pinned)" : " (sized so every device fits)"}
             </>
           ) : (
             "Measuring…"

@@ -77,7 +77,7 @@ export function HarnessRow({ harness, pending, error, onToggle, onRecheck }: Har
       {!harness.installed && <HarnessInstallHelp harness={harness} onRecheck={onRecheck} />}
       {harness.installed && !harness.enabled && (
         <p className="text-muted-foreground text-xs">
-          Disabled — its profiles are hidden and new subshells can't start. Running subshells keep going.
+          Disabled. Its profiles are hidden and new subshells can't start. Running subshells keep going.
         </p>
       )}
       {error && <p className="text-destructive text-xs">{error}</p>}

@@ -37,13 +37,13 @@ export interface CliResult {
   keepAlive?: boolean;
 }
 
-const USAGE = `subshell — node agent daemon
+const USAGE = `subshell: node agent daemon
 
 usage:
   subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
   subshell configure --server <url> [--json]
                           repoint an ALREADY-enrolled node at a different control
-                          plane — keeps this node's identity and spends no setup
+                          plane. Keeps this node's identity and spends no setup
                           key; restart the agent to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page)
   subshell run
@@ -53,7 +53,7 @@ usage:
   subshell status [--json] [--probe]
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
-  subshell mcp            (stdio MCP server for a subshell pane — internal)
+  subshell mcp            (stdio MCP server for a subshell pane, internal)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -155,7 +155,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (subcommands && sub === undefined && !rest[i].startsWith("--")) {
       if (!subcommands.includes(rest[i])) {
         throw new UsageError(
-          `unknown ${command} subcommand '${rest[i]}' — ${command} requires ${subcommands.join(" or ")}`,
+          `unknown ${command} subcommand '${rest[i]}': ${command} requires ${subcommands.join(" or ")}`,
         );
       }
       sub = rest[i];
@@ -206,7 +206,7 @@ function assertSubcommandFlags(command: string, sub: string, used: string[]): vo
   const owners = Object.entries(perSub)
     .filter(([, list]) => list.includes(stray))
     .map(([name]) => `'${command} ${name}'`);
-  const hint = owners.length > 0 ? ` — only ${owners.join(" and ")} accepts it` : "";
+  const hint = owners.length > 0 ? `; only ${owners.join(" and ")} accepts it` : "";
   throw new UsageError(`flag '${stray}' is not valid for '${command} ${sub}'${hint}`);
 }
 
@@ -324,7 +324,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           };
           return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
         }
-        return { code: 0, out: `Enrolled as ${enrolled.nodeId} — next: subshell run\n`, err: "" };
+        return { code: 0, out: `Enrolled as ${enrolled.nodeId}. Next: subshell run\n`, err: "" };
       }
       case "configure": {
         // A usage error, not a runtime one: "configure with no flags" is a
@@ -387,21 +387,21 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         if (lock) {
           online = true;
           daemonAgeMs = Math.max(0, Date.now() - Date.parse(lock.lastTickAt));
-          line = `node ${cfg.nodeId} "${cfg.name}" — ONLINE (local daemon pid ${lock.pid}, last heartbeat ${fmtAge(daemonAgeMs)} ago)`;
+          line = `node ${cfg.nodeId} "${cfg.name}": ONLINE (local daemon pid ${lock.pid}, last heartbeat ${fmtAge(daemonAgeMs)} ago)`;
         } else if (parsed.flags.probe) {
           errOut =
-            "subshell: --probe opens a live node socket — the control plane keeps the NEWEST " +
+            "subshell: --probe opens a live node socket, and the control plane keeps the NEWEST " +
             "connection, so this KICKS any subshell running elsewhere for this node (terminal " +
             "4409 for it). Only probe when you are certain no other agent is running.\n";
           probe = await probeOnline(cfg);
           online = probe;
           line = online
-            ? `node ${cfg.nodeId} "${cfg.name}" — ONLINE (probe: a socket to ${cfg.serverUrl} opened)`
-            : `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (probe: no socket to ${cfg.serverUrl} within 5 s)`;
+            ? `node ${cfg.nodeId} "${cfg.name}": ONLINE (probe: a socket to ${cfg.serverUrl} opened)`
+            : `node ${cfg.nodeId} "${cfg.name}": OFFLINE (probe: no socket to ${cfg.serverUrl} within 5 s)`;
         } else {
           line =
-            `node ${cfg.nodeId} "${cfg.name}" — OFFLINE (no local subshell running; ` +
-            `start one with \`subshell run\`, or pass --probe to ask the control plane — ` +
+            `node ${cfg.nodeId} "${cfg.name}": OFFLINE (no local subshell running; ` +
+            `start one with \`subshell run\`, or pass --probe to ask the control plane. ` +
             `a probe KICKS a remote agent!)`;
         }
         if (parsed.flags.json) {

@@ -269,7 +269,7 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
       if (existing.isDefault === 1) {
         throw new ProfileError(
           "default_profile",
-          "Default profiles can't be deleted — edit it instead, or disable the harness to hide it",
+          "Default profiles can't be deleted; edit it instead, or disable the harness to hide it",
           409,
         );
       }

@@ -21,15 +21,15 @@ describe("nodeOptionLabel", () => {
     expect(nodeOptionLabel(n)).toBe("mac-mini · darwin/arm64");
   });
 
-  it("keeps ' — offline' as the last segment, after the platform", () => {
+  it("keeps ' (offline)' as the last segment, after the platform", () => {
     const n: Row = { kind: "agent", status: "offline", name: "old", os: "linux", arch: "x64" };
-    expect(nodeOptionLabel(n)).toBe("old · linux/x64 — offline");
+    expect(nodeOptionLabel(n)).toBe("old · linux/x64 (offline)");
   });
 
   it("omits the platform when a young agent has not reported os/arch", () => {
     const online: Row = { kind: "agent", status: "online", name: "new", os: null, arch: null };
     const offline: Row = { kind: "agent", status: "offline", name: "new", os: null, arch: null };
     expect(nodeOptionLabel(online)).toBe("new");
-    expect(nodeOptionLabel(offline)).toBe("new — offline");
+    expect(nodeOptionLabel(offline)).toBe("new (offline)");
   });
 });

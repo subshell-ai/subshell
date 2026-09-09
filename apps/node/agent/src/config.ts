@@ -69,7 +69,7 @@ export async function loadConfig(): Promise<AgentConfig> {
     raw = await readFile(file, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`no config at ${file} — enroll this node first: subshell enroll --server <url> --key <nsk_…>`);
+      throw new Error(`no config at ${file}. Enroll this node first: subshell enroll --server <url> --key <nsk_…>`);
     }
     throw new Error(`cannot read config '${file}': ${(err as Error).message}`);
   }
@@ -77,11 +77,11 @@ export async function loadConfig(): Promise<AgentConfig> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`config corrupt: '${file}' is not valid JSON — re-run subshell enroll to recreate it`);
+    throw new Error(`config corrupt: '${file}' is not valid JSON. Re-run subshell enroll to recreate it`);
   }
   const obj = parsed as Record<string, unknown> | null;
   if (typeof obj !== "object" || obj === null || REQUIRED_FIELDS.some((f) => typeof obj[f] !== "string")) {
-    throw new Error(`config corrupt: '${file}' is missing required string fields — re-run subshell enroll`);
+    throw new Error(`config corrupt: '${file}' is missing required string fields. Re-run subshell enroll`);
   }
   const cfg = obj as Record<(typeof REQUIRED_FIELDS)[number], string>;
   return {

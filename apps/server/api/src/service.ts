@@ -282,10 +282,10 @@ const oneLine = (s: string): string => s.trim().replace(/\s*\n\s*/g, " ");
 const cmdDetail = (r: { out: string; err: string }): string => oneLine(r.err) || oneLine(r.out) || "no output";
 
 /** Install refuses to touch the machine before the server is configured; uninstall deliberately does NOT (see {@link uninstallService}). */
-const NO_CONFIG = "no config.env — run subshell-server init first";
+const NO_CONFIG = "no config.env: run subshell-server init first";
 
 const unsupported = (action: string, platform: string): string =>
-  `service ${action} is not supported on '${platform}' — no per-user service manager here; ` +
+  `service ${action} is not supported on '${platform}': no per-user service manager here; ` +
   "run `subshell-server` in a terminal (e.g. inside tmux/screen), or background it with: " +
   "nohup subshell-server >subshell-server.log 2>&1 &";
 
@@ -295,7 +295,7 @@ function systemdGuards(deps: ServiceDeps): CliResult | null {
   // D-Bus to talk to.
   if (!deps.env.XDG_RUNTIME_DIR) {
     return errLine(
-      "no XDG_RUNTIME_DIR — no systemd user session here; run `subshell-server` in a terminal " +
+      "no XDG_RUNTIME_DIR: no systemd user session here; run `subshell-server` in a terminal " +
         "(e.g. inside tmux/screen) instead",
     );
   }
@@ -307,7 +307,7 @@ function systemdGuards(deps: ServiceDeps): CliResult | null {
   if (probe.code !== 0) {
     return errLine(
       `the systemd user instance is not reachable (systemctl --user is-system-running exited ${probe.code}: ` +
-        `${cmdDetail(probe)}) — this usually means no systemd user session (container, or SSH without a login)`,
+        `${cmdDetail(probe)}); this usually means no systemd user session (container, or SSH without a login)`,
     );
   }
   return null;
@@ -351,7 +351,7 @@ export function installService(deps: ServiceDeps): CliResult {
     if (reload.code !== 0) {
       return errLine(
         `systemctl --user daemon-reload failed (exit ${reload.code}): ` +
-          `${cmdDetail(reload)} — the unit file was left at ${path}; ` +
+          `${cmdDetail(reload)}; the unit file was left at ${path}; ` +
           "this usually means no systemd user subshell is running (container/SSH without loginctl)",
       );
     }
@@ -364,7 +364,7 @@ export function installService(deps: ServiceDeps): CliResult {
     return {
       code: 0,
       out:
-        `Installed ${path} — subshell-server is enabled and running.\n` +
+        `Installed ${path}; subshell-server is enabled and running.\n` +
         "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n",
       err: "",
     };
@@ -382,10 +382,10 @@ export function installService(deps: ServiceDeps): CliResult {
   const boot = deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
   if (boot.code !== 0) {
     return errLine(
-      `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)} — ` + `the plist was left at ${path}`,
+      `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` + `the plist was left at ${path}`,
     );
   }
-  return { code: 0, out: `Installed ${path} — subshell-server is registered with launchd and running.\n`, err: "" };
+  return { code: 0, out: `Installed ${path}; subshell-server is registered with launchd and running.\n`, err: "" };
 }
 
 /**
@@ -403,12 +403,12 @@ export function installService(deps: ServiceDeps): CliResult {
 export function uninstallService(deps: ServiceDeps): CliResult {
   // The note rides every success line when the config is gone; error paths
   // keep their message about the actual failure.
-  const noConfigNote = deps.hasConfig() ? "" : "(no config.env found — nothing else to clean up)\n";
+  const noConfigNote = deps.hasConfig() ? "" : "(no config.env found, nothing else to clean up)\n";
 
   if (deps.platform === "linux") {
     const path = unitPath(deps.home);
     if (!deps.fileExists(path)) {
-      return { code: 0, out: `nothing installed — no systemd user unit at ${path}\n${noConfigNote}`, err: "" };
+      return { code: 0, out: `nothing installed: no systemd user unit at ${path}\n${noConfigNote}`, err: "" };
     }
     const disable = deps.runCmd(["systemctl", "--user", "disable", "--now", SYSTEMD_UNIT_NAME]);
     const reload = deps.runCmd(["systemctl", "--user", "daemon-reload"]);
@@ -418,12 +418,12 @@ export function uninstallService(deps: ServiceDeps): CliResult {
       const label = disable.code !== 0 ? "disable --now" : "daemon-reload";
       return errLine(
         `systemctl --user ${label} failed (exit ${failed.code}): ` +
-          `${cmdDetail(failed)} — the unit file was removed anyway`,
+          `${cmdDetail(failed)}; the unit file was removed anyway`,
       );
     }
     return {
       code: 0,
-      out: `Removed ${path} — subshell-server is stopped and no longer starts on login.\n${noConfigNote}`,
+      out: `Removed ${path}; subshell-server is stopped and no longer starts on login.\n${noConfigNote}`,
       err: "",
     };
   }
@@ -431,18 +431,18 @@ export function uninstallService(deps: ServiceDeps): CliResult {
   if (deps.platform === "darwin") {
     const path = plistPath(deps.home);
     if (!deps.fileExists(path)) {
-      return { code: 0, out: `nothing installed — no launchd plist at ${path}\n${noConfigNote}`, err: "" };
+      return { code: 0, out: `nothing installed: no launchd plist at ${path}\n${noConfigNote}`, err: "" };
     }
     const unload = deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
     deps.removeFile(path);
     if (unload.code !== 0) {
       return errLine(
-        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)} — the plist was removed anyway`,
+        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)}; the plist was removed anyway`,
       );
     }
     return {
       code: 0,
-      out: `Removed ${path} — subshell-server is unloaded and no longer starts on login.\n${noConfigNote}`,
+      out: `Removed ${path}; subshell-server is unloaded and no longer starts on login.\n${noConfigNote}`,
       err: "",
     };
   }
@@ -686,7 +686,7 @@ function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {
       active === "failed" ? `unit is failed (SubState=${props.SubState ?? "?"})` : null,
       // A masked unit refuses every control verb; say it once here rather than
       // letting the operator discover it one command at a time.
-      unitFileState.startsWith("masked") ? `unit is ${unitFileState} — systemctl will refuse start/stop/restart` : null,
+      unitFileState.startsWith("masked") ? `unit is ${unitFileState}: systemctl will refuse start/stop/restart` : null,
     ),
   };
 }
@@ -800,13 +800,13 @@ export function controlService(deps: ServiceDeps, verb: ServiceVerb, opts: { for
   const state = queryService(deps);
   if (!state.installed) {
     return errLine(
-      `nothing installed — no service definition at ${state.definitionPath} ` +
+      `nothing installed: no service definition at ${state.definitionPath} ` +
         "(run `subshell-server service install` first)",
     );
   }
   const lethal = state.paneSafety !== "keeps";
   if (verb === "restart" && lethal && opts.force !== true) {
-    return errLine(`refusing to restart: ${paneWarning(deps, state, "restart")} — ${STALE_DEFINITION}`);
+    return errLine(`refusing to restart: ${paneWarning(deps, state, "restart")}; ${STALE_DEFINITION}`);
   }
   // Rides along on the SUCCESS result: `stop` is not refused, but it must
   // never be silent about what it took down.
@@ -879,7 +879,7 @@ function bootstrapDarwin(deps: ServiceDeps, target: string, done: string, warnin
     // rather than asserting one.
     return errLine(
       `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` +
-        `kickstart also failed (exit ${kick.code}): ${cmdDetail(kick)} — the plist may be invalid, ` +
+        `kickstart also failed (exit ${kick.code}): ${cmdDetail(kick)}: the plist may be invalid, ` +
         `or the service disabled (launchctl enable ${target})`,
     );
   }

@@ -100,7 +100,7 @@ function SubshellsPage() {
           HTTP failures and the impatient. */}
       {isError && (
         <ErrorBanner
-          message="Couldn't load subshells — retrying…"
+          message="Couldn't load subshells, retrying…"
           action={
             <Button
               variant="link"

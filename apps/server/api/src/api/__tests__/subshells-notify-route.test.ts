@@ -161,7 +161,7 @@ describe("subshells attention + notify routes", () => {
     expect(sends[0].endpoint).toBe(`https://push/attention-${idA}`);
     expect(payload).toEqual({
       title: "notify-A",
-      body: "Done — waiting for you",
+      body: "Done, waiting for you",
       url: `/subshells/${idA}`,
       tag: idA,
     });

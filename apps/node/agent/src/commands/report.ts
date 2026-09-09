@@ -160,7 +160,7 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
           if (reg.unreachable < NODE_EXIT_UNREACHABLE_TICKS) continue; // blip: stay watched, silently
           log(
             `exit watcher: socket ${socket} unreachable for ${reg.unreachable} consecutive ticks ` +
-              `(threshold ${NODE_EXIT_UNREACHABLE_TICKS}; last probe: ${probe.detail}) — reporting ${subshellId} dead`,
+              `(threshold ${NODE_EXIT_UNREACHABLE_TICKS}; last probe: ${probe.detail}); reporting ${subshellId} dead`,
           );
           await reportDeath(ctx, socket, subshellId);
         }

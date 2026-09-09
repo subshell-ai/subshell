@@ -150,7 +150,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
           <DialogHeader>
             <DialogTitle>Reset password for {user.email}</DialogTitle>
             <DialogDescription>
-              Sets a new password immediately and signs this user out of every device. They are not notified — there is
+              Sets a new password immediately and signs this user out of every device. They are not notified. There is
               no email on this instance, so pass the password on yourself.
             </DialogDescription>
           </DialogHeader>

@@ -17,7 +17,7 @@ import type { SubshellView } from "@/types/subshell";
  * a remote subshell names its node on the subtitle line, a vanished node says
  * "deleted node", and a node whose agent has no live connection replaces the
  * corner badge with "node unreachable" — superseding both `exited` and the
- * waiting chip, and with them the "no screen — subshell has exited" copy,
+ * waiting chip, and with them the "no screen (subshell has exited)" copy,
  * because an offline node makes the process state unobservable, not dead.
  */
 function agent(overrides: Partial<Node> = {}): Node {
@@ -168,9 +168,9 @@ describe("SubshellCard node-offline precedence", () => {
       renderCard(makeSubshell({ nodeId: "mac", nodeOffline: true, alive: false, exitCode: 1 }));
       await screen.findByText("node unreachable");
       expect(screen.queryByText("exited")).toBeNull();
-      expect(screen.queryByText(/no screen — subshell has exited/)).toBeNull();
+      expect(screen.queryByText(/no screen \(subshell has exited\)/)).toBeNull();
       expect(screen.queryByText(/exit: /)).toBeNull();
-      expect(screen.getByText(/no screen — the node is offline/)).toBeDefined();
+      expect(screen.getByText(/no screen \(the node is offline\)/)).toBeDefined();
       // Identity survives: the pill still names the node.
       expect(screen.getByText("mac mini")).toBeDefined();
       // And the badge appears exactly once (corner only).
@@ -185,7 +185,7 @@ describe("SubshellCard node-offline precedence", () => {
     try {
       renderCard(makeSubshell({ alive: false, exitCode: 2 }));
       await screen.findByText("exited");
-      expect(screen.getByText(/no screen — subshell has exited/)).toBeDefined();
+      expect(screen.getByText(/no screen \(subshell has exited\)/)).toBeDefined();
       expect(screen.getByText(/exit: 2/)).toBeDefined();
       expect(screen.queryByText("node unreachable")).toBeNull();
     } finally {

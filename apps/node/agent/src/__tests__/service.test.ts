@@ -178,7 +178,7 @@ describe("installService — guards", () => {
     const res = await installService(s.deps);
 
     expect(res.code).toBe(1);
-    expect(res.err).toInclude("no config found — run subshell enroll first");
+    expect(res.err).toInclude("no config found: run subshell enroll first");
     expect(s.files.size).toBe(0);
     expect(s.calls.length).toBe(0);
   });
@@ -246,7 +246,7 @@ describe("uninstallService — guards", () => {
       ["systemctl", "--user", "daemon-reload"],
     ]);
     expect(s.removed).toEqual([UNIT]);
-    expect(res.out).toInclude("(no agent config found — nothing else to clean up)");
+    expect(res.out).toInclude("(no agent config found, nothing else to clean up)");
   });
 
   test("unsupported platform: exit 1, no removals", async () => {

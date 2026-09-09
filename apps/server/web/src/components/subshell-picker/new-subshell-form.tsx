@@ -264,14 +264,14 @@ export function NewSubshellForm({
             <Link to="/nodes/$id" params={{ id: selectedNode.id }} className="underline">
               {selectedNode.name}
             </Link>
-            {" — enable a harness there or create a profile."}
+            {". Enable a harness there or create a profile."}
           </p>
         ) : null}
         {noNodeHere && selectedProfile ? (
           <p className="text-muted-foreground text-xs">
-            {`No available node runs ${selectedProfile.harnessId} — `}
+            {`No available node runs ${selectedProfile.harnessId}. `}
             <Link to="/nodes" className="underline">
-              check your nodes
+              Check your nodes
             </Link>
             .
           </p>

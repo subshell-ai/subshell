@@ -62,7 +62,7 @@ export const deleteNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_RUNNING_SUBSHELLS,
-            message: `Node has ${running} running subshell${running === 1 ? "" : "s"} — delete again with ?force=true`,
+            message: `Node has ${running} running subshell${running === 1 ? "" : "s"}; delete again with ?force=true`,
             metadataSafe: { runningSubshells: running },
           }),
         );
@@ -75,7 +75,7 @@ export const deleteNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_ONLINE,
-            message: "Node is online — force-delete only applies to offline nodes (remote terminate lands in phase 2)",
+            message: "Node is online; force-delete only applies to offline nodes (remote terminate lands in phase 2)",
           }),
         );
       }

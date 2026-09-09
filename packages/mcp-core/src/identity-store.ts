@@ -54,7 +54,7 @@ export async function loadOrCreateIdentity(dataDir: string, principalId: string)
       // still never write over the unreadable file.
     }
     throw new Error(
-      `identity file '${file}' is unreadable (${reason}) — refusing to overwrite existing key material` +
+      `identity file '${file}' is unreadable (${reason}); refusing to overwrite existing key material` +
         (quarantined ? `; moved it aside to '${quarantined}'` : "; could not move it aside"),
     );
   }

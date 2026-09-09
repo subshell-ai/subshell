@@ -36,7 +36,7 @@ const HERMES_SETTINGS_FIELDS: SettingsField[] = [
 ];
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
-  { key: "HERMES_HOME", description: "Config/data directory (default: ~/.hermes) — isolation knob" },
+  { key: "HERMES_HOME", description: "Config/data directory (default: ~/.hermes), isolation knob" },
   { key: "HERMES_INFERENCE_MODEL", description: "Model override (same value as -m)" },
   { key: "OPENROUTER_API_KEY", description: "OpenRouter API key" },
   { key: "ANTHROPIC_API_KEY", description: "Anthropic API key" },

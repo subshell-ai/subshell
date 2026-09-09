@@ -21,8 +21,8 @@ export function McpSetupSection({ mcp }: { mcp: McpSetupInfo }) {
       ) : (
         <>
           <p className="text-muted-foreground text-xs">
-            This harness has no per-subshell config, so register subshell once on each node that runs it — every
-            subshell there then picks up its own credentials automatically:
+            This harness has no per-subshell config, so register subshell once on each node that runs it. Every subshell
+            there then picks up its own credentials automatically:
           </p>
           <div className="space-y-2">
             {mcp.steps.map((step) => (

@@ -13,7 +13,7 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
  */
 function usageScript(): string {
   return `#!/usr/bin/env bash
-# subshell installer — a valid one-time setup key is required (spec 2026-08-31 §5.1/§8).
+# subshell installer: a valid one-time setup key is required (spec 2026-08-31 §5.1/§8).
 set -euo pipefail
 
 echo "usage: curl -fsSL \\"${APP_BASE_URL}/install.sh?setup_key=SETUP_KEY\\" | bash" >&2
@@ -51,7 +51,7 @@ exit 2
 function renderInstallScript(key: string): string {
   if (!/^nsk_[A-Za-z0-9_-]{32}$/.test(key)) return usageScript();
   return `#!/usr/bin/env bash
-# subshell installer — rendered by subshell for this instance (spec 2026-08-31 §8).
+# subshell installer: rendered by subshell for this instance (spec 2026-08-31 §8).
 set -euo pipefail
 
 SERVER="${APP_BASE_URL}"
@@ -80,7 +80,7 @@ fi
 # target. The [::1] arm stays quoted — unquoted it is a character class.
 case "$SERVER" in
   *://localhost*|*://127.*|*"://[::1]"*)
-    echo "subshell: WARNING — SERVER is a loopback address; a remote node" >&2
+    echo "subshell: WARNING: SERVER is a loopback address; a remote node" >&2
     echo "    must dial this machine's VPN/LAN address instead (Nodes page)." >&2
     ;;
 esac
@@ -95,7 +95,7 @@ case "$OS/$ARCH" in
     # are not a published target, and "this server publishes no binary for your
     # platform" would read as "the operator has not published one yet" — a
     # different problem with a different fix.
-    echo "subshell: Intel Macs are not supported — no agent is published for darwin-x64." >&2
+    echo "subshell: Intel Macs are not supported: no agent is published for darwin-x64." >&2
     echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the agent from a checkout." >&2
     exit 1
     ;;
@@ -120,30 +120,30 @@ if ! HTTP="$(curl --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
   --output "$TMP" --write-out '%{http_code}')"; then
   rm -f "$TMP" 2>/dev/null || true
-  echo "subshell: could not reach $SERVER — nothing was installed ($DEST untouched)." >&2
+  echo "subshell: could not reach $SERVER; nothing was installed ($DEST untouched)." >&2
   exit 1
 fi
 case "$HTTP" in
   200) ;;
   401)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: the setup key was rejected — invalid, expired, or already used." >&2
+    echo "subshell: the setup key was rejected: invalid, expired, or already used." >&2
     echo "    Mint a fresh one (Nodes → Add node in the web UI) and rerun the install command." >&2
     exit 1
     ;;
   404)
     rm -f "$TMP" 2>/dev/null || true
     echo "subshell: this server has no $TARGET agent binary published." >&2
-    echo "    Publish it on the server host — 'bun run release:node' from a checkout, or (a" >&2
+    echo "    Publish it on the server host: 'bun run release:node' from a checkout, or (a" >&2
     echo "    binary-only install has no checkout) copy the 'subshell-node-cli-$TARGET' asset from a" >&2
-    echo "    node-vX.Y.Z GitHub Release into the server's node-artifacts dir — or install the" >&2
+    echo "    node-vX.Y.Z GitHub Release into the server's node-artifacts dir, or install the" >&2
     echo "    agent for this machine another way and enroll directly:" >&2
     echo "      subshell enroll --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
     exit 1
     ;;
   *)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: server answered HTTP $HTTP for the agent download — nothing installed ($DEST untouched)." >&2
+    echo "subshell: server answered HTTP $HTTP for the agent download; nothing installed ($DEST untouched)." >&2
     exit 1
     ;;
 esac
@@ -156,7 +156,7 @@ esac
 if ! EXPECTED="$(curl --fail --silent --show-error --location \\
   "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"; then
   rm -f "$TMP" 2>/dev/null || true
-  echo "subshell: could not fetch the checksum — nothing was installed ($DEST untouched)." >&2
+  echo "subshell: could not fetch the checksum; nothing was installed ($DEST untouched)." >&2
   exit 1
 fi
 printf '%s  %s\\n' "$EXPECTED" "$TMP" > "$TMP.sha256"
@@ -171,7 +171,7 @@ else
 fi
 if ! $VERIFY "$TMP.sha256"; then
   rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
-  echo "subshell: checksum mismatch — corrupt download or inconsistent server artifacts;" >&2
+  echo "subshell: checksum mismatch: corrupt download or inconsistent server artifacts;" >&2
   echo "    nothing was installed ($DEST untouched)." >&2
   exit 1
 fi
@@ -189,7 +189,7 @@ echo "    the agent runs as the invoking user; no sudo needed (data lives in \${
 # LICENSE file: what lands is one bare binary. Naming the terms once here, and
 # pointing at the subcommand that prints them in full, is the only moment this
 # path has to do that.
-echo "    ${COPYRIGHT_LINE}. Apache-2.0 — run \\"$DEST\\" license for the full notice."
+echo "    ${COPYRIGHT_LINE}. Apache-2.0. Run \\"$DEST\\" license for the full notice."
 `;
 }
 
@@ -236,7 +236,7 @@ export const installScriptRoute = new Elysia().get(
       operationId: "getInstallScript",
       tags: ["downloads"],
       description:
-        "Renders the subshell install script (text/plain) — with a valid setup_key it downloads, verifies and enrolls; without one it is a usage error exiting 2",
+        "Renders the subshell install script (text/plain): with a valid setup_key it downloads, verifies and enrolls; without one it is a usage error exiting 2",
     },
   },
 );

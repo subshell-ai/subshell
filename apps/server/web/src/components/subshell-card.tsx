@@ -109,9 +109,9 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
         ) : (
           <p className="truncate p-1 font-mono text-muted-foreground text-xs">
             {nodeOffline
-              ? "no screen — the node is offline"
+              ? "no screen (the node is offline)"
               : exited
-                ? "no screen — subshell has exited"
+                ? "no screen (subshell has exited)"
                 : "waiting for first output…"}
           </p>
         )}

@@ -62,13 +62,13 @@ export function describeToolError(err: unknown): Error {
   if (err instanceof ApiError) {
     if (err.status === 401) {
       return new Error(
-        "subshell: subshell token rejected (revoked or expired) — restart this subshell to mint a new one",
+        "subshell: subshell token rejected (revoked or expired); restart this subshell to mint a new one",
       );
     }
-    if (err.status === 403) return new Error(`subshell: permission denied — ${err.message}`);
-    if (err.status === 404) return new Error(`subshell: not found — ${err.message}`);
-    if (err.status === 409) return new Error(`subshell: conflict — ${err.message}`);
-    return new Error(`subshell: API error ${err.status} — ${err.message}`);
+    if (err.status === 403) return new Error(`subshell: permission denied: ${err.message}`);
+    if (err.status === 404) return new Error(`subshell: not found: ${err.message}`);
+    if (err.status === 409) return new Error(`subshell: conflict: ${err.message}`);
+    return new Error(`subshell: API error ${err.status}: ${err.message}`);
   }
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -216,7 +216,7 @@ export async function createSubshell(
   const profiles = await deps.api.req<ProfileRow[]>("/api/profiles");
   const match = profiles.find((p) => p.name.toLowerCase() === args.profile.toLowerCase());
   if (!match) {
-    throw new Error(`subshell: no profile named '${args.profile}' — call list_profiles for options`);
+    throw new Error(`subshell: no profile named '${args.profile}'; call list_profiles for options`);
   }
   return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/subshells", {
     method: "POST",

@@ -63,7 +63,7 @@ const PublicSettingsSchema = t.Object({
   // command must be dialable from the remote machine, not from this browser.
   appBaseUrl: t.String({
     description:
-      "Instance base URL the server bakes into rendered install commands (APP_BASE_URL); may point at loopback — a remote node must dial a reachable address",
+      "Instance base URL the server bakes into rendered install commands (APP_BASE_URL); may point at loopback; a remote node must dial a reachable address",
   }),
   viewerIsAdmin: t.Boolean({
     description:
@@ -74,7 +74,7 @@ const PublicSettingsSchema = t.Object({
   // without an admin session is a version nobody quotes in a bug report.
   serverVersion: t.String({
     description:
-      "Version of the SERVER app (apps/server/api package.json). Per-app, not instance-wide — the agent and frontend version independently",
+      "Version of the SERVER app (apps/server/api package.json). Per-app, not instance-wide; the agent and frontend version independently",
   }),
   // The enroll-UX honesty field: a binary-only server install ships an EMPTY
   // node-artifacts dir, so the Nodes dialog's install one-liner would 404 on

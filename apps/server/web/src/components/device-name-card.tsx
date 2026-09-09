@@ -63,7 +63,7 @@ export function DeviceNameCard(): JSX.Element {
           <Button variant="outline" size="sm" onClick={save}>
             Save
           </Button>
-          {saved && <span className="text-muted-foreground text-xs">Saved — new attachments use it</span>}
+          {saved && <span className="text-muted-foreground text-xs">Saved. New attachments use it</span>}
         </div>
         <p className="text-muted-foreground text-xs">
           {cleaned ? "Others will see" : "Blank restores the default, which is"}{" "}

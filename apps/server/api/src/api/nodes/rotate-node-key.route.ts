@@ -15,9 +15,9 @@ import { failConnPendings } from "@/services/nodes/node-rpc.js";
 
 /** One-time key reveal + the manual step the operator still owns. */
 const RotateResponseSchema = t.Object({
-  nodeKey: t.String({ description: "Plaintext node bearer key — shown exactly once here; only its hash is stored" }),
+  nodeKey: t.String({ description: "Plaintext node bearer key; shown exactly once here; only its hash is stored" }),
   message: t.String({
-    description: "Operator guidance: the node's stored config does NOT update itself — re-configure it by hand",
+    description: "Operator guidance: the node's stored config does NOT update itself; re-configure it by hand",
   }),
 });
 

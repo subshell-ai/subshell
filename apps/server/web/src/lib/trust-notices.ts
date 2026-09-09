@@ -63,10 +63,10 @@ function foreignNodeNotice(subshell: SubshellView, node: Node | undefined): Trus
     dismissKey: `foreign-node:${subshell.id}:${node.id}`,
     banner:
       `This subshell runs on ${where}, a machine you don't own. Everything this terminal prints is written to ` +
-      `a transcript on that host, and this subshell's credentials live there too — both readable by whoever ` +
+      `a transcript on that host, and this subshell's credentials live there too, both readable by whoever ` +
       `controls it. Only run it here if you trust that machine's owner.`,
     tooltip:
-      `Runs on ${where} — a machine you don't own. Its owner can read this terminal's output and this ` +
+      `Runs on ${where}, a machine you don't own. Its owner can read this terminal's output and this ` +
       `subshell's credentials.`,
     label: `Runs on ${where}, a machine you don't own`,
   };
@@ -100,12 +100,12 @@ function sharedNotice(subshell: SubshellView): TrustNotice | null {
     dismissKey: `shared:${subshell.id}:${count}:${everyone}`,
     banner: owned
       ? `You've shared this subshell with ${who}. They can read everything this terminal shows, including the ` +
-        `scrollback from before you shared it — and anyone with edit access sees what you type.`
+        `scrollback from before you shared it, and anyone with edit access sees what you type.`
       : `This subshell belongs to someone else and is shared with ${who}. Its owner can read everything this ` +
         `terminal shows, including what you type into it.`,
     tooltip: owned
-      ? `Shared with ${who} — they can read this terminal's full output.`
-      : `Someone else's subshell, shared with ${who} — the owner can read everything here.`,
+      ? `Shared with ${who}. They can read this terminal's full output.`
+      : `Someone else's subshell, shared with ${who}. The owner can read everything here.`,
     label: owned ? `Shared with ${who}` : "Someone else's subshell",
   };
 }

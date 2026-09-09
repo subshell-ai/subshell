@@ -44,13 +44,13 @@ describe("buildNotificationPayload", () => {
     const p = buildNotificationPayload({ id: "sid", name: "resume-verify" }, "turn_complete");
     expect(p).toEqual({
       title: "resume-verify",
-      body: "Done — waiting for you",
+      body: "Done, waiting for you",
       url: "/subshells/sid",
       tag: "sid",
     });
     expect(buildNotificationPayload({ id: "s", name: "x" }, "needs_attention").body).toBe("Needs your approval");
     expect(buildNotificationPayload({ id: "s", name: "x" }, "exited").body).toBe("Subshell exited");
-    expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed").body).toBe("Crashed — auto-restarting");
+    expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed").body).toBe("Crashed, auto-restarting");
     // Exhausted backoff: the bare truth, no restart promised (final-review fix).
     expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed_final").body).toBe("Crashed");
   });

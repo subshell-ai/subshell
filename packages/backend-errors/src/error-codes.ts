@@ -86,7 +86,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_REQUIRED]: {
-    message: "No launch-eligible node — pick one",
+    message: "No launch-eligible node; pick one",
     statusCode: 400,
   },
   [BackendErrorCodes.NODE_RUNNING_SUBSHELLS]: {

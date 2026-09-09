@@ -6,7 +6,7 @@ import { apiModels } from "@/schema/index.js";
 const SummaryResponseSchema = t.Object({
   total: t.Number({ description: "Subshells the user has ever had" }),
   running: t.Number({ description: "Subshells currently alive" }),
-  waiting: t.Number({ description: "Alive subshells with waitingSince set — the badge number" }),
+  waiting: t.Number({ description: "Alive subshells with waitingSince set, the badge number" }),
 });
 
 /**

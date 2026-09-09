@@ -24,7 +24,7 @@ export function DesktopServerPill({ collapsed }: { collapsed: boolean }) {
       // unavailable, so this degrades to an inert status row instead of a
       // button that errors.
       onClick={() => void desktopInvoke("desktop_open_console")}
-      title={`${label} — open the server console`}
+      title={`${label}: open the server console`}
       aria-label={`${label}. Open the server console`}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-accent/50",

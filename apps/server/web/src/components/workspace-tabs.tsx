@@ -191,7 +191,7 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
         <div className="relative min-h-0 flex-1">
           {detail.panes.length === 0 && (
             <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-              No subshells in this workspace yet — add one above.
+              No subshells in this workspace yet. Add one above.
             </div>
           )}
           {detail.panes.map((pane) => (

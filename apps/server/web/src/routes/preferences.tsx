@@ -32,7 +32,7 @@ function Section({ id, label, children }: { id: string; label: string; children:
 function PreferencesPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-8 p-6">
-      <PageHeader title="Preferences" subtitle="How subshell behaves — account-wide or just on this device" />
+      <PageHeader title="Preferences" subtitle="How subshell behaves: account-wide or just on this device" />
       {/* THE SCOPE-SPLIT EXCEPTION (Theo, 2026-09-04): notifications stay
           bundled even though the two cards are different scopes — they are
           one decision (ring anywhere? ring HERE?), and splitting them across

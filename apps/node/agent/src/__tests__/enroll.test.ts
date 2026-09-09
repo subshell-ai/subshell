@@ -137,7 +137,7 @@ test("the --json body reports RESOLVED values, not what was typed", async () => 
 test("without --json the human line is byte-identical to what it always was", async () => {
   const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
   const res = await run(enrollArgv(url));
-  expect(res.out).toBe(`Enrolled as ${CANNED.nodeId} — next: subshell run\n`);
+  expect(res.out).toBe(`Enrolled as ${CANNED.nodeId}. Next: subshell run\n`);
   expect(res.err).toBe("");
 });
 
@@ -162,7 +162,7 @@ test("an empty wsUrl in the 201 is ignored — config carries no nodeWsUrl (daem
 // message verbatim — it stays the answer for SETUP_KEY_INVALID and for any 401
 // shape the agent cannot classify (old servers send a bodyless or message-only
 // 401), so the CLI never gets quieter than it used to be.
-const GENERIC_401 = "setup key is invalid, expired, or already used — mint a fresh one on the Nodes page";
+const GENERIC_401 = "setup key is invalid, expired, or already used. Mint a fresh one on the Nodes page";
 
 /** Structured 401 body as the real route sends it post-Task-17 (ApiErrorResponse shape). */
 function setupKey401(code: string): Response {
@@ -178,7 +178,7 @@ test("401 SETUP_KEY_CONSUMED: the key is spent — stop retrying, point at the N
   expect(res.code).toBe(1);
   // Verbatim: never hints the key might still work, never reuses the generic hedge.
   expect(res.err).toBe(
-    "subshell: this setup key has already been used — each key enrolls one node; " +
+    "subshell: this setup key has already been used. Each key enrolls one node; " +
       "create a new setup key on the Nodes page\n",
   );
   expect(existsSync(configPath())).toBe(false);
@@ -189,7 +189,7 @@ test("401 SETUP_KEY_EXPIRED: names the 24 h lifetime and the Nodes page", async 
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(1);
   expect(res.err).toBe(
-    "subshell: this setup key expired (they are valid 24 hours) — create a new one on the Nodes page\n",
+    "subshell: this setup key expired (they are valid 24 hours). Create a new one on the Nodes page\n",
   );
   expect(existsSync(configPath())).toBe(false);
 });

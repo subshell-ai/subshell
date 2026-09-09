@@ -171,7 +171,7 @@ function assertWorkspaceBuilt(): boolean {
   const built = existsSync(join(distDir, "index.mjs")) || existsSync(join(distDir, "index.js"));
   if (linked && built) return true;
   process.stderr.write(
-    "compile:release: workspace build outputs are missing (packages/harnesses/dist) — " +
+    "compile:release: workspace build outputs are missing (packages/harnesses/dist). " +
       "run `turbo build` first from the repo root.\n",
   );
   return false;
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
   // instead of silently publishing where the server may not look.
   if (!process.env.SUBSHELL_NODE_ARTIFACTS_DIR && !process.env.SUBSHELL_SERVER_DATA_DIR && !process.env.DATABASE_PATH) {
     process.stderr.write(
-      `note: destination derived from the DEFAULT ladder against this script's cwd — if the backend runs ` +
+      `note: destination derived from the DEFAULT ladder against this script's cwd; if the backend runs ` +
         `with a different cwd or its own .env, confirm it serves:\n      ${destDir}\n`,
     );
   }

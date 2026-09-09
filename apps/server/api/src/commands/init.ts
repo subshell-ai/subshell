@@ -61,7 +61,7 @@ export function runInit(opts: ConfigureOpts, deps: CommandDeps): number {
   const nonEmpty = (v: string | undefined): string | undefined => (v !== undefined && v.trim() !== "" ? v : undefined);
   const fileSecret = nonEmpty(existing.BETTER_AUTH_SECRET);
   if (fileSecret !== undefined) {
-    deps.log("BETTER_AUTH_SECRET already set in config.env — left untouched");
+    deps.log("BETTER_AUTH_SECRET already set in config.env, left untouched");
   } else {
     const fromEnv = nonEmpty(deps.env.BETTER_AUTH_SECRET);
     const secret = fromEnv ?? generateAuthSecret();
@@ -73,7 +73,7 @@ export function runInit(opts: ConfigureOpts, deps: CommandDeps): number {
     }
     deps.log(
       fromEnv !== undefined
-        ? "BETTER_AUTH_SECRET taken from the environment — persisted to config.env"
+        ? "BETTER_AUTH_SECRET taken from the environment, persisted to config.env"
         : "BETTER_AUTH_SECRET generated (32 random bytes, base64url) and written to config.env (0600)",
     );
   }

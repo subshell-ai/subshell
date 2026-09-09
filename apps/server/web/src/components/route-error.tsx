@@ -69,7 +69,7 @@ export function RouteError({ error }: { error: unknown }) {
             The app updated while this page was open.{" "}
             {autoReload === "pending"
               ? "Reloading…"
-              : "Reloading did not help — reload again or head back to your sessions."}
+              : "Reloading did not help. Reload again or head back to your sessions."}
           </p>
         ) : (
           <p className="wrap-break-word max-w-full text-muted-foreground">{brief(error)}</p>

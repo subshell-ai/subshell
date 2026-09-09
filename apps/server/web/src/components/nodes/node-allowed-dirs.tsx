@@ -43,7 +43,7 @@ export function NodeAllowedDirs({ node }: { node: Node }) {
         <CardTitle>Allowed directories</CardTitle>
         <CardDescription>
           {dirs.length === 0
-            ? "Any directory — subshells on this node can be created anywhere its user can read. Add a directory to restrict that."
+            ? "Any directory. Subshells on this node can be created anywhere its user can read. Add a directory to restrict that."
             : "Subshells on this node can only be created in these directories, or anywhere beneath them."}{" "}
           Applies to new subshells and to restarts; panes already running are unaffected. The node enforces this itself,
           so the rule holds even if it loses contact with this server.

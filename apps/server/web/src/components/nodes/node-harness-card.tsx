@@ -50,7 +50,7 @@ export function NodeHarnessCard({ nodeId, canConfigure }: { nodeId: string; canC
       <CardContent className="space-y-3">
         {data?.inventoryStale && (
           <p className="text-muted-foreground text-sm">
-            The inventory may be outdated — installed states are last-known, not live. Run a re-check to refresh.
+            The inventory may be outdated. Installed states are last-known, not live. Run a re-check to refresh.
           </p>
         )}
         {harnesses.map((h) => {

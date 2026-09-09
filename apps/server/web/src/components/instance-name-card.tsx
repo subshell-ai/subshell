@@ -64,7 +64,7 @@ export function InstanceNameCard(): JSX.Element {
       <CardHeader>
         <CardTitle>Instance name</CardTitle>
         <CardDescription>
-          Names this control plane for everyone who signs in — in the sidebar, and on the sign-in page before anyone
+          Names this control plane for everyone who signs in: in the sidebar, and on the sign-in page before anyone
           authenticates. Set it when you run more than one instance, so a laptop and a production plane are tellable
           apart. Applies at once; no restart.
         </CardDescription>

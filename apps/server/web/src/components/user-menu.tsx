@@ -64,8 +64,8 @@ export function UserMenu({
         render={
           <button
             type="button"
-            aria-label={`Account — ${display}`}
-            title={collapsed ? `Account — ${display}` : undefined}
+            aria-label={`Account: ${display}`}
+            title={collapsed ? `Account: ${display}` : undefined}
             className={cn(
               "flex items-center rounded-md text-muted-foreground text-sm transition-colors hover:bg-accent/50 hover:text-foreground",
               collapsed ? "justify-center p-2" : "w-full justify-start gap-2 p-2",

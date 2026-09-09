@@ -44,7 +44,7 @@ export function ChangePasswordCard() {
       if (changeErr) {
         const details = (changeErr as unknown as { body?: { details?: unknown[] } }).body?.details;
         const detail = Array.isArray(details) && details.length > 0 ? String(details[0]) : null;
-        setPwError(detail ?? "Password change failed — is the current password correct?");
+        setPwError(detail ?? "Password change failed. Is the current password correct?");
         return;
       }
       setCurrentPassword("");

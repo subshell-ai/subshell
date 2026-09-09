@@ -11,7 +11,7 @@ const CreateBodySchema = t.Object({
 
 const CreateResponseSchema = t.Object({
   id: t.String({ description: "Setup key id (for later revocation)" }),
-  key: t.String({ description: "The plaintext setup key — shown exactly once, store it now" }),
+  key: t.String({ description: "The plaintext setup key; shown exactly once, store it now" }),
   expiresAt: t.String({ description: "ISO 8601 expiry (24 h from creation)" }),
 });
 

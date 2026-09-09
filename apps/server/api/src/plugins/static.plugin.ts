@@ -50,7 +50,7 @@ export function staticPlugin(root: string) {
   // restarting the server. The existence check stays at boot so a missing
   // build fails loudly here, not as a 500 on the first request.
   if (!existsSync(indexHtmlPath)) {
-    throw new Error(`static plugin: built frontend not found at ${indexHtmlPath} — run the frontend build first`, {
+    throw new Error(`static plugin: built frontend not found at ${indexHtmlPath}; run the frontend build first`, {
       cause: new Error(indexHtmlPath),
     });
   }
@@ -210,7 +210,7 @@ export function embeddedStaticPlugin(source: Record<string, string> = EMBEDDED_W
   // (the same contract the disk factory has on its dist dir).
   if (source["index.html"] === undefined) {
     throw new Error(
-      "embedded static plugin: no embedded index.html in EMBEDDED_WEB — run scripts/embed-web.ts or serve the frontend from disk",
+      "embedded static plugin: no embedded index.html in EMBEDDED_WEB; run scripts/embed-web.ts or serve the frontend from disk",
       {
         cause: new Error("index.html"),
       },
@@ -316,7 +316,7 @@ export function selectStaticPlugin(distDir: string, embedded: boolean) {
     return embeddedStaticPlugin();
   }
   throw new Error(
-    `static plugin: built frontend not found at ${join(distDir, "index.html")} — and no embedded assets in this binary`,
+    `static plugin: built frontend not found at ${join(distDir, "index.html")}; and no embedded assets in this binary`,
     { cause: new Error(distDir) },
   );
 }

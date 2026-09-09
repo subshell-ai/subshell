@@ -46,7 +46,7 @@ export function RuntimeCard({ status }: { status: AdminStatus }) {
         {runtime.databasePath} ({formatBytes(runtime.databaseBytes)})
       </Fact>
       <Fact label="tmux" mono wide>
-        {runtime.tmuxPath ?? <Badge variant="warning">not found — subshells cannot launch on the server</Badge>}
+        {runtime.tmuxPath ?? <Badge variant="warning">not found: subshells cannot launch on the server</Badge>}
       </Fact>
       <Fact label="MCP entrypoint" mono wide>
         {runtime.mcpEntrypoint ? (
@@ -54,7 +54,7 @@ export function RuntimeCard({ status }: { status: AdminStatus }) {
             {runtime.mcpEntrypoint} <span className="text-muted-foreground">(via {runtime.mcpSource})</span>
           </>
         ) : (
-          <Badge variant="warning">unresolved — creating a subshell will fail</Badge>
+          <Badge variant="warning">unresolved: creating a subshell will fail</Badge>
         )}
       </Fact>
     </FactCard>

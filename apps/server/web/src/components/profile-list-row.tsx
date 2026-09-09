@@ -62,7 +62,7 @@ export function ProfileListRow({
             <Badge
               variant="secondary"
               className="shrink-0"
-              title="Auto-created default — edit it freely; it can't be deleted"
+              title="Auto-created default. Edit it freely; it can't be deleted"
             >
               default
             </Badge>

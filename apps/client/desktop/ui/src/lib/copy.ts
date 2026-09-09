@@ -57,7 +57,7 @@ export const ENROLL_NOTES: readonly string[] = [
   "Mint a setup key in the browser first: Settings → Nodes → Add node. It is shown once, so copy it before closing " +
     "that dialog.",
   "A setup key is single-use and expires after 24 hours. Anything that fails AFTER the control plane has accepted " +
-    "it — a node name already taken on that server, or a server-side error — spends it permanently. The answer to " +
+    "it (a node name already taken on that server, or a server-side error) spends it permanently. The answer to " +
     "those is a NEW key, never a retry.",
   "Leave the name blank to use this machine's hostname.",
 ];
@@ -88,7 +88,7 @@ export function tmuxHint(probe: Probe | undefined, which: "enroll" | "service"):
   if (probe?.tmux) return "";
   return which === "enroll"
     ? `tmux was not found on the login PATH, so enrolling is disabled. \`subshell enroll\` also checks for it before ` +
-        `its network call, so a missing tmux costs a message rather than the setup key — install it (${TMUX_INSTALL_CMD}) to continue.`
+        `its network call, so a missing tmux costs a message rather than the setup key. Install it (${TMUX_INSTALL_CMD}) to continue.`
     : `tmux was not found on the login PATH, so starting the service is disabled: the node would come up online ` +
         `with no harnesses and refuse every launch. Install it (${TMUX_INSTALL_CMD}), then start or restart the service.`;
 }

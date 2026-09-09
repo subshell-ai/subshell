@@ -265,7 +265,7 @@ export function useTerminalUploads({
       // plainly instead of leaving a silent no-op. (A screenshot tool's
       // "copy" puts image/png; a file manager's "copy" puts a URI list that
       // no browser exposes as an image at all — drag the file in instead.)
-      setError("No image on the clipboard — copy an image, or drag the file onto the terminal.");
+      setError("No image on the clipboard. Copy an image, or drag the file onto the terminal.");
     } catch {
       setError(
         "Clipboard access was blocked. Click the padlock in the address bar → Site settings → Clipboard → Allow, then paste again. (Dragging the file onto the terminal always works.)",

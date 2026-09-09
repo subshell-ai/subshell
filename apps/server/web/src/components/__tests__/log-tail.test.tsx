@@ -14,7 +14,7 @@ describe("LogTail", () => {
 
   it("appends the labeled exit code to the headline", () => {
     render(<LogTail lines={["x"]} exitCode={1} />);
-    expect(screen.getByText(/Subshell exited \(code 1 — error doing work\)/)).toBeDefined();
+    expect(screen.getByText(/Subshell exited \(code 1, error doing work\)/)).toBeDefined();
   });
 
   it("renders the no-output line with a bare code when the log is empty", () => {
@@ -24,7 +24,7 @@ describe("LogTail", () => {
 
   it("notes truncation above the tail", () => {
     render(<LogTail lines={["a", "b", "c"]} truncated />);
-    expect(screen.getByText("earlier output omitted — showing the last 3 lines")).toBeDefined();
+    expect(screen.getByText("earlier output omitted, showing the last 3 lines")).toBeDefined();
   });
 
   it("renders caller actions beside the headline", () => {

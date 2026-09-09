@@ -31,7 +31,7 @@ export function TerminalFontCard() {
       <CardHeader>
         <CardTitle>Terminal text size</CardTitle>
         <CardDescription>
-          Text size for every terminal on this device — phones and desktops keep their own choice, and open terminals
+          Text size for every terminal on this device. Phones and desktops keep their own choice, and open terminals
           resize immediately. Bigger text fits fewer columns; leave the browser's own page zoom at 100% (a zoomed page
           shrinks the whole window on home-screen installs).
         </CardDescription>

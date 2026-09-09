@@ -129,7 +129,7 @@ export function NewWorkspaceDialog({
     if (failed > 0) {
       setCreatedId(id);
       setError(
-        `Workspace created — couldn't add ${failed} subshell${failed === 1 ? "" : "s"}. You can add them from inside.`,
+        `Workspace created. Couldn't add ${failed} subshell${failed === 1 ? "" : "s"}. You can add them from inside.`,
       );
       return;
     }
@@ -147,7 +147,7 @@ export function NewWorkspaceDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New workspace</DialogTitle>
-          <DialogDescription>Start it with subshells already tiled in — or empty.</DialogDescription>
+          <DialogDescription>Start it with subshells already tiled in, or empty.</DialogDescription>
         </DialogHeader>
 
         <Segmented
@@ -162,7 +162,7 @@ export function NewWorkspaceDialog({
 
         {createdId ? (
           // The workspace exists; the error line above says which adds failed.
-          <p className="text-muted-foreground text-sm">The workspace is created — enter it to add the rest.</p>
+          <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
         ) : mode === "existing" ? (
           <ExistingSubshellList
             subshells={subshells ?? []}

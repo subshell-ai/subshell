@@ -176,7 +176,7 @@ function RejectedBanner({ status }: { status: SocketStatus }) {
   if (status.state !== "rejected") return null;
   const text =
     status.code === 4001
-      ? "Not authorized — sign in again."
+      ? "Not authorized. Sign in again."
       : status.code === 4004
         ? "This subshell is not running."
         : "The terminal rejected the attach.";

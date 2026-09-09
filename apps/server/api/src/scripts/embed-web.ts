@@ -55,7 +55,7 @@ export async function collectDist(distDir: string): Promise<Record<string, strin
   const map: Record<string, string> = {};
   await walk(base, base, map);
   if (map["index.html"] === undefined) {
-    throw new Error(`embed-web: index.html not found in ${base} — run the frontend build first`);
+    throw new Error(`embed-web: index.html not found in ${base}; run the frontend build first`);
   }
   return map;
 }

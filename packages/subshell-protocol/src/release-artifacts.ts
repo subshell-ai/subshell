@@ -170,11 +170,11 @@ export function selectBundleOutput(entries: readonly string[], suffix: string, w
   if (matches.length === 1) return matches[0] as string;
   const listing = entries.length > 0 ? entries.join(", ") : "(empty)";
   if (matches.length === 0) {
-    throw new Error(`no ${suffix} in ${where} — the bundler wrote: ${listing}`);
+    throw new Error(`no ${suffix} in ${where}; the bundler wrote: ${listing}`);
   }
   throw new Error(
     `${matches.length} ${suffix} bundles in ${where}, expected exactly one: ${matches.join(", ")}` +
-      " — refusing to publish an arbitrary one",
+      "; refusing to publish an arbitrary one",
   );
 }
 
@@ -235,7 +235,7 @@ export async function notarizeAndStapleDmg(
   const keyId = env.APPLE_API_KEY;
   const issuer = env.APPLE_API_ISSUER;
   if (!key || !keyId || !issuer) {
-    deps.log("no notarization credentials (APPLE_API_KEY_PATH/-KEY/-ISSUER) — publishing the DMG UNSIGNED by Apple");
+    deps.log("no notarization credentials (APPLE_API_KEY_PATH/-KEY/-ISSUER); publishing the DMG UNSIGNED by Apple");
     return true;
   }
   deps.log(`notarizing ${dmgPath}…`);

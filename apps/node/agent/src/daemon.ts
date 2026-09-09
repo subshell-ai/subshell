@@ -164,7 +164,7 @@ function parsePinnedKey(serialized: string): JsonWebKey {
   try {
     return JSON.parse(serialized) as JsonWebKey;
   } catch {
-    throw new Error("pinned control key in the config is not valid JSON — re-run subshell enroll to repin it");
+    throw new Error("pinned control key in the config is not valid JSON. Re-run subshell enroll to repin it");
   }
 }
 
@@ -217,8 +217,8 @@ const HAS_MCP = true;
  */
 export function updateRequiredMessage(reason: string | undefined): string {
   return reason
-    ? `the control plane refused this agent (close 4406): ${reason} — exiting`
-    : `the control plane refused this agent (close 4406) — a newer subshell is required; exiting`;
+    ? `the control plane refused this agent (close 4406): ${reason}; exiting`
+    : `the control plane refused this agent (close 4406); a newer subshell is required; exiting`;
 }
 
 function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
@@ -341,7 +341,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const onSignal = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log("signal received — closing the connection (graceful exit)");
+    log("signal received, closing the connection (graceful exit)");
     try {
       socket?.close(1000, "shutdown");
     } catch {
@@ -457,7 +457,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       if (outcome.reason === "seq") {
         // Spec §4: a seq regression drops the CONNECTION — the reconnect starts a
         // fresh SeqTracker (ordering is per-stream), while the jti LRU stays warm.
-        log("seq regression — dropping connection (spec §4)");
+        log("seq regression, dropping connection (spec §4)");
         try {
           ws.close(1000, "seq regression");
         } catch {
@@ -572,7 +572,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
         log(
-          `another subshell is already registered as node '${config.nodeId}' (close 4409) — exiting; stop the duplicate agent first`,
+          `another subshell is already registered as node '${config.nodeId}' (close 4409); exiting, stop the duplicate agent first`,
         );
         stop(1);
       }
@@ -582,7 +582,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       }
       const delay = backoffDelay(attempt++, rand);
       log(
-        `disconnected (code ${close.code}${close.reason ? `: ${close.reason}` : ""}) — reconnecting in ${Math.round(delay)} ms`,
+        `disconnected (code ${close.code}${close.reason ? `: ${close.reason}` : ""}); reconnecting in ${Math.round(delay)} ms`,
       );
       await sleepCancellable(delay);
     }

@@ -109,7 +109,7 @@ export function useActionRunner(): ActionRunner {
         // end. Read off the raw outcome, not the dismissed view, so cancelling
         // a confirmation does not conjure this line.
         outcome && outcome.output?.ok === false && outcome.confirm === null
-        ? "That did not work — see the output below."
+        ? "That did not work. See the output below."
         : "";
 
   function run(body: ActionRun, opts?: { reprobe?: boolean }): void {

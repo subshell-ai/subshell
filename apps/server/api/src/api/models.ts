@@ -58,7 +58,7 @@ export const SubshellSchema = t.Object({
   }),
   nodeOffline: t.Boolean({
     description:
-      "True when the subshell's agent node has no live connection — the subshell may still be running there (spec §5.6); always false for local subshells",
+      "True when the subshell's agent node has no live connection; the subshell may still be running there (spec §5.6); always false for local subshells",
   }),
   shareCount: t.Number({
     description:
@@ -66,7 +66,7 @@ export const SubshellSchema = t.Object({
   }),
   sharedWithEveryone: t.Boolean({
     description:
-      "True when one of the grants is the Everyone grant — the audience is every signed-in user, not a countable list",
+      "True when one of the grants is the Everyone grant; the audience is every signed-in user, not a countable list",
   }),
 });
 
@@ -150,7 +150,7 @@ export const WorkspacePaneSchema = t.Object({
   }),
   subshellNodeOffline: t.Boolean({
     description:
-      "True = the subshell's agent node has no live connection (spec §5.6) — it may still be RUNNING there, its state is just unobservable from here. Always false for subshells on 'local'",
+      "True = the subshell's agent node has no live connection (spec §5.6); it may still be RUNNING there, its state is just unobservable from here. Always false for subshells on 'local'",
   }),
 });
 

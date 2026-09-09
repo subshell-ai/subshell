@@ -17,7 +17,7 @@ export function OfflineBanner() {
       {/* Static positioning overrides: StatusPill's default absolute-centering
           is for a positioned parent; the fixed strip centers us already. */}
       <StatusPill tone="warning" className="relative top-0 left-0 translate-x-0">
-        Can&apos;t reach the subshell server — retrying…
+        Can&apos;t reach the subshell server, retrying…
       </StatusPill>
     </div>
   );

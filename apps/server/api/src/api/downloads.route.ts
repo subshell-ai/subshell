@@ -30,7 +30,7 @@ const DownloadQuerySchema = t.Object({
   setup_key: t.Optional(
     t.String({
       description:
-        "One-time `nsk_…` setup key (Settings → Node setup keys) — the machine-path alternative to a session cookie; checked without being consumed",
+        "One-time `nsk_…` setup key (Settings → Node setup keys); the machine-path alternative to a session cookie; checked without being consumed",
     }),
   ),
 });
@@ -162,7 +162,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
   {
     params: t.Object({
       target: t.String({
-        description: `Platform triple — one of ${NODE_TARGETS.join(", ")} (gated in-handler; any other value → 404)`,
+        description: `Platform triple: one of ${NODE_TARGETS.join(", ")} (gated in-handler; any other value → 404)`,
       }),
     }),
     query: DownloadQuerySchema,

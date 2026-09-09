@@ -124,7 +124,7 @@ export function ProfileFields({
           // must match the item texts below exactly.
           items={(harnesses ?? []).map((h) => ({
             value: h.id,
-            label: h.installed ? h.name : `${h.name} — not installed`,
+            label: h.installed ? h.name : `${h.name} (not installed)`,
           }))}
         >
           <SelectTrigger id="profile-harness">
@@ -144,7 +144,7 @@ export function ProfileFields({
             {(harnesses ?? []).map((h) => (
               <SelectItem key={h.id} value={h.id} disabled={!h.installed}>
                 {h.name}
-                {!h.installed && <span className="text-muted-foreground"> — not installed</span>}
+                {!h.installed && <span className="text-muted-foreground"> (not installed)</span>}
               </SelectItem>
             ))}
           </SelectContent>
@@ -202,8 +202,8 @@ export function ProfileFields({
               </SelectContent>
             </Select>
             <p className="text-muted-foreground text-sm">
-              Pins subshells started from this profile to one machine. The pin is honoured at launch — if the pinned
-              node is offline, starting a subshell with this profile fails until it is back.
+              Pins subshells started from this profile to one machine. The pin is honoured at launch. If the pinned node
+              is offline, starting a subshell with this profile fails until it is back.
             </p>
           </div>
           <div className="space-y-2">
@@ -244,7 +244,7 @@ export function ProfileFields({
               <Label htmlFor="profile-restart">Auto-restart on exit</Label>
             </div>
             <p className="text-muted-foreground text-sm">
-              When a subshell's harness process exits on its own, bring the subshell back up automatically — with a
+              When a subshell's harness process exits on its own, bring the subshell back up automatically, with a
               growing delay between attempts while it keeps failing. Leave off to decide manually.
             </p>
           </div>

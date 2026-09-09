@@ -36,7 +36,7 @@ const PI_SETTINGS_FIELDS: SettingsField[] = [
 ];
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
-  { key: "PI_CODING_AGENT_DIR", description: "Config directory (default: ~/.pi/agent) — isolation knob" },
+  { key: "PI_CODING_AGENT_DIR", description: "Config directory (default: ~/.pi/agent), isolation knob" },
   { key: "PI_CODING_AGENT_SESSION_DIR", description: "Subshell storage directory" },
   { key: "PI_OFFLINE", description: "Disable startup network operations (1/true)" },
   { key: "PI_TELEMETRY", description: "Override install telemetry (1/0)" },

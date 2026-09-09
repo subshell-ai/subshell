@@ -26,7 +26,7 @@ import { confirmAction } from "@/lib/confirm";
 /** Turns an apiFetch failure into short user-facing copy. */
 function keyErrorMessage(err: unknown): string {
   if (err instanceof ApiError && err.status === 403) return "Admin sign-in required to manage API keys.";
-  return "Something went wrong — the change was not saved.";
+  return "Something went wrong. The change was not saved.";
 }
 
 /**
@@ -137,7 +137,7 @@ export function SystemApiKeysCard() {
             <>
               <DialogHeader>
                 <DialogTitle>Key created</DialogTitle>
-                <DialogDescription>Copy it now — this is the only time the full key is shown.</DialogDescription>
+                <DialogDescription>Copy it now. This is the only time the full key is shown.</DialogDescription>
               </DialogHeader>
               <div className="flex items-center gap-2">
                 <code className="flex-1 overflow-x-auto rounded-md bg-muted p-3 font-mono text-sm">{created.key}</code>

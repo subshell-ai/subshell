@@ -72,8 +72,8 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   if (name.length > MAX_NAME_LEN) {
     throw new Error(
       opts.name?.trim()
-        ? `--name is ${name.length} characters — the control plane accepts at most ${MAX_NAME_LEN}; pass a shorter --name`
-        : `the default node name (hostname '${name}') is ${name.length} characters — at most ${MAX_NAME_LEN} are accepted; pass --name <short-name>`,
+        ? `--name is ${name.length} characters; the control plane accepts at most ${MAX_NAME_LEN}, so pass a shorter --name`
+        : `the default node name (hostname '${name}') is ${name.length} characters; at most ${MAX_NAME_LEN} are accepted, so pass --name <short-name>`,
     );
   }
   const dataDir = opts.dataDir ?? join(clientHome(), "data");
@@ -107,7 +107,7 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   const nodeKey = typeof ok?.nodeKey === "string" ? ok.nodeKey : undefined;
   const controlPublicKey = typeof ok?.controlPublicKey === "string" ? ok.controlPublicKey : undefined;
   if (!nodeId || !nodeKey || !controlPublicKey) {
-    throw new Error("enroll succeeded but the response was malformed — the setup key is spent; contact the operator");
+    throw new Error("enroll succeeded but the response was malformed. The setup key is spent; contact the operator");
   }
   // Ledger 17c (P1-T12 carry): persist the SERVER-REPORTED dial URL. Tolerant
   // by design — a pre-17c control plane omits it and the daemon falls back to
@@ -127,7 +127,7 @@ function assertTmux(): void {
   // (ENOENT etc.) while `exitCode` stays null — runtime field, untyped.
   const probe = Bun.spawnSync(["tmux", "-V"]) as ReturnType<typeof Bun.spawnSync> & { error?: Error };
   if (probe.error) {
-    const hint = process.platform === "darwin" ? " — on macOS: brew install tmux" : "";
+    const hint = process.platform === "darwin" ? " (on macOS: brew install tmux)" : "";
     throw new Error(`tmux not found${hint}; install it and retry (escape hatch: SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1)`);
   }
 }
@@ -188,13 +188,13 @@ function setupKeyFailure(body: Record<string, unknown> | null): Error {
   const code = typeof body?.code === "string" ? body.code : undefined;
   if (code === BackendErrorCodes.SETUP_KEY_CONSUMED) {
     return new Error(
-      "this setup key has already been used — each key enrolls one node; create a new setup key on the Nodes page",
+      "this setup key has already been used. Each key enrolls one node; create a new setup key on the Nodes page",
     );
   }
   if (code === BackendErrorCodes.SETUP_KEY_EXPIRED) {
-    return new Error("this setup key expired (they are valid 24 hours) — create a new one on the Nodes page");
+    return new Error("this setup key expired (they are valid 24 hours). Create a new one on the Nodes page");
   }
-  return new Error("setup key is invalid, expired, or already used — mint a fresh one on the Nodes page");
+  return new Error("setup key is invalid, expired, or already used. Mint a fresh one on the Nodes page");
 }
 
 /** Turns a non-201 into the actionable message the operator needs (spec §5.2 error map). */
@@ -209,7 +209,7 @@ async function enrollFailure(res: Response, name: string): Promise<Error> {
   }
   if (res.status === 401) return setupKeyFailure(body);
   if (res.status === 409) {
-    return new Error(serverMessage || `a node named '${name}' already exists — pass --name to pick another`);
+    return new Error(serverMessage || `a node named '${name}' already exists; pass --name to pick another`);
   }
   return new Error(
     `enroll failed (HTTP ${res.status})${serverMessage ? `: ${serverMessage}` : ""}${validationDetails(body)}`,
@@ -235,5 +235,5 @@ function validationDetails(body: Record<string, unknown> | null): string {
     const message = typeof item.message === "string" ? item.message : "invalid value";
     return `${field}: ${message}`;
   });
-  return `; invalid input — ${parts.join("; ")}`;
+  return `; invalid input: ${parts.join("; ")}`;
 }

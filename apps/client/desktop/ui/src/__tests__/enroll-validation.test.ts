@@ -24,7 +24,7 @@ describe("the server URL", () => {
   it("refuses a URL with no scheme", () => {
     const result = validateEnroll(values({ server: "subshell.example.com" }));
     expect(result.invalid).toBe(true);
-    expect(result.errors.server).toContain("include the scheme");
+    expect(result.errors.server).toContain("Include the scheme");
   });
 
   it("refuses a scheme that is not http or https", () => {

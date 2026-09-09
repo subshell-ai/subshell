@@ -30,7 +30,7 @@ export function VersionsCard({ status }: { status: AdminStatus }) {
       <Fact label="Nodes needing update" wide>
         {outdated.length === 0 ? (
           <span className="text-muted-foreground">
-            None — every enrolled node meets the {status.versions.minAgent} floor
+            None. Every enrolled node meets the {status.versions.minAgent} floor
           </span>
         ) : (
           <div className="flex flex-wrap gap-2">

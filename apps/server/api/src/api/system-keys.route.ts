@@ -25,7 +25,7 @@ const CreateBodySchema = t.Object({
 
 const CreateResponseSchema = t.Object({
   id: t.String({ description: "API key id (for later enable/disable/delete)" }),
-  key: t.String({ description: "The plaintext key — shown exactly once, store it now" }),
+  key: t.String({ description: "The plaintext key, shown exactly once, store it now" }),
 });
 
 const PatchBodySchema = t.Object({

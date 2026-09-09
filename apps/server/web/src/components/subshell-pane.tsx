@@ -123,7 +123,7 @@ export function SubshellPane({
     return (
       <div className="flex h-full flex-col bg-background">
         <div className="flex shrink-0 flex-col items-center gap-2 py-3 text-center">
-          <p className="text-muted-foreground text-sm">Node offline — reconnecting</p>
+          <p className="text-muted-foreground text-sm">Node offline, reconnecting</p>
           <p className="text-muted-foreground text-xs">
             This subshell may still be running on its node. Output and input resume when the node reconnects to the
             server.

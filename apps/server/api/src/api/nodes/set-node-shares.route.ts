@@ -73,7 +73,7 @@ export const setNodeSharesRoute = new Elysia()
       detail: {
         operationId: "setNodeShares",
         tags: ["nodes"],
-        description: "Replace a node's sharing grants (manager only — owner, or admin on local)",
+        description: "Replace a node's sharing grants (manager only: owner, or admin on local)",
       },
     },
   );

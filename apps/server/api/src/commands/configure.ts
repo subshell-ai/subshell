@@ -188,7 +188,7 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
     const installer = chooseTmuxInstaller({ platform, which: deps.which });
     if (installer) {
       offer.log(
-        "tmux not found — the server launches its local subshells through tmux. " +
+        "tmux not found. The server launches its local subshells through tmux. " +
           `It can be installed right now with ${installer.label}.`,
       );
       offer.log(`this would run: ${installer.argv.join(" ")}`);
@@ -202,14 +202,14 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
           note: offer.log,
         });
         if (found) {
-          offer.log(`tmux installed (${found}) — continuing.`);
+          offer.log(`tmux installed (${found}), continuing.`);
           return true;
         }
-        offer.log("tmux was not installed — falling back to the manual steps.");
+        offer.log("tmux was not installed, falling back to the manual steps.");
       }
     }
   }
-  deps.error("tmux not found — the server launches its local subshells through tmux and cannot run without it.");
+  deps.error("tmux not found. The server launches its local subshells through tmux and cannot run without it.");
   const hint =
     platform === "darwin"
       ? "Install it first (macOS: brew install tmux)"
@@ -256,7 +256,7 @@ export function writeConfigEnv(dir: string, values: Record<string, string>): str
   const target = join(dir, "config.env");
   const tmp = join(dir, `.config.env.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   const body = [
-    "# subshell-server configuration — systemd EnvironmentFile syntax (bare KEY=value lines, no quotes).",
+    "# subshell-server configuration, systemd EnvironmentFile syntax (bare KEY=value lines, no quotes).",
     "# Written by `subshell-server init`/`configure`: comments here do NOT survive a rewrite, but keys",
     "# this tool does not own (e.g. BETTER_AUTH_SECRET) are carried forward verbatim.",
     ...Object.entries(values).map(([key, value]) => `${key}=${value}`),
@@ -343,7 +343,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   const resolve = (key: ConfigKey, question: string, def: string, flag: string | undefined): string | null => {
     const value = ask(question, def, flag);
     if (value === null) {
-      deps.error("stdin closed before all answers were given — nothing was written.");
+      deps.error("stdin closed before all answers were given. Nothing was written.");
       return null;
     }
     const invalid = validateValue(key, value);
@@ -365,7 +365,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
       // escape: a newly typed wildcard is still refused.
       if (existing[key] === value) {
         deps.log(
-          `warning: ${key} kept as found in ${join(deps.configDir, "config.env")} — ${invalid}. ` +
+          `warning: ${key} kept as found in ${join(deps.configDir, "config.env")}: ${invalid}. ` +
             `This tool will not write that value; pass ${FLAG_FOR_KEY[key]} to replace it.`,
         );
         return value;
@@ -380,7 +380,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   if (port === null) return 1;
   const host = resolve(
     "HOST",
-    "Bind address — 0.0.0.0 serves the LAN (what remote nodes and devices need); type 127.0.0.1 to stay loopback-only",
+    "Bind address. 0.0.0.0 serves the LAN (what remote nodes and devices need); type 127.0.0.1 to stay loopback-only",
     dflt("HOST", "0.0.0.0"),
     opts.host,
   );
@@ -430,7 +430,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   // box. Warned, then accepted — flags and scripted answers outrank taste.
   if (host === "0.0.0.0" && isLoopbackUrl(baseUrl)) {
     deps.log(
-      `warning: HOST=0.0.0.0 (LAN bind) but APP_BASE_URL is loopback (${baseUrl}) — remote nodes will dial ` +
+      `warning: HOST=0.0.0.0 (LAN bind) but APP_BASE_URL is loopback (${baseUrl}); remote nodes will dial ` +
         "their OWN machine, not this server. Set a reachable APP_BASE_URL (e.g. http://<lan-ip>:" +
         `${port}) unless every node is this box.`,
     );
@@ -448,7 +448,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   const dialPort = baseUrlPort(baseUrl);
   if (dialPort !== null && dialPort !== 80 && dialPort !== 443 && String(dialPort) !== port) {
     deps.log(
-      `warning: APP_BASE_URL is ${baseUrl} but the server will listen on ${port} — unless a proxy or an ` +
+      `warning: APP_BASE_URL is ${baseUrl} but the server will listen on ${port}; unless a proxy or an ` +
         `SSH forward on this host maps port ${dialPort} to ${port}, a browser dialing ${dialPort} reaches ` +
         `nothing, and one dialing ${port} sends an origin this instance does not trust (403 "Invalid ` +
         `origin"). Set --base-url to the address you actually browse, or add it to --trusted-origins.`,

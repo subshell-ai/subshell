@@ -43,13 +43,13 @@ const EnrollBodySchema = t.Object({
 /** What the agent needs to connect: its id, its one-time bearer key, the key to pin, the endpoint. */
 const EnrollResponseSchema = t.Object({
   nodeId: t.String({ description: "Server-assigned node id (uuid)" }),
-  nodeKey: t.String({ description: "Plaintext node bearer key — shown exactly once here; only its hash is stored" }),
+  nodeKey: t.String({ description: "Plaintext node bearer key; shown exactly once here; only its hash is stored" }),
   controlPublicKey: t.String({
     description: "JSON-serialized control-plane signing public JWK; the node pins it to verify commands",
   }),
   wsUrl: t.String({
     description:
-      "WebSocket endpoint for this node — APP_BASE_URL's scheme (https → wss) and pathname (subpath mounts preserved) with `/ws/node` appended",
+      "WebSocket endpoint for this node: APP_BASE_URL's scheme (https → wss) and pathname (subpath mounts preserved) with `/ws/node` appended",
   }),
 });
 
@@ -245,7 +245,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         apiErrorBody({
           code: BackendErrorCodes.INTERNAL_SERVER_ERROR,
           message:
-            "Node enrollment failed after the setup key was consumed — the key is spent; issue a new one and retry.",
+            "Node enrollment failed after the setup key was consumed; the key is spent; issue a new one and retry.",
           causedBy: err,
           // 5xx is a server fault — log it loudly (apiErrorBody defaults to "debug", which hides it).
           logLevel: "error",
@@ -266,7 +266,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       operationId: "enrollNode",
       tags: ["nodes"],
       description:
-        "Redeems a single-use setup key into an enrolled node (public — the setup key is the credential); returns the node id, its bearer key (once), the control public JWK, and the ws URL",
+        "Redeems a single-use setup key into an enrolled node (public, the setup key is the credential); returns the node id, its bearer key (once), the control public JWK, and the ws URL",
     },
   },
 );

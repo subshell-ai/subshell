@@ -51,7 +51,7 @@ export const listNodesRoute = new Elysia()
       detail: {
         operationId: "listNodes",
         tags: ["nodes"],
-        description: "List nodes visible to the caller — owned or shared (cookie-only in phase 1)",
+        description: "List nodes visible to the caller, owned or shared (cookie-only in phase 1)",
       },
     },
   );

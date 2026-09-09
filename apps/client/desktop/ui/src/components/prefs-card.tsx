@@ -37,7 +37,7 @@ import type { NodeSettings } from "@/lib/ipc";
 export const TRAY_NOT_DETECTED =
   "No system tray was detected on this desktop, so a hidden window would have nowhere to go. GNOME needs an " +
   "AppIndicator extension; KDE and most others have one already. Some older trays cannot be detected at all, so " +
-  "an icon may still appear — install one, then check again.";
+  "an icon may still appear. Install one, then check again.";
 
 export function PrefsCard(props: {
   settings: NodeSettings | undefined;

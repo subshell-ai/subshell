@@ -134,7 +134,7 @@ function LoginPage() {
               </Button>
               <p className="mt-2 text-muted-foreground text-xs">
                 Passkeys are tied to this device and to the address this instance serves from. If you reached this page
-                from a different address, passkey sign-in won&apos;t find them — use your password.
+                from a different address, passkey sign-in won&apos;t find them. Use your password.
               </p>
             </div>
           )}

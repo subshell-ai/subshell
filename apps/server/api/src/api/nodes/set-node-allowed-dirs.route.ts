@@ -19,7 +19,7 @@ const AllowedDirsBodySchema = t.Object({
     {
       maxItems: MAX_ALLOWED_DIRS,
       description:
-        "The complete replacement set. AN EMPTY ARRAY CLEARS THE RULES and returns the node to unrestricted — it does not mean 'permit nothing'",
+        "The complete replacement set. AN EMPTY ARRAY CLEARS THE RULES and returns the node to unrestricted; it does not mean 'permit nothing'",
     },
   ),
 });
@@ -127,7 +127,7 @@ export const setNodeAllowedDirsRoute = new Elysia()
         operationId: "setNodeAllowedDirs",
         tags: ["nodes"],
         description:
-          "Replace the directories subshells may be created under on this node (owner-only, cookie-only). An empty array clears the rules — the node becomes unrestricted. The set is pushed to the node, which enforces it independently",
+          "Replace the directories subshells may be created under on this node (owner-only, cookie-only). An empty array clears the rules; the node becomes unrestricted. The set is pushed to the node, which enforces it independently",
       },
     },
   );

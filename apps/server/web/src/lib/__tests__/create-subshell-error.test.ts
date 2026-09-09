@@ -15,14 +15,14 @@ describe("createSubshellErrorMessage", () => {
   it("turns a 409 NODE_OFFLINE into the actionable node line", () => {
     const err = new ApiError(409, "Node is offline", { code: "NODE_OFFLINE", errId: "e1" });
     expect(createSubshellErrorMessage(err, "Failed to create subshell")).toBe(
-      "That node is offline — start its subshell or pick another node.",
+      "That node is offline. Start its subshell or pick another node.",
     );
   });
 
   it("turns a NODE_UNREACHABLE into the retry-soon line", () => {
     const err = new ApiError(409, "Node did not respond", { code: "NODE_UNREACHABLE" });
     expect(createSubshellErrorMessage(err, "Failed to create subshell")).toBe(
-      "The node did not answer — try again shortly.",
+      "The node did not answer. Try again shortly.",
     );
   });
 

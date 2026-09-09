@@ -29,7 +29,7 @@ export function NotFoundPage() {
   return (
     <NotFoundCard
       title="Page not found"
-      body="This page doesn't exist — the link may be old or mistyped."
+      body="This page doesn't exist. The link may be old or mistyped."
       action={<Button render={<Link to="/">Go to subshells</Link>} />}
     />
   );

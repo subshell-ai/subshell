@@ -77,11 +77,11 @@ export function NodeKeyRotate({
       </div>
       {rotated && (
         <div className="space-y-2 rounded-lg border p-4">
-          <p className="text-sm">New key for “{nodeName}” — shown once, only here. A lost key means rotating again.</p>
+          <p className="text-sm">New key for “{nodeName}”, shown once, only here. A lost key means rotating again.</p>
           <CopyCommandRow text={rotated.nodeKey} />
           <p className="text-muted-foreground text-xs">{rotated.message}</p>
           <Button variant="outline" size="sm" onClick={() => setRotated(null)}>
-            Done — hide the key
+            Done, hide the key
           </Button>
         </div>
       )}

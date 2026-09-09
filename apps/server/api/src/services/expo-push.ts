@@ -69,7 +69,7 @@ const KIND_COPY: Record<NotifyKind, string> = {
   turn_complete: "A subshell needs you",
   needs_attention: "A subshell needs you",
   exited: "A subshell exited",
-  crashed: "A subshell crashed — auto-restarting",
+  crashed: "A subshell crashed, auto-restarting",
   crashed_final: "A subshell crashed",
 };
 

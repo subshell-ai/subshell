@@ -57,7 +57,7 @@ describe("HarnessRow", () => {
 
   it("a disabled installed harness explains the consequence", () => {
     render(<HarnessRow harness={{ ...base, enabled: false }} pending={false} onToggle={noop} onRecheck={noop} />);
-    expect(screen.getByText(/its profiles are hidden/)).toBeDefined();
+    expect(screen.getByText(/Its profiles are hidden/)).toBeDefined();
   });
 
   it("shows the row's toggle error, if any", () => {

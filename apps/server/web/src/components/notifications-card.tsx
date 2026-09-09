@@ -30,7 +30,7 @@ const STATE_HELP: Partial<Record<PushState, string>> = {
  * this" but "this app already does it another way". The shell notifies
  * natively off the SSE feed the app is already reading.
  */
-const DESKTOP_HELP = "The desktop app notifies you natively — no push subscription needed.";
+const DESKTOP_HELP = "The desktop app notifies you natively, with no push subscription needed.";
 
 /** iOS Safari only delivers web push from a home-screen-installed PWA. */
 function isIOS(): boolean {
@@ -86,7 +86,7 @@ export function NotificationsCard({
       <CardHeader>
         <CardTitle>Notifications</CardTitle>
         <CardDescription>
-          System notifications when a subshell needs your attention — enabled per device and browser, never pushed by
+          System notifications when a subshell needs your attention, enabled per device and browser and never pushed by
           the instance itself.
         </CardDescription>
       </CardHeader>
@@ -109,7 +109,7 @@ export function NotificationsCard({
         )}
         {state === "unsupported" && isIOS() && (
           <p className="text-muted-foreground text-sm">
-            On iOS, use Share → “Add to Home Screen” first — notifications only arrive for the installed app.
+            On iOS, use Share → “Add to Home Screen” first. Notifications only arrive for the installed app.
           </p>
         )}
         {error && (

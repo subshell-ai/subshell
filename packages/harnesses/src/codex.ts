@@ -172,7 +172,7 @@ export class CodexPlugin implements HarnessPlugin {
    */
   mcpRegistration(launch: McpLaunchSpec, _configPath: string): McpRegistration {
     const fragment = [
-      "# Subshell — cross-subshell MCP server, in the shape ~/.codex/config.toml expects.",
+      "# Subshell: cross-subshell MCP server, in the shape ~/.codex/config.toml expects.",
       "#",
       "# This file is a MANUAL-SETUP REFERENCE ONLY: subshell's own launches pass the",
       "# live values as `-c mcp_servers.subshell.*=…` per-invocation overrides, so codex",

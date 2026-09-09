@@ -36,7 +36,7 @@ export function TrustBannersCard() {
         <CardTitle>Sharing and node warnings</CardTitle>
         <CardDescription>
           Shows a one-time banner when you open a subshell that runs on a machine you don&apos;t own, or one that is
-          shared with other people — both mean someone else can read what the terminal shows. Turning this off hides the
+          shared with other people. Both mean someone else can read what the terminal shows. Turning this off hides the
           banner only: the amber icon in the subshell&apos;s header says the same thing, always, and hovering it
           explains why. Applies to this device.
         </CardDescription>

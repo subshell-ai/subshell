@@ -250,16 +250,16 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
   // Never echo the secret — masked/missing is all status reveals.
   const secretText = v.authSecret.state === "set" ? "set (masked)" : "MISSING";
   log(`BETTER_AUTH_SECRET   = ${secretText}  (${v.authSecret.source})`);
-  log(`tmux                 = ${v.tmux ?? "NOT FOUND — install tmux (apt install tmux / brew install tmux)"}`);
+  log(`tmux                 = ${v.tmux ?? "NOT FOUND: install tmux (apt install tmux / brew install tmux)"}`);
   log(
     v.mcp
       ? `mcp entrypoint       = ${[v.mcp.command, ...v.mcp.args].join(" ")}  (via ${v.mcp.source})`
-      : `mcp entrypoint       = UNRESOLVED — subshell create will fail; ${v.mcpError}`,
+      : `mcp entrypoint       = UNRESOLVED; subshell create will fail; ${v.mcpError}`,
   );
   const { published, total, dir } = v.nodeArtifacts;
   log(
     `node artifacts       = ${published}/${total} published (${dir})` +
-      (published < total ? " — install.sh 404s for the rest" : ""),
+      (published < total ? ", install.sh 404s for the rest" : ""),
   );
   log(`port ${v.listen.portRaw} on ${v.listen.host}: ${v.listen.listening ? "likely running" : "not listening"}`);
   // Service DEFINITION on disk — not a liveness line (`service status` is the
@@ -294,8 +294,8 @@ export function serviceStateLines(state: ServiceState): string[] {
     state.paneSafety === "keeps"
       ? "yes"
       : state.paneSafety === "kills"
-        ? "NO — this definition predates the fix; reinstall it before stopping or restarting"
-        : "unknown — the definition could not be read";
+        ? "NO: this definition predates the fix; reinstall it before stopping or restarting"
+        : "unknown: the definition could not be read";
   lines.push(`teardown keeps panes = ${pane}`);
   if (state.detail !== "") lines.push(`detail               = ${state.detail}`);
   return lines;

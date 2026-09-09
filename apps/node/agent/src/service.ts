@@ -186,10 +186,10 @@ const oneLine = (s: string): string => s.trim().replace(/\s*\n\s*/g, " ");
 const cmdDetail = (r: { out: string; err: string }): string => oneLine(r.err) || oneLine(r.out) || "no output";
 
 /** Install refuses to touch the machine before the node is enrolled; uninstall deliberately does NOT (see {@link uninstallService}). */
-const NO_CONFIG = "no config found — run subshell enroll first";
+const NO_CONFIG = "no config found: run subshell enroll first";
 
 const unsupported = (action: string, platform: string): string =>
-  `service ${action} is not supported on '${platform}' — no per-user service manager here; ` +
+  `service ${action} is not supported on '${platform}': no per-user service manager here; ` +
   "run `subshell run` in a terminal (e.g. inside tmux/screen) to keep the daemon up for now";
 
 /**
@@ -210,7 +210,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     if (reload.code !== 0) {
       return errLine(
         `systemctl --user daemon-reload failed (exit ${reload.code}): ` +
-          `${cmdDetail(reload)} — the unit file was left at ${path}; ` +
+          `${cmdDetail(reload)}; the unit file was left at ${path}; ` +
           "this usually means no systemd user subshell is running (container/SSH without loginctl)",
       );
     }
@@ -223,7 +223,7 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     return {
       code: 0,
       out:
-        `Installed ${path} — subshell is enabled and running.\n` +
+        `Installed ${path}; subshell is enabled and running.\n` +
         "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n",
       err: "",
     };
@@ -241,10 +241,10 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     const boot = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
     if (boot.code !== 0) {
       return errLine(
-        `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)} — ` + `the plist was left at ${path}`,
+        `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` + `the plist was left at ${path}`,
       );
     }
-    return { code: 0, out: `Installed ${path} — subshell is registered with launchd and running.\n`, err: "" };
+    return { code: 0, out: `Installed ${path}; subshell is registered with launchd and running.\n`, err: "" };
   }
 
   return errLine(unsupported("install", deps.platform));
@@ -264,12 +264,12 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
 export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
   // The note rides every success line when the config is gone; error paths
   // keep their message about the actual failure.
-  const noConfigNote = (await deps.hasConfig()) ? "" : "(no agent config found — nothing else to clean up)\n";
+  const noConfigNote = (await deps.hasConfig()) ? "" : "(no agent config found, nothing else to clean up)\n";
 
   if (deps.platform === "linux") {
     const path = unitPath(deps.home);
     if (!(await deps.fileExists(path))) {
-      return { code: 0, out: `nothing installed — no systemd user unit at ${path}\n${noConfigNote}`, err: "" };
+      return { code: 0, out: `nothing installed: no systemd user unit at ${path}\n${noConfigNote}`, err: "" };
     }
     const disable = await deps.runCmd(["systemctl", "--user", "disable", "--now", SYSTEMD_UNIT_NAME]);
     const reload = await deps.runCmd(["systemctl", "--user", "daemon-reload"]);
@@ -279,12 +279,12 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
       const label = disable.code !== 0 ? "disable --now" : "daemon-reload";
       return errLine(
         `systemctl --user ${label} failed (exit ${failed.code}): ` +
-          `${cmdDetail(failed)} — the unit file was removed anyway`,
+          `${cmdDetail(failed)}; the unit file was removed anyway`,
       );
     }
     return {
       code: 0,
-      out: `Removed ${path} — subshell is stopped and no longer starts on login.\n${noConfigNote}`,
+      out: `Removed ${path}; subshell is stopped and no longer starts on login.\n${noConfigNote}`,
       err: "",
     };
   }
@@ -292,18 +292,18 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
   if (deps.platform === "darwin") {
     const path = plistPath(deps.home);
     if (!(await deps.fileExists(path))) {
-      return { code: 0, out: `nothing installed — no launchd plist at ${path}\n${noConfigNote}`, err: "" };
+      return { code: 0, out: `nothing installed: no launchd plist at ${path}\n${noConfigNote}`, err: "" };
     }
     const unload = await deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
     await deps.removeFile(path);
     if (unload.code !== 0) {
       return errLine(
-        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)} — the plist was removed anyway`,
+        `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)}; the plist was removed anyway`,
       );
     }
     return {
       code: 0,
-      out: `Removed ${path} — subshell is unloaded and no longer starts on login.\n${noConfigNote}`,
+      out: `Removed ${path}; subshell is unloaded and no longer starts on login.\n${noConfigNote}`,
       err: "",
     };
   }
@@ -622,7 +622,7 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
       active === "failed" ? `unit is failed (SubState=${props.SubState ?? "?"})` : null,
       // A masked unit refuses every control verb; say it once here rather than
       // letting the operator discover it one command at a time.
-      unitFileState.startsWith("masked") ? `unit is ${unitFileState} — systemctl will refuse start/stop/restart` : null,
+      unitFileState.startsWith("masked") ? `unit is ${unitFileState}: systemctl will refuse start/stop/restart` : null,
     ),
   };
 }
@@ -747,12 +747,12 @@ export async function controlService(
   const state = await queryService(deps);
   if (!state.installed) {
     return errLine(
-      `nothing installed — no service definition at ${state.definitionPath} (run \`subshell service install\` first)`,
+      `nothing installed: no service definition at ${state.definitionPath} (run \`subshell service install\` first)`,
     );
   }
   const lethal = state.paneSafety !== "keeps";
   if (verb === "restart" && lethal && opts.force !== true) {
-    return errLine(`refusing to restart: ${paneWarning(deps, state, "restart")} — ${STALE_DEFINITION}`);
+    return errLine(`refusing to restart: ${paneWarning(deps, state, "restart")}; ${STALE_DEFINITION}`);
   }
   // Rides along on the SUCCESS result: `stop` is not refused, but it must
   // never be silent about what it took down.
@@ -825,7 +825,7 @@ async function bootstrapDarwin(deps: ServiceDeps, target: string, done: string, 
     // rather than asserting one.
     return errLine(
       `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` +
-        `kickstart also failed (exit ${kick.code}): ${cmdDetail(kick)} — the plist may be invalid, ` +
+        `kickstart also failed (exit ${kick.code}): ${cmdDetail(kick)}: the plist may be invalid, ` +
         `or the service disabled (launchctl enable ${target})`,
     );
   }
@@ -859,8 +859,8 @@ export function serviceStateLines(state: ServiceState): string[] {
     state.paneSafety === "keeps"
       ? "yes"
       : state.paneSafety === "kills"
-        ? "NO — this definition predates the fix; reinstall it before stopping or restarting"
-        : "unknown — the definition could not be read";
+        ? "NO: this definition predates the fix; reinstall it before stopping or restarting"
+        : "unknown: the definition could not be read";
   lines.push(`teardown keeps panes = ${pane}`);
   if (state.detail !== "") lines.push(`detail               = ${state.detail}`);
   return lines;

@@ -42,7 +42,7 @@ const SUGGESTED_ENV: { key: string; description: string }[] = [
   // want their own extra layer use OPENCODE_CONFIG_CONTENT (independent merge
   // source) or OPENCODE_CONFIG_DIR.
   { key: "OPENCODE_CONFIG_CONTENT", description: "Inline JSON config merged at runtime" },
-  { key: "OPENCODE_CONFIG_DIR", description: "Extra config dir (agents/commands/plugins) — isolation knob" },
+  { key: "OPENCODE_CONFIG_DIR", description: "Extra config dir (agents/commands/plugins), isolation knob" },
   { key: "OPENCODE_TUI_CONFIG", description: "Path to a custom TUI config file" },
   { key: "OPENCODE_API_KEY", description: "OpenCode Zen / OpenCode Go API key" },
 ];

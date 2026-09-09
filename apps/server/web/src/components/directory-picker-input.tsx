@@ -206,7 +206,7 @@ export function DirectoryPickerInput({
                     on the NODE (update the subshell app), so neither the
                     path correction nor Start over applies here. */}
                 <p className="text-muted-foreground">
-                  The subshell app on {remoteLabel} is too old to browse folders there — update it.
+                  The subshell app on {remoteLabel} is too old to browse folders there. Update it.
                 </p>
               </div>
             ) : (

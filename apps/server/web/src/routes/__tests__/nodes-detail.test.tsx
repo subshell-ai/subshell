@@ -219,7 +219,7 @@ describe("NodeDetailPage rotate-key", () => {
       expect(revealed.textContent).toBe("subshell_new_secret");
       expect(screen.getByText(/shown once/i)).toBeDefined();
       // Done retires the plaintext from the DOM.
-      fireEvent.click(screen.getByRole("button", { name: /Done — hide the key/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Done, hide the key/ }));
       await waitFor(() => expect(screen.queryByText("subshell_new_secret")).toBeNull());
     } finally {
       restore();

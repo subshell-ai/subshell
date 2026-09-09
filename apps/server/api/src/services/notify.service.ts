@@ -31,10 +31,10 @@ import { logger } from "@/utils/logger.js";
 export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final";
 
 const BODY: Record<NotifyKind, string> = {
-  turn_complete: "Done — waiting for you",
+  turn_complete: "Done, waiting for you",
   needs_attention: "Needs your approval",
   exited: "Subshell exited",
-  crashed: "Crashed — auto-restarting",
+  crashed: "Crashed, auto-restarting",
   crashed_final: "Crashed",
 };
 

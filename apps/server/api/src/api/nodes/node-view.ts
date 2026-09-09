@@ -31,7 +31,7 @@ export type NodeViewableAccess = Exclude<NodeAccess, "none">;
 
 /** The viewer's effective access on this node; "none" is never rendered (invisible → 404/absent). */
 export const NodeAccessSchema = t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
-  description: "Caller's effective access on this node (none is never rendered — invisible nodes 404)",
+  description: "Caller's effective access on this node (none is never rendered, invisible nodes 404)",
 });
 
 /** One harness row of a node view — plugin identity × per-node state. */
@@ -64,7 +64,7 @@ export const NodeHarnessViewSchema = t.Object({
  */
 export const InventoryStaleSchema = t.Boolean({
   description:
-    "Agent: cached inventory older than the 10-min TTL (or never reported) — installed values are last-known, not live. local: always false",
+    "Agent: cached inventory older than the 10-min TTL (or never reported); installed values are last-known, not live. local: always false",
 });
 
 /** One node as the registry routes render it — no secrets, no machine keys. */
@@ -96,14 +96,14 @@ export const NodeViewSchema = t.Object({
   access: NodeAccessSchema,
   canManage: t.Boolean({
     description:
-      "Whether the caller manages this node (delete/re-share/rotate): real owner, or an admin on `local` — same rule as the route gate",
+      "Whether the caller manages this node (delete/re-share/rotate): real owner, or an admin on `local`; same rule as the route gate",
   }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
   }),
   allowedDirs: t.Array(t.String({ description: "Absolute directory a subshell may be launched under" }), {
     description:
-      "Directories subshells may be created in on this node. EMPTY MEANS UNRESTRICTED, never 'nothing permitted'. Readable by anyone who can see the node — a refused directory is unexplainable without it; only the owner may change it",
+      "Directories subshells may be created in on this node. EMPTY MEANS UNRESTRICTED, never 'nothing permitted'. Readable by anyone who can see the node; a refused directory is unexplainable without it; only the owner may change it",
   }),
   harnesses: t.Array(NodeHarnessViewSchema, { description: "Every registered harness × this node's state" }),
   inventoryStale: InventoryStaleSchema,

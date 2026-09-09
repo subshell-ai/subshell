@@ -95,7 +95,7 @@ export function checkAndPinRecipients(recipients: SealRecipient[]): void {
     }
     if (pinned.get(r.principalId) !== r.publicJwk) {
       throw new PinnedKeyMismatchError(
-        `subshell: pinned key for ${r.principalId} changed — peer key rotation or a relay substitution. ` +
+        `subshell: pinned key for ${r.principalId} changed: peer key rotation or a relay substitution. ` +
           `Verify out-of-band, then delete the '${r.principalId}' entry from ${file} to re-learn.`,
       );
     }
@@ -138,7 +138,7 @@ function quarantineCorrupt(file: string, cause: unknown): never {
   renameSync(file, aside);
   throw new Error(
     `subshell: peer pin file is corrupt (${cause instanceof Error ? cause.message : String(cause)}); ` +
-      `moved ${file} aside to ${aside} and refusing to seal — the pin set was NOT reset. ` +
+      `moved ${file} aside to ${aside} and refusing to seal; the pin set was NOT reset. ` +
       `Restore the file by hand, or let the next post re-learn every peer after verifying them out-of-band.`,
   );
 }

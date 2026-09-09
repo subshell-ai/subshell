@@ -34,8 +34,8 @@ const SOURCE_LABEL: Record<AgentSource, string> = {
  * case by definition.
  */
 const AGENT_CHOICE_NOTE: Partial<Record<AgentChoice, string>> = {
-  "upgrade-available": " — newer than the installed agent",
-  "adopt-installed": " — the installed agent is newer, so it is the one in use",
+  "upgrade-available": " (newer than the installed agent)",
+  "adopt-installed": " (the installed agent is newer, so it is the one in use)",
 };
 
 /** `daemonAgeMs` as something readable, or null when the field is absent. */
@@ -62,7 +62,7 @@ export function probeFacts(args: {
   const svc = probe.service;
 
   if (probe.agent) {
-    out.push({ key: "agent", value: `${probe.agent.version ?? "version unknown"} — ${probe.agent.argv.join(" ")}` });
+    out.push({ key: "agent", value: `${probe.agent.version ?? "version unknown"} (${probe.agent.argv.join(" ")})` });
     out.push({ key: "found via", value: SOURCE_LABEL[probe.agent.source] ?? probe.agent.source });
   }
   if (probe.bundledVersion) {
@@ -93,8 +93,8 @@ export function probeFacts(args: {
     out.push({
       key: "daemon",
       value: st.online
-        ? `online${age ? ` — last heartbeat ${age} ago` : ""}`
-        : "offline — no local daemon holds the lock",
+        ? `online${age ? ` (last heartbeat ${age} ago)` : ""}`
+        : "offline: no local daemon holds the lock",
       tone: st.online ? "ok" : "warn",
     });
   } else if (st?.reason) {
@@ -107,12 +107,12 @@ export function probeFacts(args: {
   if (svc?.installed) {
     out.push({ key: "service", value: svc.definitionPath ?? "unknown" });
     const pid = svc.pid ? ` (pid ${svc.pid})` : "";
-    const login = svc.enabled === true ? " — starts at login" : svc.enabled === false ? " — not enabled at login" : "";
+    const login = svc.enabled === true ? " (starts at login)" : svc.enabled === false ? " (not enabled at login)" : "";
     // `detail` is what the MANAGER said, verbatim — "launchd: spawn scheduled"
     // is the crash-throttle wait, and "stopped" alone hides the fact that the
     // job keeps trying and failing. An unknown state is red: a manager that
     // would not answer is not the same fact as a service that is stopped.
-    const detail = svc.detail ? ` — ${svc.detail}` : "";
+    const detail = svc.detail ? ` (${svc.detail})` : "";
     out.push({
       key: "manager",
       value: `${svc.state ?? "unknown"}${pid}${login}${detail}`,
@@ -121,9 +121,9 @@ export function probeFacts(args: {
     // The one fact neither systemctl nor launchctl will tell them, and the
     // reason a restart can be refused outright.
     if (svc.paneSafety === "kills") {
-      out.push({ key: "teardown", value: "kills live subshells — rewrite the service definition", tone: "warn" });
+      out.push({ key: "teardown", value: "kills live subshells: rewrite the service definition", tone: "warn" });
     } else if (svc.paneSafety === "unknown") {
-      out.push({ key: "teardown", value: "unknown — the definition could not be read", tone: "warn" });
+      out.push({ key: "teardown", value: "unknown: the definition could not be read", tone: "warn" });
     }
     // Where the agent's own output goes. macOS: the file the plist names, and
     // the "Open the agent log" button reveals it. Linux: the journal, and the
@@ -137,7 +137,7 @@ export function probeFacts(args: {
   // does not burn a one-time setup key — and on every launch this node accepts.
   out.push({
     key: "tmux",
-    value: probe.tmux ?? "NOT FOUND — enroll refuses, and a node without it accepts no launches",
+    value: probe.tmux ?? "NOT FOUND: enroll refuses, and a node without it accepts no launches",
     tone: probe.tmux ? undefined : "bad",
   });
 

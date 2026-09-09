@@ -82,7 +82,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     let content = cmd.mcp.fileContent;
     if (reg && content !== reg.fileContent) {
       log(
-        `mcp config drift for subshell ${cmd.subshellId}: wire content != agent-local dialect — using the local content`,
+        `mcp config drift for subshell ${cmd.subshellId}: wire content != agent-local dialect; using the local content`,
       );
       content = reg.fileContent;
     }

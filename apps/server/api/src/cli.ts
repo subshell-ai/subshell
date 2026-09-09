@@ -121,7 +121,7 @@ export interface CliDeps {
   spawnInstall?: (argv: readonly string[]) => number;
 }
 
-const USAGE = `subshell-server — the Subshell control plane
+const USAGE = `subshell-server: the Subshell control plane
 
 usage:
   subshell-server                run the server (boot path: no subcommand)

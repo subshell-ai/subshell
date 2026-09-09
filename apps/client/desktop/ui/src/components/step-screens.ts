@@ -113,7 +113,7 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
         : [
             "The agent is the small program that holds this machine's connection to the control plane and starts " +
               "the sessions launched here. Installing it copies the copy that ships inside this app to " +
-              "~/.local/bin/subshell — nothing is downloaded.",
+              "~/.local/bin/subshell, and nothing is downloaded.",
           ],
       hint: probe?.bundledVersion ? "" : "This build ships no agent, so an existing one has to be pointed at.",
       actions,
@@ -136,10 +136,10 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
     const lead = current
       ? `This machine is already enrolled as node ${current}${where ? ` on ${where}` : ""}. Enrolling again ` +
         "overwrites that configuration, registers a SECOND node on the control plane, and discards the current " +
-        "node key — whose only copy is that file. The old node row stays behind and has to be deleted by hand."
+        "node key, whose only copy is that file. The old node row stays behind and has to be deleted by hand."
       : "This machine already has a node configuration. Enrolling again replaces it.";
     return {
-      body: "Register this machine again — with a different control plane, or as a new node.",
+      body: "Register this machine again, with a different control plane or as a new node.",
       notes: [lead, ...ENROLL_NOTES],
       form: true,
       actions: [
@@ -153,8 +153,8 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
   "no-service": (ctx) => ({
     body: "This machine is registered, but nothing keeps its agent running.",
     notes: [
-      "Running it in the background writes a user-level service definition — a systemd user unit on Linux, a " +
-        "launchd agent on macOS — that starts the agent at login and brings it back if it exits.",
+      "Running it in the background writes a user-level service definition (a systemd user unit on Linux, a " +
+        "launchd agent on macOS) that starts the agent at login and brings it back if it exits.",
     ],
     actions: [
       {
@@ -192,7 +192,7 @@ const SCREENS: Record<StepKey, (ctx: StepContext) => StepScreen> = {
   offline: (ctx) => ({
     body: "The service manager reports the agent as running, but no local daemon is heartbeating.",
     notes: [
-      "An agent that starts, fails and is restarted on a timer looks exactly like this. Its own log says why — a " +
+      "An agent that starts, fails and is restarted on a timer looks exactly like this. Its own log says why: a " +
         "missing tmux, an unreachable control plane, or a node key the server no longer recognises.",
     ],
     actions: [

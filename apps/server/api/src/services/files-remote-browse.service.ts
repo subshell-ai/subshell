@@ -65,7 +65,7 @@ function rethrowRemoteBrowseError(err: NodeRpcError): never {
     // thing to relay: it cannot do the thing either way.
     throwApiError({
       code: BackendErrorCodes.NODE_OUTDATED,
-      message: "The subshell app on this node is too old to browse folders there — update it.",
+      message: "The subshell app on this node is too old to browse folders there. Update it.",
       doNotLog: true,
     });
   }

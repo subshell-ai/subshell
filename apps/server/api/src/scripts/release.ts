@@ -225,7 +225,7 @@ async function restoreStub(): Promise<void> {
   });
   if ((await child.exited) !== 0) {
     process.stderr.write(
-      "compile:release: could not restore the embedded-web stub — run " +
+      "compile:release: could not restore the embedded-web stub. Run " +
         "`git checkout -- apps/server/api/src/generated/embedded-web.ts` by hand.\n",
     );
   }

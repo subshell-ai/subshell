@@ -64,7 +64,7 @@ const OutdatedAgentSchema = t.Object({
 
 const RuntimeSchema = t.Object({
   uptimeSeconds: t.Number({ description: "Whole seconds since this process started" }),
-  bootedAt: t.String({ description: "Process start time (ISO), derived from uptime — not a recorded stamp" }),
+  bootedAt: t.String({ description: "Process start time (ISO), derived from uptime, not a recorded stamp" }),
   pid: t.Number({ description: "Process id on the control-plane host" }),
   os: t.String({ description: "Host OS in the node vocabulary (linux|darwin)" }),
   arch: t.String({ description: "Host CPU architecture" }),
@@ -74,7 +74,7 @@ const RuntimeSchema = t.Object({
   memoryHeapUsedBytes: t.Number({ description: "JS heap in use, in bytes" }),
   listenHost: t.String({ description: "Configured bind address (HOST)" }),
   listenPort: t.Number({ description: "Configured port (SERVER_PORT)" }),
-  appBaseUrl: t.String({ description: "APP_BASE_URL — what this server bakes into install commands and passkey rpID" }),
+  appBaseUrl: t.String({ description: "APP_BASE_URL: what this server bakes into install commands and passkey rpID" }),
   staticSource: t.String({
     description:
       "Which SPA this process serves: disk (a built frontend dist) | embedded (baked into the binary) | unselected",
@@ -85,7 +85,7 @@ const RuntimeSchema = t.Object({
   }),
   tmuxPath: t.Nullable(t.String({ description: "Absolute path to tmux" }), {
     description:
-      "Resolved tmux binary, or null — every local pane launches through it, so null means local launches fail",
+      "Resolved tmux binary, or null; every local pane launches through it, so null means local launches fail",
   }),
   mcpEntrypoint: t.Nullable(t.String({ description: "Resolved `subshell mcp` command line" }), {
     description: "The command every subshell create registers, or null when UNRESOLVED (create will 500)",
@@ -99,7 +99,7 @@ const InventorySchema = t.Object({
   users: t.Object({
     total: t.Number({
       description:
-        "Registered PEOPLE (user_meta rows). The `system` service account that owns system API keys has no user_meta row and is deliberately not counted here — note that /api/users does list it",
+        "Registered PEOPLE (user_meta rows). The `system` service account that owns system API keys has no user_meta row and is deliberately not counted here; note that /api/users does list it",
     }),
     admins: t.Number({ description: "How many of them are admins" }),
   }),
@@ -110,11 +110,11 @@ const InventorySchema = t.Object({
   nodes: t.Object({
     total: t.Number({ description: "Enrolled nodes, including the seeded `local` row" }),
     online: t.Number({
-      description: "Nodes holding a live socket right now — the in-memory registry, not the DB projection",
+      description: "Nodes holding a live socket right now: the in-memory registry, not the DB projection",
     }),
     needingUpdate: t.Array(OutdatedAgentSchema, {
       description:
-        "Enrolled agents below the minimum version — they are refused at connect, so they appear offline with no other explanation",
+        "Enrolled agents below the minimum version; they are refused at connect, so they appear offline with no other explanation",
     }),
   }),
   workspaces: t.Number({ description: "Workspaces across all users" }),
@@ -125,7 +125,7 @@ const InventorySchema = t.Object({
 const SecuritySchema = t.Object({
   registrationsOpen: t.Boolean({ description: "Whether new users can register (the allow_registrations setting)" }),
   emergencyLoginActive: t.Boolean({
-    description: "True while SUBSHELL_EMERGENCY_PASSWORD is set — break-glass admin login is armed and destructive",
+    description: "True while SUBSHELL_EMERGENCY_PASSWORD is set; break-glass admin login is armed and destructive",
   }),
   usingPlaceholderSecret: t.Boolean({
     description: "True when BETTER_AUTH_SECRET is still the built-in placeholder; production refuses to boot this way",
@@ -133,7 +133,7 @@ const SecuritySchema = t.Object({
   systemKeys: t.Object({
     total: t.Number({ description: "System API keys that exist" }),
     active: t.Number({
-      description: "How many are enabled AND unexpired — each of these is a usable full-access bearer credential",
+      description: "How many are enabled AND unexpired; each of these is a usable full-access bearer credential",
     }),
   }),
 });
@@ -261,7 +261,7 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
       operationId: "getAdminStatus",
       tags: ["admin"],
       description:
-        "Instance-wide status for admins: versions, runtime health, inventory counts and security posture. Cookie-admin only — bearer keys are refused. Carries no secret in any form.",
+        "Instance-wide status for admins: versions, runtime health, inventory counts and security posture. Cookie-admin only; bearer keys are refused. Carries no secret in any form.",
     },
   },
 );

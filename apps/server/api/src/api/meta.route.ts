@@ -4,7 +4,7 @@ import { SERVER_VERSION } from "@/version.js";
 
 const MetaStatusSchema = t.Object({
   appVersion: t.String({
-    description: "Server app version (apps/server/api package.json) — per-app, not instance-wide",
+    description: "Server app version (apps/server/api package.json); per-app, not instance-wide",
   }),
   serverTime: t.String({ description: "Server time (ISO)" }),
 });

@@ -12,7 +12,7 @@ const EXIT_LABELS: Record<number, string> = {
 function exitSuffix(exitCode?: number | null): string {
   if (exitCode == null) return "";
   const label = EXIT_LABELS[exitCode];
-  return ` (code ${exitCode}${label ? ` — ${label}` : ""})`;
+  return ` (code ${exitCode}${label ? `, ${label}` : ""})`;
 }
 
 /** " (code 1)" without the label — the form the empty-log line has always used. */
@@ -53,7 +53,7 @@ export function LogTail({ lines, truncated = false, exitCode, children }: LogTai
           <>
             {truncated && (
               <p className="mb-2 text-muted-foreground text-xs italic">
-                earlier output omitted — showing the last {lines.length} lines
+                earlier output omitted, showing the last {lines.length} lines
               </p>
             )}
             <pre className="whitespace-pre-wrap break-words font-mono text-muted-foreground text-xs leading-relaxed">

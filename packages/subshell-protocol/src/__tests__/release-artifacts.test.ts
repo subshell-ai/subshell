@@ -181,7 +181,7 @@ describe("selectBundleOutput", () => {
 
   test("nothing matching is a refusal that says what WAS there", () => {
     expect(() => selectBundleOutput(["rpm", "appimage"], ".deb", "bundle/deb")).toThrow(
-      /no \.deb in bundle\/deb — the bundler wrote: rpm, appimage/,
+      /no \.deb in bundle\/deb; the bundler wrote: rpm, appimage/,
     );
     expect(() => selectBundleOutput([], ".app", "bundle/macos")).toThrow(/\(empty\)/);
   });

@@ -109,7 +109,7 @@ export function useNodeCommands(args: {
         ];
         if (probe?.managed === true) {
           messages.push(
-            "The service is stopped first so the file can be replaced, and is NOT started again — start it from " +
+            "The service is stopped first so the file can be replaced, and is NOT started again. Start it from " +
               "here afterwards.",
           );
           if (paneRisk(probe)) {
@@ -153,7 +153,7 @@ export function useNodeCommands(args: {
               first.stderr.trim(),
               rewriteKillsPanes(probe)
                 ? 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion and it ' +
-                  "fixes this for good — but launchd has no reload, so it boots the stale job out to load the new " +
+                  "fixes this for good, but launchd has no reload, so it boots the stale job out to load the new " +
                   "one and costs the same sessions this restart would, once. Forcing the restart loses them and " +
                   "repairs nothing."
                 : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
@@ -179,8 +179,8 @@ export function useNodeCommands(args: {
     uninstall: () =>
       runner.run(async () => {
         const messages = [
-          "The agent stops and will not come back at login. This machine stays registered — its configuration and " +
-            "node key are untouched — so running it in the background again is all it takes to bring it back.",
+          "The agent stops and will not come back at login. This machine stays registered, with its " +
+            "configuration and node key untouched, so running it in the background again brings it back.",
         ];
         if (paneRisk(probe)) {
           messages.push(
