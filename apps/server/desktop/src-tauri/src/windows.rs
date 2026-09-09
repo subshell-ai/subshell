@@ -35,12 +35,42 @@ pub fn user_agent(app: &AppHandle) -> String {
     format!("SubshellDesktop/{version} ({platform}; p=1)")
 }
 
+/// Bring a window to the FRONT, not merely out of hiding.
+///
+/// `show` + `unminimize` + `set_focus` was repeated at every call site and is
+/// not enough on Linux: a Wayland compositor refuses an activation request
+/// from a surface that is not already active, so `set_focus` returns Ok and
+/// nothing moves. That is invisible when one window exists and a bug the
+/// moment two do, which is this app's normal shape: clicking "Manage server"
+/// while the 1280x860 dashboard is in front brought the console back
+/// underneath it, so nothing appeared to happen.
+///
+/// A momentary always-on-top is what forces the stack change. It is cleared
+/// from a short-lived thread rather than on the next line, because a
+/// compositor that coalesces the two never raises the window at all, and
+/// clearing it is what stops the console from being pinned over everything
+/// afterwards. The delay is invisible and the thread cannot outlive the app by
+/// more than it.
+pub fn raise(window: &WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.set_always_on_top(true);
+        let pinned = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            let _ = pinned.set_always_on_top(false);
+            let _ = pinned.set_focus();
+        });
+    }
+}
+
 /// Create (or focus) the console window.
 pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window("console") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        raise(&w);
         return Ok(w);
     }
     WebviewWindowBuilder::new(app, "console", WebviewUrl::App("index.html".into()))
@@ -72,9 +102,7 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         if w.url().map(|u| u.origin() != url.origin()).unwrap_or(false) {
             let _ = w.navigate(url);
         }
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        raise(&w);
         return Ok(());
     }
 
@@ -122,8 +150,7 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     std::thread::spawn(move || {
         std::thread::sleep(READY_GRACE);
         if !ready.load(Ordering::SeqCst) {
-            let _ = fallback.show();
-            let _ = fallback.set_focus();
+            raise(&fallback);
         }
     });
     Ok(())
@@ -172,8 +199,7 @@ pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = overlay;
-    let _ = window.show();
-    let _ = window.set_focus();
+    raise(&window);
     Ok(())
 }
 

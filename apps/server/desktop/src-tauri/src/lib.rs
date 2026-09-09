@@ -48,9 +48,7 @@ pub fn run() {
                     .get_webview_window("main")
                     .or_else(|| app.get_webview_window("console"))
                 {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+                    windows::raise(&w);
                 }
             }))
             .plugin(
@@ -148,9 +146,7 @@ pub fn run() {
                     .get_webview_window("main")
                     .or_else(|| app.get_webview_window("console"));
                 if let Some(w) = window {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+                    windows::raise(&w);
                 }
             }
             _ => {}

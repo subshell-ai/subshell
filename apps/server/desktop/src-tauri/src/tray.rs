@@ -183,9 +183,7 @@ fn on_menu(app: &AppHandle, id: &str) {
 /// the console's story to tell, not a dialog's.
 fn open_dashboard(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        crate::windows::raise(&w);
         return;
     }
     if let Err(err) = crate::control::open_main_now(app) {
@@ -199,9 +197,7 @@ fn show_main(app: &AppHandle) {
         .get_webview_window("main")
         .or_else(|| app.get_webview_window("console"));
     if let Some(w) = window {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        crate::windows::raise(&w);
     } else {
         let _ = crate::windows::open_console(app);
     }
