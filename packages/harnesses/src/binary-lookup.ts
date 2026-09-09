@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loginPathEntries } from "./login-path.js";
 
 export interface BinaryLookupOptions {
   /** Environment to inspect (defaults to process.env; injectable for tests) */
@@ -14,6 +15,13 @@ export interface BinaryLookupOptions {
  *   1. `env[ENV_NAME]` (explicit override, e.g. CLAUDE_PATH)
  *   2. `which`-style scan of PATH entries
  *   3. A couple of well-known install locations (resolved against HOME)
+ *   4. The LOGIN SHELL's PATH, as a last resort
+ *
+ * Rung 4 exists because rungs 2 and 3 both fail for the ordinary case of a
+ * harness installed through a node version manager. A service's PATH is baked
+ * at install time from whichever shell installed it, and nvm's bin directory
+ * carries a node VERSION so no static list can name it. See
+ * {@link loginPathEntries}, which is bounded, cached, and only reached here.
  */
 export async function findBinary(name: string, envName: string, knownPaths: string[]): Promise<string | null> {
   const options: BinaryLookupOptions = {
@@ -47,6 +55,18 @@ export async function findBinaryWithOptions(
   for (const rel of knownPaths) {
     const candidate = join(home, rel);
     if (await isExecutable(candidate)) return candidate;
+  }
+
+  // Last: ask the user's shell where their tools are. Skipped entirely when a
+  // caller injected `pathEntries`, because that caller is describing the world
+  // it wants searched (every test does) and a real shell would leak this
+  // machine's own PATH into it.
+  if (!options.pathEntries) {
+    for (const dir of await loginPathEntries()) {
+      if (pathEntries.includes(dir)) continue;
+      const candidate = join(dir, name);
+      if (await isExecutable(candidate)) return candidate;
+    }
   }
 
   return null;

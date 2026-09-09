@@ -92,7 +92,16 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   { flag: "--worktree", description: "Run in a fresh git worktree" },
 ];
 
-const PLUGIN_KNOWN_PATHS = [".local/bin/claude", ".local/share/claude/versions/claude", ".claude/local/claude"];
+// `.npm-global/bin` for parity with codex: the npm install route is the
+// documented one, and a plain `npm config set prefix ~/.npm-global` lands
+// there. A version-manager prefix (nvm, fnm, volta) cannot be named statically
+// and is covered by the login-PATH rung in `binary-lookup.ts` instead.
+const PLUGIN_KNOWN_PATHS = [
+  ".local/bin/claude",
+  ".local/share/claude/versions/claude",
+  ".claude/local/claude",
+  ".npm-global/bin/claude",
+];
 
 /**
  * Fire-and-forget attention reporting. Each hook runs `bun -e` (bun is on the
