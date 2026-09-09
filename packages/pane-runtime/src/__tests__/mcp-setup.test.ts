@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { ClaudeCodePlugin } from "../claude-code.js";
 import { CodexPlugin } from "../codex.js";
 import { HermesPlugin } from "../hermes.js";
+import { getHarness } from "../index.js";
 import { OpencodePlugin } from "../opencode.js";
 import { PiPlugin } from "../pi.js";
 import type { McpLaunchSpec } from "../types.js";
@@ -17,7 +17,7 @@ const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/subshel
 
 describe("ClaudeCodePlugin MCP registration", () => {
   it("renders the claude mcpServers document and its own activating argv", () => {
-    const reg = new ClaudeCodePlugin().mcpRegistration?.(launch, "/data/sess.json");
+    const reg = getHarness("claude-code")!.mcpRegistration?.(launch, "/data/sess.json");
     expect(reg?.env).toBeUndefined();
     const doc = JSON.parse(reg?.fileContent ?? "{}") as {
       mcpServers: Record<string, { command: string; args: string[] }>;
@@ -27,7 +27,7 @@ describe("ClaudeCodePlugin MCP registration", () => {
     expect(reg?.args).toEqual(["--mcp-config", "/data/sess.json"]);
   });
   it("reports auto setup", () => {
-    expect(new ClaudeCodePlugin().mcpSetup(launch).mode).toBe("auto");
+    expect(getHarness("claude-code")!.mcpSetup(launch).mode).toBe("auto");
   });
 });
 

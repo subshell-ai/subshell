@@ -1,7 +1,17 @@
+/**
+ * The pre-extraction ClaudeCodePlugin, frozen as a REFERENCE.
+ *
+ * `plugin-parity.test.ts` compares the extracted package against this to prove
+ * the move changed nothing that gets executed. Both this file and that test
+ * are deleted once the extraction has been reviewed and shipped; nothing else
+ * may import it.
+ * @internal
+ */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { type DetectionResult, detectBinary } from "./binary-lookup.js";
+import { validateGenericProfile } from "@subshell-ai/plugin-api";
+import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
   HarnessPlugin,
@@ -12,10 +22,9 @@ import type {
   ProfileDefinition,
   ProfileValidationResult,
   SettingsField,
-} from "./types.js";
-import { MCP_SERVER_NAME } from "./types.js";
-import { validateGenericProfile } from "./validate.js";
-import { probeVersion } from "./version-probe.js";
+} from "../../types.js";
+import { MCP_SERVER_NAME } from "../../types.js";
+import { probeVersion } from "../../version-probe.js";
 
 /** Known claude-code settings editor fields (top-level `--settings` keys). */
 const CLAUDE_SETTINGS_FIELDS: SettingsField[] = [

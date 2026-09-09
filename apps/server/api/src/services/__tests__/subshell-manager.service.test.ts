@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHarnessCommand, ClaudeCodePlugin, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
+import { buildHarnessCommand, getHarness, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import type { NodeCommandBody, NodeProbeEntry } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
@@ -523,7 +523,7 @@ describe("buildHarnessCommand", () => {
   /** Builds a claude command with the given profile env (injection tests). */
   const cmdWithEnv = (env: Record<string, string>) =>
     buildHarnessCommand(
-      new ClaudeCodePlugin(),
+      getHarness("claude-code")!,
       "/usr/bin/claude",
       "/tmp/ws",
       { name: "p", env, flags: [], settings: null, configIsolation: false },
@@ -531,7 +531,7 @@ describe("buildHarnessCommand", () => {
     );
 
   it("curates env and quotes argv pieces", () => {
-    const plugin = new ClaudeCodePlugin();
+    const plugin = getHarness("claude-code")!;
     const cmd = buildHarnessCommand(
       plugin,
       "/usr/bin/claude",

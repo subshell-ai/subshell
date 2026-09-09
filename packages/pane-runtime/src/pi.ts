@@ -1,3 +1,4 @@
+import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "./binary-lookup.js";
 import type {
   BuildCommandInput,
@@ -9,7 +10,6 @@ import type {
   SettingsField,
 } from "./types.js";
 import { MCP_SERVER_NAME } from "./types.js";
-import { validateGenericProfile } from "./validate.js";
 import { probeVersion } from "./version-probe.js";
 
 /** pi per-invocation overrides, applied as CLI flags. */

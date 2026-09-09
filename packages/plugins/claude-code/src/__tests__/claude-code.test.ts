@@ -2,13 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCodePlugin } from "../claude-code.js";
-import type { ProfileDefinition } from "../types.js";
+import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import createPlugin, { manifest } from "../index.js";
+import { createPluginHost } from "./host-stub.js";
 
-const plugin = new ClaudeCodePlugin();
+const plugin = createPlugin(createPluginHost());
 
 describe("ClaudeCodePlugin.exitStatus", () => {
-  const p = new ClaudeCodePlugin();
+  const p = createPlugin(createPluginHost());
   it("maps known codes", () => {
     expect(p.exitStatus?.(10)).toContain("loop");
     expect(p.exitStatus?.(1)).toContain("error");
@@ -20,11 +21,18 @@ describe("ClaudeCodePlugin.exitStatus", () => {
 });
 
 describe("ClaudeCodePlugin", () => {
-  it("has stable metadata", () => {
-    expect(plugin.id).toBe("claude-code");
-    expect(plugin.name).toBe("Claude Code");
-    expect(plugin.ttyRequired).toBe(true);
-    expect(plugin.enabledByDefault).toBe(true);
+  it("declares its identity in the manifest, not in the plugin", () => {
+    // Identity moved to package.json so a host can list and detect this
+    // plugin without importing or running a line of it.
+    expect(manifest.id).toBe("claude-code");
+    expect(manifest.name).toBe("Claude Code");
+    expect(manifest.type).toBe("agent-harness");
+    expect(manifest.detect?.binaryName).toBe("claude");
+    expect(manifest.detect?.envOverride).toBe("CLAUDE_PATH");
+  });
+
+  it("declares the capabilities it implements", () => {
+    expect(plugin.capabilities().sort()).toEqual(["attention", "mcp", "resume", "settings"]);
   });
 
   it("buildCommand: bare launch with no profile extra", () => {
@@ -97,17 +105,11 @@ describe("ClaudeCodePlugin", () => {
     expect(bad.issues.some((i) => i.field === "flags")).toBe(true);
   });
 
-  it("finds a binary via explicit override", async () => {
-    const withOverride = new ClaudeCodePlugin(process.execPath);
-    expect(await withOverride.isInstalled()).toBe(true);
-    expect(await withOverride.findBinary()).toBe(process.execPath);
-  });
-
-  it("returns null version for a missing binary override", async () => {
-    const missing = new ClaudeCodePlugin("/definitely/not/here");
-    expect(await missing.isInstalled()).toBe(false);
-    expect(await missing.findBinary()).toBeNull();
-    expect(await missing.getVersion()).toBeNull();
+  it("leaves binary resolution to the host", () => {
+    // The plugin declares no `detect`: the host resolves `claude` from the
+    // manifest's detect block. These used to be two cases about an injected
+    // binary override, a seam the manifest removed.
+    expect(plugin.detect).toBeUndefined();
   });
 });
 

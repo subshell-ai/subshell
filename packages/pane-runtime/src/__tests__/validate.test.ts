@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import type { ProfileDefinition } from "../types.js";
-import { validateGenericProfile } from "../validate.js";
 
 function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };

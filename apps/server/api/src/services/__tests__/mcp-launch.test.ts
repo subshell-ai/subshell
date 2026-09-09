@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { unlinkSync } from "node:fs";
-import { ClaudeCodePlugin, HermesPlugin } from "@internal/pane-runtime";
+import { getHarness, HermesPlugin } from "@internal/pane-runtime";
 import { registerSubshellMcp, subshellMcpConfigPath } from "@/services/mcp-launch.js";
 
 /**
@@ -12,7 +12,7 @@ import { registerSubshellMcp, subshellMcpConfigPath } from "@/services/mcp-launc
 describe("registerSubshellMcp", () => {
   it("auto harness: writes the file (0600) and returns the registration", () => {
     const id = `launch-test-${crypto.randomUUID()}`;
-    const reg = registerSubshellMcp(new ClaudeCodePlugin(), id);
+    const reg = registerSubshellMcp(getHarness("claude-code")!, id);
     expect(reg?.args).toEqual(["--mcp-config", expect.stringContaining("/mcp/")]);
     expect(JSON.parse(reg?.fileContent ?? "{}").mcpServers.subshell).toBeTruthy();
     unlinkSync(subshellMcpConfigPath(id)); // throwaway dir, but leave no litter

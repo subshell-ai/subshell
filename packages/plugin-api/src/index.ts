@@ -28,3 +28,4 @@ export {
   type SettingsField,
   type SubshellPlugin,
 } from "./types.js";
+export { validateGenericProfile } from "./validate.js";

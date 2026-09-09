@@ -76,6 +76,7 @@
     "apps/*",
     "apps/*/*",
     "packages/*",
+    "packages/plugins/*",
     "e2e",
     "brand"
   ]

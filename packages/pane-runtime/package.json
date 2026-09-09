@@ -24,7 +24,8 @@
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@subshell-ai/plugin-api": "workspace:*"
+    "@subshell-ai/plugin-api": "workspace:*",
+    "@subshell-ai/plugin-claude-code": "workspace:*"
   },
   "devDependencies": {
     "@internal/tsconfig": "workspace:*",

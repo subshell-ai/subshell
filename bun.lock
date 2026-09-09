@@ -290,6 +290,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@subshell-ai/plugin-api": "workspace:*",
+        "@subshell-ai/plugin-claude-code": "workspace:*",
       },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
@@ -302,6 +303,20 @@
     "packages/plugin-api": {
       "name": "@subshell-ai/plugin-api",
       "version": "0.1.0",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "4.0.0",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/plugins/claude-code": {
+      "name": "@subshell-ai/plugin-claude-code",
+      "version": "0.1.0",
+      "dependencies": {
+        "@subshell-ai/plugin-api": "workspace:*",
+      },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
@@ -1140,6 +1155,8 @@
     "@standard-schema/utils": ["@standard-schema/utils@0.3.0", "", {}, "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g=="],
 
     "@subshell-ai/plugin-api": ["@subshell-ai/plugin-api@workspace:packages/plugin-api"],
+
+    "@subshell-ai/plugin-claude-code": ["@subshell-ai/plugin-claude-code@workspace:packages/plugins/claude-code"],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.3.3", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.24.1", "jiti": "^2.7.0", "lightningcss": "1.32.0", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.3.3" } }, "sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg=="],
 
