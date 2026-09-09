@@ -35,6 +35,25 @@ pub fn user_agent(app: &AppHandle) -> String {
     format!("SubshellDesktop/{version} ({platform}; p=1)")
 }
 
+/// Put the console out of the way once the dashboard is on screen.
+///
+/// MINIMIZED, never hidden. A hidden window is reachable only through the
+/// tray, and on Linux the tray icon is drawn only where a StatusNotifier host
+/// is registered — a stock GNOME has none, and there the icon is SILENTLY
+/// invisible. Hiding the console there would strand it exactly as
+/// `close_to_tray` would, which is why that feature is gated on a probe.
+/// Minimizing keeps it in the window list, so it comes back without a tray,
+/// without this app, and without any of that machinery being correct.
+///
+/// Only ever called once the dashboard is actually VISIBLE. The dashboard is
+/// created hidden and shown by the title-bar handshake, so tucking at creation
+/// time would leave nothing at all on screen until the page answered.
+pub fn tuck_console(app: &AppHandle) {
+    if let Some(console) = app.get_webview_window("console") {
+        let _ = console.minimize();
+    }
+}
+
 /// Bring a window to the FRONT, not merely out of hiding.
 ///
 /// `show` + `unminimize` + `set_focus` was repeated at every call site and is
@@ -103,6 +122,7 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
             let _ = w.navigate(url);
         }
         raise(&w);
+        tuck_console(app);
         return Ok(());
     }
 
@@ -138,6 +158,13 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         .build()
         .map_err(|e| format!("could not open the main window: {e}"))?;
 
+    // Whatever the compositor or a previous session left behind, a dashboard
+    // that opens maximized is not what was asked for. Cleared on CREATION
+    // only: a user who maximizes it during a session keeps that, because the
+    // focus path above does not run this.
+    let _ = window.unmaximize();
+    let _ = window.set_fullscreen(false);
+
     // An SPA that never answers — an older server, or a page that failed to
     // boot — must still get a window. Showing it decorated is the safe
     // outcome: the user sees the app, with an ordinary title bar.
@@ -146,11 +173,13 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     // fires the user may have closed the window to the tray, and a thread that
     // re-opened it six seconds later would be a window that will not stay shut.
     let fallback = window.clone();
+    let handle = app.clone();
     let ready = app.state::<ShellReady>().0.clone();
     std::thread::spawn(move || {
         std::thread::sleep(READY_GRACE);
         if !ready.load(Ordering::SeqCst) {
             raise(&fallback);
+            tuck_console(&handle);
         }
     });
     Ok(())
@@ -200,6 +229,8 @@ pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     let _ = overlay;
     raise(&window);
+    // The dashboard is on screen now, so the console can step back.
+    tuck_console(app);
     Ok(())
 }
 

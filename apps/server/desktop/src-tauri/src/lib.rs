@@ -64,8 +64,18 @@ pub fn run() {
                     // visibility would show it decorated before the page can
                     // ask for the overlay, which is the flash the handshake
                     // exists to avoid.
+                    //
+                    // NOT MAXIMIZED or FULLSCREEN either: size and position are
+                    // worth remembering, but a window that was maximized once
+                    // then reopens maximized forever, and a compositor that
+                    // maximized it on the user's behalf is enough to latch it.
+                    // Both windows deliberately have a size they are meant to
+                    // open at.
                     .with_state_flags(
-                        tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE,
+                        tauri_plugin_window_state::StateFlags::all()
+                            - tauri_plugin_window_state::StateFlags::VISIBLE
+                            - tauri_plugin_window_state::StateFlags::MAXIMIZED
+                            - tauri_plugin_window_state::StateFlags::FULLSCREEN,
                     )
                     .build(),
             );
