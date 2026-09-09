@@ -28,5 +28,6 @@ export {
   type ProfileValidationResult,
   type SettingsField,
   type SubshellPlugin,
+  shellQuote,
 } from "./types.js";
 export { validateGenericProfile } from "./validate.js";

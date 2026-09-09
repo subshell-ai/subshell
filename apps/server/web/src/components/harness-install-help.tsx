@@ -31,6 +31,12 @@ export function HarnessInstallHelp({
     );
   }
 
+  if (harness.reason === "no-binary") {
+    // Not a failure. A plugin can legitimately drive no external CLI, and
+    // offering an install command for one would be nonsense.
+    return <p className="text-muted-foreground text-xs">This plugin needs no separate program installed.</p>;
+  }
+
   if (harness.reason === "override-invalid") {
     // Offering an install command here is actively wrong advice: the binary
     // may well be installed, and the operator has simply pointed the override

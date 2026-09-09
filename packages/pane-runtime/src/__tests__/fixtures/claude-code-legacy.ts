@@ -14,7 +14,6 @@ import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
-  HarnessPlugin,
   HarnessResume,
   McpLaunchSpec,
   McpRegistration,
@@ -186,7 +185,7 @@ function projectSlug(cwd: string): string {
  * Settings are passed as a JSON string via `--settings` (per-invocation, so
  * profile config never needs to write into the user's real ~/.claude).
  */
-export class ClaudeCodePlugin implements HarnessPlugin {
+export class ClaudeCodePlugin {
   readonly id = "claude-code";
   readonly name = "Claude Code";
   readonly binaryName = "claude";

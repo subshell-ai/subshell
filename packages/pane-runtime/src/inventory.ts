@@ -39,7 +39,11 @@ export async function scanOne(h: HarnessPlugin, now: Date = new Date()): Promise
     // harness per scan.
     const found = await h.detect();
     if (found.path === null) return { harnessId: h.id, installed: false, reason: found.reason, checkedAt };
-    const version = await h.getVersion();
+    // `versionAt`, not `getVersion`: the path is already resolved above, and
+    // `getVersion` would walk the whole ladder a second time per harness. It
+    // also means `binaryPath` and `version` in one row describe the same
+    // resolution, rather than two that a PATH change could separate.
+    const version = await h.versionAt(found.path);
     return {
       harnessId: h.id,
       installed: true,

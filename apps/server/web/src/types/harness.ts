@@ -19,7 +19,7 @@ export interface HarnessInfo {
   /** Detected CLI version, when installed */
   version?: string;
   /** Why the binary was not found, when it was not */
-  reason?: "not-on-path" | "override-invalid";
+  reason?: "not-on-path" | "override-invalid" | "no-binary";
   /** ISO 8601 stamp of when detection last ran; absent from a node running an older agent */
   checkedAt?: string;
   /** True when enabled for use */

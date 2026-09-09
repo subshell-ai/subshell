@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/bad-capabilities", "version": "1.0.0", "private": true,
+  "subshell": { "apiVersion": 1, "id": "bad-capabilities", "type": "agent-harness",
+    "name": "Bad Capabilities", "description": "claims resume without implementing it", "entry": "index.js" }
+}

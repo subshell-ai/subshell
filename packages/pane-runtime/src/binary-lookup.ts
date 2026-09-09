@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { DetectionResult } from "@subshell-ai/plugin-api";
 import { loginPathEntries } from "./login-path.js";
 import { versionManagerBins } from "./version-manager-paths.js";
 
@@ -12,17 +13,18 @@ export interface BinaryLookupOptions {
 }
 
 /**
- * Why a binary was not found.
+ * The detection vocabulary is the CONTRACT's, not this module's.
  *
- * The distinction is the whole point of this type. `override-invalid` is a
- * configuration mistake the operator can fix in one edit; `not-on-path` is a
- * missing install. Collapsing both into `null` is how a bad `CLAUDE_PATH` came
- * to be answered on screen with an install command that cannot possibly help.
+ * It was defined here and again in `@subshell-ai/plugin-api`, which is the
+ * same structural-typing trap as the rest of that duplication: two unions
+ * compile against each other happily right up until one gains a member. The
+ * distinction they carry is the point of them, and it belongs in one place:
+ * `override-invalid` is a mistake the operator can fix in one edit,
+ * `not-on-path` is a missing install, and `no-binary` is a plugin that never
+ * wanted one. Collapsing those into `null` is how a bad `CLAUDE_PATH` came to
+ * be answered with an install command that cannot help.
  */
-export type DetectionReason = "not-on-path" | "override-invalid";
-
-/** A lookup's full answer: the path, or the reason there is not one. */
-export type DetectionResult = { path: string; reason?: undefined } | { path: null; reason: DetectionReason };
+export type { DetectionReason, DetectionResult } from "@subshell-ai/plugin-api";
 
 /**
  * Cross-platform-ish binary lookup, reporting why when it fails:

@@ -171,8 +171,14 @@ export interface SettingsField {
   default?: string | boolean | number;
 }
 
-/** Why a binary was not found. Mirrors the host's own detection reasons. */
-export type DetectionReason = "not-on-path" | "override-invalid";
+/**
+ * Why there is no binary.
+ *
+ * `no-binary` is not a failure: a plugin (a `terminal` one, say) can declare
+ * no binary at all, and rendering that as "not on PATH" tells someone their
+ * PATH is wrong about something that never wanted one.
+ */
+export type DetectionReason = "not-on-path" | "override-invalid" | "no-binary";
 
 /** A detection answer: the path, or the reason there is not one. */
 export type DetectionResult = { path: string; reason?: undefined } | { path: null; reason: DetectionReason };
@@ -261,6 +267,18 @@ export type PluginFactory = (host: PluginHost) => SubshellPlugin;
  * is what harnesses surface in wire tool ids (`mcp__<name>__<tool>`).
  */
 export const MCP_SERVER_NAME = "subshell";
+
+/**
+ * POSIX-quotes one argument for a shell command line.
+ *
+ * A pure helper, which is why it may live in the contract: plugins render
+ * copy-paste setup commands with it, the host lends the same function through
+ * {@link PluginHost}, and a test host that reimplemented it would let a
+ * plugin's test assert a form its runtime never produces.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
 
 /**
  * Checks that a plugin's declared capabilities match what it implements.

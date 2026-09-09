@@ -1,8 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import type { BuildCommandInput, PluginCapability, ProfileDefinition, SubshellPlugin } from "@subshell-ai/plugin-api";
+import type {
+  BuildCommandInput,
+  McpLaunchSpec,
+  McpRegistration,
+  McpSetupInfo,
+  PluginCapability,
+  ProfileDefinition,
+  SettingsField,
+  SubshellPlugin,
+} from "@subshell-ai/plugin-api";
 import { createInProcessRuntime } from "../plugin-runtime.js";
-import type { HarnessPlugin } from "../types.js";
 import { ClaudeCodePlugin } from "./fixtures/claude-code-legacy.js";
 import { CodexPlugin } from "./fixtures/codex-legacy.js";
 import { HermesPlugin } from "./fixtures/hermes-legacy.js";
@@ -173,12 +181,24 @@ const SHARED_CASES: { name: string; input: BuildCommandInput }[] = [
 ];
 
 /**
- * `legacy` is typed as the INTERFACE rather than inferred, because `as const`
- * over the four classes widens it to a union and optional chaining cannot
- * narrow a property that some members simply do not declare (hermes and pi
- * have no `mcpRegistration`).
+ * Exactly what a parity comparison reads off the pre-extraction class, and no
+ * more.
+ *
+ * Not `HarnessPlugin`: these are frozen snapshots, so holding them to an
+ * interface that keeps evolving would mean editing the reference every time
+ * the live one changes, which defeats the point of freezing it. Optional here
+ * for the two members hermes and pi never had.
  */
-const OTHERS: { id: string; legacy: () => HarnessPlugin; caps: PluginCapability[] }[] = [
+interface LegacyReference {
+  buildCommand(input: BuildCommandInput): string[];
+  mcpSetup(launch: McpLaunchSpec): McpSetupInfo;
+  mcpRegistration?(launch: McpLaunchSpec, path: string): McpRegistration;
+  settingsFields(): SettingsField[];
+  suggestedEnv(): { key: string; description: string }[];
+  suggestedFlags(): { flag: string; description: string }[];
+}
+
+const OTHERS: { id: string; legacy: () => LegacyReference; caps: PluginCapability[] }[] = [
   { id: "opencode", legacy: () => new OpencodePlugin(), caps: ["mcp", "settings"] },
   { id: "hermes", legacy: () => new HermesPlugin(), caps: ["mcp", "settings"] },
   { id: "pi", legacy: () => new PiPlugin(), caps: ["mcp", "settings"] },

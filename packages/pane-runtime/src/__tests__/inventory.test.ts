@@ -24,6 +24,7 @@ function stubPlugin(overrides: Partial<HarnessPlugin>): HarnessPlugin {
     isInstalled: async () => true,
     findBinary: async () => "/usr/bin/stub",
     getVersion: async () => "1.2.3",
+    versionAt: async () => "1.2.3",
     buildCommand: () => ["stub"],
     ...overrides,
   } as unknown as HarnessPlugin;
@@ -94,11 +95,11 @@ describe("scanOne", () => {
     expect(entry).toEqual({ harnessId: "stub", installed: false, checkedAt: AT_ISO });
   });
 
-  it("a rejecting getVersion also degrades to installed:false", async () => {
+  it("a rejecting versionAt also degrades to installed:false", async () => {
     const throwing = async (): Promise<never> => {
       throw new Error("probe exploded");
     };
-    expect(await scanOne(stubPlugin({ getVersion: throwing }), AT)).toEqual({
+    expect(await scanOne(stubPlugin({ versionAt: throwing }), AT)).toEqual({
       harnessId: "stub",
       installed: false,
       checkedAt: AT_ISO,
@@ -106,7 +107,7 @@ describe("scanOne", () => {
   });
 
   it("omits version when the probe returns nothing, keeping the path", async () => {
-    expect(await scanOne(stubPlugin({ getVersion: async () => null }), AT)).toEqual({
+    expect(await scanOne(stubPlugin({ versionAt: async () => null }), AT)).toEqual({
       harnessId: "stub",
       installed: true,
       binaryPath: "/usr/bin/stub",

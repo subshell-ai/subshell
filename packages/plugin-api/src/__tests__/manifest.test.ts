@@ -49,9 +49,22 @@ describe("parseManifest", () => {
     expect(result.error).toContain(String(PLUGIN_API_VERSION + 1));
   });
 
-  it("accepts an OLDER apiVersion, which is the whole point of the field", () => {
-    // A host at version N keeps serving plugins built against N-1.
-    expect("error" in parseManifest(pkg({ apiVersion: PLUGIN_API_VERSION - 1 }))).toBe(false);
+  it("accepts every version from 1 up to this host's, which is the point of the field", () => {
+    // A host at version N keeps serving plugins built against 1..N. Written as
+    // a range rather than `PLUGIN_API_VERSION - 1`, which is 0 today and is
+    // now correctly refused as a version that never existed.
+    for (let v = 1; v <= PLUGIN_API_VERSION; v++) {
+      expect([v, "error" in parseManifest(pkg({ apiVersion: v }))]).toEqual([v, false]);
+    }
+  });
+
+  it("refuses a version below 1", () => {
+    for (const apiVersion of [0, -1]) {
+      const result = parseManifest(pkg({ apiVersion }));
+      expect("error" in result).toBe(true);
+      if (!("error" in result)) continue;
+      expect(result.error).toContain("not a version");
+    }
   });
 
   it("rejects an unknown plugin type rather than guessing", () => {

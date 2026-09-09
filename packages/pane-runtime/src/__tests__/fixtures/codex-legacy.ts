@@ -10,7 +10,6 @@ import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
-  HarnessPlugin,
   McpLaunchSpec,
   McpRegistration,
   McpSetupInfo,
@@ -105,7 +104,7 @@ function tomlStringArray(values: string[]): string {
  * harness.
  * (Flags/values verified against @openai/codex 2026-09 help output.)
  */
-export class CodexPlugin implements HarnessPlugin {
+export class CodexPlugin {
   readonly id = "codex";
   readonly name = "Codex";
   readonly binaryName = "codex";

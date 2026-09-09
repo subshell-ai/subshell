@@ -10,7 +10,6 @@ import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
-  HarnessPlugin,
   McpLaunchSpec,
   McpSetupInfo,
   ProfileDefinition,
@@ -81,7 +80,7 @@ const PLUGIN_KNOWN_PATHS = [".bun/bin/pi"];
  * the standard mcpServers snippet the adapter reads from ~/.config/mcp/mcp.json
  * or a project .mcp.json); the spawned child inherits each subshell's SUBSHELL_* env.
  */
-export class PiPlugin implements HarnessPlugin {
+export class PiPlugin {
   readonly id = "pi";
   readonly name = "pi";
   readonly binaryName = "pi";

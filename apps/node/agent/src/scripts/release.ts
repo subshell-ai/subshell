@@ -162,12 +162,12 @@ async function runBun(args: string[]): Promise<number> {
 /** Refuses (exit 1) unless the workspace dist outputs the compiled client links against exist. */
 function assertWorkspaceBuilt(): boolean {
   const linked =
-    existsSync(join(AGENT_DIR, "node_modules", "@internal", "harnesses")) ||
-    existsSync(join(REPO_ROOT, "node_modules", "@internal", "harnesses"));
+    existsSync(join(AGENT_DIR, "node_modules", "@internal", "pane-runtime")) ||
+    existsSync(join(REPO_ROOT, "node_modules", "@internal", "pane-runtime"));
   // tsdown's ESM extension for @internal/pane-runtime is .mjs today (its
   // package.json points at dist/index.mjs); accept either spelling so the
   // gate tracks "the dist output exists", not one bundler config.
-  const distDir = join(REPO_ROOT, "packages", "harnesses", "dist");
+  const distDir = join(REPO_ROOT, "packages", "pane-runtime", "dist");
   const built = existsSync(join(distDir, "index.mjs")) || existsSync(join(distDir, "index.js"));
   if (linked && built) return true;
   process.stderr.write(

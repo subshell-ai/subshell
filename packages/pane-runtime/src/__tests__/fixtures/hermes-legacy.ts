@@ -11,7 +11,6 @@ import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import { shellQuote } from "../../shell.js";
 import type {
   BuildCommandInput,
-  HarnessPlugin,
   McpLaunchSpec,
   McpSetupInfo,
   ProfileDefinition,
@@ -87,7 +86,7 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/hermes"];
  * add` command instead; the registration is subshell-correct on shared hosts
  * because the subshell-mcp child inherits each subshell's baked SUBSHELL_* env.
  */
-export class HermesPlugin implements HarnessPlugin {
+export class HermesPlugin {
   readonly id = "hermes";
   readonly name = "Hermes Agent";
   readonly binaryName = "hermes";

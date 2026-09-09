@@ -68,8 +68,14 @@ function build(): Registry {
     try {
       plugins.push(adaptPlugin(manifest, factory(createPluginHost({ pluginId: manifest.id }))));
     } catch (err) {
-      // One bad plugin costs its own row, never the whole registry.
-      broken.push({ id: manifest.id, error: err instanceof Error ? err.message : String(err) });
+      // One bad plugin costs its own row, never the whole registry. It is
+      // also LOGGED, not just recorded: a built-in that vanishes from every
+      // list with nothing anywhere saying why is the anonymous failure this
+      // is supposed to prevent, and `brokenBuiltIns()` alone does not reach
+      // an operator.
+      const error = err instanceof Error ? err.message : String(err);
+      console.warn(`subshell: built-in plugin "${manifest.id}" failed to construct and is unavailable: ${error}`);
+      broken.push({ id: manifest.id, error });
     }
   }
   return { plugins, broken };

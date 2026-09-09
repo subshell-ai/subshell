@@ -26,7 +26,7 @@ export interface NodeHarness {
   /** Installed version from the node's own detection */
   version?: string;
   /** Why the binary was not found, when it was not */
-  reason?: "not-on-path" | "override-invalid";
+  reason?: "not-on-path" | "override-invalid" | "no-binary";
   /** ISO 8601 stamp of when this entry was probed; absent from an older agent */
   checkedAt?: string;
 }

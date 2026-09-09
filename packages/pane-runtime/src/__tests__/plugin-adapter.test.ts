@@ -53,11 +53,13 @@ describe("adaptPlugin: identity comes from the manifest", () => {
     expect(adaptPlugin(noDetect, minimal()).binaryName).toBe("stub");
   });
 
-  it("a plugin with no detect block is never installed, and says why", async () => {
+  it("a plugin with no detect block reports no-binary, not a missing one", async () => {
+    // "not on PATH" plus a blank install command would tell someone their
+    // PATH is wrong about a plugin that never wanted a binary.
     const { detect: _drop, ...noDetect } = MANIFEST;
     const a = adaptPlugin(noDetect, minimal());
     expect(await a.isInstalled()).toBe(false);
-    expect((await a.detect()).reason).toBe("not-on-path");
+    expect((await a.detect()).reason).toBe("no-binary");
   });
 
   it("carries an empty install hint rather than undefined when the manifest omits one", () => {

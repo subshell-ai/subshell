@@ -254,7 +254,7 @@ export type NodeEvent =
          * absence as unknown. Additive, which is why NODE_PROTOCOL_VERSION
          * does not move for it: nothing an older agent sends becomes invalid.
          */
-        reason?: "not-on-path" | "override-invalid";
+        reason?: "not-on-path" | "override-invalid" | "no-binary";
         /** ISO 8601 stamp of when this entry was probed. Also optional, also additive. */
         checkedAt?: string;
       }[];

@@ -28,9 +28,12 @@ import { probeVersion } from "./version-probe.js";
 function detectFor(manifest: SubshellManifest): () => Promise<DetectionResult> {
   const spec = manifest.detect;
   if (!spec) {
-    // Not an error: a plugin can legitimately need no binary. It simply never
-    // resolves one, and the launch gate treats it as unavailable.
-    return async () => ({ path: null, reason: "not-on-path" });
+    // A plugin that declares no binary is not one whose binary is missing, and
+    // the difference is user-visible: "not on PATH" plus a blank install
+    // command tells someone their PATH is wrong about a plugin that never
+    // wanted a binary. `no-binary` is what a surface should render as "nothing
+    // to install" rather than as a failure.
+    return async () => ({ path: null, reason: "no-binary" });
   }
   return () => detectBinary(spec.binaryName, spec.envOverride, spec.knownPaths);
 }
@@ -70,10 +73,10 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     description: manifest.description,
     icon: manifest.icon,
     installHint: manifest.install ?? { command: "", docsUrl: "" },
-    // Both are legacy fields the plugin model replaces: every harness needs a
-    // TTY, and "enabled by default" becomes "installed" once the node owns its
-    // plugin set. Neither is worth a manifest field with one possible value.
-    ttyRequired: true,
+    // A legacy field the plugin model replaces: "enabled by default" becomes
+    // "installed" once the node owns its plugin set. Not worth a manifest
+    // field with one possible value. (`ttyRequired` was the same, and is gone:
+    // nothing read it.)
     enabledByDefault: true,
 
     detect,
@@ -83,6 +86,7 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
       const found = await detect();
       return found.path ? await versionOf(plugin, found.path) : null;
     },
+    versionAt: (binaryPath: string) => versionOf(plugin, binaryPath),
 
     buildCommand: (input) => plugin.buildCommand(input),
     validateProfile: (profile) => plugin.validateProfile(profile),

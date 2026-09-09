@@ -39,7 +39,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 13 MCP tools (6 channel, 7 subshell) |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/server/web/.migration/`) |
-| Harnesses | Code-time **plugin interface** (`packages/harnesses`); five plugins ship: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
+| Harnesses | **Plugin packages** the node loads. The contract is `@subshell-ai/plugin-api` (`packages/plugin-api`); five plugins ship in `packages/plugins/*`: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
@@ -75,7 +75,9 @@ apps/client/mobile         native companion (React Native + Expo SDK 57) — pus
                            actions, Keychain credential; NOT a second web app
 e2e                        Playwright suite (own backend on :3199, real tmux) — outside `bun run test`
 brand                      wordmark/palette masters + generators (`bun run brand:generate`)
-packages/harnesses         HarnessPlugin interface + five built-in harness plugins + TmuxRunner
+packages/plugin-api        The contract a plugin implements (published as @subshell-ai/plugin-api)
+packages/plugins/*         The five built-in plugins (published as @subshell-ai/plugin-<id>)
+packages/pane-runtime      Running a pane here: binary detection, plugin loading, argv, TmuxRunner
 packages/backend-errors    shared error handler (scaffold)
 packages/backend-client    Eden Treaty client (scaffold; types inferred from backend's `App` type)
 packages/subshell-protocol WS frame contract shared by backend + frontend

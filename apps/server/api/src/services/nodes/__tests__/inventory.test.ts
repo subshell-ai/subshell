@@ -117,6 +117,7 @@ describe("services/nodes/inventory", () => {
         h,
         detect: h.detect.bind(h),
         getVersion: h.getVersion.bind(h),
+        versionAt: h.versionAt.bind(h),
       }));
       const prior = (await new HarnessPluginsRepository(db).getEnabledStates([H0])).get(H0);
       const found: Record<string, boolean> = { [H0]: true, [H1]: false };
@@ -124,6 +125,7 @@ describe("services/nodes/inventory", () => {
         s.h.detect = async () =>
           found[s.h.id] ? { path: `/usr/bin/${s.h.id}` } : { path: null, reason: "override-invalid" as const };
         s.h.getVersion = async () => "7.7.7";
+        s.h.versionAt = async () => "7.7.7";
       }
       await new HarnessPluginsRepository(db).setEnabled(H0, false);
       try {
@@ -144,6 +146,7 @@ describe("services/nodes/inventory", () => {
         for (const s of stubs) {
           s.h.detect = s.detect;
           s.h.getVersion = s.getVersion;
+          s.h.versionAt = s.versionAt;
         }
         if (prior === undefined) await db.deleteFrom("harnessPlugins").where("id", "=", H0).execute();
         else await new HarnessPluginsRepository(db).setEnabled(H0, prior);

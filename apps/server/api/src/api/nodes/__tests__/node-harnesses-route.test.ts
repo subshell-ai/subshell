@@ -485,8 +485,10 @@ describe("/api/nodes harness state + recheck", () => {
     // is never consulted and silently probes the real machine instead.
     const origDetect = stub.detect.bind(stub);
     const origVersion = stub.getVersion.bind(stub);
+    const origVersionAt = stub.versionAt.bind(stub);
     stub.detect = async () => ({ path: `/usr/bin/${H2}` });
     stub.getVersion = async () => "3.3.3";
+    stub.versionAt = async () => "3.3.3";
     try {
       const view = await getNodeView("local");
       expect(view.inventoryStale).toBe(false);
@@ -498,6 +500,7 @@ describe("/api/nodes harness state + recheck", () => {
     } finally {
       stub.detect = origDetect;
       stub.getVersion = origVersion;
+      stub.versionAt = origVersionAt;
     }
   });
 

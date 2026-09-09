@@ -307,8 +307,8 @@ async function main(): Promise<void> {
   // The nested agent build BUNDLES the workspace dists, and refuses without
   // them (`assertWorkspaceBuilt` in apps/node/agent's pipeline). Mirroring that
   // gate here fails in a second rather than after a full cargo build.
-  const harnessesDist = join(REPO_ROOT, "packages", "harnesses", "dist");
-  if (!deps.exists(join(harnessesDist, "index.mjs")) && !deps.exists(join(harnessesDist, "index.js"))) {
+  const paneRuntimeDist = join(REPO_ROOT, "packages", "pane-runtime", "dist");
+  if (!deps.exists(join(paneRuntimeDist, "index.mjs")) && !deps.exists(join(paneRuntimeDist, "index.js"))) {
     console.error("the workspace dists are missing (packages/pane-runtime/dist). Run `bunx turbo build` first");
     process.exit(1);
   }

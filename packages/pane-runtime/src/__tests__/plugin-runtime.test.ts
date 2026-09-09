@@ -52,6 +52,26 @@ describe("PluginRuntime", () => {
     expect(result.manifest).toBeNull();
   });
 
+  it("refuses a plugin whose declared capabilities it does not implement", async () => {
+    // Documented in plugin-api's README and in AGENTS.md, so it has to be
+    // true: an earlier revision documented it in three places while the check
+    // was never wired up.
+    const result = await runtime().load(join(FIXTURES, "bad-capabilities"));
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toContain("resume");
+  });
+
+  it("refuses a plugin missing a REQUIRED member, not just the two it used to check", async () => {
+    // `validateProfile` is required and the adapter calls it unconditionally,
+    // so this used to load as healthy and throw later from inside a closure
+    // outside any fault boundary.
+    const result = await runtime().load(join(FIXTURES, "missing-validate"));
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toContain("validateProfile");
+  });
+
   it("refuses an entry that resolves outside the package directory", async () => {
     // The manifest check catches the literal `..`; this re-checks the value
     // actually imported. It does NOT defeat a symlink: `resolve` is textual,

@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/missing-validate", "version": "1.0.0", "private": true,
+  "subshell": { "apiVersion": 1, "id": "missing-validate", "type": "agent-harness",
+    "name": "Missing Validate", "description": "omits a required member", "entry": "index.js" }
+}

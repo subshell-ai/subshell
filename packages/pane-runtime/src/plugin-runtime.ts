@@ -1,6 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { parseManifest, type SubshellManifest, type SubshellPlugin } from "@subshell-ai/plugin-api";
+import { pathToFileURL } from "node:url";
+import {
+  capabilityMismatches,
+  parseManifest,
+  type SubshellManifest,
+  type SubshellPlugin,
+} from "@subshell-ai/plugin-api";
 import { createPluginHost } from "./plugin-host.js";
 
 /**
@@ -102,17 +108,34 @@ export function createInProcessRuntime(): PluginRuntime {
       }
 
       try {
-        const mod: unknown = await import(entryPath);
+        // `pathToFileURL`, not the bare path: an ESM specifier is a URL, so
+        // `#` in a directory name truncates at the fragment, `?` starts a
+        // query and `%2F` decodes to a separator. A data dir with any of them
+        // otherwise fails as "Cannot find module /home/me/proj", naming
+        // neither the plugin nor the cause.
+        const mod: unknown = await import(pathToFileURL(entryPath).href);
         const factory = (mod as { default?: unknown }).default;
         if (typeof factory !== "function") {
           return { manifest, error: "the plugin module has no default export, so there is no factory to call" };
         }
         const plugin = (factory as (host: unknown) => SubshellPlugin)(createPluginHost({ pluginId: manifest.id }));
-        if (typeof plugin?.buildCommand !== "function" || typeof plugin?.capabilities !== "function") {
-          return {
-            manifest,
-            error: "the factory did not return a plugin (buildCommand and capabilities are required)",
-          };
+        // Every REQUIRED member, not a sample of them. The adapter calls
+        // `validateProfile` unconditionally, so a plugin missing it used to
+        // load as healthy and then throw from inside a closure the loader's
+        // try/catch no longer covers, surfacing as a 500 rather than as
+        // "this plugin is broken".
+        const required = ["buildCommand", "validateProfile", "capabilities"] as const;
+        const absent = required.filter((m) => typeof plugin?.[m] !== "function");
+        if (absent.length > 0) {
+          return { manifest, error: `the factory returned an object missing: ${absent.join(", ")}` };
+        }
+        // A declaration that disagrees with the members present is refused
+        // here rather than surfacing later as a feature that silently does
+        // nothing: a claimed `resume` with no `resume` object produces a
+        // restart that begins a fresh conversation while looking continued.
+        const mismatches = capabilityMismatches(plugin);
+        if (mismatches.length > 0) {
+          return { manifest, error: `capabilities do not match the implementation: ${mismatches.join("; ")}` };
         }
         return { manifest, plugin };
       } catch (err) {

@@ -1,4 +1,5 @@
-import type { PluginHost } from "./types.js";
+import { PLUGIN_API_VERSION } from "./manifest.js";
+import { type PluginHost, shellQuote } from "./types.js";
 
 /**
  * A host for a plugin's own tests.
@@ -14,13 +15,14 @@ import type { PluginHost } from "./types.js";
  */
 export function createTestHost(over: Partial<PluginHost> = {}): PluginHost {
   return {
-    apiVersion: 1,
+    apiVersion: PLUGIN_API_VERSION,
     findBinary: async () => null,
     detectBinary: async () => ({ path: null, reason: "not-on-path" }),
     probeVersion: async () => null,
-    // The same POSIX quoting the real host lends, so a plugin that formats a
-    // command in a test formats it the same way at runtime.
-    shellQuote: (value: string) => `'${value.replaceAll("'", `'\\''`)}'`,
+    // The real quoter, not a copy of it: a plugin that formats a command in a
+    // test must format it identically at runtime, and a second implementation
+    // is exactly how that stops being true.
+    shellQuote,
     log: { debug: () => {}, warn: () => {} },
     ...over,
   };

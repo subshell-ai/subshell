@@ -10,7 +10,6 @@ import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
-  HarnessPlugin,
   McpLaunchSpec,
   McpRegistration,
   McpSetupInfo,
@@ -85,7 +84,7 @@ const PLUGIN_KNOWN_PATHS = [".opencode/bin/opencode"];
  * own global/project servers are preserved. The spawned `subshell mcp` child
  * inherits the subshell's baked SUBSHELL_* env for its credential.
  */
-export class OpencodePlugin implements HarnessPlugin {
+export class OpencodePlugin {
   readonly id = "opencode";
   readonly name = "OpenCode";
   readonly binaryName = "opencode";

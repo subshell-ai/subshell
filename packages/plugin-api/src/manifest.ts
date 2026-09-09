@@ -88,6 +88,14 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
   if (typeof block.apiVersion !== "number" || !Number.isInteger(block.apiVersion)) {
     return { error: "`subshell.apiVersion` must be an integer" };
   }
+  if (block.apiVersion < 1) {
+    // Bounded from below as well as above: `0` and negatives passed the
+    // integer check and were then served as if they had said 1, which is a
+    // version that never existed getting no message at all.
+    return {
+      error: `this plugin declares plugin-api ${block.apiVersion}, which is not a version; the lowest is 1 and this host implements ${PLUGIN_API_VERSION}`,
+    };
+  }
   if (block.apiVersion > PLUGIN_API_VERSION) {
     // Name BOTH numbers: the reader has to decide whether to upgrade the
     // plugin or the agent, and one number cannot tell them that.

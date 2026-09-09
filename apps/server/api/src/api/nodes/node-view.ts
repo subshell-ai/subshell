@@ -43,9 +43,9 @@ export const NodeHarnessViewSchema = t.Object({
   }),
   version: t.Optional(t.String({ description: "Installed version from the node's inventory (enrolled nodes)" })),
   reason: t.Optional(
-    t.Union([t.Literal("not-on-path"), t.Literal("override-invalid")], {
+    t.Union([t.Literal("not-on-path"), t.Literal("override-invalid"), t.Literal("no-binary")], {
       description:
-        "Why the binary was not found, when it was not. Per entry rather than per node, because one harness can be missing while another has a bad env override",
+        "Why there is no binary, when there is not (`no-binary` means the plugin declares none). Per entry rather than per node, because one harness can be missing while another has a bad env override",
     }),
   ),
   checkedAt: t.Optional(

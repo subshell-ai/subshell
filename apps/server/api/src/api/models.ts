@@ -168,9 +168,9 @@ export const HarnessInfoSchema = t.Object({
   installed: t.Boolean({ description: "Whether the harness binary is usable" }),
   version: t.Optional(t.String({ description: "Installed version" })),
   reason: t.Optional(
-    t.Union([t.Literal("not-on-path"), t.Literal("override-invalid")], {
+    t.Union([t.Literal("not-on-path"), t.Literal("override-invalid"), t.Literal("no-binary")], {
       description:
-        "Why the binary was not found: absent from PATH, the known locations and the version-manager layouts, or an env override that does not point at an executable",
+        "Why the binary was not found: absent from PATH, the known locations and the version-manager layouts, an env override that does not point at an executable, or a plugin that declares no binary at all",
     }),
   ),
   checkedAt: t.Optional(t.String({ description: "ISO 8601 stamp of when detection last ran for this harness" })),
