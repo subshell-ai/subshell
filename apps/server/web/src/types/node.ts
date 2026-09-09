@@ -23,8 +23,12 @@ export interface NodeHarness {
   enabled: boolean;
   /** local: live binary probe; agent: cached inventory (false until the first inventory lands) */
   installed: boolean;
-  /** Installed version from the agent's inventory (agent nodes only) */
+  /** Installed version from the node's own detection */
   version?: string;
+  /** Why the binary was not found, when it was not */
+  reason?: "not-on-path" | "override-invalid";
+  /** ISO 8601 stamp of when this entry was probed; absent from an older agent */
+  checkedAt?: string;
 }
 
 /** One node as the registry renders it — no secrets, no machine keys. */

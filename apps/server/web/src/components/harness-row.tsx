@@ -1,6 +1,7 @@
 import { HarnessInstallHelp } from "@/components/harness-install-help";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { checkedAtLabel } from "@/lib/checked-at";
 import type { HarnessInfo } from "@/types/harness";
 
 /** Props for {@link HarnessRow}. */
@@ -44,9 +45,16 @@ export function HarnessRow({ harness, pending, error, onToggle, onRecheck }: Har
             {harness.installed && harness.version ? ` · v${harness.version}` : ""}
           </p>
         </div>
-        <span className="text-muted-foreground text-xs">
-          {!harness.installed ? "not installed" : harness.enabled ? "enabled" : "disabled"}
-        </span>
+        <div className="text-right">
+          <span className="text-muted-foreground text-xs">
+            {!harness.installed ? "not installed" : harness.enabled ? "enabled" : "disabled"}
+          </span>
+          {/* How old the answer is. The local list probes per request and an
+              agent's can be ten minutes stale; without this they look alike. */}
+          {checkedAtLabel(harness.checkedAt) && (
+            <p className="text-muted-foreground text-xs">{checkedAtLabel(harness.checkedAt)}</p>
+          )}
+        </div>
         {harness.installed ? (
           <Switch
             checked={harness.enabled}

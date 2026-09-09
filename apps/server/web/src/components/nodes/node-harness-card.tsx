@@ -8,6 +8,7 @@ import {
   useNodeHarnesses,
   useSetNodeHarnessEnabled,
 } from "@/hooks/use-harnesses";
+import { checkedAtLabel } from "@/lib/checked-at";
 
 /**
  * The harness matrix of one node (spec 2026-08-31 §6.2/§9): every registered
@@ -60,6 +61,9 @@ export function NodeHarnessCard({ nodeId, canConfigure }: { nodeId: string; canC
                 <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
                 <Badge variant={h.installed ? "success" : "muted"}>{h.installed ? "installed" : "not installed"}</Badge>
                 {h.version && <span className="font-mono text-muted-foreground text-xs">{h.version}</span>}
+                {checkedAtLabel(h.checkedAt) && (
+                  <span className="text-muted-foreground text-xs">{checkedAtLabel(h.checkedAt)}</span>
+                )}
                 <Switch
                   checked={h.enabled}
                   disabled={!canConfigure || setEnabled.isPending}
@@ -67,6 +71,12 @@ export function NodeHarnessCard({ nodeId, canConfigure }: { nodeId: string; canC
                   aria-label={`${name} enabled on this node`}
                 />
               </div>
+              {h.reason === "override-invalid" && (
+                <p className="text-muted-foreground text-xs">
+                  An environment variable overrides where this binary is looked for, and it doesn't point at an
+                  executable file on this node.
+                </p>
+              )}
               {errors[h.harnessId] && (
                 <p role="alert" className="text-destructive text-xs">
                   {errors[h.harnessId]}

@@ -72,4 +72,49 @@ describe("HarnessRow", () => {
     );
     expect(screen.getByText("Could not change the harness state.")).toBeDefined();
   });
+
+  it("names the env override instead of offering an install command", () => {
+    // The fixture is the `pi` harness, so the override this derives is PI_PATH.
+    render(
+      <HarnessRow
+        harness={{ ...base, installed: false, reason: "override-invalid" }}
+        pending={false}
+        onToggle={noop}
+        onRecheck={noop}
+      />,
+    );
+    expect(screen.getByText(/PI_PATH/)).toBeDefined();
+    // An install command here would be wrong advice: the binary may be present.
+    expect(screen.queryByText(/@mariozechner\/pi/)).toBeNull();
+  });
+
+  it("still offers the install command when the binary is simply absent", () => {
+    render(
+      <HarnessRow
+        harness={{ ...base, installed: false, reason: "not-on-path" }}
+        pending={false}
+        onToggle={noop}
+        onRecheck={noop}
+      />,
+    );
+    expect(screen.getByText(/@mariozechner\/pi/)).toBeDefined();
+  });
+
+  it("shows when detection last ran", () => {
+    render(
+      <HarnessRow
+        harness={{ ...base, checkedAt: new Date().toISOString() }}
+        pending={false}
+        onToggle={noop}
+        onRecheck={noop}
+      />,
+    );
+    expect(screen.getByText(/^checked /)).toBeDefined();
+  });
+
+  it("says nothing about checking when the node reported no stamp", () => {
+    // Absence is an older agent having nothing to say, not "checked never".
+    render(<HarnessRow harness={base} pending={false} onToggle={noop} onRecheck={noop} />);
+    expect(screen.queryByText(/^checked /)).toBeNull();
+  });
 });
