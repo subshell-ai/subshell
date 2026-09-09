@@ -106,10 +106,11 @@ function NodeDetailPage() {
   // Harness toggles follow the server's `nodeCanConfigure`: owner or `edit`
   // grantee (admins resolve to `edit`); a `view` grantee gets the read-only card.
   const canConfigure = n.access === "owner" || n.access === "edit";
-  // Rename is stricter than configure: the route is owner-gated (`canManage`
-  // on a NON-local node ⇔ real owner — an admin's boost is `local`-only) and
-  // `local`'s name is fixed for everyone, so the affordance never appears there.
-  const canRename = n.canManage && n.kind !== "local";
+  // Rename is stricter than configure: the route is owner-gated, and
+  // `canManage` is exactly that gate — a real owner on an agent node, or an
+  // admin on `local`, whose boost is `local`-only. So an admin names the
+  // control-plane host's row and nobody else's (spec §9 stands for agents).
+  const canRename = n.canManage;
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">

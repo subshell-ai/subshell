@@ -355,9 +355,31 @@ describe("/api/nodes registry CRUD", () => {
     expect((await req("PATCH", `/${a.id}`, { cookie: adminCookie, body: { name: "admin-hijack" } })).status).toBe(403);
   });
 
-  it("rename of `local` → 400 even for an admin (name immutable)", async () => {
-    const res = await req("PATCH", "/local", { cookie: adminCookie, body: { name: "mine now" } });
-    expect(res.status).toBe(400);
+  it("rename of `local`: admin ok, non-admin 403, bearer 403", async () => {
+    // The one row an admin manages (spec 2026-09-08). It used to be 400 for
+    // everyone, which left "Local" reading as the viewer's own machine.
+    const ok = await req("PATCH", "/local", { cookie: adminCookie, body: { name: "Prod host" } });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as View).name).toBe("Prod host");
+
+    expect((await req("PATCH", "/local", { cookie: aliceCookie, body: { name: "mine now" } })).status).toBe(403);
+    // Cookie-only: a machine credential never manages the instance.
+    expect((await req("PATCH", "/local", { bearer: subshellKey, body: { name: "mine now" } })).status).toBe(403);
+
+    // Leave it as the migration/seed does, so later cases read a stable name.
+    expect((await req("PATCH", "/local", { cookie: adminCookie, body: { name: "Server" } })).status).toBe(200);
+  });
+
+  it("rename: control characters stripped, nothing printable → 400", async () => {
+    const n = await mkNode(aliceId, `rn-norm-${crypto.randomUUID().slice(0, 8)}`);
+
+    const ok = await req("PATCH", `/${n.id}`, { cookie: aliceCookie, body: { name: "mac\r\nmini" } });
+    expect(ok.status).toBe(200);
+    // CR/LF would otherwise forge a second line in a log record.
+    expect(((await ok.json()) as View).name).toBe("mac mini");
+
+    const blank = await req("PATCH", `/${n.id}`, { cookie: aliceCookie, body: { name: "\r\n\t" } });
+    expect(blank.status).toBe(400);
   });
 
   // ── delete ────────────────────────────────────────────────────────────────

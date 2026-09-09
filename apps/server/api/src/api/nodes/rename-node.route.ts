@@ -1,4 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
@@ -10,15 +11,31 @@ import { isUniqueNameViolation } from "@/lib/node-errors.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 
+/** Longest node display name. One spelling, shared by the schema and the
+ * normalizer below so the cap cannot drift between them. */
+const NODE_NAME_MAX = 64;
+
 /** Rename body — same name shape enroll enforces (keeps picker labels sane). */
 const RenameBodySchema = t.Object({
-  name: t.String({ minLength: 1, maxLength: 64, description: "New display name (unique per owner)" }),
+  name: t.String({
+    minLength: 1,
+    maxLength: NODE_NAME_MAX,
+    description: "New display name (unique per owner); control characters are stripped and whitespace collapsed",
+  }),
 });
 
 /**
  * `PATCH /api/nodes/:id` `{name}` — rename, OWNER-only (an admin's effective
- * edit does not extend to renaming a foreign agent; spec §9). The seeded
- * `local` node's name is IMMUTABLE — 400 for everyone, admin included.
+ * edit does not extend to renaming a foreign agent; spec §9).
+ *
+ * The control-plane host's `local` row IS renameable here (spec 2026-09-08):
+ * its `canManage` already resolves to admin, so the gate below is the whole
+ * rule and no permission concept was added. It used to be refused outright,
+ * which left every user but the operator reading "Local" as their own machine
+ * in the Nodes list and in every launch picker.
+ *
+ * The name is normalized before it is stored — a node name reaches log lines
+ * and menu labels, and length was previously the only thing enforced.
  * Per-owner collision rides `idx_nodes_owner_name` → 409 `NODE_NAME_TAKEN`
  * (the index is the authority; no pre-check race). Cookie-only.
  */
@@ -33,26 +50,31 @@ export const renameNodeRoute = new Elysia()
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
-      if (gate.row.kind === "local") {
+      if (!gate.canManage) throw new ForbiddenError();
+
+      const name = normalizeLabel(body.name, NODE_NAME_MAX);
+      if (!name) {
         return status(
           400,
-          apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "The local node's name is fixed" }),
+          apiErrorBody({
+            code: BackendErrorCodes.BAD_REQUEST,
+            message: "A node name needs at least one printable character",
+          }),
         );
       }
-      if (!gate.canManage) throw new ForbiddenError();
 
       const nodes = new NodesRepository(db);
       let renamed;
       try {
-        renamed = await nodes.rename(gate.row.id, body.name);
+        renamed = await nodes.rename(gate.row.id, name);
       } catch (err) {
         if (isUniqueNameViolation(err)) {
           return status(
             409,
             apiErrorBody({
               code: BackendErrorCodes.NODE_NAME_TAKEN,
-              message: `You already have a node named "${body.name}"`,
-              metadataSafe: { name: body.name },
+              message: `You already have a node named "${name}"`,
+              metadataSafe: { name },
             }),
           );
         }
@@ -63,9 +85,9 @@ export const renameNodeRoute = new Elysia()
         action: "node.rename",
         targetType: "node",
         targetId: gate.row.id,
-        metadataJson: JSON.stringify({ from: gate.row.name, to: body.name }),
+        metadataJson: JSON.stringify({ from: gate.row.name, to: name }),
       });
-      return await toNodeView(renamed ?? { ...gate.row, name: body.name }, gate.access, gate.isAdmin);
+      return await toNodeView(renamed ?? { ...gate.row, name }, gate.access, gate.isAdmin);
     },
     {
       body: RenameBodySchema,
@@ -80,7 +102,8 @@ export const renameNodeRoute = new Elysia()
       detail: {
         operationId: "renameNode",
         tags: ["nodes"],
-        description: "Rename a node (owner only; the local node's name is fixed)",
+        description:
+          "Rename a node. Owner-only for an enrolled agent; the control-plane host's own row is managed by an admin",
       },
     },
   );
