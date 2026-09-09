@@ -58,7 +58,7 @@ describe("ensureLocalNode", () => {
     const row = rows[0];
     expect(row?.kind).toBe("local");
     expect(row?.ownerUserId).toBe(systemId);
-    expect(row?.name).toBe("Local");
+    expect(row?.name).toBe("Server");
     expect(row?.status).toBe("online");
     expect(row?.os).toBe(process.platform === "darwin" ? "darwin" : "linux");
     expect(row?.arch).toBe(process.arch);
