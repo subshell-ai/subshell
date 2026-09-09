@@ -112,13 +112,14 @@ function renderFacts() {
   const svc = probe?.service ?? null;
   const st = probe?.status ?? null;
   if (probe?.server) {
-    // "server in use", not "server": this row and the one below it are two
-    // DIFFERENT servers — the one that would actually run, and the copy this
-    // app carries — and "server" beside "bundled" gave a new reader no way to
-    // tell which was which.
+    // Both rows name a version of the SERVER CLI: the one that will run, and
+    // the copy this app carries. Parallel labels because they are the same
+    // kind of thing — "server" beside "bundled" gave a new reader no way to
+    // tell that, and "server in use" beside "shipped in this app" did not
+    // make it obvious they were comparable numbers.
     fact(
       dl,
-      "server in use",
+      "cli version",
       `${probe.server.version ?? "?"} — ${probe.server.argv.join(" ")}`,
       null,
       revealAction("server-dir"),
@@ -132,7 +133,10 @@ function renderFacts() {
         : probe.serverChoice === "upgrade-available"
           ? " — newer than the one in use"
           : "";
-    fact(dl, "shipped in this app", probe.bundledVersion + note, note ? "warn-text" : null);
+    // NOT "desktop version": this is what the bundled `subshell-server`
+    // reports, and the CLI and the desktop app are separate changesets
+    // packages with their own tags — equal today, free to diverge.
+    fact(dl, "cli version in this app", probe.bundledVersion + note, note ? "warn-text" : null);
   }
   // The Reveal on a missing config.env would only answer "does not exist
   // yet", so the row earns its button once the file does.
