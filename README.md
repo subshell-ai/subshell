@@ -95,6 +95,15 @@ to smoke a GUI on, and Intel Macs are not a target for any component.
 - [tmux](https://github.com/tmux/tmux/wiki) >= 3.2 (backing per-subshell PTYs)
 - A harness binary (e.g. `claude` on your PATH) — `packages/harnesses` resolves it
 
+The three above are all the server, the web UI and the node agent need. **The
+two Tauri desktop apps additionally need a Rust toolchain and, on Linux, the
+GTK/WebKit development packages** — see
+[`apps/server/desktop/AGENTS.md`](apps/server/desktop/AGENTS.md) ("Native
+prerequisites") for the exact list and a check for what is missing. You can
+ignore that entirely unless you are building `apps/server/desktop` or
+`apps/client/desktop`; nothing in `bun run start`, `bun run test` or
+`turbo build` touches cargo.
+
 ## Dev
 
 ```bash
