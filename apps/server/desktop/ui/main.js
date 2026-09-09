@@ -112,31 +112,35 @@ function renderFacts() {
   const svc = probe?.service ?? null;
   const st = probe?.status ?? null;
   if (probe?.server) {
-    // Both rows name a version of the SERVER CLI: the one that will run, and
-    // the copy this app carries. Parallel labels because they are the same
-    // kind of thing — "server" beside "bundled" gave a new reader no way to
-    // tell that, and "server in use" beside "shipped in this app" did not
-    // make it obvious they were comparable numbers.
     fact(
       dl,
-      "cli version",
+      "server version",
       `${probe.server.version ?? "?"} — ${probe.server.argv.join(" ")}`,
       null,
       revealAction("server-dir"),
     );
     fact(dl, "found via", SOURCE_LABELS[probe.server.source] ?? probe.server.source);
   }
-  if (probe?.bundledVersion) {
-    const note =
-      probe.serverChoice === "adopt-installed"
-        ? " — newer one already installed, so that is the one in use"
-        : probe.serverChoice === "upgrade-available"
-          ? " — newer than the one in use"
-          : "";
-    // NOT "desktop version": this is what the bundled `subshell-server`
-    // reports, and the CLI and the desktop app are separate changesets
-    // packages with their own tags — equal today, free to diverge.
-    fact(dl, "cli version in this app", probe.bundledVersion + note, note ? "warn-text" : null);
+  // There used to be a second version row here, for the copy of the server
+  // this app carries inside itself. It went through three labels and none of
+  // them helped, because the problem was not the wording: the row exists to
+  // COMPARE two numbers, and the comparison is only ever actionable one way
+  // — an update is available — where the "Update server to X" button already
+  // says so, with the version in the label. Equal numbers told the reader
+  // nothing they could act on, while asking them to understand that a desktop
+  // app ships a copy of a CLI. That is our implementation detail, not theirs.
+  //
+  // The one case worth a row is the reverse, because otherwise the app looks
+  // broken: a NEWER server is already installed, so this app is deliberately
+  // not using the copy it shipped with, and offers no update. Said as a
+  // sentence rather than as a number the reader has to interpret.
+  if (probe?.serverChoice === "adopt-installed" && probe?.bundledVersion) {
+    fact(
+      dl,
+      "this app's own copy",
+      `${probe.bundledVersion} — older than the server above, so it is not used`,
+      "warn-text",
+    );
   }
   // The Reveal on a missing config.env would only answer "does not exist
   // yet", so the row earns its button once the file does.
