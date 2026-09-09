@@ -171,6 +171,25 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// The window-state plugin must not restore MAXIMIZED or FULLSCREEN.
+    ///
+    /// Both windows have a size they are meant to open at. A window maximized
+    /// once otherwise reopens maximized forever, and on Linux a compositor
+    /// maximizing it on the user's behalf is enough to latch that. Written as
+    /// `all() - VISIBLE` it read like a single deliberate exclusion, which is
+    /// exactly the shape someone tidies back up.
+    #[test]
+    fn saved_window_state_excludes_visible_maximized_and_fullscreen() {
+        use tauri_plugin_window_state::StateFlags;
+        let restored = StateFlags::all() - StateFlags::VISIBLE - StateFlags::MAXIMIZED - StateFlags::FULLSCREEN;
+        assert!(!restored.contains(StateFlags::VISIBLE));
+        assert!(!restored.contains(StateFlags::MAXIMIZED));
+        assert!(!restored.contains(StateFlags::FULLSCREEN));
+        // Size and position ARE worth remembering.
+        assert!(restored.contains(StateFlags::SIZE));
+        assert!(restored.contains(StateFlags::POSITION));
+    }
+
     use super::*;
 
     /// Pinned here rather than only at the use site: the bundle id is this

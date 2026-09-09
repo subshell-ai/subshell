@@ -19,7 +19,12 @@ pre-commit:
         - package-lint
     "lint staged":
       glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,html,css}"
-      run: turbo run lint:staged
+      # `bunx`, not a bare `turbo`: a bare one resolves off PATH, and a
+      # globally installed turbo of a different version wedges in its own
+      # daemon — measured here as a pre-commit that never returns, against a
+      # pnpm-global 2.0.12 while this repo pins 2.10.11. Every other script in
+      # the repo already goes through the workspace copy.
+      run: bunx turbo run lint:staged
       stage_fixed: true
       tags:
         - lint

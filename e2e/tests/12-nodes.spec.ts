@@ -86,17 +86,23 @@ function sweepTmuxServers(tmuxBase: string): void {
  * row in the Setup-keys card. No real enrollment here — the stub-agent
  * online/chips/launch path is the phase-3 spec.
  */
-test("nodes: Local renders online; Add-node mints a setup key + install command", async ({ page }) => {
+test("nodes: the server's own node renders online; Add-node mints a setup key + install command", async ({ page }) => {
   await page.goto("/nodes");
   await expect(page.getByRole("heading", { name: "Nodes" })).toBeVisible();
 
+  // Scoped to `main`, NOT the page: the admin sidebar's own entry for
+  // /settings is also labelled "Server", so a page-wide exact match resolves
+  // to two elements and fails strict mode. Worth knowing rather than working
+  // around silently — those are two different things wearing one word on one
+  // screen, and this assertion is where that showed up.
+  const body = page.locator("main");
+
   // The boot-seeded control-plane node: name + hostname line + online badge.
-  // On this pristine-registry run `Server` is the only node, so the page-level
-  // texts are unambiguous. The row shows the HOSTNAME rather than claiming to
-  // be "this machine", which is false for anyone not sitting at the server.
-  await expect(page.getByText("Server", { exact: true })).toBeVisible();
-  await expect(page.getByText("this machine", { exact: false })).not.toBeVisible();
-  await expect(page.getByText("online", { exact: true })).toBeVisible();
+  // The row shows the HOSTNAME rather than claiming to be "this machine",
+  // which is false for anyone not sitting at the server.
+  await expect(body.getByText("Server", { exact: true })).toBeVisible();
+  await expect(body.getByText("this machine", { exact: false })).not.toBeVisible();
+  await expect(body.getByText("online", { exact: true })).toBeVisible();
 
   // Add node → name it → one-time reveal.
   await page.getByRole("button", { name: "Add node" }).click();
