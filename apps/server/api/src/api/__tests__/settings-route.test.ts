@@ -15,6 +15,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { localHostname } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { SERVER_VERSION } from "@/version.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
@@ -131,6 +132,64 @@ describe("settings routes (admin cookie only)", () => {
     );
     expect(restore.status).toBe(200);
     expect(((await restore.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
+  });
+
+  it("admin cookie round-trips the instance name", async () => {
+    const patch = await app.fetch(
+      authedRequest("/api/settings", adminCookie, {
+        method: "PATCH",
+        body: JSON.stringify({ instanceName: "Prod plane" }),
+      }),
+    );
+    expect(patch.status).toBe(200);
+    expect(((await patch.json()) as { instanceName: string }).instanceName).toBe("Prod plane");
+
+    const get = await app.fetch(authedRequest("/api/settings", adminCookie));
+    expect(((await get.json()) as { instanceName: string }).instanceName).toBe("Prod plane");
+
+    // Cleared means "back to the default", not blank.
+    const cleared = await app.fetch(
+      authedRequest("/api/settings", adminCookie, { method: "PATCH", body: JSON.stringify({ instanceName: "" }) }),
+    );
+    expect(((await cleared.json()) as { instanceName: string }).instanceName).toBe(localHostname());
+  });
+
+  it("PATCH of the instance name audits a real change with from/to", async () => {
+    await app.fetch(
+      authedRequest("/api/settings", adminCookie, {
+        method: "PATCH",
+        body: JSON.stringify({ instanceName: "Audited plane" }),
+      }),
+    );
+    const events = await db
+      .selectFrom("auditEvents")
+      .selectAll()
+      .where("targetId", "=", "instance_name")
+      .orderBy("createdAt", "desc")
+      .execute();
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0]?.actorUserId).toBe(adminId);
+    expect(JSON.parse(String(events[0]?.metadataJson)).to).toBe("Audited plane");
+
+    await app.fetch(
+      authedRequest("/api/settings", adminCookie, { method: "PATCH", body: JSON.stringify({ instanceName: "" }) }),
+    );
+  });
+
+  it("GET /public carries the instance name (the sidebar reads it on every route)", async () => {
+    await app.fetch(
+      authedRequest("/api/settings", adminCookie, {
+        method: "PATCH",
+        body: JSON.stringify({ instanceName: "Public plane" }),
+      }),
+    );
+    const pub = await app.fetch(authedRequest("/api/settings/public", nonAdminCookie));
+    expect(pub.status).toBe(200);
+    expect(((await pub.json()) as { instanceName: string }).instanceName).toBe("Public plane");
+
+    await app.fetch(
+      authedRequest("/api/settings", adminCookie, { method: "PATCH", body: JSON.stringify({ instanceName: "" }) }),
+    );
   });
 
   // The registration toggle was flipped on the LIVE instance by a scripted

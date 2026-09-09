@@ -7,10 +7,17 @@ import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { audit } from "@/services/audit.js";
+import { INSTANCE_NAME_KEY, INSTANCE_NAME_MAX, resolveInstanceName, setInstanceName } from "@/services/instance-name.js";
 import { SERVER_VERSION } from "@/version.js";
 
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+  instanceName: t.String({
+    minLength: 0,
+    maxLength: INSTANCE_NAME_MAX,
+    description:
+      "Operator-chosen display name for this control plane; falls back to the host's own name when cleared. Names the instance for everyone signing in, so several planes are tellable apart",
+  }),
 });
 
 /**
@@ -33,6 +40,14 @@ const TerminalHistorySchema = t.Object({
  * only that the hatch is armed, which the banner itself broadcasts. */
 const PublicSettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+  // Rides the shared public read like serverVersion — every signed-in page
+  // already holds this payload, and the sidebar needs it on every route.
+  instanceName: t.String({
+    minLength: 0,
+    maxLength: INSTANCE_NAME_MAX,
+    description:
+      "Operator-chosen display name for this control plane; falls back to the host's own name when cleared. Names the instance for everyone signing in, so several planes are tellable apart",
+  }),
   emergencyLoginActive: t.Boolean({
     description:
       "True while SUBSHELL_EMERGENCY_PASSWORD is set (break-glass admin login armed; drives the warning banner)",
@@ -82,6 +97,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       const allow = await repo.get("allow_registrations", true);
       return {
         allowRegistrations: allow,
+        instanceName: await resolveInstanceName(db),
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
         // Cookie-admin rule in one place (user-utils): bearer actors read
@@ -113,7 +129,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       }
       const repo = new SettingsRepository(db);
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow } as const;
+      return { allowRegistrations: allow, instanceName: await resolveInstanceName(db) } as const;
     },
     {
       response: SettingsSchema,
@@ -151,8 +167,25 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
+      if (body.instanceName !== undefined) {
+        // Audited on a REAL change only, like the registration flip: the name
+        // is what every user sees the instance called, so a silent edit by one
+        // admin is worth a trace. The value is not a secret — it is disclosed
+        // pre-auth by design — so it is safe to record both sides.
+        const before = await resolveInstanceName(db);
+        const after = await setInstanceName(db, body.instanceName);
+        if (before !== after) {
+          await audit({
+            actorUserId: user.id,
+            action: "settings.update",
+            targetType: "settings",
+            targetId: INSTANCE_NAME_KEY,
+            metadataJson: JSON.stringify({ from: before, to: after }),
+          });
+        }
+      }
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow } as const;
+      return { allowRegistrations: allow, instanceName: await resolveInstanceName(db) } as const;
     },
     {
       body: t.Partial(SettingsSchema),
