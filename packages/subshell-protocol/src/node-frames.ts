@@ -221,9 +221,73 @@ export type NodeCommandBody =
       type: "set_allowed_dirs";
       dirs: string[];
     }
+  | {
+      /**
+       * Install a plugin on this node (protocol v6).
+       *
+       * Phase 2 installs from the copies the agent's own build carries, so
+       * this needs no network; phase 3 adds a registry behind the same frame.
+       * The node answers with its WHOLE plugin set, because the control plane
+       * mirrors what the node reports and a partial answer would leave it
+       * guessing at the rest.
+       */
+      type: "plugin_install";
+      /** Plugin id, which is also its directory name on the node */
+      id: string;
+    }
+  | {
+      /**
+       * Remove a plugin from this node (protocol v6).
+       *
+       * Removing something already absent SUCCEEDS: the caller asked for a
+       * state and that state holds, so a retry after a dropped connection
+       * must not look like a failure.
+       */
+      type: "plugin_uninstall";
+      /** Plugin id */
+      id: string;
+    }
   | { type: "ping" };
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
+/**
+ * One field of a plugin's profile-editor schema, as it travels.
+ *
+ * A `type` alias rather than an `interface`, and the same for the two below:
+ * an interface has no implicit index signature, so it is not assignable to
+ * `JsonValue`, and these ride inside a command RESULT which is typed as one.
+ */
+export type SettingsFieldWire = {
+  /** Key into the profile's settings object */
+  key: string;
+  /** Property label */
+  label: string;
+  /** Short description for the editor */
+  description?: string;
+  /** Editor control kind */
+  type: "string" | "boolean" | "number" | "select";
+  /** Choices when type is "select" */
+  choices?: string[];
+  /** Default value when unset */
+  default?: string | boolean | number;
+};
+
+/** One copy-paste step in a plugin's manual MCP setup. */
+export type McpSetupStepWire = {
+  /** What the user should do, and where the text goes */
+  label: string;
+  /** Copyable command or snippet */
+  command: string;
+};
+
+/**
+ * How a plugin obtains the subshell MCP tools.
+ *
+ * Discriminated, matching the contract: auto explains itself in one line and
+ * manual carries steps, and a plugin cannot mix the two.
+ */
+export type McpSetupWire = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepWire[] };
+
 /**
  * One installed plugin, as the node describes it.
  *
@@ -232,7 +296,7 @@ export type NodeCommandBody =
  * MCP setup. A plugin that failed to load still appears, carrying `broken`,
  * so a node page can say why rather than dropping the row.
  */
-export interface PluginReportWire {
+export type PluginReportWire = {
   /** Plugin id */
   id: string;
   /** Display name */
@@ -248,18 +312,18 @@ export interface PluginReportWire {
   /** Which optional members it implements */
   capabilities: string[];
   /** Settings rendered in the profile editor */
-  profileSettings?: unknown[];
+  profileSettings?: SettingsFieldWire[];
   /** Known env var suggestions */
   suggestedEnv?: { key: string; description: string }[];
   /** Known CLI flag suggestions */
   suggestedFlags?: { flag: string; description: string }[];
   /** How this harness obtains the subshell MCP tools */
-  mcpSetup?: unknown;
+  mcpSetup?: McpSetupWire;
   /** Exit code to human label, for the codes the plugin names */
   exitStatuses?: Record<string, string>;
   /** Why it cannot be used, when it cannot */
   broken?: string;
-}
+};
 
 export type NodeEvent =
   | {
@@ -456,6 +520,13 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return isStr(value.subId) ? { type: "tail_stop", subId: value.subId } : null;
     case "remove_paths":
       return isStrArray(value.paths) ? { type: "remove_paths", paths: value.paths } : null;
+    // Shape only, for both. Whether the id names something installable is the
+    // node's question, and it answers with a message naming the plugin, which
+    // is more useful than a parser rejecting the frame with no context.
+    case "plugin_install":
+      return isStr(value.id) ? { type: "plugin_install", id: value.id } : null;
+    case "plugin_uninstall":
+      return isStr(value.id) ? { type: "plugin_uninstall", id: value.id } : null;
     case "set_allowed_dirs":
       // Normalization is NOT applied here — the parser's job is shape, and
       // the executor re-normalizes anyway. A malformed entry inside a

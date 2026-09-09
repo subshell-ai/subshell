@@ -4,6 +4,8 @@ import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@inte
 import { writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
+import { buildPluginReports } from "../plugin-report.js";
+import { installEmbedded, uninstallPlugin } from "../plugins-dir.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { stopWatcher } from "./report.js";
@@ -250,5 +252,41 @@ export async function execInventory(ctx: CommandContext): Promise<CommandResult>
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `inventory: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * `plugin_install` (protocol v6): install a plugin and answer with this node's
+ * fresh set.
+ *
+ * The answer carries the whole set rather than the one plugin, because the
+ * control plane MIRRORS what the node reports and a partial answer would leave
+ * it guessing at the rest. Phase 2 installs from the copies this build
+ * carries, so there is no network here; phase 3 adds a registry behind the
+ * same command.
+ */
+export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_install">): Promise<CommandResult> {
+  try {
+    await installEmbedded(ctx.config.dataDir, cmd.id);
+    return { ok: true, data: { plugins: await buildPluginReports(ctx.config.dataDir) } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * `plugin_uninstall` (protocol v6): remove a plugin and answer with the set
+ * that remains.
+ *
+ * Removing something already absent is a SUCCESS, not an error: the caller
+ * asked for a state, and that state holds. Answering otherwise would make a
+ * retry after a dropped connection look like a failure.
+ */
+export async function execPluginUninstall(ctx: CommandContext, cmd: Cmd<"plugin_uninstall">): Promise<CommandResult> {
+  try {
+    const removed = await uninstallPlugin(ctx.config.dataDir, cmd.id);
+    return { ok: true, data: { removed, plugins: await buildPluginReports(ctx.config.dataDir) } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

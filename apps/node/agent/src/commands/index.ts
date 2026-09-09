@@ -5,6 +5,8 @@ import {
   execInventory,
   execKill,
   execPaneSize,
+  execPluginInstall,
+  execPluginUninstall,
   execProbe,
   execProbeResume,
   execRemovePaths,
@@ -79,6 +81,10 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execTailStop(ctx, cmd);
       case "remove_paths":
         return await execRemovePaths(ctx, cmd);
+      case "plugin_install":
+        return await execPluginInstall(ctx, cmd);
+      case "plugin_uninstall":
+        return await execPluginUninstall(ctx, cmd);
       case "set_allowed_dirs":
         return await execSetAllowedDirs(ctx, cmd);
       case "write_file":

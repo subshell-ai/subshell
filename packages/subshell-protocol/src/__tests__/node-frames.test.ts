@@ -196,3 +196,35 @@ describe("parseNodeEvent", () => {
     expect(parseNodeEvent({ type: "result", ref: "j1", ok: true, data: undefined })).toBeNull();
   });
 });
+
+describe("v6 plugin commands", () => {
+  it("accepts plugin_install and plugin_uninstall with an id", () => {
+    expect(parseNodeCommandBody({ type: "plugin_install", id: "claude-code" })).toEqual({
+      type: "plugin_install",
+      id: "claude-code",
+    });
+    expect(parseNodeCommandBody({ type: "plugin_uninstall", id: "pi" })).toEqual({
+      type: "plugin_uninstall",
+      id: "pi",
+    });
+  });
+
+  it("rejects a missing or non-string id", () => {
+    for (const body of [
+      { type: "plugin_install" },
+      { type: "plugin_install", id: 7 },
+      { type: "plugin_uninstall", id: null },
+    ]) {
+      expect(parseNodeCommandBody(body)).toBeNull();
+    }
+  });
+
+  it("checks SHAPE only, leaving whether the id is installable to the node", () => {
+    // The node answers with a message naming the plugin, which is more useful
+    // than a parser rejecting the frame with no context.
+    expect(parseNodeCommandBody({ type: "plugin_install", id: "not-a-real-plugin" })).toEqual({
+      type: "plugin_install",
+      id: "not-a-real-plugin",
+    });
+  });
+});
