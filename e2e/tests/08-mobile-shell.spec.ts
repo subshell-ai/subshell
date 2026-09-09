@@ -37,7 +37,7 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     // dismissed above, so it rides the same burger-open path as any tap.
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("button", { name: /Account —/ }).click();
+    await page.getByRole("button", { name: /Account:/ }).click();
     await page.getByRole("menuitem", { name: "Account settings" }).click();
     await expect(page).toHaveURL(/\/account$/);
     // Composition smoke (spec §7, final-review debt): landing on /account

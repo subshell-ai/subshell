@@ -19,7 +19,7 @@ test("signed-out deep-link round-trips through /login?redirect", async ({ page }
   // and no signed-in user menu (the post-split Account/Sign-out affordance).
   await expect(page.locator("aside")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /^Account —/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Account:/ })).toHaveCount(0);
 
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
