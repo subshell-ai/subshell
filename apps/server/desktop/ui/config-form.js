@@ -50,7 +50,7 @@ export const CONFIG_FIELDS = [
     // carried `:3080` read as though a port were part of the format.
     placeholder: "https://subshell.example.com, http://10.0.0.5:3080",
     wide: true,
-    hint: "One full address per entry, comma-separated — each named exactly, no wildcards. Include a port only if the address uses one; behind a reverse proxy on 443 there is none. Sign-in from an address that is not listed here (or above) fails with “Invalid origin”. Loopback is always allowed.",
+    hint: "One full address per entry, comma-separated. Name each one exactly; no wildcards. Include a port only if the address uses one; behind a reverse proxy on 443 there is none. Sign-in from an address that is not listed here (or above) fails with “Invalid origin”. Loopback is always allowed.",
   },
 ];
 

@@ -117,7 +117,7 @@ function renderFacts() {
     // rung sat in a third row answering the same question the path did.
     fact(dl, "server cli", probe.server.version ?? "unknown version");
     const how = SOURCE_LABELS[probe.server.source] ?? probe.server.source;
-    fact(dl, "found at", `${probe.server.argv.join(" ")} — ${how}`, null, revealAction("server-dir"));
+    fact(dl, "found at", `${probe.server.argv.join(" ")} (${how})`, null, revealAction("server-dir"));
   }
   // There used to be a second version row here, for the copy of the server
   // this app carries inside itself. It went through three labels and none of
@@ -136,7 +136,7 @@ function renderFacts() {
     fact(
       dl,
       "this app's own copy",
-      `${probe.bundledVersion} — older than the server above, so it is not used`,
+      `${probe.bundledVersion}, older than the server above, so it is not used`,
       "warn-text",
     );
   }
@@ -171,7 +171,7 @@ function renderFacts() {
   // one status fact that predicts a failure the user would otherwise meet
   // later, in a completely different part of the app.
   if (st && !st.mcp) {
-    fact(dl, "mcp entrypoint", `UNRESOLVED — subshell create will fail; ${st.mcpError ?? ""}`.trim(), "bad-text");
+    fact(dl, "mcp entrypoint", `UNRESOLVED: subshell create will fail. ${st.mcpError ?? ""}`.trim(), "bad-text");
   }
   // A server can be listening without being service-managed (someone started
   // it in a terminal). Without this the console insists it is "stopped" while
@@ -186,14 +186,14 @@ function renderFacts() {
     fact(
       dl,
       "manager",
-      svc.state + (svc.pid ? ` (pid ${svc.pid})` : "") + (svc.detail ? ` — ${svc.detail}` : ""),
+      svc.state + (svc.pid ? ` (pid ${svc.pid})` : "") + (svc.detail ? `, ${svc.detail}` : ""),
       svc.state === "unknown" ? "bad-text" : null,
     );
     // The one fact neither systemctl nor launchctl will tell them.
     if (svc.paneSafety === "kills") {
-      fact(dl, "teardown", "kills live panes — reinstall the service definition", "warn-text");
+      fact(dl, "teardown", "kills live panes; reinstall the service definition", "warn-text");
     } else if (svc.paneSafety === "unknown") {
-      fact(dl, "teardown", "unknown — the definition could not be read", "warn-text");
+      fact(dl, "teardown", "unknown (the definition could not be read)", "warn-text");
     }
   }
   // Where the server's own output goes. macOS: a file the plist names,
@@ -206,7 +206,7 @@ function renderFacts() {
   if (svc && typeof svc.logPath === "string") {
     fact(dl, "logs", svc.logPath, null, revealAction("logs"));
   } else if (svc && svc.logPath === null) {
-    fact(dl, "logs", "the systemd journal — journalctl --user -u subshell-server.service -f");
+    fact(dl, "logs", "the systemd journal: journalctl --user -u subshell-server.service -f");
   }
 }
 
@@ -226,7 +226,7 @@ const STEPS = Object.assign(Object.create(null), {
     // States the machine, like every other step, rather than the app's own
     // readiness — which the tmux gate can make false while this is on screen.
     body: "No server is installed. This app ships one.",
-    hint: "Installing copies it to ~/.local/bin — nothing is downloaded.",
+    hint: "Installing copies it to ~/.local/bin. Nothing is downloaded.",
     actions: () => [
       // tmux-gated like every other step that advances setup: installing the
       // binary does not itself need tmux, but the step immediately after it
@@ -238,7 +238,7 @@ const STEPS = Object.assign(Object.create(null), {
   },
   unreachable: {
     body: "A subshell-server was found, but it did not answer.",
-    hint: "Nothing has been changed. Retry, or choose a different binary — this app will not rewrite a configuration it cannot read. If the answer you expect is a different port or address, edit it here.",
+    hint: "Nothing has been changed. Retry, or choose a different binary; this app will not rewrite a configuration it cannot read. If the answer you expect is a different port or address, edit it here.",
     actions: () => [
       ["Retry", act(null), true],
       ["Choose a different one…", pickBinary],
@@ -499,7 +499,7 @@ function renderChip() {
       : running
         ? "Running"
         : svc?.installed
-          ? `Installed — ${svc.state}`
+          ? `Installed: ${svc.state}`
           : probe.server
             ? "Not installed as a service"
             : "No server found";
@@ -549,7 +549,7 @@ function guard(fn, settle = false) {
     try {
       const result = await fn();
       if (result) show(result);
-      if (result && result.ok === false) problem = "That did not work — see the output below.";
+      if (result && result.ok === false) problem = "That did not work. See the output below.";
     } catch (err) {
       // A command that rejects (or a Rust `Err`) must not strand the console.
       problem = String(err?.message ?? err);
@@ -677,7 +677,7 @@ const pickBinary = guard(async () => {
 const TRAY_NOT_DETECTED =
   "No system tray was detected on this desktop, so a hidden window would have nowhere to go. GNOME needs an " +
   "AppIndicator extension; KDE and most others have one already. Some older trays cannot be detected at all, so " +
-  "an icon may still appear — install one, then check again.";
+  "an icon may still appear. Install one, then check again.";
 
 /**
  * The tray preference, and why it is sometimes offered but not live.
