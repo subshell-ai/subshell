@@ -164,8 +164,22 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
     }
   });
 
-  it("never renders the editor for `local` (its name is fixed for everyone)", async () => {
-    const { restore } = mockFetch(agentNode({ id: "local", kind: "local" }));
+  it("renders the editor for `local` when the viewer manages it (an admin)", async () => {
+    // The control-plane host's row used to be unrenameable for everyone, which
+    // left "Local" reading as the viewer's own machine (spec 2026-09-08). Its
+    // `canManage` resolves to admin server-side, so that is the whole gate.
+    const { restore } = mockFetch(agentNode({ id: "local", kind: "local", canManage: true }));
+    try {
+      renderDetail("local");
+      await screen.findByText("Your access");
+      expect(screen.queryByRole("button", { name: "Rename node" })).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not render the editor for `local` when the viewer does not manage it", async () => {
+    const { restore } = mockFetch(agentNode({ id: "local", kind: "local", access: "edit", canManage: false }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");

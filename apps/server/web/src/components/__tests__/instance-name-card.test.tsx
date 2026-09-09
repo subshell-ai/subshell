@@ -79,9 +79,7 @@ describe("InstanceNameCard", () => {
     renderCard("Prod plane");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() =>
-      expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("theo-desktop"),
-    );
+    await waitFor(() => expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("theo-desktop"));
   });
 
   it("reports a failed save instead of implying it worked", async () => {
@@ -89,7 +87,8 @@ describe("InstanceNameCard", () => {
     restore.push(() => {
       globalThis.fetch = original;
     });
-    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as typeof globalThis.fetch;
+    globalThis.fetch = (async (_input: string | URL | Request, _init?: RequestInit) =>
+      new Response("nope", { status: 500 })) as typeof globalThis.fetch;
     renderCard("theo-desktop");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Prod plane" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

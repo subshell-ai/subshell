@@ -92,7 +92,9 @@ export function InstanceNameCard(): JSX.Element {
           </Button>
           {saved && <span className="text-success text-xs">saved</span>}
         </div>
-        {!cleaned && <p className="text-muted-foreground text-xs">Blank restores the default: this host&apos;s name.</p>}
+        {!cleaned && (
+          <p className="text-muted-foreground text-xs">Blank restores the default: this host&apos;s name.</p>
+        )}
         {error && <p className="text-destructive text-sm">{error}</p>}
       </CardContent>
     </Card>
