@@ -19,6 +19,7 @@ export {
   type ClientFrame,
   DEVICE_LABEL_MAX,
   normalizeDeviceLabel,
+  normalizeLabel,
   parseClientFrame,
   type ServerFrame,
   type ViewerPresence,

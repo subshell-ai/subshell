@@ -184,8 +184,30 @@ export function parseClientFrame(raw: string | object): ClientFrame | null {
 export const DEVICE_LABEL_MAX = 40;
 
 /**
- * Normalizes a device label for the wire: control characters replaced,
- * whitespace collapsed, length capped.
+ * Normalizes a display label: control characters replaced, whitespace
+ * collapsed, length capped.
+ *
+ * The one implementation of "a label a person chose on one machine, which a
+ * different machine renders or logs" — device labels, node names, the
+ * instance name. The C0/DEL/C1 pass is the load-bearing part, and the pair
+ * that matters most is CR/LF, which would otherwise forge a second line in a
+ * log record.
+ *
+ * @param raw - A candidate label
+ * @param max - Maximum length of the result
+ * @returns The cleaned label, empty when nothing usable remains
+ */
+export function normalizeLabel(raw: string, max: number): string {
+  let out = "";
+  for (const ch of raw) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : ch;
+  }
+  return out.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+/**
+ * The device-label binding of {@link normalizeLabel}.
  *
  * Shared by both ends deliberately. The label is chosen on one device and
  * rendered in another user's browser (a shared subshell may have viewers who
@@ -196,12 +218,5 @@ export const DEVICE_LABEL_MAX = 40;
  * @returns The cleaned label, empty when nothing usable remains
  */
 export function normalizeDeviceLabel(raw: string): string {
-  let out = "";
-  for (const ch of raw) {
-    const code = ch.codePointAt(0) ?? 0;
-    // C0, DEL and C1: never printable, and the pair that matters most here is
-    // CR/LF, which would forge a second line in the attach log.
-    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : ch;
-  }
-  return out.replace(/\s+/g, " ").trim().slice(0, DEVICE_LABEL_MAX);
+  return normalizeLabel(raw, DEVICE_LABEL_MAX);
 }
