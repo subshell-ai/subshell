@@ -27,7 +27,7 @@ function Section({ id, label, children }: { id: string; label: string; children:
  * Everything that configures the APP, split by scope (spec 2026-09-04
  * app-settings-page): server-stored preferences that follow the user to every
  * device, then the browser-local controls that exist only here. Identity and
- * credentials live on /account; instance-wide settings on /settings ("Server").
+ * credentials live on /account; instance-wide settings on /settings ("Instance").
  */
 function PreferencesPage() {
   return (

@@ -70,7 +70,7 @@ function SettingsPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader
-        title="Server"
+        title="Instance"
         subtitle="Instance-wide configuration (admins)"
         action={
           // A Link WEARING the button style, not a Button wrapping a Link —
@@ -133,7 +133,7 @@ function SettingsPage() {
         </>
       ) : (
         <p className="text-muted-foreground text-sm">
-          Server settings are for instance admins — your settings live under{" "}
+          Instance settings are for admins. Your settings live under{" "}
           <Link to="/preferences" className="underline">
             Preferences
           </Link>{" "}

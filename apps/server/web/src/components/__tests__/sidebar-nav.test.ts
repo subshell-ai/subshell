@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { visibleNavItems } from "@/components/app-sidebar";
 
 /**
- * The admin nav gate (spec 2026-09-02 settings-split §4): "Server" shows for
+ * The admin nav gate (spec 2026-09-02 settings-split §4): "Instance" shows for
  * admins only, and UNKNOWN (loading) is hidden — the "unknown ≠ open" posture
  * the registration switch set. Everything else is unconditional.
  */
@@ -16,6 +16,6 @@ describe("visibleNavItems", () => {
   });
   it("shows the Server entry for admins, labeled Server", () => {
     const items = visibleNavItems(true);
-    expect(items.find((i) => i.to === "/settings")?.label).toBe("Server");
+    expect(items.find((i) => i.to === "/settings")?.label).toBe("Instance");
   });
 });

@@ -48,7 +48,12 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal, short: "Prof" },
-  { to: "/settings", label: "Server", icon: Settings, requiresAdmin: true },
+  // "Instance", not "Server": the control-plane host's own NODE is named
+  // Server by default, and on /nodes an admin saw that word twice, on two
+  // different things. This entry is the instance's settings — the page it
+  // opens is where the instance name itself is set — so it is the half that
+  // can say what it means without borrowing the other's word.
+  { to: "/settings", label: "Instance", icon: Settings, requiresAdmin: true, short: "Inst" },
   { to: "/settings/status", label: "Status", icon: Activity, requiresAdmin: true, short: "Stat" },
   { to: "/users", label: "Users", icon: Users, short: "Users" },
 ];

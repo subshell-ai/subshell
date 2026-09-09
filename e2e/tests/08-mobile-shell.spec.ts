@@ -26,7 +26,9 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     await expect(page.locator("aside")).toHaveCount(0);
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("link", { name: "Server" }).click();
+    // "Instance", not "Server": the control-plane host's own node is named
+    // Server, and the two words collided on /nodes for an admin.
+    await page.getByRole("link", { name: "Instance" }).click();
     await expect(page).toHaveURL(/\/settings$/);
     // Navigating dismisses the drawer (route-change effect).
     await expect(page.getByRole("dialog")).toHaveCount(0);

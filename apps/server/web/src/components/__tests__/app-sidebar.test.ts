@@ -10,7 +10,7 @@ describe("sidebar nav icons (spec 2026-09-02 §3)", () => {
   });
 
   it("Server keeps the plain Settings gear", () => {
-    expect(items.find((i) => i.label === "Server")?.icon).toBe(Settings);
+    expect(items.find((i) => i.label === "Instance")?.icon).toBe(Settings);
   });
 
   it("no two visible items share an icon", () => {

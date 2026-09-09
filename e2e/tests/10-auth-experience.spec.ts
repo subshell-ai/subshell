@@ -78,9 +78,11 @@ test("members see the roster but no management UI", async ({ browser }) => {
   // never renders for a member (the admin positive control for these
   // selectors lives in 08-mobile-shell's drawer flow).
   await page.goto("/settings");
-  await expect(page.getByText("Server settings are for instance admins")).toBeVisible();
+  await expect(page.getByText("Instance settings are for admins")).toBeVisible();
   await expect(page.getByRole("link", { name: "Account settings" })).toBeVisible();
   await expect(page.getByText("Registration", { exact: true })).toHaveCount(0);
-  await expect(page.locator("aside").getByRole("link", { name: "Server" })).toHaveCount(0);
+  // "Instance" is the admin nav entry's label; asserting the OLD one would
+  // pass for the wrong reason now that nothing is called "Server" there.
+  await expect(page.locator("aside").getByRole("link", { name: "Instance" })).toHaveCount(0);
   await ctx.close();
 });
