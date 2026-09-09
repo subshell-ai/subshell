@@ -23,14 +23,14 @@ body {
   background: var(--bg);
   color: var(--fg);
   font:
-    13px / 1.55 ui-sans-serif,
+    14px / 1.55 ui-sans-serif,
     -apple-system,
     "Segoe UI",
     system-ui,
     sans-serif;
 }
 h1 {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0 0 2px;
   letter-spacing: 0.01em;
@@ -38,7 +38,7 @@ h1 {
 .sub {
   color: var(--muted);
   margin: 0 0 18px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .card {
   background: var(--card);
@@ -58,7 +58,7 @@ h1 {
   grid-template-columns: max-content 1fr;
   gap: 4px 14px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .facts dt {
   color: var(--muted);
@@ -77,7 +77,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .dot {
@@ -120,7 +120,7 @@ button.primary {
 }
 button.mini {
   padding: 0 8px;
-  font-size: 11px;
+  font-size: 12px;
   flex: none;
   color: var(--muted);
 }
@@ -132,7 +132,7 @@ button.mini {
 }
 label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 4px;
 }
@@ -161,7 +161,7 @@ pre {
   border: 1px solid var(--border);
   border-radius: 8px;
   font:
-    11.5px / 1.5 ui-monospace,
+    12.5px / 1.5 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
@@ -178,7 +178,7 @@ pre:empty {
 }
 .hint {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 8px;
 }
 /*
@@ -196,7 +196,7 @@ pre:empty {
 .problem {
   margin: 0 0 10px;
   color: var(--warn);
-  font-size: 12px;
+  font-size: 13px;
 }
 .problem:empty {
   display: none;
@@ -209,7 +209,7 @@ pre:empty {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   cursor: pointer;
 }
 .switch input {
@@ -242,7 +242,7 @@ pre:empty {
   border: 1px solid var(--warn);
   border-radius: 8px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .tmux-warning p {
   margin: 0 0 8px;
@@ -254,6 +254,6 @@ pre:empty {
   border-radius: 6px;
   padding: 2px 7px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-size: 12.5px;
   overflow-wrap: anywhere;
 }
