@@ -1,0 +1,9 @@
+{
+  "name": "@fixture/no-default",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 1, "id": "no-default", "type": "agent-harness",
+    "name": "No Default", "description": "exports no factory", "entry": "index.js"
+  }
+}

@@ -23,6 +23,9 @@
     "test": "bun test",
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@subshell-ai/plugin-api": "workspace:*"
+  },
   "devDependencies": {
     "@internal/tsconfig": "workspace:*",
     "@types/bun": "1.3.14",

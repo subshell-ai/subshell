@@ -21,6 +21,15 @@ Dynamic imports break `bun build --compile` because the bundler cannot staticall
 them, so the referenced modules (and their `node_modules` dependencies) are excluded from the
 compiled binary and fail at runtime with "Cannot find package" errors.
 
+**One exception, by name.** `packages/pane-runtime/src/plugin-runtime.ts` uses
+`await import()` to load an installed plugin. There the bundler's blindness is
+the POINT: the target is a plugin the user installed after the binary was
+built, and it must not be bundled into it. Measured on bun 1.4.2, a compiled
+binary can import an absolute path at runtime, and the loaded module cannot
+resolve a bare specifier of ours, which is why plugins receive a host object
+instead of importing one. No other file may use it, and a second exception is
+a design question rather than a precedent.
+
 ## File Size and Organization
 
 Break up large files into smaller, focused modules. When a file grows beyond ~300-400 lines or contains multiple distinct concerns, split it into separate files.

@@ -1,0 +1,9 @@
+{
+  "name": "@fixture/throws",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 1, "id": "throws", "type": "agent-harness",
+    "name": "Throwing Fixture", "description": "explodes at import", "entry": "index.js"
+  }
+}

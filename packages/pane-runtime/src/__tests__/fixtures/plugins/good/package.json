@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/good",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 1,
+    "id": "good",
+    "type": "agent-harness",
+    "name": "Good Fixture",
+    "description": "loads cleanly and calls back into the host",
+    "entry": "index.js",
+    "detect": { "binaryName": "goodtool", "envOverride": "GOODTOOL_PATH", "knownPaths": [] }
+  }
+}

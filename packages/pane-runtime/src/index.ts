@@ -35,6 +35,14 @@ export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.
 export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";
 export { OpencodePlugin } from "./opencode.js";
 export { PiPlugin } from "./pi.js";
+export { createPluginHost, type PluginHostOptions } from "./plugin-host.js";
+export {
+  type BrokenPlugin,
+  createInProcessRuntime,
+  type LoadedPlugin,
+  type LoadOptions,
+  type PluginRuntime,
+} from "./plugin-runtime.js";
 export { shellQuote } from "./shell.js";
 export { TmuxRunner, tmuxSocketFor } from "./tmux-runner.js";
 export type {

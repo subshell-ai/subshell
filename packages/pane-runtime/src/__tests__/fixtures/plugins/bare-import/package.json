@@ -1,0 +1,9 @@
+{
+  "name": "@fixture/bare-import",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 1, "id": "bare-import", "type": "agent-harness",
+    "name": "Bare Import", "description": "tries to import one of our packages", "entry": "index.js"
+  }
+}

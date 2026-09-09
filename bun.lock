@@ -288,6 +288,9 @@
     "packages/pane-runtime": {
       "name": "@internal/pane-runtime",
       "version": "1.0.0",
+      "dependencies": {
+        "@subshell-ai/plugin-api": "workspace:*",
+      },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
