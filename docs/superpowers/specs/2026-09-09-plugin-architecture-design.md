@@ -446,16 +446,23 @@ Dropped:
 - the `node_harnesses` table and its repository;
 - `PATCH /api/setup/harnesses/:id` and the public-write branch of its gate;
 - `use-harness-toggles.ts` and the toggle half of `harness-row.tsx`;
-- the `harness_plugins` table, after it is read once (below).
+- the `harness_plugins` table;
+- `enabledByDefault` on the plugin type, and the lazy "absent row means the
+  plugin's default" rule everywhere it is applied;
+- `EffectiveHarnessState.enabled` and the `enabled` field on the wire.
 
-**The one-way seeding step.** On first boot after upgrade, for each node with no
-plugins directory: read the retired tables, and install the embedded built-in
-for every harness that was enabled and installed there. An agent does this for
-itself on first start of the new binary; the server does it for `local`. After
-that the tables are never read again, and a later migration drops them.
+**There is no migration, and that is a decision rather than an oversight**
+(2026-09-09, after phase 2 shipped). The original plan here was a one-way
+seeding step that read the retired tables on first boot and installed the
+embedded built-in for every harness that had been enabled and installed. It
+exists to carry installs that predate the plugins directory, and there are
+none: nothing is deployed. So the tables are dropped without being read, and
+seeding installs the built-ins outright, keyed on the plugins directory not
+existing yet.
 
-This must be idempotent and must never run against a populated plugins
-directory, or an uninstall would be undone by the next restart.
+That keying is the part to keep whatever else changes. Keying on the directory
+being EMPTY would undo an uninstall on every restart, because "offers nothing"
+is a legitimate state that has to be reachable.
 
 ## 13. Security
 
@@ -476,6 +483,17 @@ New paragraphs for `docs/security.md`:
 - **A plugin sees pane content and the subshell's bearer token**, because it
   builds the launch command. That is the existing exposure of §"Nodes" restated
   for a new actor.
+- **The first-run setup window is anonymous, and a plugin install must not
+  travel through it to a registry.** `requireHarnessAccess` returns early while
+  the instance has no users, so the wizard's writes are public by design
+  (tightened once already: audit 2026-08, F3). Phase 2b replaces the harness
+  toggle with a setup-scoped install that is held to the ids THIS BUILD
+  CARRIES, and a test fails closed on anything else. That guard is not
+  decoration: the same route with phase 3's npm fetch behind it, still
+  anonymous on a fresh instance, is an unauthenticated caller making the host
+  download and execute a package of their choosing. Phase 3 must keep the
+  setup route embedded-only or require authentication for setup writes; it may
+  not simply widen the id check.
 
 ## 14. The `packages/harnesses` split (settled 2026-09-09)
 
@@ -510,12 +528,25 @@ the same import sites.
 | 0 | detection reasons, timestamps, one code path, bounded version probe | fixes the reported bug |
 | 1 | plugin contract and loader; the five built-ins move to `packages/plugins/*`; `packages/harnesses` becomes `packages/pane-runtime` (§14); agent and server load through it | nothing |
 | 2 | node owns the declared set: plugins directory, reporting, protocol v6, `node_harnesses` dropped | the node page reflects the node |
+| 2b | `local` becomes a node like any other: its own plugins directory, install and uninstall through the same path, `harness_plugins` and the whole `enabled` concept deleted | one meaning for "this host offers X" |
 | 3 | npm install/uninstall/update, embedded built-ins, CLI verbs, the publishing pipeline | plugins become installable |
 | 4 | setup step 2, node Plugins card, node window card | the new UX |
 | 5 | settings schemas and plugin settings pages | per-plugin configuration |
 
 Phase 0 stands alone and is shippable on its own. Phase 1 is the riskiest and is
 invisible, which is the right shape for it.
+
+**2b is phase 2 finished, not a new phase.** §11 and §12 always had `local`
+loading plugins the same way and `harness_plugins` deleted, and §16 asks for
+"`local` and agent paths produce the same report shape". Phase 2 as built
+refuses `local` with a 400 and leaves the enable table standing, so that test
+does not pass and could not have been written. It is numbered separately only
+because phase 2 is already merged.
+
+It comes BEFORE phase 3 for a concrete reason: phase 3 writes the npm install
+path, and against today's split it would be written for agents and then
+extended to `local`. Against a model where every host has a plugins directory
+it is written once.
 
 **Phase 2 and 3 were split differently than first written, and the correction
 matters.** The original had the plugins directory and the dropping of
@@ -539,9 +570,12 @@ Per phase, and in addition to the repo-wide `verify-types` / `lint:check` /
   reported broken and does not affect its neighbours; a plugin cannot import a
   bare specifier (pinned as a test, since it is a contract not an accident);
   `PluginRuntime` deadlines fire.
-- **2**: protocol v6 validators round-trip; a pre-v6 agent degrades to read-only
-  rather than erroring; a launch for an uninstalled plugin is refused node-side;
-  `local` and agent paths produce the same report shape.
+- **2**: protocol v6 validators round-trip; a launch for an uninstalled plugin
+  is refused node-side; `local` and agent paths produce the same report shape.
+  (An earlier draft asked for "a pre-v6 agent degrades to read-only rather than
+  erroring". That test cannot be written: gate 2 refuses any protocol mismatch
+  in either direction at 4406, so a pre-v6 agent never reaches a frame to
+  degrade over. Nothing is deployed either, so there are no such agents.)
 - **3**: integrity mismatch aborts and leaves nothing behind; the embedded
   fallback is used when the registry is unreachable; uninstall is idempotent;
   the tar reader handles a real npm tarball; the seeding step is idempotent and
