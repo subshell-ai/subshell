@@ -121,3 +121,39 @@ export function handBuiltTgz(
 ): Uint8Array<ArrayBuffer> {
   return frame(entries);
 }
+
+/**
+ * A minimal LOADABLE plugin package as an npm tgz, for the registry-install
+ * tests. "Loadable" is load-bearing: the installer runs the real loader
+ * against the staging copy before swapping, so the default entry is a factory
+ * that satisfies every check in `plugin-runtime.ts` (modelled on
+ * `packages/plugins/pi/src/index.ts` minus its imports: a plugin's real build
+ * inlines `plugin-api`, a fixture has nothing to inline). The subshell block
+ * carries `description` because `parseManifest` requires it, and
+ * `capabilityMismatches` is satisfied by declaring no capabilities and
+ * implementing no optional members.
+ */
+export function makePluginTgz(opts: {
+  name: string;
+  version: string;
+  id?: string;
+  apiVersion?: number;
+  entryBody?: string;
+}): Uint8Array<ArrayBuffer> {
+  const subshell = {
+    apiVersion: opts.apiVersion ?? 1,
+    id: opts.id ?? opts.name.replace(/^(@[^/]+\/)?plugin-/, ""),
+    type: "agent-harness",
+    name: "fixture",
+    description: "fixture plugin",
+    entry: "index.js",
+  };
+  const manifest = { name: opts.name, version: opts.version, type: "module", subshell };
+  const entry =
+    opts.entryBody ??
+    "export default function fixture() { return { capabilities: () => [], buildCommand: (input) => [input.binary], validateProfile: () => ({ valid: true }) }; }\n";
+  return makeTgz([
+    { path: "package/package.json", content: JSON.stringify(manifest) },
+    { path: "package/index.js", content: entry },
+  ]);
+}

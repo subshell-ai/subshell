@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { semverLt } from "@internal/subshell-protocol";
 import { parseManifest, type SubshellManifest } from "@subshell-ai/plugin-api";
-import { type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
+import { builtInIds, readBuiltIn } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
+import { DEFAULT_REGISTRY_URL, fetchVerifiedTarball, parsePackageSpec, resolvePackageVersion } from "./npm-registry.js";
+import { createInProcessRuntime } from "./plugin-runtime.js";
+import { extractTgz } from "./tar-vendor.js";
 
 /**
  * This node's declaration of what it offers.
@@ -174,11 +178,77 @@ function placeholderManifest(id: string): SubshellManifest {
 }
 
 /** Writes one plugin's files into `target`, creating directories as needed. */
-async function writeFiles(target: string, plugin: EmbeddedPlugin): Promise<void> {
-  for (const [rel, content] of Object.entries(plugin.files)) {
+async function writeFiles(target: string, files: Record<string, string | Uint8Array>): Promise<void> {
+  for (const [rel, content] of Object.entries(files)) {
     const path = join(target, rel);
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     await writeFile(path, content, { mode: 0o600 });
+  }
+}
+
+/** The sidecar file inside an installed plugin directory that names its registry origin. */
+const RECORD_FILE = "install.json";
+
+/** What an installed-from-the-registry plugin records about where it came from. */
+export interface InstallRecord {
+  /** The npm package name the bytes were installed from */
+  name: string;
+  /** The exact version installed */
+  version: string;
+  /** The SRI `sha512-…` digest the tarball was verified against */
+  integrity: string;
+  /** ISO 8601 timestamp of the install */
+  installedAt: string;
+}
+
+/**
+ * Where an installed plugin came from, or null.
+ *
+ * Null means either "embedded" (the bytes came from this build, so there is
+ * no registry name to record) or "absent"; the sidecar rides INSIDE the plugin
+ * directory, so removing the plugin removes its record with it, and a
+ * directory without one is exactly what `installEmbedded` produces.
+ */
+export async function readInstallRecord(dataDir: string, id: string): Promise<InstallRecord | null> {
+  try {
+    assertSafeId(id);
+    return await readRecordIn(join(pluginsDir(dataDir), id));
+  } catch {
+    return null;
+  }
+}
+
+/** Reads the sidecar from a plugin directory, null when it has none (or it will not parse). */
+async function readRecordIn(dir: string): Promise<InstallRecord | null> {
+  try {
+    return JSON.parse(await readFile(join(dir, RECORD_FILE), "utf8")) as InstallRecord;
+  } catch {
+    return null;
+  }
+}
+
+/** The existing state of an install target: its parsed manifest plus any record. */
+interface TargetState {
+  manifest: SubshellManifest;
+  record: InstallRecord | null;
+}
+
+/**
+ * What a directory currently declares as a plugin, or null when it declares
+ * nothing usable.
+ *
+ * A target whose manifest will not parse answers null, the same call
+ * `listInstalled` makes when it reports a directory broken: an install may
+ * overwrite a broken directory, because there is no working copy there to
+ * protect.
+ */
+async function readTargetState(dir: string): Promise<TargetState | null> {
+  try {
+    const parsed = parseManifest(JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as unknown);
+    if ("error" in parsed) return null;
+    return { manifest: parsed, record: await readRecordIn(dir) };
+  } catch {
+    return null;
   }
 }
 
@@ -186,18 +256,8 @@ async function writeFiles(target: string, plugin: EmbeddedPlugin): Promise<void>
  * Installs a built-in from the bytes this build carries.
  *
  * No network: the bytes come from the checkout or from the binary
- * (`readBuiltIn`). Idempotent on disk, and staged in a temp directory so a
- * killed install never leaves a half-written plugin the loader would then
- * report as broken.
- *
- * **The swap is a rename ASIDE, then a rename INTO place.** Removing the old
- * directory first (which `rename` onto a non-empty directory requires) left a
- * window in which the plugin existed nowhere: a kill during a recursive
- * delete uninstalls what the operator was upgrading. Renaming it out of the
- * way instead narrows that window to one atomic syscall, and the copy it
- * displaced survives under `.old-…` — which is what
- * {@link recoverInterruptedInstalls} puts back at the next boot, so even a
- * kill inside that window costs nothing.
+ * (`readBuiltIn`). Idempotent on disk; the staging and swap live in
+ * {@link installStaged}, which the registry path shares.
  *
  * **What it does NOT do is change the code a RUNNING agent executes.** The
  * module cache cannot be evicted (see `IMPORTED` in `@internal/pane-runtime`),
@@ -210,7 +270,33 @@ export async function installEmbedded(dataDir: string, id: string): Promise<Inst
   assertSafeId(id);
   const source = await readBuiltIn(id);
   if (!source) throw new Error(`no built-in plugin '${id}' in this build`);
+  return await installStaged(dataDir, id, source.files);
+}
 
+/**
+ * Writes `files` into a fresh staging dir, modes it, and swaps it into
+ * `<pluginsDir>/<id>` by the rename-aside dance. Both install paths (embedded
+ * and registry) share this, so the "a killed install never leaves a
+ * half-written plugin" property lives in exactly one place.
+ *
+ * **The swap is a rename ASIDE, then a rename INTO place.** Removing the old
+ * directory first (which `rename` onto a non-empty directory requires) left a
+ * window in which the plugin existed nowhere: a kill during a recursive
+ * delete uninstalls what the operator was upgrading. Renaming it out of the
+ * way instead narrows that window to one atomic syscall, and the copy it
+ * displaced survives under `.old-…` — which is what
+ * {@link recoverInterruptedInstalls} puts back at the next boot, so even a
+ * kill inside that window costs nothing.
+ * @param assertTarget - runs against the EXISTING target (or null when there
+ *   is none, or its manifest will not parse) BEFORE the first rename, so a
+ *   refusal here moves nothing on disk
+ */
+async function installStaged(
+  dataDir: string,
+  id: string,
+  files: Record<string, string | Uint8Array>,
+  assertTarget?: (existing: TargetState | null) => void,
+): Promise<InstalledPlugin> {
   const root = pluginsDir(dataDir);
   await mkdir(root, { recursive: true, mode: 0o700 });
   await enforceMode(root, 0o700);
@@ -219,7 +305,7 @@ export async function installEmbedded(dataDir: string, id: string): Promise<Inst
   const retired = join(root, `.old-${id}-${randomUUID()}`);
   let asideHolds = false;
   try {
-    await writeFiles(staging, source);
+    await writeFiles(staging, files);
     // Permissions are set on the STAGING copy, before it is anything. Doing it
     // after the rename put a step that can throw between "installed" and
     // "reported installed": the caller then saw a failure for a plugin that
@@ -227,6 +313,7 @@ export async function installEmbedded(dataDir: string, id: string): Promise<Inst
     // about it, and every launch of it was refused until the next inventory.
     await enforceMode(staging, 0o700);
     const target = join(root, id);
+    assertTarget?.(existsSync(target) ? await readTargetState(target) : null);
     if (existsSync(target)) {
       await rename(target, retired);
       asideHolds = true;
@@ -330,6 +417,155 @@ async function idOf(dir: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Installs one plugin from an npm registry: resolve, verify, unpack, check,
+ * swap. INTERNAL to this module: `installPlugin` is the one door, and the
+ * embedded-first decision belongs to it.
+ *
+ * Ordering is the safety property: integrity is verified over the raw bytes
+ * BEFORE anything is written (in `fetchVerifiedTarball`), the id checks run
+ * before the swap, and the load-check runs against a staging copy before the
+ * swap too, so every refusal here leaves the previous copy untouched.
+ * @param expectId - the id the caller asked for, when they named one; the manifest's own id must agree
+ */
+async function installFromRegistry(
+  dataDir: string,
+  spec: string,
+  expectId: string | undefined,
+  registryUrl: string,
+): Promise<InstalledPlugin> {
+  const { name, range } = parsePackageSpec(spec);
+  const resolved = await resolvePackageVersion(name, range, registryUrl);
+  const tgz = await fetchVerifiedTarball(resolved, registryUrl);
+  const files: Record<string, string | Uint8Array> = {};
+  // `extractTgz` already stripped npm's `package/` wrapper and refused
+  // anything else; the entry path maps straight into the plugin directory.
+  for (const e of extractTgz(tgz)) files[e.path] = e.content;
+
+  const pkgRaw = files["package.json"];
+  if (pkgRaw === undefined) throw new Error(`'${spec}' has no package.json at its root`);
+  const pkg = JSON.parse(typeof pkgRaw === "string" ? pkgRaw : new TextDecoder().decode(pkgRaw)) as unknown;
+  const parsed = parseManifest(pkg);
+  if ("error" in parsed) throw new Error(`'${spec}': ${parsed.error}`);
+  const id = parsed.id;
+  assertSafeId(id);
+  if (expectId !== undefined && expectId !== id) {
+    throw new Error(`'${spec}' is plugin '${id}', not '${expectId}'; refusing to install it under the wrong id`);
+  }
+
+  // The record rides INSIDE the swap so it can never describe a different
+  // copy than the one it names.
+  const record: InstallRecord = {
+    name,
+    version: resolved.version,
+    integrity: resolved.integrity,
+    installedAt: new Date().toISOString(),
+  };
+  files[RECORD_FILE] = `${JSON.stringify(record, null, 2)}\n`;
+
+  // Load-check BEFORE anything moves (spec §8.1): the staging dir is a plugin
+  // directory as far as the loader is concerned, and a module that throws (or
+  // mismatches its declared capabilities) is refused here, so an operator who
+  // installs a broken package keeps the copy they had.
+  const root = pluginsDir(dataDir);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await enforceMode(root, 0o700);
+  const checkDir = await mkdtemp(join(root, `.tmp-${id}-check-`));
+  try {
+    await writeFiles(checkDir, files);
+    const loaded = await createInProcessRuntime().load(checkDir);
+    if ("error" in loaded) throw new Error(`'${spec}' loaded with an error: ${loaded.error}`);
+  } finally {
+    await rm(checkDir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  return await installStaged(dataDir, id, files, (existing) => {
+    // Two packages claiming one id would silently replace the first operator's
+    // plugin with the second's bytes; the sidecar is what makes the claim
+    // checkable, and refusing is what makes it worth writing.
+    if (existing?.record?.name && existing.record.name !== name) {
+      throw new Error(
+        `'${existing.record.name}' already claims plugin id '${id}' (installed ${existing.record.version}); ` +
+          `uninstall it before installing '${name}' under that id`,
+      );
+    }
+  });
+}
+
+/**
+ * The one install door (spec §2.5's four rules, stated once):
+ * - spec absent → embedded `id` (the v1 meaning, unchanged);
+ * - spec pins no version and names a built-in id → embedded, no network;
+ * - spec pins the embedded version → embedded (no byte churn);
+ * - otherwise → registry, and a pinned version the registry cannot answer is
+ *   an ERROR, never a silent fallback.
+ * Both hosts call this; the agent's command handler and CLI are thin.
+ */
+export async function installPlugin(
+  dataDir: string,
+  opts: { id?: string; spec?: string; registryUrl?: string },
+): Promise<InstalledPlugin> {
+  const registryUrl = opts.registryUrl ?? DEFAULT_REGISTRY_URL;
+  if (opts.spec === undefined) {
+    if (opts.id === undefined) throw new Error("install needs an id or a spec");
+    return await installEmbedded(dataDir, opts.id);
+  }
+  const { name, range } = parsePackageSpec(opts.spec);
+  const builtinCandidate = opts.id ?? name;
+  if ((await builtInIds()).includes(builtinCandidate)) {
+    if (range === undefined) return await installEmbedded(dataDir, builtinCandidate);
+    const source = await readBuiltIn(builtinCandidate);
+    // No unguarded parse: `builtInIds` lists checkout DIRECTORIES, and a
+    // directory whose bytes this build cannot actually install (no dist) is
+    // not a source for a version pin to match against. Falling through to the
+    // registry there errors honestly; inventing a mismatch would not.
+    if (source) {
+      const pkgRaw = source.files["package.json"] ?? "{}";
+      const embeddedVersion = String((JSON.parse(pkgRaw) as { version?: unknown }).version ?? "");
+      if (range === embeddedVersion) return await installEmbedded(dataDir, builtinCandidate);
+    }
+  }
+  return await installFromRegistry(dataDir, opts.spec, opts.id, registryUrl);
+}
+
+/** One installed plugin with a newer version available. */
+export interface PluginUpdate {
+  /** Plugin id (directory name) */
+  id: string;
+  /** The npm package name it was installed from (from the sidecar) */
+  name: string;
+  /** Installed version */
+  from: string;
+  /** Newest registry version, or null when the install is already at or above it */
+  to: string | null;
+}
+
+/** Newest registry version for every sidecar'd install (embedded installs are never upgraded behind their operator). */
+export async function resolvePluginUpdates(
+  dataDir: string,
+  opts: { id?: string; registryUrl?: string } = {},
+): Promise<PluginUpdate[]> {
+  const out: PluginUpdate[] = [];
+  for (const p of await listInstalled(dataDir)) {
+    if (opts.id !== undefined && p.id !== opts.id) continue;
+    const record = await readInstallRecord(dataDir, p.id);
+    if (!record) continue;
+    try {
+      const latest = await resolvePackageVersion(record.name, undefined, opts.registryUrl ?? DEFAULT_REGISTRY_URL);
+      out.push({
+        id: p.id,
+        name: record.name,
+        from: record.version,
+        to: semverLt(record.version, latest.version) ? latest.version : null,
+      });
+    } catch (err) {
+      // "could not ask" is reported, never guessed at — but it is not an update.
+      pluginLog().warn(`update check for '${record.name}' failed: ${describe(err)}`);
+    }
+  }
+  return out;
 }
 
 /**

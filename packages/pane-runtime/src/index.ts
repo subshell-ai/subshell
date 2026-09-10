@@ -30,14 +30,19 @@ export {
 } from "./plugin-runtime.js";
 export {
   type InstalledPlugin,
+  type InstallRecord,
   installEmbedded,
+  installPlugin,
   listInstalled,
   type PluginLog,
+  type PluginUpdate,
   pluginsDir,
   type RecoveredInstalls,
+  readInstallRecord,
   recoverInterruptedInstalls,
   refreshStaleBuiltIns,
   resetPluginLogForTests,
+  resolvePluginUpdates,
   setPluginLog,
   uninstallPlugin,
 } from "./plugins-dir.js";
