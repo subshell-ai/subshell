@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
-import { DEFAULT_TRUSTED_ORIGINS, NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { DEFAULT_TRUSTED_ORIGINS, NODE_ARTIFACTS_DIR, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, serviceArtifactPath } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
@@ -100,6 +100,15 @@ export interface StatusView {
   mcp: { command: string; args: string[]; source: string } | null;
   /** Why the MCP entrypoint did not resolve; `null` when it did. */
   mcpError: string | null;
+  /**
+   * The npm registry a `spec` install fetches from (phase 3), trailing slash
+   * already stripped. The URL is ALSO the integrity authority: the digest a
+   * tarball must match is the one THIS registry announced, so changing the
+   * registry is changing who an install trusts. Printed beside `mcp
+   * entrypoint` for the tmux reason: a deploy-time fact better named before
+   * a fetch fails than after.
+   */
+  pluginRegistry: string;
   /**
    * `port` is the parsed number, `null` when `portRaw` is not a valid port —
    * so a consumer never has to re-parse, and a malformed value stays visible.
@@ -215,6 +224,7 @@ export function collectStatus(deps: StatusDeps): StatusView {
       ? { command: mcpProbe.spec.command, args: [...mcpProbe.spec.args], source: mcpProbe.source }
       : null,
     mcpError: mcpProbe.spec ? null : mcpProbe.error,
+    pluginRegistry: SUBSHELL_PLUGIN_REGISTRY_URL,
     listen: { host: dialHost, port: portValid ? portNum : null, portRaw, portValid, listening },
     service: { definitionPath: svc, installed: svc !== null && existsSync(svc) },
     nodeArtifacts: {
@@ -256,6 +266,7 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
       ? `mcp entrypoint       = ${[v.mcp.command, ...v.mcp.args].join(" ")}  (via ${v.mcp.source})`
       : `mcp entrypoint       = UNRESOLVED; subshell create will fail; ${v.mcpError}`,
   );
+  log(`plugin registry      = ${v.pluginRegistry}`);
   const { published, total, dir } = v.nodeArtifacts;
   log(
     `node artifacts       = ${published}/${total} published (${dir})` +

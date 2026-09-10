@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
+import { SUBSHELL_PLUGIN_REGISTRY_URL } from "../constants.js";
 
 /**
  * Save/restore guard for env-mutating tests (client `config.test.ts` idiom)
@@ -211,6 +212,23 @@ describe("dispatchCli — status", () => {
     expect(text).toContain("mcp entrypoint");
     expect(text).toContain("/srv/bin/subshell-server mcp");
     expect(text).toContain("(via self)");
+  });
+
+  // Phase 3 opened a network door on the plugin install path, so "which
+  // registry would a spec install fetch from" joins tmux and the MCP rung as
+  // a deploy-time fact an operator must not discover by failure. The value is
+  // asserted against the SAME constant the boot resolves (the
+  // DEFAULT_TRUSTED_ORIGINS precedent), never a second copy of the default.
+  test("status prints the plugin registry beside the mcp entrypoint", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir }, async () => {
+      expect(await dispatchCli(["status"], deps)).toBe(true);
+    });
+    const text = out.join("\n");
+    // The one column every fact line shares: 21 characters before " = ".
+    expect(text).toMatch(/^plugin registry {6}= \S/m);
+    expect(text).toContain(`plugin registry      = ${SUBSHELL_PLUGIN_REGISTRY_URL}`);
   });
 
   test("status screams when no mcp entrypoint resolves — create would 500", async () => {
@@ -422,6 +440,9 @@ describe("dispatchCli — status --json", () => {
     const v = JSON.parse(out[0] as string);
     expect(v.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(v.configEnv).toMatchObject({ path: join(dir, "config.env"), exists: true });
+    // A machine consumer (the desktop console) reads the registry the same
+    // way the text view prints it.
+    expect(v.pluginRegistry).toBe(SUBSHELL_PLUGIN_REGISTRY_URL);
     expect(v.settings.SERVER_PORT).toEqual({ value: "4321", source: "config.env" });
     // A machine consumer gets a NUMBER; the raw text stays available so a
     // malformed value can still be quoted back at the operator.

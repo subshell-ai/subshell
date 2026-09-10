@@ -28,10 +28,18 @@ import { installNodePlugin, uninstallNodePlugin } from "@/services/nodes/plugin-
  * reconcile: a queue would mean the UI could show a plugin the node is not
  * running. This is deliberately unlike `allowed-dirs`, where the control plane
  * owns a security control and a node running stale rules must be corrected.
+ *
+ * **The setup route deliberately keeps NO spec passthrough (spec §13): it answers with no credential at all on a fresh instance, so it stays held to embedded built-in ids. This route is cookie-admin/owner-gated, which is what makes forwarding a package name safe.**
  */
 
 const PluginBodySchema = t.Object({
   pluginId: t.String({ description: "Plugin id to install, e.g. 'claude-code'" }),
+  spec: t.Optional(
+    t.String({
+      description:
+        "npm package spec to fetch on the node (name, @scope/name, optionally @version/@dist-tag); absent installs this build's embedded copy",
+    }),
+  ),
 });
 
 const PARAMS = t.Object({
@@ -62,16 +70,21 @@ export const setNodePluginRoute = new Elysia()
       }
       if (!nodeCanManageFor(gate.row.kind, gate.access, gate.isAdmin)) throw new ForbiddenError();
 
-      await installNodePlugin(gate.row, body.pluginId);
+      await installNodePlugin(gate.row, body.pluginId, body.spec);
       // After the node accepted it, never before: an audit line for a change
       // an offline node refused would be a record of something that did not
-      // happen.
+      // happen. The `spec` rides the metadata when present: which PACKAGE the
+      // bytes came from is the fact an operator audits, not just which id.
       await audit({
         actorUserId: user.id,
         action: "node.plugin.install",
         targetType: "node",
         targetId: gate.row.id,
-        metadataJson: JSON.stringify({ pluginId: body.pluginId, node: gate.row.name }),
+        metadataJson: JSON.stringify({
+          pluginId: body.pluginId,
+          node: gate.row.name,
+          ...(body.spec !== undefined ? { spec: body.spec } : {}),
+        }),
       });
       const fresh = await loadNodeGate(user.id, params.id);
       return await toNodeView(fresh?.row ?? gate.row, gate.access, gate.isAdmin);
@@ -84,7 +97,7 @@ export const setNodePluginRoute = new Elysia()
         operationId: "installNodePlugin",
         tags: ["nodes"],
         description:
-          "Installs a plugin on one node (owner-only, cookie session). The node performs the install and reports its whole set back; an offline node is refused rather than queued",
+          "Installs a plugin on one node (owner-only, cookie session). The node performs the install and reports its whole set back; an offline node is refused rather than queued. A `spec` fetches that npm package instead of the build's embedded copy",
       },
     },
   )

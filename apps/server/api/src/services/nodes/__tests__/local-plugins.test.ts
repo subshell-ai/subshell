@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { listInstalled } from "@internal/pane-runtime";
+import { hashPassword } from "better-auth/crypto";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import {
   installLocalPlugin,
@@ -13,7 +16,8 @@ import {
   uninstallLocalPlugin,
 } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { setupAuthTables } from "../../../api/__tests__/helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "../../../api/__tests__/helpers/auth-tables.js";
+import { type FakeRegistry, makePluginTgz, startFakeRegistry } from "./helpers/fake-npm-registry.js";
 
 /**
  * The control-plane host's own plugins directory (spec 2026-09-09 §11).
@@ -100,5 +104,75 @@ describe("the control-plane host's plugins", () => {
     await uninstallLocalPlugin("codex");
 
     expect(await uninstallLocalPlugin("codex")).toBe(false);
+  });
+
+  /**
+   * Registry installs on the control-plane host (phase 3). The registry is
+   * the in-test fake; the last argument of `installLocalPlugin` is the seam
+   * that points at it, and production never passes one (the configured
+   * `SUBSHELL_PLUGIN_REGISTRY_URL` is the default). What is asserted here is
+   * that the SAME door that writes built-ins now fetches, verifies, and
+   * mirrors third-party bytes, and that a refused fetch writes nothing.
+   */
+  describe("installing from the registry", () => {
+    const reg: FakeRegistry = startFakeRegistry();
+    const email = `lp-reg-${crypto.randomUUID()}@subshell.local`;
+    let userId: string;
+
+    beforeAll(async () => {
+      reg.served.set("third-party", {
+        latest: "1.0.0",
+        versions: { "1.0.0": makePluginTgz({ name: "third-party", version: "1.0.0", id: "third" }) },
+      });
+      reg.served.set("tampered", {
+        latest: "1.0.0",
+        tamper: true,
+        versions: { "1.0.0": makePluginTgz({ name: "tampered", version: "1.0.0", id: "tampered" }) },
+      });
+      // Profile seeding targets every real user, so the suite needs one to
+      // be observable (a pristine moment in the shared DB would seed nobody).
+      userId = await new UsersRepository(db).createUser({
+        email,
+        passwordHash: await hashPassword("lp-reg-1"),
+        role: "user",
+      });
+    });
+
+    afterAll(async () => {
+      reg.stop();
+      // The seeded Defaults carry `isDefault = 1`; that flag is enforced by
+      // the DELETE route, so the sweep goes straight at the table.
+      await db.deleteFrom("profiles").where("harnessId", "in", ["third", "tampered"]).execute();
+      await deleteUserByEmailOrId(email);
+    });
+
+    it("installs a spec, mirrors it into the node row, and seeds profiles", async () => {
+      await ensureLocalNode(db);
+      await prepareLocalPlugins();
+
+      await installLocalPlugin("third", "third-party@1.0.0", reg.base);
+
+      expect((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id)).toContain("third");
+      expect((await localPluginReports()).map((r) => r.id)).toContain("third");
+      const mirrored = JSON.parse(
+        String((await new NodesRepository(db).findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]"),
+      ) as {
+        id: string;
+      }[];
+      expect(mirrored.map((p) => p.id)).toContain("third");
+      const seeded = await db.selectFrom("profiles").select("userId").where("harnessId", "=", "third").execute();
+      expect(seeded.map((r) => r.userId)).toContain(userId);
+    });
+
+    it("a spec that fails integrity throws, and the node row is unchanged", async () => {
+      await ensureLocalNode(db);
+      await prepareLocalPlugins();
+      const before = String((await new NodesRepository(db).findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]");
+
+      await expect(installLocalPlugin("tampered", "tampered@1.0.0", reg.base)).rejects.toThrow(/integrity/i);
+
+      expect(String((await new NodesRepository(db).findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]")).toBe(before);
+      expect(existsSync(join(localPluginsDir(), "tampered"))).toBe(false);
+    });
   });
 });

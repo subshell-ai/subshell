@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "@dotenvx/dotenvx";
+import { DEFAULT_REGISTRY_URL } from "@internal/pane-runtime";
 import {
   DEFAULT_DATABASE_PATH,
   defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
@@ -163,6 +164,24 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
   : resolve(
       env.get("SUBSHELL_NODE_ARTIFACTS_DIR").default(join(SUBSHELL_SERVER_DATA_DIR, "node-artifacts")).asString(),
     );
+
+/**
+ * The npm registry `local` fetches plugin installs from (phase 3). The URL
+ * doubles as the integrity authority — see the security doc's registry
+ * paragraph. The agent-side counterpart lives in its own config.json
+ * (`registryUrl`), same default, two homes because two processes.
+ *
+ * The default is the pane-runtime constant rather than a second copy of the
+ * string, because "same default" across the two hosts is a claim this makes
+ * true by construction. Trailing slashes are stripped: the registry client
+ * concatenates `<base>/<name>`, and a configured `https://mirror/` would
+ * otherwise double the separator on every request.
+ */
+export const SUBSHELL_PLUGIN_REGISTRY_URL = env
+  .get("SUBSHELL_PLUGIN_REGISTRY_URL")
+  .default(DEFAULT_REGISTRY_URL)
+  .asString()
+  .replace(/\/+$/, "");
 
 /**
  * The database file's directory, or `./data` when the path is not file-backed

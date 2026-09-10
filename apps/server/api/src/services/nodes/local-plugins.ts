@@ -1,13 +1,13 @@
 import {
   buildPluginReports,
-  installEmbedded,
+  installPlugin,
   pluginsDir,
   prepareInstalledPlugins,
   setPluginLog,
   uninstallPlugin,
 } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
-import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
@@ -59,9 +59,23 @@ export async function recordLocalReport(): Promise<void> {
  * and then have nothing to pick. Best-effort, exactly as it was there — the
  * install has already happened, and an optional insert failing must not turn
  * it into an error.
+ *
+ * Phase 3 opened this same door to the registry: with a `spec` the bytes come
+ * from an npm registry, verified against the digest THAT registry announced,
+ * and every §2.5 rule (embedded-first, no silent fallback, load-check before
+ * swap) lives inside `installPlugin`. Without a spec it is the embedded copy,
+ * byte-identically to the `installEmbedded` call this replaced. Throws the
+ * package's own errors; the caller decides what status a refusal means.
+ * @param registryUrl - a test seam only; production resolves the configured
+ * `SUBSHELL_PLUGIN_REGISTRY_URL` (the agent's own registry lives in its
+ * config.json, which this process must not read)
  */
-export async function installLocalPlugin(pluginId: string): Promise<void> {
-  await installEmbedded(SUBSHELL_SERVER_DATA_DIR, pluginId);
+export async function installLocalPlugin(
+  pluginId: string,
+  spec?: string,
+  registryUrl: string = SUBSHELL_PLUGIN_REGISTRY_URL,
+): Promise<void> {
+  await installPlugin(SUBSHELL_SERVER_DATA_DIR, { id: pluginId, spec, registryUrl });
   await recordLocalReport();
   await ensureDefaultProfilesForHarness(db, pluginId).catch((err: unknown) => {
     getLogger().withError(err).warn(`default-profile seeding failed after installing "${pluginId}"`);

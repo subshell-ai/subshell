@@ -1,6 +1,7 @@
-import { builtInIds } from "@internal/pane-runtime";
+import { builtInIds, parsePackageSpec } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { HarnessStateError } from "@/api/harness-utils.js";
+import { SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
@@ -26,6 +27,11 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
  * asking itself) and nothing to be offline: the command is a function call.
  * Everything else is shared, which is the point of it not being an exception
  * any more (spec 2026-09-09 §11).
+ *
+ * **Phase 3 added the `spec` parameter to install, and it means one thing on
+ * both transports: fetch that package instead of the embedded copy.** The
+ * server neither resolves nor rewrites it — the same string reaches the
+ * node's parser or this host's `installPlugin`.
  */
 
 /**
@@ -77,22 +83,72 @@ function isLocal(node: NodeTable): boolean {
   return node.id === LOCAL_NODE_ID || node.kind === "local";
 }
 
+/** The message for a thrown value, which is not always an Error. */
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Installs a plugin on one node.
- * @throws when the node is offline, or when it refuses the install
+ *
+ * **A present `spec` is validated before either door opens** (phase 3): a
+ * malformed npm spec is bad input — a 400 naming it, the same shape as the
+ * spec-less bad-id refusal — and it must never spend a signed command or
+ * reach a fetch. This validates SHAPE only; whether the package exists,
+ * matches its announced digest, or loads is the registry's or the node's
+ * answer, and refusals come back through the 409 paths below.
+ *
+ * When a spec is absent the command is the v1 shape: `{ type, id }` with no
+ * `spec` key at all. The agent parses exactly what it is given, so this layer
+ * forwards the string verbatim — normalizing or re-spelling a spec here would
+ * put a second parser between what a human typed and what a node installs.
+ * @param registryUrl - a test seam (see `installLocalPlugin`); production
+ * resolves the configured `SUBSHELL_PLUGIN_REGISTRY_URL`
+ * @throws 400 for a malformed spec, or a spec-less id this build cannot
+ * install on the control-plane host; 409 when an agent is offline or refuses,
+ * or when the local install itself fails (the target declined the change,
+ * whichever target it was)
  */
-export async function installNodePlugin(node: NodeTable, pluginId: string): Promise<void> {
-  if (isLocal(node)) {
-    // Checked here rather than left to `installEmbedded`, which throws a bare
-    // Error the global handler maps to 500. An id this build cannot install is
-    // bad input, and the setup route answers the same way for the same value.
-    if (!(await builtInIds()).includes(pluginId)) {
-      throw new HarnessStateError(`"${pluginId}" is not a plugin this build carries`, 400);
+export async function installNodePlugin(
+  node: NodeTable,
+  pluginId: string,
+  spec?: string,
+  registryUrl: string = SUBSHELL_PLUGIN_REGISTRY_URL,
+): Promise<void> {
+  if (spec !== undefined) {
+    try {
+      parsePackageSpec(spec);
+    } catch (err) {
+      throw new HarnessStateError(describe(err), 400);
     }
-    await installLocalPlugin(pluginId);
+  }
+  if (isLocal(node)) {
+    if (spec === undefined) {
+      // Checked here rather than left to `installPlugin`, which throws a bare
+      // Error the global handler maps to 500. An id this build cannot install
+      // is bad input, and the setup route answers the same way for the same
+      // value. With a spec there is no such pre-check: the spec IS the
+      // request, and the registry's answer decides.
+      if (!(await builtInIds()).includes(pluginId)) {
+        throw new HarnessStateError(`"${pluginId}" is not a plugin this build carries`, 400);
+      }
+    }
+    try {
+      await installLocalPlugin(pluginId, spec, registryUrl);
+    } catch (err) {
+      if (err instanceof HarnessStateError) throw err;
+      // Integrity, a claim collision, a failed load-check: the pane-runtime
+      // message says which. An AGENT refusal of the same install reaches the
+      // caller as 409 through `send`, and this is the same event one process
+      // closer, so it must not reach it as a 500 dressed as a server fault.
+      throw new HarnessStateError(describe(err), 409);
+    }
     return;
   }
-  const result = await send(node, { type: "plugin_install", id: pluginId });
+  const result = await send(
+    node,
+    spec === undefined ? { type: "plugin_install", id: pluginId } : { type: "plugin_install", id: pluginId, spec },
+  );
   await mirror(node.id, result);
 }
 

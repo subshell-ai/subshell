@@ -466,6 +466,67 @@ describe("/api/nodes harness state + recheck", () => {
     expect(await pluginAuditFor(id)).toEqual([]);
   });
 
+  it("a spec rides the install command VERBATIM and lands in the audit metadata", async () => {
+    // The signed command is what the node parses, so this layer forwards,
+    // never rewrites: the captured object must equal what the body said.
+    const id = await mkAgent();
+    const spec = "@subshell-ai/plugin-example@1.0.0";
+    const sock = fakeSocket();
+    attachConnection(id, sock);
+    let res: Response;
+    try {
+      const resP = req("POST", `/api/nodes/${id}/plugins`, {
+        cookie: aliceCookie,
+        body: { pluginId: "example", spec },
+      });
+      await waitFor(() => sock.sent.length > 0, "plugin_install on the wire");
+      const frame = JSON.parse(sock.sent[0]) as { jws: string };
+      const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
+        jti: string;
+        cmd: Record<string, unknown>;
+      };
+      expect(claims.cmd).toEqual({ type: "plugin_install", id: "example", spec });
+      expect(resolveResult(liveConn(id), { type: "result", ref: claims.jti, ok: true, data: { plugins: [] } })).toBe(
+        true,
+      );
+      res = await resP;
+    } finally {
+      resetNodeRegistryForTests();
+    }
+    expect(res.status).toBe(200);
+
+    const events = await new AuditRepository(db).listLatest(200);
+    const install = events.find((e) => e.targetId === id && e.action === "node.plugin.install");
+    expect(JSON.parse(String(install?.metadataJson ?? "{}"))).toMatchObject({ pluginId: "example", spec });
+  });
+
+  it("a malformed spec is a 400 naming it, before any node or this host sees it", async () => {
+    // The control-plane host needs no socket, so this also proves the 400
+    // sits in front of BOTH doors rather than being a transport artifact.
+    const local = await req("POST", "/api/nodes/local/plugins", {
+      cookie: adminCookie,
+      body: { pluginId: "codex", spec: "bad@^1" },
+    });
+    expect(local.status).toBe(400);
+    expect(((await local.json()) as { message: string }).message).toContain("^1");
+
+    // And a live agent spends no signed command on a spec this layer rejects.
+    const id = await mkAgent();
+    const sock = fakeSocket();
+    attachConnection(id, sock);
+    try {
+      const res = await req("POST", `/api/nodes/${id}/plugins`, {
+        cookie: aliceCookie,
+        body: { pluginId: "example", spec: "bad@^1" },
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { message: string }).message).toContain("^1");
+      expect(sock.sent).toEqual([]);
+    } finally {
+      resetNodeRegistryForTests();
+    }
+  });
+
   it("plugin management is OWNER-only, not merely configure-capable", async () => {
     // Any node share, even `view`, already lets a grantee launch there. An
     // `edit` grantee who could install a plugin would face no restriction at
