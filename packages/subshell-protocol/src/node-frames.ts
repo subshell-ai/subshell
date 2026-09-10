@@ -28,8 +28,15 @@ import type { JsonValue } from "./json.js";
  * sides. SERVER FIRST: an agent that leads the server is refused and its node
  * goes offline, while an agent that lags is refused just as clearly — the
  * Nodes page names it either way.
+ *
+ * **The numbering restarted at 1 on 2026-09-09.** The protocol had reached 6
+ * under a numbering that predated any deployment; since no instance was ever
+ * run on those versions (and their GitHub releases are removed), the history
+ * was reset rather than carried: every frame in this file is v1-era, the
+ * first real bump is 1 → 2, and nothing here should annotate frames with the
+ * retired numbers.
  */
-export const NODE_PROTOCOL_VERSION = 6;
+export const NODE_PROTOCOL_VERSION = 1;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -163,7 +170,7 @@ export type NodeCommandBody =
       /** Pane snapshot; optional `lines` prepends that many reflowed history rows (attach replay). */
       type: "capture";
       subshellId: string;
-      /** Optional scrollback budget for the capture. Absent from (and stripped by) pre-replay agents. */
+      /** Optional scrollback budget for the capture; absent means the visible grid only. */
       lines?: number;
     }
   | {
@@ -180,8 +187,7 @@ export type NodeCommandBody =
   | { type: "stat_dir"; path: string }
   | {
       /**
-       * One-level directory listing for the folder picker (protocol v3,
-       * additive). Empty `path` = the AGENT's home directory (the control
+       * One-level directory listing for the folder picker. Empty `path` = the AGENT's home directory (the control
        * plane cannot expand `~` against a filesystem it cannot see);
        * anything else is absolute by contract and enforced agent-side. The
        * answer is the `NodeFsLsResult` shape (`node-results.ts`) — directories
@@ -205,7 +211,7 @@ export type NodeCommandBody =
     }
   | {
       /**
-       * Replace the node's directory allowlist (protocol v5).
+       * Replace the node's directory allowlist.
        *
        * The node PERSISTS this and checks every launch against its own copy.
        * That is the whole point: command signing proves WHO sent a launch,
@@ -223,7 +229,7 @@ export type NodeCommandBody =
     }
   | {
       /**
-       * Install a plugin on this node (protocol v6).
+       * Install a plugin on this node.
        *
        * Phase 2 installs from the copies the agent's own build carries, so
        * this needs no network; phase 3 adds a registry behind the same frame.
@@ -237,7 +243,7 @@ export type NodeCommandBody =
     }
   | {
       /**
-       * Remove a plugin from this node (protocol v6).
+       * Remove a plugin from this node.
        *
        * Removing something already absent SUCCEEDS: the caller asked for a
        * state and that state holds, so a retry after a dropped connection
@@ -375,13 +381,14 @@ export type NodeEvent =
       }[];
       /**
        * The plugins this node has INSTALLED, which is its declaration of what
-       * it offers (protocol v6).
+       * it offers.
        *
        * The control plane holds no plugin code for a machine it does not run
        * on, so everything it needs to render and validate a plugin travels
-       * here as data. Absent from a pre-v6 agent, which the exact-match
-       * protocol gate refuses anyway; optional only so the type describes the
-       * wire rather than asserting a version.
+       * here as data. Optional so the type describes the wire rather than
+       * asserting a fact about the sender: a nullish read means a node that
+       * has never connected, never a node too old to report, because the
+       * exact-match gate admits nothing older than this file.
        */
       plugins?: PluginReportWire[];
       ts: string;
@@ -478,9 +485,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     }
     case "capture": {
       if (!isStr(value.subshellId)) return null;
-      // Additive optional field (protocol v1 unchanged): a positive int or
-      // absent. An agent predating the field strips this key here and answers
-      // with the visible grid only — the old replay, no refusal.
+      // Optional positive int or absent; an agent that is given none answers
+      // with the visible grid only.
       if ("lines" in value) {
         if (!isInt(value.lines) || (value.lines as number) <= 0) return null;
         return { type: "capture", subshellId: value.subshellId, lines: value.lines as number };

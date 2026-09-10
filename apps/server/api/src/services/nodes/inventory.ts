@@ -124,8 +124,9 @@ export interface NodePluginSet {
  * Pure, like {@link readAgentInventory}, so the view and the launch gate share
  * one parser and one idea of what a junk payload means.
  *
- * `neverReported` is the distinction that matters: a node running an agent
- * older than protocol v6 reports nothing at all, and rendering that as "this
+ * `neverReported` is the distinction that matters: a node that has never
+ * connected reports nothing at all (the exact-match gate admits no older
+ * agent, so this is only ever "not yet dialed"), and rendering that as "this
  * node offers no plugins" would be a confident lie about a machine that simply
  * has not been asked.
  */

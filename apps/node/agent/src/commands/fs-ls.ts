@@ -5,7 +5,7 @@ import { FS_LS_MAX_ENTRIES, type JsonValue, type NodeFsLsResult } from "@interna
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
- * `fs_ls` (node protocol v3, additive): one directory level for the control
+ * `fs_ls`: one directory level for the control
  * plane's folder picker (`GET /api/files/explore?node=<id>`), answered so the
  * server can pass the payload through nearly unchanged. The semantics are the
  * LOCAL route's, mirrored deliberately:

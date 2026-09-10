@@ -10,7 +10,8 @@ import type { Kysely } from "kysely";
  * guessing at the other's shape.
  *
  * Nullable, and null is meaningful: it is "this node has never reported", not
- * "this node offers nothing". Only a node running protocol v6 reports at all.
+ * "this node offers nothing". Every agent the (restarted) protocol admits
+ * reports; null survives only for a node enrolled but never connected.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema.alterTable("nodes").addColumn("plugins_json", "text").execute();

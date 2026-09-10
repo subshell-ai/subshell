@@ -30,7 +30,7 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`,
  * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`,
  * `set_allowed_dirs`
- * (Task 6), and `fs_ls` (node protocol v3, remote folder picker). Any
+ * (Task 6), and `fs_ls` (remote folder picker). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *

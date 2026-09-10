@@ -9,7 +9,7 @@ import type { AgentConfig } from "../config.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
- * `fs_ls` (node protocol v3) under the dispatcher — the remote folder picker's
+ * `fs_ls` under the dispatcher — the remote folder picker's
  * agent side. Every success answer is additionally run through the shared
  * `parseNodeFsLsResult` contract so the agent can never drift from what the
  * control plane's pass-through expects. The semantics under test are the
@@ -72,7 +72,7 @@ async function lsOk(path: string) {
   return parsed;
 }
 
-describe("fs_ls (remote folder picker, node protocol v3)", () => {
+describe("fs_ls (remote folder picker)", () => {
   it("lists ONE level of directories only: dotfiles hidden, files excluded, symlinked dirs followed", async () => {
     const r = await lsOk(root);
     expect(r.path).toBe(root);

@@ -51,10 +51,8 @@ describe("files explore ?node (remote folder picker)", () => {
   const tempDirs: string[] = [];
   let nodes: NodesRepository;
 
-  /** The v3 agent's node — attach a scripted connection when a command must answer. */
+  /** The browse agent's node — attach a scripted connection when a command must answer. */
   let nodeV3: string;
-  /** A node whose row reports the pre-fs_ls protocol — the feature gate's subject. */
-  let nodeV2: string;
   /** A row that exists but the viewer cannot see. */
   let nodeInvisible: string;
 
@@ -73,20 +71,9 @@ describe("files explore ?node (remote folder picker)", () => {
     await nodes.create({
       id: nodeV3,
       ownerUserId: userId,
-      name: `v3-${nodeV3}`,
+      name: `browse-${nodeV3}`,
       kind: "agent",
       status: "offline",
-      protocolVersion: 3,
-    });
-    nodeV2 = crypto.randomUUID();
-    createdNodeIds.push(nodeV2);
-    await nodes.create({
-      id: nodeV2,
-      ownerUserId: userId,
-      name: `v2-${nodeV2}`,
-      kind: "agent",
-      status: "offline",
-      protocolVersion: 2,
     });
     nodeInvisible = crypto.randomUUID();
     createdNodeIds.push(nodeInvisible);
@@ -96,7 +83,6 @@ describe("files explore ?node (remote folder picker)", () => {
       name: `ghost-${nodeInvisible}`,
       kind: "agent",
       status: "offline",
-      protocolVersion: 3,
     });
   });
 
@@ -128,7 +114,7 @@ describe("files explore ?node (remote folder picker)", () => {
     return app.fetch(new Request(url.toString(), { headers }));
   }
 
-  /** Attaches a scripted v3 agent answering fs_ls with `listing` (an Error = refusal). */
+  /** Attaches a scripted agent answering fs_ls with `listing` (an Error = refusal). */
   function agent(listing?: unknown): ScriptedNode {
     return attachScriptedNode(nodeV3, { fs_ls: () => (listing === undefined ? LISTING : listing) });
   }
@@ -227,7 +213,7 @@ describe("files explore ?node (remote folder picker)", () => {
     expect(((await res.json()) as { code: string }).code).toBe("NOT_FOUND_ERROR");
   });
 
-  it("v3 node with no live connection -> 409 NODE_OFFLINE", async () => {
+  it("browse node with no live connection -> 409 NODE_OFFLINE", async () => {
     const res = await explore({ node: nodeV3, path: "/tmp" });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");

@@ -154,7 +154,7 @@ running for a viewer that was never admitted.
 
 **The `geometry` frame carries a CONFIRMED grid on both paths.** `paneSize()`
 is the single question — `LocalLauncher` reads tmux directly, `RemoteLauncher`
-asks the node with the `pane_size` command (protocol v4) — and it answers a
+asks the node with the `pane_size` command — and it answers a
 real grid or `null`, never a guess. `resize` is a request, not a guarantee: a
 client that believes it holds a size the pane never took paints every later
 frame onto the wrong rows.
@@ -169,8 +169,8 @@ out, which is the exact corruption this whole subsystem exists to prevent.
 pane being gone; a wedged-but-connected node reaches the same answer, which is
 why `RemoteLauncher.paneSize` logs the failure at debug rather than swallowing
 it — otherwise geometry announcements for that pane would stop with nothing in
-the journal. (Before v4 there was no size command and a node pane announced the
-size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
+the journal. (An earlier revision had no size command and a node pane announced
+the size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
 
 **An agent is refused by TWO gates, in this order** (`node-ws-handler.ts`,
 both closing 4406 with a reason the agent RELAYS to its own log):

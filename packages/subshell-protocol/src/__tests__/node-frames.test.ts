@@ -52,7 +52,7 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "tail_start", subshellId: "s", subId: "t", fromByte: -1 })).toBeNull();
     expect(parseNodeCommandBody({ type: "stat_dir", path: "/x" })).not.toBeNull();
     expect(parseNodeCommandBody({ type: "stat_dir" })).toBeNull();
-    // fs_ls (v3, additive): the path gate is stat_dir's — a string, emptiness
+    // fs_ls: the path gate is stat_dir's — a string, emptiness
     // legal (agent-home); absoluteness is enforced agent-side, not on the wire.
     expect(parseNodeCommandBody({ type: "fs_ls", path: "/x" })).toEqual({ type: "fs_ls", path: "/x" });
     expect(parseNodeCommandBody({ type: "fs_ls", path: "" })).toEqual({ type: "fs_ls", path: "" });
@@ -114,12 +114,14 @@ describe("parseNodeCommandBody", () => {
   it("pins the protocol version", () => {
     // Matched EXACTLY: there is no compat window and no per-feature gating,
     // because the server and the agent ship together. Bump this whenever a
-    // frame changes and release both sides.
-    expect(NODE_PROTOCOL_VERSION).toBe(6);
+    // frame changes and release both sides. (1 is the post-restart baseline:
+    // the numbering restarted on 2026-09-09 with no deployed instances, so
+    // the first REAL bump will be 1 → 2.)
+    expect(NODE_PROTOCOL_VERSION).toBe(1);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
-    // v5's addition. The parser checks SHAPE only — normalization is the
+    // The parser checks SHAPE only — normalization is the
     // executor's job, so one malformed entry inside a well-formed array must
     // not reject the whole push and leave the node on stale rules.
     expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: ["/a", "/b"] })).toEqual({
@@ -197,7 +199,7 @@ describe("parseNodeEvent", () => {
   });
 });
 
-describe("v6 plugin commands", () => {
+describe("plugin commands", () => {
   it("accepts plugin_install and plugin_uninstall with an id", () => {
     expect(parseNodeCommandBody({ type: "plugin_install", id: "claude-code" })).toEqual({
       type: "plugin_install",

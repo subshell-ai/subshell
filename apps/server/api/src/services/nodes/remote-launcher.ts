@@ -303,7 +303,7 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * The pane's REAL grid, from the agent (protocol v4 `pane_size`).
+   * The pane's REAL grid, from the agent's `pane_size` command.
    *
    * Null means the pane is gone — never an echo of the requested size, which
    * would be indistinguishable from a real readback and would defeat the

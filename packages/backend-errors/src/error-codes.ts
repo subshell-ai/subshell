@@ -21,11 +21,11 @@ export enum BackendErrorCodes {
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
   /**
-   * The node's agent speaks a node protocol older than the feature being
-   * asked for (currently: folder browsing needs `fs_ls`, protocol v3). The
-   * agent still CONNECTS (the protocol floor is lower) — only this feature
-   * is refused, with a message that names the remedy: update the subshell
-   * app on that node.
+   * The node's own agent answered `unsupported` to a command it does not
+   * implement (today: `fs_ls`, the remote folder picker). The exact-match
+   * gate means a connected agent normally speaks this protocol; the relay
+   * stays for the honest case — the agent's answer beats our inference —
+   * and the message names the remedy: update the subshell app on that node.
    */
   NODE_OUTDATED = "NODE_OUTDATED",
   NODE_REQUIRED = "NODE_REQUIRED",

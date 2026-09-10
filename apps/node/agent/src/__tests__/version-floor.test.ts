@@ -13,8 +13,8 @@ import { AGENT_VERSION } from "../version.js";
  * built from the same commit, with no agent in existence that satisfies its
  * own server until the version PR lands.
  *
- * Caught in review on 2026-09-05, when the protocol v5 bump raised the floor
- * to 0.4.0 and left this package at 0.3.1.
+ * Caught in review on 2026-09-05, when the directory-allowlist protocol bump
+ * raised the floor to 0.4.0 and left this package at 0.3.1.
  */
 describe("agent version floor", () => {
   it("this agent satisfies the control plane's minimum", () => {

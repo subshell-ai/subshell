@@ -253,9 +253,9 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // `fromByte` is the pre-resize sample either way — but subscribing first
     // is what lets several viewers share ONE pump, which `NodeLauncher`'s
     // contract requires.
-    // `pane_size` closes the list: the attach reads the pane back (protocol
-    // v4) so the geometry it announces is CONFIRMED rather than the size it
-    // asked for. On a pre-v4 node the command is never sent at all.
+    // `pane_size` closes the list: the attach reads the pane back so the
+    // geometry it announces is CONFIRMED rather than the size it asked for —
+    // an echo of the requested size is indistinguishable from a real readback.
     expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_size"]);
     expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
     // The capture carries the default replay line cap; the tail starts at the
@@ -591,8 +591,8 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
     cleanupSubshellWs(laptop.ws);
   });
 
-  it("announces the CONFIRMED grid on a v4 node, not the size it asked for", async () => {
-    // The whole point of the protocol bump, and the attach is where it
+  it("announces the CONFIRMED grid, not the size it asked for", async () => {
+    // The whole point of the readback, and the attach is where it
     // matters most: this is the first geometry a client receives and the one
     // its replay is painted against. Before, only later resizes (which go
     // through the queue) got the confirmation.

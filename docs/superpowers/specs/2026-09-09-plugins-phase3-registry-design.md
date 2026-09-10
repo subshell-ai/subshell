@@ -17,7 +17,7 @@ is load-bearing and unchanged.
 
 In: the registry client, the install/update/repair it enables, the agent CLI
 verbs that drive it (`subshell plugin list|install|uninstall|update`), protocol
-v7, the control-plane passthrough, the npm publishing workflow, docs.
+the protocol bump (1 → 2), the control-plane passthrough, the npm publishing workflow, docs.
 
 Out (each named so nobody drifts into it): web UI for third-party names (phase
 4), plugin settings schemas (phase 5), anything like dependency installation
@@ -29,10 +29,11 @@ name allowlist (decided against, §2.3).
 
 Four from the brainstorm (2026-09-09), plus the interface decisions they force.
 
-### 2.1 Transport: protocol v7 with an optional `spec`
+### 2.1 Transport: protocol v2 with an optional `spec`
 
 `plugin_install` gains an optional `spec` field, and `NODE_PROTOCOL_VERSION`
-bumps 6 to 7. The exact-match gate makes the bump cheap and honest: server and
+bumps 1 to 2 — the first real bump after the 2026-09-09 numbering restart. The
+exact-match gate makes the bump cheap and honest: server and
 agent ship together, a mismatch is a deployment out of step.
 
 - `spec` is an npm package name, optionally with `@version` or a dist-tag
@@ -43,7 +44,7 @@ agent ship together, a mismatch is a deployment out of step.
 - `plugin_uninstall` is unchanged: it removes a directory, and it never needed
   to know where the bytes came from.
 - `MIN_AGENT_VERSION` is NOT bumped. It is the operator-facing floor, bumped on
-  its own schedule; the protocol gate is what refuses a v6 agent, and the
+  its own schedule; the protocol gate is what refuses a v1 agent, and the
   refusal message already names both numbers.
 
 The control-plane route `POST /api/nodes/:id/plugins` accepts an optional
@@ -235,8 +236,8 @@ phase makes true:
   archive fixtures (absolute path, `..`, symlink entry, oversize, truncated,
   pax long name) verified-red-then-green per house rule (each guard proven by
   reverting it).
-- **protocol**: v7 parse cases (`spec` optional string, wrong types rejected),
-  bump test (v6 now refused).
+- **protocol**: v2 parse cases (`spec` optional string, wrong types rejected),
+  bump test (v1 now refused).
 - **agent**: `execPluginInstall` with spec routes to `installFromRegistry`
   against the fake registry; CLI verbs' output is stable (`--json` too);
   `update` skip/upgrade/unchanged paths; sidecar read/write.
@@ -265,6 +266,6 @@ phase makes true:
   (§2.1 measured facts) means a third-party plugin that violated the inline-
   everything contract fails LOAD, and the load-check inside install turns that
   into install-refused rather than a broken row. Good; keep the check.
-- Protocol v7 touches the census: a new command or field must appear in the
+- Protocol v2 touches the census: a new command or field must appear in the
   agent's endpoint/command coverage test the same commit it appears in the
   parser.

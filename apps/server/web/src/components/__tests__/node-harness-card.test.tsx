@@ -69,7 +69,8 @@ describe("NodeHarnessCard", () => {
   });
 
   it("says nothing was reported rather than showing an empty offer", () => {
-    // A pre-v6 agent reports nothing; that is not the same as offering nothing.
+    // A node that has never reported carries nothing; that is not the same as
+    // offering nothing.
     renderCard(node([]));
     expect(screen.getByText(/hasn't reported any plugins/)).toBeDefined();
   });

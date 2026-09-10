@@ -320,9 +320,9 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       return;
     case "inventory":
       await deps.nodes.applyInventory(nodeId, JSON.stringify(event.harnesses));
-      // The node's DECLARATION rides the same event. Absent from a pre-v6
-      // agent, and absent is left alone rather than written as `[]`: "never
-      // reported" and "offers nothing" are different facts.
+      // The node's DECLARATION rides the same event. An absent field is left
+      // alone rather than written as `[]`: "never reported" and "offers
+      // nothing" are different facts.
       if (event.plugins) await deps.nodes.recordPluginReport(nodeId, event.plugins);
       return;
     case "output":

@@ -21,7 +21,7 @@ function node(over: Partial<Node> = {}): Node {
     status: "online",
     lastSeenAt: null,
     agentVersion: "0.4.0",
-    protocolVersion: 5,
+    protocolVersion: 1,
     access: "owner",
     canManage: true,
     allowedDirs: [],

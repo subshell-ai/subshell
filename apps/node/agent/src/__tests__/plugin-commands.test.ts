@@ -9,7 +9,7 @@ import type { CommandContext } from "../commands/context.js";
 import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
 
 /**
- * The two v6 plugin commands.
+ * The two plugin commands.
  *
  * Both answer with the node's WHOLE set rather than the one plugin, because
  * the control plane mirrors what the node reports: a partial answer would

@@ -97,7 +97,7 @@ The agent's first frame is `ready`:
 {
   "type": "ready",
   "agentVersion": "0.3.1",
-  "protocolVersion": 4,
+  "protocolVersion": 1,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
@@ -113,14 +113,14 @@ on this node — it must point at the running binary.
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
 
-**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.4.0`) is the
+**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.1.0`) is the
 operator-facing statement "this server needs subshell >= X". It runs first
 precisely because it is the gate an operator can *act* on, and the close reason
 names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `6`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `1`, the post-restart baseline, §11) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -215,8 +215,8 @@ instead. See `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
-| `plugin_install` | Install one plugin on the node (v6). The node performs the install from the copies its build carries and answers with its WHOLE set, because the control plane mirrors what the node reports and a partial answer would leave it guessing at the rest. It also pushes a fresh `inventory`, since the probe follows what is installed. An offline node is refused rather than queued: the node owns its set, so there is no desired state to reconcile |
-| `plugin_uninstall` | Remove one plugin (v6). Removing something already absent is a SUCCESS — the caller asked for a state and that state holds, so a retry after a dropped connection does not look like a failure. Answers with the set that remains, plus a fresh `inventory` |
+| `plugin_install` | Install one plugin on the node. The node performs the install from the copies its build carries and answers with its WHOLE set, because the control plane mirrors what the node reports and a partial answer would leave it guessing at the rest. It also pushes a fresh `inventory`, since the probe follows what is installed. An offline node is refused rather than queued: the node owns its set, so there is no desired state to reconcile |
+| `plugin_uninstall` | Remove one plugin. Removing something already absent is a SUCCESS — the caller asked for a state and that state holds, so a retry after a dropped connection does not look like a failure. Answers with the set that remains, plus a fresh `inventory` |
 | `set_allowed_dirs` | Replace the node's persisted directory allowlist (v5). The node stores it at `<dataDir>/allowed-dirs.json` (0600) and checks every `launch`/`stat_dir` against its OWN copy — signing proves who sent a launch, never whether the directory is permitted. An empty array clears the rules (unrestricted). Pushed on every owner edit and again after each `ready`, which is what reconciles a node that was offline for an edit |
 
 **Status**
@@ -239,7 +239,7 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 | Event | |
 |---|---|
 | `ready` | First frame — identity, versions, capabilities, `executablePath` (§3) |
-| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp, and (v6) `plugins` — the node's own report of what it has INSTALLED. The probe follows that installed set, not the plugins this build happens to know, so a third-party plugin is probed and an uninstalled one stops being. Pushed at connect, every 5 min (`INVENTORY_PERIOD_MS`), after any plugin change, and on demand |
+| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp, and `plugins` — the node's own report of what it has INSTALLED. The probe follows that installed set, not the plugins this build happens to know, so a third-party plugin is probed and an uninstalled one stops being. Pushed at connect, every 5 min (`INVENTORY_PERIOD_MS`), after any plugin change, and on demand |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |
 | `output` | Tail bytes: `subId`, `fromByte`, `toByte`, `data_b64` |
@@ -310,8 +310,8 @@ not a guarantee, and a client that believes it holds a size the pane never took
 paints every later frame onto the wrong rows. `null` means "could not be read"
 (usually the pane is gone, sometimes a wedged node) and nothing is announced.
 
-Before protocol v4 there was no `pane_size` command, and a remote pane announced
-the size it had been *asked* for. That asymmetry is gone.
+An earlier revision had no `pane_size` command, and a remote pane announced the
+size it had been *asked* for. That asymmetry is gone.
 
 ## 9. Offline semantics
 
@@ -345,7 +345,12 @@ Two numbers, changed on different schedules:
 
 - **`NODE_PROTOCOL_VERSION`** — bump whenever a frame changes, additive or not,
   and release both sides. **Server first**: an agent that leads the server is
-  refused, and an agent that lags is refused just as clearly.
+  refused, and an agent that lags is refused just as clearly. The numbering
+  **restarted at 1 on 2026-09-09**: the protocol had reached 6 under a
+  numbering that predated any deployment, no instance ever ran on those
+  versions, and the GitHub releases of that era are removed. Everything in
+  this document is v1-era; the first real bump is 1 → 2, and old numbers from
+  the retired sequence do not recur here (their history is in git).
 - **`MIN_AGENT_VERSION`** — bump when the server needs newer agent *behaviour*
   that the frames alone do not express.
 

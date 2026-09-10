@@ -54,7 +54,7 @@ export interface NodeTable {
    * The node's own report of the plugins it has INSTALLED, as JSON.
    *
    * Null means it has never reported, which is NOT the same as offering
-   * nothing: only a node speaking protocol v6 reports at all. Separate from
+   * nothing: an enrolled node that has never connected has this null. Separate from
    * `inventoryJson` because that column holds a harness array with its own
    * parser, and folding two shapes into one would mean changing a parser the
    * launch gate depends on.

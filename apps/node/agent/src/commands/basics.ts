@@ -90,7 +90,7 @@ export async function execResize(ctx: CommandContext, cmd: Cmd<"resize">): Promi
 }
 
 /**
- * `pane_size` (protocol v4): the pane's REAL grid, or null when it is gone.
+ * `pane_size`: the pane's REAL grid, or null when it is gone.
  *
  * The remote twin of the control plane's own readback. It exists because a
  * pane serves several viewers now and is sized to the smallest of them, so a
@@ -202,7 +202,7 @@ export async function execStatDir(_ctx: CommandContext, cmd: Cmd<"stat_dir">): P
 }
 
 /**
- * `set_allowed_dirs` (protocol v5): replace this node's persisted directory
+ * `set_allowed_dirs`: replace this node's persisted directory
  * allowlist and answer with what was stored.
  *
  * The control plane pushes on every owner edit and again after each `ready`,
@@ -280,7 +280,7 @@ async function pushInventory(ctx: CommandContext): Promise<void> {
 }
 
 /**
- * `plugin_install` (protocol v6): install a plugin and answer with this node's
+ * `plugin_install`: install a plugin and answer with this node's
  * fresh set.
  *
  * The answer carries the whole set rather than the one plugin, because the
@@ -313,7 +313,7 @@ export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_in
 }
 
 /**
- * `plugin_uninstall` (protocol v6): remove a plugin and answer with the set
+ * `plugin_uninstall`: remove a plugin and answer with the set
  * that remains.
  *
  * Removing something already absent is a SUCCESS, not an error: the caller

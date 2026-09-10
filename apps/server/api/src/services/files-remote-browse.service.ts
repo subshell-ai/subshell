@@ -10,7 +10,7 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
  * The REMOTE half of the folder picker (`GET /api/files/explore?node=<id>`,
- * spec 2026-08-31 §6 plane + the v3 `fs_ls` command): one signed round-trip
+ * spec 2026-08-31 §6 plane + the `fs_ls` command): one signed round-trip
  * to the node's agent, answered in the LOCAL explore shape so the picker
  * component never learns which transport served it.
  *

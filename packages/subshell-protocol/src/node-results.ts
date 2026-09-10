@@ -3,14 +3,12 @@
  * Phase 0 froze the FRAME shapes; this file freezes what each command's `data`
  * member carries. The agent is the sole producer, the backend's RemoteLauncher
  * the sole consumer — but both sides validate, and this package is the shared
- * source of truth so the two tracks cannot drift. Additive contract file
- * (phase-2): arrived while NODE_PROTOCOL_VERSION was still 1 (no frozen frame
- * changed then); the 2026-09-02 sessions→subshells rename THEN broke the
- * frames — frozen keys moved to `subshellId`/`subshell*` here too, and the
- * version went to 2 so pre-rename agents are refused at `ready`. `fs_ls`
- * (v3) arrived as an ADDITIVE command: no frozen frame changed, so the floor
- * stayed at 2 and the server feature-gates old agents instead (see
- * the protocol version in `node-frames.ts`).
+ * source of truth so the two tracks cannot drift. This file arrived
+ * additively, changing no frozen frame, which the exact-match gate makes the
+ * only kind of change there is: everything ships together, every frame change
+ * bumps the version, and nothing has to be gated per agent. (The contract
+ * history of the pre-restart numbering is in git; the numbering itself
+ * restarted at 1 on 2026-09-09 — see `NODE_PROTOCOL_VERSION`.)
  *
  * `launch` / `terminate` / `kill` / `input` / `resize` / `tail_start` /
  * `tail_stop` / `remove_paths` / `inventory` / `ping` carry no data — their
@@ -98,7 +96,7 @@ export function parseNodeStatDirResult(data: unknown): NodeStatDirResult | null 
 export const FS_LS_MAX_ENTRIES = 1000;
 
 /**
- * `fs_ls` answer (protocol v3, remote folder picker): one directory level on
+ * `fs_ls` answer (remote folder picker): one directory level on
  * the node, mirroring the control plane's `GET /api/files/explore` payload so
  * the server can pass it through nearly unchanged. Success-only: missing /
  * unreadable / non-absolute targets answer `result{ok:false}` with an
