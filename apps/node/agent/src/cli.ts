@@ -41,11 +41,13 @@ const USAGE = `subshell: node agent daemon
 
 usage:
   subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
-  subshell configure --server <url> [--json]
+  subshell configure --server <url> [--registry-url <url>] [--json]
                           repoint an ALREADY-enrolled node at a different control
                           plane. Keeps this node's identity and spends no setup
                           key; restart the agent to apply. Does NOT rename: the
-                          plane owns a node's name (the Nodes page)
+                          plane owns a node's name (the Nodes page).
+                          --registry-url sets the npm registry or mirror that
+                          plugin installs fetch from
   subshell run
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell service status [--json]     (what the service manager reports)
@@ -93,6 +95,7 @@ const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
 /** Known flag → does it take a value? */
 const FLAGS: Record<string, boolean> = {
   "--server": true,
+  "--registry-url": true,
   "--key": true,
   "--name": true,
   "--data-dir": true,
@@ -108,8 +111,10 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // No --key and no --data-dir: this command spends no setup key, and the
   // identity directory belongs to the enrollment that created it. No --name
   // either — see configure.ts: the plane never reads this file's name outside
-  // the enroll body, so a rename here would be a lie.
-  configure: ["--server", "--json"],
+  // the enroll body, so a rename here would be a lie. --registry-url is
+  // configure-only for now: the npm mirror plugin installs use (phase 3), and
+  // declaring it HERE is what keeps it off every other command.
+  configure: ["--server", "--registry-url", "--json"],
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   license: [],
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
@@ -332,7 +337,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // other refusal here is the command's own (exit 1, no usage dump).
         const server = parsed.flags.server;
         if (server === undefined) throw new UsageError("configure requires --server <url>");
-        const next = await runConfigure({ server });
+        const next = await runConfigure({ server, registryUrl: parsed.flags.registryUrl });
         if (parsed.flags.json) {
           // Same rule as enroll/status --json: the nodeKey is NEVER here. A
           // GUI drives this command, so a leak would land the node's bearer

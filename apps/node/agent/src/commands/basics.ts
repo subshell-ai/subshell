@@ -1,11 +1,5 @@
 import { realpath, stat, unlink } from "node:fs/promises";
-import {
-  buildPluginReports,
-  getHarness,
-  installEmbedded,
-  tmuxSocketFor,
-  uninstallPlugin,
-} from "@internal/pane-runtime";
+import { buildPluginReports, getHarness, installPlugin, tmuxSocketFor, uninstallPlugin } from "@internal/pane-runtime";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
@@ -285,9 +279,12 @@ async function pushInventory(ctx: CommandContext): Promise<void> {
  *
  * The answer carries the whole set rather than the one plugin, because the
  * control plane MIRRORS what the node reports and a partial answer would leave
- * it guessing at the rest. Phase 2 installs from the copies this build
- * carries, so there is no network here; phase 3 adds a registry behind the
- * same command.
+ * it guessing at the rest. The command names a registry source when `spec` is
+ * present and the embedded copy otherwise, but this handler makes NO source
+ * decision: the spec 2026-09-09 §2.5 embedded-first rules live inside
+ * `installPlugin`, and the handler forwards the three fields (id, spec, and
+ * the operator's `registryUrl` mirror — absent means the default registry,
+ * never a refusal).
  *
  * It also pushes a fresh inventory, and that is not a nicety: the probe covers
  * the plugins that are INSTALLED, so a plugin installed a moment ago has no
@@ -297,7 +294,7 @@ async function pushInventory(ctx: CommandContext): Promise<void> {
  */
 export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_install">): Promise<CommandResult> {
   try {
-    await installEmbedded(ctx.config.dataDir, cmd.id);
+    await installPlugin(ctx.config.dataDir, { id: cmd.id, spec: cmd.spec, registryUrl: ctx.config.registryUrl });
     const plugins = await buildPluginReports(ctx.config.dataDir);
     await pushInventory(ctx);
     // The one moment where the restriction is actionable. The control plane

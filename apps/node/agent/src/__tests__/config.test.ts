@@ -64,6 +64,36 @@ test("a hand-edited empty/blank nodeWsUrl is junk → absent, so resolveWsUrl de
   expect((await loadConfig()).nodeWsUrl).toBeUndefined();
 });
 
+/**
+ * Phase 3's registry mirror key. `loadConfig` rebuilds the object field by
+ * field, so a field it does not carry is silently dropped on the way to the
+ * daemon; this pin is what stops `configure --registry-url` from writing a
+ * value only `status` would ever see.
+ */
+test("registryUrl round-trips when present; an old config loads without it", async () => {
+  newHome();
+  const pinned = { ...sample, registryUrl: "http://mirror.internal:4873" };
+  await saveConfig(pinned);
+  expect(await loadConfig()).toEqual(pinned);
+  // Pre-phase-3 config on disk: tolerated, and the daemon falls back to the default registry.
+  writeFileSync(configPath(), JSON.stringify(sample));
+  const old = await loadConfig();
+  expect(old.registryUrl).toBeUndefined();
+  expect(old).toEqual(sample);
+});
+
+test("a hand-edited empty/blank registryUrl is junk → absent, so installs use the default registry", async () => {
+  newHome();
+  // Same junk-tolerance class as nodeWsUrl: `""` can only be a hand-edit, and
+  // a registry client pointed at "" would produce an unexplainable fetch URL.
+  writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: "" }));
+  expect((await loadConfig()).registryUrl).toBeUndefined();
+  writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: "   " }));
+  expect((await loadConfig()).registryUrl).toBeUndefined();
+  writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: 42 }));
+  expect((await loadConfig()).registryUrl).toBeUndefined();
+});
+
 test("loadConfig throws an actionable error when no config exists", async () => {
   newHome();
   await expect(loadConfig()).rejects.toThrow(/enroll/);

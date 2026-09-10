@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs, run } from "../cli.js";
-import { saveConfig } from "../config.js";
+import { loadConfig, saveConfig } from "../config.js";
 import { newHome } from "../test-preload.js";
 import { darwinServiceStub, LOG, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
 
@@ -397,6 +397,36 @@ describe("configure — repoint an enrolled node", () => {
     const result = await run(["configure", "--server", "https://subshell.example"]);
     expect(result.code).toBe(1);
     expect(result.err).toMatch(/enroll/i);
+  });
+
+  test("`--registry-url` rides the repoint into the config", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run([
+      "configure",
+      "--server",
+      "https://subshell.example",
+      "--registry-url",
+      "http://mirror.internal:4873",
+    ]);
+    expect(result.code).toBe(0);
+    expect((await loadConfig()).registryUrl).toBe("http://mirror.internal:4873");
+  });
+
+  test("an unusable --registry-url is exit 1 with the reason, not a usage dump, and writes nothing", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--server", "https://subshell.example", "--registry-url", "mirror.example"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toInclude("--registry-url");
+    expect(result.err).not.toInclude(USAGE_MARKER);
+    expect((await loadConfig()).registryUrl).toBeUndefined();
+  });
+
+  test("--registry-url does not loosen the --server requirement", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    expect((await run(["configure", "--registry-url", "http://mirror.internal:4873"])).code).toBe(2);
   });
 
   test("rejects the flags it has no business taking", () => {
