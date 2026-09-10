@@ -93,8 +93,10 @@ describe("extractTgz", () => {
   });
 
   it("decodes a pax \\xNN escape in the override path", () => {
-    // tar implementations escape control chars and ":" in pax paths as \xNN;
-    // the reader turns them back, or every escaped name ships mangled.
+    // Defensive branch, not observed behavior: POSIX pax escapes in OCTAL
+    // (bsdtar follows it) and node-tar — npm's producer — escapes nothing.
+    // If an override ever does carry hex, the reader must turn it back or
+    // the escaped name ships mangled.
     const pair = "path=weird\\x3aname.js";
     let len = pair.length + 3;
     while (`${len} ${pair}\n`.length !== len) len++;

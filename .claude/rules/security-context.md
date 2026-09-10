@@ -258,6 +258,16 @@ shares and subshell shares are two independent axes:
   Public settings now carries `appBaseUrl` so the Nodes dialog can show the
   exact URL the server will bake — the enroll-time loopback trap above is
   unchanged by that visibility.
+- **Registry plugin installs (spec 2026-09-09 registry) are owner-only via the
+  node routes** (`canManage`, like the allowlist), the agent's own `subshell
+  plugin` verbs run as the local user who owns the plugins directory, and the
+  anonymous setup route stays embedded-built-ins-only — its body has no spec
+  field. The registry URL is operator-configurable, and integrity only proves
+  the bytes match the hash the SAME registry published: over an http mirror
+  that is the operator's own network, not npm's assurance. An id switching
+  across an uninstall is not a privilege hop — both copies ran as the node's
+  OS user. Full prose: `docs/security.md` §6, "Plugin installs from the
+  registry".
 - Trusted-network posture is **unchanged**: node→control traffic is expected to
   ride the same VPN/Tailscale; `wss://` termination is the operator's
   deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-

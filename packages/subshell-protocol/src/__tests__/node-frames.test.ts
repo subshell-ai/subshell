@@ -229,6 +229,7 @@ describe("plugin commands", () => {
       id: "not-a-real-plugin",
     });
   });
+
   it("accepts an optional spec alongside the id (phase 3)", () => {
     expect(
       parseNodeCommandBody({ type: "plugin_install", id: "codex", spec: "@subshell-ai/plugin-codex@2.0.0" }),
@@ -236,6 +237,7 @@ describe("plugin commands", () => {
     // Absent stays absent — the byte-identical v1 shape.
     expect(parseNodeCommandBody({ type: "plugin_install", id: "pi" })).toEqual({ type: "plugin_install", id: "pi" });
   });
+
   it("rejects a non-string spec rather than coercing", () => {
     expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: 3 })).toBeNull();
     expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: "" })).toBeNull();

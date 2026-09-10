@@ -100,6 +100,17 @@ and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
 every enrolled node.
 
+The plugin routes (`api/nodes/set-node-plugin.route.ts`) carry a registry
+`spec` since phase 3: the server forwards it VERBATIM inside the signed
+`plugin_install` (no second parser here), `local` installs in-process through
+pane-runtime's `installPlugin` facade — a failed local install returns 409
+with the pane-runtime message verbatim, and a malformed spec is a 400 before
+any command is sent — and the URL `local` fetches from is
+`SUBSHELL_PLUGIN_REGISTRY_URL` (constants.ts, same SETDEFAULT ladder as every
+other server setting; `subshell-server status` prints it as
+`plugin registry = <url>`). The anonymous setup route has NO spec field —
+built-in ids only, forever (spec 2026-09-09 §13).
+
 Cross-subshell comms (`subshell mcp`) is registered per harness by the plugin
 itself: `services/mcp-launch.ts:registerSubshellMcp` asks the plugin for its
 dialect (claude: `--mcp-config` file; opencode: merged config layer +
@@ -301,7 +312,7 @@ it, so never make a bare invocation mean anything else.
 | Command | |
 | --- | --- |
 | `version` | print `subshell-server <version>` and exit |
-| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
+| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
 | `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
 | `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes` |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |

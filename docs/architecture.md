@@ -463,6 +463,25 @@ the CWD, agent-default data dir). The Add-node dialog bakes the command from
 script embeds — and warns when that URL is loopback (a remote node would dial
 the wrong machine).
 
+**Plugin distribution** (spec 2026-09-09, phase 3) has two roads. Built-ins
+ship EMBEDDED in the agent/server binary and are seeded into
+`<dataDir>/plugins/` on first run — first-run setup needs no network. A
+third-party plugin arrives from an npm registry at install time: pane-runtime's
+`npm-registry.ts` fetches the packument and tarball, verifies the registry's
+own sha512 over the raw bytes, `tar-vendor.ts` unpacks it under hard refusals
+(links, traversal, oversize), the module load-check runs against a staging
+copy, and a sidecar `install.json` records the package/version that landed —
+which is what `subshell plugin update` compares against and what marks a
+directory as NOT embedded. Which registry is operator-configured on both hosts
+(the agent's `registryUrl` config, the server's `SUBSHELL_PLUGIN_REGISTRY_URL`;
+`subshell-server status` prints the server's). The six `@subshell-ai/*`
+packages are wired for npm OIDC trusted publishing on version-PR merge, but
+whether that shard runs on a GitHub-hosted runner — the only kind npm's OIDC
+supports — is an OPEN operator decision carried in `release.yml`'s comments;
+publishing is publishable-on-merge, not published, until it is made. The
+security posture of a registry install is
+[`security.md` §6](security.md#plugin-installs-from-the-registry-spec-2026-09-09).
+
 **Background service.** `subshell service install|uninstall`
 (`apps/node/agent/src/service.ts`) writes a systemd **user** unit or a launchd
 agent (`dev.subshell.client`), self-referencing the running executable (compiled

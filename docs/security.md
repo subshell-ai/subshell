@@ -436,6 +436,57 @@ exactly this). The disable survives restarts: boot seeding creates that row only
 when the `local` node row itself is created, never to "repair" a deliberate
 removal. There is no separate flag to drift out of sync with it.
 
+### Plugin installs from the registry (spec 2026-09-09)
+
+Phase 3 taught the plugin system a network source: `plugin_install` may carry a
+package spec, and the NODE (or the control-plane host, in process) fetches that
+npm package, verifies it, and installs it
+([design spec](superpowers/specs/2026-09-09-plugins-phase3-registry-design.md);
+bare `§N` below means that spec's sections). The master spec's §13 posture
+carries forward onto the new half, unchanged:
+
+- **It is an explicit act with a named source.** Nothing ever fetches a plugin
+  on its own — no catalog, no update sweep the operator did not run. Installing
+  a plugin is the same trust decision as installing the harness CLI the plugin
+  drives: whatever gets installed runs as the node's OS user inside the agent
+  process, unsandboxed ([§11.9](#119-plugins-run-as-the-nodes-os-user-in-the-agent-process)).
+- **Owner-only, on both doors.** `POST /api/nodes/:id/plugins` is gated
+  `canManage`, not `edit` — any node share already lets the grantee launch there,
+  so an `edit` grantee who could install would face no restriction. The node's
+  own `subshell plugin` verbs run as the local user, who already owns the
+  plugins directory. And the anonymous setup route stays built-in-ids-only
+  forever: it answers with no
+  credential at all on a fresh instance, so the registry is not in its grammar
+  at all — its body carries no spec field, and the built-in-ids guard in
+  `api/setup.route.ts` stands (master-spec §13's load-bearing line).
+- **Integrity is verified before anything is written.** The tarball's sha512 is
+  checked over the raw bytes against the hash the registry announced, the
+  vendored extractor refuses everything npm never ships (links, traversal,
+  oversize), and the module load-check runs against a staging copy — a refused
+  install leaves the previous state byte-identical.
+- **Any package name is installable — deliberately, decided against an
+  allowlist** (spec §2.3). The four facts above are the control; a name list
+  would be a second one no complaint asked for.
+
+Two sentences this phase adds, because both are properties of the channel, not
+of the code:
+
+- **The registry URL is operator-configurable, and integrity is only as strong
+  as the channel to the registry you configured.** The agent's `registryUrl`
+  (config.json, `subshell configure --registry-url`) and the server's
+  `SUBSHELL_PLUGIN_REGISTRY_URL` may name an http mirror, because a corporate
+  mirror is the motivating case — but the hash then only proves the bytes match
+  what THAT server published. Over the default `https://registry.npmjs.org`
+  that is npm's own assurance; over an http mirror it is the operator's own
+  network. `subshell-server status` prints the URL that will be used.
+- **A plugin id is claimed by the manifest inside the tarball, so id collisions
+  are refused against what is installed** — a second package claiming a
+  directory another package owns is refused naming both (§2.4). Across an
+  uninstall there is nothing to collide with, and that is honest: removing the
+  directory is the operator saying the slot is free. An id switch is not a
+  privilege hop, either: both the old and the new code run as the node's OS
+  user with the same visibility.
+
 ## 7. Encrypted channels
 
 Cross-subshell messages are sealed per recipient with ECDH-ES + A256GCM (`jose`,

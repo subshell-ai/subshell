@@ -113,7 +113,13 @@ function safeRelativePath(p: string): string {
   return parts.join("/");
 }
 
-/** pax escapes special chars as \xNN (only \0 \n \: get escaped by tar implementations). */
+/**
+ * Decode `\xNN` hex escapes in a pax override — DEFENSIVE, not expected:
+ * POSIX pax escapes specials as `\` + three OCTAL digits (bsdtar follows
+ * that), and node-tar, the producer behind every npm registry tarball,
+ * escapes nothing. The hex branch is dead code against real data; it stays
+ * as a cheap belt so an escaped name cannot ship mangled if one ever does.
+ */
 function decodePax(s: string): string {
   return s.replace(/\\x([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16)));
 }

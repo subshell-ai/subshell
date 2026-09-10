@@ -185,7 +185,13 @@ Extraction hard rules, all testable against fixture `.tgz` buffers:
   1024, checked during parse, not after full expansion. Timeouts: packument
   fetch 15 s, tarball fetch 60 s, both abortable via `AbortSignal.timeout`.
 - pax extended headers are honored for long names/sizes; GNU extensions are
-  not parsed (npm never writes them; a tarball using them fails clean).
+  not parsed (npm never writes them; a tarball using them fails clean). On
+  pax NAME escapes, the honest statement: POSIX spells specials `\` + three
+  OCTAL digits (bsdtar follows that), and node-tar — the producer behind
+  every npm registry tarball — escapes nothing. The reader's `\xNN` hex
+  branch is therefore defensive dead code against real data; it stays
+  because decoding an escape that arrives is cheap and mangling one is not,
+  but nothing should read it as what tar implementations actually emit.
 
 ## 3. Failure behavior, stated once
 
