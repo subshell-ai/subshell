@@ -500,6 +500,15 @@ the same import sites.
 Phase 0 stands alone and is shippable on its own. Phase 1 is the riskiest and is
 invisible, which is the right shape for it.
 
+**Phase 2 and 3 were split differently than first written, and the correction
+matters.** The original had the plugins directory and the dropping of
+`node_harnesses` in phase 2 with `plugin install` in phase 3, which cannot
+work: dropping that table removes the only way to stop offering a harness on a
+node, and nothing replaces it until phase 3. The migration step in §12 is
+itself an install, so phase 2 already depended on phase 3. Installing from the
+EMBEDDED copies needs no network and belongs with the phase that makes the
+table droppable; the registry is what genuinely comes later.
+
 ## 16. Testing
 
 Per phase, and in addition to the repo-wide `verify-types` / `lint:check` /

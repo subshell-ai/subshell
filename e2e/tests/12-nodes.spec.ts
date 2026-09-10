@@ -241,11 +241,14 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
         fresh !== undefined && !fresh.inventoryStale && fresh.harnesses.some((h) => h.harnessId === "pi" && h.installed)
       );
     });
-    const patch = await request.patch(`/api/nodes/${nodeId}/harnesses/pi`, { data: { enabled: true } });
-    expect(patch.ok(), await patch.text()).toBe(true);
-    const patched = (await patch.json()) as NodeRow;
-    expect(patched.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true, enabled: true });
-    expect(patched.inventoryStale).toBe(false);
+    // The agent SEEDED its built-ins on first start, so pi is already declared
+    // and there is no enable step: the node having the plugin IS it being
+    // offered. What the poll above proves is that both facts arrived, and they
+    // are separate ones (the plugin is installed, its program was found).
+    const listed = await request.get("/api/nodes");
+    const seeded = ((await listed.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
+    expect(seeded?.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true, enabled: true });
+    expect(seeded?.inventoryStale).toBe(false);
 
     // ── 5. The /nodes page renders the row: name, online badge, pi chip.
     await page.goto("/nodes");
@@ -259,12 +262,14 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // ws-token + /ws upgrade + no reconnecting pill — never canvas text.
     const workingDir = mkdtempSync(path.join(home, "cwd"));
 
-    // The pairing gate (spec 2026-09-02 §1): with pi DISABLED on the node,
-    // the node picker must grey it with the reason instead of hiding it —
-    // then re-enable and launch for real. (`nodeId` is the id the online poll
-    // captured above; the PATCHes here reuse it.)
+    // The pairing gate (spec 2026-09-02 §1): with pi REMOVED from the node,
+    // the node picker must grey it with the reason instead of hiding it, then
+    // reinstall and launch for real. Removing the plugin is what "disabling"
+    // became: the node stops declaring it, which is the only way to stop
+    // offering it now.
     expect(nodeId).toBeDefined();
-    await page.request.patch(`/api/nodes/${nodeId}/harnesses/pi`, { data: { enabled: false } });
+    const removed = await page.request.delete(`/api/nodes/${nodeId}/plugins/pi`);
+    expect(removed.ok(), await removed.text()).toBe(true);
 
     const nodeOption = page.getByRole("option", { name: nodeName }); // substring: survives the " · linux/x64" suffix
     await page.goto("/new"); // fresh load — the client fetches the DISABLED state
@@ -276,8 +281,9 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await expect(nodeOption.getByText("no pi here")).toBeVisible(); // node-side reason copy
     await page.keyboard.press("Escape");
 
-    await page.request.patch(`/api/nodes/${nodeId}/harnesses/pi`, { data: { enabled: true } });
-    // The re-enable is out-of-band (no mutation to invalidate the query) and
+    const reinstalled = await page.request.post(`/api/nodes/${nodeId}/plugins`, { data: { pluginId: "pi" } });
+    expect(reinstalled.ok(), await reinstalled.text()).toBe(true);
+    // The reinstall is out-of-band (no mutation to invalidate the query) and
     // /new does not poll nodes — reload so the pickers refetch and see pi
     // enabled again (an aria-disabled row would swallow the real pick).
     await page.goto("/new");

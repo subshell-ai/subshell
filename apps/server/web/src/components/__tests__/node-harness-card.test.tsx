@@ -1,111 +1,99 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
-import type { NodeDetail } from "@/types/node";
+import { NODE_QUERY_KEY } from "@/lib/query-keys";
+import type { Node, NodeHarness } from "@/types/node";
 
 /**
- * The detail page's harness card (spec 2026-08-31 §9): one row per registered
- * harness with installed/enabled chips, a toggle that only config-capable
- * viewers can move, and the server's own 409 copy (fresh inventory says
- * "not installed") surfaced inline.
+ * The card shows the NODE's declaration, and offers install/remove rather than
+ * an enable switch, because a plugin being installed there IS it being offered.
  */
-const NODE: NodeDetail = {
-  id: "n1",
-  name: "mac mini",
-  kind: "agent",
-  os: "darwin",
-  arch: "arm64",
-  hostname: "mac-mini",
-  status: "online",
-  lastSeenAt: null,
-  agentVersion: null,
-  protocolVersion: null,
-  access: "owner",
-  canManage: true,
-  capabilities: [],
-  harnesses: [
-    { harnessId: "claude", enabled: true, installed: true, version: "1.2.3" },
-    { harnessId: "hermes", enabled: false, installed: false },
-  ],
-  inventoryStale: true,
-};
+const NODE_ID = "n1";
 
-function mockFetch(patch: () => Response) {
-  const original = globalThis.fetch;
-  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
-    const url = new URL(String(input), "http://localhost");
-    const method = init?.method ?? "GET";
-    if (method === "PATCH") return Promise.resolve(patch());
-    if (url.pathname === "/api/nodes/n1") return Promise.resolve(new Response(JSON.stringify(NODE)));
-    if (url.pathname === "/api/setup/harnesses")
-      return Promise.resolve(
-        new Response(JSON.stringify([{ id: "claude", name: "Claude Code", enabled: true, installed: true }])),
-      );
-    return Promise.resolve(new Response(JSON.stringify({})));
-  }) as typeof fetch;
-  return () => (globalThis.fetch = original);
+function node(harnesses: NodeHarness[], over: Partial<Node> = {}): Node {
+  return {
+    id: NODE_ID,
+    name: "Mac Mini",
+    kind: "agent",
+    status: "online",
+    access: "owner",
+    canManage: true,
+    harnesses,
+    inventoryStale: false,
+    ...over,
+  } as unknown as Node;
 }
 
-function renderCard(canConfigure: boolean) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <NodeHarnessCard nodeId="n1" canConfigure={canConfigure} />
-    </QueryClientProvider>,
+/** Renders with the node view already in the cache, so no fetch is needed. */
+function renderCard(view: Node, canManage = true): ReactElement {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc.setQueryData([...NODE_QUERY_KEY, NODE_ID], view);
+  qc.setQueryData(
+    ["harnesses"],
+    [
+      { id: "claude-code", name: "Claude Code" },
+      { id: "codex", name: "Codex" },
+    ],
   );
+  const ui = (
+    <QueryClientProvider client={qc}>
+      <NodeHarnessCard nodeId={NODE_ID} canManage={canManage} />
+    </QueryClientProvider>
+  );
+  render(ui);
+  return ui;
 }
-
-afterEach(cleanup);
 
 describe("NodeHarnessCard", () => {
-  it("lists every harness with registry names and the stale hint", async () => {
-    const restore = mockFetch(() => new Response(JSON.stringify(NODE)));
-    try {
-      renderCard(true);
-      expect(await screen.findByText("Claude Code")).toBeDefined();
-      // Not in the registry fixture — the raw plugin id stands in.
-      expect(screen.getByText("hermes")).toBeDefined();
-      expect(screen.getByText(/inventory may be outdated/i)).toBeDefined();
-    } finally {
-      restore();
-    }
+  afterEach(cleanup);
+
+  it("lists what the node declared, by name", () => {
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: true, version: "2.1.0" }]));
+    expect(screen.getByText("Claude Code")).toBeDefined();
+    expect(screen.getByText("2.1.0")).toBeDefined();
   });
 
-  it("disables every toggle for a viewer who cannot configure the node", async () => {
-    const restore = mockFetch(() => new Response(JSON.stringify(NODE)));
-    try {
-      renderCard(false);
-      await screen.findByText("Claude Code");
-      for (const sw of screen.getAllByRole("switch")) {
-        expect(sw.getAttribute("aria-disabled")).toBe("true");
-      }
-    } finally {
-      restore();
-    }
+  it("renders a plugin this build has never heard of, by its id", () => {
+    // The rows are the node's answer, not this control plane's catalog.
+    renderCard(node([{ harnessId: "some-third-party", enabled: true, installed: true }]));
+    expect(screen.getByText("some-third-party")).toBeDefined();
   });
 
-  it("surfaces the 409 inventory gate inline", async () => {
-    const restore = mockFetch(
-      () =>
-        new Response(
-          JSON.stringify({
-            errId: "e1",
-            code: "INPUT_VALIDATION_ERROR",
-            message: '"Hermes" is not installed on "mac mini"',
-            statusCode: 409,
-          }),
-          { status: 409 },
-        ),
-    );
-    try {
-      renderCard(true);
-      await screen.findByText("Claude Code");
-      const switches = screen.getAllByRole("switch");
-      fireEvent.click(switches[1]);
-      expect(await screen.findByText(/is not installed on/)).toBeDefined();
-    } finally {
-      restore();
-    }
+  it("separates having the plugin from having its program", () => {
+    // A node can have the claude-code plugin and no `claude` on its PATH, and
+    // the row has to say which of those is missing.
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: false }]));
+    expect(screen.getByText("program not found")).toBeDefined();
+  });
+
+  it("says nothing was reported rather than showing an empty offer", () => {
+    // A pre-v6 agent reports nothing; that is not the same as offering nothing.
+    renderCard(node([]));
+    expect(screen.getByText(/hasn't reported any plugins/)).toBeDefined();
+  });
+
+  it("offers Remove and Install to a manager", () => {
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: true }]));
+    expect(screen.getByRole("button", { name: "Remove" })).toBeDefined();
+    // codex is in the catalog and not installed, so it is offered.
+    expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+  });
+
+  it("offers neither to someone who cannot manage the node", () => {
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: true }]), false);
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("explains a bad env override instead of implying the plugin is missing", () => {
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: false, reason: "override-invalid" }]));
+    expect(screen.getByText(/environment variable overrides/)).toBeDefined();
+  });
+
+  it("says a plugin needing no program needs none", () => {
+    renderCard(node([{ harnessId: "some-terminal", enabled: true, installed: false, reason: "no-binary" }]));
+    expect(screen.getByText(/needs no separate program/)).toBeDefined();
   });
 });

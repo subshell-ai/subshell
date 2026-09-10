@@ -151,6 +151,19 @@ Three facts about the shape, each measured rather than assumed:
   repo's one sanctioned `await import()`, and `.claude/rules/code-style.md`
   names that exception.
 
+**The NODE owns which plugins it offers.** `<dataDir>/plugins/` is the
+declaration: what is installed there is what that machine offers, and there is
+no enable flag on either side. The node reports the set with its inventory, the
+control plane mirrors it in `nodes.plugins_json`, and a change is a signed
+command to a LIVE node. An offline node is refused rather than queued, which is
+deliberately the opposite of the directory allowlist: there the control plane
+owns a security control and a stale node must be corrected, while here the node
+owns the setting and there is nothing to correct.
+
+Empty means "offers nothing", also the opposite of `allowed-dirs`. That is why
+an agent seeds its built-ins once, keyed on the plugins directory not existing
+yet: keying on it being empty would undo an uninstall on every restart.
+
 **`type` is for humans, `capabilities()` is for code.** The type
 (`agent-harness`, `terminal`) groups and labels; the launch pipeline branches
 on capabilities, which are validated at load, so a plugin claiming `resume`

@@ -71,6 +71,43 @@ export function useNodeHarnesses(nodeId: string) {
 }
 
 /**
+ * Installs or removes a plugin on ONE node.
+ *
+ * There is no enable flag any more: the node OWNS its plugin set, and having
+ * the plugin installed IS offering it. The server sends the node a signed
+ * command and answers with the node's own fresh view, so the cache adopts
+ * that rather than round-tripping a refetch.
+ *
+ * An offline node is refused with a 409 rather than queued, because the page
+ * must never show a plugin the node is not running.
+ */
+export function useSetNodePlugin(nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pluginId, installed }: { pluginId: string; installed: boolean }) =>
+      installed
+        ? apiFetch<Node>(`/api/nodes/${nodeId}/plugins`, {
+            method: "POST",
+            body: JSON.stringify({ pluginId }),
+          })
+        : apiFetch<Node>(`/api/nodes/${nodeId}/plugins/${pluginId}`, { method: "DELETE" }),
+    onSuccess: (view) => {
+      queryClient.setQueryData([...NODE_QUERY_KEY, nodeId], view);
+      void queryClient.invalidateQueries({ queryKey: NODE_QUERY_KEY });
+    },
+  });
+}
+
+/** Turns a plugin-change failure into the sentence the row should show. */
+export function nodePluginErrorMessage(err: unknown): string {
+  // The server's own 409 copy names the node and says why, which a generic
+  // string here could not.
+  if (err instanceof ApiError && err.status === 409) return err.message.replace(/^API \d+: /, "");
+  if (err instanceof ApiError && err.status === 403) return "Only the node's owner can change its plugins.";
+  return "Could not change this node's plugins.";
+}
+
+/**
  * Flips a harness on/off for ONE node (`PATCH /api/nodes/:id/harnesses/:harnessId`).
  * The route answers with the caller's full fresh NodeView, so the cache adopts
  * it directly (setQueryData) instead of round-tripping a refetch; the list

@@ -267,7 +267,7 @@ function NodeDetailPage() {
 
       {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
-      <NodeHarnessCard nodeId={n.id} canConfigure={canConfigure} />
+      <NodeHarnessCard nodeId={n.id} canManage={canRename} />
 
       <p className="text-sm">
         <Link to="/nodes" className="text-muted-foreground underline">

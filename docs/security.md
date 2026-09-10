@@ -847,6 +847,17 @@ What contains what:
 Installing a plugin is therefore an explicit act with a named source, never
 something a catalog does on its own.
 
+**Who may install one is narrower than who may launch there.** Plugin
+management is OWNER-only (`canManage`), not `nodeCanConfigure`: any node share,
+even `view`, already lets a grantee launch subshells on that machine, so an
+`edit` grantee who could install a plugin would face no restriction at all.
+This matches the directory allowlist, and for the same reason.
+
+**The node enforces its own set.** A `launch` naming a plugin the node has not
+installed is refused there, not merely filtered by the control plane. A
+signature proves who sent a command; it says nothing about whether the target
+should serve it.
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer

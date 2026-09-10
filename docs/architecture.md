@@ -408,7 +408,7 @@ is [`node-protocol.md`](node-protocol.md)). The daemon on it is
 `apps/server/api/src/services/nodes/` + `api/nodes/`.
 
 **Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
-`node_harnesses` (migration 0017). REST: setup keys mint single-use `nsk_…`
+the node's own plugin report in `nodes.plugins_json` (migration 0023; `node_harnesses` was dropped in 0024 when the node took ownership of the answer). REST: setup keys mint single-use `nsk_…`
 enrollment credentials; `POST /api/nodes/enroll` consumes one and returns the
 node's long-lived bearer key exactly once; shares follow the subshell model
 (any share grants launch, `edit` adds node config); per-node harness enablement
