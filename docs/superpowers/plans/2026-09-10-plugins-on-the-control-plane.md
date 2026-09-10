@@ -253,11 +253,64 @@ Message: `feat(agent): spawn the argv the control plane sent`.
 
 **Context:** shape the result against the existing `EffectiveHarnessState` rather than inventing a parallel type (spec §12). The node returns RAW version text; `parseVersion` is plugin code and runs on the control plane, which is a behavior move worth its own test since only hermes implements it.
 
+**The cache format does not change, which is the nicest thing about this task.** `HarnessInventoryEntry` is `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }`, and the server stores an array of them via `NodesRepository.applyInventory(id, json)` from the `case "inventory"` arm of the ws handler. The wire result here is the SAME shape with `version` replaced by `rawVersion`; the server maps `rawVersion` through `parseVersion` and stores exactly what it stores today. `INVENTORY_TTL_MS` and every reader keep working.
+
 - [ ] **Step 1: Write the failing tests**
 
-Node side: `detect` with two specs returns a row per spec, `found: false` with a `reason` for a missing binary, and raw unparsed version text for a present one. Server side: the driver caches results with `checkedAt`, and `parseVersion` is applied to hermes's real banner output to produce the version the UI shows.
+Node side:
 
-- [ ] **Step 2 to 4:** run red, implement, green, commit.
+```ts
+test("detect answers one row per spec, and does not parse the version", async () => {
+  const res = await execDetect(ctx, { type: "detect", specs: [
+    { id: "pi", binaryName: "pi", envOverride: "PI_BINARY", knownPaths: [] },
+    { id: "ghost", binaryName: "definitely-not-here", envOverride: "X", knownPaths: [] },
+  ]});
+  const rows = (res as { ok: true; data: { results: DetectResultWire[] } }).data.results;
+  expect(rows.find((r) => r.harnessId === "pi")).toMatchObject({ installed: true });
+  // RAW text, unparsed: parseVersion is plugin code and does not run here.
+  expect(rows.find((r) => r.harnessId === "pi")?.rawVersion).toContain("pi");
+  expect(rows.find((r) => r.harnessId === "ghost")).toMatchObject({ installed: false, reason: "not-on-path" });
+});
+
+test("a spec with no binaryName reports no-binary rather than not-on-path", async () => {
+  const res = await execDetect(ctx, { type: "detect", specs: [{ id: "term", binaryName: "", envOverride: "", knownPaths: [] }] });
+  expect(rowsOf(res)[0]).toMatchObject({ installed: false, reason: "no-binary" });
+});
+```
+
+Server side:
+
+```ts
+test("the driver parses the raw version with the plugin and caches it like an inventory", async () => {
+  // hermes prints a banner, not a bare version, and is the only built-in with parseVersion.
+  fakeNodeAnswers([{ harnessId: "hermes", installed: true, binaryPath: "/x/hermes", rawVersion: "Hermes v1.2.3 (build 9)" }]);
+  await detectOnNode(nodeId);
+  const cached = readAgentInventory(await nodes.findById(nodeId));
+  expect(cached.entries.get("hermes")?.version).toBe("1.2.3");
+  expect(cached.entries.get("hermes")?.checkedAt).toBeTruthy();
+});
+
+test("no detect happens without a request", async () => {
+  await advanceTime(30 * 60_000);
+  expect(sentCommands()).toHaveLength(0);
+});
+```
+
+- [ ] **Step 2: Run and watch them fail**
+
+Run: `cd apps/node/agent && bun test` then `cd apps/server/api && bun test src/services/nodes/__tests__/`
+
+- [ ] **Step 3: Implement**
+
+Protocol: add `detect { specs: DetectSpecWire[] }` where `DetectSpecWire` mirrors plugin-api's `DetectSpec` (`{ binaryName, envOverride, knownPaths }`) plus the `id` it belongs to, and a `DetectResultWire` = `HarnessInventoryEntry` with `rawVersion?: string` in place of `version?`.
+
+Node handler: for each spec, `detectBinary(spec.binaryName, spec.envOverride, spec.knownPaths)` (from `binary-lookup.ts`, returns `{ path, reason? }`), then `probeVersion(path)` for the raw text when found. Do NOT call `versionOf`, which applies `parseVersion`. An empty `binaryName` yields `reason: "no-binary"`, matching what `detectFor` produces today for a manifest with no `detect` block.
+
+Server driver: build specs from the manifests it holds, send, map each row through the plugin's `parseVersion` when present, and store via the existing `applyInventory`. Called from the node page load, from Re-check, and nowhere on a timer.
+
+- [ ] **Step 4: Run green, prove, commit**
+
+Prove the parse moved: temporarily have the node return an already-parsed version and confirm the hermes test fails on the banner text. Restore.
 
 Message: `feat: detection is a command the plane sends, and versions are parsed here`.
 
@@ -273,7 +326,92 @@ Message: `feat: detection is a command the plane sends, and versions are parsed 
 
 **Context:** the shape changes from `{ harnessId, harnessSessionId, cwd }` to `{ path }`. The control plane computes the path with plugin code, which needs the node's `CLAUDE_CONFIG_DIR`, so this task also adds the node's manifest-declared env reporting (spec §5). A manifest naming the wrong variable fails silently as a resume that never offers itself, so test that case explicitly.
 
-- [ ] **Step 1 to 4:** failing tests (including "a node that reports no env still resolves a default path", and "an unknown declared variable yields no resume rather than a crash"), implement, green, commit.
+**This is a CONTRACT change, not a rename, and the plan was wrong to imply otherwise.** Today the plugin does the I/O itself:
+
+```ts
+// packages/plugins/claude-code/src/index.ts
+function claudeConfigDir(): string {
+  const override = process.env.CLAUDE_CONFIG_DIR?.trim();
+  return override ? resolve(override) : join(homedir(), ".claude");
+}
+resume: {
+  allocateHarnessSessionId: () => crypto.randomUUID(),
+  canResume: (harnessSessionId, cwd) =>
+    existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${harnessSessionId}.jsonl`)),
+}
+```
+
+For the control plane to compute that path, `canResume` must stop doing I/O and stop reading `process.env`. `HarnessResume` becomes:
+
+```ts
+export interface HarnessResume {
+  allocateHarnessSessionId(): string;
+  /**
+   * Where the resumable transcript would be, given the target machine's
+   * environment. PURE: it computes a path and never touches a filesystem, so
+   * the control plane can build it for a machine it cannot see. The HOST
+   * checks existence.
+   */
+  resumePath(harnessSessionId: string, cwd: string, hostEnv: HostEnv): string;
+}
+
+/** The parts of a target machine's environment a plugin may compute against. */
+export interface HostEnv {
+  /** The node's home directory */
+  homeDir: string;
+  /** Values for the variables this plugin's manifest declared it needs */
+  env: Record<string, string>;
+}
+```
+
+`@subshell-ai/plugin-api` is PUBLISHED at 0.0.1, so this is a breaking change to a public contract and needs a major-intent changeset. That is acceptable and expected here; the package has been public for one day and has no dependents.
+
+**The node must report `homeDir`, not just the declared variables**, because `claudeConfigDir`'s fallback is `join(homedir(), ".claude")`. The `ready` event carries `os`, `arch`, `hostname`, `dataDir`, `capabilities` and `executablePath` today and no environment at all, so both fields are new.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+// plugin-api / claude-code
+test("resumePath is pure and honours the target machine's override", () => {
+  const p = claudeCode.resume.resumePath("abc", "/w/x", { homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "/custom" } });
+  expect(p).toBe("/custom/projects/-w-x/abc.jsonl");
+});
+
+test("resumePath falls back to the reported home when the variable is absent", () => {
+  const p = claudeCode.resume.resumePath("abc", "/w/x", { homeDir: "/home/n", env: {} });
+  expect(p).toBe("/home/n/.claude/projects/-w-x/abc.jsonl");
+});
+
+// server
+test("canResume computes the path here and asks the node to stat it", async () => {
+  await launcher.canResume(claudeCode, "abc", "/w/x");
+  expect(lastCommand()).toEqual({ type: "path_exists", path: "/home/n/.claude/projects/-w-x/abc.jsonl" });
+});
+
+test("a node that reported no env still resolves a default path", async () => {
+  await launcher.canResume(claudeCode, "abc", "/w/x");   // node reported homeDir only
+  expect(lastCommand().path).toContain("/.claude/projects/");
+});
+
+test("a plugin with no resume member never sends the command", async () => {
+  expect(await launcher.canResume(pi, "abc", "/w/x")).toBe(false);
+  expect(sentCommands()).toHaveLength(0);
+});
+```
+
+- [ ] **Step 2: Run red, then implement**
+
+Order within the task: change the contract and claude-code together (they must agree), then the `ready` event's two new fields, then the protocol rename, then the node handler (`existsSync(cmd.path)`), then `remote-launcher.canResume`.
+
+The manifest gains a declaration of which variables the plugin wants; claude-code declares `CLAUDE_CONFIG_DIR`. A manifest naming a variable nothing sets simply yields an absent key and the plugin's own fallback applies, which is why the second test exists.
+
+- [ ] **Step 3: Prove the silent-failure case**
+
+The landmine in spec §11 is a manifest naming the WRONG variable, which fails as a resume that never offers itself. Write it as a test: declare `CLAUDE_CONFIG_DIRR`, assert the computed path falls back to the home default rather than throwing, and leave the test in place as documentation of the failure mode.
+
+- [ ] **Step 4: Green, changeset, commit**
+
+Add a changeset for `@subshell-ai/plugin-api` and the five plugin packages describing the `canResume` to `resumePath` change as breaking.
 
 Message: `refactor(protocol): path_exists, and the env a manifest asks for`.
 
@@ -348,7 +486,73 @@ This task also builds the lifecycle of spec §6.1: an `enabled` flag, and an uni
 
 Cover: installing is admin-only and 403 for a non-admin; a non-admin can still LIST; disabling a plugin removes its profiles from `usableHarnessIds` and re-enabling restores them with the rows never touched; the impact endpoint counts other users' profiles, Defaults and running subshells correctly; `uninstall?mode=keep` leaves every profile row in place; `uninstall?mode=delete` removes them across users INCLUDING Defaults; a running subshell survives both; `usableHarnessIds` for a node returns the intersection of the server's catalog and that node's detection.
 
-- [ ] **Step 2 to 4:** run red, implement, green, commit.
+- [ ] **Step 2: Run and watch them fail**
+
+- [ ] **Step 3: Rewrite the two usability functions**
+
+Both currently branch on `node.kind` and consult the node's declared set. That branch is the thing this task deletes. Today:
+
+```ts
+export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<Set<string>> {
+  // ...
+  if (node && node.kind === "agent") {
+    const declared = readNodePlugins(node);          // <- the node's own set: GONE
+    const inv = readAgentInventory(node);
+    for (const id of declared.entries.keys()) {
+      if (agentHarnessUsable(id, declared, inv)) usable.add(id);
+    }
+    return usable;
+  }
+  const declared = await localDeclaredPlugins();     // <- also the node row: GONE
+  for (const h of allHarnesses()) { /* ... */ }
+}
+```
+
+After, there is one rule for every node: **the instance has the plugin installed and enabled, AND that node's detection found its binary.**
+
+```ts
+export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<Set<string>> {
+  const usable = new Set<string>();
+  // The instance catalog, not `allHarnesses()`. See the note below: that
+  // function returns the EMBEDDED built-ins, never what is installed.
+  const installed = await enabledInstalledPlugins();
+  const node = nodeId === LOCAL_NODE_ID ? undefined : await new NodesRepository(db).findById(nodeId);
+  if (nodeId !== LOCAL_NODE_ID && !node) return usable;
+  const inv = node ? readAgentInventory(node) : await probeLocally(installed);
+  for (const report of installed) {
+    if (report.broken) continue;
+    if (inv.entries.get(report.id)?.installed === true) usable.add(report.id);
+  }
+  return usable;
+}
+```
+
+**`allHarnesses()` is the wrong source and this is the trap of the task.** It returns only the compiled-in built-ins (`registry.ts`), never what is on disk in `<SUBSHELL_SERVER_DATA_DIR>/plugins/`. Every call site that uses it to mean "what harnesses exist" must move to the installed set from `localPluginReports()`. It keeps ONE honest use: the offline-installable catalog on the plugins page. Audit each of its current call sites in `harness-utils.ts`, `setup.route.ts` and `profiles.route.ts` and classify it as one or the other.
+
+- [ ] **Step 4: The instance route**
+
+Model it on `system-keys.route.ts`, which uses `requireAdmin` (`auth-guard.ts:234-246`: composes `authGuard`, then 403 unless `actor === "cookie"` and the role is admin, so bearer keys are refused outright).
+
+```
+GET    /api/plugins                    any authenticated actor: the catalog + installed + enabled
+POST   /api/plugins                    admin: { pluginId, spec? }
+DELETE /api/plugins/:pluginId          admin: ?mode=keep|delete   (default keep)
+GET    /api/plugins/:pluginId/impact   admin: the counts the dialog renders
+PATCH  /api/plugins/:pluginId          admin: { enabled }
+```
+
+Audit install, uninstall and the enable flip exactly as `system-keys.route.ts` does, with the metadata naming the plugin and, for a delete, the number of profiles removed. Do not audit reads.
+
+- [ ] **Step 5: The repository methods that do not exist yet**
+
+Two gaps, both needing new methods rather than a call to something existing:
+
+- `ProfilesRepository` has `listByUser(userId, harnessId?)` and `delete(id)` and NO list-or-delete by harness across users. Add `listByHarness(harnessId)` and `deleteByHarness(harnessId)`, the latter used only by `mode=delete`.
+- `SubshellsRepository` has `listRunning()` (all users) and no count by harness. Add `countRunningByHarness(harnessId)` for the impact endpoint.
+
+The `isDefault === 1` guard at `profiles.route.ts:254-278` stays exactly as it is for the per-profile DELETE route. `deleteByHarness` deliberately does not consult it, and its JSDoc must say why: a Default for a harness that no longer exists is meaningless, and leaving it would be the one row its owner cannot remove.
+
+- [ ] **Step 6: Green, then commit**
 
 Message: `feat(server): one plugin host, and an instance-level door to it`.
 
@@ -382,7 +586,65 @@ Message: `refactor(db): drop the per-node plugin mirror`.
 
 The page also carries §6.1's lifecycle: a Disable toggle per installed plugin, and an uninstall dialog that fetches the impact first and offers Keep (default) or Delete, with the counts spelled out. Copy must state that running subshells are unaffected and that restarting one whose profile was deleted will fail, because that is the surprise otherwise.
 
-- [ ] **Step 1 to 4:** failing tests (catalog install sends no confirmation; a typed name confirms and names the control plane; a non-admin sees the list and no controls; disabling shows the plugin as disabled and its profiles disappear from a picker; the uninstall dialog renders the impact counts and defaults to Keep; choosing Keep sends `mode=keep`), implement, green, commit.
+**Two constraints from the existing code.** The route file is `settings_.plugins.tsx` (`createFileRoute("/settings_/plugins")`), matching `settings_.status.tsx`. And the app's shared confirmation, `confirmAction` behind `ConfirmProvider`, resolves a BOOLEAN, so it fits the install-by-name prompt and cannot express the uninstall choice. The uninstall dialog is its own component over the `Dialog` primitives.
+
+Follow `settings_.status.tsx`'s admin gate exactly, including its reasoning: `viewerIsAdmin` comes from `usePublicSettings()`, and `undefined` (still loading) is treated as NOT admin so a non-admin never fires a doomed 403. Link it from `settings.tsx` beside the existing Status link, as a `Link` wearing `buttonVariants` rather than a Button wrapping a Link.
+
+- [ ] **Step 1: Write the failing tests**
+
+```tsx
+test("a catalog install asks nothing", async () => {
+  renderPage({ admin: true, catalog: [{ id: "pi", name: "Pi", installed: false }] });
+  await userEvent.click(await screen.findByRole("button", { name: /install/i }));
+  expect(posted()).toMatchObject({ pluginId: "pi" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("a typed package name confirms, and says it runs on the control plane", async () => {
+  renderPage({ admin: true });
+  await userEvent.type(screen.getByLabelText(/install from npm/i), "@acme/plugin-thing");
+  await userEvent.click(screen.getByRole("button", { name: /^install$/i }));
+  expect(await screen.findByText(/control plane/i)).toBeInTheDocument();
+});
+
+test("disabling a plugin marks it disabled without uninstalling", async () => {
+  renderPage({ admin: true, installed: [{ id: "pi", name: "Pi", enabled: true }] });
+  await userEvent.click(screen.getByRole("switch", { name: /enabled/i }));
+  expect(patched()).toEqual({ enabled: false });
+});
+
+test("uninstall shows the blast radius and defaults to keeping profiles", async () => {
+  renderPage({ admin: true, installed: [{ id: "acme", name: "Acme" }],
+    impact: { profiles: 4, otherUsers: 3, defaults: 2, runningSubshells: 1 } });
+  await userEvent.click(screen.getByRole("button", { name: /uninstall/i }));
+  expect(await screen.findByText(/4 profiles use it, across 3 users/i)).toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: /keep the profiles/i })).toBeChecked();
+  expect(screen.getByText(/running subshells are unaffected/i)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
+  expect(deletedWith()).toEqual({ mode: "keep" });
+});
+
+test("choosing delete sends mode=delete", async () => { /* same, selecting the other radio */ });
+
+test("a non-admin sees the list and no controls", () => {
+  renderPage({ admin: false, installed: [{ id: "pi", name: "Pi" }] });
+  expect(screen.getByText("Pi")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /uninstall/i })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/install from npm/i)).not.toBeInTheDocument();
+});
+```
+
+- [ ] **Step 2: Run red**
+
+- [ ] **Step 3: Implement**
+
+The page has three regions: installed plugins with an Enabled switch and Uninstall each; the offline catalog of embedded built-ins not yet installed, one click each; and the install-by-name field. The uninstall dialog fetches `/api/plugins/:id/impact` on open and renders the counts, defaulting to Keep. Its copy must include that running subshells are unaffected and that restarting one whose profile was deleted will fail.
+
+Copy rule for the typed-name confirmation, and the reason it differs from the superseded phase-4 wording: the package now runs on the CONTROL PLANE, with the reach that implies, rather than on one node. Say that, not the old sentence about a node's OS user.
+
+- [ ] **Step 4: Prove the default, then commit**
+
+Flip the dialog's initial mode to `delete` and confirm the keep-by-default test fails. Restore.
 
 Message: `feat(web): install plugins where they now live`.
 
@@ -396,7 +658,47 @@ Message: `feat(web): install plugins where they now live`.
 
 **Context:** the card stops being a plugin manager and becomes detection output: which harnesses this machine can actually run, with `checkedAt` and Re-check. No install or remove controls, because a plugin is not a per-node thing any more. Re-check triggers the on-demand `detect` of Task 5.
 
-- [ ] **Step 1 to 4:** failing tests (no install or remove controls exist; rows render from detection; Re-check issues one detect; an offline node says so), implement, green, commit.
+**What survives from the current card and what goes.** `node-harness-card.tsx` today renders rows with `badgeLabel`/`badgeVariant` over `{ installed, broken, reason }`, a `checkedAtLabel`, the `restartRequired` notice, the `reason === "override-invalid"` and `"no-binary"` explanations, and per-row error state. Keep all of the rendering. Delete: the `useSetNodePlugin` mutation, the `change()` handler, the Remove buttons, the "Add a plugin" block, the `available` computation, and the `catalog` lookup that recovers a name.
+
+`restartRequired` and `broken` are plugin-load facts that a node no longer produces, so those two branches go with them. Their absence is the visible proof this task landed.
+
+- [ ] **Step 1: Write the failing tests**
+
+```tsx
+test("the card manages nothing", () => {
+  renderCard({ harnesses: [{ harnessId: "pi", installed: true }] });
+  expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
+  expect(screen.queryByText(/add a plugin/i)).not.toBeInTheDocument();
+});
+
+test("rows come from detection, and say when they were checked", () => {
+  renderCard({ harnesses: [{ harnessId: "pi", installed: true, version: "1.2.3", checkedAt: iso }] });
+  expect(screen.getByText(/1\.2\.3/)).toBeInTheDocument();
+  expect(screen.getByText(/checked/i)).toBeInTheDocument();
+});
+
+test("Re-check issues exactly one detect", async () => {
+  renderCard({ harnesses: [], canManage: true });
+  await userEvent.click(screen.getByRole("button", { name: /re-check/i }));
+  expect(detectCalls()).toHaveLength(1);
+});
+
+test("a stale inventory says so rather than pretending", () => {
+  renderCard({ harnesses: [{ harnessId: "pi", installed: true }], inventoryStale: true });
+  expect(screen.getByText(/last-known/i)).toBeInTheDocument();
+});
+
+test("a harness the instance does not have is absent, not shown as broken", () => {
+  renderCard({ harnesses: [{ harnessId: "gone", installed: true }], instanceHas: ["pi"] });
+  expect(screen.queryByText("gone")).not.toBeInTheDocument();
+});
+```
+
+- [ ] **Step 2 to 3: Run red, implement**
+
+The card's title and description change with its meaning: it is no longer "what this machine offers" (a plugin set) but which harnesses this machine can run (detection). Say that plainly, and point at `/settings/plugins` for managing them, since an operator arriving here to install something needs to know where it moved.
+
+- [ ] **Step 4: Commit**
 
 Message: `feat(web): a node page that reports what it can run`.
 
