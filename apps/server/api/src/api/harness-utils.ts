@@ -14,8 +14,9 @@ import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
  * third-party plugin appears here and an uninstalled built-in does not.
  *
  * (The registry keeps its honest use as the offline-installable catalog:
- * `GET /api/setup/harnesses` renders it, because that is what the wizard can
- * install with no network. `allHarnesses()` is never the answer to "what is
+ * `GET /api/setup/harnesses` renders `builtInHarnesses()`, because that is
+ * what the wizard can install with no network. Neither registry read — the
+ * merged `allHarnesses()` nor that catalog — is ever the answer to "what is
  * installed".)
  */
 export async function getAllHarnessIds(): Promise<string[]> {

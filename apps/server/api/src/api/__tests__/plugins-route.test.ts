@@ -258,7 +258,14 @@ describe("/api/plugins", () => {
   it("install-by-spec fetches from the registry and audits the package it came from", async () => {
     const res = await send("POST", "/api/plugins", adminCookie, { pluginId: "third", spec: "plg-third@1.0.0" });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as PluginRow).installed).toBe(true);
+    const row = (await res.json()) as PluginRow;
+    expect(row.installed).toBe(true);
+    // Task 9b's install-side proof: the install route refreshed the registry
+    // overlay, so the plugin RESOLVES the moment the response lands. It is
+    // still NOT a built-in — the one-click catalog question survives the
+    // overlay exactly because `toRow` asks the compiled set, not `getHarness`.
+    expect(getHarness("third")).toBeDefined();
+    expect(row.builtIn).toBe(false);
     thirdInstalled = true;
 
     expect((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id)).toContain("third");
@@ -392,6 +399,9 @@ describe("/api/plugins", () => {
     expect(body).toMatchObject({ ok: true, mode: "keep", profilesRemoved: 0 });
 
     expect((await localPluginReports()).find((r) => r.id === "third")).toBeUndefined();
+    // The uninstall-side proof of the same seam: resolution follows the store,
+    // so the launch path can no longer reach what the store no longer holds.
+    expect(getHarness("third")).toBeUndefined();
     const after = (await profiles.listByHarness("third")).map((p) => p.id).sort();
     expect(after).toEqual(before); // rows untouched — availability is computed, not stored
     expect((await subshells.listRunning()).map((s) => s.id).sort()).toEqual(runningBefore);

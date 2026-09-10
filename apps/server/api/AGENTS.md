@@ -115,8 +115,21 @@ other server setting; `subshell-server status` prints it as
 test-only by construction). `<dataDir>/plugins/` is the one installed set:
 "usable" is (instance installed ∧ `plugin_state.enabled` — absent row =
 enabled) × (that node's detection found the binary), computed once in
-`api/harness-utils.ts` for every node alike. The anonymous setup route has NO
-spec field — built-in ids only, forever (spec 2026-09-09 §13).
+`api/harness-utils.ts` for every node alike. And the plane RESOLVES the set:
+`services/nodes/local-plugins.ts` points the pane-runtime registry overlay at
+this store at boot and after every install and uninstall
+(`refreshInstalledPlugins`), so `getHarness` answers for a registry-installed
+plugin the moment the install returns (detect specs, profile validation, argv
+— the whole launch path). Built-in ids always resolve to the compiled copy:
+the seeded directories refresh silently, and a registry package claiming a
+built-in id is warned about once and never loaded. That is also why
+`plugins.route.ts` and `setup.route.ts` read `builtInHarnesses()` for their
+offline-installable catalog region: once the overlay exists, the merged
+`allHarnesses()` answers "what resolves", never "what can this build install".
+The agent never refreshes an overlay: after Task 7 it holds no plugin concept
+at all, so its built-in-only view is structural, not configured. The
+anonymous setup route has NO spec field — built-in ids only, forever (spec
+2026-09-09 §13).
 
 Cross-subshell comms (`subshell mcp`) is registered per harness by the plugin
 itself: `services/mcp-launch.ts:registerSubshellMcp` asks the plugin for its

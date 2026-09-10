@@ -144,14 +144,14 @@ export function readAgentInventory(node: NodeTable, now: number = Date.now()): A
  * itself, which keeps a `reason` or a `checkedAt` meaning the same thing on
  * both sides.
  *
- * An installed plugin this build has no code for (registry-installed, and
- * not one of the compiled-in built-ins) gets NO entry: there is no
- * `HarnessPlugin` to probe through — `getHarness` is the only place binary
- * lookup rules live, and the wire carries no detect data for an id this
- * process cannot resolve. Absent reads as "not found" for gating and as a
- * quiet unknown for the view, which is the honest answer, not a shrug: the
- * launch path has the same boundary (`subshell-manager` builds argv from
- * registry code too).
+ * Since Task 9b the registry overlay resolves installed third-party plugins
+ * too, so every healthy install has a `HarnessPlugin` to probe through. What
+ * still gets NO entry: a plugin the overlay does not hold — broken at the
+ * last refresh, or placed on disk without one — because `getHarness` is the
+ * only place binary lookup rules live. Absent reads as "not found" for
+ * gating and as a quiet unknown for the view, which is the honest answer,
+ * not a shrug: the launch path has the same boundary (`subshell-manager`
+ * builds argv from registry code too).
  * @param installed - the instance catalog to probe (already enabled-filtered;
  * broken entries are skipped — there is no plugin object to ask)
  */
@@ -197,7 +197,7 @@ export async function probeInstalledOnly(installed: readonly PluginReportWire[])
       .filter((r) => !r.broken)
       .flatMap((r) => {
         const h = getHarness(r.id);
-        if (!h) return []; // no code in this build ⇒ no lookup rules ⇒ no entry (see probeLocally)
+        if (!h) return []; // unresolved (broken or since-refresh) ⇒ no lookup rules ⇒ no entry (see probeLocally)
         return [
           (async () => {
             const checkedAt = now.toISOString();
@@ -263,16 +263,18 @@ export async function effectiveHarnessStates(
 /* ------------------------------------------------------------------ */
 
 /**
- * One `detect` spec per plugin THIS BUILD HOLDS, built from the manifest data
- * the pane-runtime adapter attached (`detectSpec`, Task 2/R5) rather than
- * re-reading manifests: the control plane ships the RULE, the node runs the
- * lookup. A plugin with no detect block travels as the empty spec — the node
- * then answers `no-binary` without searching, exactly as `detectFor` reads a
- * manifest with no `detect` block.
+ * One `detect` spec per RESOLVABLE plugin — the merged registry, so an
+ * installed third-party plugin ships its spec exactly like a built-in does
+ * (Task 9b is what makes `allHarnesses()` include it) — built from the
+ * manifest data the pane-runtime adapter attached (`detectSpec`, Task 2/R5)
+ * rather than re-reading manifests: the control plane ships the RULE, the
+ * node runs the lookup. A plugin with no detect block travels as the empty
+ * spec — the node then answers `no-binary` without searching, exactly as
+ * `detectFor` reads a manifest with no `detect` block.
  *
- * The registry is the right source and the whole boundary: a plugin this
- * build has no code for has no lookup rules to ship, and its node rows stay
- * "not detected" rather than guessing.
+ * The registry is the right source and the whole boundary: a plugin the
+ * registry cannot resolve has no lookup rules to ship, and its node rows
+ * stay "not detected" rather than guessing.
  * @param harnesses - the set to build from (test seam; default the registry)
  */
 export function detectSpecs(harnesses: ReturnType<typeof allHarnesses> = allHarnesses()): DetectSpecWire[] {

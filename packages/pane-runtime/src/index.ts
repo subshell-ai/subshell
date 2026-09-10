@@ -57,8 +57,15 @@ export { prepareInstalledPlugins, seedBuiltIns } from "./plugins-seed.js";
 export {
   allHarnesses,
   type BrokenBuiltIn,
+  type BrokenInstalled,
   brokenBuiltIns,
+  brokenInstalledPlugins,
+  builtInHarnesses,
+  clearInstalledPlugins,
+  getBuiltInHarness,
   getHarness,
+  type InstalledRefresh,
+  refreshInstalledPlugins,
   resetRegistryForTests,
 } from "./registry.js";
 export { shellQuote } from "./shell.js";

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { listInstalled } from "@internal/pane-runtime";
+import { getHarness, listInstalled } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
@@ -92,6 +92,48 @@ describe("the control-plane host's plugins", () => {
     await uninstallLocalPlugin("codex");
 
     expect(await uninstallLocalPlugin("codex")).toBe(false);
+  });
+
+  it("prepares the registry overlay at boot, so a hand-placed install RESOLVES", async () => {
+    // Task 9b's boot wiring, stated as the operator-visible fact: dropping a
+    // plugin directory into the store with no API call in between must still
+    // make it launchable after the next start. The overlay is not seeded by
+    // `listInstalled` reads or reports — only `refreshInstalledPlugins`, and
+    // `prepareLocalPlugins` is the boot's caller. `afterAll`'s re-prepare is
+    // what leaves this file's successor suites with a coherent overlay.
+    const dir = join(localPluginsDir(), "acme-boot");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "acme-boot",
+        version: "1.0.0",
+        type: "module",
+        subshell: {
+          apiVersion: 1,
+          id: "acme-boot",
+          type: "agent-harness",
+          name: "Acme Boot",
+          description: "hand-placed",
+          entry: "index.js",
+        },
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "index.js"),
+      "export default () => ({ capabilities: () => [], buildCommand: (i) => [i.binary], validateProfile: () => ({ valid: true }) });\n",
+      "utf8",
+    );
+    expect(getHarness("acme-boot")).toBeUndefined(); // unique id: nothing resolved it yet
+
+    await prepareLocalPlugins();
+    expect(getHarness("acme-boot")).toBeDefined();
+
+    // And the uninstall side of the same wiring: the service call the routes
+    // use re-syncs too, so the launch path loses it as soon as the bytes go.
+    expect(await uninstallLocalPlugin("acme-boot")).toBe(true);
+    expect(getHarness("acme-boot")).toBeUndefined();
   });
 
   /**

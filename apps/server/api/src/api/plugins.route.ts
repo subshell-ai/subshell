@@ -1,4 +1,4 @@
-import { allHarnesses, builtInIds, getHarness, parsePackageSpec } from "@internal/pane-runtime";
+import { builtInHarnesses, builtInIds, getBuiltInHarness, getHarness, parsePackageSpec } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { Elysia, type Static, t } from "elysia";
 import { authGuard, HttpError, requireAdmin } from "@/api/auth-guard.js";
@@ -49,7 +49,11 @@ const PluginRowSchema = t.Object({
   name: t.String({ description: "Display name, from the installed plugin or this build's manifest" }),
   description: t.String({ description: "One-line description" }),
   icon: t.Optional(t.String({ description: "Icon label" })),
-  binary: t.Optional(t.String({ description: "Driven program's command name (this build's plugins only)" })),
+  binary: t.Optional(
+    t.String({
+      description: "Driven program's command name, from the plugin this process resolves (built-in or installed)",
+    }),
+  ),
   version: t.Optional(t.String({ description: "Installed package version (absent when not installed)" })),
   installed: t.Boolean({ description: "Whether the instance store holds this plugin" }),
   enabled: t.Boolean({
@@ -155,6 +159,10 @@ async function readSources(): Promise<CatalogSources> {
  */
 function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | undefined {
   const report = s.installed.find((r) => r.id === id);
+  // `harness` resolves the INSTALLED plugin too (the Task 9b overlay), so it
+  // is the identity source for any row this process can say anything about.
+  // `builtIn` deliberately asks a different, narrower question — see
+  // `getBuiltInHarness`.
   const harness = getHarness(id);
   if (!report && !harness) return undefined;
   const icon = report?.icon ?? harness?.icon;
@@ -167,7 +175,11 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
     ...(report?.version ? { version: report.version } : {}),
     installed: report !== undefined,
     enabled: s.state.get(id) !== false, // an absent row means enabled
-    builtIn: harness !== undefined,
+    // "This build carries the bytes" — the one-click question. Once the
+    // overlay exists, `getHarness` is the wrong test for it: a registry
+    // plugin resolves there too, and offering "install this build's copy"
+    // of a plugin this build does not carry is the lie this splits.
+    builtIn: getBuiltInHarness(id) !== undefined,
     ...(report?.broken ? { broken: report.broken } : {}),
   };
   return row;
@@ -189,11 +201,12 @@ const readRoutes = new Elysia()
     async () => {
       const s = await readSources();
       // The union the instance page needs: everything on disk, plus every
-      // built-in this build could install. `allHarnesses()` here is its ONE
-      // honest use as a catalog (Task 9's call-site audit): it answers "what
-      // can I one-click install", never "what is installed".
+      // built-in this build could install. `builtInHarnesses()` here is the
+      // catalog question (Task 9's call-site audit): "what can I one-click
+      // install", never "what is installed" — which is why it reads the
+      // compiled set rather than the merged one.
       const ids = new Set<string>(s.installed.map((r) => r.id));
-      for (const h of allHarnesses()) ids.add(h.id);
+      for (const h of builtInHarnesses()) ids.add(h.id);
       const plugins = [...ids].sort().flatMap((id) => {
         const row = toRow(id, s);
         return row ? [row] : [];

@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { allHarnesses, builtInIds } from "@internal/pane-runtime";
+import { builtInHarnesses, builtInIds } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { ForbiddenError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
 import { harnessInfo } from "@/api/harness-utils.js";
@@ -163,7 +163,12 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
     async ({ request }) => {
       await requireHarnessAccess(request, false);
       const installed = await installedIdsHere();
-      return await Promise.all(allHarnesses().map(async (h) => await harnessInfo(h.id, installed.has(h.id))));
+      // The built-in catalog, deliberately (Task 9b's call-site audit): the
+      // wizard answers "what can this build install with no network", which
+      // is a question about THIS BINARY, not about the instance store. Its
+      // install verb is built-in-only by construction, so a registry-only
+      // plugin rendered here would offer nothing the wizard could do.
+      return await Promise.all(builtInHarnesses().map(async (h) => await harnessInfo(h.id, installed.has(h.id))));
     },
     {
       response: t.Array(HarnessInfoSchema, { description: "All harness plugins" }),
