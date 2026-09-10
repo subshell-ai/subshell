@@ -141,6 +141,15 @@ with `spec` naming a built-in id):
 4. unknown id → registry, always. Unreachable registry is an error that names
    the URL it tried.
 
+Rules 1–3 read "id in `builtInIds()`", but the id alone is not what decides
+embedded-vs-registry — the spec's own package NAME has to name that same
+built-in too (by id, or by that built-in's `@subshell-ai/plugin-<id>` package
+name), because a caller's `id` and a spec's package name are not the same
+claim. A spec naming a different package is a third-party install even when
+the caller's `id` happens to collide with a built-in — `{id: "claude-code",
+spec: "evil@0.1.0"}` must reach the registry and be refused there, never
+silently install the embedded claude-code under `evil`'s name.
+
 ### 2.6 Update semantics
 
 `subshell plugin update [<id>]`: for each installed plugin WITH an

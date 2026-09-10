@@ -123,6 +123,37 @@ describe("installPlugin", () => {
     expect(await readInstallRecord(dir, "pi")).toBeNull();
   });
 
+  it("a bare built-in PACKAGE NAME with no id also stays offline (spec §2.5 rule 1)", async () => {
+    // The embedded door is a property of the spec's package name, not of the
+    // caller passing an `id` — the scoped name alone must already name pi.
+    const dir = tempDataDir();
+    trapHits = 0;
+    const p = await installPlugin(dir, { spec: "@subshell-ai/plugin-pi", registryUrl: trapBase });
+    expect(p.id).toBe("pi");
+    expect(trapHits).toBe(0);
+    expect(await readInstallRecord(dir, "pi")).toBeNull();
+  });
+
+  it("an `id` naming a built-in does NOT open the embedded door when the spec names a different package", async () => {
+    // Regression: `installPlugin(dir, {id:"pi", spec:"evil@0.1.0"})` used to
+    // install the embedded pi and report success without dialing the
+    // registry, because the facade only ever consulted `opts.id`. The spec's
+    // package name must be consulted too, and a caller-id collision alone
+    // must never open the embedded door.
+    const dir = tempDataDir();
+    const source = await readBuiltIn("pi");
+    if (!source) throw new Error("fixture needs the 'pi' built-in to exist in this build");
+    const embeddedVersion = String((JSON.parse(source.files["package.json"] ?? "{}") as { version: string }).version);
+    packumentHits.length = 0;
+    await expect(
+      installPlugin(dir, { id: "pi", spec: `other-package@${embeddedVersion}`, registryUrl: base }),
+    ).rejects.toThrow(/other-package/);
+    // Reached the registry (never silently answered from the embedded copy),
+    // and refused honestly rather than installing anything under the wrong name.
+    expect(packumentHits).toContain("other-package");
+    expect(await listInstalled(dir)).toEqual([]);
+  });
+
   it("needs an id or a spec", async () => {
     await expect(installPlugin(tempDataDir(), { registryUrl: trapBase })).rejects.toThrow(/id or a spec/);
   });

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:f
 import { dirname, join } from "node:path";
 import { semverLt } from "@internal/subshell-protocol";
 import { parseManifest, type SubshellManifest } from "@subshell-ai/plugin-api";
-import { builtInIds, readBuiltIn } from "./builtin-source.js";
+import { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
 import { DEFAULT_REGISTRY_URL, fetchVerifiedTarball, parsePackageSpec, resolvePackageVersion } from "./npm-registry.js";
 import { createInProcessRuntime } from "./plugin-runtime.js";
@@ -515,12 +515,51 @@ async function installFromRegistry(
 }
 
 /**
+ * The built-in, if any, that a spec's package NAME actually names — either
+ * the name IS a built-in id (`pi`), or it is that built-in's own
+ * package.json name (`@subshell-ai/plugin-pi`). Checked by id first, a plain
+ * set lookup, since that is the form nearly every caller passes; the
+ * package-name search only runs when that misses.
+ *
+ * `builtInIds` lists checkout DIRECTORIES, and a directory whose bytes this
+ * build cannot actually install (no dist) is not a source a version pin could
+ * match against — `readBuiltIn` returning null for one is skipped rather than
+ * unguarded-parsed, so a result this function returns always carries a
+ * readable `source` and callers never re-check it.
+ */
+async function resolveBuiltInFromSpec(name: string): Promise<{ id: string; source: EmbeddedPlugin } | null> {
+  const ids = await builtInIds();
+  if (ids.includes(name)) {
+    const source = await readBuiltIn(name);
+    if (source) return { id: name, source };
+  }
+  for (const id of ids) {
+    if (id === name) continue; // already tried above
+    const source = await readBuiltIn(id);
+    if (!source) continue;
+    const pkgName = (JSON.parse(source.files["package.json"] ?? "{}") as { name?: unknown }).name;
+    if (pkgName === name) return { id, source };
+  }
+  return null;
+}
+
+/**
  * The one install door (spec §2.5's four rules, stated once):
  * - spec absent → embedded `id` (the v1 meaning, unchanged);
- * - spec pins no version and names a built-in id → embedded, no network;
+ * - spec pins no version and names a built-in → embedded, no network;
  * - spec pins the embedded version → embedded (no byte churn);
  * - otherwise → registry, and a pinned version the registry cannot answer is
  *   an ERROR, never a silent fallback.
+ *
+ * "Names a built-in" is a property of the SPEC's package name
+ * (`resolveBuiltInFromSpec`), not of the caller's `id` alone — a caller's `id`
+ * colliding with a built-in does not by itself open the embedded door.
+ * `{id:"pi", spec:"evil@0.1.0"}` must reach the registry and be refused there
+ * (a package named `evil` is not `pi`), never silently install this build's
+ * pi under `evil`'s name and report success; conversely a bare package name
+ * with no `id` at all (`{spec:"@subshell-ai/plugin-pi"}`) still stays
+ * embedded, because the package name alone already names the built-in.
+ *
  * Both hosts call this; the agent's command handler and CLI are thin.
  */
 export async function installPlugin(
@@ -533,19 +572,14 @@ export async function installPlugin(
     return await installEmbedded(dataDir, opts.id);
   }
   const { name, range } = parsePackageSpec(opts.spec);
-  const builtinCandidate = opts.id ?? name;
-  if ((await builtInIds()).includes(builtinCandidate)) {
-    if (range === undefined) return await installEmbedded(dataDir, builtinCandidate);
-    const source = await readBuiltIn(builtinCandidate);
-    // No unguarded parse: `builtInIds` lists checkout DIRECTORIES, and a
-    // directory whose bytes this build cannot actually install (no dist) is
-    // not a source for a version pin to match against. Falling through to the
-    // registry there errors honestly; inventing a mismatch would not.
-    if (source) {
-      const pkgRaw = source.files["package.json"] ?? "{}";
-      const embeddedVersion = String((JSON.parse(pkgRaw) as { version?: unknown }).version ?? "");
-      if (range === embeddedVersion) return await installEmbedded(dataDir, builtinCandidate);
-    }
+  const named = await resolveBuiltInFromSpec(name);
+  const builtinCandidate = named && (opts.id === undefined || opts.id === named.id) ? named : null;
+  if (builtinCandidate) {
+    if (range === undefined) return await installEmbedded(dataDir, builtinCandidate.id);
+    const embeddedVersion = String(
+      (JSON.parse(builtinCandidate.source.files["package.json"] ?? "{}") as { version?: unknown }).version ?? "",
+    );
+    if (range === embeddedVersion) return await installEmbedded(dataDir, builtinCandidate.id);
   }
   return await installFromRegistry(dataDir, opts.spec, opts.id, registryUrl);
 }
