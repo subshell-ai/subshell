@@ -1,12 +1,10 @@
-import { allHarnesses } from "@internal/pane-runtime";
+import { listInstalled } from "@internal/pane-runtime";
 import { sql } from "kysely";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db as appDb } from "@/db/index.js";
-import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { Database } from "@/db/types/index.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { readNodePlugins } from "@/services/nodes/inventory.js";
 import { logger } from "@/utils/logger.js";
 
 /** The typed application database handle every seam passes in. */
@@ -46,27 +44,19 @@ type Db = import("kysely").Kysely<Database>;
 export const DEFAULT_PROFILE_NAME = "Default";
 
 /**
- * Harness plugin ids this host OFFERS — the plugins installed on it.
+ * Harness plugin ids the INSTANCE offers — the ids in its plugins directory.
  *
- * Read from `local`'s own mirrored report, the same source the launch gate
- * uses, so a seeded profile and a launchable harness cannot disagree. It was
- * the `harness_plugins` enable table until phase 2b; there is no enable state
- * any more, and a plugin being installed here is it being offered.
- *
- * Intersected with the registry, because a profile needs plugin CODE this
- * build has: a third-party plugin on this host is offered and launchable, but
- * nothing here can invent a default profile for it. That gap closes when the
- * profile editor is driven by reported data (spec §11).
+ * The directory is the record (spec 2026-09-10 §6): installed is offered,
+ * disabled merely hides (the rows wait it out and return), and a plugin this
+ * build has no code for still gets blank Defaults — a Default needs no
+ * plugin code, and skipping it would strand the install-time seeding done
+ * by `installLocalPlugin` as the only path a third-party harness ever gets
+ * one. Read from disk via `listInstalled` rather than the report builder:
+ * nothing here needs what a loaded plugin can answer, and this module sits
+ * under the install path.
  */
-async function declaredHarnessIds(db: Db): Promise<string[]> {
-  const node = await new NodesRepository(db).findById(LOCAL_NODE_ID);
-  const declared = node ? readNodePlugins(node).entries : new Map();
-  return allHarnesses()
-    .filter((h) => {
-      const entry = declared.get(h.id);
-      return entry !== undefined && !entry.broken;
-    })
-    .map((h) => h.id);
+async function instanceHarnessIds(): Promise<string[]> {
+  return (await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id);
 }
 
 /**
@@ -100,11 +90,10 @@ export async function ensureDefaultProfiles(
   const db = opts.db ?? appDb;
   const profiles = new ProfilesRepository(db);
 
-  // An explicitly targeted harness is honored regardless of the declared-set
-  // filter (`installLocalPlugin` mirrors the report before calling us, but a
-  // plugin can also be passed by id from the users route); the general path is
-  // gated on what this host declares.
-  const harnessIds = opts.harnessId ? [opts.harnessId] : await declaredHarnessIds(db);
+  // An explicitly targeted harness is honored regardless of the store
+  // (install passes the id it just wrote to disk); the general path walks
+  // what the instance store holds.
+  const harnessIds = opts.harnessId ? [opts.harnessId] : await instanceHarnessIds();
   const userIds = opts.userId ? [opts.userId] : await realUserIds(db);
   if (harnessIds.length === 0 || userIds.length === 0) return 0;
 

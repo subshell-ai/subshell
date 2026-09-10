@@ -5,9 +5,7 @@ import { listInstalled } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import {
   installLocalPlugin,
   localPluginReports,
@@ -61,15 +59,6 @@ describe("the control-plane host's plugins", () => {
     expect(one?.broken).toBeUndefined();
   });
 
-  it("mirrors the report into its own node row, in the column an agent's lands in", async () => {
-    await ensureLocalNode(db);
-    await prepareLocalPlugins();
-
-    const row = await new NodesRepository(db).findById(LOCAL_NODE_ID);
-    const mirrored = JSON.parse(String(row?.pluginsJson ?? "[]")) as { id: string }[];
-    expect(mirrored.map((p) => p.id).sort()).toEqual(["claude-code", "codex", "hermes", "opencode", "pi"]);
-  });
-
   it("does not re-seed a host whose plugins the operator removed", async () => {
     // "Offers nothing" has to be reachable here too. Re-seeding on every boot
     // would make an uninstall on this host undo itself, which is the one rule
@@ -83,19 +72,18 @@ describe("the control-plane host's plugins", () => {
     expect(await localPluginReports()).toEqual([]);
   });
 
-  it("installs and uninstalls, refreshing the mirror each time", async () => {
-    await ensureLocalNode(db);
+  it("installs and uninstalls, and the reports track the disk", async () => {
+    // Since the server became the only plugin host (Task 9) there is no
+    // mirror in the node row any more — the instance store IS the record,
+    // read from disk by every consumer.
     await prepareLocalPlugins();
     for (const p of await listInstalled(SUBSHELL_SERVER_DATA_DIR)) await uninstallLocalPlugin(p.id);
 
     await installLocalPlugin("codex");
-    const nodes = new NodesRepository(db);
-    let mirrored = JSON.parse(String((await nodes.findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]")) as { id: string }[];
-    expect(mirrored.map((p) => p.id)).toEqual(["codex"]);
+    expect((await localPluginReports()).map((r) => r.id)).toEqual(["codex"]);
 
     expect(await uninstallLocalPlugin("codex")).toBe(true);
-    mirrored = JSON.parse(String((await nodes.findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]")) as { id: string }[];
-    expect(mirrored).toEqual([]);
+    expect(await localPluginReports()).toEqual([]);
   });
 
   it("reports removing something already absent as a no-op, not a failure", async () => {
@@ -146,32 +134,24 @@ describe("the control-plane host's plugins", () => {
       await deleteUserByEmailOrId(email);
     });
 
-    it("installs a spec, mirrors it into the node row, and seeds profiles", async () => {
-      await ensureLocalNode(db);
+    it("installs a spec into the instance store and seeds profiles", async () => {
       await prepareLocalPlugins();
 
       await installLocalPlugin("third", "third-party@1.0.0", reg.base);
 
       expect((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id)).toContain("third");
       expect((await localPluginReports()).map((r) => r.id)).toContain("third");
-      const mirrored = JSON.parse(
-        String((await new NodesRepository(db).findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]"),
-      ) as {
-        id: string;
-      }[];
-      expect(mirrored.map((p) => p.id)).toContain("third");
       const seeded = await db.selectFrom("profiles").select("userId").where("harnessId", "=", "third").execute();
       expect(seeded.map((r) => r.userId)).toContain(userId);
     });
 
-    it("a spec that fails integrity throws, and the node row is unchanged", async () => {
-      await ensureLocalNode(db);
+    it("a spec that fails integrity throws, and the store is unchanged", async () => {
       await prepareLocalPlugins();
-      const before = String((await new NodesRepository(db).findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]");
+      const before = (await localPluginReports()).map((r) => r.id).sort();
 
       await expect(installLocalPlugin("tampered", "tampered@1.0.0", reg.base)).rejects.toThrow(/integrity/i);
 
-      expect(String((await new NodesRepository(db).findById(LOCAL_NODE_ID))?.pluginsJson ?? "[]")).toBe(before);
+      expect((await localPluginReports()).map((r) => r.id).sort()).toEqual(before);
       expect(existsSync(join(localPluginsDir(), "tampered"))).toBe(false);
     });
   });

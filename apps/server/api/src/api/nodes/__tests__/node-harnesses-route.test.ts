@@ -5,9 +5,9 @@ import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { db } from "@/db/index.js";
-import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
@@ -25,15 +25,16 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
- * Per-node harness state on the node view (inventory-backed for agents, live
- * probe for `local`), `POST /api/nodes/:id/recheck` (signed inventory RPC; 409
- * NODE_OFFLINE / NODE_UNREACHABLE), and `local`'s agreement with
- * `PATCH /api/setup/harnesses/:id` — one store (`harness_plugins`).
+ * Per-node harness state on the node view, `POST /api/nodes/:id/recheck`
+ * (signed inventory + detect RPC; 409 NODE_OFFLINE / NODE_UNREACHABLE), and
+ * the node-page detect kick on GET.
  *
- * The per-node toggle these cases were written around is GONE (spec 2026-09-09
- * §6): an agent offers what it has installed, so there is no enable state to
- * flip. Installing and removing it are here instead, sharing this file's
- * fake-socket harness.
+ * Since Task 9 (spec 2026-09-10) the rows are the INSTANCE catalog crossed
+ * with per-node detection: the node declares nothing and manages nothing
+ * here, which is exactly what these cases now pin. Plugin installation moved
+ * to `/api/plugins` (`__tests__/plugins-route.test.ts`); the per-node route,
+ * its remote command bridge, and this file's fake-socket plugin cases died
+ * with it.
  */
 
 const H0 = "claude-code";
@@ -42,10 +43,10 @@ const H2 = "hermes";
 
 type HarnessEntry = {
   harnessId: string;
-  enabled: boolean;
   installed: boolean;
   version?: string;
   reason?: "not-on-path" | "override-invalid";
+  broken?: string;
   checkedAt?: string;
 };
 type View = {
@@ -89,17 +90,12 @@ describe("/api/nodes harness state + recheck", () => {
   const pw = "node-harness-1";
   const emails = {
     alice: `nh-alice-${crypto.randomUUID()}@subshell.local`,
-    bob: `nh-bob-${crypto.randomUUID()}@subshell.local`,
     carol: `nh-carol-${crypto.randomUUID()}@subshell.local`,
-    out: `nh-out-${crypto.randomUUID()}@subshell.local`,
     admin: `nh-admin-${crypto.randomUUID()}@subshell.local`,
   };
   let aliceId: string;
-  let bobId: string;
   let carolId: string;
-  let outCookie = "";
   let aliceCookie = "";
-  let bobCookie = "";
   let carolCookie = "";
   let adminCookie = "";
   let subshellKey = "";
@@ -119,38 +115,7 @@ describe("/api/nodes harness state + recheck", () => {
       ...(inv ? { inventoryJson: JSON.stringify(inv.json), inventoryAt: inv.at } : {}),
     });
     createdNodeIds.push(id);
-    if (inv) {
-      // An inventory alone offers nothing since phase 2: the node must also
-      // DECLARE the plugin. These fixtures declare whatever they inventory.
-      const ids = inv.json
-        .map((e) => (e as { harnessId?: string }).harnessId)
-        .filter((h): h is string => typeof h === "string");
-      await nodes.recordPluginReport(
-        id,
-        ids.map((h) => ({
-          id: h,
-          name: h,
-          type: "agent-harness",
-          version: "1.0.0",
-          description: "",
-          capabilities: [],
-        })),
-      );
-    }
     return id;
-  }
-
-  /** User ids that already had a profile for `harnessId` (default-seeding audit). */
-  async function _usersWithProfiles(harnessId: string): Promise<Set<string>> {
-    const rows = await db.selectFrom("profiles").select("userId").where("harnessId", "=", harnessId).execute();
-    return new Set(rows.map((r) => r.userId));
-  }
-
-  /** Remove the Default rows the enable-path seeding created for `harnessId`. */
-  async function _cleanupSeeded(harnessId: string, before: Set<string>): Promise<void> {
-    const rows = await db.selectFrom("profiles").select(["id", "userId"]).where("harnessId", "=", harnessId).execute();
-    const ids = rows.filter((r) => !before.has(r.userId)).map((r) => r.id);
-    if (ids.length > 0) await db.deleteFrom("profiles").where("id", "in", ids).execute();
   }
 
   beforeAll(async () => {
@@ -160,27 +125,15 @@ describe("/api/nodes harness state + recheck", () => {
       passwordHash: await hashPassword(pw),
       role: "user",
     });
-    bobId = await new UsersRepository(db).createUser({
-      email: emails.bob,
-      passwordHash: await hashPassword(pw),
-      role: "user",
-    });
     carolId = await new UsersRepository(db).createUser({
       email: emails.carol,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
     aliceCookie = await signIn(emails.alice, pw);
-    bobCookie = await signIn(emails.bob, pw);
     carolCookie = await signIn(emails.carol, pw);
-    await new UsersRepository(db).createUser({
-      email: emails.out,
-      passwordHash: await hashPassword(pw),
-      role: "user",
-    });
-    outCookie = await signIn(emails.out, pw);
-    // `local`'s manage gate resolves to admin, so reaching its plugin path at
-    // all needs one.
+    // `local`'s manage gate resolves to admin, and the disable-the-row case
+    // reads the host view, so the suite needs one.
     await new UsersRepository(db).createUser({
       email: emails.admin,
       passwordHash: await hashPassword(pw),
@@ -228,13 +181,6 @@ describe("/api/nodes harness state + recheck", () => {
     );
   }
 
-  async function _setupEnabled(harnessId: string): Promise<boolean | undefined> {
-    const res = await req("GET", "/api/setup/harnesses", { cookie: aliceCookie });
-    expect(res.status).toBe(200);
-    const list = (await res.json()) as { id: string; enabled: boolean }[];
-    return list.find((h) => h.id === harnessId)?.enabled;
-  }
-
   async function getNodeView(nodeId: string, cookie: string = aliceCookie): Promise<View> {
     const res = await req("GET", `/api/nodes/${nodeId}`, { cookie });
     expect(res.status).toBe(200);
@@ -247,34 +193,44 @@ describe("/api/nodes harness state + recheck", () => {
     return e as HarnessEntry;
   }
 
-  // ── agent node view: inventory-backed harness states ─────────────────────
+  // ── agent node view: instance catalog × cached detection ─────────────────
 
-  it("view: the rows are what the NODE declared, crossed with its inventory", async () => {
+  it("view: the rows are the INSTANCE catalog, crossed with the node's inventory", async () => {
     const id = await mkAgent({ json: [entry(H0, true, "9.9.9"), entry(H1, false)], at: freshAt() });
 
     const view = await getNodeView(id);
     expect(view.inventoryStale).toBe(false);
 
-    // Declared and its binary found.
+    // Detected and its binary found.
     const e0 = harnessOf(view, H0);
     expect(e0.installed).toBe(true);
     expect(e0.version).toBe("9.9.9");
-    // There is no `enabled` on the wire any more (spec 2026-09-09 §12): a row
-    // existing IS the node offering that plugin, so a second field saying so
-    // could only ever disagree with it.
+    // There is no per-node `enabled` on the wire: the instance flag removes
+    // rows entirely when it is off (see the disabled case below), so a second
+    // field could only ever disagree with the row's existence.
     expect("enabled" in e0).toBe(false);
 
-    // Declared, binary absent. Two different facts, deliberately separate: a
-    // node can have the plugin and not the program it drives.
+    // Detected absent. Two different facts, deliberately separate: the
+    // instance has the plugin, and this machine's binary probe found nothing.
     const e1 = harnessOf(view, H1);
     expect(e1.installed).toBe(false);
-    expect("enabled" in e1).toBe(false);
 
-    // Not declared: no row at all, rather than a row saying "off".
-    expect(view.harnesses.find((h) => h.harnessId === H2)).toBeUndefined();
+    // In the instance catalog, never detected HERE: the row exists (the
+    // instance offers the plugin) with installed=false. The node declares
+    // nothing any more — the catalog is the instance's, the answer per row
+    // is the node's.
+    expect(harnessOf(view, H2).installed).toBe(false);
   });
 
-  it("view: inventoryStale is true for an aged AND for a never-reported snapshot", async () => {
+  it("view: a plugin the instance does not carry is absent, not shown broken — even with an inventory row", async () => {
+    // The inversion's visible half on the node page: a stale/foreign
+    // detection entry cannot mint a row.
+    const id = await mkAgent({ json: [entry("ghost-tool", true)], at: freshAt() });
+    const view = await getNodeView(id);
+    expect(view.harnesses.find((h) => h.harnessId === "ghost-tool")).toBeUndefined();
+  });
+
+  it("view: inventoryStale is true for an aged AND for a never-detected snapshot", async () => {
     const aged = await mkAgent({ json: [entry(H0, true, "1.0")], at: staleAt() });
     const v1 = await getNodeView(aged);
     expect(v1.inventoryStale).toBe(true);
@@ -282,13 +238,15 @@ describe("/api/nodes harness state + recheck", () => {
     // strict launch gate (harnessUsable) treats stale as not-installed.
     expect(harnessOf(v1, H0).installed).toBe(true);
 
-    // A node that has never reported has no rows at all. That is the honest
-    // rendering: it has not been asked, which is neither "offers nothing" nor
-    // "offers everything", and inventing rows would assert one of them.
+    // A node that has never been detected still carries every catalog row —
+    // all saying installed=false, flagged stale. The rows state what the
+    // INSTANCE offers; the stale flag states that this machine has not
+    // answered about its binaries yet.
     const never = await mkAgent();
     const v2 = await getNodeView(never);
     expect(v2.inventoryStale).toBe(true);
-    expect(v2.harnesses).toEqual([]);
+    expect(v2.harnesses.length).toBeGreaterThan(0);
+    expect(v2.harnesses.every((h) => h.installed === false)).toBe(true);
   });
 
   // ── POST /api/nodes/:id/recheck ────────────────────────────────────────────
@@ -375,253 +333,42 @@ describe("/api/nodes harness state + recheck", () => {
   }
 
   /* --------------------------------------------------------------- */
-  /* Plugin management (spec 2026-09-09 §6). The node OWNS its set:    */
-  /* the server sends a command and mirrors the answer.                */
+  /* The per-node plugin route is GONE (spec 2026-09-10 Task 9): one   */
+  /* instance store, one door (`/api/plugins`), no per-node install    */
+  /* command to sign, mirror, or audit. These cases pin the death.     */
   /* --------------------------------------------------------------- */
 
-  it("plugin install/uninstall on an OFFLINE node is refused, not queued", async () => {
-    // Deliberately unlike allowed-dirs, which queues and replays on reconnect:
-    // there the control plane owns a security control, so a node running stale
-    // rules must be corrected. Here the node owns the setting, so queueing
-    // would let this page show a plugin the node is not running.
+  it("install/remove on a node's plugin path no longer exists (even for its owner or an admin)", async () => {
     const id = await mkAgent();
-
+    // 404: the route module was deleted with its remote command bridge —
+    // the `plugin_install`/`plugin_uninstall` frames left the protocol at v3,
+    // and the interim cast that still sent them hung 10 s per attempt on
+    // every live node. The instance door is `/api/plugins`.
     const install = await req("POST", `/api/nodes/${id}/plugins`, {
       cookie: aliceCookie,
       body: { pluginId: "claude-code" },
     });
-    expect(install.status).toBe(409);
-    expect(JSON.stringify(await install.json())).toMatch(/offline/i);
-
-    const remove = await req("DELETE", `/api/nodes/${id}/plugins/claude-code`, { cookie: aliceCookie });
-    expect(remove.status).toBe(409);
-  });
-
-  /** Settle one in-flight plugin command with the answer an agent would send. */
-  async function pluginCommandWithAnswer(
-    nodeId: string,
-    fire: () => Promise<Response>,
-    expectType: string,
-    data: unknown,
-  ): Promise<Response> {
-    const sock = fakeSocket();
-    attachConnection(nodeId, sock);
-    try {
-      const resP = fire();
-      await waitFor(() => sock.sent.length > 0, `${expectType} command on the wire`);
-      const frame = JSON.parse(sock.sent[0]) as { jws: string };
-      const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
-        jti: string;
-        cmd: { type: string; id: string };
-      };
-      expect(claims.cmd.type).toBe(expectType);
-      expect(resolveResult(liveConn(nodeId), { type: "result", ref: claims.jti, ok: true, data: data as never })).toBe(
-        true,
-      );
-      return await resP;
-    } finally {
-      resetNodeRegistryForTests();
-    }
-  }
-
-  /** The actions this suite's audit assertions care about, newest last. */
-  async function pluginAuditFor(nodeId: string): Promise<string[]> {
-    const events = await new AuditRepository(db).listLatest(200);
-    return events
-      .filter((e) => e.targetId === nodeId && e.action.startsWith("node.plugin."))
-      .map((e) => e.action)
-      .reverse();
-  }
-
-  it("an accepted install is mirrored from the node's own answer, and audited", async () => {
-    // The node OWNS the set, so the row the server keeps is whatever the node
-    // reported back — not what was asked for.
-    const id = await mkAgent();
-    const res = await pluginCommandWithAnswer(
-      id,
-      () => req("POST", `/api/nodes/${id}/plugins`, { cookie: aliceCookie, body: { pluginId: "claude-code" } }),
-      "plugin_install",
-      {
-        plugins: [
-          {
-            id: "claude-code",
-            name: "Claude Code",
-            type: "agent-harness",
-            version: "1.2.3",
-            description: "",
-            capabilities: [],
-          },
-        ],
-      },
-    );
-    expect(res.status).toBe(200);
-    const view = (await res.json()) as { harnesses: { harnessId: string; version?: string }[] };
-    expect(view.harnesses.map((h) => h.harnessId)).toEqual(["claude-code"]);
-
-    expect(await pluginAuditFor(id)).toEqual(["node.plugin.install"]);
-  });
-
-  it("an accepted uninstall empties the mirror, and is audited too", async () => {
-    const id = await mkAgent();
-    await pluginCommandWithAnswer(
-      id,
-      () => req("POST", `/api/nodes/${id}/plugins`, { cookie: aliceCookie, body: { pluginId: "claude-code" } }),
-      "plugin_install",
-      {
-        plugins: [
-          {
-            id: "claude-code",
-            name: "Claude Code",
-            type: "agent-harness",
-            version: "1",
-            description: "",
-            capabilities: [],
-          },
-        ],
-      },
-    );
-    const res = await pluginCommandWithAnswer(
-      id,
-      () => req("DELETE", `/api/nodes/${id}/plugins/claude-code`, { cookie: aliceCookie }),
-      "plugin_uninstall",
-      { removed: true, plugins: [] },
-    );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { harnesses: unknown[] }).harnesses).toEqual([]);
-    expect(await pluginAuditFor(id)).toEqual(["node.plugin.install", "node.plugin.uninstall"]);
-  });
-
-  it("writes no audit line for a change the node never heard", async () => {
-    // The audit call sits AFTER the node accepts. A line for an offline
-    // refusal would record an install onto a machine that was switched off.
-    const id = await mkAgent();
-    await req("POST", `/api/nodes/${id}/plugins`, { cookie: aliceCookie, body: { pluginId: "claude-code" } });
-    expect(await pluginAuditFor(id)).toEqual([]);
-  });
-
-  it("a spec rides the install command VERBATIM and lands in the audit metadata", async () => {
-    // The signed command is what the node parses, so this layer forwards,
-    // never rewrites: the captured object must equal what the body said.
-    const id = await mkAgent();
-    const spec = "@subshell-ai/plugin-example@1.0.0";
-    const sock = fakeSocket();
-    attachConnection(id, sock);
-    let res: Response;
-    try {
-      const resP = req("POST", `/api/nodes/${id}/plugins`, {
-        cookie: aliceCookie,
-        body: { pluginId: "example", spec },
-      });
-      await waitFor(() => sock.sent.length > 0, "plugin_install on the wire");
-      const frame = JSON.parse(sock.sent[0]) as { jws: string };
-      const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
-        jti: string;
-        cmd: Record<string, unknown>;
-      };
-      expect(claims.cmd).toEqual({ type: "plugin_install", id: "example", spec });
-      expect(resolveResult(liveConn(id), { type: "result", ref: claims.jti, ok: true, data: { plugins: [] } })).toBe(
-        true,
-      );
-      res = await resP;
-    } finally {
-      resetNodeRegistryForTests();
-    }
-    expect(res.status).toBe(200);
-
-    const events = await new AuditRepository(db).listLatest(200);
-    const install = events.find((e) => e.targetId === id && e.action === "node.plugin.install");
-    expect(JSON.parse(String(install?.metadataJson ?? "{}"))).toMatchObject({ pluginId: "example", spec });
-  });
-
-  it("a malformed spec is a 400 naming it, before any node or this host sees it", async () => {
-    // The control-plane host needs no socket, so this also proves the 400
-    // sits in front of BOTH doors rather than being a transport artifact.
-    const local = await req("POST", "/api/nodes/local/plugins", {
-      cookie: adminCookie,
-      body: { pluginId: "codex", spec: "bad@^1" },
-    });
-    expect(local.status).toBe(400);
-    expect(((await local.json()) as { message: string }).message).toContain("^1");
-
-    // And a live agent spends no signed command on a spec this layer rejects.
-    const id = await mkAgent();
-    const sock = fakeSocket();
-    attachConnection(id, sock);
-    try {
-      const res = await req("POST", `/api/nodes/${id}/plugins`, {
-        cookie: aliceCookie,
-        body: { pluginId: "example", spec: "bad@^1" },
-      });
-      expect(res.status).toBe(400);
-      expect(((await res.json()) as { message: string }).message).toContain("^1");
-      expect(sock.sent).toEqual([]);
-    } finally {
-      resetNodeRegistryForTests();
-    }
-  });
-
-  it("plugin management is OWNER-only, not merely configure-capable", async () => {
-    // Any node share, even `view`, already lets a grantee launch there. An
-    // `edit` grantee who could install a plugin would face no restriction at
-    // all, which is why this is gated like the directory allowlist.
-    const id = await mkAgent();
-    await nodeShares.replaceForNode(id, [{ granteeUserId: bobId, permission: "edit" }], aliceId);
-
-    const asEdit = await req("POST", `/api/nodes/${id}/plugins`, {
-      cookie: bobCookie,
-      body: { pluginId: "claude-code" },
-    });
-    expect(asEdit.status).toBe(403);
-
-    // And an invisible node is 404, never 403: ids must not be probeable.
-    const asOutsider = await req("POST", `/api/nodes/${id}/plugins`, {
-      cookie: outCookie,
-      body: { pluginId: "claude-code" },
-    });
-    expect(asOutsider.status).toBe(404);
-  });
-
-  it("plugin management refuses machine credentials and anonymous callers", async () => {
-    const id = await mkAgent();
-    const anon = await req("POST", `/api/nodes/${id}/plugins`, { body: { pluginId: "claude-code" } });
-    expect(anon.status).toBe(401);
-
-    const bearer = await req("POST", `/api/nodes/${id}/plugins`, {
-      bearer: subshellKey,
-      body: { pluginId: "claude-code" },
-    });
-    expect(bearer.status).toBe(403);
-  });
-
-  it("the control-plane host is not managed through this route by a non-admin", async () => {
-    // `local`'s manage gate is admin-only, so an ordinary owner never reaches
-    // the command path at all. What changed in 2b is what an ADMIN gets:
-    // `local` used to be refused outright with a 400, and is now installed to
-    // like any other node (see the case below).
-    const res = await req("POST", "/api/nodes/local/plugins", {
-      cookie: aliceCookie,
-      body: { pluginId: "claude-code" },
-    });
-    expect(res.status).toBe(403);
-  });
-
-  it("an admin installs on the control-plane host through this same route", async () => {
-    // The whole point of 2b: one route, one meaning. `local` runs in this
-    // process so there is no socket and no offline, but every other property
-    // is shared, including that the row afterwards reflects what is on disk.
-    const res = await req("POST", "/api/nodes/local/plugins", {
-      cookie: adminCookie,
-      body: { pluginId: "codex" },
-    });
-    expect(res.status).toBe(200);
-    const view = (await res.json()) as { harnesses: { harnessId: string }[] };
-    expect(view.harnesses.map((h) => h.harnessId)).toContain("codex");
-
-    const gone = await req("DELETE", "/api/nodes/local/plugins/codex", { cookie: adminCookie });
-    expect(gone.status).toBe(200);
+    expect(install.status).toBe(404);
+    expect((await req("DELETE", `/api/nodes/${id}/plugins/claude-code`, { cookie: aliceCookie })).status).toBe(404);
+    // Not even an admin reaches a per-node install any more — `local`'s old
+    // path is gone too, so this is absence, not a moved gate.
     expect(
-      ((await gone.json()) as { harnesses: { harnessId: string }[] }).harnesses.map((h) => h.harnessId),
-    ).not.toContain("codex");
+      (await req("POST", "/api/nodes/local/plugins", { cookie: adminCookie, body: { pluginId: "codex" } })).status,
+    ).toBe(404);
+  });
+
+  it("a disabled instance plugin vanishes from EVERY node view; re-enabling brings the rows back", async () => {
+    // The §6.1 flag is a statement about the catalog, not about a node, so
+    // one write removes the row from the host and from an agent alike.
+    const id = await mkAgent({ json: [entry(H0, true, "1.0")], at: freshAt() });
+    try {
+      await new PluginStateRepository(db).setEnabled(H0, false);
+      expect((await getNodeView(id)).harnesses.find((h) => h.harnessId === H0)).toBeUndefined();
+      expect((await getNodeView("local", adminCookie)).harnesses.find((h) => h.harnessId === H0)).toBeUndefined();
+    } finally {
+      await new PluginStateRepository(db).clear(H0);
+    }
+    expect((await getNodeView(id)).harnesses.find((h) => h.harnessId === H0)).toBeDefined();
   });
 
   it("recheck offline → 409 NODE_OFFLINE", async () => {

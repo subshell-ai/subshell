@@ -6,14 +6,11 @@ import { harnessInfo } from "@/api/harness-utils.js";
 import { HarnessInfoSchema } from "@/api/models.js";
 import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
-import { readNodePlugins } from "@/services/nodes/inventory.js";
-import { installLocalPlugin, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
+import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
 
 const SetupStatusSchema = t.Object({
   needsSetup: t.Boolean({ description: "True until the first user is registered" }),
@@ -21,16 +18,16 @@ const SetupStatusSchema = t.Object({
 });
 
 /**
- * The plugin ids installed on this host, from `local`'s own mirrored report.
+ * The plugin ids installed on this INSTANCE, read from the instance store —
+ * which since Task 9 IS the record (there is no per-node mirror to consult).
  *
  * Was the `harness_plugins` enable table until phase 2b, and the wizard's
  * question changed with it: not "which of these do you want on" but "which of
- * these do you want installed".
+ * these do you want installed". Broken plugins count as installed: the bytes
+ * are there, and hiding the row would hide the reason with them.
  */
 async function installedIdsHere(): Promise<Set<string>> {
-  const node = await new NodesRepository(db).findById(LOCAL_NODE_ID);
-  const declared = node ? readNodePlugins(node).entries : new Map<string, { broken?: string }>();
-  return new Set([...declared.entries()].filter(([, e]) => !e.broken).map(([id]) => id));
+  return new Set((await localPluginReports()).filter((r) => !r.broken).map((r) => r.id));
 }
 
 /** Counts `user_meta` rows — the instance's "a user exists" truth. */

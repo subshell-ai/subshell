@@ -208,6 +208,22 @@ export class SubshellsRepository extends BaseRepository {
     return this.db.selectFrom("subshells").selectAll().where("status", "=", "running").execute();
   }
 
+  /**
+   * How many RUNNING subshells of one harness the instance holds (the
+   * uninstall impact read — "1 has a running subshell"). Instance-wide like
+   * {@link listRunning}: the blast radius of an instance uninstall spans
+   * every user. Terminated rows never count.
+   */
+  async countRunningByHarness(harnessId: string): Promise<number> {
+    const row = await this.db
+      .selectFrom("subshells")
+      .select((eb) => eb.fn.countAll<number>().as("count"))
+      .where("status", "=", "running")
+      .where("harnessId", "=", harnessId)
+      .executeTakeFirstOrThrow();
+    return Number(row.count);
+  }
+
   /** Marks all running subshells for a user as terminated (e.g. tmux gone). */
   async markAllTerminated(userId: string, now: string): Promise<void> {
     await this.db

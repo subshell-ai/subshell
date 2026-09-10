@@ -6,6 +6,7 @@ import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { type NodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
+import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
 import { localPlatform } from "@/services/nodes/seed-local.js";
 
 /**
@@ -13,12 +14,13 @@ import { localPlatform } from "@/services/nodes/seed-local.js";
  * rendering layer behind list/detail so the two never drift.
  *
  * `harnesses` is the merge in `services/nodes/inventory.ts →
- * effectiveHarnessStates`: one row per plugin the node DECLARED, crossed with
- * a probe of its binary — live for `local`, the cached inventory for an agent
- * (false until the first one lands). There is no enable state to resolve; a
- * plugin being installed is it being offered.
- * Staleness is a PER-NODE flag (`inventoryStale`) — the inventory ages as a
- * unit, so tagging individual entries would only repeat the same boolean
+ * effectiveHarnessStates`: one row per plugin the INSTANCE has installed and
+ * enabled, crossed with that node's binary detection — live for `local`, the
+ * cached inventory for an agent (false until the first detection lands). The
+ * node declares nothing any more (spec 2026-09-10); the instance store is the
+ * single catalog behind every node's rows.
+ * Staleness is a PER-NODE flag (`inventoryStale`) — a cached detection ages
+ * as a unit, so tagging individual entries would only repeat the same boolean
  * across every row; a stale node still reports its last-known `installed`
  * values (the view is informational — the launch gate is the strict one).
  */
@@ -50,13 +52,13 @@ export const NodeHarnessViewSchema = t.Object({
   broken: t.Optional(
     t.String({
       description:
-        "Why the node cannot use this plugin (it failed to load there). Present means the row is shown so a reader can see the reason, not that the plugin is absent",
+        "Why the plugin cannot be used at all (it failed to load in the control-plane process — an instance fact, true for every node). Present means the row is shown so a reader can see the reason, not that the plugin is absent",
     }),
   ),
   restartRequired: t.Optional(
     t.Boolean({
       description:
-        "The node installed a newer copy of this plugin than the code it is running, so its capabilities and settings here are the previous copy's. Note this is NOT about `version` on this row, which is the driven program's version and is unaffected. Cleared when that agent restarts",
+        "The instance holds a newer copy of this plugin than the code the control-plane process is running, so the plugin-derived fields here are the previous copy's. Note this is NOT about `version` on this row, which is the driven program's version and is unaffected. Cleared when the server restarts",
     }),
   ),
   checkedAt: t.Optional(
@@ -117,7 +119,8 @@ export const NodeViewSchema = t.Object({
       "Directories subshells may be created in on this node. EMPTY MEANS UNRESTRICTED, never 'nothing permitted'. Readable by anyone who can see the node; a refused directory is unexplainable without it; only the owner may change it",
   }),
   harnesses: t.Array(NodeHarnessViewSchema, {
-    description: "One row per plugin the node declared (an agent), or per registered harness (`local`)",
+    description:
+      "One row per plugin the INSTANCE has installed and enabled, crossed with this node's binary detection (spec 2026-09-10: the node declares nothing; the instance store is the catalog)",
   }),
   inventoryStale: InventoryStaleSchema,
 });
@@ -224,29 +227,33 @@ export async function toNodeView(row: NodeTable, access: NodeViewableAccess, isA
 }
 
 /**
- * Render rows already paired with the viewer's access + admin flag. The local
- * node's install-probe report is computed at most once per call (a list is
- * local + N agents — one probe batch, not one per row).
+ * Render rows already paired with the viewer's access + admin flag. The
+ * instance catalog is read once and the local node's live probe is computed
+ * at most once per call (a list is local + N agents — one probe batch and one
+ * disk pass, not one per row).
  */
 export async function toNodeViews(
   entries: { row: NodeTable; access: NodeViewableAccess; isAdmin: boolean }[],
 ): Promise<NodeView[]> {
   let localReport: EffectiveHarnessReport | undefined;
   const out: NodeView[] = [];
+  // ONE read of the instance store for every row — rows differ per node only
+  // in their detection half, so a list must not pay the disk pass per row.
+  const installed = await enabledInstalledPlugins();
   // ONE query for every row's rules, not one per row — the same batching the
-  // local install probe gets above, for the same reason.
+  // catalog read above gets, for the same reason.
   const dirsBy = await new NodeAllowedDirsRepository(db).listForNodes(entries.map((e) => e.row.id));
   for (const { row, access, isAdmin } of entries) {
     const allowedDirs = dirsBy.get(row.id) ?? [];
     if (row.kind === "local") {
-      localReport ??= await effectiveHarnessStates(row);
+      localReport ??= await effectiveHarnessStates(row, installed);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs),
         harnesses: localReport.harnesses,
         inventoryStale: localReport.stale,
       });
     } else {
-      const { harnesses, stale } = await effectiveHarnessStates(row);
+      const { harnesses, stale } = await effectiveHarnessStates(row, installed);
       out.push({ ...nodeViewBase(row, access, isAdmin, allowedDirs), harnesses, inventoryStale: stale });
     }
   }

@@ -76,4 +76,38 @@ export class ProfilesRepository extends BaseRepository {
   async delete(id: string): Promise<void> {
     await this.db.deleteFrom("profiles").where("id", "=", id).execute();
   }
+
+  /**
+   * Every user's profiles for one harness (the uninstall impact read). The
+   * instance-level plugins door reaches across owners because an instance
+   * uninstall reaches across owners — `listByUser` cannot answer that.
+   */
+  async listByHarness(harnessId: string): Promise<ProfileTable[]> {
+    return this.db
+      .selectFrom("profiles")
+      .selectAll()
+      .where("harnessId", "=", harnessId)
+      .orderBy("userId")
+      .orderBy("name")
+      .execute();
+  }
+
+  /**
+   * Deletes every profile for one harness, across EVERY user, INCLUDING
+   * auto-seeded Defaults, and returns how many rows went.
+   *
+   * **The `isDefault === 1` refusal on `DELETE /api/profiles/:id` is
+   * deliberately NOT consulted here.** The guard protects a Default whose
+   * harness still exists — a user should not be stranded without a launch
+   * path they cannot rebuild from the UI. A Default for a harness the
+   * instance has just uninstalled IS that stranded row: meaningless, and
+   * leaving it would be the one profile its owner cannot remove. This method
+   * exists ONLY for `uninstall?mode=delete` (spec 2026-09-10 §6.1); no other
+   * caller may use the bypass.
+   */
+  async deleteByHarness(harnessId: string): Promise<number> {
+    const res = await this.db.deleteFrom("profiles").where("harnessId", "=", harnessId).executeTakeFirst();
+    const counts = res as unknown as { numDeletedRows?: number | bigint };
+    return Number(counts.numDeletedRows ?? 0);
+  }
 }

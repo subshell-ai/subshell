@@ -25,6 +25,7 @@ import * as localNodeNameMigration from "@/db/migrations/0022-local-node-name.js
 import * as nodePluginsMigration from "@/db/migrations/0023-node-plugins.js";
 import * as dropNodeHarnessesMigration from "@/db/migrations/0024-drop-node-harnesses.js";
 import * as dropHarnessPluginsMigration from "@/db/migrations/0025-drop-harness-plugins.js";
+import * as pluginStateMigration from "@/db/migrations/0026-plugin-state.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -61,6 +62,9 @@ export async function runMigrations(): Promise<void> {
           "0023-node-plugins": nodePluginsMigration,
           "0024-drop-node-harnesses": dropNodeHarnessesMigration,
           "0025-drop-harness-plugins": dropHarnessPluginsMigration,
+          // CREATE half (Task 9): the instance `enabled` flag. Task 10 adds
+          // the DROP half (the per-node mirror) to this same unreleased file.
+          "0026-plugin-state": pluginStateMigration,
         };
       },
     },

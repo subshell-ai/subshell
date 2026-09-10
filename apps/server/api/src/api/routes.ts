@@ -10,6 +10,7 @@ import { liveRoutes } from "@/api/live.route.js";
 import { metaRoutes } from "@/api/meta.route.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { notificationsRoutes } from "@/api/notifications.route.js";
+import { pluginsRoutes } from "@/api/plugins.route.js";
 import { profileRoutes } from "@/api/profiles.route.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { instancePublicRoutes } from "@/api/settings-public.route.js";
@@ -41,6 +42,7 @@ import { wsTokenRoutes } from "@/api/ws-token.route.js";
 const coreRoutes = new Elysia()
   .use(settingsRoutes)
   .use(setupRoutes)
+  .use(pluginsRoutes)
   .use(metaRoutes)
   .use(usersRoutes)
   .use(auditRoutes)

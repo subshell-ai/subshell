@@ -173,14 +173,15 @@ export const profileRoutes = new Elysia({ prefix: "/api/profiles" })
   .get(
     "/harness-ids",
     async () => {
-      return { ids: getAllHarnessIds() };
+      return { ids: await getAllHarnessIds() };
     },
     {
-      response: t.Object({ ids: t.Array(t.String()) }),
+      response: t.Object({ ids: t.Array(t.String({ description: "Harness plugin id the instance offers" })) }),
       detail: {
         operationId: "listHarnessIds",
         tags: ["profiles"],
-        description: "All known harness plugin ids",
+        description:
+          "The harness plugin ids this instance offers (installed and enabled — not the compiled-in catalog)",
       },
     },
   )

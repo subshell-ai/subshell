@@ -100,16 +100,23 @@ and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
 every enrolled node.
 
-The plugin routes (`api/nodes/set-node-plugin.route.ts`) carry a registry
-`spec` since phase 3: the server forwards it VERBATIM inside the signed
-`plugin_install` (no second parser here), `local` installs in-process through
-pane-runtime's `installPlugin` facade — a failed local install returns 409
-with the pane-runtime message verbatim, and a malformed spec is a 400 before
-any command is sent — and the URL `local` fetches from is
+Plugins live on the control plane now (spec 2026-09-10): the per-node
+`set-node-plugin` route, `plugin-sync.ts` and the signed `plugin_install` /
+`plugin_uninstall` commands are GONE — Task 10 drops the `nodes.plugins_json`
+mirror they left behind. The instance door is `api/plugins.route.ts`
+(`/api/plugins`: list for any authenticated actor; install / enable / impact /
+uninstall are cookie-admin, since installing runs third-party code in the
+process that holds the node signing keypair). A registry `spec` still installs
+VERBATIM — malformed spec is a 400 before any fetch, a failed install a 409
+carrying the pane-runtime message — and the URL fetched from is
 `SUBSHELL_PLUGIN_REGISTRY_URL` (constants.ts, same SETDEFAULT ladder as every
 other server setting; `subshell-server status` prints it as
-`plugin registry = <url>`). The anonymous setup route has NO spec field —
-built-in ids only, forever (spec 2026-09-09 §13).
+`plugin registry = <url>`; the route's `setPluginsRegistryUrlForTests` seam is
+test-only by construction). `<dataDir>/plugins/` is the one installed set:
+"usable" is (instance installed ∧ `plugin_state.enabled` — absent row =
+enabled) × (that node's detection found the binary), computed once in
+`api/harness-utils.ts` for every node alike. The anonymous setup route has NO
+spec field — built-in ids only, forever (spec 2026-09-09 §13).
 
 Cross-subshell comms (`subshell mcp`) is registered per harness by the plugin
 itself: `services/mcp-launch.ts:registerSubshellMcp` asks the plugin for its

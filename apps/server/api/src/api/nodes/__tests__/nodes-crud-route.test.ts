@@ -33,7 +33,8 @@ type View = {
   access: string;
   canManage: boolean;
   capabilities: string[];
-  harnesses: { harnessId: string; enabled: boolean; installed: boolean; version?: string }[];
+  harnesses: { harnessId: string; installed: boolean; version?: string }[];
+  inventoryStale: boolean;
   shares?: unknown[];
 };
 
@@ -216,11 +217,17 @@ describe("/api/nodes registry CRUD", () => {
     expect(seen?.kind).toBe("agent");
     expect(seen?.capabilities).toEqual([]);
     expect(Array.isArray(seen?.harnesses)).toBe(true);
-    // Empty, and correctly so: this node has never reported a plugin set, and
-    // since phase 2 the rows come from the node's own declaration rather than
-    // from the registry this server was built with.
-    expect(seen?.harnesses).toEqual([]);
-    expect(seen?.harnesses.every((h) => typeof h.harnessId === "string" && typeof h.enabled === "boolean")).toBe(true);
+    // One row per plugin the INSTANCE has installed and enabled (Task 9: the
+    // node declares nothing). This node has never been detected, so every row
+    // says installed=false and the view carries the stale flag — the honest
+    // "not asked yet", not an empty list that would mean the instance has no
+    // plugins.
+    expect(seen?.harnesses.length).toBeGreaterThan(0);
+    expect(seen?.harnesses.every((h) => h.installed === false)).toBe(true);
+    expect(seen?.inventoryStale).toBe(true);
+    expect(seen?.harnesses.every((h) => typeof h.harnessId === "string" && typeof h.installed === "boolean")).toBe(
+      true,
+    );
     expect(aliceNodes.some((n) => n.id === theirs.id)).toBe(false);
     // The seeded local node is visible to everyone (Everyone/edit share).
     expect(aliceNodes.some((n) => n.id === "local")).toBe(true);

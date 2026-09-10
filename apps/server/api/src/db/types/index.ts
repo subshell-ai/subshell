@@ -10,6 +10,7 @@ import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NotificationSubscriptionTable } from "@/db/types/notification-subscriptions.db-types.js";
+import type { PluginStateTable } from "@/db/types/plugin-state.db-types.js";
 import type { ProfileTable } from "@/db/types/profiles.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
@@ -28,6 +29,7 @@ export interface Database {
   authAttempts: AuthAttemptsTable;
   auditEvents: AuditEventsTable;
   profiles: ProfileTable;
+  pluginState: PluginStateTable;
   subshells: SubshellTable;
   subshellShares: SubshellShareTable;
   nodes: NodeTable;

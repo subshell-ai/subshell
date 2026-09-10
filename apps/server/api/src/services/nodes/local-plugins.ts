@@ -9,63 +9,74 @@ import {
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { ensureDefaultProfilesForHarness } from "@/services/default-profiles.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
- * The control-plane host's own plugins, kept exactly like any other node's.
+ * The instance's plugins — `<SUBSHELL_SERVER_DATA_DIR>/plugins/` is the ONE
+ * plugin store (spec 2026-09-10 §6).
  *
- * `local` used to be the exception: an enable table on this side, a plugins
- * directory on every other. That is what made `effectiveHarnessStates` two
- * functions sharing a name, and what made "this host offers X" mean two
- * different things depending on which host. It is a directory here too now,
- * read and written by the same `@internal/pane-runtime` code an agent runs
- * (spec 2026-09-09 §11).
+ * Every harness plugin the instance has lives here, installed and loaded by
+ * THIS process, and it is what every node runs: the node holds no plugin code
+ * any more, so "is X offered" has exactly one answer for the whole instance.
+ * The former per-node stores (an agent's own directory, and `local`'s mirror
+ * in its node row) are gone — the transport difference between this host and
+ * an agent is down to WHERE the binary is looked up, not who owns the plugin.
  *
- * **What stays different is the transport, not the model.** An agent is sent a
- * signed command over a socket; `local` runs in THIS process, so it is a
- * function call. There is nothing to sign (this server asking itself) and
- * nothing to be offline. Every other property is shared, which is the point.
+ * The machinery is `@internal/pane-runtime`'s — the same installer, registry
+ * client, integrity check and report builder an agent used to run, so the
+ * phase-3 code survived the move as written and only its location changed.
  */
 
-/** Absolute path of this host's plugins directory. */
+/** Absolute path of the instance's plugins directory. */
 export function localPluginsDir(): string {
   return pluginsDir(SUBSHELL_SERVER_DATA_DIR);
 }
 
-/** This host's plugin reports, in the shape an agent sends. */
+/**
+ * The instance's installed plugins, in the report shape (id-sorted, one row
+ * per plugin on disk, `broken` carried for any that will not load).
+ *
+ * Reads the DISK, which is the record itself now — there is no mirror in a
+ * node row to be a second opinion. The load per call is module-cached by the
+ * runtime, so after the first read this is directory stats plus accessor
+ * calls, not imports.
+ */
 export async function localPluginReports(): Promise<PluginReportWire[]> {
   return await buildPluginReports(SUBSHELL_SERVER_DATA_DIR);
 }
 
 /**
- * Writes this host's report into its own node row.
+ * What the gate and the node views iterate: the installed set MINUS anything
+ * an operator has explicitly disabled (spec §6.1).
  *
- * The same column an agent's report lands in, so one reader serves both and
- * the view has no branch to get wrong.
+ * An absent `plugin_state` row means enabled, so installing writes nothing
+ * and a plugin this table never heard of is offered. Broken plugins pass this
+ * filter — they are installed, and the page has to be able to say WHY they
+ * are not usable; the usability predicates refuse them.
  */
-export async function recordLocalReport(): Promise<void> {
-  await new NodesRepository(db).recordPluginReport(LOCAL_NODE_ID, await localPluginReports());
+export async function enabledInstalledPlugins(): Promise<PluginReportWire[]> {
+  const state = await new PluginStateRepository(db).stateByPluginId();
+  const reports = await localPluginReports();
+  return reports.filter((r) => state.get(r.id) !== false);
 }
 
 /**
- * Installs a plugin on this host, refreshes the mirror, and seeds profiles.
+ * Installs a plugin into the instance store, then seeds profiles.
  *
- * The profile seeding is inherited from the enable toggle this replaced, and
- * it is not decoration: a user who has never made a profile for a harness
- * cannot launch it, so a freshly installed plugin would appear in the picker
- * and then have nothing to pick. Best-effort, exactly as it was there — the
- * install has already happened, and an optional insert failing must not turn
- * it into an error.
+ * The profile seeding is not decoration: a user who has never made a profile
+ * for a harness cannot launch it, so a freshly installed plugin would appear
+ * in the picker and then have nothing to pick. Best-effort — the install has
+ * already happened, and an optional insert failing must not turn it into an
+ * error.
  *
- * Phase 3 opened this same door to the registry: with a `spec` the bytes come
+ * Phase 3's registry door is kept as written: with a `spec` the bytes come
  * from an npm registry, verified against the digest THAT registry announced,
  * and every §2.5 rule (embedded-first, no silent fallback, load-check before
- * swap) lives inside `installPlugin`. Without a spec it is the embedded copy,
- * byte-identically to the `installEmbedded` call this replaced. Throws the
- * package's own errors; the caller decides what status a refusal means.
+ * swap) lives inside `installPlugin`. Without a spec it is the embedded copy.
+ * Throws the package's own errors; the caller decides what status a refusal
+ * means.
  * @param registryUrl - a test seam only; production resolves the configured
  * `SUBSHELL_PLUGIN_REGISTRY_URL` (the agent's own registry lives in its
  * config.json, which this process must not read)
@@ -76,33 +87,28 @@ export async function installLocalPlugin(
   registryUrl: string = SUBSHELL_PLUGIN_REGISTRY_URL,
 ): Promise<void> {
   await installPlugin(SUBSHELL_SERVER_DATA_DIR, { id: pluginId, spec, registryUrl });
-  await recordLocalReport();
   await ensureDefaultProfilesForHarness(db, pluginId).catch((err: unknown) => {
     getLogger().withError(err).warn(`default-profile seeding failed after installing "${pluginId}"`);
   });
 }
 
 /**
- * Removes a plugin from this host and refreshes the mirror.
+ * Removes a plugin from the instance store (bytes only — profiles are a
+ * route-level decision, see `plugins.route.ts`).
  * @returns true when something was removed, false when it was already absent
  */
 export async function uninstallLocalPlugin(pluginId: string): Promise<boolean> {
   const removed = await uninstallPlugin(SUBSHELL_SERVER_DATA_DIR, pluginId);
-  await recordLocalReport();
+  if (removed) await new PluginStateRepository(db).clear(pluginId);
   return removed;
 }
 
 /**
- * Boot: bring this host's plugins directory to a usable state and mirror it.
+ * Boot: bring the instance's plugins directory to a usable state.
  *
  * The sequence itself is `prepareInstalledPlugins`, shared with the agent
  * daemon so there is one definition of it rather than two orders behind one
  * "same as the daemon" claim. Each of its steps is guarded there.
- *
- * The MIRROR is written unconditionally afterwards, and that is the part that
- * must not be skipped: `nodes.plugins_json` is what the launch gate, the
- * profile listing and the node page all read, so leaving it unwritten makes a
- * host with plugins on disk report that it offers nothing.
  */
 export async function prepareLocalPlugins(): Promise<void> {
   // Route the package's output through this app's logger before it says
@@ -113,6 +119,5 @@ export async function prepareLocalPlugins(): Promise<void> {
     warn: (m, err) => (err === undefined ? getLogger().warn(m) : getLogger().withError(err).warn(m)),
   });
   await prepareInstalledPlugins(SUBSHELL_SERVER_DATA_DIR);
-  await recordLocalReport();
   getLogger().info(`plugins: ${localPluginsDir()}`);
 }

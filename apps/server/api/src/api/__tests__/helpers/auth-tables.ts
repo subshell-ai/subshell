@@ -104,14 +104,14 @@ export function deleteUserByEmailOrId(emailOrId: string): Promise<unknown> {
 }
 
 /**
- * Gives the control-plane host its built-in plugins, as boot does.
+ * Gives the INSTANCE its built-in plugins, as boot does.
  *
- * Since phase 2b `local` offers what it has INSTALLED, and both the launch
- * gate and the profile listing read that. Production writes it in `index.ts`
- * right after `ensureLocalNode`, so {@link setupAuthTables} calls this too:
- * a suite that skipped it saw every harness unavailable and every profile
- * filtered out, which is correct behaviour for a host with no plugins and
- * almost never the state a test means to be in.
+ * Since Task 9 the server's own plugins directory is the one catalog the
+ * launch gate, the node views and the profile listing all read. Production
+ * writes it in `index.ts`, so {@link setupAuthTables} calls this too: a suite
+ * that skipped it saw every harness unavailable and every profile filtered
+ * out, which is correct behaviour for an instance with no plugins and almost
+ * never the state a test means to be in.
  *
  * Idempotent and cheap after the first call. The data dir is per PROCESS and
  * suites share it, so the seed short-circuits on its completion marker from

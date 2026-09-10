@@ -14,24 +14,33 @@ import {
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
 
 /**
- * Node harness-state resolution (spec 2026-08-31 §6.2) — the single merge of
- * the two per-node stores:
+ * Per-node harness-state resolution, post-inversion (spec 2026-09-10).
  *
- * - **offered** — the node's own plugin report (`nodes.plugins_json`), for
- *   `local` and for an agent alike: a plugin it has installed is offered, and
- *   there is no enable flag anywhere to consult.
- * - **installed/version** — the cached agent inventory (`nodes.inventory_json`
- *   captured by the `/ws/node` handler) or the live process probe for local.
+ * There is ONE plugin store — the instance's own directory — and ONE rule: a
+ * harness exists for a node when the INSTANCE has the plugin (installed and
+ * enabled, `local-plugins.ts`), and whether it RUNS there is that node's
+ * detection answer. The two halves come from different places per node, and
+ * that is the only remaining difference between `local` and an agent:
  *
- * Two consumers, deliberately two strictnesses: the VIEW (this module's
- * {@link effectiveHarnessStates}) is informational — a stale snapshot still
+ * | | catalog (what rows exist) | detection (is the binary there) |
+ * |---|---|---|
+ * | `local` | the instance store | LIVE probe, run here |
+ * | agent | the instance store | the cached `detect` answer |
+ *
+ * The `node.kind` branch inside the usability GATE is gone with the per-node
+ * plugin set it branched on (`nodes.plugins_json` — Task 10 drops the column;
+ * nothing reads it after this module stopped).
+ *
+ * Two consumers, deliberately two strictnesses: the VIEW
+ * ({@link effectiveHarnessStates}) is informational — a stale snapshot still
  * reports its values, flagged per node via `stale`; the LAUNCH GATE
- * (`harnessUsable` in `api/harness-utils.ts`) is strict — only a fresh
- * (≤ {@link INVENTORY_TTL_MS}) snapshot that says installed counts.
+ * (`harnessUsable` / `usableHarnessIds` in `api/harness-utils.ts`) is strict —
+ * only a fresh (≤ {@link INVENTORY_TTL_MS}) answer that says installed counts.
  */
 
 /** Inventory age beyond which the cache is no longer trusted for gating (spec §6.2). */
@@ -41,16 +50,18 @@ export const INVENTORY_TTL_MS = 10 * 60 * 1000;
 export interface EffectiveHarnessState {
   /** Harness plugin id */
   harnessId: string;
-  /** local: live binary probe; agent: cached inventory (false until the first inventory lands) */
+  /** local: live binary probe; agent: cached inventory (false until the first detection lands) */
   installed: boolean;
-  /** Version from the inventory (agent nodes only — the local view skips the `--version` probe) */
+  /** Version from the detection (agent nodes only — the local view skips nothing: the probe answers it) */
   version?: string;
   /** Why the binary was not found, when it was not. Absent when installed, and when no probe has run. */
   reason?: DetectionReason;
   /** ISO 8601 stamp of when this entry was probed. Absent when no probe has run. */
   checkedAt?: string;
   /**
-   * Why the node cannot use this plugin, when it cannot.
+   * Why the plugin cannot be used at all, when it cannot — an INSTANCE fact
+   * now: the plugin failed to load in the control-plane process, so it is
+   * unusable on every node alike.
    *
    * Carried all the way to the view because the whole reason a broken plugin
    * keeps a ROW is so a page can say why. Dropping it here made the row render
@@ -58,13 +69,14 @@ export interface EffectiveHarnessState {
    */
   broken?: string;
   /**
-   * The node holds a newer copy of the plugin than the code it is running.
+   * The instance holds a newer copy of the plugin than the code THIS process
+   * is running.
    *
    * Everything this row reports that came from the PLUGIN (its capabilities,
    * its settings schema, and `broken`) is then the previous copy's answer.
    * `version` on this row is a different fact and is unaffected: it is the
    * driven program's version, from the binary probe. The remedy is a restart
-   * of that agent, so the state has to reach a screen an operator looks at.
+   * of the SERVER, so the state has to reach a screen an operator looks at.
    */
   restartRequired?: boolean;
 }
@@ -72,18 +84,17 @@ export interface EffectiveHarnessState {
 /** The full per-node harness picture plus the freshness verdict on its source. */
 export interface EffectiveHarnessReport {
   /**
-   * The rows for this node.
-   *
-   * One entry per plugin the node DECLARED, which is not the same set as the
-   * registry compiled into this server: a node can offer a plugin this build
-   * never heard of, and a plugin this build ships that the node did not
-   * install has no row. `local` is no exception to either half.
+   * The rows for this node: one per plugin the INSTANCE has installed and
+   * enabled. Not per plugin this node's cache happens to mention (a ghost
+   * entry is inert), and not including a disabled plugin — disabling removes
+   * the row everywhere, which is the whole point of the flag (§6.1).
    */
   harnesses: EffectiveHarnessState[];
   /**
-   * Agent nodes: true when the cached inventory is older than the TTL **or has
-   * never landed** — the reported `installed` values are the best available,
-   * not necessarily true. local: always false (the probe is live per read).
+   * Agent nodes: true when the cached detection is older than the TTL **or
+   * has never landed** — the reported `installed` values are the best
+   * available, not necessarily true. local: always false (the probe is live
+   * per read).
    */
   stale: boolean;
 }
@@ -125,76 +136,113 @@ export function readAgentInventory(node: NodeTable, now: number = Date.now()): A
   return { entries, fresh, stale: !fresh };
 }
 
-/** Parsed `nodes.plugins_json`: what the node said it has installed. */
-export interface NodePluginSet {
-  /** `pluginId → report`, in the order the node listed them */
-  entries: Map<string, PluginReportWire>;
-  /** True when the node has never reported, which is NOT "offers nothing" */
-  neverReported: boolean;
+/**
+ * The control-plane host's own binary probe, shaped like an agent's inventory.
+ *
+ * Live rather than cached, so `stale` is never true for it: this process can
+ * simply look. `scanOne` is the same function an agent used to run against
+ * itself, which keeps a `reason` or a `checkedAt` meaning the same thing on
+ * both sides.
+ *
+ * An installed plugin this build has no code for (registry-installed, and
+ * not one of the compiled-in built-ins) gets NO entry: there is no
+ * `HarnessPlugin` to probe through — `getHarness` is the only place binary
+ * lookup rules live, and the wire carries no detect data for an id this
+ * process cannot resolve. Absent reads as "not found" for gating and as a
+ * quiet unknown for the view, which is the honest answer, not a shrug: the
+ * launch path has the same boundary (`subshell-manager` builds argv from
+ * registry code too).
+ * @param installed - the instance catalog to probe (already enabled-filtered;
+ * broken entries are skipped — there is no plugin object to ask)
+ */
+export async function probeLocally(installed: readonly PluginReportWire[]): Promise<AgentInventory> {
+  // One clock for the batch: entries probed together should not drift by
+  // milliseconds in the reader's eyes.
+  const now = new Date();
+  const wanted = installed.filter((r) => !r.broken);
+  // Each `scanOne` walks the lookup ladder and spawns `<binary> --version`, so
+  // probing the whole compiled registry in sequence made every `GET
+  // /api/nodes` pay the sum of five subprocess latencies. Only what the
+  // instance actually has, and concurrently.
+  const probed = await Promise.all(
+    wanted.flatMap((r) => {
+      const h = getHarness(r.id);
+      return h ? [[r.id, scanOne(h, now)] as const] : [];
+    }),
+  );
+  const entries = new Map<string, HarnessInventoryEntry>();
+  for (const [id, p] of probed) entries.set(id, await p);
+  // `fresh` is the gate's view and `stale` the reader's; a live probe is both
+  // as fresh as it can be and never stale.
+  return { entries, fresh: true, stale: false };
 }
 
 /**
- * Parse one node row's reported plugin set.
+ * The gate's shallow probe: resolve each plugin's binary, skip the
+ * `<binary> --version` spawn.
  *
- * Pure, like {@link readAgentInventory}, so the view and the launch gate share
- * one parser and one idea of what a junk payload means.
- *
- * `neverReported` is the distinction that matters: a node that has never
- * connected reports nothing at all (the exact-match gate admits no older
- * agent, so this is only ever "not yet dialed"), and rendering that as "this
- * node offers no plugins" would be a confident lie about a machine that simply
- * has not been asked.
+ * The launch gate asks exactly one question per plugin — is the program
+ * there — and {@link probeLocally}'s `versionAt` call pays a full subprocess
+ * (seconds for a Node CLI) for a version the gate then throws away. This is
+ * the same `detect()` resolution `isInstalled()` ran behind the old gate,
+ * kept from regressing the auto-restart sweeps; the VIEW still wants the
+ * version, so it keeps `probeLocally`.
+ * @param installed - the (enabled, unfiltered-by-broken) instance catalog
  */
-export function readNodePlugins(node: NodeTable): NodePluginSet {
-  const entries = new Map<string, PluginReportWire>();
-  if (!node.pluginsJson) return { entries, neverReported: true };
-  try {
-    const parsed: unknown = JSON.parse(node.pluginsJson);
-    if (Array.isArray(parsed)) {
-      for (const e of parsed) {
-        const entry = e as Partial<PluginReportWire>;
-        if (typeof entry?.id === "string") entries.set(entry.id, entry as PluginReportWire);
-      }
-    }
-  } catch {
-    // Junk reads as an empty report rather than a throw, same as the inventory
-    // parser. A node that reported garbage HAS reported.
-  }
-  return { entries, neverReported: false };
+export async function probeInstalledOnly(installed: readonly PluginReportWire[]): Promise<AgentInventory> {
+  const now = new Date();
+  const entries = new Map<string, HarnessInventoryEntry>();
+  await Promise.all(
+    installed
+      .filter((r) => !r.broken)
+      .flatMap((r) => {
+        const h = getHarness(r.id);
+        if (!h) return []; // no code in this build ⇒ no lookup rules ⇒ no entry (see probeLocally)
+        return [
+          (async () => {
+            const checkedAt = now.toISOString();
+            try {
+              const found = await h.detect();
+              if (found.path === null) {
+                entries.set(r.id, { harnessId: r.id, installed: false, reason: found.reason, checkedAt });
+              } else {
+                entries.set(r.id, { harnessId: r.id, installed: true, binaryPath: found.path, checkedAt });
+              }
+            } catch {
+              // Same containment as `scanOne`: a throwing probe reads as
+              // unknown-but-absent, and reports no reason because there
+              // is not one.
+              entries.set(r.id, { harnessId: r.id, installed: false, checkedAt });
+            }
+          })(),
+        ];
+      }),
+  );
+  return { entries, fresh: true, stale: false };
 }
-
-// NOTE (ledger 17b): the strict agent launch gate that used to live here as
-// `agentInventoryInstalled` is now the ONE predicate `agentHarnessUsable` in
-// `api/harness-utils.ts` (gate rule deduped with the batch path there).
 
 /**
  * Effective harness states for one node — the merge behind `NodeView.harnesses`.
  *
- * ONE path for both kinds, which it was not until phase 2b. Every row is
- * (the node DECLARED this plugin) × (a probe of its binary), and the only
- * things that differ by kind are where each half comes from:
- *
- * | | declared set | probe | `stale` |
- * |---|---|---|---|
- * | `local` | its own report, mirrored into its row at boot and on every change | LIVE, run here | never |
- * | agent | the report it sent | the inventory it sent | past the TTL |
- *
- * `local` used to be the other thing entirely: the registry compiled into
- * this server crossed with a `harness_plugins` table only it had. That is
- * what made "this host offers X" mean two different things depending on the
- * host, and it is why there is no `enabled` here any more. A plugin being
- * installed IS it being offered, everywhere.
+ * ONE rule for every node, which is the whole shape of the inversion: rows
+ * come from the instance catalog, the binary answer comes from the node.
  * @param node - the node row to resolve for
+ * @param installed - the instance catalog, pre-read (list rendering passes
+ * the same array down every row so the disk is read once per request; a
+ * single-node caller may omit it and this reads the store itself)
  */
-export async function effectiveHarnessStates(node: NodeTable): Promise<EffectiveHarnessReport> {
-  const declared = readNodePlugins(node);
-  const probe = node.kind === "local" ? await probeLocally(declared) : readAgentInventory(node);
+export async function effectiveHarnessStates(
+  node: NodeTable,
+  installed?: readonly PluginReportWire[],
+): Promise<EffectiveHarnessReport> {
+  const catalog = installed ? [...installed] : await enabledInstalledPlugins();
+  const probe = node.kind === "local" ? await probeLocally(catalog) : readAgentInventory(node);
 
-  const harnesses = [...declared.entries.values()].map((report) => {
-    // Two different facts, deliberately kept apart: the node has the PLUGIN
-    // installed (it is in this list at all), and the plugin's BINARY was
-    // detected there. A node can have the claude-code plugin and no `claude`
-    // on its PATH.
+  const harnesses = catalog.map((report) => {
+    // Two different facts, deliberately kept apart: the INSTANCE has the
+    // PLUGIN (it is in this list at all), and the node's detection found its
+    // BINARY there. A machine can face the claude-code plugin and have no
+    // `claude` on its PATH.
     const entry = probe.entries.get(report.id);
     const state: EffectiveHarnessState = {
       harnessId: report.id,
@@ -210,44 +258,21 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
   return { harnesses, stale: probe.stale };
 }
 
-/**
- * The control-plane host's own binary probe, shaped like an agent's inventory.
- *
- * Live rather than cached, so `stale` is never true for it: this process can
- * simply look. `scanOne` is the same function an agent runs, which is what
- * keeps a `reason` or a `checkedAt` meaning the same thing on both sides.
- */
-async function probeLocally(declared: NodePluginSet): Promise<AgentInventory> {
-  // One clock for the batch: entries probed together should not drift by
-  // milliseconds in the reader's eyes.
-  const now = new Date();
-  // Only what the host DECLARED, and concurrently. Each `scanOne` walks the
-  // lookup ladder and spawns `<binary> --version`, so probing the whole
-  // compiled registry in sequence made every `GET /api/nodes` pay the sum of
-  // five subprocess latencies, including for plugins whose results were then
-  // discarded because the host does not offer them.
-  const wanted = allHarnesses().filter((h) => declared.entries.has(h.id));
-  const probed = await Promise.all(wanted.map(async (h) => [h.id, await scanOne(h, now)] as const));
-  // `fresh` is the gate's view and `stale` the reader's; a live probe is both
-  // as fresh as it can be and never stale.
-  return { entries: new Map<string, HarnessInventoryEntry>(probed), fresh: true, stale: false };
-}
-
 /* ------------------------------------------------------------------ */
 /* the detect driver (spec 2026-09-10 §4)                               */
 /* ------------------------------------------------------------------ */
 
 /**
  * One `detect` spec per plugin THIS BUILD HOLDS, built from the manifest data
- * the pane-runtime adapter attached (`detectSpec`, Task 2) rather than
+ * the pane-runtime adapter attached (`detectSpec`, Task 2/R5) rather than
  * re-reading manifests: the control plane ships the RULE, the node runs the
  * lookup. A plugin with no detect block travels as the empty spec — the node
  * then answers `no-binary` without searching, exactly as `detectFor` reads a
  * manifest with no `detect` block.
  *
- * Not intersected with what the node declared: after the inversion the node
- * has no plugin concept, and extra rows in the cached inventory are inert
- * (`effectiveHarnessStates` iterates the declared set, the gate keys by id).
+ * The registry is the right source and the whole boundary: a plugin this
+ * build has no code for has no lookup rules to ship, and its node rows stay
+ * "not detected" rather than guessing.
  * @param harnesses - the set to build from (test seam; default the registry)
  */
 export function detectSpecs(harnesses: ReturnType<typeof allHarnesses> = allHarnesses()): DetectSpecWire[] {
@@ -302,9 +327,9 @@ function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventor
  * the node probes and answers RAW, the raw text is parsed HERE with the
  * plugin's `parseVersion`, and the result is merged over the cached snapshot
  * and written through the SAME `applyInventory` path the inventory event uses.
- * Rows the answer does not cover keep their cached values — a third-party
- * plugin only the node's own inventory reports must survive a detect built
- * from this server's registry.
+ * Rows the answer does not cover keep their cached values — a ghost id only a
+ * previous scan reported must survive a detect built from this server's
+ * registry until something drops it.
  *
  * **Called from exactly three places: the node page load (best-effort),
  * Re-check, and the launch-driven kick in `RemoteLauncher.#kickDetect` (a
