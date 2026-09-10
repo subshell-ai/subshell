@@ -7,6 +7,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { sendCommand } from "@/services/nodes/node-rpc.js";
 import { detectOnNode, detectSpecs, INVENTORY_TTL_MS, readAgentInventory } from "../inventory.js";
+import { handleNodeMessage, type NodeWsDeps, type NodeWsSocket } from "../node-ws-handler.js";
 
 /**
  * The `detect` driver (spec 2026-09-10 §4): the control plane ships the
@@ -184,6 +185,72 @@ describe("detectOnNode", () => {
     expect(
       readAgentInventory((await nodes.findById(node.id)) as NodeTable).entries.get("third-party-tool")?.version,
     ).toBe("Tool v3 (weird)");
+  });
+
+  /**
+   * H2 (Task 7, inversion §4/§6): the detection rows are the plane's cache,
+   * and a plugin-less agent's periodic `inventory` EVENT must not wipe them.
+   * After the demolition the agent fills the v2-required `harnesses` array
+   * with `[]` on the connect push and every 5-min beat; the handler treats
+   * an empty claim as "don't touch". This goes through the REAL repository,
+   * because the property under test is precisely that the column survives.
+   */
+  it("a plugin-less agent's periodic inventory push (harnesses: []) does NOT wipe the detect cache", async () => {
+    const node = await mkAgent();
+    await detectOnNode(node.id, {
+      send: fakeSend(
+        { results: [{ harnessId: "hermes", installed: true, binaryPath: "/x/hermes", rawVersion: "Hermes v1.2.3" }] },
+        [],
+      ),
+    });
+    const before = (await nodes.findById(node.id)) as NodeTable;
+    expect(before.inventoryJson).toContain("hermes");
+
+    const ws = {
+      data: { nodeId: node.id },
+      send: () => 0,
+      close: () => {},
+    } as unknown as NodeWsSocket;
+    const deps = {
+      verifyApiKey: async () => null,
+      nodes: new NodesRepository(db),
+      resolveResult: () => false,
+      requestInventory: () => {},
+    } as unknown as NodeWsDeps;
+
+    await handleNodeMessage(
+      deps,
+      ws,
+      JSON.stringify({ type: "inventory", harnesses: [], ts: new Date().toISOString() }),
+    );
+    const after = (await nodes.findById(node.id)) as NodeTable;
+    expect(after.inventoryJson).toBe(before.inventoryJson); // the cached rows survive VERBATIM
+    expect(after.inventoryAt).toBe(before.inventoryAt); // ...and so does the stamp: no write happened at all
+    const cached = readAgentInventory(after);
+    expect(cached.entries.get("hermes")?.version).toBe("1.2.3"); // parsed by the plugin, still there
+    expect(cached.fresh).toBe(true); // the cache is still a claim the launch gate can trust
+  });
+
+  it("a NON-empty harness list (a paired pre-inversion agent's real scan) still applies wholesale", async () => {
+    // The guard is a no-claim rule, not a freeze: an agent from before the
+    // demolition reports an honest scan, and that scan is still the snapshot.
+    const node = await mkAgent();
+    const ws = {
+      data: { nodeId: node.id },
+      send: () => 0,
+      close: () => {},
+    } as unknown as NodeWsSocket;
+    const deps = {
+      verifyApiKey: async () => null,
+      nodes: new NodesRepository(db),
+      resolveResult: () => false,
+      requestInventory: () => {},
+    } as unknown as NodeWsDeps;
+    const harnesses = [{ harnessId: "claude-code", installed: true, version: "9.9.9" }];
+    await handleNodeMessage(deps, ws, JSON.stringify({ type: "inventory", harnesses, ts: new Date().toISOString() }));
+    const cached = readAgentInventory((await nodes.findById(node.id)) as NodeTable);
+    expect(cached.entries.get("claude-code")?.version).toBe("9.9.9");
+    expect(cached.fresh).toBe(true);
   });
 
   it("local is never sent a detect: its view probes live", async () => {

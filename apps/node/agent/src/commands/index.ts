@@ -7,8 +7,6 @@ import {
   execKill,
   execPaneSize,
   execPathExists,
-  execPluginInstall,
-  execPluginUninstall,
   execProbe,
   execRemovePaths,
   execResize,
@@ -36,6 +34,13 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * inversion spec §4). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
+ *
+ * `plugin_install` and `plugin_uninstall` CENSUS note (inversion §6): the node
+ * holds no plugins anymore, so their handlers are gone; the v2 protocol still
+ * PARSES the two command shapes (the wire removal is Task 8), so dispatch
+ * answers them `unsupported` through the default arm. Pinned by a test in
+ * `__tests__/commands-basics.test.ts` — this arm is load-bearing for exactly
+ * these two types until the schema drops them.
  *
  * TOTAL by construction: the whole switch is wrapped once, so no executor
  * throw — not even the meta store's bad-id throw — escapes. The daemon stays
@@ -86,10 +91,6 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execTailStop(ctx, cmd);
       case "remove_paths":
         return await execRemovePaths(ctx, cmd);
-      case "plugin_install":
-        return await execPluginInstall(ctx, cmd);
-      case "plugin_uninstall":
-        return await execPluginUninstall(ctx, cmd);
       case "set_allowed_dirs":
         return await execSetAllowedDirs(ctx, cmd);
       case "write_file":

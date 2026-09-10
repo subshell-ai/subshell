@@ -149,7 +149,11 @@ async function startDaemon(
     nodeId: NODE_ID,
     nodeKey: NODE_KEY,
     controlPublicKey: JSON.stringify(keys.publicJwk),
-    dataDir: "/tmp/subshell-test-data",
+    // Fresh per harness: the daemon no longer seeds or reads a plugin set
+    // (inversion §6), and a shared /tmp path could carry one installed by a
+    // pre-inversion run — which the ready frame's env report would then
+    // (honestly, but nondeterministically) surface.
+    dataDir: mkdtempSync(join(tmpdir(), "subshell-daemon-")),
     name: "test-node",
   };
   const exits: number[] = [];
@@ -340,16 +344,14 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
     executablePath: process.execPath,
     // Spec 2026-09-10 §5: the environment the control plane computes resume
     // paths against. The home is always reported; the env carries ONLY values
-    // the installed plugins' manifests declared (this daemon seeds the
-    // built-ins, so the union is claude-code's single `CLAUDE_CONFIG_DIR`).
+    // the manifests DECLARE. The node holds no plugins anymore (inversion §6)
+    // and this data dir never had any, so the honest report declares nothing.
     homeDir: homedir(),
   });
   const os = (ready as Extract<NodeEvent, { type: "ready" }>).os;
   expect(["linux", "darwin", "unknown"]).toContain(os);
   const reportedEnv = (ready as Extract<NodeEvent, { type: "ready" }>).env;
-  expect(reportedEnv).toEqual(
-    process.env.CLAUDE_CONFIG_DIR === undefined ? {} : { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
-  );
+  expect(reportedEnv ?? {}).toEqual({});
   expect(h.plane.unparsed).toEqual([]); // every frame so far satisfies the backend's parser
 });
 
@@ -410,8 +412,12 @@ test("inventory command: inventory EVENT first, then result ok; harness list wel
   expect(types.indexOf("result", invIdx)).toBeGreaterThan(invIdx); // event-then-result ordering
   expect(count(h, (e) => e.type === "inventory")).toBe(2); // connect push + command answer
   const inv = h.plane.events[invIdx] as Extract<NodeEvent, { type: "inventory" }>;
-  expect(Array.isArray(inv.harnesses)).toBe(true);
-  expect(inv.harnesses.length).toBeGreaterThan(0);
+  // Post-inversion (spec §6): the event carries no harness scan — the shape
+  // the v2 validator requires with the honest empty content, and NO plugins
+  // field at all. The server-side guard that treats empty as "nothing to
+  // apply" is pinned by the server's node-ws-handler tests.
+  expect(inv.harnesses).toEqual([]);
+  expect("plugins" in inv).toBe(false);
   expect(typeof inv.ts).toBe("string");
   expect(result).toMatchObject({ ref: jti, ok: true });
 });
@@ -890,8 +896,7 @@ test("connect pushes an inventory snapshot AFTER subshells_report: a fresh node 
     const types = eventTypes(h);
     expect(types.indexOf("subshells_report")).toBeGreaterThan(types.indexOf("ready"));
     expect(types.indexOf("inventory")).toBeGreaterThan(types.indexOf("subshells_report"));
-    expect(Array.isArray(inv.harnesses)).toBe(true);
-    expect(inv.harnesses.length).toBeGreaterThan(0); // same builder the `inventory` command answers with
+    expect(inv.harnesses).toEqual([]); // same builder the `inventory` command answers with
     expect(typeof inv.ts).toBe("string");
     expect(h.plane.unparsed).toEqual([]);
   } finally {

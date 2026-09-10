@@ -1,13 +1,6 @@
 import { existsSync } from "node:fs";
 import { realpath, stat, unlink } from "node:fs/promises";
-import {
-  buildPluginReports,
-  detectBinary,
-  installPlugin,
-  probeVersion,
-  tmuxSocketFor,
-  uninstallPlugin,
-} from "@internal/pane-runtime";
+import { detectBinary, probeVersion, tmuxSocketFor } from "@internal/pane-runtime";
 import {
   type DetectResultWire,
   type JsonValue,
@@ -15,8 +8,7 @@ import {
   type NodeProbeEntry,
 } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
-import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
-import { log } from "../log.js";
+import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
@@ -263,11 +255,13 @@ export async function execRemovePaths(ctx: CommandContext, cmd: Cmd<"remove_path
 /**
  * `inventory` (spec §3.3/§7): EVENT FIRST (the server persists from it),
  * result second — moved verbatim from the phase-1 daemon dispatch, with the
- * send routed through `ctx.ws`.
+ * send routed through `ctx.ws`. After the inversion (spec §6) the event
+ * carries no harness scan and no plugin set: this node holds neither, and
+ * detection answers come from the plane's own `detect` command instead.
  */
 export async function execInventory(ctx: CommandContext): Promise<CommandResult> {
   try {
-    ctx.ws.send(await buildInventoryEvent(ctx.nowMs(), undefined, ctx.config.dataDir));
+    ctx.ws.send(await buildInventoryEvent(ctx.nowMs()));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `inventory: ${err instanceof Error ? err.message : String(err)}` };
@@ -309,78 +303,4 @@ export async function execDetect(_ctx: CommandContext, cmd: Cmd<"detect">): Prom
   // No checkedAt: the probe happened just now, and the driver stamps the
   // store's clock — one time source for "when did we last look".
   return { ok: true, data: { results } };
-}
-
-/**
- * Re-probes and pushes an inventory after the installed set changed.
- *
- * The memo is dropped first: it exists to coalesce the several inventories
- * that land together on a connection, and reusing a probe from before the
- * change is exactly the staleness it must not cause here.
- *
- * Best-effort. The install itself already succeeded, so a failed push must not
- * turn it into an error the operator sees; the next cadence tick corrects it.
- */
-async function pushInventory(ctx: CommandContext): Promise<void> {
-  try {
-    resetInventoryScanCache();
-    ctx.ws.send(await buildInventoryEvent(ctx.nowMs(), undefined, ctx.config.dataDir));
-  } catch (err) {
-    log(`could not push an inventory after a plugin change: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-/**
- * `plugin_install`: install a plugin and answer with this node's
- * fresh set.
- *
- * The answer carries the whole set rather than the one plugin, because the
- * control plane MIRRORS what the node reports and a partial answer would leave
- * it guessing at the rest. The command names a registry source when `spec` is
- * present and the embedded copy otherwise, but this handler makes NO source
- * decision: the spec 2026-09-09 §2.5 embedded-first rules live inside
- * `installPlugin`, and the handler forwards the three fields (id, spec, and
- * the operator's `registryUrl` mirror — absent means the default registry,
- * never a refusal).
- *
- * It also pushes a fresh inventory, and that is not a nicety: the probe covers
- * the plugins that are INSTALLED, so a plugin installed a moment ago has no
- * row in the last one. Without this the node page would show the new plugin
- * as "program not found" for up to the inventory cadence, on a machine where
- * the program is sitting on the PATH.
- */
-export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_install">): Promise<CommandResult> {
-  try {
-    await installPlugin(ctx.config.dataDir, { id: cmd.id, spec: cmd.spec, registryUrl: ctx.config.registryUrl });
-    const plugins = await buildPluginReports(ctx.config.dataDir);
-    await pushInventory(ctx);
-    // The one moment where the restriction is actionable. The control plane
-    // renders the same fact, but an operator who upgraded from a terminal is
-    // reading this log, not that page.
-    if (plugins.find((p) => p.id === cmd.id)?.restartRequired) {
-      log(`installed plugin '${cmd.id}', but this agent keeps running the copy it loaded; restart it to pick it up`);
-    }
-    return { ok: true, data: { plugins } };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
- * `plugin_uninstall`: remove a plugin and answer with the set
- * that remains.
- *
- * Removing something already absent is a SUCCESS, not an error: the caller
- * asked for a state, and that state holds. Answering otherwise would make a
- * retry after a dropped connection look like a failure.
- */
-export async function execPluginUninstall(ctx: CommandContext, cmd: Cmd<"plugin_uninstall">): Promise<CommandResult> {
-  try {
-    const removed = await uninstallPlugin(ctx.config.dataDir, cmd.id);
-    const plugins = await buildPluginReports(ctx.config.dataDir);
-    await pushInventory(ctx);
-    return { ok: true, data: { removed, plugins } };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
 }

@@ -292,7 +292,18 @@ describe("handleNodeMessageQueued (P1-T10: per-socket serialization)", () => {
     const ws = fakeSocket("n1");
 
     const p1 = handleNodeMessageQueued(h.deps, ws, JSON.stringify({ type: "heartbeat", ts: "now" }));
-    const p2 = handleNodeMessageQueued(h.deps, ws, JSON.stringify({ type: "inventory", harnesses: [], ts: "now" }));
+    const p2 = handleNodeMessageQueued(
+      h.deps,
+      ws,
+      JSON.stringify({
+        type: "inventory",
+        // Non-empty on purpose: the Task 7 guard skips EMPTY harness arrays
+        // (a plugin-less agent's filler claim); this test is about frame
+        // ORDERING, so it must present a claim the handler will act on.
+        harnesses: [{ harnessId: "hermes", installed: true }],
+        ts: "now",
+      }),
+    );
     await flush();
 
     // The inventory frame arrived second but its applyInventory must NOT have
@@ -313,7 +324,18 @@ describe("handleNodeMessageQueued (P1-T10: per-socket serialization)", () => {
     const ws = fakeSocket("n1");
 
     const p1 = handleNodeMessageQueued(h.deps, ws, JSON.stringify(readyFrame()));
-    const p2 = handleNodeMessageQueued(h.deps, ws, JSON.stringify({ type: "inventory", harnesses: [], ts: "now" }));
+    const p2 = handleNodeMessageQueued(
+      h.deps,
+      ws,
+      JSON.stringify({
+        type: "inventory",
+        // Non-empty on purpose: the Task 7 guard skips EMPTY harness arrays
+        // (a plugin-less agent's filler claim); this test is about frame
+        // ORDERING, so it must present a claim the handler will act on.
+        harnesses: [{ harnessId: "hermes", installed: true }],
+        ts: "now",
+      }),
+    );
 
     await expect(p1).rejects.toBe(boom);
     await expect(p2).resolves.toBeUndefined();

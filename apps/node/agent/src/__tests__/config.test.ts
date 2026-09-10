@@ -65,33 +65,21 @@ test("a hand-edited empty/blank nodeWsUrl is junk → absent, so resolveWsUrl de
 });
 
 /**
- * Phase 3's registry mirror key. `loadConfig` rebuilds the object field by
- * field, so a field it does not carry is silently dropped on the way to the
- * daemon; this pin is what stops `configure --registry-url` from writing a
- * value only `status` would ever see.
+ * The phase-3 registry mirror key is DEAD (inversion spec 2026-09-10 §6: the
+ * node installs nothing), but configs written before its removal still carry
+ * it. `loadConfig` rebuilds the object field by field, so the key is dropped
+ * on the way to the daemon and the next `configure` rewrite scrubs it from
+ * disk — an old config must load as exactly the shape this code understands,
+ * junk keys included.
  */
-test("registryUrl round-trips when present; an old config loads without it", async () => {
+test("a stale registryUrl key is inert: loadConfig drops it, the loaded shape is exactly AgentConfig", async () => {
   newHome();
-  const pinned = { ...sample, registryUrl: "http://mirror.internal:4873" };
-  await saveConfig(pinned);
-  expect(await loadConfig()).toEqual(pinned);
-  // Pre-phase-3 config on disk: tolerated, and the daemon falls back to the default registry.
-  writeFileSync(configPath(), JSON.stringify(sample));
-  const old = await loadConfig();
-  expect(old.registryUrl).toBeUndefined();
-  expect(old).toEqual(sample);
-});
-
-test("a hand-edited empty/blank registryUrl is junk → absent, so installs use the default registry", async () => {
-  newHome();
-  // Same junk-tolerance class as nodeWsUrl: `""` can only be a hand-edit, and
-  // a registry client pointed at "" would produce an unexplainable fetch URL.
-  writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: "" }));
-  expect((await loadConfig()).registryUrl).toBeUndefined();
-  writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: "   " }));
-  expect((await loadConfig()).registryUrl).toBeUndefined();
-  writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: 42 }));
-  expect((await loadConfig()).registryUrl).toBeUndefined();
+  for (const junk of ["http://mirror.internal:4873", "", "   ", 42]) {
+    writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: junk }));
+    const loaded = await loadConfig();
+    expect("registryUrl" in loaded).toBe(false);
+    expect(loaded).toEqual(sample);
+  }
 });
 
 test("loadConfig throws an actionable error when no config exists", async () => {

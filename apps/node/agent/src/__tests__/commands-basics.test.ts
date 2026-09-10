@@ -378,7 +378,32 @@ describe("command executors (spec §7)", () => {
   // `launch` flipped to the real executor in Task 4 (see
   // commands-launch.test.ts); `write_file` flipped in Task 6 (see
   // commands-write-file.test.ts). The `default: unsupported` arm is the
-  // contract answer for any FUTURE unknown type — no pin test needed.
+  // contract answer for any FUTURE unknown type — with ONE present-tense
+  // exception, pinned immediately below.
+  it("plugin_install / plugin_uninstall answer unsupported: handlers gone, v2 wire still parses them (inversion census)", async () => {
+    // Task 7 demolished the node's plugin concept, so the handlers are gone.
+    // The protocol still PARSES both command shapes until Task 8 removes them
+    // from the schema, and the dispatch switch must be TOTAL over everything
+    // the parser accepts — the contract arm is `unsupported`, and nothing may
+    // quietly re-grow a plugin concept behind this pin.
+    const { ctx, tmux } = makeCtx(
+      {
+        run: () => {
+          throw new Error("must not reach tmux");
+        },
+      },
+      [],
+    );
+    expect(await dispatchCommand(ctx, { type: "plugin_install", id: "claude-code" })).toEqual({
+      ok: false,
+      error: "unsupported",
+    });
+    expect(await dispatchCommand(ctx, { type: "plugin_uninstall", id: "claude-code" })).toEqual({
+      ok: false,
+      error: "unsupported",
+    });
+    expect(tmux.calls).toEqual([]);
+  });
 });
 
 describe("detect (inversion spec §4)", () => {

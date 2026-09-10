@@ -1,119 +1,26 @@
-import { join } from "node:path";
-import {
-  adaptPlugin,
-  buildPluginReports,
-  createInProcessRuntime,
-  type HarnessInventoryEntry,
-  listInstalled,
-  pluginsDir,
-  scanOne,
-} from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
 
 /** The `inventory` event shape (spec §3.3) — what the backend's `applyInventory` persists. */
 export type InventoryEvent = Extract<NodeEvent, { type: "inventory" }>;
 
 /**
- * Window in which a fresh probe is REUSED instead of re-running
- * {@link scanHarnesses}. Three beats can land close together on every
- * connection — the connect push, the backend's §5.3 pull answering `ready`
- * (a command a second later), and the 5-min cadence — and each full probe
- * PATH-walks every harness plus a `<binary> --version` subprocess per
- * installed one. Harness state does not move on that timescale, so the scan
- * is coalesced while the EVENT is not: every caller still stamps its own `ts`
- * and the backend still persists per arrival (fresh `inventoryAt`). A manual
- * Re-check inside the window therefore returns what was just computed —
- * exactly what it would display anyway.
- */
-export const INVENTORY_SCAN_MEMO_MS = 10_000;
-
-let memo: { expiresAt: number; promise: Promise<HarnessInventoryEntry[]> } | null = null;
-
-/** Shared scan with in-flight coalescing; a failed scan is never memoized. */
-function scanCoalesced(nowMs: number, scan: () => Promise<HarnessInventoryEntry[]>): Promise<HarnessInventoryEntry[]> {
-  if (memo && nowMs < memo.expiresAt) return memo.promise;
-  const promise = scan();
-  promise.catch(() => {
-    // Un-memoize on failure (only if WE are still the memo — a newer scan may
-    // already have replaced it while this one was rejecting).
-    if (memo?.promise === promise) memo = null;
-  });
-  memo = { expiresAt: nowMs + INVENTORY_SCAN_MEMO_MS, promise };
-  return promise;
-}
-
-/**
- * Drops the scan memo, so the next build re-probes.
+ * Build the `inventory` event. After the inversion (spec 2026-09-10 §6) the
+ * node holds no plugin concept, so there is nothing left to scan: the event
+ * is protocol filler it still owes the v2 wire.
  *
- * NOT test-only, despite where it started. Every plugin change calls it
- * (`pushInventory` in `commands/basics.ts`): the memo exists to coalesce the
- * several inventories that land together on a connection, and reusing one
- * across an install is exactly the staleness it must not cause. Clearing it is
- * part of the plugin-change contract, not a test affordance.
- *
- * Tests also use it, for the ordinary reason: a suite that stubs the probe
- * per-case must not inherit a previous one.
+ * `harnesses: []` is the shape the v2 validator requires (the array itself is
+ * non-optional; Task 8 moves the field off the wire), NOT a claim that no
+ * harness binary exists here. The server is told so: its `inventory` handler
+ * treats an EMPTY array as "nothing to apply" and never overwrites the
+ * detection rows the plane itself collected via the `detect` command (inversion
+ * §4) — pinned by `apps/server/api/src/services/nodes/__tests__/
+ * node-ws-handler.test.ts`. The honest facts this machine still offers —
+ * binary presence and version text — travel as `detect` ANSWERS, built from
+ * the plane's own plugin rules, and the pane census travels as
+ * `subshells_report`. The old scan memo that used to live here coalesced
+ * PATH walks over installed plugins; with no scan there is nothing to
+ * coalesce, and the periodic cadence (daemon.ts) now costs a constant.
  */
-export function resetInventoryScanCache(): void {
-  memo = null;
-}
-
-/**
- * Probes the plugins this node has INSTALLED, not the ones this build knows.
- *
- * The two used to be the same list, because everything installable was a
- * built-in. That coincidence ends with a third-party plugin: probing the
- * static registry would leave it with no inventory row at all, so it would
- * report "program not found" forever no matter what is on the machine — and
- * would keep probing a built-in the operator uninstalled.
- *
- * A plugin that will not load is skipped rather than reported absent. Its row
- * already carries `broken`, and a probe verdict beside that reason would only
- * suggest the missing binary is the problem.
- * @param dataDir - the agent's data dir
- * @param now - one stamp for the batch
- */
-export async function scanInstalledPlugins(dataDir: string, now: Date = new Date()): Promise<HarnessInventoryEntry[]> {
-  const runtime = createInProcessRuntime();
-  const entries: HarnessInventoryEntry[] = [];
-  for (const installed of await listInstalled(dataDir)) {
-    if (installed.broken) continue;
-    const loaded = await runtime.load(join(pluginsDir(dataDir), installed.id));
-    if ("error" in loaded) continue;
-    entries.push(await scanOne(adaptPlugin(loaded.manifest, loaded.plugin), now));
-  }
-  return entries;
-}
-
-/**
- * Build one `inventory` event from a probe of this node's installed plugins
- * ({@link scanCoalesced} — control plane and agent run identical plugin code
- * against their own filesystems, spec §7).
- * @param nowMs - epoch-ms for the `ts` stamp (injectable for deterministic tests)
- * @param scan - probe override (tests); production leaves the default
- * @param dataDir - the agent's data dir; without it there is nothing to probe
- * @returns a wire-valid inventory event (element shape mirrors HarnessInventoryEntry)
- */
-export async function buildInventoryEvent(
-  nowMs: number = Date.now(),
-  scan?: () => Promise<HarnessInventoryEntry[]>,
-  dataDir?: string,
-): Promise<InventoryEvent> {
-  // The no-dataDir case answers empty WITHOUT touching the memo. Feeding it
-  // through `scanCoalesced` would cache "no harnesses" under the same key a
-  // real probe uses, so one caller that omitted the data dir blanked the
-  // inventory for every caller for the next ten seconds.
-  if (!scan && !dataDir) {
-    return { type: "inventory", harnesses: [], ts: new Date(nowMs).toISOString() };
-  }
-  const probe = scan ?? (() => scanInstalledPlugins(dataDir as string, new Date(nowMs)));
-  return {
-    type: "inventory",
-    harnesses: await scanCoalesced(nowMs, probe),
-    // The node's DECLARATION, which is what the control plane mirrors. Absent
-    // rather than empty when no data dir was supplied, so a caller that cannot
-    // read the plugins directory does not assert that the node has none.
-    ...(dataDir ? { plugins: await buildPluginReports(dataDir) } : {}),
-    ts: new Date(nowMs).toISOString(),
-  };
+export async function buildInventoryEvent(nowMs: number = Date.now()): Promise<InventoryEvent> {
+  return { type: "inventory", harnesses: [], ts: new Date(nowMs).toISOString() };
 }

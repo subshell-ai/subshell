@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { prepareInstalledPlugins, setPluginLog, TmuxRunner } from "@internal/pane-runtime";
+import { TmuxRunner } from "@internal/pane-runtime";
 import {
   type CommandClaims,
   JtiLru,
@@ -22,7 +22,7 @@ import { mapOs } from "./enroll.js";
 import { hostEnvReport } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
-import { log, logger } from "./log.js";
+import { log } from "./log.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -280,19 +280,11 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const nowMs = deps.now ?? ((): number => Date.now());
   const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
 
-  // Bring this node's plugins to a usable state: recover an install that was
-  // interrupted mid-swap, seed the built-ins on a node that has never had a
-  // plugins directory, then bring any stale built-in current with this build.
-  //
-  // The sequence is `prepareInstalledPlugins` rather than three calls here,
-  // because the control plane runs the identical one for its own host and the
-  // two used to be spelled in different orders. Every step is guarded inside
-  // it: a node that cannot seed is still a node worth connecting.
-  setPluginLog({
-    info: (m) => log(m),
-    warn: (m, err) => (err === undefined ? logger.warn(m) : logger.withError(err).warn(m)),
-  });
-  await prepareInstalledPlugins(config.dataDir);
+  // No plugin seeding, recovery, or refresh: the node holds no plugin concept
+  // (inversion spec 2026-09-10 §6). A `<dataDir>/plugins/` directory left by a
+  // pre-inversion agent is deliberately NOT deleted, NOT seeded, and NOT
+  // refreshed — it has no consumers in this binary, and nothing here may
+  // delete user data (spec §6: no users, leave it on disk).
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
@@ -549,12 +541,13 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
         // refusing) must never cost the connection.
         // One inventory-push body for both beats below (identical builder +
-        // never-fatal posture; only the log label differs). The backend
-        // additionally PULLS via the `inventory` command on `ready`
-        // (spec §5.3); the memo in buildInventoryEvent coalesces the double
-        // probe into one scan.
+        // never-fatal posture; only the log label differs). The event is now
+        // the v2 protocol's shape with no harness content (inversion §6, see
+        // inventory.ts); the backend additionally PULLS via the `inventory`
+        // command on `ready` (spec §5.3), which answers the same empty event
+        // plus `ok`. Cheap enough that the old scan memo has no job left.
         const pushInventory = (label: string): Promise<void> =>
-          buildInventoryEvent(nowMs(), undefined, config.dataDir)
+          buildInventoryEvent(nowMs())
             .then((inv) => send(ws, inv))
             .catch((err: unknown) => log(`${label}: ${err instanceof Error ? err.message : String(err)}`));
         void buildSubshellsReport(ctx)

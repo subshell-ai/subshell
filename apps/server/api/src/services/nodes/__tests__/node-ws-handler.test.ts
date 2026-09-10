@@ -334,6 +334,51 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(h.inventories).toEqual([{ id: "n1", json: JSON.stringify(harnesses) }]);
   });
 
+  it("an EMPTY inventory harness list (the plugin-less agent's filler) does NOT reach applyInventory", async () => {
+    // Task 7 (inversion §6): a node with no plugin concept still owes the v2
+    // wire a `harnesses` array and fills it with `[]` on the connect push and
+    // every 5-min beat. `[]` is "nothing to claim", not "nothing installed":
+    // applying it would wipe the plane's own detect-cached rows (§4). The
+    // cache-level proof lives in inventory-detect.test.ts; this pins that the
+    // handler is where the claim dies, and that a NON-empty scan from a paired
+    // pre-inversion agent still applies verbatim (the guard never grew teeth
+    // the other way).
+    const h = makeHarness();
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify({ type: "inventory", harnesses: [], ts: "now" }));
+    expect(h.inventories).toEqual([]);
+  });
+
+  it("an inventory event with NO plugins field leaves the declaration alone; a present one still records", async () => {
+    // Same rule one field over: the post-inversion agent sends no `plugins`
+    // key at all, and the handler mirrors only a PRESENT field.
+    const h = makeHarness();
+    const pluginReports: { id: string; plugins: unknown }[] = [];
+    const nodesStub = h.deps.nodes as unknown as {
+      recordPluginReport(id: string, plugins: unknown): Promise<void>;
+    };
+    nodesStub.recordPluginReport = async (id, plugins) => {
+      pluginReports.push({ id, plugins });
+    };
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify({
+        type: "inventory",
+        harnesses: [{ harnessId: "pi", installed: false, reason: "not-on-path" }],
+        ts: "now",
+      }),
+    );
+    expect(h.inventories).toHaveLength(1); // the scan applied
+    expect(pluginReports).toEqual([]); // the absent declaration did not
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify({ type: "inventory", harnesses: [], plugins: [], ts: "now" }),
+    );
+    expect(h.inventories).toHaveLength(1); // the empty harness claim still dies at the guard
+    expect(pluginReports).toEqual([{ id: "n1", plugins: [] }]); // and `plugins: []` is a PRESENT field ("offers nothing")
+  });
+
   it("result → resolveResult on the socket's OWN connection; unknown ref is a debug no-op", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");

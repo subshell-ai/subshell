@@ -31,13 +31,6 @@ export interface AgentConfig {
    * persists an empty answer.
    */
   nodeWsUrl?: string;
-  /**
-   * npm registry base for plugin installs (phase 3). Optional; unset means
-   * https://registry.npmjs.org. A corporate mirror is the motivating case —
-   * integrity comes from THAT host, so a plain-http mirror is the operator's
-   * own trust decision (spec 2026-09-09-registry §2.7).
-   */
-  registryUrl?: string;
 }
 
 /** Root the config + default data dir live under (`SUBSHELL_CONFIG_HOME` for tests). */
@@ -105,11 +98,11 @@ export async function loadConfig(): Promise<AgentConfig> {
     // server answer, so "" can only be a hand-edit, and `??` in resolveWsUrl
     // would otherwise pin an empty dial target.
     nodeWsUrl: typeof obj.nodeWsUrl === "string" && obj.nodeWsUrl.trim() !== "" ? obj.nodeWsUrl : undefined,
-    // Same optional + junk-tolerant shape as nodeWsUrl, and for a parallel
-    // reason: absent means the default registry, and a hand-edited "" must
-    // never become a fetch target. loadConfig rebuilds field by field, so a
-    // field NOT listed here is dropped on its way to the daemon — this line
-    // is what makes `configure --registry-url` reach installs at all.
-    registryUrl: typeof obj.registryUrl === "string" && obj.registryUrl.trim() !== "" ? obj.registryUrl : undefined,
+    // loadConfig rebuilds field by field, so a field NOT listed here is
+    // dropped on its way to the daemon. That is how an older config's
+    // `registryUrl` (the phase-3 npm mirror, dead with the node's plugin
+    // concept per inversion spec §6) disappears: an extra key in a 0600 file
+    // no code reads is inert residue, and rewriting users' configs to scrub a
+    // key they never wrote is not this loader's job.
   };
 }

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installEmbedded, TmuxRunner } from "@internal/pane-runtime";
+import { TmuxRunner } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, type NodeCommandBody, type NodeEvent } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import type { CommandContext, CommandResult } from "../commands/context.js";
@@ -16,19 +16,19 @@ import {
   stopWatcher,
 } from "../commands/report.js";
 import type { AgentConfig } from "../config.js";
-import { selfInvocation } from "../self-invoke.js";
 import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
 /**
- * Task 4: the `launch` executor, the exit watcher, and `subshells_report`
- * (spec 2026-08-31 §6.4/§7). Same fake-tmux discipline as commands-basics:
- * a plain-object double records ordered calls, unstubbed methods throw. The
- * harness under test is the REAL claude-code plugin — its `findBinary` honors
- * the `CLAUDE_PATH` env override, so the binary-found / binary-missing paths
- * are deterministic on every host (the §6.4 byte-parity claim is that BOTH
- * sides call the same `buildHarnessCommand`; here we prove the agent calls it
- * with the plugin-local MCP dialect and every launch input).
+ * Task 4 + Task 7: the `launch` executor, the exit watcher, and
+ * `subshells_report` (spec 2026-08-31 §6.4/§7, inversion spec 2026-09-10 §5/§6).
+ * Same fake-tmux discipline as commands-basics: a plain-object double records
+ * ordered calls, unstubbed methods throw. The node holds no plugin anymore,
+ * so every frame carries the server-built argv + a resolve rule; the binary
+ * is found through `findBinary` honoring the `CLAUDE_PATH` env override, so
+ * the binary-found / binary-missing paths are deterministic on every host.
+ * (The §6.4 byte-parity claim lives in the argv-parity matrix, which builds
+ * the sent argv with the real plugin and compares against the node's spawn.)
  */
 
 const S1 = "11111111-1111-4111-8111-111111111111";
@@ -57,19 +57,16 @@ afterEach(() => {
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
-/** A fresh temp dataDir per test (mcp/subshells writes are file-visible). */
 /**
- * A data dir with claude-code INSTALLED, which every launch case needs now.
+ * A fresh temp dataDir per test (mcp/subshells writes are file-visible).
  *
- * The node resolves a launch against its own installed set rather than the
- * registry compiled into the binary (`launch-plugin.ts`), so a data dir with
- * an empty plugins directory offers nothing and every launch is refused. That
- * is the gate working; these cases are about what happens after it.
+ * Nothing is installed into it anymore: the node holds no plugin concept
+ * (inversion §6), so a launch works against a bare directory. The
+ * no-plugins-dir case is pinned explicitly below.
  */
 async function freshDataDir(tag: string): Promise<string> {
   const dir = join(base, tag);
   mkdirSync(dir, { recursive: true });
-  await installEmbedded(dir, "claude-code");
   return dir;
 }
 
@@ -193,8 +190,21 @@ function launchCmd(over: Partial<LaunchCmd> = {}): LaunchCmd {
     subshellName: "s1",
     cols: 120,
     rows: 30,
+    // The inversion made argv the whole launch (Task 7 removed the node-side
+    // builder): the default carries the server-shaped frame, binary slot and
+    // all, with the resolve rule pointing at the CLAUDE_PATH override the
+    // beforeEach scripts, so every case is deterministic on every host.
+    argv: [HARNESS_BINARY_PLACEHOLDER],
+    resolve: { binaryName: "claude", envOverride: "CLAUDE_PATH" },
     ...over,
   };
+}
+
+/** The launch frame minus the argv — the shape Task 7 refuses. */
+function launchCmdNoArgv(over: Partial<LaunchCmd> = {}): LaunchCmd {
+  const cmd = launchCmd(over);
+  delete (cmd as { argv?: string[] }).argv;
+  return cmd;
 }
 
 async function recordMeta(store: SubshellMetaStore, subshellId: string, socket: string): Promise<void> {
@@ -206,21 +216,6 @@ async function recordMeta(store: SubshellMetaStore, subshellId: string, socket: 
     name: "m",
     startedAt: "2026-09-01T00:00:00.000Z",
   });
-}
-
-/** The claude dialect the AGENT regenerates locally (Step-3 design note). */
-/**
- * The dialect the AGENT will write for its own MCP entry.
- *
- * Built from `selfInvocation` rather than a hardcoded
- * `{command: process.execPath, args: ["mcp"]}`, because that shape was the bug:
- * under an interpreter `process.execPath` is `bun`, and `bun mcp` is not a
- * command. Deriving it the same way the code does keeps this test honest about
- * WHICH invocation is written without re-pinning the old, broken one — the
- * rungs themselves are pinned in `self-invoke.test.ts`.
- */
-function localMcpContent(): string {
-  return `${JSON.stringify({ mcpServers: { subshell: selfInvocation("mcp") } }, null, 2)}\n`;
 }
 
 async function waitFor(cond: () => boolean, what: string, timeoutMs = 5_000): Promise<void> {
@@ -288,31 +283,17 @@ describe("execLaunch (spec §6.4/§7)", () => {
     });
     expect(recorded?.startedAt).toBe(new Date(FIXED_NOW).toISOString());
 
-    // (5) §6.4 assembly: env -i + subshellEnv + the real claude argv (binary from CLAUDE_PATH).
+    // (5) §6.4 assembly: env -i + subshellEnv over the sent argv, the binary
+    // slot bound to CLAUDE_PATH's /bin/sh by the frame's resolve rule.
     expect(paneCmd.startsWith("env -i ")).toBe(true);
     expect(paneCmd).toInclude("SUBSHELL_API_KEY='k'");
     expect(paneCmd).toInclude("'/bin/sh'");
-    expect(paneCmd).toInclude("'--settings'");
-    expect(paneCmd).toInclude("'--name' 's1'");
+    expect(paneCmd).not.toInclude(HARNESS_BINARY_PLACEHOLDER);
 
     // (9) watcher registered — cleaned up so the timer cannot outlive the test.
     expect(ctx.watchers.has(S1)).toBe(true);
     stopWatcher(ctx, S1);
     expect(ctx.watchers.has(S1)).toBe(false);
-  });
-
-  it("resume pin rides the argv (§6.4: harnessSession = BuildCommandInput.harnessSession)", async () => {
-    const dataDir = await freshDataDir("resume-pin");
-    let paneCmd = "";
-    const { ctx } = makeCtx(
-      dataDir,
-      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
-      [],
-    );
-    const result = await dispatchCommand(ctx, launchCmd({ harnessSession: { id: S2, mode: "resume" } }));
-    expect(result).toEqual({ ok: true });
-    expect(paneCmd).toInclude("'--resume' '22222222-2222-4222-8222-222222222222'");
-    stopWatcher(ctx, S1);
   });
 
   it("no geometry on the wire ⇒ no resizeWindow call", async () => {
@@ -324,14 +305,16 @@ describe("execLaunch (spec §6.4/§7)", () => {
     stopWatcher(ctx, S1);
   });
 
-  it("unknown harness ⇒ ok:false, NO tmux calls", async () => {
-    const dataDir = await freshDataDir("unknown-harness");
+  it("a launch with no argv is refused: the node holds no plugin to build one with", async () => {
+    const dataDir = await freshDataDir("no-argv");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
-    const result = await dispatchCommand(ctx, launchCmd({ harnessId: "no-such-harness" }));
-    // The message changed with the gate: the node now answers from what it has
-    // INSTALLED rather than from what its binary knows about.
-    expect(result).toEqual({ ok: false, error: "plugin 'no-such-harness' is not installed on this node" });
+    // Task 7 demolished the local-build fallback. The v2 frame schema still
+    // marks argv optional (Task 8 tightens it); failing closed here is the
+    // interim contract, and the harnessId stays irrelevant to the outcome.
+    const result = await dispatchCommand(ctx, launchCmdNoArgv({ harnessId: "no-such-harness" }));
+    expect(result).toEqual({ ok: false, error: "launch command carries no argv" });
     expect(calls).toEqual([]);
+    expect(await ctx.meta.get(S1)).toBeUndefined();
   });
 
   it("findBinary null ⇒ ok:false 'harness binary missing: <id>' and NO tmux calls, NO meta", async () => {
@@ -376,66 +359,11 @@ describe("execLaunch (spec §6.4/§7)", () => {
     const { ctx, calls } = makeCtx(dataDir, {}, []);
     const result = await dispatchCommand(
       ctx,
-      launchCmd({ mcp: { path: "/etc/passwd", fileContent: localMcpContent() } }),
+      launchCmd({ mcp: { path: "/etc/passwd", fileContent: '{"mcpServers":{}}\n' } }),
     );
     expect(result).toEqual({ ok: false, error: "mcp path refused" });
     expect(calls).toEqual([]);
     expect(existsSync(join(dataDir, "mcp"))).toBe(false); // dir not even created
-  });
-
-  it("mcp happy ⇒ file exists mode 600 with exact local-dialect content; --mcp-config rides the pane argv", async () => {
-    const dataDir = await freshDataDir("mcp-happy");
-    const mcpFile = join(dataDir, "mcp", `${S1}.json`);
-    let paneCmd = "";
-    const { ctx } = makeCtx(
-      dataDir,
-      {
-        newSubshell: (_s, _i, _c, cmd) => {
-          paneCmd = cmd;
-        },
-        pipePane: () => {},
-        resizeWindow: () => {},
-      },
-      [],
-    );
-    const result = await dispatchCommand(ctx, launchCmd({ mcp: { path: mcpFile, fileContent: localMcpContent() } }));
-    expect(result).toEqual({ ok: true });
-    stopWatcher(ctx, S1);
-    expect(existsSync(mcpFile)).toBe(true);
-    expect(statSync(mcpFile).mode & 0o077).toBe(0); // 0600 — no group/other bits
-    expect(statSync(join(dataDir, "mcp")).mode & 0o077).toBe(0); // dir re-tightened to 0700
-    expect(await Bun.file(mcpFile).text()).toBe(localMcpContent());
-    // The plugin's OWN argv (never on the wire) — the agent regenerated it locally.
-    expect(paneCmd).toInclude(`'--mcp-config' '${mcpFile}'`);
-  });
-
-  it("mcp content drift ⇒ one warn line and the LOCAL content wins over the wire value", async () => {
-    const dataDir = await freshDataDir("mcp-drift");
-    const mcpFile = join(dataDir, "mcp", `${S1}.json`);
-    const { lines, restore } = captureLogs();
-    let ctx: CommandContext | undefined;
-    try {
-      const made = makeCtx(
-        dataDir,
-        {
-          newSubshell: () => {},
-          pipePane: () => {},
-          resizeWindow: () => {},
-        },
-        [],
-      );
-      ctx = made.ctx;
-      const result = await dispatchCommand(
-        ctx,
-        launchCmd({ mcp: { path: mcpFile, fileContent: '{"stale":"control-plane guess"}' } }),
-      );
-      expect(result).toEqual({ ok: true });
-      expect(await Bun.file(mcpFile).text()).toBe(localMcpContent()); // local wins
-      expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(1); // ONE warn line
-    } finally {
-      restore();
-      if (ctx) stopWatcher(ctx, S1);
-    }
   });
 
   it("bestEffortLog + throwing pipePane ⇒ one warn line, still {ok:true}, resize + watcher run", async () => {
@@ -535,11 +463,10 @@ describe("execLaunch (spec §6.4/§7)", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Task 4 (inversion spec §5): the node PREFERS the argv it was sent.  */
-/* The no-argv fallback stays until Task 7 deletes it; both paths must */
-/* answer `harness binary missing:` byte-identically (the backend      */
-/* regex-matches the prefix to refresh an inventory), and substitution */
-/* is STRICT ELEMENT EQUALITY (the argv-parity gate's binding rule).   */
+/* Inversion spec §5/§6: the sent argv IS the launch. Substitution is  */
+/* STRICT ELEMENT EQUALITY (the argv-parity gate's binding rule), and  */
+/* an unresolvable binary answers `harness binary missing:` — the       */
+/* message CLASS the backend regex-matches to refresh an inventory.    */
 /* ------------------------------------------------------------------ */
 
 describe("execLaunch with a server-built argv (inversion §5)", () => {
@@ -597,30 +524,12 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
     expect(paneCmd.endsWith("'tail'")).toBe(true);
   });
 
-  it("a launch with no argv still builds one locally, as today", async () => {
-    const dataDir = await freshDataDir("no-argv-fallback");
-    let paneCmd = "";
-    const { ctx } = makeCtx(
-      dataDir,
-      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
-      [],
-    );
-    const result = await dispatchCommand(ctx, launchCmd({}));
-    expect(result).toEqual({ ok: true });
-    stopWatcher(ctx, S1);
-    // The fallback is deliberate (Task 7 removes it): absent argv, the node
-    // resolves via its own plugin and runs buildHarnessCommand exactly as
-    // before — binary first, the plugin's own flags after it.
-    expect(paneCmd).toInclude(`'/bin/sh' '--settings'`);
-    expect(paneCmd).toInclude("'--name' 's1'");
-  });
-
   it("an unresolvable resolve rule on the sent path fails with the missing prefix, no tmux, no meta", async () => {
     const dataDir = await freshDataDir("sent-argv-unresolvable");
     const { ctx, calls } = makeCtx(dataDir, {}, []);
-    // The PLUGIN would find its binary (CLAUDE_PATH=/bin/sh stands) — the
-    // failure must come from the frame's resolve rule, which is what the sent
-    // path binds to. A distinct env var keeps the two lookups independent.
+    // The failure must come from the frame's resolve rule, which is the ONLY
+    // lookup now. A distinct env var keeps it independent of the default
+    // resolve rule the other cases share.
     process.env.SENT_MISSING_PATH = join(base, "definitely-not-executable");
     try {
       const result = await dispatchCommand(
@@ -630,8 +539,7 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
           resolve: { binaryName: "nope", envOverride: "SENT_MISSING_PATH" },
         }),
       );
-      // The exact message CLASS the backend maps to inventory-refresh-on-failure (§6.2),
-      // byte-identical to the fallback path's answer above.
+      // The exact message CLASS the backend maps to inventory-refresh-on-failure (§6.2).
       expect(result).toEqual({ ok: false, error: "harness binary missing: claude-code" });
       expect(calls).toEqual([]);
       expect(await ctx.meta.get(S1)).toBeUndefined();
@@ -645,7 +553,9 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
     const { ctx, calls } = makeCtx(dataDir, {}, []);
     // argv names the binary slot but ships no rule to fill it — nothing local
     // substitutes for it; failing with the same prefix is the fail-closed answer.
-    const result = await dispatchCommand(ctx, launchCmd({ argv: [HARNESS_BINARY_PLACEHOLDER] }));
+    const cmd = launchCmd({ argv: [HARNESS_BINARY_PLACEHOLDER] });
+    delete (cmd as { resolve?: { binaryName: string } }).resolve; // the shared default must go, not just be overridden
+    const result = await dispatchCommand(ctx, cmd);
     expect(result).toEqual({ ok: false, error: "harness binary missing: claude-code" });
     expect(calls).toEqual([]);
     expect(await ctx.meta.get(S1)).toBeUndefined();
@@ -677,11 +587,11 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
       );
       expect(result).toEqual({ ok: true });
       stopWatcher(ctx, S1);
-      // The WIRE content wins here — the local regeneration (and its
-      // local-wins drift rule) is fallback-only code, Task 7's removal target.
+      // The WIRE content is the content: with the local regeneration gone
+      // (Task 7), there is no second source a drift rule could arbitrate.
       expect(await Bun.file(mcpFile).text()).toBe('{"from":"the control plane"}\n');
       expect(statSync(mcpFile).mode & 0o077).toBe(0); // the 0600 write is unchanged on both paths
-      expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(0); // no drift warn fires
+      expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(0); // the drift warn is gone
       // The sent env rides the pane env layer; the sent argv is the whole command line.
       expect(paneCmd).toInclude(`OPENCODE_CONFIG='${mcpFile}'`);
       expect(paneCmd).toInclude(`'/bin/sh' '--mcp-config' '${mcpFile}'`);
@@ -1138,6 +1048,39 @@ describe("buildSubshellsReport (spec §3.3)", () => {
     const dataDir = await freshDataDir("subshells-report-empty");
     const { ctx } = makeCtx(dataDir, {}, []);
     expect(await buildSubshellsReport(ctx)).toEqual({ type: "subshells_report", subshells: [] });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 7 (spec §6 "The node holds nothing"): the node owns NO plugin   */
+/* concept. A launch needs no plugins directory — the argv and the     */
+/* resolve rule ARE the launch, and the only node-side facts left are  */
+/* the directory allowlist and the binary lookup.                      */
+/* ------------------------------------------------------------------ */
+
+describe("execLaunch on a node with no plugins (inversion §6)", () => {
+  it("a launch succeeds on a node with no plugins directory at all", async () => {
+    // NO installEmbedded: this data dir has never seen a plugins directory.
+    const dir = join(base, "no-plugins-dir");
+    mkdirSync(dir, { recursive: true });
+    let paneCmd = "";
+    const { ctx } = makeCtx(
+      dir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    expect(existsSync(join(dir, "plugins"))).toBe(false);
+    const result = await dispatchCommand(
+      ctx,
+      launchCmd({
+        argv: [HARNESS_BINARY_PLACEHOLDER, "--flag"],
+        resolve: { binaryName: "pi", envOverride: "CLAUDE_PATH" },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+    expect(paneCmd).toInclude(`'/bin/sh' '--flag'`);
+    expect(existsSync(join(dir, "plugins"))).toBe(false); // the launch created nothing
+    stopWatcher(ctx, S1);
   });
 });
 

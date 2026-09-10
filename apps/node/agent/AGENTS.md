@@ -79,34 +79,26 @@ an `enroll`, not a `configure`.
 subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
                                    # --json prints {nodeId,serverUrl,name,dataDir,configPath}
                                    # (never the nodeKey) so a GUI need not scrape the human line
-subshell configure --server <url> [--registry-url <url>] [--json]
+subshell configure --server <url> [--json]
                                    # repoint an ALREADY-enrolled node at a different
                                    # control plane. Keeps nodeId/nodeKey/
                                    # controlPublicKey, spends NO setup key, mints no second
                                    # node row — the non-destructive answer to "the server
                                    # moved", which `enroll` is not. CLEARS nodeWsUrl when the
                                    # address changes (see above). Restart to apply.
-                                   # Takes NO --name: see above. --registry-url sets the
-                                   # npm registry/mirror plugin installs fetch from (unset =
-                                   # https://registry.npmjs.org; http mirrors allowed, the
-                                   # integrity then proves only what THAT host published).
+                                   # Takes NO --name: see above. NO --registry-url either:
+                                   # it configured the npm mirror the old `subshell plugin
+                                   # install` verbs fetched from, and those verbs (and the
+                                   # whole node-side plugin concept) are GONE — see below.
 subshell run                       # foreground daemon (what the service unit runs)
-subshell plugin list [--json]      # the installed set; registry copies name their package
-                                     # (@scope/name@version from install.json), embedded ones
-                                     # name nothing — absence of a record IS the embedded marker
-subshell plugin install <spec>     # name | @scope/pkg, optionally @version/@tag. A built-in
-                                     # id with no version pin stays embedded (no network —
-                                     # installPlugin's §2.5 door decides, not this file);
-                                     # anything else fetches the package and load-checks it
-                                     # BEFORE the swap, so a refusal keeps the previous copy
-subshell plugin uninstall <id>     # remove the directory (sidecar rides with it);
-                                     # already-absent answers as success, like the signed verb
-subshell plugin update [<id>] [--json]
-                                     # re-resolves `latest` only for installs WITH an
-                                     # install.json and reinstalls where newer; embedded
-                                     # plugins get a named skip line each, never a silent
-                                     # upgrade (or a silent skip) — and a pinned copy newer
-                                     # than `latest` says "already at or above latest"
+subshell run                       # foreground daemon (what the service unit runs)
+                                     # NOTE: there is no `subshell plugin` command anymore
+                                     # (inversion spec 2026-09-10 §6, Task 7). The node
+                                     # holds no plugins: harnesses live on the control
+                                     # plane, launches carry the plane-built argv, and
+                                     # binary detection is the plane's `detect` command.
+                                     # A leftover <dataDir>/plugins/ directory is inert
+                                     # residue — NOT seeded, NOT refreshed, NOT deleted.
 subshell service install|uninstall # systemd user unit / launchd agent
 subshell service status [--json]   # what the service MANAGER reports; always exits 0
 subshell service start|stop         # drive an installed service; never installs one

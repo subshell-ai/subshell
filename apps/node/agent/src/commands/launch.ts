@@ -1,48 +1,42 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import {
-  assembleHarnessCommand,
-  buildHarnessCommand,
-  enforceMode,
-  findBinary,
-  type McpRegistration,
-  type ProfileDefinition,
-} from "@internal/pane-runtime";
+import { assembleHarnessCommand, enforceMode, findBinary, type ProfileDefinition } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
-import { resolveLaunchPlugin } from "../launch-plugin.js";
 import { log } from "../log.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
-import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { startExitWatcher } from "./report.js";
 
 /**
  * The `launch` executor (spec 2026-08-31 §6.4/§7) — the agent-side twin of
- * `LocalLauncher.launch`. Byte-parity rule: local and remote panes are
- * assembled by the SAME env assembly (curatedEnv ⊕ subshellEnv ⊕ profile.env
- * ⊕ mcp.env) over the plugin argv (resume pin included). The inversion
- * (spec 2026-09-10 §5) added WHERE the argv comes from: when the frame
- * carries `cmd.argv`, the node spawns what the control plane built, binding
- * only the node-owned fact into it — the binary path, freshly resolved
- * against `cmd.resolve` at this instant. Absent `cmd.argv`, the node builds
- * the argv from its own plugin exactly as it always has; that fallback is
- * deliberate (it keeps an old-server/new-agent pair working) and is
- * Task 7's removal target.
+ * `LocalLauncher.launch`. The node holds NO plugin concept (inversion spec
+ * 2026-09-10 §5/§6): the frame carries the whole command line the control
+ * plane built from the plugin IT holds, and this machine contributes exactly
+ * two facts of its own — the directory allowlist, and the binary path,
+ * freshly resolved against `cmd.resolve` at this instant (late binding is the
+ * whole reason the rule travels instead of a path: an inventory can be
+ * minutes old and predate an upgrade).
+ *
+ * `cmd.argv` is effectively REQUIRED even though the v2 frame schema still
+ * marks it optional until Task 8 moves the wire: with the Task 4 local-build
+ * fallback demolished, a frame without argv has nothing this node can spawn,
+ * and saying so is the honest answer.
  */
 
 /**
  * Start one harness subshell on this node.
  *
- * Step order is contractual (interfaces, brief §Task 4): id gate → harness →
- * binary → MCP file (policy-gated) → meta record → pane argv assembly →
- * `newSubshell` (rollback on throw) → log attach (strict by default;
- * `bestEffortLog` downgrades the whole attach region) → optional resize
- * (cosmetic) → exit watcher. A strict log-attach throw PROPAGATES (the
- * dispatcher answers `{ok:false}`) exactly like `LocalLauncher.launch`
- * throwing from `pipePane` — but the live pane's meta record STAYS (parity
- * with the local throw path; cleanup is the control plane's).
+ * Step order is contractual (interfaces, brief §Task 4): id gate → allowlist
+ * gate → argv + binary resolution → MCP file (policy-gated) → meta record →
+ * pane argv assembly → `newSubshell` (rollback on throw) → log attach
+ * (strict by default; `bestEffortLog` downgrades the whole attach region) →
+ * optional resize (cosmetic) → exit watcher. A strict log-attach throw
+ * PROPAGATES (the dispatcher answers `{ok:false}`) exactly like
+ * `LocalLauncher.launch` throwing from `pipePane` — but the live pane's meta
+ * record STAYS (parity with the local throw path; cleanup is the control
+ * plane's).
  *
  * @param ctx - the per-daemon execution context (config, tmux, meta, ws seam)
  * @param cmd - the verified `launch` command
@@ -51,8 +45,8 @@ import { startExitWatcher } from "./report.js";
  */
 export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promise<CommandResult> {
   // Id gate FIRST (same rule as resolveSocket): the meta store throws on a
-  // malformed id and every path below interpolates it — never touch harness,
-  // fs, or tmux with an id the control plane could not have minted.
+  // malformed id and every path below interpolates it — never touch fs or
+  // tmux with an id the control plane could not have minted.
   if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
 
   // The node's OWN allowlist, checked before anything is resolved or spawned.
@@ -63,95 +57,51 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.cwd}` };
   }
 
-  // Resolved against what THIS node has INSTALLED, not against the registry
-  // compiled into the binary. A signature proves who sent the launch, never
-  // whether this machine offers the plugin (see launch-plugin.ts).
-  const resolved = await resolveLaunchPlugin(ctx.config.dataDir, cmd.harnessId);
-  if ("error" in resolved) return { ok: false, error: resolved.error };
-  const harness = resolved.plugin;
-
-  // (2b) Where the argv comes from — the inversion switch (spec 2026-09-10 §5).
-  // With `cmd.argv` present the plugin's buildCommand never runs: the ONE fact
-  // the control plane cannot know — where the binary lives on THIS machine at
-  // THIS moment — arrives as a RULE (`cmd.resolve`), not a path, because an
-  // inventory can be minutes old and predate an upgrade (that freshness is the
-  // whole reason §5 kept late binding). Substitution is STRICT ELEMENT
-  // EQUALITY, the argv-parity gate's binding rule (Task 3): an entry EQUAL to
+  // The argv is the whole command line, built on the control plane from the
+  // plugin it holds (inversion §5). Substitution is STRICT ELEMENT EQUALITY,
+  // the argv-parity gate's binding rule (Task 3): an entry EQUAL to
   // HARNESS_BINARY_PLACEHOLDER is the binary; a longer token that merely
-  // CONTAINS that text is plugin content and must ride untouched. Absent
-  // argv, everything below is the pre-inversion contract — the fallback
-  // Task 7 deletes.
-  let paneArgv: { sent: string[] } | { localBinary: string };
-  if (cmd.argv !== undefined) {
-    let argv = cmd.argv;
-    if (argv.includes(HARNESS_BINARY_PLACEHOLDER)) {
-      // The node's OWN lookup ladder (env override → PATH → known paths →
-      // version managers → login shell), driven by the sent rule.
-      const path = cmd.resolve
-        ? await findBinary(cmd.resolve.binaryName, cmd.resolve.envOverride ?? "", cmd.resolve.knownPaths ?? [])
-        : null;
-      if (!path) {
-        // Message CLASS contract, SAME bytes as the fallback below: the
-        // backend maps `/binary missing/i` on a launch failure to an
-        // inventory refresh (spec §6.2).
-        return { ok: false, error: `harness binary missing: ${cmd.harnessId}` };
-      }
-      argv = argv.map((entry) => (entry === HARNESS_BINARY_PLACEHOLDER ? path : entry));
-    }
-    paneArgv = { sent: argv };
-  } else {
-    const binary = await harness.findBinary();
-    if (!binary) {
-      // Message CLASS contract: the backend maps `/binary missing/i` on a launch
-      // failure to an inventory refresh (spec §6.2) — keep the prefix stable.
+  // CONTAINS that text is plugin content and must ride untouched.
+  if (cmd.argv === undefined) {
+    // Fail closed rather than guess: the node holds no plugin, so there is
+    // nothing left to build a command line with.
+    return { ok: false, error: "launch command carries no argv" };
+  }
+  let argv = cmd.argv;
+  if (argv.includes(HARNESS_BINARY_PLACEHOLDER)) {
+    // The node's OWN lookup ladder (env override → PATH → known paths →
+    // version managers → login shell), driven by the sent rule.
+    const path = cmd.resolve
+      ? await findBinary(cmd.resolve.binaryName, cmd.resolve.envOverride ?? "", cmd.resolve.knownPaths ?? [])
+      : null;
+    if (!path) {
+      // Message CLASS contract: the backend maps `/binary missing/i` on a
+      // launch failure to an inventory refresh (spec §6.2) — keep the prefix
+      // stable. (Same bytes the pre-inversion fallback answered with; the
+      // fallback itself is gone.)
       return { ok: false, error: `harness binary missing: ${cmd.harnessId}` };
     }
-    paneArgv = { localBinary: binary };
+    argv = argv.map((entry) => (entry === HARNESS_BINARY_PLACEHOLDER ? path : entry));
   }
 
-  // (3) MCP registration. The AGENT writes the file either way — its own path
-  // policy and 0600 discipline are node controls, not plugin knowledge. What
-  // the inversion moved is the SOURCE of the dialect. Sent-argv path:
-  // `mcp.fileContent` and `mcp.env` ride the wire verbatim (spec §5; the args
-  // half is already inside the sent argv), so no plugin function runs and the
-  // drift rule does not fire. No-argv fallback: the frozen pre-inversion wire
-  // carries only {path, fileContent}, so the AGENT re-runs the plugin locally,
-  // `harness.mcpRegistration({command: …, args:["mcp"]}, path)` — the exact
-  // function the control plane runs host-side (mcp-launch.ts) — making the
-  // dialect byte-identical ON THE MACHINE THE PANE LIVES ON. The wire's
-  // fileContent was computed against `ready.executablePath` (Task 1); when it
-  // disagrees with the locally regenerated content the wire is stale (an old
-  // ready, a moved binary) — one warn line and the LOCAL content wins, while
-  // `reg`'s args+env are ALWAYS the agent's own. This whole local branch
-  // goes away with Task 7, and the drift rule with it.
-  let reg: McpRegistration | undefined;
+  // (3) MCP registration. The AGENT writes the file — its own path policy and
+  // 0600 discipline are node controls, not plugin knowledge. The dialect is
+  // pure wire data now: `mcp.fileContent` and `mcp.env` ride the frame
+  // verbatim (spec §5; the args half is already inside the sent argv), so no
+  // plugin function runs here and the old wire-vs-local drift rule has no
+  // second source to disagree with.
   let mcpPaneEnv: Record<string, string> | undefined;
   if (cmd.mcp) {
     if (!(await pathAllowed(cmd.mcp.path, await realpathRoots([ctx.config.dataDir])))) {
       return { ok: false, error: "mcp path refused" };
     }
-    let content = cmd.mcp.fileContent;
-    if (cmd.argv !== undefined) {
-      mcpPaneEnv = cmd.mcp.env; // the sent dialect is the whole dialect
-    } else {
-      // `selfInvocation`, not a bare `process.execPath`: under a source run that
-      // is the `bun` binary, and `bun mcp` is not a command — every pane from a
-      // dev agent would get an MCP entry that can never start. Same decision the
-      // service unit's ExecStart makes, made in one place.
-      reg = harness.mcpRegistration?.(selfInvocation("mcp"), cmd.mcp.path);
-      if (reg && content !== reg.fileContent) {
-        log(
-          `mcp config drift for subshell ${cmd.subshellId}: wire content != agent-local dialect; using the local content`,
-        );
-        content = reg.fileContent;
-      }
-    }
+    mcpPaneEnv = cmd.mcp.env; // the sent dialect is the whole dialect
     // Canonical location is <dataDir>/mcp/<id>.json (subshell-meta mcpPath twin);
     // mkdir the parent whatever the (already policy-passed) path names.
     const dir = dirname(cmd.mcp.path);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await enforceMode(dir, 0o700);
-    await writeFile(cmd.mcp.path, content, { mode: 0o600 });
+    await writeFile(cmd.mcp.path, cmd.mcp.fileContent, { mode: 0o600 });
     await enforceMode(cmd.mcp.path, 0o600); // Task-2 re-tightening: umask cannot leak bits here
   }
 
@@ -167,28 +117,16 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     startedAt: new Date(ctx.nowMs()).toISOString(),
   });
 
-  // (5) §6.4 assembly + (6) spawn. The wire profile is the structural mirror
-  // (`ProfileDefinitionWire`) — same field names, the frame validator already
-  // ran — so the cast is the intended decode, exactly where the brief pins it.
-  // Both branches finish in `assembleHarnessCommand` (buildHarnessCommand
-  // delegates to it), so the env assembly is literally ONE function for the
-  // local build and the sent argv alike — §6.4 byte-identity, extended to
-  // a command line this machine never built.
+  // (5) §6.4 env assembly over the SENT argv — the same
+  // `assembleHarnessCommand` the local build finished in, so the env assembly
+  // is literally ONE function (§6.4 byte-identity, extended to a command line
+  // this machine never built).
+  // The wire profile is the structural mirror (`ProfileDefinitionWire`) —
+  // same field names, the frame validator already ran — so the cast is the
+  // intended decode, exactly where the brief pins it.
   const profile = cmd.profile as unknown as ProfileDefinition;
   try {
-    const paneCmd =
-      "sent" in paneArgv
-        ? assembleHarnessCommand(paneArgv.sent, profile, cmd.subshellEnv, mcpPaneEnv)
-        : buildHarnessCommand(
-            harness,
-            paneArgv.localBinary,
-            cmd.cwd,
-            profile,
-            cmd.subshellName,
-            cmd.subshellEnv,
-            reg,
-            cmd.harnessSession,
-          );
+    const paneCmd = assembleHarnessCommand(argv, profile, cmd.subshellEnv, mcpPaneEnv);
     ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd);
   } catch (err) {
     await ctx.meta.forget(cmd.subshellId); // nothing spawned — no orphan root for the policy

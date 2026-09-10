@@ -10,8 +10,8 @@ import { log } from "./log.js";
  * else — the reported set grows by declaration, never by a node shipping its
  * whole environment to the control plane.
  *
- * Reads manifest DATA only, via the same `listInstalled` the inventory scan
- * uses: identity and detection already live in package.json precisely so a
+ * Reads manifest DATA only, via pane-runtime's `listInstalled`: identity and
+ * detection already live in package.json precisely so a
  * scan loads no plugin code, and the ready frame — sent on every connect,
  * including before any plugin is ever used — is not where that principle
  * gets its exception. A plugin that cannot load (broken) declares nothing

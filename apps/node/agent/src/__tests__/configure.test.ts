@@ -129,64 +129,25 @@ describe("runConfigure — repointing", () => {
 });
 
 /**
- * The `--registry-url` key (phase 3). It rides the same command as the
- * repoint because the mirror is a deployment decision made alongside the
- * address, and it is the ONLY thing the flag may write: the identity rules
- * above all still hold with it present.
+ * The dead phase-3 mirror key. `--registry-url` is gone with the node's
+ * plugin concept (inversion spec 2026-09-10 §6), and `loadConfig` no longer
+ * carries the field — so a repoint of an OLD config drops the key from disk
+ * rather than preserving it. A config rewrite is the right scrubber: it is
+ * the one write this command already owes the file.
  */
-describe("runConfigure — --registry-url", () => {
-  test("writes registryUrl and keeps every identity field byte-identical", async () => {
+describe("runConfigure — the stale registryUrl key does not survive a rewrite", () => {
+  test("a repoint of a config that carries registryUrl writes one without it", async () => {
     newHome();
-    await saveConfig(enrolled);
-    const result = await runConfigure({
-      server: "https://subshell.example",
-      registryUrl: "http://mirror.internal:4873",
+    writeFileSync(configPath(), JSON.stringify({ ...enrolled, registryUrl: "http://mirror.internal:4873" }), {
+      mode: 0o600,
     });
-    expect(result.registryUrl).toBe("http://mirror.internal:4873");
-    const after = await loadConfig();
-    expect(after.registryUrl).toBe("http://mirror.internal:4873");
-    expect(after.nodeId).toBe(enrolled.nodeId);
-    expect(after.nodeKey).toBe(enrolled.nodeKey);
-    expect(after.controlPublicKey).toBe(enrolled.controlPublicKey);
-    expect(after.dataDir).toBe(enrolled.dataDir);
-    expect(after.name).toBe(enrolled.name);
-  });
-
-  /**
-   * Stored used-as-is, minus paste padding and trailing slashes. Deliberately
-   * NOT the `normalizeServer` treatment: a mirror may live under a path
-   * prefix (`/registry/`), and only the whitespace and slash halves of the
-   * normalization are safe for a registry base.
-   */
-  test("stored used-as-is: whitespace and trailing slashes go, the path prefix and case stay", async () => {
-    newHome();
-    await saveConfig(enrolled);
-    await runConfigure({ server: enrolled.serverUrl, registryUrl: "  https://Mirror.Example/registry///  " });
-    expect((await loadConfig()).registryUrl).toBe("https://Mirror.Example/registry");
-  });
-
-  test("a plain repoint with no --registry-url leaves the configured mirror untouched", async () => {
-    // The mirror is not plane-scoped: the registry outlives the address that
-    // happened to be configured when it was set.
-    newHome();
-    await saveConfig({ ...enrolled, registryUrl: "http://mirror.internal:4873" });
     await runConfigure({ server: "https://subshell.example" });
+    expect(readFileSync(configPath(), "utf8")).not.toContain("registryUrl");
     const after = await loadConfig();
-    expect(after.registryUrl).toBe("http://mirror.internal:4873");
+    expect("registryUrl" in after).toBe(false);
     expect(after.serverUrl).toBe("https://subshell.example");
+    expect(after.nodeKey).toBe(enrolled.nodeKey); // every identity rule above still holds
   });
-
-  for (const bad of ["mirror.example", "ftp://mirror.example", "not a url", "http://"]) {
-    test(`refuses an unusable --registry-url '${bad}' and leaves the config untouched`, async () => {
-      newHome();
-      await saveConfig(enrolled);
-      const before = readFileSync(configPath(), "utf8");
-      await expect(runConfigure({ server: "https://subshell.example", registryUrl: bad })).rejects.toThrow(
-        /--registry-url/,
-      );
-      expect(readFileSync(configPath(), "utf8")).toBe(before);
-    });
-  }
 });
 
 describe("runConfigure — refusals, all before any write", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs, run } from "../cli.js";
-import { loadConfig, saveConfig } from "../config.js";
+import { saveConfig } from "../config.js";
 import { newHome } from "../test-preload.js";
 import { darwinServiceStub, LOG, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
 
@@ -399,38 +399,14 @@ describe("configure — repoint an enrolled node", () => {
     expect(result.err).toMatch(/enroll/i);
   });
 
-  test("`--registry-url` rides the repoint into the config", async () => {
-    newHome();
-    await saveConfig(enrolled);
-    const result = await run([
-      "configure",
-      "--server",
-      "https://subshell.example",
-      "--registry-url",
-      "http://mirror.internal:4873",
-    ]);
-    expect(result.code).toBe(0);
-    expect((await loadConfig()).registryUrl).toBe("http://mirror.internal:4873");
-  });
-
-  test("an unusable --registry-url is exit 1 with the reason, not a usage dump, and writes nothing", async () => {
-    newHome();
-    await saveConfig(enrolled);
-    const result = await run(["configure", "--server", "https://subshell.example", "--registry-url", "mirror.example"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toInclude("--registry-url");
-    expect(result.err).not.toInclude(USAGE_MARKER);
-    expect((await loadConfig()).registryUrl).toBeUndefined();
-  });
-
-  test("--registry-url does not loosen the --server requirement", async () => {
-    newHome();
-    await saveConfig(enrolled);
-    expect((await run(["configure", "--registry-url", "http://mirror.internal:4873"])).code).toBe(2);
-  });
-
   test("rejects the flags it has no business taking", () => {
     expect(() => parseArgs(["configure", "--key", "nsk_test_0123456789"])).toThrow(/not valid for 'configure'/);
+    // `--registry-url` is not even a KNOWN flag anymore (inversion §6 removed
+    // the plugin concept the mirror fed), so it refuses before any per-command
+    // question is asked.
+    expect(() => parseArgs(["configure", "--registry-url", "http://mirror.internal:4873"])).toThrow(
+      /unknown flag '--registry-url'/,
+    );
     expect(() => parseArgs(["configure", "--probe"])).toThrow(/not valid for 'configure'/);
     // No --name: the plane owns a node's name, so offering one here would
     // promise a rename this command cannot deliver (see configure.ts).
@@ -443,65 +419,15 @@ describe("configure — repoint an enrolled node", () => {
   });
 });
 
-describe("plugin subtoken parsing", () => {
-  test("install/uninstall/update take exactly one bare positional (the spec/id)", () => {
-    expect(parseArgs(["plugin", "install", "@scope/pkg@1.2.3"])).toEqual({
-      command: "plugin",
-      sub: "install",
-      arg: "@scope/pkg@1.2.3",
-      flags: {},
-    });
-    expect(parseArgs(["plugin", "uninstall", "third"])).toEqual({
-      command: "plugin",
-      sub: "uninstall",
-      arg: "third",
-      flags: {},
-    });
-    expect(parseArgs(["plugin", "update", "third"])).toEqual({
-      command: "plugin",
-      sub: "update",
-      arg: "third",
-      flags: {},
-    });
-    // `update`'s positional is optional (omit it to check every sidecar'd
-    // install); `list` takes none at all.
-    expect(parseArgs(["plugin", "update"])).toEqual({ command: "plugin", sub: "update", flags: {} });
-    expect(parseArgs(["plugin", "list"])).toEqual({ command: "plugin", sub: "list", flags: {} });
+describe("plugin is gone from the CLI (inversion §6)", () => {
+  test("`plugin` is an unknown command now, in every position", () => {
+    expect(() => parseArgs(["plugin"])).toThrow(/unknown command 'plugin'/);
+    expect(() => parseArgs(["plugin", "list"])).toThrow(/unknown command 'plugin'/);
   });
-
-  test("a second bare token names the subcommand it overflowed", () => {
-    expect(() => parseArgs(["plugin", "install", "a", "b"])).toThrow(/too many arguments to 'plugin install'/);
-    expect(() => parseArgs(["plugin", "update", "a", "b"])).toThrow(/too many arguments to 'plugin update'/);
-  });
-
-  test("--json belongs to the two views only, and the refusal names them", () => {
-    expect(parseArgs(["plugin", "list", "--json"]).flags.json).toBe("1");
-    expect(parseArgs(["plugin", "update", "--json"]).flags.json).toBe("1");
-    expect(() => parseArgs(["plugin", "install", "--json"])).toThrow(/not valid for 'plugin install'/);
-    expect(() => parseArgs(["plugin", "install", "--json"])).toThrow(
-      /only 'plugin list' and 'plugin update' accepts it/,
-    );
-    expect(() => parseArgs(["plugin", "uninstall", "--json"])).toThrow(/not valid for 'plugin uninstall'/);
-  });
-
-  test("install and uninstall require their argument", () => {
-    expect(() => parseArgs(["plugin", "install"])).toThrow(/plugin install requires <name\|@scope\/pkg\[@version\]>/);
-    expect(() => parseArgs(["plugin", "uninstall"])).toThrow(/plugin uninstall requires <id>/);
-  });
-
-  test("an unknown verb names the four", async () => {
-    expect(() => parseArgs(["plugin", "bogus"])).toThrow(
-      /unknown plugin subcommand 'bogus': plugin requires install or list or uninstall or update/,
-    );
-    // The bare verb hits the same refusal through `run` (exit 2, usage dump).
-    const res = await run(["plugin"]);
-    expect(res.code).toBe(2);
-    expect(res.err).toInclude("install or list or uninstall or update");
-  });
-
-  test("the positional capture is gated to plugin: other commands still die as unknown flags", () => {
-    // The gate is load-bearing: without it `service status extra` and
-    // `status extra` would change meaning rather than refuse as they always have.
+  test("bare positional tokens everywhere still die as unknown flags", () => {
+    // The `plugin` verbs were the only positional-taking subcommands; their
+    // removal must not turn `service status extra` or `status extra` into
+    // accepted no-ops.
     expect(() => parseArgs(["status", "extra"])).toThrow(/unknown flag 'extra'/);
     expect(() => parseArgs(["service", "install", "extra"])).toThrow(/unknown flag 'extra'/);
   });

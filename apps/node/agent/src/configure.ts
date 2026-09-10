@@ -29,37 +29,6 @@ import { normalizeServer } from "./enroll.js";
 export interface ConfigureOpts {
   /** `--server`: the control plane's new base URL (http(s), trailing slashes stripped). */
   server: string;
-  /**
-   * `--registry-url`: npm registry base for plugin installs (phase 3).
-   * Optional; absent leaves whatever mirror is already configured untouched.
-   */
-  registryUrl?: string;
-}
-
-/**
- * Validate and store-normalize a `--registry-url` value by component.
- *
- * Deliberately NOT `normalizeServer`: that one lower-cases the scheme because
- * `wsUrlFor`'s `replace(/^http/, "ws")` is case-sensitive, and a registry URL
- * never feeds that. Here the value is stored as typed minus paste padding and
- * trailing slashes, because a mirror legitimately lives under a path prefix
- * (`https://mirror.internal/registry`) that canonicalization must not eat.
- * The scheme must still be http(s) and the whole thing must parse — integrity
- * comes from whichever host is named (spec 2026-09-09-registry §2.7), so the
- * operator must at least be naming a real host.
- */
-function normalizeRegistry(raw: string): string {
-  const trimmed = raw.trim();
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    throw new Error(`--registry-url must be a full URL (e.g. https://mirror.internal:4873), got '${raw}'`);
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`--registry-url must be http(s), got '${raw}'`);
-  }
-  return trimmed.replace(/\/+$/, "");
 }
 
 /**
@@ -77,13 +46,13 @@ function normalizeRegistry(raw: string): string {
  * actually configured; a plane behind a proxy subpath re-reports its own ws URL
  * on the next enroll.
  *
- * `--registry-url` (phase 3) writes ONLY the mirror key, and the same
- * validate-before-read rule covers it: both URLs are checked before the file
- * is opened, so a refusal on either leaves the config byte-identical. Absent,
- * a configured mirror survives the repoint — the registry outlives the
- * address that happened to be configured when it was set.
+ * `--registry-url` is GONE (inversion spec 2026-09-10 §6): it configured the
+ * npm mirror for plugin installs, and the node installs nothing anymore. A
+ * stale `registryUrl` in an older `config.json` is not preserved by the
+ * rewrite below — loadConfig rebuilds field by field, so the repoint drops
+ * the key on its way through.
  *
- * @param opts - the parsed `--server` and optional `--registry-url` flags
+ * @param opts - the parsed `--server` flag
  * @returns the config as it was written (the node key included — callers must
  *   never print it; the CLI prints only the address)
  * @throws when a URL is unusable, or there is no config to repoint (the
@@ -92,14 +61,12 @@ function normalizeRegistry(raw: string): string {
 export async function runConfigure(opts: ConfigureOpts): Promise<AgentConfig> {
   // Normalized first, so an unusable URL is refused without touching the file.
   const serverUrl = normalizeServer(opts.server);
-  const registryUrl = opts.registryUrl === undefined ? undefined : normalizeRegistry(opts.registryUrl);
 
   const current = await loadConfig();
   const next: AgentConfig = { ...current, serverUrl };
   if (serverUrl !== current.serverUrl) {
     delete next.nodeWsUrl;
   }
-  if (registryUrl !== undefined) next.registryUrl = registryUrl;
   await saveConfig(next);
   return next;
 }

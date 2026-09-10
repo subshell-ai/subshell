@@ -3,15 +3,18 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildPluginReports, installEmbedded, pluginsDir } from "@internal/pane-runtime";
+import { buildPluginReports, installEmbedded, pluginsDir } from "../index.js";
 
 /**
- * What the control plane learns about a node's plugins.
+ * What a host learns about its own installed plugins, as wire data.
  *
- * The server holds no plugin code for a machine it does not run on, so
- * everything it needs to render and validate one travels as data. These pin
- * that the data is actually there, because a missing field surfaces as an
- * empty profile editor rather than as an error.
+ * `buildPluginReports` lives here and the control plane consumes it for
+ * `local`'s declaration mirror (`apps/server/api/src/services/nodes/
+ * local-plugins.ts`); the agent stopped calling it when the node lost its
+ * plugin concept (inversion spec §6), so these pins moved with the only
+ * remaining consumer rather than being deleted with the agent-side copy.
+ * They pin that the data is actually there, because a missing field surfaces
+ * as an empty profile editor rather than as an error.
  */
 function tempDataDir(): string {
   return mkdtempSync(join(tmpdir(), "plugin-report-"));
