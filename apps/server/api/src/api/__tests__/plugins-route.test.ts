@@ -51,7 +51,7 @@ interface PluginRow {
 }
 interface Impact {
   profiles: number;
-  otherUsers: number;
+  distinctUsers: number;
   defaults: number;
   runningSubshells: number;
 }
@@ -334,7 +334,7 @@ describe("/api/plugins", () => {
 
   // ── impact + uninstall modes ──────────────────────────────────────────────
 
-  it("impact counts profiles across users, other users' share, Defaults, and RUNNING subshells", async () => {
+  it("impact counts profiles, DISTINCT OWNERS (the dialog's 'across N users'), Defaults, and RUNNING subshells", async () => {
     // Deterministic table: start from empty for `third`, then place exactly
     // one admin row, one alice regular row, one alice Default row, one
     // running subshell and one terminated one.
@@ -376,7 +376,7 @@ describe("/api/plugins", () => {
     const res = await get("/api/plugins/third/impact", adminCookie);
     expect(res.status).toBe(200);
     const impact = (await res.json()) as Impact;
-    expect(impact).toEqual({ profiles: 3, otherUsers: 2, defaults: 1, runningSubshells: 1 });
+    expect(impact).toEqual({ profiles: 3, distinctUsers: 2, defaults: 1, runningSubshells: 1 });
   });
 
   it("uninstall?mode=keep removes the bytes and leaves every profile row standing; running subshells survive", async () => {

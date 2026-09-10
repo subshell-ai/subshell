@@ -92,7 +92,10 @@ const PatchBodySchema = t.Object({
 
 const ImpactResponseSchema = t.Object({
   profiles: t.Number({ description: "Profiles using this harness, across every user" }),
-  otherUsers: t.Number({ description: "How many of those profiles belong to users other than the caller" }),
+  distinctUsers: t.Number({
+    description:
+      "Every user who owns one of these profiles, the caller included — the 'across N users' count the uninstall dialog renders",
+  }),
   defaults: t.Number({ description: "How many are auto-seeded Defaults (mode=delete removes these too)" }),
   runningSubshells: t.Number({ description: "RUNNING subshells on this harness. Uninstalling touches none of them" }),
 });
@@ -331,16 +334,19 @@ const adminRoutes = new Elysia()
   )
   .get(
     "/:pluginId/impact",
-    async ({ params, user }) => {
+    async ({ params }) => {
       if (!SAFE_PLUGIN_ID.test(params.pluginId)) {
         throw new HarnessStateError(`"${params.pluginId}" is not a valid plugin id`, 400);
       }
       const rows = await new ProfilesRepository(db).listByHarness(params.pluginId);
       return {
         profiles: rows.length,
-        // Counted from the CALLER's chair: an admin deciding whether to pull
-        // the plug cares how much of the damage is other people's work.
-        otherUsers: rows.filter((r) => r.userId !== user.id).length,
+        // Distinct OWNERS, counting every user who owns one of these profiles
+        // including the caller — the `N` in the dialog's "M profiles use it,
+        // across N users". A foreign-profile count could not say that number
+        // (three others' profiles are one teammate or three, and the dialog
+        // names users, not profiles).
+        distinctUsers: new Set(rows.map((r) => r.userId)).size,
         defaults: rows.filter((r) => r.isDefault === 1).length,
         runningSubshells: await new SubshellsRepository(db).countRunningByHarness(params.pluginId),
       };

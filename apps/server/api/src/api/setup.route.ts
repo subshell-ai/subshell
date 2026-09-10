@@ -23,8 +23,12 @@ const SetupStatusSchema = t.Object({
  *
  * Was the `harness_plugins` enable table until phase 2b, and the wizard's
  * question changed with it: not "which of these do you want on" but "which of
- * these do you want installed". Broken plugins count as installed: the bytes
- * are there, and hiding the row would hide the reason with them.
+ * these do you want installed". A BROKEN plugin is NOT counted installed
+ * here — the same filter the mirrored read applied before this move, so a
+ * plugin that will not load reads as not-installed to every consumer of
+ * `installedHere` (the profile editor filters its picker on exactly that).
+ * The admin's instance page is the surface that shows the broken row and its
+ * reason: `GET /api/plugins` iterates the disk reports, `broken` included.
  */
 async function installedIdsHere(): Promise<Set<string>> {
   return new Set((await localPluginReports()).filter((r) => !r.broken).map((r) => r.id));
