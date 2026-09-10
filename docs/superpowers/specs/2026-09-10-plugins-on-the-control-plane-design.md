@@ -41,20 +41,32 @@ answered by `{ results, env }`. The version probe gained what the sketch lacked
 but the mechanism needed: a 4 KiB output cap (a megabyte-scale `--version`
 answer would ride a 1 MiB frame budget and cost the node its detect round trip).
 
-**Carried follow-ups from the final review (triaged, not gates).** Parity-gate
-fixture map: `SETTINGS_FIXTURES[id] ?? {}` soft-collapses, so a sixth built-in
-silently weakens the argv-parity matrix instead of failing it (make an unmapped
-id throw). `brokenInstalledPlugins()` has no consumer; `prepareInstalledPlugins`
-failing at boot leaves the overlay unresolved until the next plugin write (sync
-in its catch, or consume the list on the status surface). Uninstall dialog
-polish: clear a row's error on a later success; invalidate the profiles
-queries after `mode=delete`. The node harness view carries plugin ids, not
-display names (server-view follow-up). e2e: spec 14 plus two timing tests are
-load-sensitive (flake class). Pre-existing, untouched by this work:
-`subshell-manager-remote.test.ts` fails standalone (`node_allowed_dirs`) —
-a suite-ordering dependency full-suite CI order masks. A test-fixture number:
-the plugins-route impact fixture is degenerate (both owner-set semantics
-compute to 2; renumber owners so the pin could regress).
+**Carried follow-ups from the final review: ALL EIGHT addressed the same
+day** (branch `follow-ups-2026-09-10`). The parity gate's fixture map now
+throws for a built-in it does not know, in the same voice as the
+missing-harness guard beside it. `brokenInstalledPlugins()` is GONE: the
+`refreshInstalledPlugins` result plus `syncPluginRegistry`'s logging is the
+read path, and a getter mirroring the overlay was a second copy of the same
+state; the boot worry behind it (a throwing prepare leaves the overlay
+unresolved) is answered at its root instead of with a branch nothing can
+enter — the pass is total by construction, and a test pins that totality
+with a `<dir>/plugins` that is a regular FILE, failing every guarded step at
+once. The uninstall dialog retires a row's stale failure when a later toggle
+succeeds, and `useUninstallInstancePlugin` invalidates the profiles queries
+(`mode=delete` sweeps them across every user); both are pinned by page
+tests. A node view's harness rows carry the instance store's `name` and the
+node page renders it — an id is an identifier; a row a person reads gets a
+label. The e2e suite runs on a deliberately generous test/expect budget
+(the final review named the defaults its flake class under load; the fix is
+the budget, not the assertions). The remote-manager test file runs the boot
+migrator against the shared test-mode DB and passes standalone and as a
+directory — its read of the directory allowlist goes through the requestless
+context, not the file's private `:memory:` handle, which is why a
+hand-curated migration list could not fix it. And the plugins-route impact
+fixture's owner split is deliberately asymmetric (caller two rows, alice
+one), so the pin distinguishes "distinct owners" from "others' profiles";
+the daemon test now removes its per-harness /tmp dataDirs at file end
+(a fresh run leaves zero).
 
 Phases 1 through 3 put plugin packages on every node: `<dataDir>/plugins/<id>/`,
 installed and updated per machine, loaded there, and reported to the control
