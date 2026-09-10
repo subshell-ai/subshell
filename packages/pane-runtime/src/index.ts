@@ -9,6 +9,14 @@ export { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.j
 export { enforceMode } from "./fs-mode.js";
 export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.js";
 export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";
+export {
+  DEFAULT_REGISTRY_URL,
+  fetchVerifiedTarball,
+  type PackageSpec,
+  parsePackageSpec,
+  type ResolvedVersion,
+  resolvePackageVersion,
+} from "./npm-registry.js";
 export { adaptPlugin } from "./plugin-adapter.js";
 export { createPluginHost, type PluginHostOptions } from "./plugin-host.js";
 export { buildPluginReports } from "./plugin-report.js";
