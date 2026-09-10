@@ -327,11 +327,13 @@ describe("/api/nodes harness state + recheck", () => {
    * command first (the agent's own scan + plugin report), then the plane's
    * `detect` pass (spec 2026-09-10 §4). `detectAnswer` rides the second
    * command's result data — a RAW node answer, parsed by the server's driver.
+   * `ok:false` there simulates the node refusing the command (`unsupported`,
+   * the pre-detect agent's contract answer) or failing it.
    */
   async function recheckWithAnswer(
     nodeId: string,
     answer: { ok: true } | { ok: false; error: string },
-    detectAnswer: unknown = { results: [] },
+    detectAnswer: { ok: true; data?: unknown } | { ok: false; error: string } = { ok: true, data: { results: [] } },
   ): Promise<Response> {
     const sock = fakeSocket();
     attachConnection(nodeId, sock);
@@ -362,9 +364,10 @@ describe("/api/nodes harness state + recheck", () => {
       await waitFor(() => sock.sent.length > 1, "detect command on the wire");
       const det = claimsOf(1);
       expect(det.cmd.type).toBe("detect");
-      expect(
-        resolveResult(liveConn(nodeId), { type: "result", ref: det.jti, ok: true, data: detectAnswer as never }),
-      ).toBe(true);
+      const detEv = detectAnswer.ok
+        ? ({ type: "result", ref: det.jti, ok: true, data: detectAnswer.data as never } as const)
+        : ({ type: "result", ref: det.jti, ok: false, error: detectAnswer.error } as const);
+      expect(resolveResult(liveConn(nodeId), detEv)).toBe(true);
       return await resP;
     } finally {
       resetNodeRegistryForTests();
@@ -667,7 +670,8 @@ describe("/api/nodes harness state + recheck", () => {
       id,
       { ok: true },
       {
-        results: [{ harnessId: H2, installed: true, binaryPath: "/x/hermes", rawVersion: banner }],
+        ok: true,
+        data: { results: [{ harnessId: H2, installed: true, binaryPath: "/x/hermes", rawVersion: banner }] },
       },
     );
     expect(res.status).toBe(200);
@@ -676,6 +680,29 @@ describe("/api/nodes harness state + recheck", () => {
     expect(entries.get(H2)?.version).toBe("0.16.0");
     expect(entries.get(H2)?.binaryPath).toBe("/x/hermes");
     expect(stored.inventoryJson).not.toContain("upstream");
+  });
+
+  it("recheck against an agent that predates detect: unsupported is swallowed, {ok:true} still attests the stored inventory", async () => {
+    // The protocol stays at 2 across the detect ADD (bump is Task 8), so an
+    // already-deployed v2 agent passes the exact-match gate and answers the
+    // new command `unsupported` — the dispatch switch's contract arm. The
+    // inventory command above it SUCCEEDED and its event stored the agent's
+    // own self-parsed scan (today's behavior), so the honest answer is the
+    // pre-change success, not a 409 that contradicts the stored snapshot and
+    // punishes the `unsupported` contract.
+    const id = await mkAgent();
+    const res = await recheckWithAnswer(id, { ok: true }, { ok: false, error: "unsupported" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("recheck: a GENUINE detect failure still maps to 409 NODE_UNREACHABLE (only unsupported is swallowed)", async () => {
+    const id = await mkAgent();
+    const res = await recheckWithAnswer(id, { ok: true }, { ok: false, error: "detect exploded" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("NODE_UNREACHABLE");
+    expect(body.message).toContain("detect exploded");
   });
 
   it("node page load (GET /:id) fires detect best-effort and never waits for it", async () => {

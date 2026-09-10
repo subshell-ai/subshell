@@ -321,6 +321,13 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   const rows = parseNodeDetectResults(data);
   if (!rows) throw new Error(`node "${nodeId}" answered the detect command with a malformed payload`);
   const stamp = (deps.now?.() ?? new Date()).toISOString();
+  // Read-merge-write on `inventory_json`, and this is NOT the column's only
+  // writer: the `/ws/node` handler applies the agent's `inventory` EVENT
+  // through the same `applyInventory` (node-ws-handler.ts, `case "inventory"`),
+  // so an event landing between the read and the write here can be briefly
+  // overwritten by this merge (or vice versa). No interim serialization: the
+  // double writer ends when the inventory event stops carrying harnesses —
+  // the Task 7/8 demolition — NOT when the protocol number moves.
   const merged = readAgentInventory(node).entries;
   for (const row of rows) merged.set(row.harnessId, detectRowToEntry(row, stamp));
   await nodes.applyInventory(nodeId, JSON.stringify([...merged.values()]));
