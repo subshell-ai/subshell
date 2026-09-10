@@ -70,9 +70,12 @@ Module boundaries inside pane-runtime:
 
 | module | owns | knows |
 |---|---|---|
-| `registry.ts` | packument resolution, tarball fetch, integrity verification, timeouts and size caps | a registry base URL, nothing about plugins |
+| `npm-registry.ts` | packument resolution, tarball fetch, integrity verification, timeouts and size caps | a registry base URL, nothing about plugins |
 | `tar-vendor.ts` | unpacking one `.tgz` byte buffer into validated entries | gzip + ustar/pax, nothing about npm or plugins |
-| `plugins-dir.ts` (extended) | `installFromRegistry(dataDir, spec, opts)`: compose the two above with the existing staging/rename/restore machinery, manifest validation, and the sidecar | npm's layout (`package/` prefix), our manifest contract |
+| `plugins-dir.ts` (extended) | `installFromRegistry` + the `installPlugin` facade (embedded-first, §2.5), the sidecar, and the update resolution, composing the two above with the existing staging/rename/restore machinery | npm's layout (`package/` prefix), our manifest contract |
+
+(`registry.ts` was this module's planned name and is taken: it is the
+statically-imported built-ins registry. The npm client is `npm-registry.ts`.)
 
 `installFromRegistry` returns the same `InstalledPlugin` as `installEmbedded`
 and shares its failure discipline: any throw leaves the previous state intact
