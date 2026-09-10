@@ -1,7 +1,7 @@
 import { appendFile, lstat, mkdir, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { enforceMode } from "@internal/pane-runtime";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
-import { enforceMode } from "../fs-mode.js";
 import { log } from "../log.js";
 import { pathAllowed } from "../path-policy.js";
 import type { CommandContext, CommandResult, UploadState } from "./context.js";

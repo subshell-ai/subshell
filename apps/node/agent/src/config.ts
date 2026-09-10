@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { enforceMode } from "./fs-mode.js";
+import { enforceMode } from "@internal/pane-runtime";
 
 /**
  * Everything subshell needs to live: where the control plane is, who this

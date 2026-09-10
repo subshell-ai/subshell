@@ -1,7 +1,12 @@
 import { join } from "node:path";
-import { adaptPlugin, createInProcessRuntime, type HarnessPlugin } from "@internal/pane-runtime";
+import {
+  adaptPlugin,
+  createInProcessRuntime,
+  type HarnessPlugin,
+  listInstalled,
+  pluginsDir,
+} from "@internal/pane-runtime";
 import type { SubshellManifest } from "@subshell-ai/plugin-api";
-import { listInstalled, pluginsDir } from "./plugins-dir.js";
 
 /**
  * Resolving the plugin a launch names, against what THIS node has installed.

@@ -6,10 +6,12 @@ export {
 } from "./binary-lookup.js";
 export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
 export { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
+export { enforceMode } from "./fs-mode.js";
 export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.js";
 export { buildHarnessCommand, curatedEnv, ENV_KEY_RE, validateWorkingDir } from "./launch.js";
 export { adaptPlugin } from "./plugin-adapter.js";
 export { createPluginHost, type PluginHostOptions } from "./plugin-host.js";
+export { buildPluginReports } from "./plugin-report.js";
 export {
   type BrokenPlugin,
   createInProcessRuntime,
@@ -18,6 +20,17 @@ export {
   type PluginRuntime,
   resetImportedForTests,
 } from "./plugin-runtime.js";
+export {
+  type InstalledPlugin,
+  installEmbedded,
+  listInstalled,
+  pluginsDir,
+  type RecoveredInstalls,
+  recoverInterruptedInstalls,
+  refreshStaleBuiltIns,
+  uninstallPlugin,
+} from "./plugins-dir.js";
+export { seedBuiltIns } from "./plugins-seed.js";
 export {
   allHarnesses,
   type BrokenBuiltIn,

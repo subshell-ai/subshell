@@ -2,11 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installEmbedded, listInstalled } from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
 import { execPluginInstall, execPluginUninstall } from "../commands/basics.js";
 import type { CommandContext } from "../commands/context.js";
 import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
-import { installEmbedded, listInstalled } from "../plugins-dir.js";
 
 /**
  * The two v6 plugin commands.

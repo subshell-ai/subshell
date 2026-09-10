@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { type EmbeddedPlugin, readBuiltIn } from "@internal/pane-runtime";
 import { parseManifest, type SubshellManifest } from "@subshell-ai/plugin-api";
+import { type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
-import { logger } from "./log.js";
 
 /**
  * This node's declaration of what it offers.
@@ -26,6 +25,11 @@ import { logger } from "./log.js";
  * point: one loader, one uninstall, one listing. Installing a built-in just
  * means the bytes came from this build rather than from a registry.
  */
+
+/** The message for a thrown value, which is not always an Error. */
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 /** Directory name inside the agent data dir. */
 const DIR = "plugins";
@@ -261,13 +265,13 @@ export async function recoverInterruptedInstalls(dataDir: string): Promise<Recov
       if (id && !existsSync(join(root, id))) {
         await rename(path, join(root, id));
         recovered.push(id);
-        logger.info(`restored plugin '${id}' from an install that was interrupted mid-swap`);
+        console.warn(`subshell: restored plugin "${id}" from an install that was interrupted mid-swap`);
         continue;
       }
       await rm(path, { recursive: true, force: true });
       removed += 1;
     } catch (err) {
-      logger.withError(err).warn(`could not clean up the leftover plugin directory '${name}'`);
+      console.warn(`subshell: could not clean up the leftover plugin directory "${name}": ${describe(err)}`);
     }
   }
   return { recovered: recovered.sort(), removed };
@@ -314,7 +318,9 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
     } catch (err) {
       // A refresh that fails leaves the previous copy in place, which is the
       // safe direction: the node keeps offering what it last had.
-      logger.withError(err).warn(`could not refresh built-in plugin '${installed.id}'; keeping the installed copy`);
+      console.warn(
+        `subshell: could not refresh built-in plugin "${installed.id}", keeping the installed copy: ${describe(err)}`,
+      );
     }
   }
   return refreshed.sort();

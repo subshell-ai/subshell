@@ -1,8 +1,14 @@
 import { join } from "node:path";
-import { adaptPlugin, createInProcessRuntime, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
+import {
+  adaptPlugin,
+  buildPluginReports,
+  createInProcessRuntime,
+  type HarnessInventoryEntry,
+  listInstalled,
+  pluginsDir,
+  scanOne,
+} from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
-import { buildPluginReports } from "./plugin-report.js";
-import { listInstalled, pluginsDir } from "./plugins-dir.js";
 
 /** The `inventory` event shape (spec §3.3) — what the backend's `applyInventory` persists. */
 export type InventoryEvent = Extract<NodeEvent, { type: "inventory" }>;

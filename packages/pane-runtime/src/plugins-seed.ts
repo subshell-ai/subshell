@@ -1,9 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { builtInIds } from "@internal/pane-runtime";
+import { builtInIds } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
-import { logger } from "./log.js";
 import { installEmbedded, pluginsDir } from "./plugins-dir.js";
 
 /**
@@ -59,7 +58,9 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
     } catch (err) {
       // One built-in that cannot be installed must not cost the node every
       // other harness it could have offered.
-      logger.withError(err).warn(`could not seed built-in plugin '${id}'; continuing with the rest`);
+      console.warn(
+        `subshell: could not seed built-in plugin "${id}", continuing with the rest: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   // Last, and only on the way out. Written before the loop it would record a
@@ -68,7 +69,7 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
   // file is not a directory either), so it never shows up as a plugin.
   await writeFile(marker, `${new Date().toISOString()}\n`, { mode: 0o600 });
   if (seeded.length > 0) {
-    logger.info(`seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
+    console.info(`subshell: seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
   }
   return seeded;
 }

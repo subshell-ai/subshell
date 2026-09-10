@@ -290,6 +290,7 @@
       "name": "@internal/pane-runtime",
       "version": "1.0.0",
       "dependencies": {
+        "@internal/subshell-protocol": "1.0.0",
         "@subshell-ai/plugin-api": "workspace:*",
         "@subshell-ai/plugin-claude-code": "workspace:*",
         "@subshell-ai/plugin-codex": "workspace:*",

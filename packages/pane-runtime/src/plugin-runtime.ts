@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -110,9 +111,17 @@ export interface PluginRuntime {
  * panes intact, which makes "restart to finish the upgrade" a remedy rather
  * than a dead end.
  *
- * Keyed by resolved entry path, valued by mtime and size — a pair, because a
- * filesystem with second-granularity timestamps can reproduce an mtime within
- * one second of an install.
+ * Keyed by resolved entry path, valued by a hash of the entry's CONTENT.
+ *
+ * Content rather than mtime, which was the first attempt: `installEmbedded`
+ * rewrites every file unconditionally, so reinstalling the same version moved
+ * the mtime and reported an upgrade of byte-identical code. Asking whether the
+ * bytes differ is the question this is actually for, and the read costs one
+ * file per load.
+ *
+ * It sees the ENTRY only. A plugin that changed a sibling module and not its
+ * entry reads as unchanged, which is the same blind spot mtime had; the entry
+ * is what the module cache is keyed by, so it is the honest unit here.
  */
 const IMPORTED = new Map<string, string>();
 
@@ -143,10 +152,11 @@ function broken(manifest: SubshellManifest, error: string, stale: boolean): Brok
   return stale ? { manifest, error, stale: true } : { manifest, error };
 }
 
-/** What a file looks like right now, for comparison against a past import. */
+/** What a file contains right now, for comparison against a past import. */
 async function fingerprint(path: string): Promise<string> {
-  const s = await stat(path);
-  return `${s.mtimeMs}:${s.size}`;
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 /**

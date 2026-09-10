@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { mkdirSync } from "node:fs";
+import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPluginHost } from "../plugin-host.js";
@@ -234,5 +235,35 @@ describe("upgrading a plugin that was BROKEN", () => {
     await writePlugin(dir, "mismatch", `${declaresResume}\n// fixed upstream`);
     const second = await createInProcessRuntime().load(dir);
     expect("error" in second && second.stale).toBe(true);
+  });
+});
+
+describe("re-installing the same version", () => {
+  it("is not an upgrade, even though every file was rewritten", async () => {
+    // `installEmbedded` writes unconditionally, so the mtime moves on a
+    // reinstall of identical bytes. Keying on mtime called that an upgrade
+    // and asked the operator to restart for nothing.
+    resetImportedForTests();
+    const dir = join(tmpdir(), `plugin-same-${crypto.randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const pkg = JSON.stringify({
+      name: "same",
+      version: "1.0.0",
+      private: true,
+      subshell: { apiVersion: 1, id: "same", type: "agent-harness", name: "Same", description: "", entry: "index.js" },
+    });
+    const body = `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
+    await Bun.write(join(dir, "package.json"), pkg);
+    await Bun.write(join(dir, "index.js"), body);
+    await createInProcessRuntime().load(dir);
+
+    // Byte-identical rewrite, with a later timestamp, exactly as an install does.
+    await Bun.write(join(dir, "index.js"), body);
+    await utimes(join(dir, "index.js"), new Date(Date.now() + 5000), new Date(Date.now() + 5000));
+
+    const again = await createInProcessRuntime().load(dir);
+    expect("error" in again).toBe(false);
+    if ("error" in again) return;
+    expect(again.stale).toBeUndefined();
   });
 });

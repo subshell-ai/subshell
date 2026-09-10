@@ -3,8 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installEmbedded, pluginsDir } from "@internal/pane-runtime";
 import { resolveLaunchPlugin } from "../launch-plugin.js";
-import { installEmbedded, pluginsDir } from "../plugins-dir.js";
 
 /**
  * The node enforces its own declaration.

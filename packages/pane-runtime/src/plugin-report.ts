@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { createInProcessRuntime } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
+import { createInProcessRuntime } from "./plugin-runtime.js";
 import { listInstalled, pluginsDir } from "./plugins-dir.js";
 
 /**

@@ -3,8 +3,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildPluginReports } from "../plugin-report.js";
-import { installEmbedded, pluginsDir } from "../plugins-dir.js";
+import { buildPluginReports, installEmbedded, pluginsDir } from "@internal/pane-runtime";
 
 /**
  * What the control plane learns about a node's plugins.

@@ -1,8 +1,8 @@
 import { unlinkSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { enforceMode } from "@internal/pane-runtime";
 import { isNodeSubshellId } from "@internal/subshell-protocol";
-import { enforceMode } from "./fs-mode.js";
 import { log } from "./log.js";
 
 /**

@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { TmuxRunner } from "@internal/pane-runtime";
+import { recoverInterruptedInstalls, refreshStaleBuiltIns, seedBuiltIns, TmuxRunner } from "@internal/pane-runtime";
 import {
   type CommandClaims,
   JtiLru,
@@ -22,8 +22,6 @@ import { mapOs } from "./enroll.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
-import { recoverInterruptedInstalls, refreshStaleBuiltIns } from "./plugins-dir.js";
-import { seedBuiltIns } from "./plugins-seed.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
 

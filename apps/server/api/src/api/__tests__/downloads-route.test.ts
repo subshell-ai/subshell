@@ -298,6 +298,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     const body = await (await install(await mkKey())).text();
     // Env knob: `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash`; UNSET keeps the
     // historical CWD install and never passes --data-dir (fix wave 1).
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
     expect(body).toContain('if [ -n "${SUBSHELL_DATA_DIR:-}" ]; then');
     expect(body).toContain('DATA_DIR="$SUBSHELL_DATA_DIR"');
     // Installer-created dirs are private (also on a shared /opt).
@@ -307,6 +308,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // Default branch: CWD binary, NO --data-dir arg, guarded against `set -u`.
     expect(body).toContain('DEST="./subshell"');
     expect(body).toContain("ENROLL_DATA_DIR_ARGS=()");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
     expect(body).toContain('${ENROLL_DATA_DIR_ARGS[@]+"${ENROLL_DATA_DIR_ARGS[@]}"}');
     // One download/verify/chmod/enroll pipeline, parameterized by $DEST —
     // bytes land in a temp path and only REPLACE $DEST after the digest
@@ -354,6 +356,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         block as string,
         "printf '%s\\n' DEST=\"$DEST\"",
         // The exact expansion the script's enroll line uses (pinned by the text test).
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
         "printf '%s\\n' enroll --server SRV --key KEY ${ENROLL_DATA_DIR_ARGS[@]+\"${ENROLL_DATA_DIR_ARGS[@]}\"}",
       ].join("\n");
 
@@ -498,6 +501,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           [
             "#!/usr/bin/env bash",
             'out=""; prev=""; for a in "$@"; do [ "$prev" = "--output" ] && out="$a"; prev="$a"; done',
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
             'case "${FAIL_MODE:-ok}" in',
             "  net) exit 7 ;;",
             '  four-oh-four) [ -n "$out" ] && printf "no such artifact" > "$out"; printf 404; exit 0 ;;',

@@ -1,12 +1,16 @@
 import { realpath, stat, unlink } from "node:fs/promises";
-import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
+import {
+  buildPluginReports,
+  getHarness,
+  installEmbedded,
+  tmuxSocketFor,
+  uninstallPlugin,
+} from "@internal/pane-runtime";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
 import { log } from "../log.js";
 import { pathAllowed } from "../path-policy.js";
-import { buildPluginReports } from "../plugin-report.js";
-import { installEmbedded, uninstallPlugin } from "../plugins-dir.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { stopWatcher } from "./report.js";
