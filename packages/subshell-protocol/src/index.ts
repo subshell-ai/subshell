@@ -37,6 +37,7 @@ export {
   PRODUCT_NAME,
 } from "./legal.js";
 export {
+  type DetectSpecWire,
   HARNESS_BINARY_PLACEHOLDER,
   type HarnessSessionWire,
   isNodeSubshellId,
@@ -53,6 +54,7 @@ export {
   parseNodeEvent,
 } from "./node-frames.js";
 export {
+  type DetectResultWire,
   FS_LS_MAX_ENTRIES,
   type NodeFsLsResult,
   type NodeLogReadResult,
@@ -63,6 +65,7 @@ export {
   type NodeStatDirResult,
   type NodeWriteFileResult,
   parseNodeCaptureResult,
+  parseNodeDetectResults,
   parseNodeFsLsResult,
   parseNodeLogReadResult,
   parseNodePaneSizeResult,

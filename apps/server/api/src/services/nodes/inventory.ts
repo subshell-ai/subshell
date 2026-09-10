@@ -1,6 +1,21 @@
-import { allHarnesses, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
-import type { PluginReportWire } from "@internal/subshell-protocol";
+import {
+  allHarnesses,
+  type DetectionReason,
+  getHarness,
+  type HarnessInventoryEntry,
+  scanOne,
+} from "@internal/pane-runtime";
+import {
+  type DetectResultWire,
+  type DetectSpecWire,
+  type PluginReportWire,
+  parseNodeDetectResults,
+} from "@internal/subshell-protocol";
+import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { sendCommand } from "@/services/nodes/node-rpc.js";
+import { logger } from "@/utils/logger.js";
 
 /**
  * Node harness-state resolution (spec 2026-08-31 §6.2) — the single merge of
@@ -216,4 +231,112 @@ async function probeLocally(declared: NodePluginSet): Promise<AgentInventory> {
   // `fresh` is the gate's view and `stale` the reader's; a live probe is both
   // as fresh as it can be and never stale.
   return { entries: new Map<string, HarnessInventoryEntry>(probed), fresh: true, stale: false };
+}
+
+/* ------------------------------------------------------------------ */
+/* the detect driver (spec 2026-09-10 §4)                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One `detect` spec per plugin THIS BUILD HOLDS, built from the manifest data
+ * the pane-runtime adapter attached (`detectSpec`, Task 2) rather than
+ * re-reading manifests: the control plane ships the RULE, the node runs the
+ * lookup. A plugin with no detect block travels as the empty spec — the node
+ * then answers `no-binary` without searching, exactly as `detectFor` reads a
+ * manifest with no `detect` block.
+ *
+ * Not intersected with what the node declared: after the inversion the node
+ * has no plugin concept, and extra rows in the cached inventory are inert
+ * (`effectiveHarnessStates` iterates the declared set, the gate keys by id).
+ * @param harnesses - the set to build from (test seam; default the registry)
+ */
+export function detectSpecs(harnesses: ReturnType<typeof allHarnesses> = allHarnesses()): DetectSpecWire[] {
+  return harnesses.map((h) => ({
+    id: h.id,
+    binaryName: h.detectSpec?.binaryName ?? "",
+    envOverride: h.detectSpec?.envOverride ?? "",
+    knownPaths: h.detectSpec?.knownPaths ?? [],
+  }));
+}
+
+/** Test seams for {@link detectOnNode} (the wire and the stamp clock). */
+export interface DetectOnNodeDeps {
+  /** Wire seam (default `sendCommand`). */
+  send?: typeof sendCommand;
+  /** Clock for the `checkedAt` stamp (default `() => new Date()`). */
+  now?: () => Date;
+}
+
+/**
+ * Map one RAW answer row onto a cached inventory entry — the exact shape
+ * `applyInventory` stores from the agent's own inventory event, so
+ * `INVENTORY_TTL_MS` and every reader keep working unchanged.
+ *
+ * `rawVersion` becomes `version` here by running the plugin's `parseVersion`,
+ * which is the behavior move of the inversion: the node answered text it could
+ * not interpret (it holds no plugin code), and this process, which does,
+ * interprets it. A parser-less plugin (or one this build never heard of) keeps
+ * the raw text — a banner still beats dropping the only version fact.
+ */
+function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventoryEntry {
+  const entry: HarnessInventoryEntry = {
+    harnessId: row.harnessId,
+    installed: row.installed,
+    checkedAt: row.checkedAt ?? stamp,
+  };
+  if (row.binaryPath) entry.binaryPath = row.binaryPath;
+  if (row.reason) entry.reason = row.reason;
+  if (row.rawVersion !== undefined) {
+    const harness = getHarness(row.harnessId);
+    const version = harness?.parseVersion ? harness.parseVersion(row.rawVersion) : row.rawVersion;
+    if (version) entry.version = version;
+  }
+  return entry;
+}
+
+/**
+ * Ask one agent node to run detection NOW, and cache the answer
+ * (spec 2026-09-10 §4).
+ *
+ * The whole flow is a request: the plane ships the rules ({@link detectSpecs}),
+ * the node probes and answers RAW, the raw text is parsed HERE with the
+ * plugin's `parseVersion`, and the result is merged over the cached snapshot
+ * and written through the SAME `applyInventory` path the inventory event uses.
+ * Rows the answer does not cover keep their cached values — a third-party
+ * plugin only the node's own inventory reports must survive a detect built
+ * from this server's registry.
+ *
+ * **Called from exactly two places: the node page load (best-effort) and
+ * Re-check. Never a timer, never a sweep** — §4: detection runs when someone
+ * asks. `local` is a no-op (its view probes live on every read); an unknown id
+ * is one, too.
+ * @throws whatever `sendCommand` throws (offline/timeout/failed — callers
+ * decide), and a plain Error when the agent answered with a malformed payload
+ */
+export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}): Promise<void> {
+  const nodes = new NodesRepository(db);
+  const node = await nodes.findById(nodeId);
+  if (!node || node.kind === "local") return;
+  const data = await (deps.send ?? sendCommand)(nodeId, { type: "detect", specs: detectSpecs() });
+  const rows = parseNodeDetectResults(data);
+  if (!rows) throw new Error(`node "${nodeId}" answered the detect command with a malformed payload`);
+  const stamp = (deps.now?.() ?? new Date()).toISOString();
+  const merged = readAgentInventory(node).entries;
+  for (const row of rows) merged.set(row.harnessId, detectRowToEntry(row, stamp));
+  await nodes.applyInventory(nodeId, JSON.stringify([...merged.values()]));
+}
+
+/**
+ * {@link detectOnNode}, fire-and-forget with the failure debug-logged.
+ *
+ * This is the node PAGE LOAD arm. The response renders the cached last-known
+ * inventory either way (that is what §4's cache is for), so a node that is
+ * offline for the page open — the routine case the moment a machine sleeps —
+ * must not surface anything; a debug line is for the operator who then watches
+ * a page that never refreshes.
+ */
+export function detectOnNodeBestEffort(nodeId: string): void {
+  void detectOnNode(nodeId).catch((err: unknown) => {
+    logger.debug(`detect for node ${nodeId} failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
 }

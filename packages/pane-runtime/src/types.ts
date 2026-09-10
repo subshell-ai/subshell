@@ -106,6 +106,19 @@ export interface HarnessPlugin {
    * This is the entry point for those callers.
    */
   versionAt(binaryPath: string): Promise<string | null>;
+  /**
+   * Interprets RAW `<binary> --version` output without probing anything.
+   *
+   * Only plugins whose harness prints a banner rather than a bare version
+   * implement it (the member comes straight from the plugin, attached by the
+   * adapter, absent-not-undefined like {@link detectSpec}). It exists because
+   * the `detect` command (spec 2026-09-10 §4) splits the old `versionAt` in
+   * half across the wire: the node probes and answers the raw text (it loads
+   * no plugin code), and the control plane — which holds the plugins — runs
+   * this to turn the text into a version. `versionAt` stays the one-call path
+   * for a host that has both the plugin and the binary in front of it.
+   */
+  parseVersion?(raw: string): string | null;
   /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
   /**

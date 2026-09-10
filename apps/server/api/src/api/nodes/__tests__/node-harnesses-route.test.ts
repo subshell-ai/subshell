@@ -10,8 +10,9 @@ import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.j
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { INVENTORY_TTL_MS } from "@/services/nodes/inventory.js";
+import { INVENTORY_TTL_MS, readAgentInventory } from "@/services/nodes/inventory.js";
 import {
   attachConnection,
   getLive,
@@ -292,6 +293,16 @@ describe("/api/nodes harness state + recheck", () => {
 
   // ── POST /api/nodes/:id/recheck ────────────────────────────────────────────
 
+  /** Decode the signed claims out of one wire frame. */
+  function claimsOf(frameJson: string): { jti: string; aud: string; cmd: { type: string } } {
+    const { jws } = JSON.parse(frameJson) as { jws: string };
+    return JSON.parse(Buffer.from(jws.split(".")[1], "base64url").toString("utf8")) as {
+      jti: string;
+      aud: string;
+      cmd: { type: string };
+    };
+  }
+
   function fakeSocket(): NodeSocket & { sent: string[] } {
     return {
       sent: [],
@@ -311,30 +322,49 @@ describe("/api/nodes harness state + recheck", () => {
     }
   }
 
-  /** Fire a recheck and settle its in-flight command with the given agent answer. */
+  /**
+   * Fire a recheck and settle its two in-flight commands: the `inventory`
+   * command first (the agent's own scan + plugin report), then the plane's
+   * `detect` pass (spec 2026-09-10 §4). `detectAnswer` rides the second
+   * command's result data — a RAW node answer, parsed by the server's driver.
+   */
   async function recheckWithAnswer(
     nodeId: string,
     answer: { ok: true } | { ok: false; error: string },
+    detectAnswer: unknown = { results: [] },
   ): Promise<Response> {
     const sock = fakeSocket();
     attachConnection(nodeId, sock);
     try {
       const resP = req("POST", `/api/nodes/${nodeId}/recheck`, { cookie: aliceCookie });
       await waitFor(() => sock.sent.length > 0, "inventory command on the wire");
-      const frame = JSON.parse(sock.sent[0]) as { jws: string };
-      const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
-        jti: string;
-        aud: string;
-        cmd: { type: string };
+      const claimsOf = (i: number) => {
+        const frame = JSON.parse(sock.sent[i] as string) as { jws: string };
+        return JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
+          jti: string;
+          aud: string;
+          cmd: { type: string };
+        };
       };
-      expect(claims.cmd.type).toBe("inventory");
-      expect(claims.aud).toBe(`node:${nodeId}`);
-      const conn = getLive(nodeId);
-      expect(conn).toBeDefined();
-      const ev = answer.ok
-        ? ({ type: "result", ref: claims.jti, ok: true } as const)
-        : ({ type: "result", ref: claims.jti, ok: false, error: answer.error } as const);
-      expect(resolveResult(liveConn(nodeId), ev)).toBe(true);
+      const inv = claimsOf(0);
+      expect(inv.cmd.type).toBe("inventory");
+      expect(inv.aud).toBe(`node:${nodeId}`);
+      expect(getLive(nodeId)).toBeDefined();
+      if (!answer.ok) {
+        expect(resolveResult(liveConn(nodeId), { type: "result", ref: inv.jti, ok: false, error: answer.error })).toBe(
+          true,
+        );
+        return await resP;
+      }
+      expect(resolveResult(liveConn(nodeId), { type: "result", ref: inv.jti, ok: true })).toBe(true);
+      // The route awaits the detect pass before answering, so the second
+      // frame follows the inventory answer promptly.
+      await waitFor(() => sock.sent.length > 1, "detect command on the wire");
+      const det = claimsOf(1);
+      expect(det.cmd.type).toBe("detect");
+      expect(
+        resolveResult(liveConn(nodeId), { type: "result", ref: det.jti, ok: true, data: detectAnswer as never }),
+      ).toBe(true);
       return await resP;
     } finally {
       resetNodeRegistryForTests();
@@ -624,6 +654,56 @@ describe("/api/nodes harness state + recheck", () => {
     const body = (await res.json()) as { code: string; message: string };
     expect(body.code).toBe("NODE_UNREACHABLE");
     expect(body.message).toContain("scan failed");
+  });
+
+  it("recheck online: the detect answer is stored parsed (the node's raw banner became a version)", async () => {
+    // Route-level half of the behavior move, through the REAL hermes plugin:
+    // the fake node answers the banner text (what `--version` really prints)
+    // and only "0.16.0" reaches the cache because the driver ran THIS
+    // process's parseVersion. Nothing on this path can fabricate a version.
+    const id = await mkAgent();
+    const banner = "Hermes Agent v0.16.0 (2026.6.5) - upstream 5e01a5db";
+    const res = await recheckWithAnswer(
+      id,
+      { ok: true },
+      {
+        results: [{ harnessId: H2, installed: true, binaryPath: "/x/hermes", rawVersion: banner }],
+      },
+    );
+    expect(res.status).toBe(200);
+    const stored = (await nodes.findById(id)) as NodeTable;
+    const entries = readAgentInventory(stored).entries;
+    expect(entries.get(H2)?.version).toBe("0.16.0");
+    expect(entries.get(H2)?.binaryPath).toBe("/x/hermes");
+    expect(stored.inventoryJson).not.toContain("upstream");
+  });
+
+  it("node page load (GET /:id) fires detect best-effort and never waits for it", async () => {
+    // The §4 request arm, page side: the GET resolves on cached values while
+    // the detect frame is still in flight; the answer then lands in the cache.
+    const id = await mkAgent();
+    const sock = fakeSocket();
+    attachConnection(id, sock);
+    try {
+      const view = (await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie })) as Response;
+      expect(view.status).toBe(200);
+      await waitFor(() => sock.sent.some((f) => claimsOf(f).cmd.type === "detect"), "detect frame on the wire");
+      const claims = claimsOf(sock.sent.find((f) => claimsOf(f).cmd.type === "detect") as string);
+      expect(
+        resolveResult(liveConn(id), { type: "result", ref: claims.jti, ok: true, data: { results: [] } as never }),
+      ).toBe(true);
+      // applyInventory runs after the settle resolves the driver's await; poll
+      // (waitFor's predicate is sync) until the snapshot lands.
+      let storedAt: string | null | undefined;
+      for (let waited = 0; waited <= 2000; waited += 10) {
+        storedAt = ((await nodes.findById(id)) as { inventoryAt: string | null } | undefined)?.inventoryAt;
+        if (storedAt !== null && storedAt !== undefined) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(storedAt).toBeTruthy();
+    } finally {
+      resetNodeRegistryForTests();
+    }
   });
 
   // ── local node: thin alias over the setup-route store ─────────────────────

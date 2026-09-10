@@ -115,6 +115,10 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
   if (plugin.supportsAttentionHooks) adapted.supportsAttentionHooks = true;
   const exit = plugin.exitStatus?.bind(plugin);
   if (exit) adapted.exitStatus = (code: number) => exit(code);
+  // The raw-text half of `versionOf`, exposed whole: the `detect` command's
+  // node side answers unparsed text, and the control plane maps it HERE.
+  const parse = plugin.parseVersion?.bind(plugin);
+  if (parse) adapted.parseVersion = (raw: string): string | null => parse(raw);
 
   return adapted;
 }

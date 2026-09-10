@@ -307,3 +307,39 @@ describe("launch server-built argv, resolve rule, and mcp dialect", () => {
     expect(parseNodeCommandBody({ ...launchCmd, mcp: { ...mcp, env: { A: 1 } } })).toBeNull();
   });
 });
+
+describe("detect command (inversion spec §4)", () => {
+  const spec = { id: "hermes", binaryName: "hermes", envOverride: "HERMES_PATH", knownPaths: [".local/bin/hermes"] };
+
+  it("accepts a well-formed detect and round-trips every spec field", () => {
+    expect(parseNodeCommandBody({ type: "detect", specs: [spec] })).toEqual({ type: "detect", specs: [spec] });
+    // Empty binaryName is the NO-BINARY marker (a plugin with no `detect`
+    // block travels as the empty spec, not as absent keys) — shape, not verdict.
+    expect(
+      parseNodeCommandBody({
+        type: "detect",
+        specs: [{ id: "term", binaryName: "", envOverride: "", knownPaths: [] }],
+      }),
+    ).toEqual({
+      type: "detect",
+      specs: [{ id: "term", binaryName: "", envOverride: "", knownPaths: [] }],
+    });
+    expect(parseNodeCommandBody({ type: "detect", specs: [] })).toEqual({ type: "detect", specs: [] });
+  });
+
+  it("requires all three lookup fields on every spec (the manifest makes them required)", () => {
+    expect(parseNodeCommandBody({ type: "detect" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: "hermes" })).toBeNull();
+    const { id: _id, ...noId } = spec;
+    const { binaryName: _b, ...noBinary } = spec;
+    const { envOverride: _e, ...noEnv } = spec;
+    const { knownPaths: _k, ...noKnown } = spec;
+    expect(parseNodeCommandBody({ type: "detect", specs: [noId] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noBinary] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noEnv] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noKnown] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [{ ...spec, binaryName: 7 }] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [{ ...spec, knownPaths: ["a", 1] }] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [null] })).toBeNull();
+  });
+});

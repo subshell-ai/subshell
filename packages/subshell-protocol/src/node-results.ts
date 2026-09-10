@@ -166,6 +166,55 @@ export function parseNodeLogReadResult(data: unknown): NodeLogReadResult | null 
 }
 
 /* ------------------------------------------------------------------ */
+/* detect                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One row of a `detect` answer (inversion spec §4): the cached inventory
+ * entry's shape (`HarnessInventoryEntry`) with `version` replaced by
+ * `rawVersion`. Raw is the whole point — the node has no plugin code, so it
+ * cannot interpret `<binary> --version` output; the control plane parses the
+ * text with the plugin and stores the ordinary entry. `checkedAt` keeps the
+ * inventory entry's meaning ("when this was probed"); the agent handler does
+ * not stamp it (the driver does), and the field is here so the wire mirrors
+ * `HarnessInventoryEntry` rather than a parallel invention.
+ *
+ * A `type` alias for the same JsonValue reason as `SettingsFieldWire`.
+ */
+export type DetectResultWire = {
+  /** Harness plugin id this row answers for (echo of the spec's `id`) */
+  harnessId: string;
+  /** Binary found and executable from this machine's perspective */
+  installed: boolean;
+  /** UNPARSED `<binary> --version` output when installed and readable */
+  rawVersion?: string;
+  /** Resolved binary path when installed */
+  binaryPath?: string;
+  /** Why the binary was not found; absent means the probe could not say */
+  reason?: "not-on-path" | "override-invalid" | "no-binary";
+  /** ISO 8601 stamp of when this entry was probed (the driver stamps it) */
+  checkedAt?: string;
+};
+
+/**
+ * Validates and narrows a `detect` command's `result{data}` into its rows.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed rows, or null when the payload is malformed
+ */
+export function parseNodeDetectResults(data: unknown): DetectResultWire[] | null {
+  if (!isRecord(data) || !Array.isArray(data.results)) return null;
+  for (const r of data.results) {
+    if (!isRecord(r) || !isStr(r.harnessId) || !isBool(r.installed)) return null;
+    if ("rawVersion" in r && !isStr(r.rawVersion)) return null;
+    if ("binaryPath" in r && !isStr(r.binaryPath)) return null;
+    if ("checkedAt" in r && !isStr(r.checkedAt)) return null;
+    if ("reason" in r && r.reason !== "not-on-path" && r.reason !== "override-invalid" && r.reason !== "no-binary")
+      return null;
+  }
+  return data.results as unknown as DetectResultWire[];
+}
+
+/* ------------------------------------------------------------------ */
 /* scalar results                                                      */
 /* ------------------------------------------------------------------ */
 

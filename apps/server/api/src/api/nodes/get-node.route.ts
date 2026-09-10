@@ -6,6 +6,7 @@ import { GetNodeResponseSchema, toNodeShareViews, toNodeView } from "@/api/nodes
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
+import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
 
 /**
  * `GET /api/nodes/:id` — one node view for the caller. Missing and invisible
@@ -30,6 +31,11 @@ export const getNodeRoute = new Elysia()
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
+      // Detection on demand (spec 2026-09-10 §4): opening the node's page IS
+      // the request to re-probe it. Fire-and-forget — this response renders the
+      // cached last-known inventory, and the page's next refetch sees the
+      // fresh rows. `local` probes live on every read, so it is not asked.
+      if (gate.row.kind !== "local") detectOnNodeBestEffort(gate.row.id);
       const view = await toNodeView(gate.row, gate.access, gate.isAdmin);
       if (!nodeCanConfigure(gate.access)) return view;
       return { ...view, shares: await toNodeShareViews(gate.shares) };

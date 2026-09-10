@@ -1,6 +1,19 @@
 import { realpath, stat, unlink } from "node:fs/promises";
-import { buildPluginReports, getHarness, installPlugin, tmuxSocketFor, uninstallPlugin } from "@internal/pane-runtime";
-import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
+import {
+  buildPluginReports,
+  detectBinary,
+  getHarness,
+  installPlugin,
+  probeVersion,
+  tmuxSocketFor,
+  uninstallPlugin,
+} from "@internal/pane-runtime";
+import {
+  type DetectResultWire,
+  type JsonValue,
+  NODE_MAX_FRAME_BYTES,
+  type NodeProbeEntry,
+} from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
 import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
 import { log } from "../log.js";
@@ -252,6 +265,43 @@ export async function execInventory(ctx: CommandContext): Promise<CommandResult>
   } catch (err) {
     return { ok: false, error: `inventory: ${err instanceof Error ? err.message : String(err)}` };
   }
+}
+
+/**
+ * `detect` (inversion spec §4): probe for the binaries the CONTROL PLANE
+ * named and answer with RAW version text. Pure data in, data out — nothing
+ * here consults a loaded plugin: `parseVersion` is plugin code and it runs on
+ * the control plane (the `detectOnNode` driver there), so this node answers
+ * the same way whether it holds plugins or, as after the inversion, none.
+ * An empty `binaryName` is the manifest's "declares no binary" marker,
+ * answered `no-binary` without searching — exactly what `detectFor` produces
+ * for a manifest with no `detect` block.
+ *
+ * Concurrent per spec, like `scanHarnesses`: the version probe is bounded at
+ * 4 s per binary while the command's own deadline is 10 s, so a sequential
+ * loop over a handful of slow binaries would answer after the plane had
+ * stopped waiting.
+ */
+export async function execDetect(_ctx: CommandContext, cmd: Cmd<"detect">): Promise<CommandResult> {
+  const results: DetectResultWire[] = await Promise.all(
+    cmd.specs.map(async (spec): Promise<DetectResultWire> => {
+      if (!spec.binaryName) return { harnessId: spec.id, installed: false, reason: "no-binary" };
+      const found = await detectBinary(spec.binaryName, spec.envOverride, spec.knownPaths);
+      if (found.path === null) {
+        return { harnessId: spec.id, installed: false, ...(found.reason ? { reason: found.reason } : {}) };
+      }
+      const raw = await probeVersion(found.path);
+      return {
+        harnessId: spec.id,
+        installed: true,
+        binaryPath: found.path,
+        ...(raw !== null ? { rawVersion: raw } : {}),
+      };
+    }),
+  );
+  // No checkedAt: the probe happened just now, and the driver stamps the
+  // store's clock — one time source for "when did we last look".
+  return { ok: true, data: { results } };
 }
 
 /**

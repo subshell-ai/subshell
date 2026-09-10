@@ -130,6 +130,24 @@ describe("adaptPlugin: the detect block rides through as data", () => {
   });
 });
 
+describe("adaptPlugin carries parseVersion for the detect command's server-side mapping", () => {
+  it("attaches the plugin's parser when it has one, applied to RAW text without probing", () => {
+    // The hermes half of the inversion (spec 2026-09-10 §4): the node answers
+    // raw text, and this member is the ONLY way the control plane turns that
+    // text into a version — it must not touch the filesystem.
+    const a = adaptPlugin(MANIFEST, minimal({ parseVersion: (raw) => raw.match(/\d+\.\d+/)?.[0] ?? null }));
+    expect(a.parseVersion?.("Hermes Agent v0.16.0 (2026.6.5)")).toBe("0.16");
+  });
+
+  it("has no parseVersion key when the plugin declares none", () => {
+    // Absent-not-undefined, like detectSpec: the driver distinguishes "no
+    // parser, store the raw text" from "a parser that said null".
+    const a = adaptPlugin(MANIFEST, minimal());
+    expect("parseVersion" in a).toBe(false);
+    expect(a.parseVersion).toBeUndefined();
+  });
+});
+
 describe("versionOf: the host probes, the plugin interprets", () => {
   /** A fake harness that prints exactly `output` for any argument. */
   async function fakeBinary(output: string): Promise<string> {

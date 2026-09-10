@@ -145,6 +145,29 @@ export interface LaunchResolveWire {
   knownPaths?: string[];
 }
 
+/**
+ * One harness's detection rule as the `detect` command ships it (inversion
+ * spec §4): the plugin id plus its manifest's `subshell.detect` block, all
+ * three lookup fields required because a PARSED manifest always fills them
+ * (mirrors plugin-api's `DetectSpec`). The empty-`binaryName` spec is the
+ * no-binary marker a plugin without a `detect` block travels under; the node
+ * then answers `no-binary` without searching, exactly as `detectFor` reads a
+ * manifest with no detect block.
+ *
+ * A `type` alias, not an interface: like `SettingsFieldWire` these travel
+ * inside JSON values, and an interface has no implicit index signature.
+ */
+export type DetectSpecWire = {
+  /** Harness plugin id this rule belongs to (echoed back on the result row) */
+  id: string;
+  /** Binary name the node searches PATH for ("" = this plugin declares no binary) */
+  binaryName: string;
+  /** Name of an env var holding an explicit override path ("" = none) */
+  envOverride: string;
+  /** Home-relative install locations tried after PATH (the manifest's knownPaths) */
+  knownPaths: string[];
+};
+
 /** Control-plane → agent command payloads — the JWS `cmd` claim (spec §3.2). */
 export type NodeCommandBody =
   | {
@@ -244,6 +267,20 @@ export type NodeCommandBody =
   | { type: "tail_stop"; subId: string }
   | { type: "remove_paths"; paths: string[] }
   | { type: "inventory" }
+  | {
+      /**
+       * Probe binaries on this node for the named detection rules and answer
+       * with RAW version text (inversion spec §4). Pure data in, data out:
+       * the node loads no plugin code to answer, because `parseVersion` is
+       * plugin code and runs on the control plane — the plane maps the raw
+       * text through the plugin's parser and caches the result through its
+       * ordinary inventory path. Detection runs ONLY when asked (page load,
+       * Re-check): there is no sweep to inherit from the `inventory` command.
+       */
+      type: "detect";
+      /** One rule per harness to probe; an empty array is a legal no-op */
+      specs: DetectSpecWire[];
+    }
   | {
       /** Chunked file write (terminal uploads relay, spec §3.4) */
       type: "write_file";
@@ -622,6 +659,19 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return isStrArray(value.dirs) ? { type: "set_allowed_dirs", dirs: value.dirs } : null;
     case "inventory":
       return { type: "inventory" };
+    case "detect": {
+      if (!Array.isArray(value.specs)) return null;
+      const specs: DetectSpecWire[] = [];
+      for (const s0 of value.specs) {
+        // All three lookup fields are REQUIRED (the manifest makes them so);
+        // a no-detect plugin travels as the empty spec, not as absent keys.
+        if (!isRecord(s0)) return null;
+        const { id, binaryName, envOverride, knownPaths } = s0;
+        if (!isStr(id) || !isStr(binaryName) || !isStr(envOverride) || !isStrArray(knownPaths)) return null;
+        specs.push({ id, binaryName, envOverride, knownPaths: [...knownPaths] });
+      }
+      return { type: "detect", specs };
+    }
     case "write_file":
       return isStr(value.path) &&
         isStr(value.chunk_b64) &&

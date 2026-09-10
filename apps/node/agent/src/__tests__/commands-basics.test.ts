@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tmuxSocketFor } from "@internal/pane-runtime";
@@ -7,6 +7,7 @@ import {
   NODE_MAX_FRAME_BYTES,
   type NodeEvent,
   parseNodeCaptureResult,
+  parseNodeDetectResults,
   parseNodePaneSizeResult,
   parseNodeProbeEntries,
   parseNodeProbeResume,
@@ -369,4 +370,98 @@ describe("command executors (spec §7)", () => {
   // commands-launch.test.ts); `write_file` flipped in Task 6 (see
   // commands-write-file.test.ts). The `default: unsupported` arm is the
   // contract answer for any FUTURE unknown type — no pin test needed.
+});
+
+describe("detect (inversion spec §4)", () => {
+  // ── detect (inversion spec §4) ─────────────────────────────────────────────
+  // Pure data in, data out: the plane names the binaries, the node probes and
+  // answers RAW text. `parseVersion` is plugin code and does not run here —
+  // that half moved to the control plane (see the server's detectOnNode tests).
+
+  const DETECT_ENV = "SUBSHELL_DETECT_TEST_BINARY";
+  const DETECT_BANNER = "Hermes Agent v0.16.0 (2026.6.5) - upstream 5e01a5db\nbuilt 2026-06-05";
+  // Path computed in beforeAll, not at collection: `base` is assigned by the
+  // file-level beforeAll, which has not run while this describe body evaluates.
+  let fakeHarness = "";
+
+  beforeAll(async () => {
+    // A deterministic "harness binary": ignores its args, prints a banner
+    // (hermes-style) over two lines. probeVersion trims; nothing else may
+    // touch the text.
+    fakeHarness = join(base, "fake-harness.sh");
+    await Bun.write(
+      fakeHarness,
+      `#!/bin/sh\nprintf '%s\\n' 'Hermes Agent v0.16.0 (2026.6.5) - upstream 5e01a5db' 'built 2026-06-05'\n`,
+    );
+    chmodSync(fakeHarness, 0o755);
+  });
+
+  it("detect: one row per spec; found answers RAW unparsed text; misses answer with a reason", async () => {
+    expect(fakeHarness).toBeTruthy();
+    process.env[DETECT_ENV] = fakeHarness;
+    try {
+      const { ctx } = makeCtx({}, []);
+      const res = await dispatchCommand(ctx, {
+        type: "detect",
+        specs: [
+          { id: "hermesish", binaryName: "anything", envOverride: DETECT_ENV, knownPaths: [] },
+          {
+            id: "ghost",
+            binaryName: "definitely-not-here-9f3c",
+            envOverride: "SUBSHELL_DETECT_TEST_MISSING",
+            knownPaths: [],
+          },
+        ],
+      });
+      expect(res.ok).toBe(true);
+      const data = (res as { ok: true; data: unknown }).data;
+      // The Task-1 contract validator round trip (suite idiom): the agent's
+      // answer is exactly what the backend expects to parse.
+      const rows = parseNodeDetectResults(data);
+      expect(rows).toHaveLength(2);
+      const found = rows?.find((r) => r.harnessId === "hermesish");
+      expect(found).toMatchObject({ installed: true, binaryPath: fakeHarness });
+      // RAW text, unparsed: the full banner, second line included. A node that
+      // ran parseVersion here could never produce this byte-for-byte.
+      expect(found?.rawVersion).toBe(DETECT_BANNER);
+      expect(found?.rawVersion).not.toBe("0.16.0");
+      expect(found).not.toHaveProperty("version");
+      expect(rows?.find((r) => r.harnessId === "ghost")).toMatchObject({ installed: false, reason: "not-on-path" });
+    } finally {
+      delete process.env[DETECT_ENV];
+    }
+  });
+
+  it("detect: an empty binaryName answers no-binary WITHOUT searching (a set override is not consulted)", async () => {
+    process.env[DETECT_ENV] = fakeHarness; // present on purpose: no-binary must beat it
+    try {
+      const { ctx } = makeCtx({}, []);
+      const res = await dispatchCommand(ctx, {
+        type: "detect",
+        specs: [{ id: "term", binaryName: "", envOverride: DETECT_ENV, knownPaths: [] }],
+      });
+      const rows = parseNodeDetectResults((res as { ok: true; data: unknown }).data);
+      expect(rows?.[0]).toMatchObject({ harnessId: "term", installed: false, reason: "no-binary" });
+      expect(rows?.[0]).not.toHaveProperty("rawVersion");
+    } finally {
+      delete process.env[DETECT_ENV];
+    }
+  });
+
+  it("detect: an invalid override answers override-invalid; no specs is a legal empty batch", async () => {
+    process.env[DETECT_ENV] = join(base, "nowhere-at-all"); // set but not executable
+    try {
+      const { ctx } = makeCtx({}, []);
+      const res = await dispatchCommand(ctx, {
+        type: "detect",
+        specs: [{ id: "x", binaryName: "anything", envOverride: DETECT_ENV, knownPaths: [] }],
+      });
+      const rows = parseNodeDetectResults((res as { ok: true; data: unknown }).data);
+      expect(rows?.[0]).toMatchObject({ installed: false, reason: "override-invalid" });
+      const empty = await dispatchCommand(ctx, { type: "detect", specs: [] });
+      expect(empty).toEqual({ ok: true, data: { results: [] } });
+    } finally {
+      delete process.env[DETECT_ENV];
+    }
+  });
 });

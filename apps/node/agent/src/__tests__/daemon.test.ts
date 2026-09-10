@@ -407,6 +407,22 @@ test("inventory command: inventory EVENT first, then result ok; harness list wel
   expect(result).toMatchObject({ ref: jti, ok: true });
 });
 
+// `detect` rides the same daemon path (verify → dispatch → result) as every
+// other command; the executor's behavior lives in commands-basics.test.ts.
+// This is the command-census entry: the type must be wired, end to end.
+test("detect command: signed frame through the socket → result ok with the parsed rows payload", async () => {
+  const h = await startDaemon();
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push");
+  const jti = await signAndSend(h, { type: "detect", specs: [] }, { jti: "detect-1", seq: 1 });
+  const result = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+    h,
+    (e) => e.type === "result" && e.ref === jti,
+    "detect result",
+  );
+  expect(result).toMatchObject({ ok: true });
+  expect((result as { data?: unknown }).data).toEqual({ results: [] });
+});
+
 test("replayed jti (same connection): ONE execution (spy), verify/replay error event, cached result re-sent", async () => {
   const h = await startDaemon();
   // Sign ONE envelope and deliver it twice — the jti LRU must drop the second EXECUTION,

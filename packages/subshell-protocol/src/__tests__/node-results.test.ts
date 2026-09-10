@@ -5,6 +5,7 @@ import {
   NODE_CLOSE_UPDATE_REQUIRED,
   parseNodeCaptureResult,
   parseNodeCommandBody,
+  parseNodeDetectResults,
   parseNodeEvent,
   parseNodeFsLsResult,
   parseNodeLogReadResult,
@@ -153,5 +154,59 @@ describe("parseNodePaneSizeResult", () => {
     // Additive fields from a newer agent must not break an older control
     // plane — the same tolerance every other result parser here shows.
     expect(parseNodePaneSizeResult({ cols: 100, rows: 30, future: true })).toEqual({ cols: 100, rows: 30 });
+  });
+});
+
+describe("detect result contract (inversion spec §4)", () => {
+  it("accepts the raw-text answer shape, including every optional field", () => {
+    const rows = parseNodeDetectResults({
+      results: [
+        { harnessId: "hermes", installed: true, binaryPath: "/x/hermes", rawVersion: "Hermes v1.2.3 (build 9)" },
+        { harnessId: "ghost", installed: false, reason: "not-on-path" },
+        { harnessId: "term", installed: false, reason: "no-binary", checkedAt: "2026-09-10T00:00:00.000Z" },
+      ],
+    });
+    expect(rows).toHaveLength(3);
+    expect(rows?.[0]).toMatchObject({ rawVersion: "Hermes v1.2.3 (build 9)" });
+    // Raw on purpose: version is what the CONTROL PLANE stores after
+    // parseVersion; the wire never carries a parsed one.
+    expect(rows?.[0]).not.toHaveProperty("version");
+  });
+
+  it("accepts an empty results array and ignores extra members", () => {
+    expect(parseNodeDetectResults({ results: [] })).toEqual([]);
+    expect(parseNodeDetectResults({ results: [{ harnessId: "x", installed: false, future: 1 }] })).toHaveLength(1);
+  });
+
+  it("refuses junk: no wrapper, no array, and rows missing or mis-typing their verdict", () => {
+    for (const bad of [
+      null,
+      undefined,
+      [],
+      {},
+      { results: null },
+      { results: {} },
+      { results: [{ installed: false }] }, // no harnessId
+      { results: [{ harnessId: "x" }] }, // no installed verdict
+      { results: [{ harnessId: "x", installed: "yes" }] },
+      { results: [{ harnessId: "x", installed: false, reason: "unknown" }] },
+      { results: [{ harnessId: "x", installed: true, rawVersion: 7 }] },
+      { results: [{ harnessId: "x", installed: true, binaryPath: null }] },
+    ]) {
+      expect(parseNodeDetectResults(bad)).toBeNull();
+    }
+  });
+
+  it("the inventory EVENT does not gain rawVersion semantics (the wire split is the point)", () => {
+    // The event entry keeps `version`; the detect row keeps `rawVersion`.
+    // (The event parser has never gated `reason` on the closed union, and
+    // tightening it is not this task's change.)
+    const ev = parseNodeEvent({
+      type: "inventory",
+      ts: "t",
+      harnesses: [{ harnessId: "x", installed: true, version: "1.0" }],
+    });
+    expect(ev?.type).toBe("inventory");
+    expect(JSON.stringify(ev)).not.toContain("rawVersion");
   });
 });

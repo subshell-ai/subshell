@@ -5,6 +5,7 @@ import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
+import { detectOnNode } from "@/services/nodes/inventory.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /** Response of a successful re-check — the data itself rides the WS event path. */
@@ -26,6 +27,11 @@ const RecheckResponseSchema = t.Object({
  * and per-socket dispatch is serialized (phase 2, `handleNodeMessageQueued`),
  * so `{ ok: true }` truthfully attests "inventory stored" — the client's
  * refetch can never read the previous snapshot off this response.
+ *
+ * Then it runs the plane's own `detect` pass (spec 2026-09-10 §4), awaited for
+ * the same reason: the detection rows (raw answers parsed HERE by the plugin)
+ * merge over the snapshot the agent just pushed, and a response claiming the
+ * fresh state is stored must not land before they are.
  *
  * Error mapping from `NodeRpcError.code` (the actual enum): `offline` → 409
  * `NODE_OFFLINE`; `timeout` / `unsupported` / `failed` → 409
@@ -60,6 +66,7 @@ export const recheckNodeRoute = new Elysia()
 
       try {
         await sendCommand(gate.row.id, { type: "inventory" });
+        await detectOnNode(gate.row.id);
       } catch (err) {
         if (err instanceof NodeRpcError) {
           return status(
