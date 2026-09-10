@@ -10,6 +10,39 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-10-plugins-on-the-control-plane-design.md`. Read it before Task 1. It supersedes §6, §8.1 to §8.2, §10 and §11 of `2026-09-09-plugin-architecture-design.md`, which keeps everything else.
 
+## Before you start
+
+**Line numbers in this plan are HINTS, not anchors.** They were captured on
+2026-09-10 against the commit that introduced this file. Tasks 1 through 6
+modify several of the files that later tasks cite, so by Task 7 the numbers
+will have moved. **Task 7 is the dangerous one**: it lists about twenty ranges
+across files that earlier tasks edit. Locate every one of them by SYMBOL NAME
+(`execPluginInstall`, `scanInstalledPlugins`, `COMMAND_FLAGS.plugin`) and treat
+the line number as a sanity check on whether you found the right thing. If a
+symbol is not where the plan says, trust the symbol.
+
+**Task 3 is a stop-gate, not a step.** If any built-in's argv does not survive
+placeholder substitution, stop and report which plugin and which input. Do not
+work around it. The likely cause is a plugin composing the binary into a longer
+string, and that needs a design answer, not a patch. Nothing has been deleted
+by that point, so stopping costs only the work done so far.
+
+**Prerequisite: the version PR must not have merged.** As of 2026-09-10 there
+is an open changesets PR ("chore: release package(s)") carrying four unreleased
+changesets, two of which describe the architecture this plan reverses. Task 13
+rewrites those two files so the release describes the end state rather than
+narrating a round trip. That only works while they are unconsumed. **If the PR
+has already merged**, Task 13 changes: the CHANGELOGs are written and the
+changesets are gone, so instead add a NEW changeset that corrects the record,
+and say plainly in it that the previous entry described a design that was
+replaced before it shipped.
+
+**Two documents in this repo describe a plan that is no longer current**:
+`2026-09-10-plugins-phase4-ux-design.md` and
+`2026-09-10-plugins-phase5-settings-design.md`, with their plans. Each carries a
+superseded header naming this work. Do not execute them. Their findings are
+still cited here where they survived.
+
 ## Why the order looks like this
 
 The obvious order is "change the protocol, then fix everyone". That leaves the tree uncompilable across several tasks, makes every intermediate review a guess, and defers the one question that matters (does a server-built argv equal a node-built one?) until after the node's ability to answer it has been deleted.
