@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -140,21 +140,29 @@ function closeAllSockets(plane: Plane, code: number, reason: string): void {
   }
 }
 
+/** Every per-harness dataDir created below, removed together at file end. */
+const daemonDirs: string[] = [];
+afterAll(() => {
+  for (const dir of daemonDirs) rmSync(dir, { recursive: true, force: true });
+});
+
 async function startDaemon(
   overrides: Partial<Pick<DaemonDeps, "heartbeatMs" | "inventoryMs" | "rand" | "tmux" | "meta" | "WebSocketImpl">> = {},
 ): Promise<Harness> {
   const [keys, hostileKeys] = await Promise.all([keysReady, hostileKeysReady]);
   const plane = startPlane();
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-"));
+  daemonDirs.push(dataDir);
   const config: AgentConfig = {
     serverUrl: `http://localhost:${plane.server.port}`,
     nodeId: NODE_ID,
     nodeKey: NODE_KEY,
     controlPublicKey: JSON.stringify(keys.publicJwk),
-    // Fresh per harness: the daemon no longer seeds or reads a plugin set
-    // (inversion §6), and a shared /tmp path could carry one installed by a
-    // pre-inversion run — which the ready frame's env report would then
-    // (honestly, but nondeterministically) surface.
-    dataDir: mkdtempSync(join(tmpdir(), "subshell-daemon-")),
+    // Fresh per harness: the daemon holds no plugin concept at all
+    // (inversion §6), but a shared /tmp path could still carry pre-inversion
+    // residue into anything a future daemon reads — a fresh dir keeps every
+    // run deterministic. Removed in the file's afterAll.
+    dataDir,
     name: "test-node",
   };
   const exits: number[] = [];

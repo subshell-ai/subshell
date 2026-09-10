@@ -342,9 +342,12 @@ describe("/api/plugins", () => {
   // ── impact + uninstall modes ──────────────────────────────────────────────
 
   it("impact counts profiles, DISTINCT OWNERS (the dialog's 'across N users'), Defaults, and RUNNING subshells", async () => {
-    // Deterministic table: start from empty for `third`, then place exactly
-    // one admin row, one alice regular row, one alice Default row, one
-    // running subshell and one terminated one.
+    // Deterministic table with a deliberately ASYMMETRIC owner split: the
+    // caller owns TWO rows (one of them the Default) and alice one. That
+    // distinguishes the number the dialog asks for — DISTINCT OWNERS
+    // including the caller (2) — from the count impact used to carry
+    // (profiles owned by others, here 1). A fixture where both compute the
+    // same number cannot regress between the two semantics.
     await profiles.deleteByHarness("third");
     await db.deleteFrom("subshells").where("harnessId", "=", "third").execute();
     const mk = (userId: string, name: string, isDefault = 0) =>
@@ -361,8 +364,8 @@ describe("/api/plugins", () => {
         isDefault,
       });
     await mk(adminId, "admin-regular");
+    await mk(adminId, "admin-default", 1);
     await mk(aliceId, "alice-regular");
-    await mk(aliceId, "alice-default", 1);
     const mkSub = async (name: string, running: boolean) => {
       const id = crypto.randomUUID();
       await subshells.create({

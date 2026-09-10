@@ -166,8 +166,21 @@ for (const id of BUILTIN_IDS) {
     continue;
   }
 
+  if (!(id in SETTINGS_FIXTURES)) {
+    // Same loudness as the missing-harness guard: a built-in the matrix
+    // never heard of must FAIL the gate. `?? {}` used to run every new
+    // plugin against an empty fixture, which reads identical to parity
+    // passing on a plugin that genuinely takes no settings.
+    test(`${id}: settings fixture must exist`, () => {
+      throw new Error(
+        `argv-parity: built-in "${id}" has no SETTINGS_FIXTURES entry — EXTEND the matrix, do not slip past it`,
+      );
+    });
+    continue;
+  }
+
   describe(`argv parity: ${id}`, () => {
-    const settingsFixture = SETTINGS_FIXTURES[id] ?? {};
+    const settingsFixture = SETTINGS_FIXTURES[id];
     const realMcp = planRemoteSubshellMcp(harness, SUBSHELL_ID, NODE_FACTS)?.reg;
 
     for (const row of matrixRows(settingsFixture)) {
