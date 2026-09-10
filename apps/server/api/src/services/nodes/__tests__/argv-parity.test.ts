@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getHarness, type ProfileDefinition } from "@internal/pane-runtime";
+import { brokenBuiltIns, builtInHarnesses, getHarness, type ProfileDefinition } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
 
@@ -69,7 +69,23 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
 };
 
-const BUILTIN_IDS = ["claude-code", "codex", "opencode", "hermes", "pi"] as const;
+/**
+ * Derived, never hand-listed: a hand-synced list is itself a bypass, because
+ * a sixth built-in added to pane-runtime would simply not appear and the
+ * gate would silently shrink. What the registry ANSWERS is what the matrix
+ * runs; the completeness test below fails loudly if a built-in failed to
+ * CONSTRUCT (that case removes it from this list), and the per-id fixture
+ * guard fails loudly if one resolves without a settings fixture.
+ */
+const BUILTIN_IDS: string[] = builtInHarnesses().map((h) => h.id);
+
+test("the built-in set is complete: nothing failed to construct", () => {
+  // `builtInHarnesses()` omits built-ins whose factory threw; the matrix
+  // iterating such a shrunken list would read as parity passing while one
+  // built-in silently stopped being tested. Its absence must be loud.
+  expect(brokenBuiltIns()).toEqual([]);
+  expect(BUILTIN_IDS.length).toBeGreaterThanOrEqual(5);
+});
 
 /** One stored profile flag pair: multi-word tokens included, as the row editor stores them. */
 const PROFILE_FLAGS = ["--dangerously-skip-permissions", "--model sonnet"];
@@ -158,8 +174,9 @@ function profileFor(row: MatrixRow): ProfileDefinition {
 for (const id of BUILTIN_IDS) {
   const harness = getHarness(id);
   if (!harness) {
-    // A missing built-in fails the gate loudly, not silently: the registry
-    // swallowing a broken built-in must never read as "parity passed".
+    // Unreachable with a derived id list (`BUILTIN_IDS` comes from the very
+    // registry read here), kept as the narrowing that turns it into a loud
+    // failure instead of an unchecked dereference.
     test(`${id}: built-in harness must be in the registry`, () => {
       throw new Error(`built-in plugin "${id}" is not in the pane-runtime registry`);
     });

@@ -249,7 +249,12 @@ describe("NodeHarnessCard", () => {
       instanceHas: ["pi"],
     });
     try {
+      // Both spellings: the card labels rows by NAME now, so the id probe
+      // alone would go stale the day matching semantics shift. "gone" is
+      // caught by RTL's case-insensitive whole-string match of "Gone"
+      // either way; pinning both makes that explicit rather than implicit.
       expect(screen.queryByText("gone")).toBeNull();
+      expect(screen.queryByText("Gone")).toBeNull();
       expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
     } finally {
       restore();

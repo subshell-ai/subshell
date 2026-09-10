@@ -107,14 +107,19 @@ describe("a seed that was interrupted", () => {
 });
 
 describe("prepareInstalledPlugins", () => {
-  it("resolves even when every step fails", async () => {
+  it("resolves even when a guarded step fails on an unopenable store", async () => {
     // The boot contract depends on this function being TOTAL: the server's
     // `prepareLocalPlugins` syncs the registry overlay after it, so an
     // unresolvable disk must still leave every loadable plugin resolved and
-    // must never reject up into the boot. Every step is caught inside
-    // (recover, seed, refresh each log-and-continue); a `<dir>/plugins`
-    // path that is a regular FILE makes all three of them fail, since none
-    // can read a directory out of one.
+    // must never reject up into the boot. A `<dir>/plugins` path that is a
+    // regular FILE is the instrument, and MEASUREMENT says which step proves
+    // the guard: `seedBuiltIns` reaches it and its own `mkdir` throws EEXIST,
+    // so the pass only resolves because the per-step catch absorbs that
+    // (without the guard this call would reject). `recoverInterruptedInstalls`
+    // and `refreshStaleBuiltIns` swallow the same unreadable directory one
+    // level lower, in `plugins-dir`, and resolve quietly. One step reaching
+    // the outer guard is enough to pin totality; the pass completing for all
+    // three is the assertion.
     const dir = tempDataDir();
     writeFileSync(join(dir, "plugins"), "not a directory");
     await expect(prepareInstalledPlugins(dir)).resolves.toBeUndefined();

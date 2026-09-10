@@ -50,8 +50,10 @@ read path, and a getter mirroring the overlay was a second copy of the same
 state; the boot worry behind it (a throwing prepare leaves the overlay
 unresolved) is answered at its root instead of with a branch nothing can
 enter — the pass is total by construction, and a test pins that totality
-with a `<dir>/plugins` that is a regular FILE, failing every guarded step at
-once. The uninstall dialog retires a row's stale failure when a later toggle
+with a `<dir>/plugins` that is a regular FILE: measured, that instrument
+makes `seedBuiltIns` itself throw (its `mkdir` hits EEXIST) and the per-step
+guard is the only thing that keeps the call resolving, while the other two
+steps absorb the same disk failure one level lower in `plugins-dir`. The uninstall dialog retires a row's stale failure when a later toggle
 succeeds, and `useUninstallInstancePlugin` invalidates the profiles queries
 (`mode=delete` sweeps them across every user); both are pinned by page
 tests. A node view's harness rows carry the instance store's `name` and the

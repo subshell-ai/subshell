@@ -125,8 +125,6 @@ function registry(): Registry {
 interface InstalledOverlay {
   /** `id -> adapted plugin` for successfully loaded installed non-built-ins */
   plugins: Map<string, HarnessPlugin>;
-  /** Installed plugins that will not load, reported rather than dropped */
-  broken: BrokenInstalled[];
 }
 
 /** Why an installed plugin did not resolve. */
@@ -147,7 +145,7 @@ export interface InstalledRefresh {
   broken: BrokenInstalled[];
 }
 
-const EMPTY_OVERLAY: InstalledOverlay = { plugins: new Map(), broken: [] };
+const EMPTY_OVERLAY: InstalledOverlay = { plugins: new Map() };
 
 let overlay: InstalledOverlay = EMPTY_OVERLAY;
 
@@ -207,7 +205,10 @@ export async function refreshInstalledPlugins(dataDir: string): Promise<Installe
     plugins.set(loaded.manifest.id, adaptPlugin(loaded.manifest, loaded.plugin));
   }
 
-  overlay = { plugins, broken };
+  // The broken rows reach the caller ONLY: the result is the single read
+  // path, and keeping a second copy here is what the removed getter used to
+  // risk drifting from it.
+  overlay = { plugins };
   merged = null;
   return { loaded: [...plugins.keys()], broken };
 }
