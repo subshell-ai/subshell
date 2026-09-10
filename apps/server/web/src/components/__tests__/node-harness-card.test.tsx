@@ -93,8 +93,11 @@ describe("NodeHarnessCard", () => {
   });
 
   it("says a plugin needing no program needs none", () => {
+    // "This plugin needs no separate program INSTALLED" contradicted the row's
+    // own "installed" fact on the node page (review of 2b, P2), so the copy
+    // avoids the word entirely now.
     renderCard(node([{ harnessId: "some-terminal", installed: false, reason: "no-binary" }]));
-    expect(screen.getByText(/needs no separate program/)).toBeDefined();
+    expect(screen.getByText(/No separate program is needed here/)).toBeDefined();
   });
 
   it("shows a broken plugin's reason rather than a healthy-looking row", () => {

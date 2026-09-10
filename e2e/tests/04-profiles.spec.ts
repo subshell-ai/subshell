@@ -5,8 +5,8 @@ test.use({ storageState: ADMIN_STATE });
 
 test("a Default profile exists; create and delete another profile", async ({ page }) => {
   await page.goto("/profiles");
-  // Auto-defaulted: registration seeds a blank "Default" for every installed,
-  // enabled harness (spec 01 asserts pi's via the API). On a host with several
+  // Auto-defaulted: registration seeds a blank "Default" for every harness
+  // this host declares (spec 01 asserts pi's via the API). On a host with several
   // CLIs there are several "Default" rows, hence .first() — this just needs the
   // list populated before the create/delete flow below.
   await expect(page.getByText("Default", { exact: true }).first()).toBeVisible();

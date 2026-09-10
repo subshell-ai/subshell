@@ -382,10 +382,10 @@ Six places document a fleet of older agents that gate 2 makes impossible and tha
 
 ### Task 10: End to end, and the docs
 
-- [ ] **Step 1:** Extend `e2e/` nodes spec: install and uninstall a plugin on the control-plane host through the UI, and assert the launch picker gains and loses it.
+- [x] **Step 1:** Extended `e2e/` as its own file, `tests/13-local-plugins.spec.ts`, rather than growing 12: the host flow needed the admin storage state and its own remove/reinstall/restore choreography, and 12 was already the longest spec in the suite. It installs and removes pi through the card and asserts the picker's grey appears and lifts with it. Deviation found on execution: with a single node the picker's NODE-side "no pi here" grey is unreachable here (the node pick defaults to `local`, and the profile option greys first), so the picker assertion travels on the profile side; spec 12 pins the node side for agent nodes.
 - [x] **Step 2:** Update `docs/architecture.md` (the Registry paragraph still describes per-node harness enablement) and `apps/server/api/AGENTS.md` (the `harness_plugins` references).
-- [ ] **Step 3:** `bunx turbo run verify-types --force`, `bun run lint:check`, `bun run test`, `bun run test:e2e`.
-- [x] **Step 4:** Code review, then commit.
+- [x] **Step 3:** `bunx turbo run verify-types --force` (34/34), `bun run lint:check` (clean), `bun run test` (green on bun 1.4.2 except the known zero-byte-upload baseline failure; one unreproduced 0.28ms throw in `inventory.test.ts` "same shape" on a single run — 13 subsequent targeted/paired/full runs green), `bun run test:e2e` (28 pass, 4 pre-existing skips, incl. the new spec 13).
+- [x] **Step 4:** Code review (over the uncommitted e2e diff + this session's follow-ups), then commit: findings acted on, see the commit message.
 
 ## Self-Review
 

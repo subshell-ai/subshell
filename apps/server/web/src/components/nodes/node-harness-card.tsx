@@ -140,7 +140,7 @@ export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canMana
                 </p>
               )}
               {h.reason === "no-binary" && (
-                <p className="text-muted-foreground text-xs">This plugin needs no separate program installed.</p>
+                <p className="text-muted-foreground text-xs">No separate program is needed here.</p>
               )}
               {errors[h.harnessId] && (
                 <p role="alert" className="text-destructive text-xs">

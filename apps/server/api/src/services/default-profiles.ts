@@ -16,7 +16,7 @@ type Db = import("kysely").Kysely<Database>;
  * Auto-defaulted profiles.
  *
  * Most users open a subshell without ever touching the CLI flags a profile
- * carries, so every (user, enabled-harness) pair is guaranteed at least one
+ * carries, so every (user, offered-harness) pair is guaranteed at least one
  * profile: a blank "Default" the user can edit or replace at leisure. This
  * removes profile creation from the first-run critical path (the wizard is now
  * Account → Harness → done) without changing anything about how profiles work
@@ -25,20 +25,21 @@ type Db = import("kysely").Kysely<Database>;
  * The rule is SELF-HEALING and idempotent: it only ever INSERTS when the pair
  * has zero profiles, and never mutates or deletes an existing one. Adding your
  * own for that harness lifts the count above zero, so nothing re-appears. It
- * runs at exactly three seams — registration, harness enablement, and boot
+ * runs at exactly three seams — registration, plugin install, and boot
  * (the upgrade backfill) — and deliberately NOT on the profile list read.
  *
  * Seeded rows carry `isDefault = 1`: they are unremovable (DELETE refuses
  * them, migration 0010) but fully editable — the flag is what protects them,
- * not the name, so renaming a Default keeps it protected. Disabling or
- * uninstalling the harness hides its profiles everywhere and blocks new
- * subshells (`usableHarnessIds` / `harnessUsable`); the Default waits it out
- * and returns with the harness.
+ * not the name, so renaming a Default keeps it protected. Removing the
+ * harness's plugin hides its profiles everywhere and blocks new subshells
+ * (`usableHarnessIds` / `harnessUsable`); the Default waits it out and returns
+ * when the plugin is installed again.
  *
- * Enabled, not installed: a Default is seeded for every ENABLED harness so the
- * moment a user installs the CLI they can launch — no re-enable dance. Profiles
- * for a not-installed harness are already hidden from every picker (the list
- * filters to `usableHarnessIds`), so these sit quietly until used.
+ * Offered, not detected: a Default is seeded for every harness this host
+ * declares, so the moment a user installs the CLI they can launch, with no
+ * second step. Profiles for a harness whose program is absent are already
+ * hidden from every picker (the list filters to `usableHarnessIds`), so these
+ * sit quietly until used.
  */
 
 /** The name given to every auto-created profile. Unique where it matters: per user + harness. */
@@ -57,7 +58,7 @@ export const DEFAULT_PROFILE_NAME = "Default";
  * nothing here can invent a default profile for it. That gap closes when the
  * profile editor is driven by reported data (spec §11).
  */
-async function enabledHarnessIds(db: Db): Promise<string[]> {
+async function declaredHarnessIds(db: Db): Promise<string[]> {
   const node = await new NodesRepository(db).findById(LOCAL_NODE_ID);
   const declared = node ? readNodePlugins(node).entries : new Map();
   return allHarnesses()
@@ -99,10 +100,11 @@ export async function ensureDefaultProfiles(
   const db = opts.db ?? appDb;
   const profiles = new ProfilesRepository(db);
 
-  // An explicitly targeted harness is honored regardless of the enabled filter
-  // (the enable route flips the flag just before calling us); the general path
-  // is gated on enabled state.
-  const harnessIds = opts.harnessId ? [opts.harnessId] : await enabledHarnessIds(db);
+  // An explicitly targeted harness is honored regardless of the declared-set
+  // filter (`installLocalPlugin` mirrors the report before calling us, but a
+  // plugin can also be passed by id from the users route); the general path is
+  // gated on what this host declares.
+  const harnessIds = opts.harnessId ? [opts.harnessId] : await declaredHarnessIds(db);
   const userIds = opts.userId ? [opts.userId] : await realUserIds(db);
   if (harnessIds.length === 0 || userIds.length === 0) return 0;
 

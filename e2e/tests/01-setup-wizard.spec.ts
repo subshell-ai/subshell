@@ -20,18 +20,18 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await page.getByRole("button", { name: "Create admin account" }).click();
 
   // Step 2/2 — Harness management. There is no profile step any more:
-  // registration already seeded a blank "Default" profile for every enabled
-  // harness, so this step is purely install/enable (the same HarnessRow
-  // settings renders). The stub `pi` must be present and enabled; the others
-  // read "not installed" on a bare runner.
+  // registration already seeded a blank "Default" profile for every harness
+  // this host declares, so this step is purely add/remove (the same HarnessRow
+  // settings renders). Boot seeds all five built-in plugins here, so pi's row
+  // reads "ready" (stub binary on PATH) and the others "program not found".
   await expect(page.getByText("Step 2 of 2")).toBeVisible();
   // HarnessRow names itself role=group / aria-label=<harness name> (pinned by
   // components/__tests__/harness-row.test.tsx). Exact name so a future
   // "pi-something" can't shadow it, and no dependence on class names.
   const piRow = page.getByRole("group", { name: "pi", exact: true });
   await expect(piRow).toBeVisible();
-  // The stub pi is installed + enabled → its status cell reads exactly "enabled".
-  await expect(piRow.getByText("enabled", { exact: true })).toBeVisible();
+  // pi is installed on the host AND its program was found → "ready".
+  await expect(piRow.getByText("ready", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Finish setup" }).click();
   await expect(page.getByRole("heading", { name: "Subshells" })).toBeVisible();
@@ -40,10 +40,11 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await page.goto("/setup");
   await expect(page).toHaveURL(/\/$/);
 
-  // Auto-defaulted profile: registration seeded a "Default" for each enabled
-  // harness; GET /api/profiles filters to INSTALLED ones, so on the e2e stack
-  // (stub pi installed, the rest absent) the admin already has exactly the pi
-  // Default — a subshell can be started without ever touching the profile UI.
+  // Auto-defaulted profile: registration seeded a "Default" for each declared
+  // harness; GET /api/profiles filters to usable ones (declared ∧ program
+  // found), so on the e2e stack (stub pi, the rest absent) the admin already
+  // has exactly the pi Default — a subshell can be launched without ever
+  // touching the profile UI.
   const profiles = await page.evaluate(async () => {
     return (await (await fetch("/api/profiles")).json()) as {
       id: string;

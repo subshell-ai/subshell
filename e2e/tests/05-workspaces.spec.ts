@@ -31,7 +31,7 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // (direction) is buttons, not comboboxes, but the id survives either way.
   await page.locator("#picker-profile").click();
   // Profile options render as "{name} ({harnessId})". Registration seeded a
-  // "Default" for every enabled harness, and GET /api/profiles keeps the ones
+  // "Default" for every harness this host declares, and GET /api/profiles keeps the ones
   // whose CLI is installed — a host with several CLIs shows several Defaults,
   // so pick pi's exactly (the stub pi is the only binary the e2e stack owns).
   await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
