@@ -136,7 +136,7 @@ export async function startStack(): Promise<void> {
       // Detection re-probes per request, so the stub appears as installed.
       PI_PATH: STUB_PI,
       // Plugin installs on `local` fetch from the fake registry (fake-registry.ts,
-      // spawned below) — never the public one. A registry-absent run would
+      // spawned above) — never the public one. A registry-absent run would
       // otherwise fall through to the https://registry.npmjs.org default and put
       // the suite on the open network.
       SUBSHELL_PLUGIN_REGISTRY_URL: FAKE_REGISTRY_URL,

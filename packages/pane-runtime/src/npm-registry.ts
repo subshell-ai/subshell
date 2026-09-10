@@ -87,7 +87,15 @@ async function getPackument(name: string, registryUrl: string): Promise<Packumen
     );
   }
   if (!res.ok) throw new Error(`the registry at ${url} answered ${res.status} for '${name}'`);
-  return (await res.json()) as Packument;
+  try {
+    return (await res.json()) as Packument;
+  } catch (err) {
+    // An HTML proxy or captive-portal body answers 200 with no JSON at all —
+    // a bare `SyntaxError` naming no URL is not a refusal a caller can act on.
+    throw new Error(
+      `the registry at ${url} did not answer with JSON for '${name}': ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**
@@ -101,10 +109,20 @@ export async function resolvePackageVersion(
   registryUrl = DEFAULT_REGISTRY_URL,
 ): Promise<ResolvedVersion> {
   const doc = await getPackument(name, registryUrl);
+  // `Object.hasOwn`, not a truthy index: `range` is caller-influenced (it is
+  // the version/tag off the install spec) and both objects are `JSON.parse`
+  // output, so a key like `constructor` must not resolve through the
+  // prototype chain. Failing closed here is honesty, not a hole — a bogus
+  // hit would still be refused below by the `dist.tarball`/`dist.integrity`
+  // checks — but it should say no for the right reason.
   const version =
     range === undefined
       ? (doc["dist-tags"]?.latest as string | undefined)
-      : ((doc.versions?.[range] ? range : (doc["dist-tags"]?.[range] as string | undefined)) ?? undefined);
+      : doc.versions && Object.hasOwn(doc.versions, range)
+        ? range
+        : doc["dist-tags"] && Object.hasOwn(doc["dist-tags"], range)
+          ? (doc["dist-tags"][range] as string | undefined)
+          : undefined;
   if (typeof version !== "string") throw new Error(`'${name}' has no ${range ?? "latest"} version at ${registryUrl}`);
   const dist = doc.versions?.[version]?.dist;
   if (

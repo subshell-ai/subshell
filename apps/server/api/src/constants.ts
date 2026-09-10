@@ -173,9 +173,18 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
  *
  * The default is the pane-runtime constant rather than a second copy of the
  * string, because "same default" across the two hosts is a claim this makes
- * true by construction. Trailing slashes are stripped: the registry client
- * concatenates `<base>/<name>`, and a configured `https://mirror/` would
- * otherwise double the separator on every request.
+ * true by construction. Trailing slashes are stripped, matching what the
+ * registry client concatenates (`<base>/<name>`) — but that is the ONLY
+ * normalization done here. This is NOT the agent's `normalizeRegistry`
+ * (`apps/node/agent/src/configure.ts`): no whitespace trim, no `new URL()`
+ * parse, no http(s)-scheme check. The agent can afford that check because it
+ * has a WRITER for this setting (`subshell configure --registry-url`) that
+ * validates before a bad value ever reaches config.json; this constant has
+ * no writer of its own — `SUBSHELL_PLUGIN_REGISTRY_URL` is a bare env var,
+ * not one of the five keys `configure` owns — so, like every other
+ * unvalidated setting in this file ({@link APP_BASE_URL}, {@link
+ * SUBSHELL_SERVER_DATA_DIR}), an operator-set value is trusted as typed and
+ * a malformed one fails at first use (the registry fetch), not at boot.
  */
 export const SUBSHELL_PLUGIN_REGISTRY_URL = env
   .get("SUBSHELL_PLUGIN_REGISTRY_URL")
