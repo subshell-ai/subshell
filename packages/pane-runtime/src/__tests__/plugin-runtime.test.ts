@@ -177,3 +177,62 @@ describe("re-loading a plugin whose files changed", () => {
     expect(second.stale).toBeUndefined();
   });
 });
+
+describe("upgrading a plugin that was BROKEN", () => {
+  /** Writes a plugin dir and returns its entry path. */
+  async function writePlugin(dir: string, id: string, body: string): Promise<void> {
+    mkdirSync(dir, { recursive: true });
+    await Bun.write(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: id,
+        version: "1.0.0",
+        private: true,
+        subshell: { apiVersion: 1, id, type: "agent-harness", name: id, description: "", entry: "index.js" },
+      }),
+    );
+    await Bun.write(join(dir, "index.js"), body);
+  }
+
+  const HEALTHY = `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
+
+  it("reports the cached failure as stale once a fixed copy is on disk", async () => {
+    // THE case an upgrade exists for. A module whose body throws is cached BY
+    // ITS ERROR, so every later import rethrows without reading the file: the
+    // page would show the old failure forever with no hint that a restart
+    // clears it. The fingerprint is therefore recorded before the import, not
+    // after, or a throwing plugin records nothing at all.
+    resetImportedForTests();
+    const dir = join(tmpdir(), `plugin-broken-${crypto.randomUUID()}`);
+    await writePlugin(dir, "brokenup", `throw new Error("BOOM v1");`);
+
+    const first = await createInProcessRuntime().load(dir);
+    expect("error" in first && first.error).toContain("BOOM v1");
+    expect("error" in first && first.stale).toBeUndefined();
+
+    await writePlugin(dir, "brokenup", HEALTHY);
+    const second = await createInProcessRuntime().load(dir);
+    // Still broken, because the error is what the cache holds. But now it says
+    // so, which is the difference between a dead end and a restart.
+    expect("error" in second).toBe(true);
+    expect("error" in second && second.stale).toBe(true);
+  });
+
+  it("marks a refusal made below the import stale too", async () => {
+    // A capability mismatch is a verdict on the CACHED module, not on the
+    // copy on disk. It was computed correctly and then dropped one line
+    // before it would have been useful.
+    resetImportedForTests();
+    const dir = join(tmpdir(), `plugin-mismatch-${crypto.randomUUID()}`);
+    const declaresResume = `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => ["resume"] });`;
+    await writePlugin(dir, "mismatch", declaresResume);
+
+    const first = await createInProcessRuntime().load(dir);
+    expect("error" in first && first.error).toContain("capabilities do not match");
+    expect("error" in first && first.stale).toBeUndefined();
+
+    await writePlugin(dir, "mismatch", `${declaresResume}\n// fixed upstream`);
+    const second = await createInProcessRuntime().load(dir);
+    expect("error" in second && second.stale).toBe(true);
+  });
+});

@@ -177,7 +177,6 @@ function assertWorkspaceBuilt(): boolean {
   return false;
 }
 
-/** CLI entry: floor + scope → preflight → build all → publish all → summary table. Any failure exits 1. */
 /** Where the plugin embedder and its tracked stub live. */
 const PANE_RUNTIME_DIR = join(REPO_ROOT, "packages", "pane-runtime");
 const EMBED_STUB = join("packages", "pane-runtime", "src", "generated", "embedded-plugins.ts");
@@ -229,6 +228,7 @@ async function restoreEmbedStub(): Promise<void> {
   await proc.exited;
 }
 
+/** CLI entry: floor + scope → preflight → build all → publish all → summary table. Any failure exits 1. */
 async function main(): Promise<void> {
   assertBunFloor("1.4.0");
   const scope = parseScope(process.env.SUBSHELL_RELEASE_TRIPLES);
@@ -252,9 +252,14 @@ async function main(): Promise<void> {
   // embedded set: it would seed nothing, install nothing, and refuse every
   // launch with "plugin is not installed on this node". The stub is restored
   // afterwards in the `finally`, exactly as the server does with its SPA.
-  await runEmbedPlugins();
+  //
+  // The embed is INSIDE the try. It writes the generated file and then keeps
+  // going, so a failure partway through leaves real plugin bytes in a tracked
+  // stub; restoring only around the build would commit them on the next
+  // careless `git add`.
   let result: Awaited<ReturnType<typeof buildAll>>;
   try {
+    await runEmbedPlugins();
     result = await buildAll({ runBuild: runBun, outDir }, scope);
   } finally {
     await restoreEmbedStub();

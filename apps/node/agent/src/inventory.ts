@@ -37,9 +37,16 @@ function scanCoalesced(nowMs: number, scan: () => Promise<HarnessInventoryEntry[
 }
 
 /**
- * Drop the scan memo. Test isolation only — suites that stub the probe
- * per-test must not inherit a previous one.
- * @internal
+ * Drops the scan memo, so the next build re-probes.
+ *
+ * NOT test-only, despite where it started. Every plugin change calls it
+ * (`pushInventory` in `commands/basics.ts`): the memo exists to coalesce the
+ * several inventories that land together on a connection, and reusing one
+ * across an install is exactly the staleness it must not cause. Clearing it is
+ * part of the plugin-change contract, not a test affordance.
+ *
+ * Tests also use it, for the ordinary reason: a suite that stubs the probe
+ * per-case must not inherit a previous one.
  */
 export function resetInventoryScanCache(): void {
   memo = null;
@@ -86,7 +93,14 @@ export async function buildInventoryEvent(
   scan?: () => Promise<HarnessInventoryEntry[]>,
   dataDir?: string,
 ): Promise<InventoryEvent> {
-  const probe = scan ?? (dataDir ? () => scanInstalledPlugins(dataDir, new Date(nowMs)) : async () => []);
+  // The no-dataDir case answers empty WITHOUT touching the memo. Feeding it
+  // through `scanCoalesced` would cache "no harnesses" under the same key a
+  // real probe uses, so one caller that omitted the data dir blanked the
+  // inventory for every caller for the next ten seconds.
+  if (!scan && !dataDir) {
+    return { type: "inventory", harnesses: [], ts: new Date(nowMs).toISOString() };
+  }
+  const probe = scan ?? (() => scanInstalledPlugins(dataDir as string, new Date(nowMs)));
   return {
     type: "inventory",
     harnesses: await scanCoalesced(nowMs, probe),

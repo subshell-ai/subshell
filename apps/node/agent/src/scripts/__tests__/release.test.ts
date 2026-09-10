@@ -226,7 +226,24 @@ describe("runEmbedPlugins (the step whose absence ships an unusable binary)", ()
     expect(embedAt).toBeGreaterThan(-1);
     expect(buildAt).toBeGreaterThan(-1);
     expect(embedAt).toBeLessThan(buildAt);
-    // And the stub is restored whatever the build does.
-    expect(src).toContain("restoreEmbedStub()");
+    // And the stub is restored whatever the build does. `toContain` cannot
+    // check that: the function's own declaration contains its name followed
+    // by "()", so the assertion passed with the whole try/finally deleted.
+    // The CALL is the one after the declaration, and it has to be in a
+    // `finally` that opens before the build.
+    const DECL = "async function restoreEmbedStub()";
+    const declaredAt = src.indexOf(DECL);
+    // Past the declaration, not one character into it: the declaration itself
+    // contains the name followed by "()", which is exactly why `toContain`
+    // could not tell a call from a definition.
+    const restoreCallAt = src.indexOf("restoreEmbedStub()", declaredAt + DECL.length);
+    const finallyAt = src.indexOf("} finally {", buildAt);
+    expect(declaredAt).toBeGreaterThan(-1);
+    expect(restoreCallAt).toBeGreaterThan(-1);
+    expect(finallyAt).toBeGreaterThan(-1);
+    expect(restoreCallAt).toBeGreaterThan(finallyAt);
+    // The embed is inside that try too, so a generator that writes the file
+    // and then throws still gets the stub back.
+    expect(src.lastIndexOf("try {", embedAt)).toBeGreaterThan(-1);
   });
 });

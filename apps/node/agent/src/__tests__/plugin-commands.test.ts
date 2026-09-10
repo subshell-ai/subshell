@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { NodeEvent } from "@internal/subshell-protocol";
 import { execPluginInstall, execPluginUninstall } from "../commands/basics.js";
 import type { CommandContext } from "../commands/context.js";
-import { resetInventoryScanCache } from "../inventory.js";
-import { listInstalled } from "../plugins-dir.js";
+import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
+import { installEmbedded, listInstalled } from "../plugins-dir.js";
 
 /**
  * The two v6 plugin commands.
@@ -133,5 +133,20 @@ describe("the inventory a plugin change pushes", () => {
     const events = inventories(ctx);
     expect(events[0]?.harnesses.map((h) => h.harnessId)).toEqual(["codex"]);
     expect(events[1]?.harnesses.map((h) => h.harnessId)).toEqual(["codex", "pi"]);
+  });
+});
+
+describe("an inventory built with no data dir", () => {
+  it("does not poison the memo for the callers that have one", async () => {
+    // It answers empty because there is nothing to probe, which is fine. What
+    // is not fine is caching that empty answer under the key a real probe
+    // shares: one such call used to blank the inventory for ten seconds.
+    resetInventoryScanCache();
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+
+    await buildInventoryEvent(Date.now());
+    const real = await buildInventoryEvent(Date.now(), undefined, dir);
+    expect(real.harnesses.map((h) => h.harnessId)).toEqual(["codex"]);
   });
 });

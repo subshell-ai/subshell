@@ -5,6 +5,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { nodePluginErrorMessage, useHarnesses, useNodeHarnesses, useSetNodePlugin } from "@/hooks/use-harnesses";
 import { checkedAtLabel } from "@/lib/checked-at";
 
+/** The row's one-word verdict: not usable, ready, or its program is missing. */
+function badgeLabel(h: { installed: boolean; broken?: string; reason?: string }): string {
+  if (h.broken) return "not usable";
+  return h.installed || h.reason === "no-binary" ? "ready" : "program not found";
+}
+
+/** The tone that verdict carries. */
+function badgeVariant(h: { installed: boolean; broken?: string; reason?: string }): "success" | "warning" | "muted" {
+  if (h.broken) return "warning";
+  return h.installed || h.reason === "no-binary" ? "success" : "muted";
+}
+
 /**
  * The plugins one node has installed (spec 2026-09-09 §6).
  *
@@ -22,18 +34,6 @@ import { checkedAtLabel } from "@/lib/checked-at";
  * the PLUGIN, and the plugin's BINARY was detected there. A node can have the
  * claude-code plugin and no `claude` on its PATH.
  */
-/** The row's one-word verdict: not usable, ready, or its program is missing. */
-function badgeLabel(h: { installed: boolean; broken?: string; reason?: string }): string {
-  if (h.broken) return "not usable";
-  return h.installed || h.reason === "no-binary" ? "ready" : "program not found";
-}
-
-/** The tone that verdict carries. */
-function badgeVariant(h: { installed: boolean; broken?: string; reason?: string }): "success" | "warning" | "muted" {
-  if (h.broken) return "warning";
-  return h.installed || h.reason === "no-binary" ? "success" : "muted";
-}
-
 export function NodeHarnessCard({
   nodeId,
   canManage,
@@ -125,13 +125,21 @@ export function NodeHarnessCard({
                   This node could not load the plugin: {h.broken}
                 </p>
               )}
-              {/* The version beside the name is the copy on disk. Until the
-                  agent restarts, launches still run the code it started
-                  with, so saying nothing here would make the number a lie. */}
-              {h.restartRequired && !h.broken && (
+              {/* No version number in this sentence. The one on this row is
+                  the PROGRAM's (`claude --version`), not the plugin's, so
+                  naming it here pointed at something the upgrade did not
+                  change, and rendered "Version  is installed" whenever the
+                  program was absent.
+
+                  Shown for a broken plugin too, and that case is the reason
+                  the notice earns its place: a plugin that threw on load keeps
+                  throwing the cached error until the agent restarts, so the
+                  row would otherwise show a failure already fixed on disk. */}
+              {h.restartRequired && (
                 <p className="text-muted-foreground text-xs">
-                  Version {h.version} is installed, but this node is still running the copy it started with. Restart the
-                  agent to finish the upgrade.
+                  {h.broken
+                    ? "A newer copy is installed and may already fix this. Restart the agent to load it."
+                    : "A newer copy is installed than the one this node is running. Restart the agent to finish the upgrade."}
                 </p>
               )}
               {h.reason === "override-invalid" && (

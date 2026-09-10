@@ -219,9 +219,14 @@ describe("upgrading a plugin in place", () => {
 
 describe("a refresh pass with an unreadable plugin in it", () => {
   it("carries on past one that this build cannot replace", async () => {
-    // `aaa` sorts first and is nobody's built-in, so the pass can neither
-    // read its version nor repair it. What must not happen is that ending the
+    // `aaa` sorts first and is nobody's built-in, so the pass skips it before
+    // reading any version at all. What must not happen is that ending the
     // pass: `codex` sorts after it and IS repairable.
+    //
+    // This does NOT cover a built-in whose own package.json is malformed.
+    // That throw lives in `readBuiltIn`, and its test is in
+    // `packages/pane-runtime/src/__tests__/embedded-plugins.test.ts` because
+    // reaching it needs a fixture in the checkout, not in a data dir.
     const dir = tempDataDir();
     await installEmbedded(dir, "codex");
     await writeFile(join(pluginsDir(dir), "codex", "package.json"), "{ not json");

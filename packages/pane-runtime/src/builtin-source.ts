@@ -52,7 +52,18 @@ async function fromDisk(id: string): Promise<EmbeddedPlugin | null> {
   } catch {
     return null;
   }
-  const manifest = parseManifest(JSON.parse(pkgRaw) as unknown);
+  // Inside the guard, not beside it. `parseManifest` returns its refusal, but
+  // `JSON.parse` THROWS, and this function is called in a loop over every
+  // installed plugin: one malformed package.json in the checkout ended the
+  // whole pass, so every id sorting after it silently kept a stale copy. A
+  // source we cannot read is a source we cannot install from, which is
+  // already what `null` means here.
+  let manifest: ReturnType<typeof parseManifest>;
+  try {
+    manifest = parseManifest(JSON.parse(pkgRaw) as unknown);
+  } catch {
+    return null;
+  }
   if ("error" in manifest) return null;
 
   const files: Record<string, string> = { "package.json": pkgRaw };

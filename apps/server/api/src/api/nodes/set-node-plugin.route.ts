@@ -20,7 +20,8 @@ import { installNodePlugin, uninstallNodePlugin } from "@/services/nodes/plugin-
  * **Both paths are audited.** Installing a plugin adds a program the node
  * will execute under its own OS user, and removing one takes launch targets
  * away from everyone that node is shared with. That is the same class of act
- * as `node.rename` and `node.shares.set`, which are audited beside it here.
+ * as `node.rename` and `node.shares_set`, which their own route modules audit
+ * the same way.
  *
  * **An offline node is REFUSED, not queued.** The node owns its plugin set and
  * the server mirrors what it reports, so there is no desired state to

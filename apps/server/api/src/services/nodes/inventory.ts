@@ -50,16 +50,26 @@ export interface EffectiveHarnessState {
   /**
    * The node holds a newer copy of the plugin than the code it is running.
    *
-   * `version` is then what is installed there, not what a launch would use.
-   * The remedy is a restart of that agent, so the state has to reach a screen
-   * an operator looks at.
+   * Everything this row reports that came from the PLUGIN (its capabilities,
+   * its settings schema, and `broken`) is then the previous copy's answer.
+   * `version` on this row is a different fact and is unaffected: it is the
+   * driven program's version, from the binary probe. The remedy is a restart
+   * of that agent, so the state has to reach a screen an operator looks at.
    */
   restartRequired?: boolean;
 }
 
 /** The full per-node harness picture plus the freshness verdict on its source. */
 export interface EffectiveHarnessReport {
-  /** One entry per registered harness × this node's state */
+  /**
+   * The rows for this node.
+   *
+   * For an AGENT that is one entry per plugin the node DECLARED, which is not
+   * the same set as the registry compiled into this server: a node can offer
+   * a plugin this build never heard of, and a plugin this build ships that
+   * the node did not install has no row. For `local` it is still one per
+   * registered harness.
+   */
   harnesses: EffectiveHarnessState[];
   /**
    * Agent nodes: true when the cached inventory is older than the TTL **or has

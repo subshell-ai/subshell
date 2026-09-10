@@ -104,33 +104,38 @@ describe("NodeHarnessCard", () => {
     expect(screen.getByText("not usable")).toBeDefined();
   });
 
-  it("says the version on screen is not the code running yet", () => {
-    // A module cannot be swapped inside a live process, so an upgrade shows
-    // the new number beside the old behaviour until the agent restarts. The
-    // number alone would be a lie.
+  it("names no version in the restart notice, because the one on the row is the program's", () => {
+    // `version` here is `claude --version`, which an upgrade of the PLUGIN
+    // does not change. Naming it pointed at the wrong number, and rendered
+    // "Version  is installed" whenever the program was absent.
     renderCard(
-      node([{ harnessId: "claude-code", enabled: true, installed: true, version: "2.1.0", restartRequired: true }]),
+      node([{ harnessId: "claude-code", enabled: true, installed: true, version: "1.0.88", restartRequired: true }]),
     );
-    expect(screen.getByText(/Version 2.1.0 is installed/)).toBeDefined();
+    expect(screen.getByText(/A newer copy is installed than the one this node is running/)).toBeDefined();
+    expect(screen.queryByText(/Version 1.0.88 is installed/)).toBeNull();
+  });
+
+  it("reads sensibly when the plugin declares no program at all", () => {
+    // No version to print, and this used to render "Version  is installed"
+    // with a hole in it.
+    renderCard(
+      node([
+        { harnessId: "some-terminal", enabled: true, installed: false, reason: "no-binary", restartRequired: true },
+      ]),
+    );
+    expect(screen.queryByText(/Version\s+is installed/)).toBeNull();
     expect(screen.getByText(/Restart the agent/)).toBeDefined();
   });
 
-  it("does not repeat the restart notice on a plugin that will not load at all", () => {
-    // "Restart to finish the upgrade" beside "could not load the plugin"
-    // points at the wrong remedy.
+  it("shows the restart notice on a BROKEN plugin, which is what it is most for", () => {
+    // A plugin that threw on load keeps throwing the cached error until the
+    // agent restarts, so this row would otherwise show a failure that the
+    // copy already on disk fixes.
     renderCard(
-      node([
-        {
-          harnessId: "claude-code",
-          enabled: true,
-          installed: true,
-          version: "2.1.0",
-          restartRequired: true,
-          broken: "boom",
-        },
-      ]),
+      node([{ harnessId: "claude-code", enabled: true, installed: true, restartRequired: true, broken: "BOOM v1" }]),
     );
-    expect(screen.queryByText(/Restart the agent/)).toBeNull();
+    expect(screen.getByText(/could not load the plugin: BOOM v1/)).toBeDefined();
+    expect(screen.getByText(/may already fix this/)).toBeDefined();
   });
 
   it("does not badge a no-binary plugin as missing its program", () => {

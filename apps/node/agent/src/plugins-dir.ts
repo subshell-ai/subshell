@@ -171,18 +171,27 @@ export async function installEmbedded(dataDir: string, id: string): Promise<Inst
   let asideHolds = false;
   try {
     await writeFiles(staging, source);
+    // Permissions are set on the STAGING copy, before it is anything. Doing it
+    // after the rename put a step that can throw between "installed" and
+    // "reported installed": the caller then saw a failure for a plugin that
+    // is on disk and running, the mirror on the control plane never learned
+    // about it, and every launch of it was refused until the next inventory.
+    await enforceMode(staging, 0o700);
     const target = join(root, id);
     if (existsSync(target)) {
       await rename(target, retired);
       asideHolds = true;
     }
     await rename(staging, target);
-    await enforceMode(target, 0o700);
   } catch (err) {
-    await rm(staging, { recursive: true, force: true });
-    // Put it back. A failed upgrade must leave the previous copy installed,
-    // which is the same direction `refreshStaleBuiltIns` chose.
+    // RESTORE FIRST. This used to sit behind an unguarded `rm` of the staging
+    // directory, and `force: true` only swallows ENOENT: an EACCES or EIO
+    // there skipped the restore, and the `finally` then deleted the only
+    // remaining copy. That is the "uninstalled what the operator was
+    // upgrading" outcome this whole shape exists to prevent, reached by an
+    // exception instead of a kill.
     if (asideHolds && !existsSync(join(root, id))) await rename(retired, join(root, id)).catch(() => {});
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
     throw err;
   } finally {
     await rm(retired, { recursive: true, force: true }).catch(() => {});
@@ -289,18 +298,15 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
   for (const installed of await listInstalled(dataDir)) {
     const source = await readBuiltIn(installed.id);
     if (!source) continue;
-    // Inside the loop's own guard, not outside it. This parse is of THIS
-    // BUILD's bytes, so a throw here is a build defect rather than a user's
-    // doing, and letting it escape would abandon every plugin after this one
-    // in the id order: one malformed built-in, and an upgraded agent silently
-    // keeps stale copies of all the rest.
-    let sourceVersion: string;
-    try {
-      sourceVersion = String((JSON.parse(source.files["package.json"] ?? "{}") as { version?: unknown }).version ?? "");
-    } catch (err) {
-      logger.withError(err).warn(`built-in plugin '${installed.id}' has an unreadable package.json in this build`);
-      continue;
-    }
+    // No guard around this parse, deliberately. `readBuiltIn` returned these
+    // bytes only after parsing them itself, so a throw here is impossible and
+    // a try around it would be unreachable code claiming to prevent something.
+    // The parse that CAN throw is the one inside `readBuiltIn`, and it is
+    // guarded there, where a malformed built-in makes it answer null instead
+    // of ending this loop.
+    const sourceVersion = String(
+      (JSON.parse(source.files["package.json"] ?? "{}") as { version?: unknown }).version ?? "",
+    );
     if (sourceVersion === installed.version && !installed.broken) continue;
     try {
       await installEmbedded(dataDir, installed.id);

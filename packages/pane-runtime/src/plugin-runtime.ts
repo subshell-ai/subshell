@@ -59,6 +59,16 @@ export interface LoadedPlugin {
 export interface BrokenPlugin {
   manifest: SubshellManifest | null;
   error: string;
+  /**
+   * The entry file changed since this process first imported it, so `error` is
+   * the OLD copy's failure and may already be fixed on disk.
+   *
+   * This is the case an upgrade usually exists to fix, which is why it has to
+   * reach a screen: a plugin that threw at import keeps throwing the cached
+   * error forever, so without this the page would show the old failure with no
+   * hint that a restart clears it.
+   */
+  stale?: true;
 }
 
 /** Options for one load. */
@@ -122,6 +132,17 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * A refusal, carrying whether the module behind it is known to be out of date.
+ *
+ * Every refusal below the import is a verdict on the CACHED module rather than
+ * on the copy on disk, so each one needs this. Returning the verdict without
+ * it is what made an upgrade that fixes a broken plugin invisible.
+ */
+function broken(manifest: SubshellManifest, error: string, stale: boolean): BrokenPlugin {
+  return stale ? { manifest, error, stale: true } : { manifest, error };
+}
+
 /** What a file looks like right now, for comparison against a past import. */
 async function fingerprint(path: string): Promise<string> {
   const s = await stat(path);
@@ -158,11 +179,21 @@ export function createInProcessRuntime(): PluginRuntime {
         return { manifest, error: `entry '${entry}' resolves outside the plugin directory` };
       }
 
+      // Declared out here so the catch can report it. A load that THREW is
+      // the most important stale case there is, and it leaves the try through
+      // the catch.
+      let stale = false;
       try {
-        // Read BEFORE the import: afterwards the module is cached either way,
-        // and the comparison is the only evidence left that it is the wrong
-        // one.
+        // Recorded BEFORE the import, not after, and this ordering is the
+        // whole mechanism. A module whose body throws is still cached, by its
+        // error, per the ESM spec: every later import of that path rethrows
+        // without re-reading the file. Recording afterwards means a throwing
+        // plugin records nothing, so the upgrade that FIXES it is never
+        // detected and the page shows the old failure forever.
         const seen = await fingerprint(entryPath);
+        const before = IMPORTED.get(entryPath);
+        if (before === undefined) IMPORTED.set(entryPath, seen);
+        stale = before !== undefined && before !== seen;
         // `pathToFileURL`, not the bare path: an ESM specifier is a URL, so
         // `#` in a directory name truncates at the fragment, `?` starts a
         // query and `%2F` decodes to a separator. A data dir with any of them
@@ -170,12 +201,9 @@ export function createInProcessRuntime(): PluginRuntime {
         // neither the plugin nor the cause. Nothing is appended to it: a query
         // string does NOT bust this cache (see IMPORTED).
         const mod: unknown = await import(pathToFileURL(entryPath).href);
-        const before = IMPORTED.get(entryPath);
-        if (before === undefined) IMPORTED.set(entryPath, seen);
-        const stale = before !== undefined && before !== seen;
         const factory = (mod as { default?: unknown }).default;
         if (typeof factory !== "function") {
-          return { manifest, error: "the plugin module has no default export, so there is no factory to call" };
+          return broken(manifest, "the plugin module has no default export, so there is no factory to call", stale);
         }
         const plugin = (factory as (host: unknown) => SubshellPlugin)(createPluginHost({ pluginId: manifest.id }));
         // Every REQUIRED member, not a sample of them. The adapter calls
@@ -186,7 +214,7 @@ export function createInProcessRuntime(): PluginRuntime {
         const required = ["buildCommand", "validateProfile", "capabilities"] as const;
         const absent = required.filter((m) => typeof plugin?.[m] !== "function");
         if (absent.length > 0) {
-          return { manifest, error: `the factory returned an object missing: ${absent.join(", ")}` };
+          return broken(manifest, `the factory returned an object missing: ${absent.join(", ")}`, stale);
         }
         // A declaration that disagrees with the members present is refused
         // here rather than surfacing later as a feature that silently does
@@ -194,11 +222,11 @@ export function createInProcessRuntime(): PluginRuntime {
         // restart that begins a fresh conversation while looking continued.
         const mismatches = capabilityMismatches(plugin);
         if (mismatches.length > 0) {
-          return { manifest, error: `capabilities do not match the implementation: ${mismatches.join("; ")}` };
+          return broken(manifest, `capabilities do not match the implementation: ${mismatches.join("; ")}`, stale);
         }
         return stale ? { manifest, plugin, stale: true } : { manifest, plugin };
       } catch (err) {
-        return { manifest, error: describe(err) };
+        return broken(manifest, describe(err), stale);
       }
     },
   };

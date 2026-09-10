@@ -62,6 +62,11 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         description: installed.manifest.description,
         capabilities: [],
         broken: loaded.error,
+        // A broken plugin with a newer copy on disk is the case an upgrade
+        // usually exists to fix. Reporting the failure without this leaves the
+        // page showing an error that a restart would clear, and no way to know
+        // that.
+        ...(loaded.stale ? { restartRequired: true } : {}),
       });
       continue;
     }
@@ -90,10 +95,12 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         // reported at all rather than recomputed on the control plane.
         mcpSetup: plugin.mcpSetup?.({ command: "subshell", args: ["mcp"] }),
         ...(Object.keys(exitStatuses).length > 0 ? { exitStatuses } : {}),
-        // Everything above this line was read from the copy on disk; the
-        // plugin object answering them is the one already in the module
-        // cache. Reporting the version without this flag would show an
-        // upgrade that has not happened yet.
+        // The split matters. `id`, `name`, `type`, `version`, `icon` and
+        // `description` came from the manifest, so they describe the copy on
+        // DISK. Everything else on this object was answered by the loaded
+        // plugin, so on a stale load those are the OLD build's capabilities,
+        // settings schemas and MCP steps being reported under the new
+        // version's number.
         ...(loaded.stale ? { restartRequired: true } : {}),
       });
     } catch (err) {

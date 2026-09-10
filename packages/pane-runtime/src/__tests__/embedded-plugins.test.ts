@@ -1,4 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseManifest } from "@subshell-ai/plugin-api";
 import { builtInIds, readBuiltIn } from "../builtin-source.js";
 import { EMBEDDED_PLUGINS } from "../generated/embedded-plugins.js";
@@ -73,4 +75,24 @@ describe("built-in plugin bytes", () => {
       expect(Object.keys(plugin.files).filter((f) => f.endsWith(".d.ts") || f.endsWith(".map"))).toEqual([]);
     });
   }
+});
+
+describe("a built-in this checkout cannot read", () => {
+  const BAD_ID = "zz-malformed-fixture";
+  const BAD = join(import.meta.dir, "..", "..", "..", "plugins", BAD_ID);
+
+  afterEach(() => {
+    rmSync(BAD, { recursive: true, force: true });
+  });
+
+  it("answers null instead of throwing out of its caller", async () => {
+    // `readBuiltIn` is called in a LOOP over every installed plugin, so a
+    // throw here ended the whole refresh pass and every id sorting after the
+    // bad one kept a stale copy with nothing said. `parseManifest` returns
+    // its refusal; `JSON.parse` throws, and that half was uncovered.
+    mkdirSync(BAD, { recursive: true });
+    writeFileSync(join(BAD, "package.json"), "{ not json");
+
+    expect(await readBuiltIn(BAD_ID)).toBeNull();
+  });
 });

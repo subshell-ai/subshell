@@ -57,7 +57,7 @@ export const NodeHarnessViewSchema = t.Object({
   restartRequired: t.Optional(
     t.Boolean({
       description:
-        "The node installed a newer copy of this plugin than the code it is running, so `version` describes the disk and not the behaviour. Cleared when that agent restarts",
+        "The node installed a newer copy of this plugin than the code it is running, so its capabilities and settings here are the previous copy's. Note this is NOT about `version` on this row, which is the driven program's version and is unaffected. Cleared when that agent restarts",
     }),
   ),
   checkedAt: t.Optional(
@@ -117,7 +117,9 @@ export const NodeViewSchema = t.Object({
     description:
       "Directories subshells may be created in on this node. EMPTY MEANS UNRESTRICTED, never 'nothing permitted'. Readable by anyone who can see the node; a refused directory is unexplainable without it; only the owner may change it",
   }),
-  harnesses: t.Array(NodeHarnessViewSchema, { description: "Every registered harness × this node's state" }),
+  harnesses: t.Array(NodeHarnessViewSchema, {
+    description: "One row per plugin the node declared (an agent), or per registered harness (`local`)",
+  }),
   inventoryStale: InventoryStaleSchema,
 });
 

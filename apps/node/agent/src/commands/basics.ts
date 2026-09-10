@@ -257,22 +257,6 @@ export async function execInventory(ctx: CommandContext): Promise<CommandResult>
 }
 
 /**
- * `plugin_install` (protocol v6): install a plugin and answer with this node's
- * fresh set.
- *
- * The answer carries the whole set rather than the one plugin, because the
- * control plane MIRRORS what the node reports and a partial answer would leave
- * it guessing at the rest. Phase 2 installs from the copies this build
- * carries, so there is no network here; phase 3 adds a registry behind the
- * same command.
- *
- * It also pushes a fresh inventory, and that is not a nicety: the probe covers
- * the plugins that are INSTALLED, so a plugin installed a moment ago has no
- * row in the last one. Without this the node page would show the new plugin
- * as "program not found" for up to the inventory cadence, on a machine where
- * the program is sitting on the PATH.
- */
-/**
  * Re-probes and pushes an inventory after the installed set changed.
  *
  * The memo is dropped first: it exists to coalesce the several inventories
@@ -291,6 +275,22 @@ async function pushInventory(ctx: CommandContext): Promise<void> {
   }
 }
 
+/**
+ * `plugin_install` (protocol v6): install a plugin and answer with this node's
+ * fresh set.
+ *
+ * The answer carries the whole set rather than the one plugin, because the
+ * control plane MIRRORS what the node reports and a partial answer would leave
+ * it guessing at the rest. Phase 2 installs from the copies this build
+ * carries, so there is no network here; phase 3 adds a registry behind the
+ * same command.
+ *
+ * It also pushes a fresh inventory, and that is not a nicety: the probe covers
+ * the plugins that are INSTALLED, so a plugin installed a moment ago has no
+ * row in the last one. Without this the node page would show the new plugin
+ * as "program not found" for up to the inventory cadence, on a machine where
+ * the program is sitting on the PATH.
+ */
 export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_install">): Promise<CommandResult> {
   try {
     await installEmbedded(ctx.config.dataDir, cmd.id);

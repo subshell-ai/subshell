@@ -133,9 +133,9 @@ export async function toggleLocalHarness(
  *
  * Node-aware (spec 2026-08-31 §6.2): with no `nodeId` (or `"local"`) this is
  * the process-local probe, verbatim — every existing zero-arg caller keeps
- * today's behavior. For an AGENT node it is the strict LAUNCH gate:
- * per-node enabled state (lazy `node_harnesses` row, else the plugin
- * default) ∧ a FRESH (≤ 10-min TTL) cached inventory that says installed.
+ * today's behavior. For an AGENT node it is the strict LAUNCH gate: the node
+ * DECLARED the plugin and did not report it broken ∧ a FRESH (≤ 10-min TTL)
+ * cached inventory that says its binary is installed.
  * Stale or never-reported inventory ⇒ NOT usable for launch, even though the
  * informational view (`services/nodes/inventory.ts` →
  * `effectiveHarnessStates`) still shows the last-reported values — gate and
@@ -165,10 +165,10 @@ export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID):
 /**
  * The ONE spelling of the agent-node launch gate for one (plugin × node)
  * pair (ledger 17b — dedups the rule previously spelled here AND in
- * {@link usableHarnessIds}): per-node enabled lazy row (else the plugin
- * default) ∧ a FRESH inventory that explicitly says installed. Pure — the
- * caller supplies the state map and the parsed inventory, so the batch path
- * reads the rows and parses the snapshot once for the whole set.
+ * {@link usableHarnessIds}): the node declared the plugin and did not report
+ * it broken ∧ a FRESH inventory that explicitly says installed. Pure — the
+ * caller supplies the declared set and the parsed inventory, so the batch
+ * path reads and parses each once for the whole set.
  */
 function agentHarnessUsable(pluginId: string, declared: NodePluginSet, inv: AgentInventory): boolean {
   // Two conditions, and they are different facts: the node DECLARED the
@@ -181,9 +181,9 @@ function agentHarnessUsable(pluginId: string, declared: NodePluginSet, inv: Agen
 }
 
 /**
- * The agent-branch rule for one resolved node row: loads the two inputs
- * (per-node enabled rows, parsed inventory) and defers every verdict to the
- * single {@link agentHarnessUsable} predicate.
+ * The agent-branch rule for one resolved node row: loads the two inputs (the
+ * node's declared plugin set, its parsed inventory) and defers every verdict
+ * to the single {@link agentHarnessUsable} predicate.
  */
 async function agentHarnessUsableForNode(node: NodeTable, pluginId: string): Promise<boolean> {
   return agentHarnessUsable(pluginId, readNodePlugins(node), readAgentInventory(node));

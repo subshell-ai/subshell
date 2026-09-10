@@ -25,12 +25,16 @@ describe("seedBuiltIns", () => {
     expect((await listInstalled(dir)).length).toBe(5);
   });
 
-  it("does NOTHING when the directory already exists, even if EMPTY", async () => {
-    // An empty directory is a user who uninstalled everything. Re-seeding
-    // would undo that on every restart, which is why the check is the
-    // DIRECTORY's existence and not its contents.
+  it("does NOTHING once a seed has COMPLETED, even with the directory emptied", async () => {
+    // An empty directory is a user who uninstalled everything, and re-seeding
+    // would undo that on every restart. The check used to be the directory's
+    // existence, which looked equivalent and was not: `installEmbedded`
+    // creates it before writing, so an interrupted first seed was skipped
+    // forever. It is the completion marker instead.
     const dir = tempDataDir();
-    mkdirSync(pluginsDir(dir), { recursive: true });
+    await seedBuiltIns(dir);
+    for (const p of await listInstalled(dir)) await uninstallPlugin(dir, p.id);
+
     expect(await seedBuiltIns(dir)).toEqual([]);
     expect(await listInstalled(dir)).toEqual([]);
   });
@@ -66,5 +70,35 @@ describe("seedBuiltIns", () => {
     const dir = tempDataDir();
     const seeded = await seedBuiltIns(dir, ["claude-code", "not-a-plugin", "pi"]);
     expect(seeded.sort()).toEqual(["claude-code", "pi"]);
+  });
+});
+
+describe("a seed that was interrupted", () => {
+  it("is retried, rather than leaving the node offering nothing forever", async () => {
+    // `installEmbedded` creates the plugins directory before writing anything,
+    // so keying on the directory meant a kill during the FIRST seed skipped
+    // seeding for the rest of the node's life.
+    const dir = tempDataDir();
+    mkdirSync(pluginsDir(dir), { recursive: true });
+
+    const seeded = await seedBuiltIns(dir, ["codex"]);
+    expect(seeded).toEqual(["codex"]);
+  });
+
+  it("does not run again once it completed, even with everything uninstalled", async () => {
+    // The other half, and the reason this is a marker rather than an
+    // emptiness check: "I want nothing here" has to be reachable.
+    const dir = tempDataDir();
+    await seedBuiltIns(dir, ["codex"]);
+    await uninstallPlugin(dir, "codex");
+
+    expect(await seedBuiltIns(dir, ["codex"])).toEqual([]);
+    expect(await listInstalled(dir)).toEqual([]);
+  });
+
+  it("keeps its marker out of the plugin listing", async () => {
+    const dir = tempDataDir();
+    await seedBuiltIns(dir, ["codex"]);
+    expect((await listInstalled(dir)).map((p) => p.id)).toEqual(["codex"]);
   });
 });
