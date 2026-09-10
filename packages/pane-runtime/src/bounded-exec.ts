@@ -23,10 +23,17 @@ const TIMED_OUT = Symbol("bounded-exec-timeout");
 
 /** What a completed command produced. */
 export interface BoundedResult {
-  /** Raw stdout, untrimmed */
+  /** Raw stdout, untrimmed (when `truncated`, the bytes up to the cap, cut at a chunk boundary) */
   text: string;
   /** Exit status, or null when the process was signalled */
   exitCode: number | null;
+  /**
+   * True when `maxBytes` was exceeded: the child was killed and `text` holds
+   * only what was read before the cap. Callers that need the WHOLE answer
+   * (every caller today) treat this as a failed read; callers that only
+   * glance at the head (a version string) can use what arrived.
+   */
+  truncated?: boolean;
 }
 
 /**
@@ -37,16 +44,51 @@ export interface BoundedResult {
  * is a diagnostic that can hang, and nothing here reads stderr.
  * @param cmd - argv, the first element being the executable
  * @param timeoutMs - deadline after which the process is killed and `null` returned
+ * @param maxBytes - optional output cap: once the child has produced more, it
+ * is killed and the result is flagged `truncated` rather than read to the
+ * end. A time bound alone lets a chatty-but-fast child hand the caller
+ * megabytes the caller then has to carry (a version string rides a capped
+ * protocol frame); the cap makes the budget real on SIZE, not just time.
  */
-export async function readCommandBounded(cmd: string[], timeoutMs: number): Promise<BoundedResult | null> {
+export async function readCommandBounded(
+  cmd: string[],
+  timeoutMs: number,
+  maxBytes?: number,
+): Promise<BoundedResult | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const proc = Bun.spawn({ cmd, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
 
     const read = (async (): Promise<BoundedResult> => {
-      const text = await new Response(proc.stdout).text();
+      if (maxBytes === undefined) {
+        const text = await new Response(proc.stdout).text();
+        await proc.exited;
+        return { text, exitCode: proc.exitCode };
+      }
+      // Chunked read so the cap can stop the pipe, not just post-filter it:
+      // an uncapped `Response.text()` allocates the whole stream first, which
+      // is the memory the cap exists to refuse.
+      const reader = proc.stdout.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        chunks.push(value);
+        total += value.byteLength;
+        if (total > maxBytes) {
+          // Past the cap: stop reading and stop the child. (Cancel and kill
+          // are best-effort — a child that already exited or a stream already
+          // closed have nothing to give up, and the verdict stands either
+          // way.)
+          void reader.cancel().catch(() => {});
+          proc.kill();
+          return { text: "", exitCode: null, truncated: true };
+        }
+      }
       await proc.exited;
-      return { text, exitCode: proc.exitCode };
+      return { text: Buffer.concat(chunks).toString("utf8"), exitCode: proc.exitCode };
     })();
     const expired = new Promise<typeof TIMED_OUT>((resolve) => {
       timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);

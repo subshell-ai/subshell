@@ -28,4 +28,31 @@ describe("probeVersion", () => {
     expect(await probeVersion("/bin/sh", ["-c", "sleep 30"], 200)).toBeNull();
     expect(Date.now() - started).toBeLessThan(5000);
   });
+
+  it("gives up on an absurdly chatty --version instead of shipping megabytes", async () => {
+    // The frame-budget case (final review R15): a detect answer carries
+    // `rawVersion` inside a result event, and the node link caps every frame
+    // at NODE_MAX_FRAME_BYTES — a multi-megabyte version answer is a lost
+    // detect round trip (or worse) for a fact that is a nice-to-have. 4 KiB
+    // is orders past any real version string, so exceeding it means the tool
+    // is not answering the question.
+    const started = Date.now();
+    const chatty = [
+      "-c",
+      "i=0; while [ $i -lt 200 ]; do echo 'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv'; i=$((i+1)); done",
+    ];
+    expect(await probeVersion("/bin/sh", chatty)).toBeNull();
+    // Bounded output must not need the 4 s deadline: the read stops at the
+    // cap and the child is killed.
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("a large-but-under-cap version still reads whole", async () => {
+    // ~3 KiB of output — noisy for a version, legal by the cap: the promise
+    // is only that OVER-cap answers are refused, not that answers stay short.
+    const out = "v".repeat(100);
+    const big = ["-c", `i=0; while [ $i -lt 30 ]; do echo '${out}'; i=$((i+1)); done`];
+    const text = await probeVersion("/bin/sh", big);
+    expect(text?.length).toBe(30 * 101 - 1); // 30 lines joined by \n, trailing newline trimmed
+  });
 });

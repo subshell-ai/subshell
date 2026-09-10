@@ -21,11 +21,27 @@ import { readCommandBounded } from "./bounded-exec.js";
 export const VERSION_PROBE_TIMEOUT_MS = 4000;
 
 /**
+ * How much a version probe may print before it is abandoned.
+ *
+ * The size twin of the timeout (final review R15): a real version string is a
+ * line or two, so 4 KiB is orders past anything legitimate, and printing
+ * more means the tool is not answering the question. Without the cap, the
+ * raw text rides a `detect` answer inside one result frame — and the node
+ * link caps every frame at 1 MiB, so a megabyte-scale `--version` is a lost
+ * detect round trip (the answer is dropped or refused, the node's socket is
+ * the thing at stake) paid for by a fact that is a nice-to-have. The choice
+ * made here: on exceed, the CHILD IS KILLED and the probe answers `null` —
+ * the truncation boundary could cut a version string in half, and a half a
+ * version is not a version worth storing.
+ */
+export const VERSION_PROBE_MAX_BYTES = 4096;
+
+/**
  * Runs `<binary> <args>` and returns its trimmed stdout.
  *
- * Total: a missing binary, empty output and a timeout all answer `null`. The
- * caller has already established the binary exists, so there is nothing here
- * an operator would act on.
+ * Total: a missing binary, empty output, a timeout, and an over-cap answer
+ * all answer `null`. The caller has already established the binary exists,
+ * so there is nothing here an operator would act on.
  * @param binary - absolute path to the executable
  * @param args - version arguments (default `["--version"]`)
  * @param timeoutMs - deadline (default {@link VERSION_PROBE_TIMEOUT_MS})
@@ -35,6 +51,7 @@ export async function probeVersion(
   args: string[] = ["--version"],
   timeoutMs: number = VERSION_PROBE_TIMEOUT_MS,
 ): Promise<string | null> {
-  const result = await readCommandBounded([binary, ...args], timeoutMs);
-  return result ? result.text.trim() || null : null;
+  const result = await readCommandBounded([binary, ...args], timeoutMs, VERSION_PROBE_MAX_BYTES);
+  if (!result || result.truncated) return null;
+  return result.text.trim() || null;
 }
