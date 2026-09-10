@@ -220,9 +220,8 @@ still wanted.
 - Profile settings are unaffected and get simpler: the schema comes from a
   plugin the server holds, so §2.6's ladder and the whole judge-versus-launcher
   problem are deleted rather than solved.
-- Per-node plugin settings, if still wanted, become a server-side record keyed
-  by node and plugin. No node-side store, no `plugin_set_settings`, no
-  round-trip.
+- **Per-node plugin settings are not built** (decided 2026-09-10, §9.1). Plugin
+  settings are instance-level, which is what one plugin copy implies.
 - **Templates lose their reason to exist** and should not be built.
 - The schema language (sections, groups, declarative conditions, `required`) is
   unaffected and carries forward as designed.
@@ -232,6 +231,51 @@ still wanted.
   must be readable there. A secret needed only INSIDE the pane can still be
   delivered to the node at launch and never stored centrally. That distinction
   is now load-bearing and needs deciding when settings are specced again.
+
+### 9.1 Per-node plugin settings, and why there are none
+
+Decided by working through the cases rather than by preference. Three
+mechanisms already carry per-machine variation, and between them they cover
+every case anyone could construct:
+
+- **The node's own OS environment**, inherited by the agent and by every pane it
+  spawns. Detection's `envOverride` is exactly this: a plugin names an env var
+  and the machine answers.
+- **A profile's `env` plus its `nodeId` pin**, for a value that belongs to one
+  way of working on one machine.
+- **`allowed-dirs`**, for per-node policy, which the control plane owns.
+
+| the case | what already answers it |
+|---|---|
+| the binary lives somewhere unusual here | `envOverride`, with `override-invalid` already reported when it is wrong |
+| this machine has its own credential | the agent's OS environment |
+| this machine talks to a different endpoint | node environment, or a pinned profile's `env` |
+| cache or config directory differs here | the same |
+| "no bypassPermissions on the production box" | node POLICY, which belongs beside `allowed-dirs`: different owner, different lifecycle |
+| hardware facts | detection, not configuration |
+
+The credential row is the one worth pausing on, because the existing answer is
+better than a settings store rather than merely equivalent: a value in the
+node's environment never reaches the control plane, which is precisely the
+property this whole document otherwise costs us (§8).
+
+**The one shape genuinely uncovered** is a value that shapes ARGV rather than
+env, varies per node, and should apply to every profile on that machine. Five
+profiles across four nodes would mean twenty pinned edits. It only bites when
+the CLI offers no env equivalent for that flag, and none of the five built-ins
+has such a setting.
+
+Deferring is safe here in a way it would not have been a week ago, and that is
+the actual argument. Under per-node plugins, "add it later" meant a distributed
+store, a protocol command and a page. With one plugin copy it is a table keyed
+by node and plugin that the server reads while building argv. **Reopen this the
+first time a real plugin needs an argv-shaping value that varies per machine**,
+and not before.
+
+A consequence worth naming: this shrinks the secret question. Plugin settings
+being instance-level means one store and one policy, and anything a pane needs
+privately can stay in the node's environment, where it lives today and where
+the control plane never sees it.
 
 ## 10. Testing
 
@@ -274,10 +318,10 @@ still wanted.
 
 ## 12. What this does not decide
 
-- Whether per-node plugin settings are wanted at all, now that the reason for
-  their store is gone (§9).
-- The secret split between "needed to build argv" and "needed inside the pane"
-  (§9).
+- How an INSTANCE-level plugin secret is stored, now that per-node settings are
+  out (§9.1) and the plugin runs on the control plane. Anything a pane needs
+  privately stays in the node's environment; what is left is credentials the
+  plugin itself needs while building argv, which have to be readable here.
 - Whether the instance plugins page lives under Settings or gets its own route.
 - Whether `probe_resume` keeps its name once it carries a computed path rather
   than a plugin id.
