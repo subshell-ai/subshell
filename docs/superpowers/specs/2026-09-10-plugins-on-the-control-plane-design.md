@@ -36,10 +36,25 @@ self-knowledge §5 intended, one field that cannot be answered wrong.
 protocol, the agent, or the plugins. Every probe has always run `--version`,
 byte-identical to pre-inversion behavior, so the field would have been wire
 surface with no consumer. The sketch stands corrected to what shipped: specs
-carry `{ id, binaryName, envOverride, knownPaths }`. The version probe gained
-what the sketch lacked but the mechanism needed: a 4 KiB output cap (a
-megabyte-scale `--version` answer would ride a 1 MiB frame budget and cost
-the node its detect round trip).
+carry `{ id, binaryName, envOverride, knownPaths }` plus node-level `envNames`,
+answered by `{ results, env }`. The version probe gained what the sketch lacked
+but the mechanism needed: a 4 KiB output cap (a megabyte-scale `--version`
+answer would ride a 1 MiB frame budget and cost the node its detect round trip).
+
+**Carried follow-ups from the final review (triaged, not gates).** Parity-gate
+fixture map: `SETTINGS_FIXTURES[id] ?? {}` soft-collapses, so a sixth built-in
+silently weakens the argv-parity matrix instead of failing it (make an unmapped
+id throw). `brokenInstalledPlugins()` has no consumer; `prepareInstalledPlugins`
+failing at boot leaves the overlay unresolved until the next plugin write (sync
+in its catch, or consume the list on the status surface). Uninstall dialog
+polish: clear a row's error on a later success; invalidate the profiles
+queries after `mode=delete`. The node harness view carries plugin ids, not
+display names (server-view follow-up). e2e: spec 14 plus two timing tests are
+load-sensitive (flake class). Pre-existing, untouched by this work:
+`subshell-manager-remote.test.ts` fails standalone (`node_allowed_dirs`) —
+a suite-ordering dependency full-suite CI order masks. A test-fixture number:
+the plugins-route impact fixture is degenerate (both owner-set semantics
+compute to 2; renumber owners so the pin could regress).
 
 Phases 1 through 3 put plugin packages on every node: `<dataDir>/plugins/<id>/`,
 installed and updated per machine, loaded there, and reported to the control
@@ -142,8 +157,8 @@ Detection runs when someone asks: opening a node's page, pressing Re-check, or
 launching. There are no background sweeps and no periodic traffic.
 
 ```
-server -> node   detect { specs: [{ id, binaryName, envOverride?, knownPaths?, versionArgs }] }
-node   -> server [{ id, found, path?, rawVersion?, reason? }]
+server -> node   detect { specs: [{ id, binaryName, envOverride?, knownPaths? }], envNames }
+node   -> server { results: [{ id, found, path?, rawVersion?, reason? }], env }
 ```
 
 - The specs come from the manifests, which the control plane holds. The node is

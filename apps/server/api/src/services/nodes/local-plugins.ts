@@ -110,8 +110,8 @@ async function syncPluginRegistry(): Promise<void> {
  * Throws the package's own errors; the caller decides what status a refusal
  * means.
  * @param registryUrl - a test seam only; production resolves the configured
- * `SUBSHELL_PLUGIN_REGISTRY_URL` (the agent's own registry lives in its
- * config.json, which this process must not read)
+ * `SUBSHELL_PLUGIN_REGISTRY_URL` (the instance's own; the agent has no
+ * registry concept since the inversion)
  */
 export async function installLocalPlugin(
   pluginId: string,
@@ -145,9 +145,10 @@ export async function uninstallLocalPlugin(pluginId: string): Promise<boolean> {
 /**
  * Boot: bring the instance's plugins directory to a usable state.
  *
- * The sequence itself is `prepareInstalledPlugins`, shared with the agent
- * daemon so there is one definition of it rather than two orders behind one
- * "same as the daemon" claim. Each of its steps is guarded there.
+ * The sequence itself is `prepareInstalledPlugins` in pane-runtime, and this
+ * is its ONLY production caller: since the inversion no agent prepares or
+ * seeds anything, so exactly one boot runs this order. Each of its steps is
+ * guarded there.
  */
 export async function prepareLocalPlugins(): Promise<void> {
   // Route the package's output through this app's logger before it says

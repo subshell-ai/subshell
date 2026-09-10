@@ -23,15 +23,15 @@ const TIMED_OUT = Symbol("bounded-exec-timeout");
 
 /** What a completed command produced. */
 export interface BoundedResult {
-  /** Raw stdout, untrimmed (when `truncated`, the bytes up to the cap, cut at a chunk boundary) */
+  /** Raw stdout, untrimmed (empty when `truncated`: a capped read keeps no partial output) */
   text: string;
   /** Exit status, or null when the process was signalled */
   exitCode: number | null;
   /**
-   * True when `maxBytes` was exceeded: the child was killed and `text` holds
-   * only what was read before the cap. Callers that need the WHOLE answer
-   * (every caller today) treat this as a failed read; callers that only
-   * glance at the head (a version string) can use what arrived.
+   * True when `maxBytes` was exceeded: the child was killed mid-stream and
+   * nothing partial is retained. Every caller today needs the WHOLE answer
+   * and treats this as a failed read; the day a head-only reader arrives,
+   * retaining the read bytes is this branch's first change.
    */
   truncated?: boolean;
 }
