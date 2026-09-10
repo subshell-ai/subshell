@@ -470,7 +470,7 @@ Message: `feat(protocol): plugins leave the wire (protocol 3)`.
 - Modify: `apps/server/api/src/services/nodes/plugin-sync.ts` (the remote branch collapses)
 - Delete: `apps/server/api/src/api/nodes/set-node-plugin.route.ts` and its tests
 - Create: `apps/server/api/src/api/plugins.route.ts` (instance-level install/uninstall/list, ADMIN-only)
-- Modify: `apps/server/api/src/api/setup.route.ts` (`declaredPluginIds` 24-32 reads the server's catalog)
+- Modify: `apps/server/api/src/api/setup.route.ts` (`installedIdsHere()` at 30-34 reads the server's own installed set, not `local`'s node row)
 - Test: alongside
 
 **Context:** "usable" stops being "this node declared it" and becomes "the server has this plugin AND detection says the binary is present there". The instance route is MANDATORY in this task, not deferrable: deleting the per-node route without it leaves no way to install anything.
@@ -726,6 +726,14 @@ Message: `docs: plugins live on the control plane`.
 ## Self-Review (plan author, 2026-09-10)
 
 **Spec coverage.** §2's table: rows 1 to 3 are Tasks 7, 9, 10; row 4 detection is Task 5; `parseVersion` is Task 5; argv is Tasks 2 and 4; mcp args/env are Tasks 1, 2 and 4; the last row is Task 9. §3 the dumb executor is Task 7, proven by its no-plugins-directory test. §4 detection is Task 5. §5 launch and late binding are Tasks 1, 2, 4, with `path_exists` in Task 6. §6 install relocation is Task 9. §7 protocol is Tasks 1, 5, 6, 8. §8 security is Task 13. §9 the phase-4 carry-over is Tasks 11 and 12. §9.1 needs no task, being a decision not to build. §9.2 secrets are NOT in this plan, deliberately: no plugin needs one yet, and §9.2 says to build it against a real case. §10's tests are distributed; its first item is Task 3.
+
+**Found while expanding the tasks, and it changes the shape of the work.**
+
+- **Task 6 is a published-contract change, not a protocol rename.** `canResume(sessionId, cwd)` does its own `existsSync` and reads `process.env.CLAUDE_CONFIG_DIR`, so for the control plane to compute that path the member must become a pure `resumePath(sessionId, cwd, hostEnv)`. `@subshell-ai/plugin-api` is published, so this is a breaking change with a changeset, and every plugin implementing `resume` moves with it. The node must also report its HOME, not only the declared variables, because the fallback is `join(homedir(), ".claude")`.
+- **`allHarnesses()` returns the EMBEDDED built-ins, never what is installed.** Every call site using it to mean "what harnesses exist" is wrong after this change, and the failure is SILENT: an installed third-party plugin simply never appears. Task 9 makes auditing those call sites an explicit step.
+- **Three repository methods do not exist** and an earlier draft assumed them: profiles by harness across users, delete profiles by harness, and running subshells by harness. Task 9 adds all three.
+- **The detect result can reuse `HarnessInventoryEntry`**, with `version` replaced by `rawVersion`. The server maps it through `parseVersion` and stores what it stores today, so the TTL cache and every reader are untouched. That is why Task 5 is small.
+- **`confirmAction` resolves a boolean**, so it cannot express the uninstall choice. Task 11 builds that dialog on the `Dialog` primitives rather than bending the shared one.
 
 **The riskiest thing here, named.** Task 3 is a gate rather than a step. If any built-in's argv does not survive placeholder substitution, the whole design assumption is wrong and the plan must stop. I put it before any deletion for exactly that reason, and it is cheap because `buildCommand` is pure.
 
