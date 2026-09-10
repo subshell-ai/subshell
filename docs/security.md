@@ -370,6 +370,40 @@ consequences are:
   the node goes offline until it is pointed back or enrolled afresh, which the
   UI says. It also does not rename: `config.json`'s name never reaches the
   plane outside the enroll body, so the plane owns a node's name.
+
+### What the node discloses to the plane (protocol 3)
+
+Connecting a node is itself a disclosure, and the frames it rides on are
+bounded on purpose:
+
+- **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
+  `hostname`, the agent's `dataDir` path, its capability set, the
+  `mcpLaunch` self-invocation (paths under the node's own user), and
+  `homeDir`. Resume-path defaults hang off the home; the plane cannot
+  expand `~` against a filesystem it cannot see.
+- **`detect` answers binary facts and named env values.** The PLANE names
+  everything it asks: the `detect` command carries the detection rules
+  (one per harness this instance's registry resolves) and `envNames` —
+  the union of `subshell.hostEnv` across the instance's ENABLED harness
+  manifests (today: `CLAUDE_CONFIG_DIR` from claude-code). The node
+  answers which binaries exist where, their RAW `--version` text, and
+  the VALUES of exactly the asked names it actually has. It never scans
+  its environment, never answers an unasked variable, and holds no
+  manifests — it cannot even learn what a future plane version might ask.
+  The values exist because resume-path computation moved to the plane
+  (spec 2026-09-10 §5 as amended): a path built without them silently
+  points at the wrong transcript directory.
+- **Everything is bounded by the connection's trust, which is the node
+  key's trust.** A forged `detect` is impossible without the signing
+  keypair (§above), so the question of "who may ask" is the question of
+  who owns the control plane. The disclosure is one-directional: the
+  plane's manifests shape what the node reveals, and installing a plugin
+  (admin-only, §below) therefore also decides what env names every
+  enrolled node will be asked about. That is a real widening to
+  account alongside §11.9 — a plugin's declaration cannot read an
+  arbitrary variable (the node answers only declared names, and only
+  harness plugins declare), but it does name what may be asked.
+
 ### Directory allowlist (spec 2026-09-05)
 
 A node owner may restrict **where** subshells can be created on their machine:

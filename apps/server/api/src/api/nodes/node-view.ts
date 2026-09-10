@@ -40,7 +40,8 @@ export const NodeAccessSchema = t.Union([t.Literal("owner"), t.Literal("edit"), 
 export const NodeHarnessViewSchema = t.Object({
   harnessId: t.String({ description: "Harness plugin id" }),
   installed: t.Boolean({
-    description: "local: live binary probe; enrolled node: cached inventory (false until the first inventory lands)",
+    description:
+      "local: live binary probe; enrolled node: the cached detect answer (false until the first detect lands)",
   }),
   version: t.Optional(t.String({ description: "Installed version from the node's inventory (enrolled nodes)" })),
   reason: t.Optional(

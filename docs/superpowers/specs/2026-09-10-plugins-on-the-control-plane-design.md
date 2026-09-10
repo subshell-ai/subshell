@@ -1,9 +1,45 @@
 # Design: Plugins Move to the Control Plane
 
 Date: 2026-09-10
-Status: approved design (brainstorm + spike 2026-09-10), pending implementation plan
+Status: approved design (brainstorm + spike 2026-09-10), implemented; §4/§5 amended by the final review (see below)
 Supersedes: `2026-09-09-plugin-architecture-design.md` §6, §8.1 to §8.2, §10, §11; and in full
 `2026-09-10-plugins-phase4-ux-design.md`, `2026-09-10-plugins-phase5-settings-design.md`
+
+## Amendment (2026-09-10, final whole-branch review)
+
+Three findings from the final review changed what ships; they are recorded here
+because the text below was written while nodes still held the manifests.
+
+**§5's ready-env report moved to the `detect` round trip.** The design had the
+node report, at `ready`, the values of the variables "a manifest declares it
+needs" — written while §5 and §6 were still one timeline, with the node's own
+plugin directory as the source of the NAMES. §6 then removed that directory: a
+post-inversion node holds no manifests and cannot know what to declare, so a
+fresh node always reported `env: {}`, and the §11 landmine (§11's named case)
+fired on every machine with `CLAUDE_CONFIG_DIR` set: resume silently never
+offered itself. Resolution: the PLANE names the variables (the union of
+`subshell.hostEnv` across its enabled manifests, on every `detect` command),
+the node answers values for the names it has. `ready` keeps `homeDir`; the
+declaration-set field is gone. Protocol 3 is unshipped, so the frames amended
+cleanly.
+
+**§5's "the node still supplies its own executable path" ships as a reported
+self-invocation, not a path.** The launch frame's MCP content is now written
+node-side verbatim, so a single PATH would not do: under an interpreter run the
+agent's exec path is `bun`, and `bun mcp` is not a command. The agent reports
+its full `selfInvocation("mcp")` — `{command, args}` — on `ready` as
+`mcpLaunch`, and the plane composes the registration from it. Same node
+self-knowledge §5 intended, one field that cannot be answered wrong.
+
+**§4's `versionArgs` was never built, and will not be.** The sketch listed a
+`versionArgs` field per detect spec; grep confirms it exists nowhere in the
+protocol, the agent, or the plugins. Every probe has always run `--version`,
+byte-identical to pre-inversion behavior, so the field would have been wire
+surface with no consumer. The sketch stands corrected to what shipped: specs
+carry `{ id, binaryName, envOverride, knownPaths }`. The version probe gained
+what the sketch lacked but the mechanism needed: a 4 KiB output cap (a
+megabyte-scale `--version` answer would ride a 1 MiB frame budget and cost
+the node its detect round trip).
 
 Phases 1 through 3 put plugin packages on every node: `<dataDir>/plugins/<id>/`,
 installed and updated per machine, loaded there, and reported to the control

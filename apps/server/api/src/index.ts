@@ -131,9 +131,12 @@ async function bootServer(): Promise<void> {
   // seeding at registration. See services/default-profiles.ts.
   //
   // AFTER the plugins above, not before. What this host offers is read from
-  // `local`'s mirrored report since phase 2b, so running it first meant
-  // reading an absent or empty mirror and seeding nothing at all — on exactly
-  // the boot the backfill exists for.
+  // the instance's plugin DIRECTORY (`instanceHarnessIds` walks it), so
+  // running it first meant reading the directory before boot had seeded the
+  // built-ins into it — and seeding nothing at all, on exactly the first boot
+  // the backfill exists for. (It used to read `local`'s mirrored node-row
+  // report; that mirror left the schema with migration 0026, and the
+  // ordering reason moved with it: the directory is now the record.)
   // Wrapped: this is a convenience sweep over healthy schema+data, and an
   // optional insert failing (SQLITE_BUSY behind a stale lock holder) must
   // never be the reason a serviceable instance refuses to boot — the next

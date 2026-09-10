@@ -12,24 +12,26 @@ import {
 } from "./plugins-dir.js";
 
 /**
- * Giving a node its built-ins, exactly once.
+ * Giving the instance's plugin store its built-ins, exactly once.
  *
- * `<dataDir>/plugins/` is the node's declaration and empty means "offers
- * nothing", so a node that has never had one would upgrade into offering no
- * harnesses at all. This is the upgrade path, and it is why the enable rows
- * that used to live on the control plane are not migrated: an enabled row said
- * "this server permits the harness here", while this says "this node has the
- * plugin", and only the node can say the second thing.
+ * The store at `<dataDir>/plugins/` is the instance's declaration of what it
+ * offers (spec 2026-09-10 §6: one store, on the control plane; nodes hold
+ * nothing), and empty means "offers nothing" — so an instance store that has
+ * never been seeded would boot offering no harnesses at all. This is that
+ * first-boot path, and it is why the enable rows that used to live per-node
+ * are not migrated: an enabled row said "this server permits the harness on
+ * that node", while a seeded directory says "this instance has the plugin",
+ * and only the store can say the second thing.
  *
  * **The check is a MARKER FILE, not the directory.** Directory existence looked
  * equivalent and was not: `installEmbedded` creates the directory before it
  * writes anything, so a kill during the very first seed left a directory that
- * seeding then skipped forever, and the node offered nothing for the rest of
- * its life with nothing anywhere saying why. The marker is written only after
- * the pass completes, so an interrupted first seed is retried and a completed
- * one never is.
+ * seeding then skipped forever, and the store offered nothing for the rest of
+ * the instance's life with nothing anywhere saying why. The marker is written
+ * only after the pass completes, so an interrupted first seed is retried and a
+ * completed one never is.
  *
- * It must not be emptiness either. An empty directory is a user who
+ * It must not be emptiness either. An empty directory is an operator who
  * uninstalled everything, and re-seeding would undo that on every restart,
  * which is why the empty case still creates the directory and the marker:
  * "I want nothing here" has to be reachable.
@@ -43,10 +45,10 @@ import {
 const SEEDED_MARKER = ".seeded";
 
 /**
- * Installs the built-ins on a node that has never completed a seed.
- * @param dataDir - the agent's data dir
+ * Installs the built-ins into an instance store that has never completed a seed.
+ * @param dataDir - the data dir whose plugins directory is the store
  * @param ids - which built-ins to seed (defaults to every one this build carries)
- * @returns the ids actually installed; empty when the directory already existed
+ * @returns the ids actually installed; empty when the marker already exists
  */
 export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<string[]> {
   const root = pluginsDir(dataDir);
@@ -81,10 +83,13 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
 /**
  * Bring a data dir's plugins to a usable state: recover, seed, refresh.
  *
- * ONE definition of the boot sequence, called by both the agent daemon and the
- * control plane. They ran the same three steps in two different orders before,
- * each with a comment claiming the order mattered, which is exactly the drift
- * `local` stopped being an exception in order to remove.
+ * ONE definition of the boot sequence. The agent daemon stopped calling it
+ * when the inversion took plugins off the nodes (spec 2026-09-10 §6); its
+ * only production caller today is the control plane's boot
+ * (`prepareLocalPlugins`), which is exactly what "one store" means. It stays
+ * here because the store mechanics are pane-runtime's — agent and plane ran
+ * the same three steps in two different orders before, each with a comment
+ * claiming the order mattered, which is the drift this shape removes.
  *
  * The order is recover, then seed, then refresh:
  *
@@ -93,14 +98,14 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
  *    populated directory and the refresh can bring the restored copy current.
  *    Seeding first would find the directory already there, skip, and leave the
  *    recovery to run against a set nothing will then refresh.
- * 2. **Seed second**, keyed on the completion marker, so a node that has never
- *    had a plugins directory gets the built-ins exactly once.
+ * 2. **Seed second**, keyed on the completion marker, so a store that has
+ *    never completed a seed gets the built-ins exactly once.
  * 3. **Refresh last**, so a built-in whose on-disk copy predates this build is
  *    brought current whether it was seeded, recovered, or already there.
  *
  * Every step is independently guarded. One failing must not cost the others:
- * a node that cannot refresh should still offer what it has, and a node that
- * cannot seed should still recover.
+ * a store that cannot refresh should still offer what it has, and a store
+ * that cannot seed should still recover.
  * @param dataDir - the data dir whose `plugins/` to prepare
  */
 export async function prepareInstalledPlugins(dataDir: string): Promise<void> {
