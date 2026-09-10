@@ -11,4 +11,4 @@ Two consequences you can see. A node can offer a plugin this control plane has n
 
 Existing nodes keep working: on first start after upgrading, an agent seeds the built-ins it carries. That happens once, keyed on the plugins directory not existing yet, so uninstalling a plugin is not undone by the next restart.
 
-**This requires upgrading agents and the server together** (node protocol v6).
+**This requires upgrading agents and the server together** (node protocol v1).

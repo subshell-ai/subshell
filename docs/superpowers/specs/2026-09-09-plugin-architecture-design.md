@@ -267,6 +267,14 @@ Each is answered with a fresh plugin report the server persists, so the UI only
 ever shows what the node confirmed. An offline node, or one below protocol 6,
 renders read-only with the reason.
 
+**Correction (2026-09-10, found finishing phase 3):** every `v6` in this
+document — the sentence above, the phase table and the gate list below —
+predates the 2026-09-09 renumbering, which restarted the node protocol at 1 on
+the grounds that Subshell has no users to migrate. Phase 2's protocol is
+therefore v1, and phase 3 moved it to v2. "One below" is also the wrong shape:
+the gate is an exact match in both directions, so any number that is not this
+build's renders read-only, older or newer.
+
 **There is deliberately no reconcile-on-`ready`, and that differs from
 `allowed-dirs` on purpose.** There the control plane owns a security control, so
 a node running stale rules must be corrected. Here the node owns the setting, so
