@@ -307,3 +307,53 @@ phase makes true:
 - Protocol v2 touches the census: a new command or field must appear in the
   agent's endpoint/command coverage test the same commit it appears in the
   parser.
+
+## 8. Carried out of phase 3 (written at completion, 2026-09-10)
+
+Phase 3 shipped with per-task reviews and a whole-branch review. These are the
+things those reviews found and deliberately did NOT fix, recorded here because
+the SDD ledger they lived in is scratch and phase 4 is the reader.
+
+**One open operator decision, with a deadline.** npm's OIDC trusted publishing
+supports GitHub-HOSTED runners only (§4, Correction 1), and every workflow here
+runs on the self-hosted fleet. The publish wiring therefore ships INERT: it is
+gated behind the repo variable `NPM_PUBLISH_ENABLED`, so a merged version PR
+bumps and tags without attempting npm. Arming it means answering the runner
+question first — a hosted job for the publish step only, or waiting for npm to
+support self-hosted — and configuring trusted publishing per package on
+npmjs.com. What is NOT open: adding an `NPM_TOKEN` to sidestep it, unless that
+is a decision someone makes out loud.
+
+**Phase 4 owns these.**
+
+- A third-party plugin renders by its ID, not its name, on the node page. The
+  card reads `catalog?.name ?? id`, and the catalog is this build's embedded
+  harnesses, so a registry-installed plugin has no entry. The wire report
+  already carries `name`; surfacing it is the fix, and e2e spec 14 asserts the
+  id today precisely so the change is visible when it lands.
+- `turbo.json`'s `build` task declares no `outputs`, so a cache hit restores no
+  files. The publish path works around it with `--force`; the general fix is
+  fleet-wide and deserves its own task rather than a drive-by.
+
+**Judged fine as they are, with the reasoning, so nobody re-opens them blind.**
+
+- The tar reader gunzips before its entry caps apply. The COMPRESSED side is
+  capped at 20 MiB before extraction is reached, so the worst case is a
+  gzip-ratio memory spike from a package the owner explicitly named on a
+  registry the operator configured. Installing a plugin already runs
+  unsandboxed code as that OS user, so this sits strictly below a risk the
+  design accepts on purpose. Revisit if plugins ever install without an
+  explicit name.
+- A mid-loop `plugin update` failure exits without reporting the plugins that
+  already updated. Those bytes really are on disk and `plugin list` is the
+  authoritative view; a count on the error path would be welcome, not required.
+- `doc.versions?.[version]?.dist` is not `Object.hasOwn`-guarded the way its
+  two callers now are. A hostile dist-tag resolves to a prototype member that
+  fails the later `dist.tarball`/`dist.integrity` string checks, so it fails
+  closed. Honesty, not a hole.
+- The server's `SUBSHELL_PLUGIN_REGISTRY_URL` strips trailing slashes and
+  nothing more, while the agent's `--registry-url` parses and validates. The
+  asymmetry is real and deliberate: the agent has a writer to validate AT, the
+  server has only an env var, and this file's precedent for operator-supplied
+  values is not to fail boot over them. The docstring says so rather than
+  implying a parity that does not exist.
