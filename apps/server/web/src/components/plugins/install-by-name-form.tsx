@@ -31,18 +31,25 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
     const value = spec.trim();
     if (value === "") return;
 
-    // "A name we did not ship" is the confirm's whole condition, so the
-    // catalog test is the same one the list rows carry, by id either way
-    // (`pi` or `@subshell-ai/plugin-pi`), and only for an UNPINNED spec: the
-    // page cannot know this build's embedded version, so a pin is the
-    // registry's question, not this build's.
-    const { range } = parseNpmSpec(value);
+    // "A name we did not ship" is the confirm's condition, and the test is
+    // deliberately NARROWER than "the slug looks like a built-in": the fast
+    // path is only a bare safe id, or an unpinned package under the
+    // `@subshell-ai` scope (the scope the built-ins are actually published
+    // under). Anything else — including `@acme/plugin-pi`, the naming a
+    // third party would copy — goes through the confirm with the typed spec
+    // FORWARDED, so the server's claim guard (`resolveBuiltInFromSpec` names
+    // the built-in by exact id or its real package name; a spec whose
+    // declared id conflicts is refused by name) is the resolution authority.
+    // A spec-displacing fast path here would silently install THIS build's
+    // copy while reporting the typed package's name.
+    const { name, range } = parseNpmSpec(value);
     const derived = derivePluginId(value);
-    const catalogId = builtInIds.has(value)
-      ? value
-      : range === undefined && derived !== undefined && builtInIds.has(derived)
-        ? derived
-        : undefined;
+    const catalogId =
+      isSafePluginId(value) && builtInIds.has(value)
+        ? value
+        : name.startsWith("@subshell-ai/") && range === undefined && derived !== undefined && builtInIds.has(derived)
+          ? derived
+          : undefined;
     if (catalogId !== undefined) {
       install.mutate(
         { pluginId: catalogId },

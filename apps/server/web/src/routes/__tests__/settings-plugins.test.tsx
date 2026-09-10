@@ -194,6 +194,28 @@ describe("instance plugins page", () => {
     }
   });
 
+  it("an unofficial package named like a built-in is a confirmed spec install, never a silent embedded one", async () => {
+    // The claim-conflict case (review I1): `@acme/plugin-pi` is exactly the
+    // naming a third party would copy. The page must NOT substitute this
+    // build's pi: it asks (control-plane copy) and forwards the SPEC, so the
+    // server's own expectId rule is the authority — it refuses a package
+    // whose declared id conflicts, by name.
+    const m = mockServer({ admin: true, catalog: [{ id: "pi", name: "Pi", installed: false }] });
+    try {
+      renderPage();
+      const field = await screen.findByLabelText(/install from npm/i);
+      fireEvent.change(field, { target: { value: "@acme/plugin-pi" } });
+      fireEvent.click(screen.getByRole("button", { name: /^install$/i }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText(/control plane/i)).toBeDefined();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+      // The typed spec survives. A spec-less catalog POST here is the bug.
+      await waitFor(() => expect(m.posted()).toEqual({ pluginId: "pi", spec: "@acme/plugin-pi" }));
+    } finally {
+      m.restore();
+    }
+  });
+
   it("disabling a plugin marks it disabled without uninstalling", async () => {
     const m = mockServer({ admin: true, installed: [{ id: "pi", name: "Pi", enabled: true }] });
     try {
