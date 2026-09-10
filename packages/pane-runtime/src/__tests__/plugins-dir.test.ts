@@ -108,7 +108,10 @@ describe("the plugins directory", () => {
     const pkgPath = join(pluginsDir(dir), "hermes", "package.json");
     const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
     const current = pkg.version;
-    pkg.version = "0.0.1";
+    // Must stay strictly older than the embedded copy, or there is nothing
+    // stale to refresh. The bootstrap pinned every package to 0.0.1, so the
+    // downgrade sentinel is 0.0.0 and only ever gets further behind.
+    pkg.version = "0.0.0";
     await writeFile(pkgPath, JSON.stringify(pkg), "utf8");
 
     expect(await refreshStaleBuiltIns(dir)).toEqual(["hermes"]);
