@@ -10,8 +10,9 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 
 - **tmux-backed subshells** — subshells survive browser close; attach/detach freely
 - **Profiles per harness** — env vars, CLI flags, settings JSON, config-source isolation
-- **Plugins** — code-time `HarnessPlugin` interface; five ship (claude-code, opencode,
-  codex, hermes, pi)
+- **Plugins** — harnesses are packages behind the published `@subshell-ai/plugin-api`
+  contract; five ship built in (claude-code, opencode, codex, hermes, pi), installed and
+  disabled instance-wide at Settings → Plugins (admin)
 - **Auth** — better-auth (email/password) + passkeys, first user becomes admin,
   registration gate, break-glass recovery password
 - **Dark-only UI** — xterm 6 terminal, shadcn/ui (Base UI)
@@ -118,8 +119,8 @@ bun run start        # turbo watch dev — one command for the whole stack
 - frontend — Vite HMR on `:5174` (proxies `/api` + `/ws` to the backend)
 
 Open http://localhost:5174 — the first visit runs the **setup wizard** (two steps: register
-admin → enable a harness), then you can create subshells. Enabling a harness auto-seeds a
-blank **Default** profile, so there is no profile step to complete.
+admin → choose which harnesses to keep installed), then you can create subshells. Installing
+a harness auto-seeds a blank **Default** profile, so there is no profile step to complete.
 
 ## Channels & cross-subshell orchestration
 
@@ -161,8 +162,9 @@ just executes.
    published `.sha256` before the first `chmod +x`, enrols, and can install
    itself as a background service (`subshell service install` — systemd user
    unit on Linux, launchd agent on macOS).
-3. The node appears online with its harness inventory. Launch subshells on it
-   like any other host.
+3. The node appears online. Opening its page (or pressing Re-check) has the
+   control plane probe it for the harness binaries this instance offers —
+   then launch subshells on it like any other host.
 
 Points worth knowing before you enrol one:
 

@@ -466,18 +466,25 @@ the CWD, agent-default data dir). The Add-node dialog bakes the command from
 script embeds — and warns when that URL is loopback (a remote node would dial
 the wrong machine).
 
-**Plugin distribution** (spec 2026-09-09, phase 3) has two roads. Built-ins
-ship EMBEDDED in the agent/server binary and are seeded into
-`<dataDir>/plugins/` on first run — first-run setup needs no network. A
-third-party plugin arrives from an npm registry at install time: pane-runtime's
+**Plugin distribution** (spec 2026-09-09, phase 3; moved onto the control
+plane by spec 2026-09-10) has two roads, one destination.
+`<SUBSHELL_SERVER_DATA_DIR>/plugins/` is the instance's one store — a node
+holds no plugins at all. Built-ins ship EMBEDDED in the server binary and are
+seeded into that store once at boot, keyed on a completion marker (never on
+emptiness, which is an operator's uninstall) — first-run setup needs no
+network. A third-party plugin arrives from an npm registry when an admin
+installs it through `/api/plugins`: pane-runtime's
 `npm-registry.ts` fetches the packument and tarball, verifies the registry's
 own sha512 over the raw bytes, `tar-vendor.ts` unpacks it under hard refusals
 (links, traversal, oversize), the module load-check runs against a staging
 copy, and a sidecar `install.json` records the package/version that landed —
-which is what `subshell plugin update` compares against and what marks a
-directory as NOT embedded. Which registry is operator-configured on both hosts
-(the agent's `registryUrl` config, the server's `SUBSHELL_PLUGIN_REGISTRY_URL`;
-`subshell-server status` prints the server's). The six `@subshell-ai/*`
+which is what marks a directory as NOT embedded. Which registry is configured
+is ONE server setting (`SUBSHELL_PLUGIN_REGISTRY_URL`;
+`subshell-server status` prints it — the agent has no registry config any
+more). The plane resolves what it stores: a registry overlay is pointed at
+the store at boot and after every install and uninstall, so `getHarness`
+answers for an installed plugin — detect specs, profile validation, argv —
+the moment the install returns. The six `@subshell-ai/*`
 packages are wired for npm OIDC trusted publishing on version-PR merge, but
 whether that shard runs on a GitHub-hosted runner — the only kind npm's OIDC
 supports — is an OPEN operator decision carried in `release.yml`'s comments;
@@ -489,8 +496,13 @@ security posture of a registry install is
 (`apps/node/agent/src/service.ts`) writes a systemd **user** unit or a launchd
 agent (`dev.subshell.client`), self-referencing the running executable (compiled
 binary or `bun <entry>` in dev); on Linux the post-install hint is
-`loginctl enable-linger` to survive logout. Harness inventory is pushed by the
-agent at connect and every 5 min (`daemon.ts` `INVENTORY_PERIOD_MS`, plus the
-on-demand `inventory` command) — the launch gate demands a fresh snapshot
-reporting the harness installed, so an un-inventoried node cannot silently
-fail launches.
+`loginctl enable-linger` to survive logout. Harness facts come from the
+plane, on request: detection is the `detect` command the control plane sends
+when someone asks (node-page load, Re-check, or a launch — spec 2026-09-10
+§4), cached server-side with its `checkedAt` stamp; the agent's
+connect-and-every-5-min `inventory` push (`daemon.ts` `INVENTORY_PERIOD_MS`)
+is still on the wire but carries nothing (the node holds no plugin concept),
+and the server treats that empty claim as "nothing to apply". The launch gate
+demands a FRESH detection answer (≤ 10-min TTL) for the harness on that node,
+crossed with the instance having the plugin installed and enabled — so an
+un-probed node cannot silently fail launches.

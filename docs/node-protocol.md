@@ -97,7 +97,7 @@ The agent's first frame is `ready`:
 {
   "type": "ready",
   "agentVersion": "0.3.1",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
@@ -112,10 +112,10 @@ The agent's first frame is `ready`:
 `executablePath` is how the control plane composes the MCP launch spec for panes
 on this node — it must point at the running binary. `homeDir` and `env` are the
 environment the control plane computes resume paths against (spec 2026-09-10
-§5): the env carries the values of the variables the node's installed plugins'
-manifests declared (`subshell.hostEnv`), and nothing else — never the whole
-environment. Both are optional on the wire; a node reporting neither gets the
-plugin's default path computed anyway (which simply will not exist).
+§5): the env carries the values of the variables the INSTANCE's installed
+plugin manifests declared (`subshell.hostEnv`), and nothing else — never the
+whole environment. Both are optional on the wire; a node reporting neither gets
+the plugin's default path computed anyway (which simply will not exist).
 
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
@@ -127,7 +127,7 @@ names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `2`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `3`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -196,7 +196,7 @@ and answered by exactly one `result` event.
 
 | Command | |
 |---|---|
-| `launch` | Start a harness pane: `cwd` (already stat-verified), `harnessId`, a `ProfileDefinitionWire`, the `SUBSHELL_*` credential env, an optional 0600 MCP registration file to write first, optional resume pin and initial geometry. `bestEffortLog` downgrades a log-attach failure to a note instead of failing the launch |
+| `launch` | Start a harness pane: `cwd` (already stat-verified), `harnessId`, a `ProfileDefinitionWire`, the `SUBSHELL_*` credential env, an optional 0600 MCP registration file to write first, optional resume pin and initial geometry. `bestEffortLog` downgrades a log-attach failure to a note instead of failing the launch. Since protocol 3 the node builds nothing itself: `argv` (REQUIRED) is the complete command line the CONTROL PLANE built, with `@@HARNESS_BINARY@@` in the binary slot; `resolve` (REQUIRED) is the manifest's lookup rule (`binaryName`/`envOverride`/`knownPaths`) the node runs at the moment of spawn to fill that slot — late binding of the one fact the node owns; and `mcp.args` / `mcp.env` ride alongside the file content, so the node no longer recomputes the harness's MCP dialect (only its own `subshell mcp` executable path stays node-supplied, by `selfInvocation`) |
 | `terminate` / `kill` | Graceful stop / hard kill of a subshell's tmux tree |
 | `prompt_deliver` | Agent-side settle loop: capture-poll until the pane is quiet, then type the text and Enter |
 
@@ -228,8 +228,6 @@ nowhere near the directories subshells are allowed to run in.
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
-| `plugin_install` | Install one plugin on the node. The node performs the install from the copies its build carries and answers with its WHOLE set, because the control plane mirrors what the node reports and a partial answer would leave it guessing at the rest. It also pushes a fresh `inventory`, since the probe follows what is installed. An offline node is refused rather than queued: the node owns its set, so there is no desired state to reconcile. An optional spec (protocol v2) names an npm package to fetch — `name`, `@scope/name`, optionally `@version` or `@dist-tag`; absent means the embedded copy this build carries. The node does the fetching (the trust model lives in docs/security.md §6, "Plugin installs from the registry") |
-| `plugin_uninstall` | Remove one plugin. Removing something already absent is a SUCCESS — the caller asked for a state and that state holds, so a retry after a dropped connection does not look like a failure. Answers with the set that remains, plus a fresh `inventory` |
 | `set_allowed_dirs` | Replace the node's persisted directory allowlist. The node stores it at `<dataDir>/allowed-dirs.json` (0600) and checks every `launch` against its OWN copy — signing proves who sent a launch, never whether the directory is permitted. An empty array clears the rules (unrestricted). Pushed on every owner edit and again after each `ready`, which is what reconciles a node that was offline for an edit |
 
 **Status**
@@ -237,7 +235,8 @@ nowhere near the directories subshells are allowed to run in.
 | Command | |
 |---|---|
 | `probe` | Liveness of a set of subshell ids |
-| `inventory` | Pull a fresh harness inventory on demand |
+| `inventory` | Pull the harness inventory on demand. Since protocol 3 the agent has no plugin concept, so its answer is an EMPTY `harnesses` list (protocol filler it still owes the wire) and the server correctly treats an empty array as "nothing to apply" — the rows that matter arrive via `detect` |
+| `detect` | Probe THIS node for the binaries the named detection rules point at (spec 2026-09-10 §4): `specs` is one `{ id, binaryName, envOverride, knownPaths }` per harness to check — the plugin manifests' data, which the control plane holds and re-ships every time; the node remembers nothing and loads no plugin code to answer. Each answer row is `{ harnessId, installed, binaryPath?, rawVersion?, reason? }` inside a `{ results }` envelope — the same entry shape the inventory event uses, with `version` replaced by `rawVersion`, because `parseVersion` is plugin code and runs on the control plane. The agent stamps no time: the probe just happened, and the plane's driver stamps its own clock when merging. An empty-`binaryName` spec is the no-binary marker, answered `no-binary` without searching. An empty `specs` array is a legal no-op. Detection runs ONLY when asked — node-page load, Re-check, or a launch kick — there is no sweep |
 | `ping` | Liveness |
 
 Subshell ids are interpolated into node-side paths, so both sides gate them
@@ -251,7 +250,7 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 | Event | |
 |---|---|
 | `ready` | First frame — identity, versions, capabilities, `executablePath`, and the resume-path environment: `homeDir` plus the manifest-declared `env` values (§3, spec 2026-09-10 §5) |
-| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp, and `plugins` — the node's own report of what it has INSTALLED. The probe follows that installed set, not the plugins this build happens to know, so a third-party plugin is probed and an uninstalled one stops being. Pushed at connect, every 5 min (`INVENTORY_PERIOD_MS`), after any plugin change, and on demand |
+| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp. Since protocol 3 the event carries NO plugin set (the node has none) and the agent's answer is an empty `harnesses` list — the periodic push and the `inventory` command are protocol filler the wire still expects, and the server treats the empty array as "nothing to apply" so it can never wipe the detection rows its own `detect` command collected. Those detect answers, not this event, are the node's harness facts |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |
 | `output` | Tail bytes: `subId`, `fromByte`, `toByte`, `data_b64` |
@@ -259,16 +258,22 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 | `subshells_report` | Connect-time re-projection of panes that survived an agent restart, so the control plane heals its rows |
 | `error` | `{ code, message }` |
 
-**The launch gate demands a fresh inventory** reporting the harness installed, so
-an un-inventoried node cannot silently fail launches. It also demands that the
-node DECLARED the plugin: what a node offers is what it has installed, and
-there is no enable flag on either side.
+**The launch gate demands a fresh DETECT answer**, not an inventory claim: a
+harness is usable on a node when the INSTANCE has the plugin installed and
+enabled ∧ THAT node's detection found its binary (spec 2026-09-10 §4/§6.1).
+For an agent the cached detect answer counts only inside its 10-min TTL, so an
+un-probed node cannot silently fail launches; the control-plane host is probed
+live on every read. What a node offers is no longer a question the node can
+answer — its answers are facts about binaries, the plugin set is an instance
+fact, there is no per-node enable flag on either side, and the one
+instance-level `enabled` state (absent row = enabled) belongs to the control
+plane's store, not this wire.
 
-A plugin report may carry `restartRequired`. A module cannot be swapped inside
-a live process, so upgrading a plugin in place leaves the agent running the
-code it loaded: the reported `version` then describes the disk, not the
-behaviour, and the flag is what keeps the two from being confused. It clears
-when that agent restarts.
+`restartRequired` is likewise an instance-store concept now: the control plane
+holds a newer copy of a plugin on disk than the code its own process loaded (a
+module cannot be swapped inside a live process), and its Settings → Plugins
+surface says so until the SERVER restarts. A node has no plugin state that
+could go stale.
 
 **Exit detection** is a 2 s tick probing each tmux socket. An authoritative
 `ok: true` answer that lacks the pane reports death immediately with the pane's
@@ -291,8 +296,9 @@ Two invariants hold the seam together:
 
 Results correlate by `ref`. Payload shapes and their parsers live in
 `node-results.ts` — `NodeProbeEntry`, `NodeStatDirResult`, `NodeFsLsResult`,
-`NodeLogReadResult`, `NodePromptDeliverResult`, `NodeProbeResumeResult`,
-`NodeWriteFileResult`, `NodePaneSizeResult`. Every one is parsed, never cast: a
+`NodeLogReadResult`, `NodePromptDeliverResult`, `NodePathExistsResult`,
+`NodeWriteFileResult`, `NodePaneSizeResult`, and `parseNodeDetectResults` for
+the `detect` rows. Every one is parsed, never cast: a
 node's answer is untrusted input like any other.
 
 ## 8. Terminal attach over a node
@@ -360,10 +366,17 @@ Two numbers, changed on different schedules:
   refused, and an agent that lags is refused just as clearly. The numbering
   **restarted at 1 on 2026-09-09**: the protocol had reached 6 under a
   numbering that predated any deployment, no instance ever ran on those
-  versions, and the GitHub releases of that era are removed. Everything in
-  this document is v1-era except where annotated otherwise; 1 → 2 was the
-  first real bump (phase 3, registry installs), and old numbers from the
-  retired sequence do not recur here (their history is in git).
+  versions, and the GitHub releases of that era are removed. 1 → 2 was the
+  first real bump (phase 3, registry installs); **2 → 3 was the inversion**
+  (spec 2026-09-10 §7): plugins left the wire — `plugin_install` and
+  `plugin_uninstall` removed, `probe_resume` generalized into `path_exists`,
+  `detect` added, `launch` requiring the server-built `argv` and its
+  `resolve` rule, the inventory event losing its plugin set, and `ready`
+  gaining `homeDir` plus the manifest-declared env values. It is the first
+  BREAKING bump of the restarted numbering: the exact-match gate refuses a v2
+  agent outright, which is the point — server and agent ship as a pair. Old
+  numbers from the retired sequence do not recur here (their history is in
+  git).
 - **`MIN_AGENT_VERSION`** — bump when the server needs newer agent *behaviour*
   that the frames alone do not express.
 

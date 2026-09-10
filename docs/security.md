@@ -379,10 +379,11 @@ subshell may only be launched in one of them or beneath it.
 - **Empty means unrestricted**, not "deny everything" — every node predating
   the feature is unaffected, and clearing the rules returns a node to that
   state.
-- **Owner-only to edit** (`canManage`), the same gate plugin installs use and
-  deliberately not `edit`: any node share lets the grantee launch there, so an
-  `edit` grantee able to widen the list to `/` would face no restriction at
-  all. The rules are **read-visible to everyone who can see the node**,
+- **Owner-only to edit** (`canManage`), deliberately not `edit`: any node
+  share lets the grantee launch there, so an `edit` grantee able to widen the
+  list to `/` would face no restriction at all. (Plugin installs used to sit
+  behind this same gate; since the 2026-09-10 inversion they are instance-level
+  admin acts, and this bullet stands alone.) The rules are **read-visible to everyone who can see the node**,
   grantees included — a refusal is unexplainable without them, and they name
   directories rather than contents.
 - **Enforced twice.** The control plane checks the resolved cwd at create and
@@ -436,29 +437,33 @@ exactly this). The disable survives restarts: boot seeding creates that row only
 when the `local` node row itself is created, never to "repair" a deliberate
 removal. There is no separate flag to drift out of sync with it.
 
-### Plugin installs from the registry (spec 2026-09-09)
+### Plugin installs from the registry (spec 2026-09-09; instance-level since 2026-09-10)
 
-Phase 3 taught the plugin system a network source: `plugin_install` may carry a
-package spec, and the NODE (or the control-plane host, in process) fetches that
-npm package, verifies it, and installs it
-([design spec](superpowers/specs/2026-09-09-plugins-phase3-registry-design.md);
-bare `§N` below means that spec's sections). The master spec's §13 posture
-carries forward onto the new half, unchanged:
+Phase 3 taught the plugin system a network source, and the 2026-09-10
+inversion moved it to a single door: `POST /api/plugins` may carry a package
+spec, and the CONTROL PLANE fetches that npm package, verifies it, and
+installs it into `<SUBSHELL_SERVER_DATA_DIR>/plugins/` — the one store every
+node executes against
+([phase-3 design spec](superpowers/specs/2026-09-09-plugins-phase3-registry-design.md),
+[inversion spec](superpowers/specs/2026-09-10-plugins-on-the-control-plane-design.md);
+bare `§N` below means the phase-3 spec's sections). The master spec's §13
+posture carries forward onto the new door, unchanged:
 
 - **It is an explicit act with a named source.** Nothing ever fetches a plugin
   on its own — no catalog, no update sweep the operator did not run. Installing
   a plugin is the same trust decision as installing the harness CLI the plugin
-  drives: whatever gets installed runs as the node's OS user inside the agent
-  process, unsandboxed ([§11.9](#119-plugins-run-as-the-nodes-os-user-in-the-agent-process)).
-- **Owner-only, on both doors.** `POST /api/nodes/:id/plugins` is gated
-  `canManage`, not `edit` — any node share already lets the grantee launch there,
-  so an `edit` grantee who could install would face no restriction. The node's
-  own `subshell plugin` verbs run as the local user, who already owns the
-  plugins directory. And the anonymous setup route stays built-in-ids-only
-  forever: it answers with no
-  credential at all on a fresh instance, so the registry is not in its grammar
-  at all — its body carries no spec field, and the built-in-ids guard in
-  `api/setup.route.ts` stands (master-spec §13's load-bearing line).
+  drives: whatever gets installed runs in the control-plane process,
+  unsandboxed, in the process that holds the node signing keypair
+  ([§11.9](#119-plugins-run-in-the-control-plane-process)).
+- **Admin-only, on the one door.** Every `/api/plugins` write is a cookie-admin
+  act (bearer keys refused, like every other management surface) — one install
+  arms every node, so it cannot be a node owner's decision. The per-node door
+  (`POST`/`DELETE /api/nodes/:id/plugins`) and the agent's `subshell plugin`
+  verbs are gone, not widened. And the anonymous setup route stays
+  built-in-ids-only forever: it answers with no credential at all on a fresh
+  instance, so the registry is not in its grammar at all — its body carries no
+  spec field, and the built-in-ids guard in `api/setup.route.ts` stands
+  (master-spec §13's load-bearing line).
 - **Integrity is verified before anything is written.** The tarball's sha512 is
   checked over the raw bytes against the hash the registry announced, the
   vendored extractor refuses everything npm never ships (links, traversal,
@@ -468,24 +473,26 @@ carries forward onto the new half, unchanged:
   allowlist** (spec §2.3). The four facts above are the control; a name list
   would be a second one no complaint asked for.
 
-Two sentences this phase adds, because both are properties of the channel, not
-of the code:
+Two sentences about the channel rather than the code:
 
 - **The registry URL is operator-configurable, and integrity is only as strong
-  as the channel to the registry you configured.** The agent's `registryUrl`
-  (config.json, `subshell configure --registry-url`) and the server's
+  as the channel to the registry you configured.** The server's
   `SUBSHELL_PLUGIN_REGISTRY_URL` may name an http mirror, because a corporate
   mirror is the motivating case — but the hash then only proves the bytes match
   what THAT server published. Over the default `https://registry.npmjs.org`
   that is npm's own assurance; over an http mirror it is the operator's own
-  network. `subshell-server status` prints the URL that will be used.
+  network. `subshell-server status` prints the URL that will be used. (The
+  agent's `registryUrl` config and `subshell configure --registry-url` are
+  gone: a node fetches nothing.)
 - **A plugin id is claimed by the manifest inside the tarball, so id collisions
   are refused against what is installed** — a second package claiming a
-  directory another package owns is refused naming both (§2.4). Across an
-  uninstall there is nothing to collide with, and that is honest: removing the
-  directory is the operator saying the slot is free. An id switch is not a
-  privilege hop, either: both the old and the new code run as the node's OS
-  user with the same visibility.
+  directory another package owns is refused naming both (§2.4). A registry
+  package claiming a BUILT-IN id is logged once and never loaded: the compiled
+  copy always answers for its own id. Across an uninstall there is nothing to
+  collide with, and that is honest: removing the directory is the operator
+  saying the slot is free. An id switch is not a privilege hop, either: both
+  the old and the new code run in the control-plane process with the same
+  visibility.
 
 ## 7. Encrypted channels
 
@@ -651,6 +658,24 @@ Six properties of that surface are load-bearing:
 `BETTER_AUTH_SECRET` is set. Production also enforces the origin check strictly,
 which is where a mismatched origin surfaces as `403 Invalid origin` on
 sign-in — not in dev.
+
+**Instance-level plugin secrets: designed, NOT yet built** (inversion spec
+§9.2). Once plugins run in the control-plane process (§11.9), a credential a
+plugin needs while building argv must be readable here. The mechanism was
+decided on 2026-09-10 and is deliberately unimplemented until a plugin
+actually needs one: AES-256-GCM via `node:crypto`, the key from
+`SUBSHELL_SECRETS_KEY` in the environment — never a settings row, never the
+database, so a stolen database file is not a stolen credential; write-only
+over the API (a read reports only that one is set; no response body, log line
+or audit entry carries it); **fails closed** — with the variable unset,
+writing a secret is refused rather than stored in the clear. And say it now,
+beside the secret guidance above, because an operator who learns it during a
+restore has learned it too late: **a lost `SUBSHELL_SECRETS_KEY` is
+unrecoverable by construction** — losing it means every operator re-enters
+their secrets. Two boundaries the design leans on: this store is NOT for a
+credential the agent CLI needs inside its pane — that stays in the node's own
+environment, where the control plane never sees it (inversion spec §9.1) —
+and nothing in it is encrypted today because there is nothing in it today.
 
 **WS attach.** Requires a short-lived (30 s), single-use token minted through an
 authenticated REST call, cookie-session only. Replay-resistant: a second use
@@ -871,21 +896,37 @@ Recorded so they are decisions rather than surprises:
 8. **The post bus is in-process**, so a multi-process deployment would silently
    lose cross-process wakeups.
 
-## 11.9 Plugins run as the node's OS user, in the agent process
+## 11.9 Plugins run in the control-plane process
 
-A plugin (`@subshell-ai/plugin-*`) is JavaScript the agent imports and calls.
-It has `node:fs`, the network, and the ability to spawn processes, because it
-runs inside the agent with that user's privileges. **No sandbox is claimed.**
+A plugin (`@subshell-ai/plugin-*`) is JavaScript the control plane imports and
+calls. It has `node:fs`, the network, and the ability to spawn processes,
+because it runs inside the server process with that user's privileges.
+**No sandbox is claimed.**
 
-This is the same trust level as the harness CLI the plugin drives, and as the
-agent binary itself, but it is a NEW WAY TO REACH IT: before plugins, only a
-release could add executable behaviour to a node.
+**The 2026-09-10 accounting, in both directions** (inversion spec §8 — the
+single largest change in that document, stated here in exactly its terms):
+
+- **What gets worse.** Third-party plugin code runs in the control-plane
+  process, which holds the node signing keypair, so a malicious plugin reaches
+  EVERY enrolled node rather than one machine. Two things bound this: it was
+  already true whenever a plugin was installed on `local` — the server has
+  always loaded its own plugins in its own process — and installing is now an
+  admin act, which is the right gate for an instance-wide capability.
+- **What gets better.** A node no longer executes third-party code at all.
+  Under per-node plugins every node carrying one ran that plugin's code as its
+  OS user; a node now runs agent CLIs and nothing else. For a fleet, the
+  number of machines running third-party plugin code drops from all of them
+  to one.
+- **What is unchanged.** Signing still proves who sent a command and never
+  whether the target supports it; a compromised control plane is still all
+  nodes (§6); `profile.flags` still reaches argv, and if that ever needs a
+  check the place is where profiles are saved, not the node.
 
 What contains what:
 
 - **A plugin that fails to load is reported, never fatal.** The loader wraps
   the import and the factory, so a broken plugin costs its own row rather than
-  the daemon (`packages/pane-runtime/src/plugin-runtime.ts`). Built-ins get
+  the server (`packages/pane-runtime/src/plugin-runtime.ts`). Built-ins get
   the same treatment through the lazily-built registry.
 - **Containment is not isolation.** A plugin that loads successfully and then
   misbehaves is not constrained by any of this. The `PluginRuntime` interface
@@ -896,18 +937,19 @@ What contains what:
   textual and does not follow symlinks.
 
 Installing a plugin is therefore an explicit act with a named source, never
-something a catalog does on its own.
+something a catalog does on its own — and an ADMIN act, cookie-only, on the
+one door (`/api/plugins`, [§6](#plugin-installs-from-the-registry-spec-2026-09-09-instance-level-since-2026-09-10)).
+Weaker doors were deleted rather than widened: there is no per-node install
+route and no agent-side install verb any more.
 
-**Who may install one is narrower than who may launch there.** Plugin
-management is OWNER-only (`canManage`), not `nodeCanConfigure`: any node share,
-even `view`, already lets a grantee launch subshells on that machine, so an
-`edit` grantee who could install a plugin would face no restriction at all.
-This matches the directory allowlist, and for the same reason.
-
-**The node enforces its own set.** A `launch` naming a plugin the node has not
-installed is refused there, not merely filtered by the control plane. A
-signature proves who sent a command; it says nothing about whether the target
-should serve it.
+**The node enforces binaries, not plugins.** With no per-node plugin store
+there is nothing to check a `launch` against, and the launch carries the
+argv the control plane built rather than a plugin id the machine resolves
+against its own set. The node still refuses a launch whose binary it cannot
+find — the failure an operator actually hits — but the old second refusal
+("this plugin is not installed here") is gone by design (inversion spec §3).
+A signature proves who sent a command; it says nothing about whether the
+target should serve it, and this makes that explicit rather than papered over.
 
 ## 12. Hardening checklist for a wider deployment
 

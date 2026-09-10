@@ -128,7 +128,7 @@ Package names follow the same words: `@internal/server`, `@internal/server-web`,
 `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`,
 `@internal/mobile`.
 
-### Plugins are packages, and the node loads them
+### Plugins are packages, and the control plane loads them
 
 A **plugin** teaches Subshell how to drive one agent CLI. Five ship built in
 (`packages/plugins/*`, published as `@subshell-ai/plugin-<id>`), and the
@@ -143,26 +143,34 @@ Three facts about the shape, each measured rather than assumed:
   inlines `plugin-api` rather than importing it.
 - **Identity lives in `package.json`**, under a `subshell` key: id, type,
   name, entry, and the detection data. So listing a plugin and probing for its
-  binary read JSON only, and a node can detect that `claude` is installed
-  before the Claude Code plugin is.
+  binary read JSON only, and a machine can be probed for `claude` without
+  plugin code ever loading there — the `detect` block ships to the node as
+  data (spec 2026-09-10 §4).
 - **Built-ins are imported STATICALLY; only runtime-installed plugins use the
   loader.** Built-ins live inside the binary, so `bun build --compile` has to
   see them and a first run needs no network. `plugin-runtime.ts` holds the
   repo's one sanctioned `await import()`, and `.claude/rules/code-style.md`
   names that exception.
 
-**The NODE owns which plugins it offers.** `<dataDir>/plugins/` is the
-declaration: what is installed there is what that machine offers, and there is
-no enable flag on either side. The node reports the set with its inventory, the
-control plane mirrors it in `nodes.plugins_json`, and a change is a signed
-command to a LIVE node. An offline node is refused rather than queued, which is
-deliberately the opposite of the directory allowlist: there the control plane
-owns a security control and a stale node must be corrected, while here the node
-owns the setting and there is nothing to correct.
+**The control plane owns which plugins exist** (spec 2026-09-10, which
+reversed the 2026-09-09 "the node owns its set" design).
+`<SUBSHELL_SERVER_DATA_DIR>/plugins/` is the one store, and one install arms
+every node. Installing, enabling and uninstalling are **admin** acts on
+`/api/plugins` (Settings → Plugins; cookie-only) — installing runs third-party
+code in the process that holds the node signing keypair, and one install
+serves the whole fleet, so it cannot be a node owner's decision. A node holds
+nothing: no plugins directory of its own, no installed-set report, no
+per-node flag. The enable state that exists is **instance-level**
+(`plugin_state`, an absent row = enabled); phase 2b deleted the enable
+*pair* (two places disagreeing over "this host offers X"), and the inversion's
+§6.1 added back exactly one flag, which has one meaning now. What reaches a node is
+execution data only: the launch carries the plane-built `argv` plus the
+binary-lookup `resolve` rule, and detection is the plane's `detect` command
+answering to a request (page load, Re-check, launch), never a node-side scan.
 
-Empty means "offers nothing", also the opposite of `allowed-dirs`. That is why
-an agent seeds its built-ins once, keyed on the plugins directory not existing
-yet: keying on it being empty would undo an uninstall on every restart.
+The store seeds its built-ins once at boot, keyed on a **completion marker**,
+never on emptiness: an empty directory is an operator who uninstalled
+everything, and re-seeding that would undo it on every restart.
 
 **`type` is for humans, `capabilities()` is for code.** The type
 (`agent-harness`, `terminal`) groups and labels; the launch pipeline branches
@@ -170,9 +178,12 @@ on capabilities, which are validated at load, so a plugin claiming `resume`
 without one is refused rather than producing a restart that silently begins a
 fresh conversation.
 
-A plugin runs in the agent's process with that user's privileges and no
-sandbox. Installing one is the same trust decision as installing the CLI it
-drives; `docs/security.md` carries the rest.
+A plugin runs in the **control plane's** process with the server's privileges
+and no sandbox, and a malicious one therefore reaches every enrolled node
+rather than one machine — the honest accounting (what that costs against what
+it removes from the nodes) is `docs/security.md` §11.9. Installing one is the
+same trust decision as installing the CLI it drives, made once for the
+instance.
 
 ### The licence boundary IS this directory line
 

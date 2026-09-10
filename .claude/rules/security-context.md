@@ -208,11 +208,10 @@ shares and subshell shares are two independent axes:
 
 - **Any node share — even `view` — lets the grantee launch their own subshells
   on it**; those subshells stay invisible to the node's owner unless separately
-  shared. `edit` (or owner) additionally configures the node (re-checks);
-  INSTALLING AND REMOVING PLUGINS is owner-only, on the same reasoning as the
-  directory allowlist, and so are shares and rename — admin for `local`, whose
-  plugins are now managed through that same route rather than an enable table
-  (spec 2026-09-09 §12). The owner controls everything launched there; whoever owns the
+  shared. `edit` (or owner) additionally configures the node (re-checks), and
+  shares and rename stay owner-only — admin for `local`. Plugins are no longer
+  a node axis at all (spec 2026-09-10): nodes execute, they do not install.
+  The owner controls everything launched there; whoever owns the
   node's OS user owns every pane the backend launches on it, including its
   files.
 - Command signing (§4) proves authenticity, freshness and target — **not**
@@ -258,15 +257,24 @@ shares and subshell shares are two independent axes:
   Public settings now carries `appBaseUrl` so the Nodes dialog can show the
   exact URL the server will bake — the enroll-time loopback trap above is
   unchanged by that visibility.
-- **Registry plugin installs (spec 2026-09-09 registry) are owner-only via the
-  node routes** (`canManage`, like the allowlist), the agent's own `subshell
-  plugin` verbs run as the local user who owns the plugins directory, and the
-  anonymous setup route stays embedded-built-ins-only — its body has no spec
-  field. The registry URL is operator-configurable, and integrity only proves
-  the bytes match the hash the SAME registry published: over an http mirror
-  that is the operator's own network, not npm's assurance. An id switching
-  across an uninstall is not a privilege hop — both copies ran as the node's
-  OS user. Full prose: `docs/security.md` §6, "Plugin installs from the
+- **Plugin installs are instance-level admin acts** (spec 2026-09-10
+  inversion): `/api/plugins` writes are cookie-admin only, because installing
+  runs third-party plugin code IN THE CONTROL-PLANE PROCESS — the one that
+  holds the node signing keypair, so a malicious plugin reaches every node,
+  bounded by the admin gate (what it costs against what it removes — nodes
+  executing no third-party code at all — is accounted in `docs/security.md`
+  §11.9). The per-node plugin routes and the agent's `subshell plugin` verbs
+  are GONE, not widened; the agent holds no plugin concept. The anonymous
+  setup route stays embedded-built-ins-only — its body has no spec
+  field. The registry URL (`SUBSHELL_PLUGIN_REGISTRY_URL`) is
+  operator-configurable, and integrity only proves the bytes match the hash
+  the SAME registry published: over an http mirror that is the operator's own
+  network, not npm's assurance. An id switching across an uninstall is not a
+  privilege hop — both copies ran in the control-plane process. Instance-level
+  plugin SECRETS are designed-but-unbuilt future work (`SUBSHELL_SECRETS_KEY`,
+  fails closed, a lost key is unrecoverable — `docs/security.md` §8);
+  pane-side credentials stay in the node's own environment, which the plane
+  never sees. Full prose: `docs/security.md` §6, "Plugin installs from the
   registry".
 - Trusted-network posture is **unchanged**: node→control traffic is expected to
   ride the same VPN/Tailscale; `wss://` termination is the operator's

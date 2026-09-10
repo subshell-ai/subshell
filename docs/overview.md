@@ -39,7 +39,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 13 MCP tools (6 channel, 7 subshell) |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/server/web/.migration/`) |
-| Harnesses | **Plugin packages** the node loads. The contract is `@subshell-ai/plugin-api` (`packages/plugin-api`); five plugins ship in `packages/plugins/*`: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
+| Harnesses | **Plugin packages** the control plane loads (spec 2026-09-10): installed into the instance store at Settings → Plugins, admin-only; a node executes the plane-built argv and holds nothing plugin-shaped. The contract is `@subshell-ai/plugin-api` (`packages/plugin-api`); five plugins ship in `packages/plugins/*`: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
@@ -172,7 +172,8 @@ model, including the accepted risks and what is deliberately not defended.
   frame, a Devices list that explains the pane's size, and the smallest-visible-
   viewer sizing rule shared between server and browser.
 - **Nodes** — remote execution hosts end to end: enrollment via single-use setup
-  keys, signed commands over `/ws/node`, per-node harness inventory, offline
+  keys, signed commands over `/ws/node`, on-demand harness detection (the plane
+  ships its rules; the node probes and answers with raw text), offline
   semantics that say "node unreachable" rather than "crashed", the served
   `/install.sh` + digest-verified binary downloads, and a background service
   installer (systemd user unit / launchd agent).

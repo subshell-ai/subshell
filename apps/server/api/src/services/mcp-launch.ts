@@ -67,8 +67,9 @@ export function subshellMcpConfigPath(subshellId: string): string {
  * `<dataDir>/mcp/<subshellId>.json` as the target path. Nothing is written
  * locally: `RemoteLauncher.launch` ships the WHOLE registration inline with
  * the launch command — `fileContent` and, since the inversion spec §5, the
- * `args`/`env` dialect too (the node still recomputes them itself until Task 4
- * switches that consumer) — so the launch command is the ONLY writer of
+ * `args`/`env` dialect too, which the node consumes as sent (its own plugin
+ * concept, and with it the recompute, went away in Task 7) — so the launch
+ * command is the ONLY writer of
  * node-side MCP configs; `RemoteLauncher.subshellArtifacts` owns the layout
  * for cleanup.
  * The capability gate and the debug-log note live in the
