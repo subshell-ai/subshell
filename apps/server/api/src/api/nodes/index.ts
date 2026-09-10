@@ -17,7 +17,9 @@ import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
  * `/api/nodes` — one Elysia instance per endpoint (the subshells-directory
  * convention): the public enroll endpoint (spec 2026-08-31 §5.2), the
  * setup-key trio (§5.1/§9), and the registry CRUD + shares + rotate-key set
- * (§9) plus the per-node harness toggle and re-check (Task 10, §6.2).
+ * (§9) plus rename, the directory allowlist, and re-check (the plane-run
+ * `detect` command, §6.2). Plugins left this surface entirely: the instance
+ * owns the set now (`/api/plugins`, spec 2026-09-10).
  * `nodesRoutes` is mounted inside `computeRoutes` (routes.ts) — the
  * grouping there is the TS2589 defense, so keep new endpoints as `.use()`
  * modules on this instance rather than growing a flat chain upstream.

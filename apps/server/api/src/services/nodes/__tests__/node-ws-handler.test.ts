@@ -349,19 +349,16 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
 
   it("an inventory event records NO plugin declaration — `plugins` left the wire (protocol 3)", async () => {
     // Protocol 3 removed the field from the event type: the node holds no
-    // plugins and reports none. The handler's read of it is gone with it
-    // (`recordPluginReport` survives dead-but-present until Task 10 drops
-    // the column), so even a stale frame that still carries the key must
-    // mirror nothing — nothing may quietly re-grow a read for a wire field
-    // that no longer exists. The harness-scan half of the event is unchanged.
+    // plugins and reports none. The write target followed it — migration
+    // 0026 dropped `nodes.plugins_json`/`plugins_at`, so even a stale frame
+    // that still carries the key has nowhere to land: the repo slice the
+    // socket holds has no plugin-report method to re-grow, and the handler
+    // neither crashes nor invents one. The harness-scan half of the event is
+    // unchanged.
     const h = makeHarness();
-    const pluginReports: { id: string; plugins: unknown }[] = [];
-    const nodesStub = h.deps.nodes as unknown as {
-      recordPluginReport(id: string, plugins: unknown): Promise<void>;
-    };
-    nodesStub.recordPluginReport = async (id, plugins) => {
-      pluginReports.push({ id, plugins });
-    };
+    // The stub carries exactly the repo slice `NodeWsNodesRepo` now names —
+    // a handler reaching for a dead writer would be a type error AND a
+    // runtime TypeError here, not a silent mirror write.
     await handleNodeMessage(
       h.deps,
       fakeSocket("n1"),
@@ -378,7 +375,6 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       JSON.stringify({ type: "inventory", harnesses: [], plugins: [], ts: "now" }),
     );
     expect(h.inventories).toHaveLength(1); // the empty harness claim still dies at the guard
-    expect(pluginReports).toEqual([]); // and no frame — old-shaped or not — records a plugin set
   });
 
   it("result → resolveResult on the socket's OWN connection; unknown ref is a debug no-op", async () => {

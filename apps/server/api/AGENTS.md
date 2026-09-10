@@ -102,8 +102,9 @@ every enrolled node.
 
 Plugins live on the control plane now (spec 2026-09-10): the per-node
 `set-node-plugin` route, `plugin-sync.ts` and the signed `plugin_install` /
-`plugin_uninstall` commands are GONE — Task 10 drops the `nodes.plugins_json`
-mirror they left behind. The instance door is `api/plugins.route.ts`
+`plugin_uninstall` commands are GONE, and with them the `nodes.plugins_json`
+mirror they left behind (migration 0026, which also creates the instance-level
+`plugin_state` table). The instance door is `api/plugins.route.ts`
 (`/api/plugins`: list for any authenticated actor; install / enable / impact /
 uninstall are cookie-admin, since installing runs third-party code in the
 process that holds the node signing keypair). A registry `spec` still installs

@@ -141,21 +141,6 @@ export class NodesRepository extends BaseRepository {
       .execute();
   }
 
-  /**
-   * Mirror the node's own plugin report.
-   *
-   * The node OWNS its plugin set, so this is a cache of what it said rather
-   * than a decision the control plane made.
-   */
-  async recordPluginReport(id: string, plugins: unknown): Promise<void> {
-    const now = new Date().toISOString();
-    await this.db
-      .updateTable("nodes")
-      .set({ pluginsJson: JSON.stringify(plugins), pluginsAt: now, updatedAt: now })
-      .where("id", "=", id)
-      .execute();
-  }
-
   /** Persist the status projection (the live socket stays authoritative). */
   async setStatus(id: string, status: NodeStatus): Promise<void> {
     await this.db
@@ -243,9 +228,9 @@ export class NodesRepository extends BaseRepository {
 
   /**
    * Delete a node, unpinning profiles in the same transaction (spec §5.4:
-   * `profiles.node_id` is NULLed so the profile survives as "any node";
-   * `node_shares` rides the FK cascade, and the plugin report is a column on
-   * the row itself).
+   * `profiles.node_id` is NULLed so the profile survives as "any node" and
+   * `node_shares` rides the FK cascade; the plugin set was never row-scoped
+   * state to clean — since the inversion the instance owns it).
    */
   async deleteById(id: string): Promise<void> {
     await this.db.transaction().execute(async (tx) => {

@@ -33,8 +33,8 @@ import { logger } from "@/utils/logger.js";
  * | agent | the instance store | the cached `detect` answer |
  *
  * The `node.kind` branch inside the usability GATE is gone with the per-node
- * plugin set it branched on (`nodes.plugins_json` — Task 10 drops the column;
- * nothing reads it after this module stopped).
+ * plugin set it branched on (`nodes.plugins_json`/`plugins_at`, dropped by
+ * migration 0026 — this module stopped reading them first).
  *
  * Two consumers, deliberately two strictnesses: the VIEW
  * ({@link effectiveHarnessStates}) is informational — a stale snapshot still

@@ -99,7 +99,7 @@ export interface NodeVerifiedKey {
 /** Repository slice the socket touches (full `NodesRepository` satisfies it). */
 export type NodeWsNodesRepo = Pick<
   NodesRepository,
-  "findById" | "applyReady" | "applyInventory" | "recordPluginReport" | "touch" | "setStatus"
+  "findById" | "applyReady" | "applyInventory" | "touch" | "setStatus"
 >;
 
 /** Everything the handler reaches outside its own module. */
@@ -339,8 +339,8 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // always has. Pinned by the detect-cache test in
       // `__tests__/inventory-detect.test.ts`.
       // (The `plugins` DECLARATION that used to ride this event is gone —
-      // protocol 3. `recordPluginReport` stays on the repository, dead-but-
-      // present, until Task 10 drops the column it writes.)
+      // protocol 3 — and with migration 0026 so is the mirror it wrote:
+      // there is no plugin-report column left for a frame to populate.)
       if (event.harnesses && event.harnesses.length > 0) {
         await deps.nodes.applyInventory(nodeId, JSON.stringify(event.harnesses));
       }

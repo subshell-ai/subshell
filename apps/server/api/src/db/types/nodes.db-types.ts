@@ -50,18 +50,6 @@ export interface NodeTable {
   capabilities: string | null;
   /** Cached harness inventory (JSON), see inventory TTL in spec §6.2 */
   inventoryJson: string | null;
-  /**
-   * The node's own report of the plugins it has INSTALLED, as JSON.
-   *
-   * Null means it has never reported, which is NOT the same as offering
-   * nothing: an enrolled node that has never connected has this null. Separate from
-   * `inventoryJson` because that column holds a harness array with its own
-   * parser, and folding two shapes into one would mean changing a parser the
-   * launch gate depends on.
-   */
-  pluginsJson: string | null;
-  /** ISO 8601 when pluginsJson was captured */
-  pluginsAt: string | null;
   /** ISO 8601 when inventoryJson was captured */
   inventoryAt: string | null;
   /** ISO 8601 creation time */

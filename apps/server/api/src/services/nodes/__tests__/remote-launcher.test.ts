@@ -153,8 +153,6 @@ function nodeRow(over: Partial<NodeTable> = {}): NodeTable {
     apiKeyId: null,
     capabilities: null,
     inventoryJson: null,
-    pluginsJson: null,
-    pluginsAt: null,
     inventoryAt: null,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
