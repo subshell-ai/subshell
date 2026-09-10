@@ -9,6 +9,7 @@ import {
   listInstalled,
   pluginsDir,
   readInstallRecord,
+  refreshStaleBuiltIns,
   resetPluginLogForTests,
   resolvePluginUpdates,
   setPluginLog,
@@ -205,6 +206,26 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir(dir))).toEqual(["third"]);
   });
 
+  it("a registry package declaring a built-in's id cannot replace the embedded install it has no name tie to", async () => {
+    // The §2.4 guard cannot lean on the sidecar alone: an embedded install
+    // carries none, so a squatter would pass a record-only check and the swap
+    // would record the squatter over the operator's built-in. The target's
+    // OWN package.json name is the other half of the claim.
+    const dir = tempDataDir();
+    await installPlugin(dir, { id: "pi" });
+    const embeddedVersion = (await listInstalled(dir))[0]?.version;
+    served.set("evil-pi", {
+      latest: "1.0.0",
+      versions: { "1.0.0": makePluginTgz({ name: "evil-pi", version: "1.0.0", id: "pi" }) },
+    });
+    await expect(installPlugin(dir, { spec: "evil-pi@1.0.0", registryUrl: base })).rejects.toThrow(
+      /evil-pi.*@subshell-ai\/plugin-pi|@subshell-ai\/plugin-pi.*evil-pi/,
+    );
+    expect(await readInstallRecord(dir, "pi")).toBeNull();
+    expect((await listInstalled(dir))[0]?.version).toBe(embeddedVersion);
+    expect(readdirSync(pluginsDir(dir))).toEqual(["pi"]);
+  });
+
   it("a broken module is refused by the pre-swap load and the old copy survives intact", async () => {
     const dir = tempDataDir();
     await installPlugin(dir, { id: "pi" });
@@ -249,6 +270,34 @@ describe("installPlugin", () => {
     await expect(installPlugin(dir, { spec: "tampered@1.0.0", registryUrl: base })).rejects.toThrow(/integrity/i);
     expect(await listInstalled(dir)).toEqual([expect.objectContaining({ id: "third" })]);
     expect(existsSync(join(pluginsDir(dir), "tampered"))).toBe(false);
+  });
+});
+
+describe("refreshStaleBuiltIns vs registry-installed built-ins", () => {
+  it("leaves a registry-pinned built-in alone instead of reverting it to the embedded copy", async () => {
+    // The pass exists for the case where the UPGRADED BINARY is ahead of disk.
+    // Here the opposite is true by choice: pi@99.0.0 was installed from a
+    // registry on purpose, so an embedded 0.x on disk is not stale, and
+    // reinstalling it would silently undo the operator (and drop the sidecar).
+    const dir = tempDataDir();
+    served.set("@subshell-ai/plugin-pi", {
+      latest: "99.0.0",
+      versions: { "99.0.0": await builtInAsTgz("pi", "99.0.0") },
+    });
+    await installPlugin(dir, { id: "pi", spec: "@subshell-ai/plugin-pi@99.0.0", registryUrl: base });
+
+    const infos: string[] = [];
+    setPluginLog({ info: (m) => void infos.push(m), warn: () => {} });
+    let refreshed: string[];
+    try {
+      refreshed = await refreshStaleBuiltIns(dir);
+    } finally {
+      resetPluginLogForTests();
+    }
+    expect(refreshed).toEqual([]);
+    expect((await listInstalled(dir))[0]?.version).toBe("99.0.0");
+    expect((await readInstallRecord(dir, "pi"))?.version).toBe("99.0.0");
+    expect(infos.join("\n")).toMatch(/skipped 'pi'.*99\.0\.0/);
   });
 });
 

@@ -230,6 +230,8 @@ async function readRecordIn(dir: string): Promise<InstallRecord | null> {
 /** The existing state of an install target: its parsed manifest plus any record. */
 interface TargetState {
   manifest: SubshellManifest;
+  /** The `name` field of the target's package.json, null when it has none */
+  pkgName: string | null;
   record: InstallRecord | null;
 }
 
@@ -241,12 +243,22 @@ interface TargetState {
  * `listInstalled` makes when it reports a directory broken: an install may
  * overwrite a broken directory, because there is no working copy there to
  * protect.
+ *
+ * `pkgName` is captured alongside the record because the record only exists
+ * for registry installs. An EMBEDDED copy has no sidecar, and its
+ * package.json name is the only claim on its id such a copy carries.
  */
 async function readTargetState(dir: string): Promise<TargetState | null> {
   try {
-    const parsed = parseManifest(JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as unknown);
+    const pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as unknown;
+    const parsed = parseManifest(pkg);
     if ("error" in parsed) return null;
-    return { manifest: parsed, record: await readRecordIn(dir) };
+    const nameField = (pkg as { name?: unknown }).name;
+    return {
+      manifest: parsed,
+      pkgName: typeof nameField === "string" ? nameField : null,
+      record: await readRecordIn(dir),
+    };
   } catch {
     return null;
   }
@@ -483,12 +495,20 @@ async function installFromRegistry(
 
   return await installStaged(dataDir, id, files, (existing) => {
     // Two packages claiming one id would silently replace the first operator's
-    // plugin with the second's bytes; the sidecar is what makes the claim
-    // checkable, and refusing is what makes it worth writing.
-    if (existing?.record?.name && existing.record.name !== name) {
+    // plugin with the second's bytes. The claim is the sidecar when there is
+    // one, and the target's OWN package.json name when there is not: an
+    // embedded install carries no sidecar, and without that second half a
+    // registry package declaring a built-in's id could swap over the built-in
+    // and have the swap RECORD the squatter. A same-name target is the
+    // §2.5-rule-3 flow (this build's pi replaced by a registry pi), which
+    // must pass.
+    const claimedBy = existing?.record?.name ?? existing?.pkgName ?? null;
+    if (claimedBy && claimedBy !== name) {
+      const origin = existing?.record
+        ? `installed ${existing.record.version}`
+        : "no install record, so it is this build's copy or one dropped in by hand";
       throw new Error(
-        `'${existing.record.name}' already claims plugin id '${id}' (installed ${existing.record.version}); ` +
-          `uninstall it before installing '${name}' under that id`,
+        `'${claimedBy}' already claims plugin id '${id}' (${origin}); uninstall it before installing '${name}' under that id`,
       );
     }
   });
@@ -576,6 +596,13 @@ export async function resolvePluginUpdates(
  * underneath it. A plugin this build carries no copy of is left strictly
  * alone, because overwriting a third-party plugin from nowhere would be data
  * loss rather than a refresh.
+ *
+ * A copy with an install record is left alone too, and that is the same
+ * reasoning applied to the NEW case phase 3 opened: an embedded version that
+ * differs from a registry-pinned one is not the agent having been upgraded
+ * underneath the plugin, it is the operator having chosen that version, and
+ * reinstalling the embedded copy would silently undo the install (and drop
+ * the sidecar that says so).
  * @returns the ids that were refreshed, id-sorted
  */
 export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
@@ -583,6 +610,12 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
   for (const installed of await listInstalled(dataDir)) {
     const source = await readBuiltIn(installed.id);
     if (!source) continue;
+    if (await readInstallRecord(dataDir, installed.id)) {
+      // Only logged for built-in ids, where the embedded copy was RIGHT
+      // THERE and this pass is what would have clobbered it.
+      sink.info(`skipped '${installed.id}': registry-installed ${installed.version} left alone`);
+      continue;
+    }
     // No guard around this parse, deliberately. `readBuiltIn` returned these
     // bytes only after parsing them itself, so a throw here is impossible and
     // a try around it would be unreachable code claiming to prevent something.
