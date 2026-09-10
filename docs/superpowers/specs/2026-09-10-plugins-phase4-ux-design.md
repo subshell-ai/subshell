@@ -1,5 +1,12 @@
 # Phase 4 Design: The Plugin UX
 
+> **SUPERSEDED (2026-09-10) by `2026-09-10-plugins-on-the-control-plane-design.md`.** Plugins moved to the control
+> plane, so the per-node Plugins card this specifies is no longer the shape.
+> The intent survives: the setup step, the install-by-name field and its
+> non-catalog confirmation, and deleting the anonymous first-run write window
+> are all carried forward, moved to an instance-level surface. Kept for the
+> reasoning, not as a plan.
+
 Date: 2026-09-10
 Status: approved design (brainstorm 2026-09-10), pending implementation plan
 Parent: `2026-09-09-plugin-architecture-design.md` §10 (UI surfaces), §13 (Security), §15 (Phases)

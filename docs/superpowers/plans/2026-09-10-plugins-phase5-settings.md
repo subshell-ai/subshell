@@ -1,5 +1,10 @@
 # Plugin Settings (Phase 5) Implementation Plan
 
+> **SUPERSEDED (2026-09-10) by the plan for `2026-09-10-plugins-on-the-control-plane-design.md`.** Do not execute this.
+> Task 5's bug is real and outlives the plan: a profile cannot be created for a
+> plugin the server's own registry does not know, which matters differently now
+> that the server knows every plugin.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a person configure a plugin: per-profile knobs rendered from a schema the plugin declares, per-machine settings stored on the node with write-only secrets, validation that actually reaches the plugin, and reusable templates so a fleet is configured once.

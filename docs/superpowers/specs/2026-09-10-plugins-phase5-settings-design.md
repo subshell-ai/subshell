@@ -1,5 +1,14 @@
 # Phase 5 Design: Settings
 
+> **SUPERSEDED (2026-09-10) by `2026-09-10-plugins-on-the-control-plane-design.md`.** With one plugin copy on the control
+> plane, §2.6's resolution ladder and the judge-versus-launcher problem are
+> deleted rather than solved, and templates lose their reason to exist. What
+> carries forward: the schema language of §2.2 including declarative
+> conditions, and the finding that `validateProfile` is required by the
+> contract and called by nothing. What CHANGES: §2.3's write-only secret kept
+> credentials off the control plane, which is not achievable once the plugin
+> runs there. See the superseding spec §9.
+
 Date: 2026-09-10
 Status: approved design (brainstorm 2026-09-10), pending implementation plan
 Parent: `2026-09-09-plugin-architecture-design.md` §9 (Settings), §10.3, §13

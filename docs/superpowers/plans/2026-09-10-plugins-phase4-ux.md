@@ -1,5 +1,12 @@
 # Plugin UX (Phase 4) Implementation Plan
 
+> **SUPERSEDED (2026-09-10) by the plan for `2026-09-10-plugins-on-the-control-plane-design.md`.** Do not execute this.
+> Two of its findings still matter and must be carried into whatever replaces
+> it: `GET /api/profiles/harnesses/:id/schema` serves from server-side plugin
+> code, and the profile CREATE route refuses any harness `getHarness` does not
+> know while checking usability against `local` regardless of the profile's
+> node.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the plugin machinery built in phases 1 to 3 usable from a screen: a first-run wizard that asks where subshells will run, a node Plugins card that can install a third-party package by name and act on available updates, and the same install/uninstall surface inside Subshell Client.

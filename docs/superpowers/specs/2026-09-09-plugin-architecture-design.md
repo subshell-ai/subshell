@@ -1,5 +1,18 @@
 # Plugin Architecture Design
 
+> **PARTLY SUPERSEDED (2026-09-10) by
+> `2026-09-10-plugins-on-the-control-plane-design.md`.** Plugins now live on the
+> control plane only; nodes hold nothing and execute what they are told. That
+> replaces **§6** (the node owns its plugin set), **§8.1 to §8.2**
+> (per-node distribution), **§10** (the UI surfaces, which are no longer
+> per-node) and **§11** (what the server still needs, which is now everything).
+>
+> Still current and unchanged: §4 the manifest, §5 the loader, §7 detection as
+> DATA, §8.3 publishing, §9's settings split, §12, §13's posture, §14 the
+> package split, and the licence boundary. The superseding spec §1 records the
+> evidence, including the spike that measured how little of a plugin actually
+> needs the node.
+
 **Date:** 2026-09-09
 **Status:** approved, phased (see §15)
 
