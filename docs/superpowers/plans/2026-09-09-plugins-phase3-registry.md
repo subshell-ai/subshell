@@ -134,7 +134,7 @@ console.log(back === "hello" && sig.aborted === false ? "PRIMITIVES OK" : "PRIMI
 
 `bun build --compile /tmp/tgz-probe.ts -o /tmp/tgz-probe && /tmp/tgz-probe` must print `PRIMITIVES OK`. If it does not, STOP the task and report: the plan's gzip assumption came from bun 1.4 docs, and compiled-binary differences are this repo's known trap. Record the measured result in the module docstring.
 
-- [ ] **Step 1: Write the tar-WRITER test helper** (top of `tar-vendor.test.ts`; ustar is simple enough to emit in-test, and a fixture generator we control is exactly what the hostile cases need):
+- [ ] **Step 1: Write the tar-WRITER test helper in its own file**, `packages/pane-runtime/src/__tests__/helpers/tgz-fixture.ts`, and export it (`export function makeTgz(...)`); `tar-vendor.test.ts` imports it, and Task 4's `makePluginTgz` will join this same file later. ustar is simple enough to emit in-test, and a fixture generator we control is exactly what the hostile cases need:
 
 ```ts
 /** Minimal ustar writer: enough of the format to exercise every reader rule. */
@@ -213,23 +213,27 @@ describe("extractTgz", () => {
     const tgz = makeTgz([{ path: "package/a", content: "hello" }]);
     expect(() => extractTgz(tgz.subarray(0, tgz.length - 258))).toThrow();
   });
-  it("honours a pax 'path' override for long names", () => {
+  it("honours a pax 'path' override for the NEXT entry — and only the next", () => {
+    // Build this ONE archive by hand in the test: the makeTgz helper cannot
+    // emit a >100-char name field, which is the whole reason pax exists. The
+    // assertion must see the LONG path come back; a test that only checks an
+    // unrelated file survived would pass with the pax branch deleted.
     const long = `package/${"d".repeat(120)}/index.js`;
-    const paxPayload = ` ${long.length} path=${long}\n`;
-    const tgz = makeTgz([
-      { path: "package/PaxHeaders.0/index.js", content: paxPayload.slice(paxPayload.indexOf(" ") + 1), type: "x" },
-      { path: "package/x.js", content: "x" }, // placeholder, real long name comes from pax
+    const pax = new TextEncoder().encode(`${`path=${long}`.length + 1} path=${long}\n`);
+    // entry 1: typeflag "x", name "PaxHeaders/x.js", body = pax bytes;
+    // entry 2: a regular file whose own name field is short garbage ("short.js")
+    // that MUST be ignored in favour of the pax path.
+    const tgz = handBuiltTgz([
+      { name: "PaxHeaders.x", typeflag: "x", body: pax },
+      { name: "short.js", typeflag: "0", body: new TextEncoder().encode("x") },
     ]);
-    // The writer above cannot emit a >100-char name field directly; this is
-    // why the pax test builds the header via `x` typeflag and asserts the
-    // reader takes the pax path for the NEXT entry.
     const out = extractTgz(tgz);
-    expect(out.map((e) => e.path)).toContain("x.js");
+    expect(out.map((e) => e.path)).toEqual([`${"d".repeat(120)}/index.js`]);
   });
 });
 ```
 
-Note the pax test is deliberately two-part; if it fights the writer, build that ONE tgz byte-array by hand in the test (the header fields are documented above). Do not weaken the rule.
+`handBuiltTgz` is a small local variant in the test file taking pre-encoded bodies and raw typeflags (the header layout is already documented in `makeTgz`); add it beside `makeTgz` in `tgz-fixture.ts`. If the pax record-length prefix fights you, the length field is `<decimal byte count of "path=..."> <the pair>\n` — count the pair's bytes, then its own digit count, per POSIX.
 
 - [ ] **Step 3: Run, watch them fail** (`bun test src/__tests__/tar-vendor.test.ts` in `packages/pane-runtime`; import is `../tar-vendor.js`).
 
@@ -560,16 +564,21 @@ async function installStaged(
   dataDir: string,
   id: string,
   files: Record<string, string | Uint8Array>,
-  assertTarget?: (existing: { manifest: SubshellManifest; hasRecord: boolean } | null) => void,
+  assertTarget?: (existing: { manifest: SubshellManifest; record: InstallRecord | null } | null) => void,
 ): Promise<InstalledPlugin> {
   // ...move the body verbatim; writeFiles already accepts Record<string, string>,
-  // so widen it to string | Uint8Array (writeFile accepts both), call
-  // assertTarget(existsSync(target) ? await readTargetState(target) : null)
-  // before `rename(target, retired)`, keep restore-first-then-rm and the finally.
+  // so widen it to string | Uint8Array (writeFile accepts both); before
+  // `rename(target, retired)`, call
+  // assertTarget(existsSync(target) ? await readTargetState(target) : null),
+  // where readTargetState parses the target's package.json subshell block via
+  // parseManifest and its install.json via readInstallRecord's shape (a target
+  // whose manifest will not parse yields null existing — install over it, the
+  // same way listInstalled would have called it broken);
+  // keep restore-first-then-rm and the finally.
 }
 ```
 
-`installEmbedded` becomes: `assertSafeId` → `readBuiltIn` → `installStaged(dataDir, id, source.files)`. Its existing tests are the regression net for the move; they must pass WITHOUT edits (revert-verify: break the restore path, watch `plugins-dir.test.ts`' interruption cases fail).
+`installEmbedded` becomes: `assertSafeId` → `readBuiltIn` → `installStaged(dataDir, id, source.files)`. Its existing tests are the regression net for the move; they must pass WITHOUT edits (revert-verify: break the restore path, watch `plugins-dir.test.ts`' interruption cases fail). The `InstallRecord` type is declared in this task (step 4) — declare it before `installStaged` uses it.
 
 - [ ] **Step 2: Write the failing tests** (`install-registry.test.ts`). Fixture factory inside the test, reusing task 2's `makeTgz` idea via a shared test helper — move `makeTgz` into `__tests__/helpers/tgz-fixture.ts` (export it; update task 2's test to import it) and add:
 
