@@ -41,7 +41,8 @@
     "release:desktop-server": "bun run --cwd apps/server/desktop compile:release",
     "release:desktop-client": "bun run --cwd apps/client/desktop compile:release",
     "changeset": "changeset",
-    "version-packages": "changeset version && bun run lint:lockfile:fix"
+    "version-packages": "changeset version && bun run lint:lockfile:fix",
+    "publish-packages": "changeset publish"
   },
   "dependencies": {
     "@elysiajs/eden": "1.4.9",

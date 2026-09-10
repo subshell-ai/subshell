@@ -100,6 +100,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,16 +120,25 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - run: rm -f "$HOME/.npmrc"   # OIDC, never a token: npm must not find an auth to prefer (spec §8.3)
+
       - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
         with:
-          # NO publish-script: every workspace is private, npm publishing is
-          # out of scope (spec §11), and tag/release creation belongs to the
-          # publish job below — v2 would otherwise push tags itself.
+          # Publish exists from phase 3 on: the five plugin packages and
+          # @subshell-ai/plugin-api ship to npm via OIDC trusted publishing
+          # (no NPM_TOKEN anywhere). Trusted publishing must be configured
+          # per package on npmjs.com by a human FIRST; until then the
+          # publish step 403s, which is loud, correct, and expected.
           version-script: bun run version-packages
+          publish-script: bun run publish-packages
           commit-message: "chore: release package(s)"
           pr-title: "chore: release package(s)"
           create-github-releases: false
-          push-git-tags: false
+          # A published version with no tag is unreviewable; `changesets tag`
+          # only tags PUBLISHABLE packages (privatePackages.tag is false), so
+          # the @internal workspaces stay tagless and the app tags remain the
+          # publish job's own `<app>-v*` namespace.
+          push-git-tags: true
 
   plan:
     name: Plan the cut
