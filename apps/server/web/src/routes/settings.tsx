@@ -76,9 +76,14 @@ function SettingsPage() {
           // A Link WEARING the button style, not a Button wrapping a Link —
           // nesting two interactive elements is what `asChild` exists to avoid,
           // and this Button primitive has no `asChild`.
-          <Link to="/settings/status" className={buttonVariants({ variant: "outline", size: "sm" })}>
-            Status
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to="/settings/status" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              Status
+            </Link>
+            <Link to="/settings/plugins" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              Plugins
+            </Link>
+          </div>
         }
       />
       {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so

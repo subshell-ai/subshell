@@ -1,0 +1,313 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
+import { Route } from "@/routes/settings_.plugins";
+
+/**
+ * The instance plugins page (spec 2026-09-10 §6, §6.1): catalog installs are
+ * one click, a typed package name confirms and says plainly that the code
+ * runs on the CONTROL PLANE, disabling is a PATCH that never touches the
+ * bytes, and the uninstall dialog fetches the impact before it offers the
+ * Keep (default) / Delete choice the shared boolean `confirmAction` cannot
+ * express. The admin gate mirrors `settings_.status.tsx`: reads for every
+ * authenticated actor, write controls for cookie admins only.
+ */
+
+interface RowFixture {
+  id: string;
+  name: string;
+  /** Default true; false puts the row in the one-click catalog region */
+  installed?: boolean;
+  enabled?: boolean;
+  /** Default: true for catalog rows, false for installed ones */
+  builtIn?: boolean;
+  version?: string;
+  broken?: string;
+}
+
+interface PageFixture {
+  admin: boolean;
+  installed?: RowFixture[];
+  catalog?: RowFixture[];
+  impact?: PluginImpact;
+}
+
+function row(f: RowFixture): InstancePluginRow {
+  const installed = f.installed ?? true;
+  return {
+    id: f.id,
+    name: f.name,
+    description: "",
+    installed,
+    enabled: f.enabled ?? true,
+    builtIn: f.builtIn ?? !installed,
+    ...(f.version ? { version: f.version } : {}),
+    ...(f.broken ? { broken: f.broken } : {}),
+  };
+}
+
+interface Call {
+  method: string;
+  pathname: string;
+  search: string;
+  body?: string;
+}
+
+/**
+ * The `/api/plugins*` table the page talks to, plus `/api/settings/public`
+ * for the admin flag. Mutations are recorded rather than applied; the page's
+ * invalidation refetches the SAME fixture rows, which is enough to assert
+ * what went out on the wire.
+ */
+function mockServer(fx: PageFixture) {
+  const calls: Call[] = [];
+  const plugins = [...(fx.installed ?? []).map(row), ...(fx.catalog ?? []).map(row)];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    const method = init?.method ?? "GET";
+    calls.push({ method, pathname: url.pathname, search: url.search, body: init?.body as string | undefined });
+    const json = (obj: unknown) => Promise.resolve(new Response(JSON.stringify(obj)));
+    if (url.pathname === "/api/settings/public") {
+      return json({
+        allowRegistrations: false,
+        emergencyLoginActive: false,
+        instanceName: "test",
+        appBaseUrl: "http://localhost:3080",
+        viewerIsAdmin: fx.admin,
+        serverVersion: "1.6.0",
+      });
+    }
+    if (url.pathname === "/api/plugins" && method === "GET") return json({ plugins });
+    if (url.pathname === "/api/plugins" && method === "POST") {
+      return json(row({ id: "installed", name: "installed" }));
+    }
+    const patch = /^\/api\/plugins\/([^/]+)$/.exec(url.pathname);
+    if (patch && method === "PATCH") {
+      const id = patch[1] ?? "unknown";
+      return json(row({ id, name: id }));
+    }
+    if (patch && method === "DELETE") return json({ ok: true, mode: "keep", profilesRemoved: 0 });
+    const impact = /^\/api\/plugins\/([^/]+)\/impact$/.exec(url.pathname);
+    if (impact && method === "GET") {
+      return json(fx.impact ?? { profiles: 0, distinctUsers: 0, defaults: 0, runningSubshells: 0 });
+    }
+    return json({});
+  }) as typeof fetch;
+  const lastBody = (pred: (c: Call) => boolean) => {
+    const last = [...calls].reverse().find(pred);
+    return last ? JSON.parse(String(last.body)) : undefined;
+  };
+  return {
+    calls,
+    restore: () => (globalThis.fetch = original),
+    /** The last POST /api/plugins body. */
+    posted: () => lastBody((c) => c.method === "POST" && c.pathname === "/api/plugins"),
+    /** The last PATCH /api/plugins/:id body. */
+    patched: () => lastBody((c) => c.method === "PATCH" && c.pathname.startsWith("/api/plugins/")),
+    /** The query of the last DELETE, as an object (`{ mode }`). */
+    deletedWith: () => {
+      const last = calls.filter((c) => c.method === "DELETE").at(-1);
+      return last ? Object.fromEntries(new URLSearchParams(last.search)) : undefined;
+    },
+  };
+}
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // Re-parented onto a test root carrying the ConfirmProvider, the same
+  // provider __root mounts in production (install-by-name confirms through it).
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ConfirmProvider>
+        <Outlet />
+      </ConfirmProvider>
+    ),
+  });
+  const pluginsRoute = Route.update({
+    id: "/settings_/plugins",
+    path: "/settings/plugins",
+    getParentRoute: () => rootRoute,
+  } as never);
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([pluginsRoute]),
+    history: createMemoryHistory({ initialEntries: ["/settings/plugins"] }),
+    defaultPreload: false,
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
+
+afterEach(cleanup);
+
+describe("instance plugins page", () => {
+  it("a catalog install asks nothing", async () => {
+    const m = mockServer({ admin: true, catalog: [{ id: "pi", name: "Pi", installed: false }] });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /install/i }));
+      await waitFor(() => expect(m.posted()).toMatchObject({ pluginId: "pi" }));
+      // toMatchObject alone would also pass on a body that ADDED a spec: the
+      // one-click install is the embedded copy, so the body is exactly that.
+      expect(m.posted()).toEqual({ pluginId: "pi" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a typed package name confirms, and says it runs on the control plane", async () => {
+    const m = mockServer({ admin: true });
+    try {
+      renderPage();
+      const field = await screen.findByLabelText(/install from npm/i);
+      fireEvent.change(field, { target: { value: "@acme/plugin-thing" } });
+      fireEvent.click(screen.getByRole("button", { name: /^install$/i }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText(/control plane/i)).toBeDefined();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+      // The id the page cannot know is asserted, not guessed silently: the
+      // server refuses a package that declares a different one, by name.
+      await waitFor(() => expect(m.posted()).toEqual({ pluginId: "thing", spec: "@acme/plugin-thing" }));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("typing a catalog name is still one click, no confirm", async () => {
+    const m = mockServer({ admin: true, catalog: [{ id: "pi", name: "Pi", installed: false }] });
+    try {
+      renderPage();
+      const field = await screen.findByLabelText(/install from npm/i);
+      fireEvent.change(field, { target: { value: "@subshell-ai/plugin-pi" } });
+      fireEvent.click(screen.getByRole("button", { name: /^install$/i }));
+      await waitFor(() => expect(m.posted()).toEqual({ pluginId: "pi" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("disabling a plugin marks it disabled without uninstalling", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "pi", name: "Pi", enabled: true }] });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("switch", { name: /enabled/i }));
+      await waitFor(() => expect(m.patched()).toEqual({ enabled: false }));
+      // A PATCH is the whole act: nothing left, nothing deleted.
+      expect(m.calls.some((c) => c.method === "DELETE")).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("uninstall shows the blast radius and defaults to keeping profiles", async () => {
+    const fixture: PageFixture = {
+      admin: true,
+      installed: [{ id: "acme", name: "Acme" }],
+      impact: { profiles: 4, distinctUsers: 3, defaults: 2, runningSubshells: 1 },
+    };
+    const m = mockServer(fixture);
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      expect(await screen.findByText(/4 profiles use it, across 3 users/i)).toBeDefined();
+      const keep = screen.getByRole("radio", { name: /keep the profiles/i }) as HTMLInputElement;
+      expect(keep.checked).toBe(true);
+      expect(screen.getByText(/running subshells are unaffected/i)).toBeDefined();
+      // The dialog's own confirm is the only button named exactly "Uninstall";
+      // the row buttons name their plugin.
+      fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
+      await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "keep" }));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("choosing delete sends mode=delete", async () => {
+    const fixture: PageFixture = {
+      admin: true,
+      installed: [{ id: "acme", name: "Acme" }],
+      impact: { profiles: 4, distinctUsers: 3, defaults: 2, runningSubshells: 1 },
+    };
+    const m = mockServer(fixture);
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await screen.findByText(/4 profiles use it, across 3 users/i);
+      fireEvent.click(screen.getByRole("radio", { name: /delete the 4 profiles permanently/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
+      await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "delete" }));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("says the running-subshell promise and the restart consequence together", async () => {
+    const fixture: PageFixture = {
+      admin: true,
+      installed: [{ id: "acme", name: "Acme" }],
+      impact: { profiles: 4, distinctUsers: 3, defaults: 2, runningSubshells: 1 },
+    };
+    const m = mockServer(fixture);
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await screen.findByText(/4 profiles use it, across 3 users/i);
+      expect(screen.getByText(/restart of one whose profile was deleted will fail/i)).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("collapses the stakes when nothing uses the plugin", async () => {
+    const fixture: PageFixture = {
+      admin: true,
+      installed: [{ id: "acme", name: "Acme" }],
+      impact: { profiles: 0, distinctUsers: 0, defaults: 0, runningSubshells: 0 },
+    };
+    const m = mockServer(fixture);
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      expect(await screen.findByText(/no profiles use it/i)).toBeDefined();
+      expect(screen.getByRole("radio", { name: /keep the profiles/i })).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
+      await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "keep" }));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("shows the load failure of a broken plugin, so an absent-looking row explains itself", async () => {
+    const fixture: PageFixture = { admin: true, installed: [{ id: "pi", name: "Pi", broken: "missing entry file" }] };
+    const m = mockServer(fixture);
+    try {
+      renderPage();
+      expect(await screen.findByText(/missing entry file/i)).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a non-admin sees the list and no controls", async () => {
+    const m = mockServer({ admin: false, installed: [{ id: "pi", name: "Pi" }] });
+    try {
+      renderPage();
+      expect(await screen.findByText("Pi")).toBeDefined();
+      expect(screen.queryByRole("button", { name: /uninstall/i })).toBeNull();
+      expect(screen.queryByRole("switch")).toBeNull();
+      expect(screen.queryByLabelText(/install from npm/i)).toBeNull();
+      // The READ is open to every authenticated actor; only the writes are admin-only.
+      expect(m.calls.some((c) => c.method === "GET" && c.pathname === "/api/plugins")).toBe(true);
+    } finally {
+      m.restore();
+    }
+  });
+});
