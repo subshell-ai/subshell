@@ -37,8 +37,10 @@ export {
   PRODUCT_NAME,
 } from "./legal.js";
 export {
+  HARNESS_BINARY_PLACEHOLDER,
   type HarnessSessionWire,
   isNodeSubshellId,
+  type LaunchResolveWire,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,

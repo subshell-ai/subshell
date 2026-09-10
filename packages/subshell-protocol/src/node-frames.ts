@@ -118,6 +118,33 @@ export interface HarnessSessionWire {
   mode: "start" | "resume";
 }
 
+/**
+ * Stands in for the harness binary inside a server-built `argv`.
+ *
+ * The control plane builds the argv but cannot know where the binary is on the
+ * target machine at the moment of launch: an inventory can be minutes old and
+ * predate an upgrade. So the plane emits this token and the NODE substitutes
+ * its own freshly resolved path. Late binding of one node-owned fact, rather
+ * than shipping plugin code to resolve it.
+ */
+export const HARNESS_BINARY_PLACEHOLDER = "@@HARNESS_BINARY@@";
+
+/**
+ * The rule for finding the harness binary on the node at the moment of
+ * `launch` (inversion spec §5) — the wire mirror of a plugin manifest's
+ * `subshell.detect` block. The node runs its own lookup against it (the same
+ * ladder `detectBinary` implements) and substitutes the result for
+ * {@link HARNESS_BINARY_PLACEHOLDER}; the control plane only ships the rule.
+ */
+export interface LaunchResolveWire {
+  /** Binary name the node searches PATH for */
+  binaryName: string;
+  /** Name of an env var holding an explicit path that overrides the search (e.g. CLAUDE_PATH) */
+  envOverride?: string;
+  /** Home-relative install locations tried after PATH (the manifest's knownPaths) */
+  knownPaths?: string[];
+}
+
 /** Control-plane → agent command payloads — the JWS `cmd` claim (spec §3.2). */
 export type NodeCommandBody =
   | {
@@ -135,8 +162,15 @@ export type NodeCommandBody =
       profile: ProfileDefinitionWire;
       /** SUBSHELL_* credential env, supplied by the control plane */
       subshellEnv: Record<string, string>;
-      /** MCP registration file the agent writes (0600) before spawning */
-      mcp?: { path: string; fileContent: string };
+      /**
+       * MCP registration file the agent writes (0600) before spawning.
+       * `args`/`env` (inversion spec §5) are the harness dialect the control
+       * plane computed from the plugin — the flags that load the file and the
+       * pane env that makes the harness find it — so the node no longer
+       * recomputes either. Only the node's own `subshell mcp` path stays
+       * node-supplied: it is self-knowledge, not plugin knowledge.
+       */
+      mcp?: { path: string; fileContent: string; args?: string[]; env?: Record<string, string> };
       /** Resume pin for harnesses that support it */
       harnessSession?: HarnessSessionWire;
       /** tmux subshell name (the subshell id) */
@@ -153,6 +187,15 @@ export type NodeCommandBody =
        * (today's behavior).
        */
       bestEffortLog?: boolean;
+      /**
+       * Server-built argv (inversion spec §5): the complete command line the
+       * node should spawn, with {@link HARNESS_BINARY_PLACEHOLDER} wherever
+       * the binary belongs. Optional and additive — an agent that ignores it
+       * builds argv itself, exactly as before.
+       */
+      argv?: string[];
+      /** The rule for resolving the placeholder binary on THIS node. */
+      resolve?: LaunchResolveWire;
     }
   | { type: "terminate"; subshellId: string }
   | { type: "kill"; subshellId: string }
@@ -474,6 +517,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if ("mcp" in value) {
         const m = value.mcp;
         if (!isRecord(m) || !isStr(m.path) || !isStr(m.fileContent)) return null;
+        if ("args" in m && !isStrArray(m.args)) return null;
+        if ("env" in m && !isStringMap(m.env)) return null;
       }
       if ("harnessSession" in value) {
         const h = value.harnessSession;
@@ -482,6 +527,16 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if ("cols" in value && !(isInt(value.cols) && (value.cols as number) > 0)) return null;
       if ("rows" in value && !(isInt(value.rows) && (value.rows as number) > 0)) return null;
       if ("bestEffortLog" in value && !isBool(value.bestEffortLog)) return null;
+      // Server-built argv and its resolve rule (inversion spec §5): optional,
+      // and validated only when present, so an agent that never learned these
+      // fields parses the frame it parses today.
+      if ("argv" in value && !isStrArray(value.argv)) return null;
+      if ("resolve" in value) {
+        const r = value.resolve;
+        if (!isRecord(r) || !isStr(r.binaryName)) return null;
+        if ("envOverride" in r && !isStr(r.envOverride)) return null;
+        if ("knownPaths" in r && !isStrArray(r.knownPaths)) return null;
+      }
       return value as unknown as NodeCommandBody;
     }
     case "terminate":

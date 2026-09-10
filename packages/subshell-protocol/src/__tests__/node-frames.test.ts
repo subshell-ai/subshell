@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION, parseNodeCommandBody, parseNodeEvent } from "../node-frames.js";
+import {
+  HARNESS_BINARY_PLACEHOLDER,
+  NODE_PROTOCOL_VERSION,
+  parseNodeCommandBody,
+  parseNodeEvent,
+} from "../node-frames.js";
 
 const launchCmd = {
   type: "launch",
@@ -241,5 +246,64 @@ describe("plugin commands", () => {
   it("rejects a non-string spec rather than coercing", () => {
     expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: 3 })).toBeNull();
     expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: "" })).toBeNull();
+  });
+});
+
+describe("launch server-built argv, resolve rule, and mcp dialect", () => {
+  it("launch parses without the new fields, exactly as today", () => {
+    const cmd = parseNodeCommandBody(structuredClone(launchCmd));
+    expect(cmd).toMatchObject({ type: "launch" });
+    // Absent stays absent — not an explicit undefined, not an empty array.
+    // (A `toMatchObject` with `argv: undefined` cannot pin this under bun:
+    // unlike Jest, bun requires an expected-undefined key to be PRESENT.)
+    if (cmd?.type === "launch") {
+      expect("argv" in cmd).toBe(false);
+      expect("resolve" in cmd).toBe(false);
+      expect(cmd.mcp === undefined || !("args" in cmd.mcp)).toBe(true);
+    }
+  });
+
+  it("launch carries argv, a resolve rule, and mcp args/env when present", () => {
+    const cmd = parseNodeCommandBody({
+      ...structuredClone(launchCmd),
+      argv: [HARNESS_BINARY_PLACEHOLDER, "--flag"],
+      resolve: { binaryName: "pi" },
+      mcp: { path: "/p", fileContent: "{}", args: ["--mcp-config", "/p"], env: { A: "b" } },
+    });
+    expect(cmd).not.toBeNull();
+    if (cmd?.type === "launch") {
+      expect(cmd.argv).toEqual([HARNESS_BINARY_PLACEHOLDER, "--flag"]);
+      expect(cmd.resolve).toEqual({ binaryName: "pi" });
+      expect(cmd.mcp?.args).toEqual(["--mcp-config", "/p"]);
+      expect(cmd.mcp?.env).toEqual({ A: "b" });
+    }
+  });
+
+  it("a non-string-array argv is refused rather than coerced", () => {
+    expect(parseNodeCommandBody({ ...launchCmd, argv: "pi --flag" })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, argv: ["pi", 7] })).toBeNull();
+  });
+
+  it("a malformed resolve rule is refused; a full one parses", () => {
+    expect(parseNodeCommandBody({ ...launchCmd, resolve: "pi" })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, resolve: {} })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, resolve: { binaryName: 7 } })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, resolve: { binaryName: "pi", envOverride: 7 } })).toBeNull();
+    expect(
+      parseNodeCommandBody({ ...launchCmd, resolve: { binaryName: "pi", knownPaths: ".local/bin/pi" } }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...launchCmd,
+        resolve: { binaryName: "pi", envOverride: "PI_PATH", knownPaths: [".local/bin/pi"] },
+      }),
+    ).not.toBeNull();
+  });
+
+  it("mcp args must be a string array and env a string map", () => {
+    const mcp = { path: "/p", fileContent: "{}" };
+    expect(parseNodeCommandBody({ ...launchCmd, mcp: { ...mcp, args: "--mcp-config /p" } })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, mcp: { ...mcp, args: ["a", 1] } })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, mcp: { ...mcp, env: { A: 1 } } })).toBeNull();
   });
 });
