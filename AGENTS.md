@@ -556,14 +556,27 @@ tauri-typed window/tray/menu layer, because the two window models genuinely
 differ and an abstraction over one real consumer and one guess is worse than
 the duplication.
 
-### Everything runs on the self-hosted fleet
+### Almost everything runs on the self-hosted fleet
 
-**No workflow uses GitHub-hosted runners.** Everything targets
-`[self-hosted, Linux, X64]`, plus `mac-builder` `[self-hosted, macOS, ARM64]`
-for the darwin release shards. The repo is private, so hosted minutes are
-metered and CI was spending roughly 12 per push — that cost, not a technical
-preference, is why everything moved. Runners are added and removed over time,
-so nothing here should depend on how many there are.
+**Exactly one job uses a GitHub-hosted runner, and it is forced.** Everything
+else targets `[self-hosted, Linux, X64]`, plus `mac-builder` `[self-hosted,
+macOS, ARM64]` for the darwin release shards. The repo is private, so hosted
+minutes are metered and CI was spending roughly 12 per push — that cost, not a
+technical preference, is why everything moved. Runners are added and removed
+over time, so nothing here should depend on how many there are.
+
+The exception is `release.yml`'s **`npm-publish`** job, and the reason is
+external to this repo: npm's OIDC trusted publishing "does not support
+self-hosted runners" (docs.npmjs.com/trusted-publishers, checked 2026-09-09),
+so tokenless publishing and the fleet rule cannot both hold on one runner. The
+choice made was to keep the rule everywhere a choice existed: versioning stays
+self-hosted and runs on every push, while the hosted job runs ONLY when a
+publishable version is actually missing from the registry (the `changesets`
+job's `needs_publish` output asks npm) and only while the repo variable
+`NPM_PUBLISH_ENABLED` is `true`. So hosted minutes are spent per RELEASE, not
+per push, and the alternative — an `NPM_TOKEN` on the fleet — was rejected
+rather than quietly adopted. Move the job back to `[self-hosted, Linux, X64]`
+the day npm supports it.
 
 `test.yml`'s four jobs run **inside the repo's own builder image**
 (`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
@@ -682,13 +695,16 @@ which is why they share their own smoke, parameterized by app id.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
   changes to any of the four releasable apps → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
-  app's `package.json` + CHANGELOG. Merging does NOT cut a release — true for
-  the GitHub Releases app cuts; note that merging the version PR now ALSO
-  publishes the six `@subshell-ai/*` packages to npm from the changesets job,
-  subject to the self-hosted-runner decision recorded in `release.yml`'s
-  publish-script comment. The
+  app's `package.json` + CHANGELOG. Merging does NOT cut a release — that
+  stays true for the four GitHub Releases app cuts, which are an explicit
+  `workflow_dispatch`. It DOES publish npm packages: merging the version PR
+  bumps the six `@subshell-ai/*` packages and the `npm-publish` job then ships
+  them and pushes their `<pkg>@<version>` tags. The
   Action commits those bumps itself, which is why `version-packages` also
   resyncs `bun.lock` — see "The one thing `bun install` will not fix".
+  The six were bootstrapped on npm by hand at `0.0.1` on 2026-09-10, because a
+  trusted publisher cannot be configured for a package that does not exist
+  yet; every version after that comes from CI.
 - **Release notes live in the GitHub Release.** The publish job slices this
   version's section out of `apps/<dir>/CHANGELOG.md` and passes it as the
   release body, so the page a user lands on says what changed instead of

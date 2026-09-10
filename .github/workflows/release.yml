@@ -6,13 +6,19 @@
 #                 releasable apps' package.jsons + CHANGELOGs (apps/server/api,
 #                 apps/node/agent, apps/server/desktop and apps/client/desktop)
 #                 AND the six publishable @subshell-ai/* packages (plugin-api +
-#                 the five plugins), and that same job then PUBLISHES the six
-#                 to npm and pushes their version tags — the runner caveat for
-#                 that publish lives in the job's publish-script comment.
+#                 the five plugins). It VERSIONS ONLY, and ends by asking the
+#                 registry which of those six versions are missing from npm.
 #                 Private packages: changesets creates NO tags or releases for
 #                 them (privatePackages.tag is false; create-github-releases
 #                 is off). `.changeset/config.json` ignores the other ten
 #                 workspaces.
+#   npm-publish — publishes those six and pushes their version tags, and it is
+#                 the ONE hosted job here: npm's OIDC trusted publishing does
+#                 not support self-hosted runners. It runs only when the job
+#                 above found something unpublished AND the repo variable
+#                 NPM_PUBLISH_ENABLED is "true", so ordinary pushes to main
+#                 spend no hosted minutes and the fleet rule holds everywhere
+#                 a choice was actually available.
 #   plan        — push events emit an EMPTY matrix (the merge of a version PR
 #                 does NOT auto-cut; the first-cut path is an explicit
 #                 workflow_dispatch — simpler and honest). A dispatch computes
@@ -105,7 +111,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      id-token: write
+    outputs:
+      # Whether any publishable package's declared version is missing from npm.
+      # This is what decides if the HOSTED publish job below runs at all.
+      needs_publish: ${{ steps.unpublished.outputs.needs_publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,47 +134,115 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: rm -f "$HOME/.npmrc"   # OIDC, never a token: npm must not find an auth to prefer (spec §8.3)
-
-      - run: bunx turbo build --filter='@subshell-ai/*' --force   # publish ships files:["dist"], and turbo.json's build task declares NO outputs — a cache hit restores no files, so on this persistent runner workspace a plain build could ship a dist from another state; --force makes the publish path always really build (npm versions are immutable; this path never gets a second chance)
-
       - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
         with:
-          # Publish exists from phase 3 on: the five plugin packages and
-          # @subshell-ai/plugin-api ship to npm via OIDC trusted publishing
-          # (no NPM_TOKEN anywhere). But npm's trusted publishing supports
-          # GITHUB-HOSTED runners only (docs.npmjs.com, checked 2026-09-09),
-          # and this job is self-hosted per the fleet policy in AGENTS.md —
-          # so the first real publish additionally requires an OPERATOR
-          # DECISION: a GitHub-hosted job just for publish, or npm adding
-          # self-hosted support. Trusted publishing must also be configured
-          # per package on npmjs.com by a human FIRST. Until both land, a
-          # publish attempt fails with npm's OWN error — loud, correct, and
-          # not a "403 until configured, then it works" story.
+          # This job VERSIONS ONLY. Publishing to npm lives in `npm-publish`
+          # below, on a GitHub-hosted runner, because npm's OIDC trusted
+          # publishing supports hosted runners only (docs.npmjs.com, checked
+          # 2026-09-09: "Self-hosted runners are not currently supported").
+          # Keeping the two apart is what lets the fleet rule in AGENTS.md
+          # survive the exception: this job stays self-hosted and runs on every
+          # push, and the hosted one bills minutes only when a release actually
+          # needs publishing.
           #
-          # So `publish-script` is gated behind a repo VARIABLE rather than
-          # wired unconditionally: merging the version PR always leaves this
-          # job with NO pending changesets, and changesets/action treats an
-          # empty publish-script exactly like an absent one there — it logs
-          # "not publishing because no publish script found" and returns
-          # 0, it does not fail (checked against the action's dist/index.js
-          # at this pin: `w = !!getInput("publish-script")`, and the
-          # `!hasChangesets && !w` branch is a no-op return). That is what
-          # keeps this pipeline SHIPPING INERT: a merge cannot redden main
-          # over a publish nobody can perform yet. Arm it by setting the repo
-          # variable `NPM_PUBLISH_ENABLED=true` AFTER deciding the runner
-          # question above AND configuring trusted publishing per package on
-          # npmjs.com — flipping the variable is then the entire cutover.
+          # No `publish-script` and no `push-git-tags` here on purpose: with
+          # neither, a release-merge push leaves this action with nothing to do
+          # and it returns 0 rather than failing. The tags come from
+          # `changeset publish` in the publish job, which pushes them itself.
           version-script: bun run version-packages
-          publish-script: ${{ vars.NPM_PUBLISH_ENABLED == 'true' && 'bun run publish-packages' || '' }}
           commit-message: "chore: release package(s)"
           pr-title: "chore: release package(s)"
           create-github-releases: false
-          # A published version with no tag is unreviewable; `changesets tag`
-          # only tags PUBLISHABLE packages (privatePackages.tag is false), so
-          # the @internal workspaces stay tagless and the app tags remain the
-          # publish job's own `<app>-v*` namespace.
-          push-git-tags: true
+
+      # Which publishable versions are NOT on npm yet?
+      #
+      # This gate is deliberately not "did the head commit message say release":
+      # that reads the MERGE style rather than the facts, and a merge commit for
+      # the version PR does not carry the PR's own title. Asking the registry
+      # instead is merge-style agnostic, self-healing (a failed publish is
+      # retried on the next push) and cheap, and it is what keeps the hosted job
+      # from starting on the ordinary pushes that make up almost all of main.
+      #
+      # The per-VERSION endpoint is used rather than the packument: npm's CDN
+      # serves a stale 404 for a package's document for a while after its first
+      # publish, while `/<name>/<version>` answers immediately (measured
+      # 2026-09-10 during the 0.0.1 bootstrap). A curl failure counts as "not
+      # published", so the safe direction is to run the publish job, where
+      # `changeset publish` skips whatever is already on the registry anyway.
+      - id: unpublished
+        run: |
+          need=false
+          for f in packages/plugin-api/package.json packages/plugins/*/package.json; do
+            name=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).name")
+            ver=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).version")
+            enc=$(printf '%s' "$name" | sed 's|/|%2f|')
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$enc/$ver" || echo 000)
+            echo "$name@$ver -> HTTP $code"
+            [ "$code" = "200" ] || need=true
+          done
+          echo "needs_publish=$need" >> "$GITHUB_OUTPUT"
+          echo "::notice::needs_publish=$need"
+
+  # THE ONE GITHUB-HOSTED JOB IN THIS REPO, and the reason is external: npm's
+  # OIDC trusted publishing does not support self-hosted runners ("not
+  # currently supported but are planned for future releases",
+  # docs.npmjs.com/trusted-publishers, checked 2026-09-09). Tokenless
+  # publishing and the fleet rule cannot both hold on one runner, so the split
+  # above buys both: versioning stays on the fleet where every push lands, and
+  # only a release that genuinely has something unpublished spends hosted
+  # minutes. Revert this job to self-hosted the day npm supports it.
+  #
+  # Nothing here may reach for a token. `id-token: write` plus a scrubbed
+  # ~/.npmrc is the whole credential story, and the blanked NPM_TOKEN /
+  # NODE_AUTH_TOKEN are belt-and-braces so a token defined elsewhere cannot be
+  # silently preferred over OIDC.
+  npm-publish:
+    name: Publish @subshell-ai/* to npm (OIDC)
+    needs: changesets
+    if: >-
+      github.event_name == 'push' &&
+      vars.NPM_PUBLISH_ENABLED == 'true' &&
+      needs.changesets.outputs.needs_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write   # the OIDC token npm exchanges for publish rights
+      contents: write   # `changeset publish` tags each version; this job pushes them
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # tags, so the push below adds rather than rewrites
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24   # trusted publishing needs npm >= 11.5.1, which node 24 carries
+
+      - run: bun install --frozen-lockfile
+
+      - name: Prepare npm for OIDC
+        run: |
+          npm --version
+          rm -f "$HOME/.npmrc"   # npm must find no auth it could prefer over the OIDC exchange
+
+      # files:["dist"] with no prepublish hook, and turbo.json's build task
+      # declares no `outputs` so a cache hit restores nothing. --force makes
+      # this a real build every time: npm versions are immutable and this path
+      # never gets a second chance at them.
+      - run: bunx turbo build --filter='@subshell-ai/*' --force
+
+      - name: Publish, then push the version tags
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          bun run publish-packages   # = changeset publish, defined once in the root package.json
+          git push origin --tags
+        env:
+          NPM_TOKEN: ""
+          NODE_AUTH_TOKEN: ""
 
   plan:
     name: Plan the cut
