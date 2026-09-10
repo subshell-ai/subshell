@@ -55,7 +55,7 @@ usage:
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell status [--json] [--probe]
   subshell plugin list [--json]
-  subshell plugin install <name|@scope/pkg[@version]> [--json omitted]
+  subshell plugin install <name|@scope/pkg[@version]>
   subshell plugin uninstall <id>
   subshell plugin update [<id>] [--json]
   subshell version        (also --version, -v)

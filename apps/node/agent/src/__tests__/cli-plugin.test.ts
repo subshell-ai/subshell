@@ -326,7 +326,10 @@ describe("plugin uninstall", () => {
     expect(await listInstalled(dir)).toEqual([]);
     const again = await run(["plugin", "uninstall", "pi"]);
     expect(again.code).toBe(0);
-    expect(again.out.trim()).not.toBe("");
+    // Pinned verbatim: the SAME SUCCESS is the exit code and the absence of
+    // an error, but the line says what actually happened. A regression that
+    // prints the success line for a no-op fails here.
+    expect(again.out).toBe("pi was not installed\n");
     expect(await listInstalled(dir)).toEqual([]);
   });
 
@@ -397,8 +400,28 @@ describe("plugin update", () => {
     expect(moved.out).toInclude("note: a running agent keeps its loaded copy until restart");
     const settled = await run(["plugin", "update"]);
     expect(settled.code).toBe(0);
-    expect(settled.out).toInclude("third 1.1.0 (already at latest)");
+    expect(settled.out).toInclude("third 1.1.0 (already at or above latest)");
     expect(settled.out).not.toInclude("note:");
+  });
+
+  test("a recorded version ABOVE latest does nothing and says so truthfully (spec §2.6)", async () => {
+    const dir = tempDataDir();
+    served.set("third-party", { latest: "9.9.9", versions: { "9.9.9": tgz("9.9.9") } });
+    await enrolled(dir, base);
+    expect((await run(["plugin", "install", "third-party@9.9.9"])).code).toBe(0);
+    // The registry rolls the line back (or the version is removed): latest is
+    // now BELOW the pin. The install must survive untouched, at its pinned
+    // version, with a line that admits BOTH cases rather than just "latest".
+    served.set("third-party", { latest: "1.2.3", versions: { "1.2.3": tgz("1.2.3") } });
+    packumentHits.length = 0;
+    tarballHits.length = 0;
+    const res = await run(["plugin", "update"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toInclude("third 9.9.9 (already at or above latest)");
+    expect(res.out).not.toInclude("(updated)");
+    expect(res.err).toBe("");
+    expect(tarballHits).toEqual([]); // checked, moved nothing
+    expect(await readInstallRecord(dir, "third")).toMatchObject({ version: "9.9.9" });
   });
 
   test("`plugin update <id>` checks and moves only that id", async () => {
@@ -425,6 +448,48 @@ describe("plugin update", () => {
     const res = await run(["plugin", "update"]);
     expect(res.code).toBe(0);
     expect(res.out).toInclude("no updates found");
+    // Spec §2.6: embedded copies are REPORTED as skipped, one line per id,
+    // not silently omitted from what the operator reads.
+    expect(res.out).toInclude("pi (embedded, not updated from the registry)");
     expect(res.out).not.toInclude("note:");
+  });
+
+  test("a mixed node reports the embedded skip in prose while --json keeps its exact array", async () => {
+    const dir = tempDataDir();
+    served.set("third-party", { latest: "1.0.0", versions: { "1.0.0": tgz("1.0.0") } });
+    await enrolled(dir, base);
+    expect((await run(["plugin", "install", "pi"])).code).toBe(0); // embedded: no sidecar
+    expect((await run(["plugin", "install", "third-party@1.0.0"])).code).toBe(0); // recorded
+    served.set("third-party", { latest: "1.1.0", versions: { "1.0.0": tgz("1.0.0"), "1.1.0": tgz("1.1.0") } });
+    const human = await run(["plugin", "update"]);
+    expect(human.code).toBe(0);
+    expect(human.out).toInclude("third 1.0.0 -> 1.1.0 (updated)");
+    expect(human.out).toInclude("pi (embedded, not updated from the registry)");
+    // The machine contract is UNCHANGED: the array holds only the sidecar'd
+    // install, and stdout carries no skip prose (a GUI codes against the
+    // shape, and `plugin list` is where it learns the full set).
+    const json = await run(["plugin", "update", "--json"]);
+    const rows = JSON.parse(json.out) as { id: string }[];
+    expect(rows.map((r) => r.id)).toEqual(["third"]);
+    expect(json.out).not.toInclude("embedded");
+    // The id filter skips the enumeration too: asking about `third` says
+    // nothing about `pi`, which was not in the scope of that command.
+    const scoped = await run(["plugin", "update", "third"]);
+    expect(scoped.code).toBe(0);
+    expect(scoped.out).toInclude("third 1.1.0 (already at or above latest)");
+    expect(scoped.out).not.toInclude("(embedded");
+  });
+
+  test("a broken sidecar-less directory gets no skip line (it is not embedded; `list` says what it is)", async () => {
+    const dir = tempDataDir();
+    await enrolled(dir, base);
+    mkdirSync(join(dir, "plugins", "zzbroken"), { recursive: true });
+    expect((await run(["plugin", "install", "pi"])).code).toBe(0);
+    const res = await run(["plugin", "update"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toInclude("pi (embedded, not updated from the registry)");
+    // Calling a corrupt directory "embedded" would be a new lie told by the
+    // fix for the old silence: broken copies belong to `plugin list`.
+    expect(res.out).not.toInclude("zzbroken");
   });
 });

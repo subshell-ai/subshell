@@ -161,16 +161,35 @@ async function pluginUpdate(
     moved += 1;
   }
   if (json) {
-    // stdout is ONLY the JSON; the note is prose, so it goes to stderr.
+    // stdout is ONLY the JSON; the note is prose, so it goes to stderr. The
+    // array's shape is the frozen pane-runtime one and stays exactly so —
+    // embedded copies are ABSENT from it — even though human mode now names
+    // them below. A machine caller that wants the full set has `plugin list`.
     return { code: 0, out: `${JSON.stringify(updates, null, 2)}\n`, err: moved > 0 ? `${RESTART_NOTE}\n` : "" };
   }
-  if (updates.length === 0) {
-    // Not an error, and worth saying: on a seeded node an empty answer would
-    // otherwise read as a command that did nothing at all.
-    return { code: 0, out: "no updates found (built-in plugins update with the agent, not the registry)\n", err: "" };
+  // Spec §2.6: embedded copies are REPORTED as skipped, one line per id, not
+  // silently omitted from what the operator reads. "No sidecar" is the
+  // embedded marker (`plugins-dir.ts`: absence means embedded or absent, and
+  // absent directories are not in `listInstalled`'s answer). A BROKEN copy
+  // is neither: it gets no skip line here, because it is reported by
+  // `plugin list` as what it actually is, and `list`-then-`update` stays a
+  // two-verbs-one-sentence story. The id filter narrows the enumeration too
+  // — `update third` is not a statement about `pi`.
+  const skipped: string[] = [];
+  for (const p of await listInstalled(dataDir)) {
+    if (id !== undefined && p.id !== id) continue;
+    if (p.broken !== undefined) continue;
+    if ((await readInstallRecord(dataDir, p.id)) === null)
+      skipped.push(`${p.id} (embedded, not updated from the registry)`);
   }
   const lines = updates.map((u) =>
-    u.to === null ? `${u.id} ${u.from} (already at latest)` : `${u.id} ${u.from} -> ${u.to} (updated)`,
+    u.to === null ? `${u.id} ${u.from} (already at or above latest)` : `${u.id} ${u.from} -> ${u.to} (updated)`,
   );
+  if (lines.length === 0) {
+    // Not an error, and worth saying: on a seeded node an empty answer would
+    // otherwise read as a command that did nothing at all.
+    lines.push("no updates found (built-in plugins update with the agent, not the registry)");
+  }
+  lines.push(...skipped);
   return { code: 0, out: `${lines.join("\n")}${moved > 0 ? `\n${RESTART_NOTE}` : ""}\n`, err: "" };
 }
