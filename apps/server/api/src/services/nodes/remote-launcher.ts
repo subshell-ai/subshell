@@ -232,7 +232,9 @@ export class RemoteLauncher implements NodeLauncher {
    *   freshly resolved path at the moment of spawn.
    * - `resolve`: the plugin manifest's `subshell.detect` block passed straight
    *   through — the rule for that lookup, the same data the node's own
-   *   detection reads. Absent for a plugin that declares no binary.
+   *   detection reads. REQUIRED since protocol 3: a harness without a detect
+   *   rule cannot name a binary for the node to resolve, and is refused
+   *   locally below rather than sent as an unparseable frame.
    * - `mcp`: `{ path, fileContent }` as today, now plus the `args`/`env`
    *   dialect `plan.mcp` already holds, so the node stops recomputing them
    *   once Task 4 lands. The caller composes `path` from the node's
@@ -246,6 +248,17 @@ export class RemoteLauncher implements NodeLauncher {
       // The frozen wire needs a target path; shipping content without one is
       // a caller bug — fail locally rather than send a frame the agent rejects.
       throw new Error(`remote launch of "${plan.id}": LaunchPlan.mcpConfigPath is required when mcp is set`);
+    }
+    if (!plan.harness.detectSpec) {
+      // `resolve` is REQUIRED on the frame since protocol 3, and this is the
+      // only source for it — without a detect rule the node has no way to
+      // fill the binary placeholder, so send nothing and answer locally with
+      // the same message class the agent gives an unresolvable binary (the
+      // `harness binary missing:` prefix the §6.2 handling keys on). Every
+      // built-in carries detect data and the usability gate already demands
+      // detection, so no real plugin reaches this; it exists to keep the
+      // type honest, not to describe a user-reachable path.
+      throw new Error(`harness binary missing: ${plan.harness.id}`);
     }
     const argv = plan.harness.buildCommand({
       binary: HARNESS_BINARY_PLACEHOLDER,
@@ -279,7 +292,9 @@ export class RemoteLauncher implements NodeLauncher {
       subshellName: plan.subshellName,
       bestEffortLog: plan.bestEffortLog,
       argv,
-      ...(plan.harness.detectSpec ? { resolve: plan.harness.detectSpec } : {}),
+      // Narrowed by the gate above: required since protocol 3, and always
+      // present here.
+      resolve: plan.harness.detectSpec,
     };
     try {
       await this.#send(cmd, LAUNCH_TIMEOUT_MS);

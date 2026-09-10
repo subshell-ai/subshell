@@ -6,6 +6,7 @@ import type { TmuxRunner } from "@internal/pane-runtime";
 import {
   type ControlKeyPair,
   generateControlKeys,
+  HARNESS_BINARY_PLACEHOLDER,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
@@ -390,6 +391,10 @@ test("launch (valid wire, hostile subshell id) → result ok:false invalid subsh
     profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: {},
     subshellName: "s1",
+    // Required on the frame since protocol 3; the id gate fires first, so
+    // neither is ever read — the frame just has to PARSE to reach it.
+    argv: [HARNESS_BINARY_PLACEHOLDER],
+    resolve: { binaryName: "claude" },
   };
   const jti = await signAndSend(h, launch, { jti: "launch-1", seq: 1 });
   const result = await waitFor<Extract<NodeEvent, { type: "result" }>>(h, (e) => e.type === "result", "result");
@@ -413,8 +418,9 @@ test("inventory command: inventory EVENT first, then result ok; harness list wel
   expect(count(h, (e) => e.type === "inventory")).toBe(2); // connect push + command answer
   const inv = h.plane.events[invIdx] as Extract<NodeEvent, { type: "inventory" }>;
   // Post-inversion (spec §6): the event carries no harness scan — the shape
-  // the v2 validator requires with the honest empty content, and NO plugins
-  // field at all. The server-side guard that treats empty as "nothing to
+  // the v3 validator requires with the honest empty content (`harnesses`
+  // stays a required field; it was the `plugins` field that left the wire at
+  // protocol 3). The server-side guard that treats empty as "nothing to
   // apply" is pinned by the server's node-ws-handler tests.
   expect(inv.harnesses).toEqual([]);
   expect("plugins" in inv).toBe(false);

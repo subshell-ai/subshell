@@ -16,6 +16,11 @@ const launchCmd = {
   subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
   subshellName: "s1",
   harnessSession: { id: "h1", mode: "start" as const },
+  // Protocol 3 made both REQUIRED (inversion spec §5): the node holds no
+  // plugin, so a frame without the server-built argv and its resolve rule
+  // names a command line nothing on that machine can build.
+  argv: [HARNESS_BINARY_PLACEHOLDER],
+  resolve: { binaryName: "claude" },
 };
 
 describe("parseNodeCommandBody", () => {
@@ -121,8 +126,11 @@ describe("parseNodeCommandBody", () => {
     // because the server and the agent ship together. Bump this whenever a
     // frame changes and release both sides. (2 is phase 3's bump — the
     // registry spec on `plugin_install` — and the first REAL one: the
-    // numbering restarted at 1 on 2026-09-09 with no deployed instances.)
-    expect(NODE_PROTOCOL_VERSION).toBe(2);
+    // numbering restarted at 1 on 2026-09-09 with no deployed instances.
+    // 3 is the inversion's (spec 2026-09-10 §7): plugins left the wire —
+    // `plugin_install`/`plugin_uninstall` are gone, the inventory event no
+    // longer carries a plugin set, and `launch` requires `argv` + `resolve`.)
+    expect(NODE_PROTOCOL_VERSION).toBe(3);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -255,61 +263,46 @@ describe("parseNodeEvent", () => {
   });
 });
 
-describe("plugin commands", () => {
-  it("accepts plugin_install and plugin_uninstall with an id", () => {
-    expect(parseNodeCommandBody({ type: "plugin_install", id: "claude-code" })).toEqual({
-      type: "plugin_install",
-      id: "claude-code",
-    });
-    expect(parseNodeCommandBody({ type: "plugin_uninstall", id: "pi" })).toEqual({
-      type: "plugin_uninstall",
-      id: "pi",
-    });
-  });
-
-  it("rejects a missing or non-string id", () => {
-    for (const body of [
-      { type: "plugin_install" },
-      { type: "plugin_install", id: 7 },
-      { type: "plugin_uninstall", id: null },
-    ]) {
-      expect(parseNodeCommandBody(body)).toBeNull();
-    }
-  });
-
-  it("checks SHAPE only, leaving whether the id is installable to the node", () => {
-    // The node answers with a message naming the plugin, which is more useful
-    // than a parser rejecting the frame with no context.
-    expect(parseNodeCommandBody({ type: "plugin_install", id: "not-a-real-plugin" })).toEqual({
-      type: "plugin_install",
-      id: "not-a-real-plugin",
-    });
-  });
-
-  it("accepts an optional spec alongside the id (phase 3)", () => {
+describe("plugin commands (removed in protocol 3)", () => {
+  it("plugin_install and plugin_uninstall no longer parse — plugins left the wire", () => {
+    // The node holds no plugin concept (inversion spec §6), so the commands
+    // that installed plugins left the wire with it. They now parse to null
+    // BEFORE dispatch: the agent's verify step answers `malformed` rather
+    // than running a handler that no longer exists, and the dispatch switch's
+    // `unsupported` arm is back to being the answer for FUTURE unknown types
+    // only (the census this replaced lives here, not in the agent's tests).
+    expect(parseNodeCommandBody({ type: "plugin_install", id: "claude-code" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "plugin_uninstall", id: "pi" })).toBeNull();
+    // Every old shape goes with them — including the phase-3 `spec` variants.
     expect(
       parseNodeCommandBody({ type: "plugin_install", id: "codex", spec: "@subshell-ai/plugin-codex@2.0.0" }),
-    ).toEqual({ type: "plugin_install", id: "codex", spec: "@subshell-ai/plugin-codex@2.0.0" });
-    // Absent stays absent — the byte-identical v1 shape.
-    expect(parseNodeCommandBody({ type: "plugin_install", id: "pi" })).toEqual({ type: "plugin_install", id: "pi" });
-  });
-
-  it("rejects a non-string spec rather than coercing", () => {
-    expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: 3 })).toBeNull();
-    expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: "" })).toBeNull();
+    ).toBeNull();
+    expect(parseNodeCommandBody({ type: "plugin_install" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "plugin_install", id: 7 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "plugin_uninstall", id: null })).toBeNull();
   });
 });
 
 describe("launch server-built argv, resolve rule, and mcp dialect", () => {
-  it("launch parses without the new fields, exactly as today", () => {
+  it("a launch without argv or without resolve no longer parses (protocol 3)", () => {
+    // Optional-on-the-wire was the Tasks 4–7 migration shape: an agent that
+    // ignored argv built it itself. Task 7 demolished that fallback, so a
+    // frame missing either half names a spawn nothing on the node can
+    // perform — the parser refuses it rather than delivering a command the
+    // executor would only answer an error to.
+    const noArgv = structuredClone(launchCmd) as Record<string, unknown>;
+    delete noArgv.argv;
+    expect(parseNodeCommandBody(noArgv)).toBeNull();
+    const noResolve = structuredClone(launchCmd) as Record<string, unknown>;
+    delete noResolve.resolve;
+    expect(parseNodeCommandBody(noResolve)).toBeNull();
+    // An explicit undefined is the same refusal — the frame must CARRY both.
+    expect(parseNodeCommandBody({ ...launchCmd, argv: undefined })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, resolve: undefined })).toBeNull();
+    // mcp stays optional — only the two build-materials fields are required.
     const cmd = parseNodeCommandBody(structuredClone(launchCmd));
     expect(cmd).toMatchObject({ type: "launch" });
-    // Absent stays absent — not an explicit undefined, not an empty array.
-    // (A `toMatchObject` with `argv: undefined` cannot pin this under bun:
-    // unlike Jest, bun requires an expected-undefined key to be PRESENT.)
     if (cmd?.type === "launch") {
-      expect("argv" in cmd).toBe(false);
-      expect("resolve" in cmd).toBe(false);
       expect(cmd.mcp === undefined || !("args" in cmd.mcp)).toBe(true);
     }
   });

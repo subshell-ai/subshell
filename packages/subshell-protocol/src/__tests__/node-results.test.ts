@@ -98,6 +98,11 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
     profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
     subshellName: "s1",
+    // Required on every well-formed launch since protocol 3 — this fixture's
+    // subject is `bestEffortLog`, so it carries the two build-materials fields
+    // just to stay parseable.
+    argv: ["claude"],
+    resolve: { binaryName: "claude" },
   };
 
   it("launch.bestEffortLog is an optional boolean", () => {

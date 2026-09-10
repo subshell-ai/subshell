@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { readAllowedDirs, writeAllowedDirs } from "../allowed-dirs.js";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
@@ -113,6 +114,10 @@ describe("launch refusal", () => {
       profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
       subshellEnv: {},
       subshellName: "s",
+      // Well-formed v3 launch fields; the allowlist gate fires before either
+      // is read, so their content never matters here.
+      argv: [HARNESS_BINARY_PLACEHOLDER],
+      resolve: { binaryName: "claude" },
     });
 
     expect(res.ok).toBe(false);
@@ -137,6 +142,10 @@ describe("launch refusal", () => {
       profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
       subshellEnv: {},
       subshellName: "s",
+      // Well-formed v3 launch fields; the allowlist gate fires before either
+      // is read, so their content never matters here.
+      argv: [HARNESS_BINARY_PLACEHOLDER],
+      resolve: { binaryName: "claude" },
     });
 
     expect(res.ok).toBe(false);

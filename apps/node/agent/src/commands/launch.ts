@@ -19,10 +19,9 @@ import { startExitWatcher } from "./report.js";
  * whole reason the rule travels instead of a path: an inventory can be
  * minutes old and predate an upgrade).
  *
- * `cmd.argv` is effectively REQUIRED even though the v2 frame schema still
- * marks it optional until Task 8 moves the wire: with the Task 4 local-build
- * fallback demolished, a frame without argv has nothing this node can spawn,
- * and saying so is the honest answer.
+ * `cmd.argv` and `cmd.resolve` are REQUIRED on the frame (protocol 3): the
+ * parser refuses a launch without either before dispatch reaches this
+ * function, so the command line and its binary rule are always present here.
  */
 
 /**
@@ -61,24 +60,20 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // plugin it holds (inversion §5). Substitution is STRICT ELEMENT EQUALITY,
   // the argv-parity gate's binding rule (Task 3): an entry EQUAL to
   // HARNESS_BINARY_PLACEHOLDER is the binary; a longer token that merely
-  // CONTAINS that text is plugin content and must ride untouched.
-  if (cmd.argv === undefined) {
-    // Fail closed rather than guess: the node holds no plugin, so there is
-    // nothing left to build a command line with.
-    return { ok: false, error: "launch command carries no argv" };
-  }
+  // CONTAINS that text is plugin content and must ride untouched. Both this
+  // and the resolve rule are REQUIRED frame fields since protocol 3, so the
+  // interim fail-closed guards of the v2 transition are gone — the parser
+  // refuses those shapes before dispatch.
   let argv = cmd.argv;
   if (argv.includes(HARNESS_BINARY_PLACEHOLDER)) {
     // The node's OWN lookup ladder (env override → PATH → known paths →
     // version managers → login shell), driven by the sent rule.
-    const path = cmd.resolve
-      ? await findBinary(cmd.resolve.binaryName, cmd.resolve.envOverride ?? "", cmd.resolve.knownPaths ?? [])
-      : null;
+    const path = await findBinary(cmd.resolve.binaryName, cmd.resolve.envOverride ?? "", cmd.resolve.knownPaths ?? []);
     if (!path) {
       // Message CLASS contract: the backend maps `/binary missing/i` on a
       // launch failure to an inventory refresh (spec §6.2) — keep the prefix
-      // stable. (Same bytes the pre-inversion fallback answered with; the
-      // fallback itself is gone.)
+      // byte-identical. (Same bytes the pre-inversion fallback answered with;
+      // the fallback itself is gone.)
       return { ok: false, error: `harness binary missing: ${cmd.harnessId}` };
     }
     argv = argv.map((entry) => (entry === HARNESS_BINARY_PLACEHOLDER ? path : entry));

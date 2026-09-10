@@ -6,15 +6,16 @@ export type InventoryEvent = Extract<NodeEvent, { type: "inventory" }>;
 /**
  * Build the `inventory` event. After the inversion (spec 2026-09-10 §6) the
  * node holds no plugin concept, so there is nothing left to scan: the event
- * is protocol filler it still owes the v2 wire.
+ * is protocol filler it still owes the wire.
  *
- * `harnesses: []` is the shape the v2 validator requires (the array itself is
- * non-optional; Task 8 moves the field off the wire), NOT a claim that no
- * harness binary exists here. The server is told so: its `inventory` handler
- * treats an EMPTY array as "nothing to apply" and never overwrites the
- * detection rows the plane itself collected via the `detect` command (inversion
- * §4) — pinned by `apps/server/api/src/services/nodes/__tests__/
- * node-ws-handler.test.ts`. The honest facts this machine still offers —
+ * `harnesses: []` is the shape the validator requires (the array itself is
+ * non-optional even at protocol 3 — it was the `plugins` field that left the
+ * wire, not this one), NOT a claim that no harness binary exists here. The
+ * server is told so: its `inventory` handler treats an EMPTY array as
+ * "nothing to apply" and never overwrites the detection rows the plane itself
+ * collected via the `detect` command (inversion §4) — pinned by
+ * `apps/server/api/src/services/nodes/__tests__/node-ws-handler.test.ts`.
+ * The honest facts this machine still offers —
  * binary presence and version text — travel as `detect` ANSWERS, built from
  * the plane's own plugin rules, and the pane census travels as
  * `subshells_report`. The old scan memo that used to live here coalesced

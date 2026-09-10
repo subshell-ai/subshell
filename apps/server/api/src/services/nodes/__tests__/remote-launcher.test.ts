@@ -384,13 +384,19 @@ describe("launch", () => {
     expect("args" in (cmd2.mcp ?? {})).toBe(false); // opencode's dialect has no argv half
   });
 
-  it("a plugin with no detect block sends argv but no resolve key", async () => {
+  it("a plugin with no detect block fails LOCALLY with the missing prefix — no frame (protocol 3)", async () => {
     const h = makeHarness();
     const bare = { id: "term", buildCommand: (i: BuildCommandInput) => [i.binary] } as unknown as HarnessPlugin;
-    await h.launcher.launch({ ...planBase(), harness: bare });
-    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
-    expect(cmd.argv).toEqual([HARNESS_BINARY_PLACEHOLDER]);
-    expect("resolve" in cmd).toBe(false);
+    // `resolve` is REQUIRED on the launch frame since protocol 3: without a
+    // detect rule the node has no way to fill the binary placeholder, and a
+    // frame missing it would only come back as the agent's refusal. The
+    // usability gate already refuses undetectable plugins, so this is the
+    // door that keeps the type honest, not a user-reachable path — fail
+    // locally with the SAME message class the agent answers an unresolvable
+    // binary with (§6.2), and send nothing.
+    const err = (await rejection(h.launcher.launch({ ...planBase(), harness: bare }))) as Error;
+    expect(err.message).toContain("harness binary missing");
+    expect(h.calls).toEqual([]);
   });
 
   it("every new frame field survives the real wire round trip", async () => {

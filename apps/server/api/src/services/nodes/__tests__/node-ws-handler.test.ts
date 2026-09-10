@@ -347,9 +347,13 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(h.inventories).toEqual([]);
   });
 
-  it("an inventory event with NO plugins field leaves the declaration alone; a present one still records", async () => {
-    // Same rule one field over: the post-inversion agent sends no `plugins`
-    // key at all, and the handler mirrors only a PRESENT field.
+  it("an inventory event records NO plugin declaration — `plugins` left the wire (protocol 3)", async () => {
+    // Protocol 3 removed the field from the event type: the node holds no
+    // plugins and reports none. The handler's read of it is gone with it
+    // (`recordPluginReport` survives dead-but-present until Task 10 drops
+    // the column), so even a stale frame that still carries the key must
+    // mirror nothing — nothing may quietly re-grow a read for a wire field
+    // that no longer exists. The harness-scan half of the event is unchanged.
     const h = makeHarness();
     const pluginReports: { id: string; plugins: unknown }[] = [];
     const nodesStub = h.deps.nodes as unknown as {
@@ -367,15 +371,14 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         ts: "now",
       }),
     );
-    expect(h.inventories).toHaveLength(1); // the scan applied
-    expect(pluginReports).toEqual([]); // the absent declaration did not
+    expect(h.inventories).toHaveLength(1); // the scan still applies
     await handleNodeMessage(
       h.deps,
       fakeSocket("n1"),
       JSON.stringify({ type: "inventory", harnesses: [], plugins: [], ts: "now" }),
     );
     expect(h.inventories).toHaveLength(1); // the empty harness claim still dies at the guard
-    expect(pluginReports).toEqual([{ id: "n1", plugins: [] }]); // and `plugins: []` is a PRESENT field ("offers nothing")
+    expect(pluginReports).toEqual([]); // and no frame — old-shaped or not — records a plugin set
   });
 
   it("result → resolveResult on the socket's OWN connection; unknown ref is a debug no-op", async () => {

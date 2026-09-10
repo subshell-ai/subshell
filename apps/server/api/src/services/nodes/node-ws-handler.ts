@@ -328,23 +328,22 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "inventory":
       // Since the agent lost its plugin concept (inversion spec §6, Task 7),
       // an EMPTY `harnesses` array is the in-band spelling of "nothing to
-      // claim": the v2 wire still REQUIRES the field (Task 8 removes it), so
-      // a plugin-less agent fills it with `[]` on every connect push and
-      // every 5-min beat. Applying that wholesale would WIPE the rows the
-      // plane's own `detect` driver cached (§4) — and the next periodic beat
-      // would wipe them again, making detection-only-on-request impossible.
+      // claim": the field stays REQUIRED on the wire (protocol 3 dropped the
+      // `plugins` field, not this one), so a plugin-less agent fills it with
+      // `[]` on every connect push and every 5-min beat. Applying that
+      // wholesale would WIPE the rows the plane's own `detect` driver cached
+      // (§4) — and the next periodic beat would wipe them again, making
+      // detection-only-on-request impossible.
       // So: empty (or absent) = don't touch; a NON-empty list is still a real
       // scan (an agent paired from before the demolition) and applies as it
       // always has. Pinned by the detect-cache test in
       // `__tests__/inventory-detect.test.ts`.
+      // (The `plugins` DECLARATION that used to ride this event is gone —
+      // protocol 3. `recordPluginReport` stays on the repository, dead-but-
+      // present, until Task 10 drops the column it writes.)
       if (event.harnesses && event.harnesses.length > 0) {
         await deps.nodes.applyInventory(nodeId, JSON.stringify(event.harnesses));
       }
-      // The node's DECLARATION rides the same event. An absent field is left
-      // alone rather than written as `[]`: "never reported" and "offers
-      // nothing" are different facts. (A post-inversion agent never sends
-      // one — same reasoning, one beat stronger: it has no plugins to declare.)
-      if (event.plugins) await deps.nodes.recordPluginReport(nodeId, event.plugins);
       return;
     case "output":
       // Tail subscribers (spec §3.3): unknown subId = nobody is watching that

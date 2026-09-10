@@ -147,7 +147,16 @@ export async function installNodePlugin(
   }
   const result = await send(
     node,
-    spec === undefined ? { type: "plugin_install", id: pluginId } : { type: "plugin_install", id: pluginId, spec },
+    // The remote branches below name commands PROTOCOL 3 TOOK OFF THE WIRE
+    // (`plugin_install`/`plugin_uninstall` — the node holds no plugins,
+    // inversion spec §6/§7), so the type no longer admits them and this cast
+    // is the interim bridge. A v3 agent's parser answers these frames `null`
+    // before dispatch, so against a live node the command comes back refused
+    // rather than silently half-executed. Task 9 collapses this module onto
+    // the control plane's own plugin store, and the casts go with the branch.
+    (spec === undefined
+      ? { type: "plugin_install", id: pluginId }
+      : { type: "plugin_install", id: pluginId, spec }) as unknown as Parameters<typeof sendCommand>[1],
   );
   await mirror(node.id, result);
 }
@@ -169,6 +178,9 @@ export async function uninstallNodePlugin(node: NodeTable, pluginId: string): Pr
     await uninstallLocalPlugin(pluginId);
     return;
   }
-  const result = await send(node, { type: "plugin_uninstall", id: pluginId });
+  // Off-wire at protocol 3 — see the bridge comment in `installNodePlugin`.
+  const result = await send(node, { type: "plugin_uninstall", id: pluginId } as unknown as Parameters<
+    typeof sendCommand
+  >[1]);
   await mirror(node.id, result);
 }

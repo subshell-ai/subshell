@@ -200,13 +200,6 @@ function launchCmd(over: Partial<LaunchCmd> = {}): LaunchCmd {
   };
 }
 
-/** The launch frame minus the argv — the shape Task 7 refuses. */
-function launchCmdNoArgv(over: Partial<LaunchCmd> = {}): LaunchCmd {
-  const cmd = launchCmd(over);
-  delete (cmd as { argv?: string[] }).argv;
-  return cmd;
-}
-
 async function recordMeta(store: SubshellMetaStore, subshellId: string, socket: string): Promise<void> {
   await store.record({
     subshellId,
@@ -305,18 +298,11 @@ describe("execLaunch (spec §6.4/§7)", () => {
     stopWatcher(ctx, S1);
   });
 
-  it("a launch with no argv is refused: the node holds no plugin to build one with", async () => {
-    const dataDir = await freshDataDir("no-argv");
-    const { ctx, calls } = makeCtx(dataDir, {}, []);
-    // Task 7 demolished the local-build fallback. The v2 frame schema still
-    // marks argv optional (Task 8 tightens it); failing closed here is the
-    // interim contract, and the harnessId stays irrelevant to the outcome.
-    const result = await dispatchCommand(ctx, launchCmdNoArgv({ harnessId: "no-such-harness" }));
-    expect(result).toEqual({ ok: false, error: "launch command carries no argv" });
-    expect(calls).toEqual([]);
-    expect(await ctx.meta.get(S1)).toBeUndefined();
-  });
-
+  // The "launch with no argv" case this file used to pin is GONE with the
+  // interim v2 tolerance: since protocol 3 the frame parser refuses a launch
+  // without `argv` or `resolve` before dispatch (`__tests__/node-frames.test.ts`,
+  // "a launch without argv or without resolve no longer parses"), so no
+  // dispatchable command of that shape exists to answer here.
   it("findBinary null ⇒ ok:false 'harness binary missing: <id>' and NO tmux calls, NO meta", async () => {
     const dataDir = await freshDataDir("no-binary");
     process.env.CLAUDE_PATH = join(base, "definitely-not-executable");
@@ -548,18 +534,11 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
     }
   });
 
-  it("a sent placeholder with no resolve rule fails with the missing prefix", async () => {
-    const dataDir = await freshDataDir("sent-argv-no-resolve");
-    const { ctx, calls } = makeCtx(dataDir, {}, []);
-    // argv names the binary slot but ships no rule to fill it — nothing local
-    // substitutes for it; failing with the same prefix is the fail-closed answer.
-    const cmd = launchCmd({ argv: [HARNESS_BINARY_PLACEHOLDER] });
-    delete (cmd as { resolve?: { binaryName: string } }).resolve; // the shared default must go, not just be overridden
-    const result = await dispatchCommand(ctx, cmd);
-    expect(result).toEqual({ ok: false, error: "harness binary missing: claude-code" });
-    expect(calls).toEqual([]);
-    expect(await ctx.meta.get(S1)).toBeUndefined();
-  });
+  // The "placeholder with no resolve rule" dispatch case went with the same
+  // protocol-3 tightening: a launch frame without `resolve` never reaches
+  // this executor (parser refuses it — pinned in the protocol test). The
+  // case above keeps what it meant: a resolve rule that finds nothing
+  // answers `harness binary missing:`.
 
   it("sent mcp content and env ride verbatim; the drift rule does not run on this path", async () => {
     const dataDir = await freshDataDir("sent-mcp-verbatim");

@@ -35,8 +35,16 @@ import type { JsonValue } from "./json.js";
  * those versions (and their GitHub releases are removed), the history was
  * reset rather than carried, and nothing here should annotate frames with the
  * retired numbers.
+ *
+ * **2 → 3 was the inversion (spec 2026-09-10 §7): plugins left the wire.**
+ * `plugin_install` and `plugin_uninstall` are gone, the inventory event no
+ * longer carries a plugin set, and `launch` requires the server-built `argv`
+ * plus its `resolve` rule — the node holds no plugin concept, so a frame
+ * without either names a spawn nothing on that machine can perform. The
+ * first BREAKING bump of the restarted numbering: a v2 agent is refused by
+ * the exact-match gate, which is the point — the pair ships together.
  */
-export const NODE_PROTOCOL_VERSION = 2;
+export const NODE_PROTOCOL_VERSION = 3;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -213,12 +221,18 @@ export type NodeCommandBody =
       /**
        * Server-built argv (inversion spec §5): the complete command line the
        * node should spawn, with {@link HARNESS_BINARY_PLACEHOLDER} wherever
-       * the binary belongs. Optional and additive — an agent that ignores it
-       * builds argv itself, exactly as before.
+       * the binary belongs. REQUIRED since protocol 3 — the node holds no
+       * plugin and builds nothing itself, so a frame without this carries no
+       * command line at all.
        */
-      argv?: string[];
-      /** The rule for resolving the placeholder binary on THIS node. */
-      resolve?: LaunchResolveWire;
+      argv: string[];
+      /**
+       * The rule for resolving the placeholder binary on THIS node. REQUIRED
+       * since protocol 3, and paired with `argv` by the parser: an argv that
+       * names the binary slot needs the rule that fills it. A plugin with no
+       * detect block never reaches the wire — the launcher refuses it locally.
+       */
+      resolve: LaunchResolveWire;
     }
   | { type: "terminate"; subshellId: string }
   | { type: "kill"; subshellId: string }
@@ -320,40 +334,6 @@ export type NodeCommandBody =
        */
       type: "set_allowed_dirs";
       dirs: string[];
-    }
-  | {
-      /**
-       * Install a plugin on this node.
-       *
-       * Phase 2 installs from the copies the agent's own build carries, so
-       * this needs no network; phase 3 adds a registry behind the same frame.
-       * The node answers with its WHOLE plugin set, because the control plane
-       * mirrors what the node reports and a partial answer would leave it
-       * guessing at the rest.
-       */
-      type: "plugin_install";
-      /** Plugin id, which is also its directory name on the node */
-      id: string;
-      /**
-       * npm package spec to install from INSTEAD of the embedded copy
-       * (protocol 1 → 2, phase 3): `name`, `@scope/name`, or either with
-       * `@version` / `@dist-tag`. Absent means the embedded copy, exactly as
-       * in v1, which is why this is the only kind of change the exact-match
-       * gate can admit as a pair-release: nobody runs the old side.
-       */
-      spec?: string;
-    }
-  | {
-      /**
-       * Remove a plugin from this node.
-       *
-       * Removing something already absent SUCCEEDS: the caller asked for a
-       * state and that state holds, so a retry after a dropped connection
-       * must not look like a failure.
-       */
-      type: "plugin_uninstall";
-      /** Plugin id */
-      id: string;
     }
   | { type: "ping" };
 
@@ -499,18 +479,11 @@ export type NodeEvent =
         /** ISO 8601 stamp of when this entry was probed. Also optional, also additive. */
         checkedAt?: string;
       }[];
-      /**
-       * The plugins this node has INSTALLED, which is its declaration of what
-       * it offers.
-       *
-       * The control plane holds no plugin code for a machine it does not run
-       * on, so everything it needs to render and validate a plugin travels
-       * here as data. Optional so the type describes the wire rather than
-       * asserting a fact about the sender: a nullish read means a node that
-       * has never connected, never a node too old to report, because the
-       * exact-match gate admits nothing older than this file.
-       */
-      plugins?: PluginReportWire[];
+      // The `plugins` field this event carried is GONE (protocol 3, inversion
+      // spec §7): the node holds no plugin concept, so it declares nothing —
+      // its honest facts travel as `detect` answers. `PluginReportWire`
+      // itself stays exported: the control plane's own plugin store still
+      // speaks it, and it retires with that store's per-node mirror.
       ts: string;
     }
   | { type: "heartbeat"; ts: string }
@@ -596,16 +569,16 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if ("cols" in value && !(isInt(value.cols) && (value.cols as number) > 0)) return null;
       if ("rows" in value && !(isInt(value.rows) && (value.rows as number) > 0)) return null;
       if ("bestEffortLog" in value && !isBool(value.bestEffortLog)) return null;
-      // Server-built argv and its resolve rule (inversion spec §5): optional,
-      // and validated only when present, so an agent that never learned these
-      // fields parses the frame it parses today.
-      if ("argv" in value && !isStrArray(value.argv)) return null;
-      if ("resolve" in value) {
-        const r = value.resolve;
-        if (!isRecord(r) || !isStr(r.binaryName)) return null;
-        if ("envOverride" in r && !isStr(r.envOverride)) return null;
-        if ("knownPaths" in r && !isStrArray(r.knownPaths)) return null;
-      }
+      // Server-built argv and its resolve rule (inversion spec §5): REQUIRED
+      // since protocol 3. The node holds no plugin and builds nothing itself,
+      // so a frame without either half is not an older spelling to tolerate —
+      // it names a spawn that machine cannot perform. Refuse at the parse,
+      // before dispatch, exactly like every other malformed frame.
+      if (!isStrArray(value.argv)) return null;
+      const resolve = value.resolve;
+      if (!isRecord(resolve) || !isStr(resolve.binaryName)) return null;
+      if ("envOverride" in resolve && !isStr(resolve.envOverride)) return null;
+      if ("knownPaths" in resolve && !isStrArray(resolve.knownPaths)) return null;
       return value as unknown as NodeCommandBody;
     }
     case "terminate":
@@ -675,17 +648,6 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return isStr(value.subId) ? { type: "tail_stop", subId: value.subId } : null;
     case "remove_paths":
       return isStrArray(value.paths) ? { type: "remove_paths", paths: value.paths } : null;
-    // Shape only, for both. Whether the id names something installable is the
-    // node's question, and it answers with a message naming the plugin, which
-    // is more useful than a parser rejecting the frame with no context.
-    case "plugin_install": {
-      if (!isStr(value.id)) return null;
-      if (value.spec === undefined) return { type: "plugin_install", id: value.id };
-      if (!isStr(value.spec) || value.spec === "") return null;
-      return { type: "plugin_install", id: value.id, spec: value.spec };
-    }
-    case "plugin_uninstall":
-      return isStr(value.id) ? { type: "plugin_uninstall", id: value.id } : null;
     case "set_allowed_dirs":
       // Normalization is NOT applied here — the parser's job is shape, and
       // the executor re-normalizes anyway. A malformed entry inside a

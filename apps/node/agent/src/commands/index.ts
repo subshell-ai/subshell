@@ -35,12 +35,13 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
- * `plugin_install` and `plugin_uninstall` CENSUS note (inversion §6): the node
- * holds no plugins anymore, so their handlers are gone; the v2 protocol still
- * PARSES the two command shapes (the wire removal is Task 8), so dispatch
- * answers them `unsupported` through the default arm. Pinned by a test in
- * `__tests__/commands-basics.test.ts` — this arm is load-bearing for exactly
- * these two types until the schema drops them.
+ * `plugin_install` and `plugin_uninstall` CENSUS note (inversion §6, closed by
+ * protocol 3): the node held no plugins, so their handlers went first; the
+ * commands themselves then left the WIRE — the frame parser answers them
+ * `null` before dispatch, so this switch never sees them. The census moved to
+ * the protocol test (`__tests__/node-frames.test.ts`, "plugin commands
+ * (removed in protocol 3)"); the `unsupported` arm is back to being the
+ * contract answer for FUTURE unknown types only.
  *
  * TOTAL by construction: the whole switch is wrapped once, so no executor
  * throw — not even the meta store's bad-id throw — escapes. The daemon stays

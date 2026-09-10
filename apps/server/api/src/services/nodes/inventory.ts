@@ -306,10 +306,11 @@ function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventor
  * plugin only the node's own inventory reports must survive a detect built
  * from this server's registry.
  *
- * **Called from exactly two places: the node page load (best-effort) and
- * Re-check. Never a timer, never a sweep** — §4: detection runs when someone
- * asks. `local` is a no-op (its view probes live on every read); an unknown id
- * is one, too.
+ * **Called from exactly three places: the node page load (best-effort),
+ * Re-check, and the launch-driven kick in `RemoteLauncher.#kickDetect` (a
+ * failed launch's `binary missing` refresh). Never a timer, never a sweep** —
+ * §4: detection runs when someone asks. `local` is a no-op (its view probes
+ * live on every read); an unknown id is one, too.
  * @throws whatever `sendCommand` throws (offline/timeout/failed — callers
  * decide), and a plain Error when the agent answered with a malformed payload
  */
