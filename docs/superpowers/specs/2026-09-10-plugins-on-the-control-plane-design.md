@@ -188,6 +188,66 @@ and the `plugin_install` / `plugin_uninstall` commands. An upgraded agent stops
 reading the directory; with no users to migrate, it is left on disk rather than
 being removed by code, and can be deleted by hand.
 
+### 6.1 Disabling, and what uninstalling does to profiles
+
+**Disable already exists; it just has no switch.** A profile's availability is
+COMPUTED rather than stored: `profiles.route.ts` filters by harness usability,
+and its own comment records the intent, that "re-enabling/installing the
+harness brings them back, nothing here is ever deleted". There is no `disabled`
+column on a profile and none is added.
+
+So a plugin gains an **`enabled` flag**, consulted by `harnessUsable` and
+`usableHarnessIds`, and disabling one makes its profiles vanish from every list
+and picker and return untouched when it is re-enabled. No per-profile state,
+nothing to drift.
+
+**Where the flag lives matters.** NOT in `install.json`: the installer rewrites
+that sidecar on every install, so a flag there is silently lost on update, the
+same trap §2.4 of the superseded phase-5 spec found for node settings. It lives
+in a small table, `plugin_state (plugin_id PK, enabled, updated_at)`, where an
+ABSENT row means enabled, so installing writes nothing and the default is on.
+
+**Phase 2b deleted the enable concept, and this is not that mistake
+returning.** `AGENTS.md` still says "no enable flag on either side", and that
+decision was about two places disagreeing over what "this host offers X" meant:
+a node's installed set crossed with a control-plane table. With one plugin
+store, an `enabled` flag has exactly one meaning. It does add a second state
+beside installed, and the justification is that "stop offering this, keep the
+bytes and keep the profiles" is a real operation uninstall cannot express.
+`AGENTS.md` must be corrected rather than left contradicting the code.
+
+**Uninstalling asks, because it can destroy other people's work.** Profiles are
+per-user, and an instance-wide uninstall reaches all of them. The prompt states
+the blast radius before it is confirmed:
+
+```
+Uninstall Acme Thing?
+
+  This removes the plugin from this instance.
+  4 profiles use it, across 3 users:
+     2 of them are Defaults
+     1 has a running subshell
+
+  ( ) Keep the profiles, unavailable until reinstalled
+  ( ) Delete the 4 profiles permanently
+
+  Running subshells are unaffected. A restart of one
+  whose profile was deleted will fail.
+```
+
+- **Keep** is today's behavior and stays the default: the rows survive and the
+  computed filter hides them.
+- **Delete** removes every matching profile across every user, INCLUDING
+  auto-seeded Defaults, which `DELETE /api/profiles/:id` normally refuses. A
+  Default for a harness that no longer exists is meaningless, so the guard is
+  bypassed deliberately here and nowhere else.
+- **Running subshells are untouched** either way. They are already spawned, and
+  uninstalling has never stopped one. A restart of a subshell whose profile was
+  deleted fails, which is the honest outcome and needs a message that says so.
+
+Leaving another user's profiles behind as permanently unusable orphans was the
+alternative, and it is worse: nobody but that user could ever clear them.
+
 ## 7. Protocol
 
 The shipped version is 2. Phases 4 and 5 would have taken it to 3 and 4 and

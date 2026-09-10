@@ -337,9 +337,16 @@ Message: `feat(protocol): plugins leave the wire (protocol 3)`.
 
 **Context:** "usable" stops being "this node declared it" and becomes "the server has this plugin AND detection says the binary is present there". The instance route is MANDATORY in this task, not deferrable: deleting the per-node route without it leaves no way to install anything.
 
+This task also builds the lifecycle of spec §6.1: an `enabled` flag, and an uninstall that reports its blast radius before destroying anything.
+
+- `plugin_state (plugin_id PK, enabled, updated_at)` is created in Task 10's migration. An ABSENT row means enabled, so installing writes nothing. The flag does NOT go in `install.json`, which the installer rewrites on every install.
+- `harnessUsable` and `usableHarnessIds` consult it. That is the whole of "disabling a plugin disables its profiles": availability is already computed, so nothing per-profile is stored.
+- An impact endpoint reports, for one plugin id, the number of profiles using it, how many belong to other users, how many are auto-seeded Defaults, and how many have a running subshell.
+- Uninstall takes a mode: `keep` (today's behavior, the default) or `delete`. `delete` removes matching profiles across EVERY user including Defaults, bypassing the `isDefault === 1` guard at `profiles.route.ts:269`, which is deliberate here and nowhere else. Running subshells are untouched in both modes.
+
 - [ ] **Step 1: Write the failing tests**
 
-Cover: installing is admin-only and 403 for a non-admin; a non-admin can still LIST; uninstalling a plugin in use by a profile behaves as decided (refuse, or allow and let the profile go unusable, and whichever you choose, test it); `usableHarnessIds` for a node returns the intersection of the server's catalog and that node's detection.
+Cover: installing is admin-only and 403 for a non-admin; a non-admin can still LIST; disabling a plugin removes its profiles from `usableHarnessIds` and re-enabling restores them with the rows never touched; the impact endpoint counts other users' profiles, Defaults and running subshells correctly; `uninstall?mode=keep` leaves every profile row in place; `uninstall?mode=delete` removes them across users INCLUDING Defaults; a running subshell survives both; `usableHarnessIds` for a node returns the intersection of the server's catalog and that node's detection.
 
 - [ ] **Step 2 to 4:** run red, implement, green, commit.
 
@@ -350,8 +357,11 @@ Message: `feat(server): one plugin host, and an instance-level door to it`.
 ### Task 10: Drop the per-node plugin columns
 
 **Files:**
-- Create: `apps/server/api/src/db/migrations/0026-drop-node-plugins.ts`
+- Create: `apps/server/api/src/db/migrations/0026-drop-node-plugins.ts` (drops `plugins_json`/`plugins_at`, creates `plugin_state`)
+- Create: `apps/server/api/src/db/types/plugin-state.db-types.ts`
 - Modify: `apps/server/api/src/db/migrate.ts`, `apps/server/api/src/db/types/nodes.db-types.ts`, `apps/server/api/src/db/repositories/nodes.repository.ts` (`recordPluginReport` 150-154)
+
+One migration does both halves, because they are the same change of ownership: the per-node mirror goes and the instance-level state arrives. `plugin_state` holds `plugin_id` (PK), `enabled`, `updated_at`, and an absent row means enabled (spec §6.1).
 
 **Context:** `nodes.plugins_json` and `nodes.plugins_at` have no reader after Task 9. Follow `0025-drop-harness-plugins.ts` exactly, including its reasoning for a `down()` that recreates empty columns: there is nothing to reconstruct and no data to preserve.
 
@@ -370,7 +380,9 @@ Message: `refactor(db): drop the per-node plugin mirror`.
 
 **Context:** `/settings/plugins`, following the existing sub-page pattern (`settings_.status.tsx` renders `/settings/status`). Carries over from the superseded phase 4 spec: the catalog with one-click installs, the install-by-name field, and the confirmation for a package we did not ship, whose copy states that it runs on the CONTROL PLANE now rather than on a node. That wording change matters: the trust statement is different and stronger than the one phase 4 drafted.
 
-- [ ] **Step 1 to 4:** failing tests (catalog install sends no confirmation; a typed name confirms and names the control plane; a non-admin sees the list and no controls), implement, green, commit.
+The page also carries §6.1's lifecycle: a Disable toggle per installed plugin, and an uninstall dialog that fetches the impact first and offers Keep (default) or Delete, with the counts spelled out. Copy must state that running subshells are unaffected and that restarting one whose profile was deleted will fail, because that is the surprise otherwise.
+
+- [ ] **Step 1 to 4:** failing tests (catalog install sends no confirmation; a typed name confirms and names the control plane; a non-admin sees the list and no controls; disabling shows the plugin as disabled and its profiles disappear from a picker; the uninstall dialog renders the impact counts and defaults to Keep; choosing Keep sends `mode=keep`), implement, green, commit.
 
 Message: `feat(web): install plugins where they now live`.
 
@@ -400,7 +412,7 @@ Message: `feat(web): a node page that reports what it can run`.
 
 **Context on the changesets, and do not skip this:** both are UNRELEASED and describe the architecture this plan reverses. `node-owns-its-plugin-set.md` opens "A node now owns which harnesses it offers"; `plugins-from-the-registry.md` advertises the `subshell plugin` verbs. Publishing those and then retracting them next release narrates a round trip in a public changelog. Rewrite both to describe the end state, since a changeset is unconsumed markdown until the version PR merges.
 
-- [ ] **Step 1: Docs.** `AGENTS.md`'s plugin section needs its central claim inverted, including the sentence "The NODE owns which plugins it offers". `docs/security.md` gains the §8 accounting: third-party code now runs in the control-plane process, which is why installing is admin-only, set against the fact that nodes no longer execute third-party code at all. Add the §9.2 secrets note beside the `BETTER_AUTH_SECRET` guidance, including that a lost `SUBSHELL_SECRETS_KEY` is unrecoverable.
+- [ ] **Step 1: Docs.** `AGENTS.md`'s plugin section needs its central claim inverted, including the sentence "The NODE owns which plugins it offers" and the line "there is no enable flag on either side", which §6.1 makes false on purpose. `docs/security.md` gains the §8 accounting: third-party code now runs in the control-plane process, which is why installing is admin-only, set against the fact that nodes no longer execute third-party code at all. Add the §9.2 secrets note beside the `BETTER_AUTH_SECRET` guidance, including that a lost `SUBSHELL_SECRETS_KEY` is unrecoverable.
 - [ ] **Step 2: e2e.** Spec 14 installs a plugin from the fake registry through the NODE route, which no longer exists. Repoint it at `/settings/plugins` and assert the plugin becomes launchable on a node without anything being installed there.
 - [ ] **Step 3: Full verification.** `bunx turbo build`, `verify-types --force`, `lint:check`, `bun run test`, `bun run rust:check`, `cd e2e && bunx playwright test`.
 - [ ] **Step 4: Tick and commit.**
@@ -418,6 +430,6 @@ Message: `docs: plugins live on the control plane`.
 **Ambiguities resolved here.**
 - Task 4 keeps a local-build fallback so the task ends green; Task 7 removes it. Without that split, Task 4 and Task 7 would have to be one large task spanning the protocol and the demolition.
 - `argv` and `resolve` are optional until Task 8 for the same reason. The protocol version moves once, not three times.
-- Task 9 must decide what uninstalling a plugin does to profiles that use it. I did not decide it because it is a product question, not a mechanical one: refusing is safer, allowing is simpler, and both are defensible. Whichever the implementer picks, the plan requires a test pinning it.
+- Uninstall's effect on profiles is now DECIDED (spec §6.1, 2026-09-10): it asks, defaults to keeping them, and `delete` reaches every user's profiles including Defaults. Disabling is a separate operation that costs no per-profile state, because availability was already computed rather than stored.
 
 **What this plan does NOT do:** instance-level plugin secrets (§9.2, no consumer yet); the setup step 2 rewrite (it keeps working unchanged, since installing to `local` and installing to the server are now the same act); per-node plugin settings (§9.1, decided against); and any Subshell Client node window work, which had a plugins card in the superseded phase 4 and now has nothing to manage.
