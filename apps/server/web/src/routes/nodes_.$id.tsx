@@ -1,6 +1,6 @@
 import { agentVersionSupported, MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { RefreshCw, Share2, Trash2 } from "lucide-react";
+import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { EditableText } from "@/components/editable-text";
 import { ErrorBanner } from "@/components/error-banner";
@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import { relativeElapsed } from "@/components/subshell-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useDeleteNode, useNode, useRecheckNode, useRenameNode } from "@/hooks/use-nodes";
+import { useDeleteNode, useNode, useRenameNode } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
 import { NODE_NAME_MAX } from "@/lib/name-limits";
@@ -24,22 +24,23 @@ export const Route = createFileRoute("/nodes_/$id")({
 
 /**
  * One node's config page (spec 2026-08-31 §9/§10): machine facts, the
- * harness matrix with per-node toggles, the Re-check and Rotate-key buttons,
- * and the Share/Delete actions. The title renames itself (owner-only PATCH;
- * `local`'s name is fixed for everyone).
+ * node's harness detection card, the Rotate-key action, and the Share/Delete
+ * actions. The title renames itself (owner-only PATCH; `local`'s name is
+ * fixed for everyone).
+ *
+ * The harness card is read-only everywhere (spec 2026-09-10: plugins are
+ * instance-level and managed under `/settings/plugins`); its one control,
+ * Re-check, moved inside the card and is gated on `Node.canManage` together
+ * with everything else here.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
- * error, never a leak), `view` grantees get a fully read-only page (harness
- * switches and the Re-check button disabled, no Share/Delete —
- * `nodeCanConfigure` semantics), and Share/Delete enable on `Node.canManage`
- * (owner, or admin on `local` — the frontend must not re-derive admin
- * identity).
+ * error, never a leak), and Share/Delete enable on `Node.canManage` (owner,
+ * or admin on `local` — the frontend must not re-derive admin identity).
  */
 function NodeDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const node = useNode(id);
-  const recheck = useRecheckNode(id);
   const renameNode = useRenameNode(id);
   const deleteNode = useDeleteNode();
   const [shareOpen, setShareOpen] = useState(false);
@@ -103,13 +104,10 @@ function NodeDetailPage() {
     );
   }
 
-  // Harness toggles follow the server's `nodeCanConfigure`: owner or `edit`
-  // grantee (admins resolve to `edit`); a `view` grantee gets the read-only card.
-  const canConfigure = n.access === "owner" || n.access === "edit";
-  // Rename is stricter than configure: the route is owner-gated, and
-  // `canManage` is exactly that gate — a real owner on an agent node, or an
-  // admin on `local`, whose boost is `local`-only. So an admin names the
-  // control-plane host's row and nobody else's (spec §9 stands for agents).
+  // Rename is owner-gated: `canManage` is exactly that gate — a real owner on
+  // an agent node, or an admin on `local`, whose boost is `local`-only. So an
+  // admin names the control-plane host's row and nobody else's (spec §9
+  // stands for agents). The same flag now gates the harness card's Re-check.
   const canRename = n.canManage;
 
   return (
@@ -234,28 +232,6 @@ function NodeDetailPage() {
         </dl>
       </div>
 
-      {n.kind === "agent" && (
-        <div className="flex flex-wrap items-center gap-3">
-          {/* The recheck route gates on `nodeCanConfigure` (owner|edit) — the
-              same rule `canConfigure` mirrors above, so a `view` grantee gets
-              the button disabled, matching the read-only harness toggles. */}
-          <Button
-            variant="outline"
-            onClick={() => recheck.mutate()}
-            disabled={!canConfigure || recheck.isPending}
-            title={canConfigure ? undefined : "Only the node's owner or an edit grantee can re-check it"}
-          >
-            <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
-          </Button>
-          {recheck.isError && (
-            <p role="alert" className="text-destructive text-sm">
-              {errMessage(recheck.error, "Re-check failed. The node may be offline.")}
-            </p>
-          )}
-          {recheck.isSuccess && <p className="text-success text-xs">Re-check sent. Inventory will refresh shortly.</p>}
-        </div>
-      )}
-
       {/* Key rotation lives with the enrolled nodes: `local`'s key is the control
           plane's own credential — mint/rotate it server-side deliberately,
           not from a button on its own status page. */}
@@ -267,7 +243,7 @@ function NodeDetailPage() {
 
       {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
-      <NodeHarnessCard nodeId={n.id} canManage={canRename} />
+      <NodeHarnessCard nodeId={n.id} canManage={n.canManage} />
 
       <p className="text-sm">
         <Link to="/nodes" className="text-muted-foreground underline">

@@ -1,0 +1,294 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
+import type { NodeDetail, NodeHarness } from "@/types/node";
+
+/**
+ * The node page's harness card after the plugin inversion (spec 2026-09-10):
+ * detection output, nothing more. One row per plugin the INSTANCE has
+ * installed (the server's view already filters to that set), each carrying
+ * this machine's binary answer, its version and the `checkedAt` stamp; a
+ * manager's Re-check is the only control. No install, no remove, no
+ * plugin-load notices — those are instance facts and live on
+ * `/settings/plugins`.
+ *
+ * The fetch mock models the PRODUCER, not the card's wishes: rows are what
+ * `GET /api/nodes/:id` sent (`effectiveHarnessStates` builds them from the
+ * instance catalog, so `instanceHas` filters here exactly as the server
+ * filters there). The `/api/setup/harnesses` endpoint answers with bait: the
+ * old card listed anything that endpoint knew about that no row covered, as
+ * Installable extras, so a card that resurrects that synthesis fails the
+ * "absent, not shown as broken" case with "gone" reappearing as a row.
+ */
+
+interface CardOpts {
+  /** Rows the node view carries (before the `instanceHas` server filter). */
+  harnesses?: NodeHarness[];
+  canManage?: boolean;
+  inventoryStale?: boolean;
+  kind?: NodeDetail["kind"];
+  /** The plugins the instance has installed and enabled. */
+  instanceHas?: string[];
+  /** Status the POST to /recheck answers with (default 200 {ok:true}). */
+  recheckStatus?: number;
+}
+
+const NODE_ID = "agent1";
+
+function view(over: Partial<NodeDetail>): NodeDetail {
+  return {
+    id: NODE_ID,
+    name: "box",
+    kind: "agent",
+    os: "linux",
+    arch: "x64",
+    hostname: "box",
+    status: "online",
+    lastSeenAt: null,
+    agentVersion: "1.0.0",
+    protocolVersion: 2,
+    access: "owner",
+    canManage: true,
+    capabilities: [],
+    allowedDirs: [],
+    harnesses: [],
+    inventoryStale: false,
+    ...over,
+  };
+}
+
+/** Render the card under a query client and a minimal router (its Link
+ * targets `/settings/plugins`, and `RouterProvider` paints nothing until the
+ * router has loaded once). Resolves once the node view has been fetched. */
+async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; url: string }[]; restore: () => void }> {
+  const calls: { method: string; url: string }[] = [];
+  const original = globalThis.fetch;
+  const data = view({
+    kind: opts.kind ?? "agent",
+    canManage: opts.canManage ?? false,
+    inventoryStale: opts.inventoryStale ?? false,
+    harnesses: (opts.harnesses ?? []).filter((h) => !opts.instanceHas || opts.instanceHas.includes(h.harnessId)),
+  });
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    const method = init?.method ?? "GET";
+    calls.push({ method, url: url.pathname });
+    if (url.pathname === `/api/nodes/${NODE_ID}` && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify(data)));
+    }
+    if (url.pathname === `/api/nodes/${NODE_ID}/recheck` && method === "POST") {
+      const status = opts.recheckStatus ?? 200;
+      if (status === 200) return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ errId: "e1", code: "NODE_OFFLINE", message: "node is offline", statusCode: status }),
+          { status },
+        ),
+      );
+    }
+    // Bait for the deleted catalog synthesis (see the header comment).
+    if (url.pathname === "/api/setup/harnesses") {
+      return Promise.resolve(
+        new Response(JSON.stringify([{ id: "gone", name: "Gone", description: "", binary: "gone" }])),
+      );
+    }
+    return Promise.resolve(new Response(JSON.stringify({})));
+  }) as typeof fetch;
+
+  const rootRoute = createRootRoute({
+    component: () => (
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
+      >
+        <NodeHarnessCard nodeId={NODE_ID} canManage={opts.canManage ?? false} />
+      </QueryClientProvider>
+    ),
+  });
+  const pluginsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/plugins" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([pluginsRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  await router.load();
+  render(<RouterProvider router={router} />);
+  // Wait out the node-view fetch so tests query loaded content directly.
+  await waitFor(() => expect(calls.some((c) => c.url === `/api/nodes/${NODE_ID}` && c.method === "GET")).toBe(true));
+  await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+  return { calls, restore: () => (globalThis.fetch = original) };
+}
+
+describe("NodeHarnessCard", () => {
+  afterEach(cleanup);
+
+  it("the card manages nothing, even for its manager", async () => {
+    // The route these controls POSTed to is gone (Task 9 deleted
+    // set-node-plugin.route.ts), so even a manager gets no manage affordance
+    // here — managing plugins moved to the instance page.
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], canManage: true });
+    try {
+      expect(screen.queryByRole("button", { name: /remove/i })).toBeNull();
+      expect(screen.queryByText(/add a plugin/i)).toBeNull();
+      expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("rows come from detection, and say when they were checked", async () => {
+    const iso = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "pi", installed: true, version: "1.2.3", checkedAt: iso }],
+    });
+    try {
+      expect(screen.getByText("pi")).toBeDefined();
+      expect(screen.getByText(/1\.2\.3/)).toBeDefined();
+      expect(screen.getByText(/checked/i)).toBeDefined();
+      expect(screen.getByText("ready")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("Re-check issues exactly one detect", async () => {
+    const { calls, restore } = await mount({ harnesses: [], canManage: true });
+    try {
+      const btn = screen.getByRole("button", { name: /re-check/i });
+      fireEvent.click(btn);
+      await waitFor(() =>
+        expect(calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/recheck`)).toBe(true),
+      );
+      expect(calls.filter((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/recheck`)).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("only the manager is offered Re-check", async () => {
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], canManage: false });
+    try {
+      expect(screen.queryByRole("button", { name: /re-check/i })).toBeNull();
+      // Read-only means read-only, but the DETECTION still renders — the
+      // manager and the non-manager see the same card, and no rows.
+      expect(screen.getByText("pi")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("never offers Re-check on the local node (its probe is live on every read)", async () => {
+    // The recheck route 400s `local`; the card offers only what the server
+    // would honour.
+    const { restore } = await mount({ harnesses: [], canManage: true, kind: "local" });
+    try {
+      expect(screen.queryByRole("button", { name: /re-check/i })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a stale inventory says so rather than pretending", async () => {
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], inventoryStale: true });
+    try {
+      expect(screen.getByText(/last-known/i)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a fresh inventory does not claim staleness", async () => {
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], inventoryStale: false });
+    try {
+      expect(screen.queryByText(/last-known/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a harness the instance does not have is absent, not shown as broken", async () => {
+    // The node's CACHED inventory can hold a plugin the instance no longer
+    // has; the server's view never renders it as a row (rows are built from
+    // the instance catalog — `effectiveHarnessStates`). The card's half of
+    // this guarantee: it adds rows from NOTHING else — the bait catalog
+    // entry above must not resurrect the old "Add a plugin" list.
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "gone", installed: true }],
+      instanceHas: ["pi"],
+    });
+    try {
+      expect(screen.queryByText("gone")).toBeNull();
+      expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders no plugin-load state: broken and restartRequired are instance facts", async () => {
+    // The wire may still carry these (they describe plugin loading in the
+    // CONTROL-PLANE process, and the instance plugins page says so). On this
+    // machine's card their absence is the visible proof the inversion
+    // landed: a row never says "not usable", "could not load", or "restart".
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "pi", installed: true, broken: "boom at load", restartRequired: true }],
+    });
+    try {
+      expect(screen.queryByText(/boom/i)).toBeNull();
+      expect(screen.queryByText(/could not load/i)).toBeNull();
+      expect(screen.queryByText(/not usable/i)).toBeNull();
+      expect(screen.queryByText(/restart/i)).toBeNull();
+      expect(screen.getByText("ready")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("still explains a missing program and a bad override", async () => {
+    // Kept verbatim: these are DETECTION reasons — facts about this machine.
+    const { restore } = await mount({
+      harnesses: [
+        { harnessId: "claude", installed: false, reason: "not-on-path" },
+        { harnessId: "hermes", installed: false, reason: "override-invalid" },
+        { harnessId: "pi", installed: false, reason: "no-binary" },
+      ],
+    });
+    try {
+      // `claude` and `hermes` are both "program not found" (an override that
+      // points at nothing is still a program that was not found); only
+      // `pi`, which declares no program at all, reads ready.
+      expect(screen.getAllByText("program not found")).toHaveLength(2);
+      expect(screen.getByText(/environment variable overrides/i)).toBeDefined();
+      expect(screen.getByText(/No separate program is needed here\./)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("surfaces a failed Re-check", async () => {
+    const { restore } = await mount({ harnesses: [], canManage: true, recheckStatus: 409 });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /re-check/i }));
+      expect(await screen.findByRole("alert")).toBeDefined();
+      expect(screen.getByRole("alert").textContent).toContain("offline");
+    } finally {
+      restore();
+    }
+  });
+
+  it("points at the instance plugins page for managing plugins", async () => {
+    const { restore } = await mount({ harnesses: [] });
+    try {
+      const link = screen.getByRole("link", { name: /plugins/i });
+      expect(link.getAttribute("href")).toContain("/settings/plugins");
+    } finally {
+      restore();
+    }
+  });
+});

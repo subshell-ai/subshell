@@ -15,7 +15,11 @@ export type NodeKind = "local" | "agent";
 /** Status projection — the live agent socket is authoritative server-side. */
 export type NodeStatus = "online" | "offline";
 
-/** One harness row: plugin identity × this node's state. */
+/**
+ * One harness row: instance plugin identity × this node's detection answer.
+ * Rows are one per plugin the INSTANCE has installed and enabled (spec
+ * 2026-09-10); the node contributes only the binary half.
+ */
 export interface NodeHarness {
   /** Harness plugin id (e.g. "claude") */
   harnessId: string;
@@ -27,9 +31,18 @@ export interface NodeHarness {
   reason?: "not-on-path" | "override-invalid" | "no-binary";
   /** ISO 8601 stamp of when this entry was probed; absent when no probe has produced one */
   checkedAt?: string;
-  /** Why the node cannot use this plugin, when it cannot */
+  /**
+   * Why the plugin cannot be used at all — an INSTANCE fact now (it failed to
+   * load in the control-plane process, so on every node alike). The wire
+   * still carries it; the node card deliberately does not render it, because
+   * it is not a fact about one machine. `Settings → Plugins` says it.
+   */
   broken?: string;
-  /** The node holds a newer copy than the code it is running; restart clears it */
+  /**
+   * The instance holds a newer copy of the plugin than the control-plane
+   * process is running; a SERVER restart clears it. Instance fact, same
+   * rendering rule as `broken`.
+   */
   restartRequired?: boolean;
 }
 
@@ -77,7 +90,7 @@ export interface Node {
   allowedDirs?: string[];
   /** Capability strings from `ready` (empty when none reported) */
   capabilities: string[];
-  /** Every registered harness × this node's state */
+  /** One row per plugin the INSTANCE has installed and enabled, crossed with this node's binary detection */
   harnesses: NodeHarness[];
   /** Agent's cached inventory is older than the TTL (or never landed) — installed values are last-known. local: always false */
   inventoryStale: boolean;
