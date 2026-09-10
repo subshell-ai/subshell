@@ -2,12 +2,17 @@
 #
 # Flow:
 #   changesets  — on every push to main, maintain the version PR
-#                 ("chore: release package(s)"). Private packages: changesets
-#                 creates NO tags/releases for them — the version PR only bumps
-#                 the FOUR releasable apps' package.jsons + CHANGELOGs:
-#                 apps/server/api, apps/node/agent, apps/server/desktop and
-#                 apps/client/desktop. `.changeset/config.json` ignores the
-#                 other ten workspaces.
+#                 ("chore: release package(s)"). Merging it bumps the FOUR
+#                 releasable apps' package.jsons + CHANGELOGs (apps/server/api,
+#                 apps/node/agent, apps/server/desktop and apps/client/desktop)
+#                 AND the six publishable @subshell-ai/* packages (plugin-api +
+#                 the five plugins), and that same job then PUBLISHES the six
+#                 to npm and pushes their version tags — the runner caveat for
+#                 that publish lives in the job's publish-script comment.
+#                 Private packages: changesets creates NO tags or releases for
+#                 them (privatePackages.tag is false; create-github-releases
+#                 is off). `.changeset/config.json` ignores the other ten
+#                 workspaces.
 #   plan        — push events emit an EMPTY matrix (the merge of a version PR
 #                 does NOT auto-cut; the first-cut path is an explicit
 #                 workflow_dispatch — simpler and honest). A dispatch computes
@@ -122,13 +127,21 @@ jobs:
 
       - run: rm -f "$HOME/.npmrc"   # OIDC, never a token: npm must not find an auth to prefer (spec §8.3)
 
+      - run: bunx turbo build --filter='@subshell-ai/*'   # publish ships files:["dist"] — never let changeset publish see a missing or stale dist
+
       - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
         with:
           # Publish exists from phase 3 on: the five plugin packages and
           # @subshell-ai/plugin-api ship to npm via OIDC trusted publishing
-          # (no NPM_TOKEN anywhere). Trusted publishing must be configured
-          # per package on npmjs.com by a human FIRST; until then the
-          # publish step 403s, which is loud, correct, and expected.
+          # (no NPM_TOKEN anywhere). But npm's trusted publishing supports
+          # GITHUB-HOSTED runners only (docs.npmjs.com, checked 2026-09-09),
+          # and this job is self-hosted per the fleet policy in AGENTS.md —
+          # so the first real publish additionally requires an OPERATOR
+          # DECISION: a GitHub-hosted job just for publish, or npm adding
+          # self-hosted support. Trusted publishing must also be configured
+          # per package on npmjs.com by a human FIRST. Until both land, a
+          # publish attempt fails with npm's OWN error — loud, correct, and
+          # not a "403 until configured, then it works" story.
           version-script: bun run version-packages
           publish-script: bun run publish-packages
           commit-message: "chore: release package(s)"

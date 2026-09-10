@@ -682,7 +682,11 @@ which is why they share their own smoke, parameterized by app id.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
   changes to any of the four releasable apps → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
-  app's `package.json` + CHANGELOG. Merging does NOT cut a release. The
+  app's `package.json` + CHANGELOG. Merging does NOT cut a release — true for
+  the GitHub Releases app cuts; note that merging the version PR now ALSO
+  publishes the six `@subshell-ai/*` packages to npm from the changesets job,
+  subject to the self-hosted-runner decision recorded in `release.yml`'s
+  publish-script comment. The
   Action commits those bumps itself, which is why `version-packages` also
   resyncs `bun.lock` — see "The one thing `bun install` will not fix".
 - **Release notes live in the GitHub Release.** The publish job slices this
