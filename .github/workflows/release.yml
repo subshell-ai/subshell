@@ -127,7 +127,7 @@ jobs:
 
       - run: rm -f "$HOME/.npmrc"   # OIDC, never a token: npm must not find an auth to prefer (spec §8.3)
 
-      - run: bunx turbo build --filter='@subshell-ai/*'   # publish ships files:["dist"] — never let changeset publish see a missing or stale dist
+      - run: bunx turbo build --filter='@subshell-ai/*' --force   # publish ships files:["dist"], and turbo.json's build task declares NO outputs — a cache hit restores no files, so on this persistent runner workspace a plain build could ship a dist from another state; --force makes the publish path always really build (npm versions are immutable; this path never gets a second chance)
 
       - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
         with:
