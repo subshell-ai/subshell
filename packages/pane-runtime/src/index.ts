@@ -59,6 +59,7 @@ export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
 export { TmuxRunner, tmuxSocketFor } from "./tmux-runner.js";
 export type {
   BuildCommandInput,
+  DetectSpec,
   HarnessPlugin,
   HarnessResume,
   InstallHint,

@@ -16,6 +16,7 @@ export {
   type BuildCommandInput,
   type DetectionReason,
   type DetectionResult,
+  type DetectSpec,
   type HarnessResume,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
@@ -31,6 +32,7 @@ export {
 import type {
   BuildCommandInput,
   DetectionResult,
+  DetectSpec,
   HarnessResume,
   McpLaunchSpec,
   McpRegistration,
@@ -62,6 +64,19 @@ export interface HarnessPlugin {
   name: string;
   /** Executable command name, e.g. "claude" — the same string `findBinary` looks up */
   binaryName: string;
+  /**
+   * The manifest's `subshell.detect` block, passed through verbatim (same
+   * object {@link detect} closes over), or absent when the plugin declares no
+   * binary.
+   *
+   * It used to matter only on the machine running the plugin. Since the
+   * inversion (spec 2026-09-10 §5) it is data the CONTROL PLANE reads: the
+   * `launch` frame ships it as the rule for resolving the harness-binary
+   * placeholder on the node, and Task 5's `detect` command ships it as the
+   * detection spec. Absent-not-undefined: consumers test `in`, and the wire
+   * must not carry an `envOverride` key for a plugin with nothing to override.
+   */
+  detectSpec?: DetectSpec;
   /** One-line description shown in the UI */
   description: string;
   /** Optional emoji/icon label */

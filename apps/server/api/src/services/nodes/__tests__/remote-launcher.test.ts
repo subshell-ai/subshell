@@ -1,12 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@internal/pane-runtime";
-import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
+import {
+  type BuildCommandInput,
+  getHarness,
+  type HarnessPlugin,
+  type McpRegistration,
+  type ProfileDefinition,
+} from "@internal/pane-runtime";
+import {
+  HARNESS_BINARY_PLACEHOLDER,
+  type NodeCommandBody,
+  type NodeEvent,
+  parseNodeCommandBody,
+} from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { launcherFor, resetLauncherRegistryForTests } from "@/services/nodes/launcher-registry.js";
 import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
 
 const defaultLocalLauncher = getDefaultLocalLauncher();
 
+import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
@@ -79,7 +91,18 @@ const testFacts: NodeAgentFacts = {
   executablePath: "/usr/bin/subshell",
 };
 
-const harness = { id: "claude-code" } as unknown as HarnessPlugin;
+/**
+ * Stub plugin for the wire-mapping tests: identity, a `buildCommand` whose
+ * output the pinned frames can name, and a detect rule like a real manifest
+ * carries. Tests that need the PLUGINS' own dialect (argv shape, MCP args/env)
+ * take the real ones from `getHarness()` — the stub only maps the plan to the
+ * frame.
+ */
+const harness = {
+  id: "claude-code",
+  detectSpec: { binaryName: "claude", envOverride: "CLAUDE_PATH", knownPaths: [".claude/local/claude"] },
+  buildCommand: (input: BuildCommandInput) => [input.binary, "--profile", input.profile.name],
+} as unknown as HarnessPlugin;
 
 const testProfile: ProfileDefinition = {
   name: "p",
@@ -254,6 +277,11 @@ describe("launch", () => {
           harnessSession: undefined,
           subshellName: "s1",
           bestEffortLog: undefined,
+          // Inversion spec §5: the argv and the resolve rule ride with every
+          // launch. The binary slot is the placeholder, never the plan's
+          // resolved path — the node re-resolves at the moment of spawn.
+          argv: [HARNESS_BINARY_PLACEHOLDER, "--profile", "p"],
+          resolve: { binaryName: "claude", envOverride: "CLAUDE_PATH", knownPaths: [".claude/local/claude"] },
         },
         timeoutMs: 60_000,
       },
@@ -272,8 +300,101 @@ describe("launch", () => {
     });
     const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
     expect(cmd.mcp).toEqual({ path: "/home/u/.subshell/mcp/s1.json", fileContent: `{"mcpServers":{}}` });
+    // toEqual forgives an explicit-undefined key; the frame's own parser does
+    // not. Registration without args/env must carry NEITHER key.
+    expect(Object.keys(cmd.mcp ?? {}).sort()).toEqual(["fileContent", "path"]);
     expect(cmd.harnessSession).toEqual({ id: "h9", mode: "resume" });
     expect(cmd.bestEffortLog).toBe(true);
+  });
+
+  it("a remote launch carries an argv whose binary slot is the placeholder", async () => {
+    // The REAL pi plugin, not the stub: argv is the plugin's dialect, and the
+    // resolve rule must be the pi manifest's detect block passed straight
+    // through — the same data the node's own detection reads.
+    const h = makeHarness();
+    const pi = getHarness("pi");
+    if (!pi) throw new Error("pi plugin is not in the registry");
+    await h.launcher.launch({ ...planBase(), harness: pi });
+    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(cmd.argv?.[0]).toBe(HARNESS_BINARY_PLACEHOLDER);
+    expect(cmd.resolve?.binaryName).toBe("pi");
+    expect(cmd.resolve).toEqual({ binaryName: "pi", envOverride: "PI_PATH", knownPaths: [".bun/bin/pi"] });
+  });
+
+  it("mcp args and env now ride the wire", async () => {
+    // The registration is computed control-side by planRemoteSubshellMcp;
+    // launch used to ship only its fileContent. claude-code's dialect is argv
+    // flags, opencode's is pane env — both halves must reach the frame
+    // (inversion spec §5; the node's double computation retires when Task 4
+    // switches consumers).
+    const claude = getHarness("claude-code");
+    if (!claude) throw new Error("claude-code plugin is not in the registry");
+    const h = makeHarness();
+    const planned = planRemoteSubshellMcp(claude, "s1", testFacts);
+    if (!planned) throw new Error("claude-code has no mcpRegistration");
+    await h.launcher.launch({ ...planBase(), harness: claude, mcp: planned.reg, mcpConfigPath: planned.configPath });
+    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(cmd.mcp?.args).toEqual(expect.arrayContaining(["--mcp-config"]));
+    expect(cmd.mcp?.args).toContain(planned.configPath);
+    expect("env" in (cmd.mcp ?? {})).toBe(false); // claude's dialect has no env half
+    // The argv is built with the registration in hand, so the flags the plugin
+    // splices land in the server-built argv too.
+    expect(cmd.argv).toContain(HARNESS_BINARY_PLACEHOLDER);
+    expect(cmd.argv).toContain("--mcp-config");
+
+    const opencode = getHarness("opencode");
+    if (!opencode) throw new Error("opencode plugin is not in the registry");
+    const h2 = makeHarness();
+    const planned2 = planRemoteSubshellMcp(opencode, "s1", testFacts);
+    if (!planned2) throw new Error("opencode has no mcpRegistration");
+    await h2.launcher.launch({
+      ...planBase(),
+      harness: opencode,
+      mcp: planned2.reg,
+      mcpConfigPath: planned2.configPath,
+    });
+    const cmd2 = h2.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(cmd2.mcp?.env).toEqual({ OPENCODE_CONFIG: planned2.configPath });
+    expect("args" in (cmd2.mcp ?? {})).toBe(false); // opencode's dialect has no argv half
+  });
+
+  it("a plugin with no detect block sends argv but no resolve key", async () => {
+    const h = makeHarness();
+    const bare = { id: "term", buildCommand: (i: BuildCommandInput) => [i.binary] } as unknown as HarnessPlugin;
+    await h.launcher.launch({ ...planBase(), harness: bare });
+    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(cmd.argv).toEqual([HARNESS_BINARY_PLACEHOLDER]);
+    expect("resolve" in cmd).toBe(false);
+  });
+
+  it("every new frame field survives the real wire round trip", async () => {
+    // sendCommand JSON.stringifies the frame into the signed JWS and the agent
+    // parses it back with parseNodeCommandBody — whose launch arm refuses an
+    // explicit-undefined optional. The composed frame carries `mcp: undefined`
+    // etc. as in-process keys; what must reach the wire is what stringify
+    // leaves. This is the proof the frame never emits a key with no value.
+    const claude = getHarness("claude-code");
+    if (!claude) throw new Error("claude-code plugin is not in the registry");
+    const h = makeHarness();
+    const planned = planRemoteSubshellMcp(claude, "s1", testFacts);
+    if (!planned) throw new Error("claude-code has no mcpRegistration");
+    await h.launcher.launch({ ...planBase(), harness: claude, mcp: planned.reg, mcpConfigPath: planned.configPath });
+    const parsed = parseNodeCommandBody(JSON.parse(JSON.stringify(h.calls[0]?.cmd)));
+    expect(parsed).not.toBeNull();
+    const launch = parsed as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(launch.argv?.[0]).toBe(HARNESS_BINARY_PLACEHOLDER);
+    expect(launch.resolve).toEqual({
+      binaryName: "claude",
+      envOverride: "CLAUDE_PATH",
+      knownPaths: [
+        ".local/bin/claude",
+        ".local/share/claude/versions/claude",
+        ".claude/local/claude",
+        ".npm-global/bin/claude",
+      ],
+    });
+    expect(launch.mcp?.args).toEqual(expect.arrayContaining(["--mcp-config"]));
+    expect("env" in (launch.mcp ?? {})).toBe(false);
   });
 
   it("mcp content without mcpConfigPath throws locally without a send", async () => {

@@ -111,6 +111,25 @@ describe("adaptPlugin: optional members are present only when implemented", () =
   });
 });
 
+describe("adaptPlugin: the detect block rides through as data", () => {
+  // Inversion spec §5: the control plane sends the manifest's detect rule on
+  // the `launch` frame (and Task 5's `detect` command) instead of shipping
+  // plugin code to resolve it. That only works if the rule reaches consumers as
+  // data on the HarnessPlugin — the same block `detectFor` closes over.
+  it("carries the manifest's detect block verbatim as detectSpec", () => {
+    const a = adaptPlugin(MANIFEST, minimal());
+    expect(a.detectSpec).toEqual(MANIFEST.detect);
+    expect(a.detectSpec).toBe(MANIFEST.detect); // straight through: the same object, not a copy
+  });
+
+  it("has no detectSpec key at all when the manifest declares no binary", () => {
+    const { detect: _drop, ...noDetect } = MANIFEST;
+    // Absent, not undefined: `detectSpec in plugin` must answer the question
+    // the launch frame composes from (a no-binary plugin sends no resolve rule).
+    expect("detectSpec" in adaptPlugin(noDetect, minimal())).toBe(false);
+  });
+});
+
 describe("versionOf: the host probes, the plugin interprets", () => {
   /** A fake harness that prints exactly `output` for any argument. */
   async function fakeBinary(output: string): Promise<string> {

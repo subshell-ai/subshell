@@ -1,5 +1,6 @@
 import type { HarnessPlugin } from "@internal/pane-runtime";
 import {
+  HARNESS_BINARY_PLACEHOLDER,
   type NodeCommandBody,
   type NodeProbeEntry,
   parseNodeCaptureResult,
@@ -194,12 +195,25 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * One `launch` command (60 s) carrying the structured plan — the agent
-   * composes the pane command with ITS env and ITS harness plugin. MCP ships
-   * as `{ path: plan.mcpConfigPath, fileContent }`; the caller composed that
-   * path from the node's `ready.dataDir` (spec §6.4). A `binary missing`
-   * failure means our inventory cache lied: refresh it (unawaited) before
-   * rethrowing (spec §6.2).
+   * One `launch` command (60 s) carrying the structured plan (spec §6.4), plus
+   * the inversion's three additive fields (spec 2026-09-10 §5) — every one of
+   * them optional, so today's agent ignores them and composes the pane command
+   * with ITS env and ITS harness plugin exactly as before; the consumer switch
+   * is Task 4:
+   * - `argv`: the complete command line, built HERE from the plugin's
+   *   `buildCommand` with {@link HARNESS_BINARY_PLACEHOLDER} in the binary
+   *   slot. The plan's `binary` is deliberately NOT used: an inventory can be
+   *   minutes old and predate an upgrade, so the node substitutes its own
+   *   freshly resolved path at the moment of spawn.
+   * - `resolve`: the plugin manifest's `subshell.detect` block passed straight
+   *   through — the rule for that lookup, the same data the node's own
+   *   detection reads. Absent for a plugin that declares no binary.
+   * - `mcp`: `{ path, fileContent }` as today, now plus the `args`/`env`
+   *   dialect `plan.mcp` already holds, so the node stops recomputing them
+   *   once Task 4 lands. The caller composes `path` from the node's
+   *   `ready.dataDir`.
+   * A `binary missing` failure means our inventory cache lied: refresh it
+   * (unawaited) before rethrowing (spec §6.2).
    */
   async launch(plan: LaunchPlan): Promise<void> {
     if (plan.mcp && !plan.mcpConfigPath) {
@@ -207,6 +221,14 @@ export class RemoteLauncher implements NodeLauncher {
       // a caller bug — fail locally rather than send a frame the agent rejects.
       throw new Error(`remote launch of "${plan.id}": LaunchPlan.mcpConfigPath is required when mcp is set`);
     }
+    const argv = plan.harness.buildCommand({
+      binary: HARNESS_BINARY_PLACEHOLDER,
+      cwd: plan.cwd,
+      profile: plan.profile,
+      subshellName: plan.subshellName,
+      mcp: plan.mcp,
+      harnessSession: plan.harnessSession,
+    });
     const cmd: NodeCommandBody = {
       type: "launch",
       subshellId: plan.id,
@@ -215,10 +237,23 @@ export class RemoteLauncher implements NodeLauncher {
       harnessId: plan.harness.id,
       profile: plan.profile,
       subshellEnv: plan.subshellEnv,
-      mcp: plan.mcp ? { path: plan.mcpConfigPath as string, fileContent: plan.mcp.fileContent } : undefined,
+      mcp: plan.mcp
+        ? {
+            path: plan.mcpConfigPath as string,
+            fileContent: plan.mcp.fileContent,
+            // Conditional spreads, never bare `args: plan.mcp.args`: the
+            // frame's parser refuses an explicit-undefined optional, and an
+            // absent half of a dialect must stay absent on the object too, not
+            // just survive the JSON.stringify the RPC does.
+            ...(plan.mcp.args ? { args: plan.mcp.args } : {}),
+            ...(plan.mcp.env ? { env: plan.mcp.env } : {}),
+          }
+        : undefined,
       harnessSession: plan.harnessSession,
       subshellName: plan.subshellName,
       bestEffortLog: plan.bestEffortLog,
+      argv,
+      ...(plan.harness.detectSpec ? { resolve: plan.harness.detectSpec } : {}),
     };
     try {
       await this.#send(cmd, LAUNCH_TIMEOUT_MS);
