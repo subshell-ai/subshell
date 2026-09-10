@@ -6,50 +6,47 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
 import { detectOnNode } from "@/services/nodes/inventory.js";
-import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
-import { logger } from "@/utils/logger.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 
-/** Response of a successful re-check — the data itself rides the WS event path. */
+/** Response of a successful re-check — the data itself is already stored. */
 const RecheckResponseSchema = t.Object({
   ok: t.Boolean({
     description:
-      "True once the agent acknowledged the inventory command AND the fresh snapshot is stored: the inventory EVENT precedes the result on the wire, and per-socket dispatch is serialized (phase 2), so an immediate refetch sees the new inventory",
+      "True once the agent answered the `detect` command AND the parsed rows are stored: the command is awaited, and the answer merges over the snapshot before this response is sent, so an immediate refetch sees the new state",
   }),
 });
 
 /**
  * `POST /api/nodes/:id/recheck` — refresh one agent node's harness inventory
- * on demand (spec 2026-08-31 §6.2/§9). Gate: `nodeCanConfigure`, cookie-only
- * like the rest of the registry.
+ * on demand (spec 2026-08-31 §6.2/§9; detection-shaped by the inversion spec
+ * 2026-09-10 §4). Gate: `nodeCanConfigure`, cookie-only like the rest of the
+ * registry.
  *
- * Sends the signed `{type:"inventory"}` command and waits for the agent's
- * `result`; a paired pre-inversion agent's `inventory` EVENT is persisted by
- * the `/ws/node` handler's `applyInventory` path (agents send the event
- * before the answer and per-socket dispatch is serialized (phase 2,
- * `handleNodeMessageQueued`)). Since Task 7 the post-inversion agent answers
- * with an EMPTY harness claim the handler (correctly) does not apply, so for
- * those agents the freshness below is the whole story; `{ ok: true }` still
- * truthfully attests "fresh state stored" because the awaited detect pass
- * lands after this response's precondition either way.
+ * Sends the plane's `detect` command (spec §4) AWAITED: the node probes with
+ * the shipped rules and answers RAW version text, the raw text is parsed HERE
+ * by the plugin's `parseVersion`, the rows merge over the cached snapshot,
+ * and the env values the answer carries refresh the resume-path inputs — all
+ * before `{ ok: true }` is honest. Awaited, not fire-and-forget, because a
+ * response claiming "fresh state stored" must not land before it is.
  *
- * Then it runs the plane's own `detect` pass (spec 2026-09-10 §4), awaited for
- * the same reason: the detection rows (raw answers parsed HERE by the plugin)
- * merge over the snapshot the agent just pushed, and a response claiming the
- * fresh state is stored must not land before they are. ONE exception: a
- * deployed v2 agent predates the `detect` handler (the add did not bump the
- * protocol; the bump is Task 8), and the switch's contract answer is
- * `unsupported`. That is not a failed re-check — on those agents the node's
- * own inventory scan stored its self-parsed versions above, exactly as before
- * the command existed — so ONLY `NodeRpcError("unsupported")` from the detect
- * pass is swallowed (debug-logged); every other failure keeps the ladder.
+ * This is ONE command and always was since the final review (R14c): the
+ * interim form sent the agent's `{type:"inventory"}` scan first and swallowed
+ * `unsupported` from the detect pass, justified by "a deployed v2 agent
+ * predates the detect handler". That agent cannot exist on this protocol —
+ * the exact-match gate (gate 2) refuses any version mismatch in either
+ * direction, so a live socket means a detect-speaking agent — and the
+ * post-inversion agent's `inventory` answer is an empty claim the handler
+ * (correctly) never applies. The ladder was a signed round trip per Re-check
+ * buying nothing, retired with its false justification.
  *
  * Error mapping from `NodeRpcError.code` (the actual enum): `offline` → 409
  * `NODE_OFFLINE`; `timeout` / `unsupported` / `failed` → 409
  * `NODE_UNREACHABLE` with the RPC's own message — the node either did not
- * answer or could not run the scan; neither is a caller-input error, so both
- * stay in the 409 conflict family (spec §9: "409 offline"). `unsupported`
- * participates in that mapping for the INVENTORY command; for the detect
- * pass it is the one swallowed code (see above).
+ * answer or could not run the probe; neither is a caller-input error, so both
+ * stay in the 409 conflict family (spec §9: "409 offline"). `unsupported` is
+ * mapped, never swallowed: it is the agent's own contract answer to a command
+ * it cannot run, which for a live v3 socket means something is genuinely
+ * broken on that node.
  *
  * `local` → 400: there is no agent to poke — the local view probes the binary
  * live on every read (a re-check is just another GET).
@@ -76,9 +73,10 @@ export const recheckNodeRoute = new Elysia()
         );
       }
 
-      // The existing ladder, shared by both commands: NodeRpcError → 409,
-      // anything else propagates to the global handler.
-      const rpcConflict = (err: unknown) => {
+      // NodeRpcError → 409, anything else propagates to the global handler.
+      try {
+        await detectOnNode(gate.row.id);
+      } catch (err) {
         if (err instanceof NodeRpcError) {
           return status(
             409,
@@ -89,29 +87,6 @@ export const recheckNodeRoute = new Elysia()
           );
         }
         throw err;
-      };
-      try {
-        await sendCommand(gate.row.id, { type: "inventory" });
-      } catch (err) {
-        return rpcConflict(err);
-      }
-      try {
-        await detectOnNode(gate.row.id);
-      } catch (err) {
-        // TWO try blocks on purpose: by here the inventory command has
-        // succeeded and its EVENT has already stored the snapshot, so a
-        // 409 from the detect pass would contradict this route's own
-        // contract ("ok:true attests inventory stored"). An agent deployed
-        // before `detect` (the add kept protocol 2; the bump is Task 8)
-        // answers the switch's contract arm `unsupported` — that is today's
-        // behavior, not a failed re-check, so ONLY that code is swallowed.
-        // A genuine failure (timeout, failed, a later offline) stays on the
-        // ladder, exactly as the inventory command's own failures do.
-        if (err instanceof NodeRpcError && err.code === "unsupported") {
-          logger.debug(`recheck: node ${gate.row.id} predates the detect command; its own inventory scan stands`);
-        } else {
-          return rpcConflict(err);
-        }
       }
       return { ok: true } as const;
     },
@@ -128,7 +103,8 @@ export const recheckNodeRoute = new Elysia()
       detail: {
         operationId: "recheckNode",
         tags: ["nodes"],
-        description: "Ask an enrolled node for a fresh harness inventory (409 when offline or unresponsive)",
+        description:
+          "Ask an enrolled node to run the control plane's harness detection now (409 when offline or unresponsive)",
       },
     },
   );

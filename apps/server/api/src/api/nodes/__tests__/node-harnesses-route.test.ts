@@ -281,52 +281,44 @@ describe("/api/nodes harness state + recheck", () => {
   }
 
   /**
-   * Fire a recheck and settle its two in-flight commands: the `inventory`
-   * command first (the agent's own scan + plugin report), then the plane's
-   * `detect` pass (spec 2026-09-10 §4). `detectAnswer` rides the second
-   * command's result data — a RAW node answer, parsed by the server's driver.
-   * `ok:false` there simulates the node refusing the command (`unsupported`,
-   * the pre-detect agent's contract answer) or failing it.
+   * Fire a recheck and settle its ONE in-flight command: the plane's `detect`
+   * pass (spec 2026-09-10 §4; R14c deleted the `inventory`-first rung — a
+   * protocol-3 agent is the only agent that can hold this socket, and it
+   * speaks detect). `detectAnswer` rides the command's result data — a RAW
+   * node answer, parsed by the server's driver. `ok:false` simulates the
+   * node refusing the command (`unsupported`, the dispatch switch's contract
+   * answer) or failing it; both are 409 now, never swallowed.
    */
   async function recheckWithAnswer(
     nodeId: string,
-    answer: { ok: true } | { ok: false; error: string },
-    detectAnswer: { ok: true; data?: unknown } | { ok: false; error: string } = { ok: true, data: { results: [] } },
+    detectAnswer: { ok: true; data?: unknown } | { ok: false; error: string } = {
+      ok: true,
+      data: { results: [], env: {} },
+    },
   ): Promise<Response> {
     const sock = fakeSocket();
     attachConnection(nodeId, sock);
     try {
       const resP = req("POST", `/api/nodes/${nodeId}/recheck`, { cookie: aliceCookie });
-      await waitFor(() => sock.sent.length > 0, "inventory command on the wire");
-      const claimsOf = (i: number) => {
-        const frame = JSON.parse(sock.sent[i] as string) as { jws: string };
-        return JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
-          jti: string;
-          aud: string;
-          cmd: { type: string };
-        };
+      await waitFor(() => sock.sent.length > 0, "detect command on the wire");
+      const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+      const det = JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
+        jti: string;
+        aud: string;
+        cmd: { type: string };
       };
-      const inv = claimsOf(0);
-      expect(inv.cmd.type).toBe("inventory");
-      expect(inv.aud).toBe(`node:${nodeId}`);
-      expect(getLive(nodeId)).toBeDefined();
-      if (!answer.ok) {
-        expect(resolveResult(liveConn(nodeId), { type: "result", ref: inv.jti, ok: false, error: answer.error })).toBe(
-          true,
-        );
-        return await resP;
-      }
-      expect(resolveResult(liveConn(nodeId), { type: "result", ref: inv.jti, ok: true })).toBe(true);
-      // The route awaits the detect pass before answering, so the second
-      // frame follows the inventory answer promptly.
-      await waitFor(() => sock.sent.length > 1, "detect command on the wire");
-      const det = claimsOf(1);
+      // Exactly ONE frame on the wire: the deleted ladder was a second
+      // signed round trip, so a second frame is itself the regression.
       expect(det.cmd.type).toBe("detect");
-      const detEv = detectAnswer.ok
+      expect(det.aud).toBe(`node:${nodeId}`);
+      expect(getLive(nodeId)).toBeDefined();
+      const ev = detectAnswer.ok
         ? ({ type: "result", ref: det.jti, ok: true, data: detectAnswer.data as never } as const)
         : ({ type: "result", ref: det.jti, ok: false, error: detectAnswer.error } as const);
-      expect(resolveResult(liveConn(nodeId), detEv)).toBe(true);
-      return await resP;
+      expect(resolveResult(liveConn(nodeId), ev)).toBe(true);
+      const res = await resP;
+      expect(sock.sent).toHaveLength(1); // no `inventory` command rides along
+      return res;
     } finally {
       resetNodeRegistryForTests();
     }
@@ -390,20 +382,20 @@ describe("/api/nodes harness state + recheck", () => {
     expect((await req("POST", `/api/nodes/${id}/recheck`)).status).toBe(401);
   });
 
-  it("recheck online: sends the signed inventory command; resolves {ok:true} on the agent's answer", async () => {
+  it("recheck online: sends the signed detect command and nothing else; resolves {ok:true} on the answer", async () => {
     const id = await mkAgent();
-    const res = await recheckWithAnswer(id, { ok: true });
+    const res = await recheckWithAnswer(id);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
   });
 
   it("recheck online: an agent-reported failure maps to 409 NODE_UNREACHABLE", async () => {
     const id = await mkAgent();
-    const res = await recheckWithAnswer(id, { ok: false, error: "scan failed" });
+    const res = await recheckWithAnswer(id, { ok: false, error: "detect exploded" });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; message: string };
     expect(body.code).toBe("NODE_UNREACHABLE");
-    expect(body.message).toContain("scan failed");
+    expect(body.message).toContain("detect exploded");
   });
 
   it("recheck online: the detect answer is stored parsed (the node's raw banner became a version)", async () => {
@@ -413,14 +405,10 @@ describe("/api/nodes harness state + recheck", () => {
     // process's parseVersion. Nothing on this path can fabricate a version.
     const id = await mkAgent();
     const banner = "Hermes Agent v0.16.0 (2026.6.5) - upstream 5e01a5db";
-    const res = await recheckWithAnswer(
-      id,
-      { ok: true },
-      {
-        ok: true,
-        data: { results: [{ harnessId: H2, installed: true, binaryPath: "/x/hermes", rawVersion: banner }] },
-      },
-    );
+    const res = await recheckWithAnswer(id, {
+      ok: true,
+      data: { results: [{ harnessId: H2, installed: true, binaryPath: "/x/hermes", rawVersion: banner }], env: {} },
+    });
     expect(res.status).toBe(200);
     const stored = (await nodes.findById(id)) as NodeTable;
     const entries = readAgentInventory(stored).entries;
@@ -429,27 +417,26 @@ describe("/api/nodes harness state + recheck", () => {
     expect(stored.inventoryJson).not.toContain("upstream");
   });
 
-  it("recheck against an agent that predates detect: unsupported is swallowed, {ok:true} still attests the stored inventory", async () => {
-    // The protocol stays at 2 across the detect ADD (bump is Task 8), so an
-    // already-deployed v2 agent passes the exact-match gate and answers the
-    // new command `unsupported` — the dispatch switch's contract arm. The
-    // inventory command above it SUCCEEDED and its event stored the agent's
-    // own self-parsed scan (today's behavior), so the honest answer is the
-    // pre-change success, not a 409 that contradicts the stored snapshot and
-    // punishes the `unsupported` contract.
+  it("recheck: `unsupported` maps to 409 NODE_UNREACHABLE — the pre-detect-agent swallow is gone (R14c)", async () => {
+    // The retired ladder swallowed this code on the detect pass, justified by
+    // "a deployed v2 agent predates the handler". Gate 2 (exact protocol
+    // match, both directions) means no such agent can hold this socket, so
+    // an `unsupported` answer is a genuinely broken node, not a compat state.
     const id = await mkAgent();
-    const res = await recheckWithAnswer(id, { ok: true }, { ok: false, error: "unsupported" });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    const res = await recheckWithAnswer(id, { ok: false, error: "unsupported" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("NODE_UNREACHABLE");
   });
 
-  it("recheck: a GENUINE detect failure still maps to 409 NODE_UNREACHABLE (only unsupported is swallowed)", async () => {
+  it("recheck: a malformed detect answer propagates as a 500 (never a silent success)", async () => {
+    // The driver THROWS on an answer it cannot parse; the route's error ladder
+    // is NodeRpcError → 409 and everything else → global handler. A swallowed
+    // garbage answer would make {ok:true} attest a snapshot that never
+    // changed.
     const id = await mkAgent();
-    const res = await recheckWithAnswer(id, { ok: true }, { ok: false, error: "detect exploded" });
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { code: string; message: string };
-    expect(body.code).toBe("NODE_UNREACHABLE");
-    expect(body.message).toContain("detect exploded");
+    const res = await recheckWithAnswer(id, { ok: true, data: { results: "not rows" } });
+    expect(res.status).toBe(500);
   });
 
   it("node page load (GET /:id) fires detect best-effort and never waits for it", async () => {
@@ -464,7 +451,12 @@ describe("/api/nodes harness state + recheck", () => {
       await waitFor(() => sock.sent.some((f) => claimsOf(f).cmd.type === "detect"), "detect frame on the wire");
       const claims = claimsOf(sock.sent.find((f) => claimsOf(f).cmd.type === "detect") as string);
       expect(
-        resolveResult(liveConn(id), { type: "result", ref: claims.jti, ok: true, data: { results: [] } as never }),
+        resolveResult(liveConn(id), {
+          type: "result",
+          ref: claims.jti,
+          ok: true,
+          data: { results: [], env: {} } as never,
+        }),
       ).toBe(true);
       // applyInventory runs after the settle resolves the driver's await; poll
       // (waitFor's predicate is sync) until the snapshot lands.
