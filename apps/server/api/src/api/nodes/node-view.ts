@@ -39,6 +39,7 @@ export const NodeAccessSchema = t.Union([t.Literal("owner"), t.Literal("edit"), 
 /** One harness row of a node view — plugin identity × per-node state. */
 export const NodeHarnessViewSchema = t.Object({
   harnessId: t.String({ description: "Harness plugin id" }),
+  name: t.String({ description: "Plugin display name from the instance store's manifest" }),
   installed: t.Boolean({
     description:
       "local: live binary probe; enrolled node: the cached detect answer (false until the first detect lands)",

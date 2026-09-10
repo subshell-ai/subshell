@@ -134,7 +134,7 @@ describe("NodeHarnessCard", () => {
     // The route these controls POSTed to is gone (Task 9 deleted
     // set-node-plugin.route.ts), so even the owner gets no manage affordance
     // here — managing plugins moved to the instance page.
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }] });
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", name: "Pi", installed: true }] });
     try {
       expect(screen.queryByRole("button", { name: /remove/i })).toBeNull();
       expect(screen.queryByText(/add a plugin/i)).toBeNull();
@@ -147,10 +147,14 @@ describe("NodeHarnessCard", () => {
   it("rows come from detection, and say when they were checked", async () => {
     const iso = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const { restore } = await mount({
-      harnesses: [{ harnessId: "pi", installed: true, version: "1.2.3", checkedAt: iso }],
+      harnesses: [{ harnessId: "pi", name: "Pi", installed: true, version: "1.2.3", checkedAt: iso }],
     });
     try {
-      expect(screen.getByText("pi")).toBeDefined();
+      // The row leads with the instance store's display NAME, case-sensitively
+      // pinned; the negative half is the same claim: the raw id is not what
+      // the reader sees (spec 2026-09-10 follow-ups).
+      expect(screen.getByText("Pi", { caseSensitive: true })).toBeDefined();
+      expect(screen.queryByText("pi", { caseSensitive: true })).toBeNull();
       expect(screen.getByText(/1\.2\.3/)).toBeDefined();
       expect(screen.getByText(/checked/i)).toBeDefined();
       expect(screen.getByText("ready")).toBeDefined();
@@ -179,7 +183,7 @@ describe("NodeHarnessCard", () => {
     // "edit (or owner) additionally configures the node (re-checks)".
     // Gating the button on `canManage` hid a permitted action — the button
     // mirrors the route, and the manage affordances stay gone for everyone.
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], access: "edit" });
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", name: "Pi", installed: true }], access: "edit" });
     try {
       expect(screen.getByRole("button", { name: /re-check/i })).toBeDefined();
       expect(screen.queryByRole("button", { name: /remove/i })).toBeNull();
@@ -190,10 +194,10 @@ describe("NodeHarnessCard", () => {
   });
 
   it("a view grantee is offered no Re-check, but sees the same rows", async () => {
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], access: "view" });
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", name: "Pi", installed: true }], access: "view" });
     try {
       expect(screen.queryByRole("button", { name: /re-check/i })).toBeNull();
-      expect(screen.getByText("pi")).toBeDefined();
+      expect(screen.getByText("Pi", { caseSensitive: true })).toBeDefined();
     } finally {
       restore();
     }
@@ -211,7 +215,10 @@ describe("NodeHarnessCard", () => {
   });
 
   it("a stale inventory says so rather than pretending", async () => {
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], inventoryStale: true });
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "pi", name: "Pi", installed: true }],
+      inventoryStale: true,
+    });
     try {
       expect(screen.getByText(/last-known/i)).toBeDefined();
     } finally {
@@ -220,7 +227,10 @@ describe("NodeHarnessCard", () => {
   });
 
   it("a fresh inventory does not claim staleness", async () => {
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], inventoryStale: false });
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "pi", name: "Pi", installed: true }],
+      inventoryStale: false,
+    });
     try {
       expect(screen.queryByText(/last-known/i)).toBeNull();
     } finally {
@@ -252,7 +262,7 @@ describe("NodeHarnessCard", () => {
     // machine's card their absence is the visible proof the inversion
     // landed: a row never says "not usable", "could not load", or "restart".
     const { restore } = await mount({
-      harnesses: [{ harnessId: "pi", installed: true, broken: "boom at load", restartRequired: true }],
+      harnesses: [{ harnessId: "pi", name: "Pi", installed: true, broken: "boom at load", restartRequired: true }],
     });
     try {
       expect(screen.queryByText(/boom/i)).toBeNull();

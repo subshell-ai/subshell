@@ -14,7 +14,8 @@ const SPAWN_TIMEOUT = 30_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** One harness row of a node view (`NodeHarnessViewSchema`). */
+/** One harness row of a node view (`NodeHarnessViewSchema`; the fields this
+ * spec reads — the row also carries the display name the web card renders). */
 interface HarnessRow {
   harnessId: string;
   installed: boolean;

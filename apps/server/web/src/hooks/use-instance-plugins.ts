@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PROFILES_QUERY_KEY } from "@/hooks/use-profiles";
 import { apiFetch } from "@/lib/api";
 
 /** Query key of the instance plugin catalog (`GET /api/plugins`). */
@@ -115,6 +116,11 @@ export function useUninstallInstancePlugin() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: INSTANCE_PLUGINS_QUERY_KEY });
+      // `mode=delete` swept profiles across EVERY user (spec §6.1), so the
+      // profiles list a viewer has open is stale the moment this returns;
+      // `keep` touched none and the extra refetch is the cheap, honest
+      // default for both modes rather than branching on the flag's meaning.
+      void queryClient.invalidateQueries({ queryKey: PROFILES_QUERY_KEY });
     },
   });
 }

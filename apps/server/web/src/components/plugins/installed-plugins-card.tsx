@@ -60,6 +60,15 @@ export function InstalledPluginsCard({
                     setEnabled.mutate(
                       { id: p.id, enabled: checked },
                       {
+                        // A later success retires the row's old failure text:
+                        // leaving it up reads as "still broken" under a
+                        // switch that just moved, and the error IS gone.
+                        onSuccess: () =>
+                          setRowErrors((prev) => {
+                            if (prev[p.id] === undefined) return prev;
+                            const { [p.id]: _retired, ...rest } = prev;
+                            return rest;
+                          }),
                         onError: (err) =>
                           setRowErrors((prev) => ({ ...prev, [p.id]: errMessage(err, "The change was not saved.") })),
                       },

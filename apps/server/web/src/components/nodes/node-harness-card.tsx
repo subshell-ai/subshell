@@ -107,13 +107,11 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
         {harnesses.map((h) => (
           <div key={h.harnessId} className="space-y-1">
             <div className="flex flex-wrap items-center gap-3">
-              {/* Named by id, deliberately: the only registry this page may
-                  read is the node view itself. The old card recovered display
-                  names from `GET /api/setup/harnesses`, which post-inversion
-                  answers "what this build can install" (built-ins), not "what
-                  is installed" — a registry-installed plugin would have been
-                  nameless by that lookup anyway. */}
-              <span className="min-w-0 flex-1 truncate font-medium">{h.harnessId}</span>
+              {/* Named by the node view itself: every row carries the display
+                  name from the instance store's manifest (spec 2026-09-10
+                  follow-ups), so the page needs no second registry read and a
+                  registry-installed plugin is named exactly like a built-in. */}
+              <span className="min-w-0 flex-1 truncate font-medium">{h.name}</span>
               {/* The badge is the detection answer: whether the program this
                   plugin drives was found on this machine. `no-binary` reads
                   ready because a plugin that declares no program is not one

@@ -19,6 +19,12 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "list" : [["list"], ["html", { open: "never" }]],
+  // Deliberately generous. Specs that launch panes pay agent spawn, enroll,
+  // detect and real tmux on a shared runner; the final review named the
+  // defaults (5 s expect, 30 s test) this suite's flake class under load.
+  // A slow machine should go green late, not red early.
+  timeout: 120_000,
+  expect: { timeout: 15_000 },
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",

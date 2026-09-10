@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
+import { PROFILES_QUERY_KEY } from "@/hooks/use-profiles";
+import { apiFetch } from "@/lib/api";
 import { Route } from "@/routes/settings_.plugins";
 
 /**
@@ -33,6 +35,8 @@ interface PageFixture {
   installed?: RowFixture[];
   catalog?: RowFixture[];
   impact?: PluginImpact;
+  /** The first PATCH fails; later ones succeed (the retry-the-row case). */
+  failPatchOnce?: boolean;
 }
 
 function row(f: RowFixture): InstancePluginRow {
@@ -65,12 +69,20 @@ interface Call {
 function mockServer(fx: PageFixture) {
   const calls: Call[] = [];
   const plugins = [...(fx.installed ?? []).map(row), ...(fx.catalog ?? []).map(row)];
+  let failRemaining = fx.failPatchOnce ? 1 : 0;
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = init?.method ?? "GET";
     calls.push({ method, pathname: url.pathname, search: url.search, body: init?.body as string | undefined });
     const json = (obj: unknown) => Promise.resolve(new Response(JSON.stringify(obj)));
+    if (url.pathname === "/api/profiles" && method === "GET") return json([]);
+    if (url.pathname.startsWith("/api/plugins") && method === "PATCH") {
+      if (failRemaining > 0) {
+        failRemaining--;
+        return Promise.resolve(new Response(JSON.stringify({ message: "nope" }), { status: 502 }));
+      }
+    }
     if (url.pathname === "/api/settings/public") {
       return json({
         allowRegistrations: false,
@@ -116,7 +128,23 @@ function mockServer(fx: PageFixture) {
   };
 }
 
-function renderPage() {
+/**
+ * Holds a PROFILES_QUERY_KEY query ACTIVE for the duration of a render, so
+ * `invalidateQueries` against it must produce a visible refetch (TanStack
+ * only refetches stale keys that have observers). Used by the uninstall test:
+ * `mode=delete` sweeps profiles for EVERY user, so the uninstall mutation
+ * must invalidate this key or the viewer keeps a phantom list until refetch-
+ * on-focus.
+ */
+function ProfilesProbe() {
+  useQuery({
+    queryKey: PROFILES_QUERY_KEY,
+    queryFn: () => apiFetch<unknown[]>("/api/profiles"),
+  });
+  return null;
+}
+
+function renderPage(probeProfiles = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // Re-parented onto a test root carrying the ConfirmProvider, the same
   // provider __root mounts in production (install-by-name confirms through it).
@@ -124,6 +152,7 @@ function renderPage() {
     component: () => (
       <ConfirmProvider>
         <Outlet />
+        {probeProfiles && <ProfilesProbe />}
       </ConfirmProvider>
     ),
   });
@@ -313,6 +342,45 @@ describe("instance plugins page", () => {
     try {
       renderPage();
       expect(await screen.findByText(/missing entry file/i)).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a failed toggle says so, and a later success retires the message", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "thing", name: "Thing" }], failPatchOnce: true });
+    try {
+      renderPage();
+      const sw = await screen.findByRole("switch", { name: "Thing enabled" });
+      fireEvent.click(sw);
+      // First PATCH answers 502: the row must show the failure, not silently
+      // snap back to the server's still-unchanged state.
+      await screen.findByText(/nope/i);
+      fireEvent.click(sw);
+      // The retry succeeds — and the stale error must LEAVE. A kept-up
+      // failure line under a control that just worked reads as "still
+      // broken" and is a lie about the current state.
+      await waitFor(() => expect(screen.queryByText(/nope/i)).toBeNull());
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("uninstall with mode=delete re-fetches the viewer's profiles list", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "thing", name: "Thing" }] });
+    try {
+      renderPage(true); // profiles probe active, so invalidation shows on the wire
+      const profilesGets = () => m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/profiles").length;
+      await screen.findByText("Thing");
+      expect(profilesGets()).toBeGreaterThanOrEqual(1);
+      fireEvent.click(screen.getByRole("button", { name: "Uninstall Thing" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("radio", { name: /Delete the profiles/i }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
+      await waitFor(() => expect(m.deletedWith()).toMatchObject({ mode: "delete" }));
+      // The sweep covers EVERY user's profiles and the Defaults included; a
+      // profiles list left stale until refetch-on-focus is a phantom.
+      await waitFor(() => expect(profilesGets()).toBeGreaterThanOrEqual(2));
     } finally {
       m.restore();
     }

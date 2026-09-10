@@ -52,6 +52,12 @@ export const INVENTORY_TTL_MS = 10 * 60 * 1000;
 export interface EffectiveHarnessState {
   /** Harness plugin id */
   harnessId: string;
+  /**
+   * Plugin display name from the instance store's manifest. The id is an
+   * identifier; a row a person reads should say "Claude Code", not
+   * "claude-code" (spec 2026-09-10 vocabulary rule: labels are not ids).
+   */
+  name: string;
   /** local: live binary probe; agent: cached inventory (false until the first detection lands) */
   installed: boolean;
   /** Version from the detection (agent nodes only — the local view skips nothing: the probe answers it) */
@@ -248,6 +254,7 @@ export async function effectiveHarnessStates(
     const entry = probe.entries.get(report.id);
     const state: EffectiveHarnessState = {
       harnessId: report.id,
+      name: report.name,
       installed: entry?.installed === true,
     };
     if (entry?.version) state.version = entry.version;

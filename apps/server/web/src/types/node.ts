@@ -23,7 +23,9 @@ export type NodeStatus = "online" | "offline";
 export interface NodeHarness {
   /** Harness plugin id (e.g. "claude") */
   harnessId: string;
-  /** local: live binary probe; agent: cached inventory (false until the first inventory lands) */
+  /** Plugin display name from the instance store's manifest (the row's label) */
+  name: string;
+  /** local: live binary probe; agent: cached detect answer (false until the first detect lands) */
   installed: boolean;
   /** Installed version from the node's own detection */
   version?: string;
