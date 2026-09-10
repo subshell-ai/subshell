@@ -9,7 +9,8 @@ not restate what §8 already settled: registry install verifies the tarball
 against the registry's own `integrity` hash, extraction uses a vendored tar
 reader (no `tar(1)`, the agent is a compiled binary in minimal containers),
 built-ins ship embedded and prefer the embedded copy, publishing follows
-`~/projects/loglayer`'s OIDC trusted publishing with self-hosted runners, and
+`~/projects/loglayer`'s OIDC trusted publishing (on GitHub-hosted runners,
+measured in that repo's own workflow — see §4's Correction 1), and
 §13's setup-route guard (the anonymous first-run window stays built-in-ids-only)
 is load-bearing and unchanged.
 
@@ -198,16 +199,35 @@ Extraction hard rules, all testable against fixture `.tgz` buffers:
 | id collision with a different package | refusal naming both packages (§2.4) |
 | pinned version absent from registry | error; NO embedded fallback (§2.5) |
 
-## 4. Publishing (§8.3, as specced, with the fleet rules)
+## 4. Publishing (§8.3, as specced — with two corrections found in implementation)
 
 `changesets/action` gains the publish script (`changeset publish`), `id-token:
-write`, `~/.npmrc` removed pre-publish, `publishConfig.access: public` on the
-five plugin packages (and `@subshell-ai/plugin-api`), the packages leave the
-changeset `ignore` list, and the job runs on `[self-hosted, Linux, X64]` with
-`timeout-minutes`. The operational note from §8.3 stands and is the phase's
-human step: trusted publishing must be configured per package on npmjs.com
-before the first successful publish; until then the publish job 403s, which is
-loud, correct, and expected.
+write`, `~/.npmrc` removed pre-publish, and a `turbo build
+--filter='@subshell-ai/*'` step BEFORE the action: all six publishable packages
+ship `files: ["dist"]` with no prepublish hook, so without it a first success
+would burn immutable npm version numbers on dist-less (or, on a persistent
+runner workspace, stale) tarballs. The packages were already out of the
+changeset `ignore` list (verified: it holds only `@internal/*`), and every
+publishable `package.json` already carries `publishConfig.access: public`
+(verified). `push-git-tags` becomes true; `privatePackages.tag: false` keeps
+`@internal/*` untagged.
+
+**Correction 1, found by the task-8 review and measured against docs.npmjs.com
+2026-09-09: npm's OIDC trusted publishing supports GitHub-HOSTED runners only.**
+§8.3's "self-hosted runners, not `ubuntu-latest`" bullet is therefore not
+implementable as written for the PUBLISH path — and the loglayer precedent it
+cited in fact runs `ubuntu-latest`. The fleet rule ("no hosted minutes") and
+tokenless publishing collide head-on here. This is an OPEN OPERATOR DECISION
+(see §8 of this spec's successors); the shipped workflow says so in its own
+comments rather than pretending a configured 403 is the only gate. What is NOT
+open: the job must never publish with a token just to work around it without
+that being decided out loud.
+
+**Correction 2, same review:** the job previously needed no build at all; now
+it does, per the paragraph above, and the CI prose (workflow header, AGENTS.md's
+"Merging does NOT cut a release") was updated to match what the version-PR
+merge now does — pushes `@subshell-ai/*` tags and, once the runner question is
+settled, publishes to npm.
 
 Testing before any package is published: pane-runtime and agent tests run
 against a FAKE registry (a small Bun.serve fixture serving packuments and

@@ -353,6 +353,14 @@ What we change from loglayer, because this repo is different:
 - **Self-hosted runners, not `ubuntu-latest`.** The job runs on
   `[self-hosted, Linux, X64]` with a `timeout-minutes`, per the fleet rules in
   the root `AGENTS.md`. Bun is the package manager, not pnpm.
+  **Correction (2026-09-09, found implementing phase 3):** this bullet is not
+  implementable for the PUBLISH path — npm's OIDC trusted publishing supports
+  GitHub-HOSTED runners only (measured against docs.npmjs.com), and loglayer
+  itself runs `ubuntu-latest`, so "the fleet rule, unchanged" and "tokenless"
+  collide head-on. The publish wiring shipped as specced-minus-this-claim with
+  honest CI comments; the runner choice (hosted job for publish only, or defer)
+  is an open operator decision, recorded in
+  `2026-09-09-plugins-phase3-registry-design.md` §4.
 - **The existing four app pipelines are untouched.** They tag `<app>-vX.Y.Z` and
   publish GitHub Releases; npm tags live in a different namespace
   (`@subshell-ai/plugin-x@1.0.0`) and cannot collide. The plan job's
