@@ -49,7 +49,7 @@ function node(overrides: Partial<Node>): Node {
   };
 }
 
-const CLAUDE = { harnessId: "claude-code", enabled: true, installed: true };
+const CLAUDE = { harnessId: "claude-code", name: "Claude Code", enabled: true, installed: true };
 const LOCAL = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE] });
 const AGENT_ONLINE = node({ id: "a1", name: "mac mini", status: "online", harnesses: [CLAUDE] });
 const AGENT_INCOMPAT = node({ id: "a3", name: "studio", harnesses: [] });

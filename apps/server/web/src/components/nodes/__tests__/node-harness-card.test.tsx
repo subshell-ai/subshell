@@ -153,8 +153,8 @@ describe("NodeHarnessCard", () => {
       // The row leads with the instance store's display NAME, case-sensitively
       // pinned; the negative half is the same claim: the raw id is not what
       // the reader sees (spec 2026-09-10 follow-ups).
-      expect(screen.getByText("Pi", { caseSensitive: true })).toBeDefined();
-      expect(screen.queryByText("pi", { caseSensitive: true })).toBeNull();
+      expect(screen.getByText((content) => content === "Pi")).toBeDefined();
+      expect(screen.queryByText((content) => content === "pi")).toBeNull();
       expect(screen.getByText(/1\.2\.3/)).toBeDefined();
       expect(screen.getByText(/checked/i)).toBeDefined();
       expect(screen.getByText("ready")).toBeDefined();
@@ -197,7 +197,7 @@ describe("NodeHarnessCard", () => {
     const { restore } = await mount({ harnesses: [{ harnessId: "pi", name: "Pi", installed: true }], access: "view" });
     try {
       expect(screen.queryByRole("button", { name: /re-check/i })).toBeNull();
-      expect(screen.getByText("Pi", { caseSensitive: true })).toBeDefined();
+      expect(screen.getByText((content) => content === "Pi")).toBeDefined();
     } finally {
       restore();
     }
@@ -245,7 +245,7 @@ describe("NodeHarnessCard", () => {
     // this guarantee: it adds rows from NOTHING else — the bait catalog
     // entry above must not resurrect the old "Add a plugin" list.
     const { restore } = await mount({
-      harnesses: [{ harnessId: "gone", installed: true }],
+      harnesses: [{ harnessId: "gone", name: "Gone", installed: true }],
       instanceHas: ["pi"],
     });
     try {
@@ -279,9 +279,9 @@ describe("NodeHarnessCard", () => {
     // Kept verbatim: these are DETECTION reasons — facts about this machine.
     const { restore } = await mount({
       harnesses: [
-        { harnessId: "claude", installed: false, reason: "not-on-path" },
-        { harnessId: "hermes", installed: false, reason: "override-invalid" },
-        { harnessId: "pi", installed: false, reason: "no-binary" },
+        { harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" },
+        { harnessId: "hermes", name: "Hermes", installed: false, reason: "override-invalid" },
+        { harnessId: "pi", name: "Pi", installed: false, reason: "no-binary" },
       ],
     });
     try {

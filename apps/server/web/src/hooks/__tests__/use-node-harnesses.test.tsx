@@ -28,8 +28,8 @@ const NODE: NodeDetail = {
   canManage: true,
   capabilities: [],
   harnesses: [
-    { harnessId: "claude", installed: true, version: "1.2.3" },
-    { harnessId: "hermes", installed: false },
+    { harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" },
+    { harnessId: "hermes", name: "Hermes", installed: false },
   ],
   inventoryStale: false,
 };

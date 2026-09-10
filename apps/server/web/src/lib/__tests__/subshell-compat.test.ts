@@ -22,10 +22,10 @@ function node(overrides: Partial<Node>): Node {
     ...overrides,
   };
 }
-const CLAUDE_ON = { harnessId: "claude-code", installed: true };
+const CLAUDE_ON = { harnessId: "claude-code", name: "Claude Code", installed: true };
 // A plugin the node declared whose PROGRAM was not found. There is no third
 // state any more: "disabled" went with the enable flag (spec 2026-09-09 §12).
-const CLAUDE_NO_BINARY = { harnessId: "claude-code", installed: false };
+const CLAUDE_NO_BINARY = { harnessId: "claude-code", name: "Claude Code", installed: false };
 const PROF = { id: "p1", name: "Default", harnessId: "claude-code", nodeId: null };
 
 describe("harnessFitsNode", () => {

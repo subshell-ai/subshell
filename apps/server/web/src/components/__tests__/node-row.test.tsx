@@ -18,9 +18,9 @@ const BASE: Node = {
   canManage: true,
   capabilities: [],
   harnesses: [
-    { harnessId: "claude", installed: true },
-    { harnessId: "opencode", installed: false },
-    { harnessId: "hermes", installed: true },
+    { harnessId: "claude", name: "Claude", installed: true },
+    { harnessId: "opencode", name: "OpenCode", installed: false },
+    { harnessId: "hermes", name: "Hermes", installed: true },
   ],
   inventoryStale: false,
 };

@@ -31,7 +31,7 @@ const NODE: Node = {
   access: "owner",
   canManage: true,
   capabilities: ["launch"],
-  harnesses: [{ harnessId: "claude", installed: true, version: "1.2.3" }],
+  harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" }],
   inventoryStale: false,
 };
 
