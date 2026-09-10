@@ -6,8 +6,11 @@
  * `bun pm pack` and serves the tgz, so these bytes must survive
  * pane-runtime's load-check as they are — the loader calls the factory and
  * requires `buildCommand`, `validateProfile` and `capabilities` on the
- * result (plugin-runtime.ts). It is never launched; no harness binary exists
- * for this id, and spec 14 only installs, reports, and removes it.
+ * result (plugin-runtime.ts). It IS launched now (spec 14, the control-plane
+ * plugins chain): the argv it builds is just the resolved binary, and its
+ * manifest's detect block points at the stub `pi` the e2e agent has on PATH
+ * via PI_PATH — so a node that holds no plugins at all can resolve, spawn,
+ * and run a pane driven by bytes that arrived from the fake registry.
  *
  * `subshell.description` and the top-level `license` are not decoration:
  * parseManifest (@subshell-ai/plugin-api) REFUSES a manifest whose subshell

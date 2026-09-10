@@ -9,7 +9,12 @@
     "id": "e2e-demo",
     "type": "agent-harness",
     "name": "E2E demo",
-    "description": "A third-party-style harness plugin for the registry e2e; never launched, only installed, reported, and removed",
-    "entry": "index.js"
+    "description": "A third-party-style harness plugin for the registry e2e; spec 14 installs it from the fake registry and launches it against the stub pi binary on an agent node",
+    "entry": "index.js",
+    "detect": {
+      "binaryName": "pi",
+      "envOverride": "PI_PATH",
+      "knownPaths": []
+    }
   }
 }

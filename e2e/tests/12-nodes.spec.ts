@@ -145,15 +145,14 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
  * `test.info().retry` (spec 06's idiom) so a CI retry never collides with
  * attempt 0's row (the temp DB survives attempts within a run).
  *
- * Protocol friction found (recorded for the errata; SINCE FIXED by P3-T8b):
- * inventory used to be PULL-ONLY — the agent pushed `ready` + `subshells_report`
- * at connect but never an inventory, and the create-time harness gate is strict
- * (FRESH snapshot saying installed), so a freshly enrolled node was ONLINE yet
- * rejected every launch with 409 "disabled or not installed" until something
- * sent the `inventory` command (the Re-check button / the POST this spec used
- * to make). The agent now PUSHES its first inventory after `ready` (after the
- * census — the backend reconcile applies exits first), so this spec waits for
- * the pushed snapshot instead of ordering a recheck.
+ * Detection model note (spec 2026-09-10 §4, supersedes the P3-T8b connect-
+ * push behavior): the agent still pushes `ready`, a census, and an inventory
+ * at connect, but the inventory is now an EMPTY claim — post-inversion the
+ * node holds no plugin concept, and the server rightly refuses to apply an
+ * empty array over the detection rows. What fills the harness list is the
+ * plane's `detect` command, sent on request: this spec's Re-check POST is
+ * that request, and the create-time gate's FRESHNESS rule (10-min TTL,
+ * installed) is what the wait below proves.
  */
 test("nodes: real agent from source enrolls, comes online, and hosts a remote launch", async ({ page, request }) => {
   // Agent boot + enrollment + a real tmux spawn on the node, all through the
@@ -228,12 +227,14 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       return row?.status === "online";
     });
 
-    // P3-T8b: the agent PUSHES its first inventory after `ready` — no manual
-    // Re-check POST here any more. Wait for the snapshot to land on the row,
-    // then drive the harness card's PATCH through the REAL gate — with a fresh
-    // snapshot in hand, enable is inventory-checked, and pi must read installed
-    // because the agent was spawned with PI_PATH (stub/client.ts).
-    await pollUntil("the connect-time inventory push never reached the node row", agent, async () => {
+    // Detection on demand (spec 2026-09-10 §4): nothing on the connect path
+    // fills the harness rows any more, so drive the Re-check — the plane
+    // ships its detect rules, the node probes its own PATH/PI_PATH, and the
+    // parsed answers merge over the cache. pi must read installed because
+    // the agent was spawned with PI_PATH (stub/client.ts).
+    const recheck = await request.post(`/api/nodes/${nodeId}/recheck`);
+    expect(recheck.ok(), await recheck.text()).toBe(true);
+    await pollUntil("the re-check never produced a fresh snapshot with pi installed", agent, async () => {
       const res = await request.get("/api/nodes");
       if (!res.ok()) return false;
       const fresh = ((await res.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
@@ -241,17 +242,14 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
         fresh !== undefined && !fresh.inventoryStale && fresh.harnesses.some((h) => h.harnessId === "pi" && h.installed)
       );
     });
-    // The agent SEEDED its built-ins on first start, so pi is already declared
-    // and there is no enable step: the node having the plugin IS it being
-    // offered. What the poll above proves is that both facts arrived, and they
-    // are separate ones (the plugin is installed, its program was found).
+    // The harness list is the instance store CROSSED with this node's
+    // detection: the plugin lives on the control plane (the agent has no
+    // plugins directory to declare from), and "found its program here" is
+    // the node's own fact. The row is the product of the two.
     const listed = await request.get("/api/nodes");
-    const seeded = ((await listed.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
-    // No `enabled` on the wire since phase 2b: a row existing IS the node
-    // offering that plugin, so `installed` (its program was found) is the only
-    // other fact there is.
-    expect(seeded?.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true });
-    expect(seeded?.inventoryStale).toBe(false);
+    const probed = ((await listed.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
+    expect(probed?.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true });
+    expect(probed?.inventoryStale).toBe(false);
 
     // ── 5. The /nodes page renders the row: name, online badge, pi chip.
     await page.goto("/nodes");
@@ -265,30 +263,33 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // ws-token + /ws upgrade + no reconnecting pill — never canvas text.
     const workingDir = mkdtempSync(path.join(home, "cwd"));
 
-    // The pairing gate (spec 2026-09-02 §1): with pi REMOVED from the node,
-    // the node picker must grey it with the reason instead of hiding it, then
-    // reinstall and launch for real. Removing the plugin is what "disabling"
-    // became: the node stops declaring it, which is the only way to stop
-    // offering it now.
-    expect(nodeId).toBeDefined();
-    const removed = await page.request.delete(`/api/nodes/${nodeId}/plugins/pi`);
-    expect(removed.ok(), await removed.text()).toBe(true);
+    // The pairing gate, instance-level form (spec 2026-09-10 §6.1): DISABLING
+    // pi at the instance drops its row off EVERY node at once — the store is
+    // one, so the old per-node removal no longer exists. The launch flow must
+    // grey the profile with its reason instead of hiding it (the node-option
+    // "no pi here" grey for a single missing detection lives on in
+    // `lib/subshell-compat`'s unit matrix — an instance disable cannot
+    // reproduce it because it takes every node down together), and
+    // re-enabling must restore everything with no state rebuilt.
+    const disabled = await page.request.patch("/api/plugins/pi", { data: { enabled: false } });
+    expect(disabled.ok(), await disabled.text()).toBe(true);
 
-    const nodeOption = page.getByRole("option", { name: nodeName }); // substring: survives the " · linux/x64" suffix
-    await page.goto("/new"); // fresh load — the client fetches the DISABLED state
+    await page.goto("/new"); // fresh load — the client refetches the node views
     await page.getByPlaceholder("Choose a profile").click();
-    await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
-    await page.getByPlaceholder("Choose a node").click();
-    await expect(nodeOption).toHaveCount(1); // greyed ≠ gone
-    await expect(nodeOption).toBeDisabled(); // aria-disabled row (Base UI item)
-    await expect(nodeOption.getByText("no pi here")).toBeVisible(); // node-side reason copy
+    const piOption = page.getByRole("option", { name: /Default \(pi\)/ });
+    await expect(piOption).toHaveCount(1); // greyed ≠ gone
+    await expect(piOption).toBeDisabled(); // aria-disabled row (Base UI item)
+    await expect(piOption.getByText("not installed on this node")).toBeVisible(); // reason, default node = Server
     await page.keyboard.press("Escape");
 
-    const reinstalled = await page.request.post(`/api/nodes/${nodeId}/plugins`, { data: { pluginId: "pi" } });
-    expect(reinstalled.ok(), await reinstalled.text()).toBe(true);
-    // The reinstall is out-of-band (no mutation to invalidate the query) and
+    const enabled = await page.request.patch("/api/plugins/pi", { data: { enabled: true } });
+    expect(enabled.ok(), await enabled.text()).toBe(true);
+    // The re-enable is out-of-band (no mutation to invalidate the query) and
     // /new does not poll nodes — reload so the pickers refetch and see pi
-    // enabled again (an aria-disabled row would swallow the real pick).
+    // offered again (the cached detection on THIS node is seconds old, so the
+    // row comes back crossed with it untouched; an aria-disabled row would
+    // swallow the real pick).
+    const nodeOption = page.getByRole("option", { name: nodeName }); // substring: survives the " · linux/x64" suffix
     await page.goto("/new");
     await page.getByPlaceholder("Choose a profile").click();
     await page.getByRole("option", { name: "Default (pi)", exact: true }).click();

@@ -4,70 +4,77 @@ import { ADMIN_STATE } from "./helpers";
 test.use({ storageState: ADMIN_STATE });
 
 /**
- * Installing and removing plugins on the CONTROL-PLANE HOST, through the same
- * Plugins card every node page renders (spec 2026-09-09 §11, phase 2b).
- *
- * The agent-node twin of this flow lives in 12-nodes.spec.ts; what this file
- * pins is that `local` is not special: the same card, the same two routes
- * (`POST`/`DELETE /api/nodes/local/plugins`), the same visible consequence in
- * the launch picker. Before phase 2b this page showed no actions on the host
- * at all, and before 2a the host had an enable table instead of a plugins
- * directory — the picker assertions below are what make "one meaning for
- * this host offers X" observable rather than aspirational.
+ * Uninstalling and reinstalling a plugin through **Settings → Plugins**, the
+ * instance door that replaced the per-node Plugins card (spec 2026-09-10 §6/
+ * §6.1). What this file has always pinned — the store and the launch picker
+ * agreeing in the browser, not just in unit tests — survives the move intact;
+ * what changed is that the store is ONE and the act is admin-only: removing
+ * pi here removes it on the Server node AND on every enrolled node at once,
+ * because the node view is the instance store crossed with that node's
+ * detection. The dialog's keep-vs-delete question (the §6.1 blast-radius
+ * prompt) gets its own assertions here too, since it has no other browser
+ * coverage and the "keep" default is the one that must never regress.
  *
  * pi is the plugin under test because its binary is stubbed on the host
  * (stack.ts `PI_PATH`), so its rows are deterministic here. The spec always
- * restores it in `finally`: the suite shares one backend and one data dir
- * across specs (`workers: 1`), and a pi left uninstalled would cascade into
- * every later profile and launch assertion.
+ * restores it in `finally`: the suite shares one backend and one instance
+ * store across specs (`workers: 1`), and a pi left uninstalled would cascade
+ * into every later profile and launch assertion.
  */
-test.describe("control-plane host plugins", () => {
-  /** The Plugins card on /nodes/local. */
-  function card(page: import("@playwright/test").Page) {
-    return page.locator("div.rounded-lg", { has: page.getByText("Plugins", { exact: true }) });
+test.describe("instance plugins", () => {
+  /** The Installed card on /settings/plugins. */
+  function installedCard(page: import("@playwright/test").Page) {
+    return page.locator("div.rounded-lg", { has: page.getByText("Installed", { exact: true }) });
   }
 
-  /** The pi row within it — the name span is the only exact "pi" in the card. */
+  /** The pi row within it — the name span is the only exact "pi" in the row. */
   function piRow(page: import("@playwright/test").Page) {
-    return card(page)
-      .locator("div.space-y-1")
+    return installedCard(page)
+      .locator("div.space-y-2")
       .filter({ has: page.getByText("pi", { exact: true }) });
   }
 
-  async function hostDeclaresPi(page: import("@playwright/test").Page): Promise<boolean> {
-    const res = await page.request.get("/api/nodes/local");
+  async function storeHoldsPi(page: import("@playwright/test").Page): Promise<boolean> {
+    const res = await page.request.get("/api/plugins");
     if (!res.ok()) return false;
-    const view = (await res.json()) as { harnesses: { harnessId: string }[] };
-    return view.harnesses.some((h) => h.harnessId === "pi");
+    const view = (await res.json()) as { plugins: { id: string; installed: boolean }[] };
+    return view.plugins.some((p) => p.id === "pi" && p.installed);
   }
 
-  test("remove and reinstall pi through the card, and the launch picker follows", async ({ page }) => {
+  test("uninstall and reinstall pi through the page, and every node's rows and the picker follow", async ({ page }) => {
     let removed = false;
     try {
-      // ── 1. The card offers Remove on the host, like on any node.
-      await page.goto("/nodes/local");
-      await expect(piRow(page).getByRole("button", { name: "Remove" })).toBeVisible();
+      // ── 1. The Installed card offers the enable switch and an Uninstall.
+      await page.goto("/settings/plugins");
+      await expect(piRow(page).getByRole("switch", { name: "pi enabled" })).toBeChecked();
+      await expect(piRow(page).getByRole("button", { name: "Uninstall pi" })).toBeVisible();
 
-      // ── 2. Remove it. The route deletes the directory and rewrites the
-      // mirror in the same call, so one poll settles both.
-      await piRow(page).getByRole("button", { name: "Remove" }).click();
-      await expect.poll(() => hostDeclaresPi(page), { timeout: 10_000 }).toBe(false);
+      // ── 2. Uninstall through the §6.1 dialog. It states the instance-wide
+      // consequence, names what uses the harness (fetched, not assumed), and
+      // defaults to keep. Confirming the default keeps profiles: the row
+      // leaves the store, the profiles are untouched (step 4 proves it by
+      // finding the picker row again, greyed rather than gone).
+      await piRow(page).getByRole("button", { name: "Uninstall pi" }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("heading", { name: "Uninstall pi?" })).toBeVisible();
+      await expect(dialog.getByText("stops offering it on every node")).toBeVisible();
+      await expect(dialog.getByLabel("Keep the profiles, unavailable until reinstalled")).toBeChecked();
+      await dialog.getByRole("button", { name: "Uninstall" }).click();
       removed = true;
+      await expect.poll(() => storeHoldsPi(page), { timeout: 10_000 }).toBe(false);
       await expect(piRow(page)).toHaveCount(0);
 
-      // The card now offers it back: the catalog is this build's plugins minus
-      // the declared set, and pi is the only difference.
-      await expect(card(page).getByRole("button", { name: "Install" })).toBeVisible();
+      // The catalog offers it back: "Add from this build" is this build's
+      // embedded set minus the store's, and pi is the only difference.
+      const catalog = page.locator("div.rounded-lg", { has: page.getByText("Add from this build", { exact: true }) });
+      await expect(catalog.getByRole("button", { name: "Install pi" })).toBeVisible();
 
-      // ── 3. The picker reflects the host, greyed rather than hidden. The
-      // node pick DEFAULTS to "local" (`emptyNewSubshellForm`), so the
-      // profile list is already paired against this host: pi's Default is
-      // grey with the reason right on it. The node-side "no pi here" grey
-      // this spec set out to assert is unreachable with one node — every
-      // profile that would grey Server is itself greyed first, and the
-      // default pick cannot be cleared — so the grey travels on the profile
-      // side here, where spec 12 pins the node side for agent nodes.
-      // Fresh load: the node query does not poll.
+      // ── 3. The picker follows, on the DEFAULT node (the form pre-picks
+      // "local"): pi's Default is grey with the reason right on it, because
+      // the node views are the store crossed with detection and the store
+      // just said no. (The node-option grey for a node MISSING a detected
+      // binary is `lib/subshell-compat`'s unit-tested matrix; an instance
+      // uninstall cannot reproduce it — it drops every node at once.)
       await page.goto("/new");
       await page.getByPlaceholder("Choose a profile").click();
       const piOption = page.getByRole("option", { name: /Default \(pi\)/ });
@@ -78,21 +85,19 @@ test.describe("control-plane host plugins", () => {
       await expect(piOption.getByText("not installed on this node")).toBeVisible();
       await page.keyboard.press("Escape");
 
-      // ── 4. Reinstall through the card. Back to the node page first: the
-      // picker detour left us on /new, where there is no Plugins card. This
-      // is the built-in path: the bytes come from the running build, not a
-      // network — phase 3 adds the registry behind the same two routes.
-      await page.goto("/nodes/local");
-      await card(page).getByRole("button", { name: "Install" }).click();
-      await expect.poll(() => hostDeclaresPi(page), { timeout: 10_000 }).toBe(true);
+      // ── 4. Reinstall through the catalog: the built-in path, bytes from
+      // the running binary, no network. Back to the page first: the picker
+      // detour left us on /new, which has no cards.
+      await page.goto("/settings/plugins");
+      const catalogAgain = page.locator("div.rounded-lg", {
+        has: page.getByText("Add from this build", { exact: true }),
+      });
+      await catalogAgain.getByRole("button", { name: "Install pi" }).click();
+      await expect.poll(() => storeHoldsPi(page), { timeout: 10_000 }).toBe(true);
       removed = false;
-      await expect(piRow(page).getByRole("button", { name: "Remove" })).toBeVisible();
-
-      // ── 5. And the picker un-greys with it: the grey is a live mirror of
-      // the host's declaration, not a latch. With pi back, its Default is
-      // selectable again, and paired against that profile the Server node is
-      // a clean option (the node option label carries " · os/arch", hence no
-      // `exact`).
+      await expect(piRow(page).getByRole("button", { name: "Uninstall pi" })).toBeVisible();
+      // "Keep" really meant keep: the Default profile is selectable again with
+      // no re-seeding, and the Server node is a clean option.
       await page.goto("/new");
       await page.getByPlaceholder("Choose a profile").click();
       await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
@@ -104,12 +109,13 @@ test.describe("control-plane host plugins", () => {
       await page.keyboard.press("Escape");
     } finally {
       if (removed) {
-        const res = await page.request.post("/api/nodes/local/plugins", { data: { pluginId: "pi" } });
+        const res = await page.request.post("/api/plugins", { data: { pluginId: "pi" } });
         expect(res.ok(), await res.text()).toBe(true);
       }
     }
-    // Downstream specs run against this same backend; prove the restore stuck
-    // rather than discovering it three files later as someone else's failure.
-    await expect.poll(() => hostDeclaresPi(page), { timeout: 10_000 }).toBe(true);
+    // Downstream specs run against this same backend and store; prove the
+    // restore stuck rather than discovering it three files later as someone
+    // else's failure.
+    await expect.poll(() => storeHoldsPi(page), { timeout: 10_000 }).toBe(true);
   });
 });
