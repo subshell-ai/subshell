@@ -253,7 +253,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       capabilities: ["uploads"], // ← no "mcp": the pre-Task-13 agent, byte-for-byte
       hostname: "h",
       agentVersion: "1.0.0",
-      executablePath: "/usr/bin/subshell",
+      mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
     };
     try {
       const res = await post({ ...base(claudeProfileId), nodeId, name: "cnode-gate" });

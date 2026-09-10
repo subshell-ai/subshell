@@ -1,4 +1,4 @@
-import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr } from "./guards.js";
+import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 
 /**
@@ -308,6 +308,15 @@ export type NodeCommandBody =
       type: "detect";
       /** One rule per harness to probe; an empty array is a legal no-op */
       specs: DetectSpecWire[];
+      /**
+       * Environment variable NAMES the plane asks this node to report values
+       * for (spec 2026-09-10 §5 as amended by the final review): the union of
+       * `subshell.hostEnv` across the plane's ENABLED harness manifests —
+       * the node has held no manifests since §6, so the plane names what it
+       * may ask. May be empty; the result's `env` then answers `{}`. The node
+       * answers ONLY these names, never a scan of its environment.
+       */
+      envNames: string[];
     }
   | {
       /** Chunked file write (terminal uploads relay, spec §3.4) */
@@ -433,11 +442,21 @@ export type NodeEvent =
       dataDir: string;
       capabilities: string[];
       /**
-       * Absolute path of the running subshell binary on the node; the
-       * control plane composes the MCP launch spec against it. Absent from
-       * pre-phase-2 agents.
+       * The agent's FULL self-invocation of its `mcp` subcommand: the
+       * `{ command, args }` that starts `subshell mcp` on this machine,
+       * whatever "this machine's subshell" turns out to be — a compiled
+       * binary answers `{ command: <self>, args: ["mcp"] }`, a
+       * bun-interpreted run answers `{ command: <bun>, args: [<entry>,
+       * "mcp"] }` (the agent's `selfInvocation` makes that call, and the
+       * pane's MCP config is spawned in the subshell's cwd, so the entry is
+       * absolute). The control plane composes the registration from it
+       * verbatim — it cannot derive this from any single path, because
+       * `process.execPath` is `bun` under an interpreter run and `bun mcp`
+       * is not a command. Only meaningful when `capabilities` includes
+       * `"mcp"`, which is the only agent that sends one; absent means the
+       * control plane falls back to `subshell mcp` on PATH.
        */
-      executablePath?: string;
+      mcpLaunch?: { command: string; args: string[] };
       /**
        * The node's home directory (spec 2026-09-10 §5). Plugin resume paths
        * fall back to `<homeDir>/.claude` style defaults, and the control
@@ -448,14 +467,6 @@ export type NodeEvent =
        * conversation rather than a failure.
        */
       homeDir?: string;
-      /**
-       * Values for the environment variables the node's installed plugins'
-       * manifests declared (`subshell.hostEnv`), and ONLY those — never the
-       * node's whole environment. Absent means nothing was reported; an
-       * absent KEY within it means a declared variable is unset on that
-       * machine, which is what triggers the plugin's own fallback.
-       */
-      env?: Record<string, string>;
     }
   | {
       type: "inventory";
@@ -498,12 +509,6 @@ export type NodeEvent =
 /* validators (hand-rolled, parseClientFrame style — spec §3)          */
 /* ------------------------------------------------------------------ */
 
-function isStrArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(isStr);
-}
-function isStringMap(value: unknown): value is Record<string, string> {
-  return isRecord(value) && Object.values(value).every(isStr);
-}
 /** Cheap recursive structural check that a value is a JSON value (no undefined/functions/NaN). */
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;
@@ -667,7 +672,11 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         if (!isStr(id) || !isStr(binaryName) || !isStr(envOverride) || !isStrArray(knownPaths)) return null;
         specs.push({ id, binaryName, envOverride, knownPaths: [...knownPaths] });
       }
-      return { type: "detect", specs };
+      // REQUIRED since the env-on-detect amendment: an absent list is not
+      // "ask for nothing", it is a plane that forgot the field — refuse it
+      // like every other malformed frame rather than guess the intent.
+      if (!isStrArray(value.envNames)) return null;
+      return { type: "detect", specs, envNames: [...value.envNames] };
     }
     case "write_file":
       return isStr(value.path) &&
@@ -710,9 +719,9 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         isStr(value.hostname) &&
         isStr(value.dataDir) &&
         isStrArray(value.capabilities) &&
-        (!("executablePath" in value) || isStr(value.executablePath)) &&
-        (!("homeDir" in value) || isStr(value.homeDir)) &&
-        (!("env" in value) || isStringMap(value.env))
+        (!("mcpLaunch" in value) ||
+          (isRecord(value.mcpLaunch) && isStr(value.mcpLaunch.command) && isStrArray(value.mcpLaunch.args))) &&
+        (!("homeDir" in value) || isStr(value.homeDir))
         ? (value as unknown as NodeEvent)
         : null;
     case "inventory": {

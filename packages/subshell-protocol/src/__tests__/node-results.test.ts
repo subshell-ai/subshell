@@ -112,7 +112,7 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
     expect(parseNodeCommandBody({ ...launchCmd })).not.toBeNull(); // absent ⇒ today's behavior
   });
 
-  it("ready.executablePath is an optional string", () => {
+  it("ready.mcpLaunch is an optional { command, args }", () => {
     const ready = {
       type: "ready",
       agentVersion: "0.2.0",
@@ -123,9 +123,13 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
       dataDir: "/home/u/.local/share/subshell",
       capabilities: [],
     };
-    expect(parseNodeEvent({ ...ready, executablePath: "/usr/local/bin/subshell" })?.type).toBe("ready");
-    expect(parseNodeEvent(ready)?.type).toBe("ready"); // pre-phase-2 agent omits it
-    expect(parseNodeEvent({ ...ready, executablePath: 42 })).toBeNull();
+    expect(parseNodeEvent({ ...ready, mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] } })?.type).toBe(
+      "ready",
+    );
+    expect(parseNodeEvent(ready)?.type).toBe("ready"); // a non-mcp agent omits it; the plane falls back
+    expect(parseNodeEvent({ ...ready, mcpLaunch: "/usr/bin/subshell mcp" })).toBeNull();
+    expect(parseNodeEvent({ ...ready, mcpLaunch: { command: "/usr/bin/subshell" } })).toBeNull(); // args required
+    expect(parseNodeEvent({ ...ready, mcpLaunch: { args: ["mcp"] } })).toBeNull(); // command required
   });
 });
 
@@ -166,39 +170,50 @@ describe("parseNodePaneSizeResult", () => {
 
 describe("detect result contract (inversion spec §4)", () => {
   it("accepts the raw-text answer shape, including every optional field", () => {
-    const rows = parseNodeDetectResults({
+    const answer = parseNodeDetectResults({
       results: [
         { harnessId: "hermes", installed: true, binaryPath: "/x/hermes", rawVersion: "Hermes v1.2.3 (build 9)" },
         { harnessId: "ghost", installed: false, reason: "not-on-path" },
         { harnessId: "term", installed: false, reason: "no-binary", checkedAt: "2026-09-10T00:00:00.000Z" },
       ],
+      // The §5 amendment: values for the env names the command asked about,
+      // present-only — an unset variable stays absent, which is what triggers
+      // the plugin's fallback.
+      env: { CLAUDE_CONFIG_DIR: "/custom" },
     });
-    expect(rows).toHaveLength(3);
-    expect(rows?.[0]).toMatchObject({ rawVersion: "Hermes v1.2.3 (build 9)" });
+    expect(answer?.rows).toHaveLength(3);
+    expect(answer?.rows[0]).toMatchObject({ rawVersion: "Hermes v1.2.3 (build 9)" });
     // Raw on purpose: version is what the CONTROL PLANE stores after
     // parseVersion; the wire never carries a parsed one.
-    expect(rows?.[0]).not.toHaveProperty("version");
+    expect(answer?.rows[0]).not.toHaveProperty("version");
+    expect(answer?.env).toEqual({ CLAUDE_CONFIG_DIR: "/custom" });
   });
 
-  it("accepts an empty results array and ignores extra members", () => {
-    expect(parseNodeDetectResults({ results: [] })).toEqual([]);
-    expect(parseNodeDetectResults({ results: [{ harnessId: "x", installed: false, future: 1 }] })).toHaveLength(1);
+  it("accepts an empty results array, an empty env, and ignores extra members", () => {
+    expect(parseNodeDetectResults({ results: [], env: {} })).toEqual({ rows: [], env: {} });
+    expect(
+      parseNodeDetectResults({ results: [{ harnessId: "x", installed: false, future: 1 }], env: {} })?.rows,
+    ).toHaveLength(1);
   });
 
-  it("refuses junk: no wrapper, no array, and rows missing or mis-typing their verdict", () => {
+  it("refuses junk: no wrapper, no array, a missing or mis-typed env, and rows missing or mis-typing their verdict", () => {
     for (const bad of [
       null,
       undefined,
       [],
       {},
-      { results: null },
-      { results: {} },
-      { results: [{ installed: false }] }, // no harnessId
-      { results: [{ harnessId: "x" }] }, // no installed verdict
-      { results: [{ harnessId: "x", installed: "yes" }] },
-      { results: [{ harnessId: "x", installed: false, reason: "unknown" }] },
-      { results: [{ harnessId: "x", installed: true, rawVersion: 7 }] },
-      { results: [{ harnessId: "x", installed: true, binaryPath: null }] },
+      { results: [] }, // no env — REQUIRED since the §5 amendment
+      { results: [], env: null },
+      { results: [], env: { A: 7 } }, // values are strings
+      { results: [], env: "CLAUDE_CONFIG_DIR=/custom" },
+      { results: null, env: {} },
+      { results: {}, env: {} },
+      { results: [{ installed: false }], env: {} }, // no harnessId
+      { results: [{ harnessId: "x" }], env: {} }, // no installed verdict
+      { results: [{ harnessId: "x", installed: "yes" }], env: {} },
+      { results: [{ harnessId: "x", installed: false, reason: "unknown" }], env: {} },
+      { results: [{ harnessId: "x", installed: true, rawVersion: 7 }], env: {} },
+      { results: [{ harnessId: "x", installed: true, binaryPath: null }], env: {} },
     ]) {
       expect(parseNodeDetectResults(bad)).toBeNull();
     }

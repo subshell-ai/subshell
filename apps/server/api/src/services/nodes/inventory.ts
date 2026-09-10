@@ -3,6 +3,7 @@ import {
   type DetectionReason,
   getHarness,
   type HarnessInventoryEntry,
+  type HarnessPlugin,
   scanOne,
 } from "@internal/pane-runtime";
 import {
@@ -15,6 +16,7 @@ import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
+import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
 
@@ -286,12 +288,50 @@ export function detectSpecs(harnesses: ReturnType<typeof allHarnesses> = allHarn
   }));
 }
 
+/**
+ * The env names to ask one node about: the union of `hostEnv` across the
+ * given harnesses (spec 2026-09-10 §5 as amended by the final review).
+ *
+ * The declarations are manifest DATA the control plane holds (and the node
+ * no longer does, §6), so the PLANE names the variables and the node only
+ * answers values. Callers pass the ENABLED set — a disabled plugin asks for
+ * nothing, its resume path is not a question anyone can ask.
+ */
+export function detectEnvNames(harnesses: readonly HarnessPlugin[]): string[] {
+  const names = new Set<string>();
+  for (const h of harnesses) for (const name of h.hostEnv ?? []) names.add(name);
+  return [...names];
+}
+
 /** Test seams for {@link detectOnNode} (the wire and the stamp clock). */
 export interface DetectOnNodeDeps {
   /** Wire seam (default `sendCommand`). */
   send?: typeof sendCommand;
   /** Clock for the `checkedAt` stamp (default `() => new Date()`). */
   now?: () => Date;
+  /**
+   * Seam for the env-names catalog: which harnesses' declarations the plane
+   * asks about (default: the instance's enabled set resolved through the
+   * registry). @internal test seam.
+   */
+  envHarnesses?: () => Promise<HarnessPlugin[]>;
+}
+
+/**
+ * The enabled harnesses whose `hostEnv` declarations the plane asks nodes
+ * about: the instance catalog (`plugin_state`-filtered, §6.1) resolved
+ * through the registry overlay. A catalog entry the registry cannot resolve
+ * (broken at the last refresh) contributes nothing — it has no manifest data
+ * to ask about, exactly as it has no lookup rules to ship.
+ * @internal exported for the wiring pin in `inventory-detect.test.ts`;
+ * production calls it only through {@link detectOnNode}.
+ */
+export async function enabledEnvHarnesses(): Promise<HarnessPlugin[]> {
+  const catalog = await enabledInstalledPlugins();
+  return catalog.flatMap((r) => {
+    const h = getHarness(r.id);
+    return h ? [h] : [];
+  });
 }
 
 /**
@@ -323,15 +363,19 @@ function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventor
 
 /**
  * Ask one agent node to run detection NOW, and cache the answer
- * (spec 2026-09-10 §4).
+ * (spec 2026-09-10 §4, env-on-detect per §5 as amended by the final review).
  *
- * The whole flow is a request: the plane ships the rules ({@link detectSpecs}),
- * the node probes and answers RAW, the raw text is parsed HERE with the
- * plugin's `parseVersion`, and the result is merged over the cached snapshot
- * and written through the SAME `applyInventory` path the inventory event uses.
+ * The whole flow is a request: the plane ships the rules ({@link detectSpecs})
+ * AND the env names it wants values for ({@link detectEnvNames} over the
+ * enabled manifests — the node holds no manifests to name them itself), the
+ * node probes and answers RAW, the raw text is parsed HERE with the plugin's
+ * `parseVersion`, and the result is merged over the cached snapshot and
+ * written through the SAME `applyInventory` path the inventory event uses.
  * Rows the answer does not cover keep their cached values — a ghost id only a
  * previous scan reported must survive a detect built from this server's
- * registry until something drops it.
+ * registry until something drops it. The env answers go to the live
+ * connection's facts, where `RemoteLauncher.canResume` composes resume paths
+ * from them.
  *
  * **Called from exactly three places: the node page load (best-effort),
  * Re-check, and the launch-driven kick in `RemoteLauncher.#kickDetect` (a
@@ -345,20 +389,31 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   const nodes = new NodesRepository(db);
   const node = await nodes.findById(nodeId);
   if (!node || node.kind === "local") return;
-  const data = await (deps.send ?? sendCommand)(nodeId, { type: "detect", specs: detectSpecs() });
-  const rows = parseNodeDetectResults(data);
-  if (!rows) throw new Error(`node "${nodeId}" answered the detect command with a malformed payload`);
+  const envHarnesses = await (deps.envHarnesses ?? enabledEnvHarnesses)();
+  const data = await (deps.send ?? sendCommand)(nodeId, {
+    type: "detect",
+    specs: detectSpecs(),
+    envNames: detectEnvNames(envHarnesses),
+  });
+  const answer = parseNodeDetectResults(data);
+  if (!answer) throw new Error(`node "${nodeId}" answered the detect command with a malformed payload`);
+  const { rows } = answer;
   const stamp = (deps.now?.() ?? new Date()).toISOString();
-  // Read-merge-write on `inventory_json`, and this is NOT the column's only
-  // writer: the `/ws/node` handler applies the agent's `inventory` EVENT
-  // through the same `applyInventory` (node-ws-handler.ts, `case "inventory"`),
-  // so an event landing between the read and the write here can be briefly
-  // overwritten by this merge (or vice versa). No interim serialization: the
-  // double writer ends when the inventory event stops carrying harnesses —
-  // the Task 7/8 demolition — NOT when the protocol number moves.
+  // Read-merge-write on `inventory_json`. This is the column's only writer
+  // of real rows: the agent's `inventory` EVENT still arrives through the
+  // `/ws/node` handler, but since the Task 7/8 demolition a protocol-3 agent
+  // sends `harnesses: []` on every one of them, and the handler treats the
+  // empty claim as "nothing to apply" — it can never overwrite these rows.
   const merged = readAgentInventory(node).entries;
   for (const row of rows) merged.set(row.harnessId, detectRowToEntry(row, stamp));
   await nodes.applyInventory(nodeId, JSON.stringify([...merged.values()]));
+  // The resume-path env (spec §5 as amended): this round trip is the only
+  // place these values arrive now, so it is also the seam that stashes them
+  // where `canResume` reads them. The connection is live by construction (the
+  // command just rode it); its `agent` facts are absent only in the sliver
+  // before `ready` lands, and there is then no facts object to update.
+  const conn = getLive(nodeId);
+  if (conn?.agent) conn.agent.env = answer.env;
 }
 
 /**

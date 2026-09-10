@@ -52,7 +52,9 @@ const REAL_BINARY = "/home/node-user/.local/bin/subshell-harness";
 /** Static stand-in for the node's live `ready` facts (spec §6.4 shapes). */
 const NODE_FACTS = {
   dataDir: "/home/node-user/.local/share/subshell",
-  executablePath: "/home/node-user/.local/bin/subshell",
+  // The compiled-agent shape of the ready-reported self-invocation; the
+  // parity claim is about the ARGV, and any faithful command serves it.
+  mcpLaunch: { command: "/home/node-user/.local/bin/subshell", args: ["mcp"] },
 };
 
 /** The subshell id the MCP config path is composed from (both sides, same input). */

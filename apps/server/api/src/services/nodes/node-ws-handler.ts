@@ -274,14 +274,15 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           capabilities: event.capabilities,
           hostname: event.hostname,
           agentVersion: event.agentVersion,
-          ...(event.executablePath ? { executablePath: event.executablePath } : {}),
-          // Spec 2026-09-10 §5: the resume-path inputs. Conditional spreads,
+          ...(event.mcpLaunch ? { mcpLaunch: event.mcpLaunch } : {}),
+          // Spec 2026-09-10 §5: the resume-path home. Conditional spread,
           // never bare `homeDir: event.homeDir` — an unreported field must
           // stay ABSENT on the facts (that is the state `canResume` reads as
-          // "node predates the reporting"), not arrive as undefined-valued
-          // keys a later `in`-check would misread.
+          // "nothing reported"), not arrive as an undefined-valued key a
+          // later `in`-check would misread. The env VALUES are NOT a ready
+          // field: they answer on the plane's `detect` round trip, whose
+          // driver stashes them here (inventory.ts `detectOnNode`).
           ...(event.homeDir ? { homeDir: event.homeDir } : {}),
-          ...(event.env ? { env: event.env } : {}),
         };
       }
       // The floor FIRST, because its refusal is the one a person can act on:

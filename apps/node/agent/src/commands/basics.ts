@@ -8,6 +8,7 @@ import {
   type NodeProbeEntry,
 } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
+import { hostEnvAnswers } from "../host-env.js";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSubshellId } from "../subshell-meta.js";
@@ -278,6 +279,12 @@ export async function execInventory(ctx: CommandContext): Promise<CommandResult>
  * answered `no-binary` without searching — exactly what `detectFor` produces
  * for a manifest with no `detect` block.
  *
+ * Also answers the command's `envNames`: the values of exactly the
+ * environment variables the plane asked about (spec 2026-09-10 §5 as amended
+ * by the final review), present ones only. The plane names them because the
+ * declarations live in manifests the NODE no longer holds; this machine
+ * never scans its environment for anything else.
+ *
  * Concurrent per spec, like `scanHarnesses`: the version probe is bounded at
  * 4 s per binary while the command's own deadline is 10 s, so a sequential
  * loop over a handful of slow binaries would answer after the plane had
@@ -302,5 +309,5 @@ export async function execDetect(_ctx: CommandContext, cmd: Cmd<"detect">): Prom
   );
   // No checkedAt: the probe happened just now, and the driver stamps the
   // store's clock — one time source for "when did we last look".
-  return { ok: true, data: { results } };
+  return { ok: true, data: { results, env: hostEnvAnswers(cmd.envNames) } };
 }

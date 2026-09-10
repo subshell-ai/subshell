@@ -79,10 +79,12 @@ const DEFAULT_FACTS: NodeAgentFacts = {
   capabilities: ["uploads", "mcp"],
   hostname: "scripted",
   agentVersion: "0.2.0",
-  executablePath: "/usr/bin/subshell",
+  // The compiled-agent spelling of the ready-reported self-invocation;
+  // tests that care about the interpreter shape override it.
+  mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
   // Spec 2026-09-10 §5. `env` is deliberately absent here: a scripted node
-  // with no reported env is a permanent regression pin for the "node
-  // reported no env" branch of resume-path computation.
+  // whose detect has not landed is a permanent regression pin for the
+  // "no env answered yet" branch of resume-path computation.
   homeDir: "/home/scripted",
 };
 

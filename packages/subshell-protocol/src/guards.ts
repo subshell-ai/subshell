@@ -24,3 +24,9 @@ export function isInt(value: unknown): value is number {
 export function isBool(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
+export function isStrArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isStr);
+}
+export function isStringMap(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every(isStr);
+}

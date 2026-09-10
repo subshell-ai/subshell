@@ -188,17 +188,23 @@ describe("parseNodeEvent", () => {
       hostname: "mac-mini",
       dataDir: "/Users/u/.local/share/subshell",
       capabilities: ["mcp"],
-      // Spec 2026-09-10 §5: the environment a manifest-declared resume path
-      // computes against. Both optional — absent means the node reported
-      // neither, and the control plane computes the default path anyway.
+      // The agent's self-invocation of `subshell mcp` (the interpreter-run
+      // branch: command is the interpreter, args lead with the entry script).
+      // Optional — a non-mcp agent omits it and the plane falls back.
+      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+      // Spec 2026-09-10 §5: the resume-path home. Optional — absent means the
+      // node reported none and the control plane computes the default anyway.
       homeDir: "/Users/u",
-      env: { CLAUDE_CONFIG_DIR: "/custom" },
     });
     expect(ev?.type).toBe("ready");
-    expect(ev).toMatchObject({ homeDir: "/Users/u", env: { CLAUDE_CONFIG_DIR: "/custom" } });
+    expect(ev).toMatchObject({
+      homeDir: "/Users/u",
+      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+    });
     expect(parseNodeEvent({ type: "ready", agentVersion: "0.1.0" })).toBeNull(); // malformed base fields still refuse
-    // A non-string homeDir or a non-string env value is a malformed frame, not
-    // a partial one: the parse is all-or-nothing like every other event here.
+    // A non-string homeDir, a mis-shaped mcpLaunch, or a non-string arg in it
+    // is a malformed frame, not a partial one: the parse is all-or-nothing
+    // like every other event here.
     expect(
       parseNodeEvent({
         type: "ready",
@@ -212,19 +218,21 @@ describe("parseNodeEvent", () => {
         homeDir: 7,
       }),
     ).toBeNull();
-    expect(
-      parseNodeEvent({
-        type: "ready",
-        agentVersion: "0.1.0",
-        protocolVersion: 1,
-        os: "darwin",
-        arch: "arm64",
-        hostname: "h",
-        dataDir: "/d",
-        capabilities: [],
-        env: { CLAUDE_CONFIG_DIR: 7 },
-      }),
-    ).toBeNull();
+    for (const bad of [42, { command: "/usr/bin/subshell" }, { command: 7, args: [] }, { command: "s", args: [1] }]) {
+      expect(
+        parseNodeEvent({
+          type: "ready",
+          agentVersion: "0.1.0",
+          protocolVersion: 1,
+          os: "darwin",
+          arch: "arm64",
+          hostname: "h",
+          dataDir: "/d",
+          capabilities: [],
+          mcpLaunch: bad,
+        }),
+      ).toBeNull();
+    }
     const inv = parseNodeEvent(
       JSON.stringify({
         type: "inventory",
@@ -354,36 +362,59 @@ describe("launch server-built argv, resolve rule, and mcp dialect", () => {
 
 describe("detect command (inversion spec §4)", () => {
   const spec = { id: "hermes", binaryName: "hermes", envOverride: "HERMES_PATH", knownPaths: [".local/bin/hermes"] };
+  const envNames = ["CLAUDE_CONFIG_DIR", "HERMES_HOME"];
 
   it("accepts a well-formed detect and round-trips every spec field", () => {
-    expect(parseNodeCommandBody({ type: "detect", specs: [spec] })).toEqual({ type: "detect", specs: [spec] });
+    expect(parseNodeCommandBody({ type: "detect", specs: [spec], envNames })).toEqual({
+      type: "detect",
+      specs: [spec],
+      envNames,
+    });
     // Empty binaryName is the NO-BINARY marker (a plugin with no `detect`
     // block travels as the empty spec, not as absent keys) — shape, not verdict.
     expect(
       parseNodeCommandBody({
         type: "detect",
         specs: [{ id: "term", binaryName: "", envOverride: "", knownPaths: [] }],
+        envNames,
       }),
     ).toEqual({
       type: "detect",
       specs: [{ id: "term", binaryName: "", envOverride: "", knownPaths: [] }],
+      envNames,
     });
-    expect(parseNodeCommandBody({ type: "detect", specs: [] })).toEqual({ type: "detect", specs: [] });
+    // An empty specs array is a legal no-op; an empty envNames means the
+    // plane's enabled manifests declare nothing — also legal, and the node
+    // then answers `env: {}`.
+    expect(parseNodeCommandBody({ type: "detect", specs: [], envNames: [] })).toEqual({
+      type: "detect",
+      specs: [],
+      envNames: [],
+    });
   });
 
   it("requires all three lookup fields on every spec (the manifest makes them required)", () => {
-    expect(parseNodeCommandBody({ type: "detect" })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: "hermes" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: "hermes", envNames })).toBeNull();
     const { id: _id, ...noId } = spec;
     const { binaryName: _b, ...noBinary } = spec;
     const { envOverride: _e, ...noEnv } = spec;
     const { knownPaths: _k, ...noKnown } = spec;
-    expect(parseNodeCommandBody({ type: "detect", specs: [noId] })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: [noBinary] })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: [noEnv] })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: [noKnown] })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: [{ ...spec, binaryName: 7 }] })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: [{ ...spec, knownPaths: ["a", 1] }] })).toBeNull();
-    expect(parseNodeCommandBody({ type: "detect", specs: [null] })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noId], envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noBinary], envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noEnv], envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [noKnown], envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [{ ...spec, binaryName: 7 }], envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [{ ...spec, knownPaths: ["a", 1] }], envNames })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [null], envNames })).toBeNull();
+  });
+
+  it("requires envNames: absent, non-array, and non-string entries all refuse the frame", () => {
+    // The §5 amendment made the list REQUIRED — an absent one is a plane that
+    // forgot the field, not a plane asking for nothing (that is `[]`).
+    const { envNames: _e, ...noEnvNames } = { type: "detect", specs: [spec], envNames } as const;
+    expect(parseNodeCommandBody(noEnvNames)).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [spec], envNames: "CLAUDE_CONFIG_DIR" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "detect", specs: [spec], envNames: ["A", 7] })).toBeNull();
   });
 });

@@ -231,15 +231,30 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(ws.closed).toHaveLength(0);
   });
 
-  it("ready stashes homeDir and env on the live facts; a node reporting neither keeps them absent", async () => {
-    // Spec 2026-09-10 §5: `remote-launcher.canResume` computes the plugin's
-    // path from these, and the "reported no env" branch is a real node state
-    // (one that connected before the field existed), not a hypothetical.
+  it("ready stashes homeDir and mcpLaunch on the live facts; env is NOT a ready field", async () => {
+    // Spec 2026-09-10 §5 as amended by the final review: `ready` reports the
+    // home (resume defaults hang off it) and the agent's `mcpLaunch`
+    // self-invocation; the env VALUES answer on the `detect` round trip,
+    // whose driver stashes them (inventory.ts). The "no env yet" branch is
+    // the ordinary state between a connect and the first detect, and
+    // `canResume` computes the plugin's default path for it.
     const h = makeHarness();
     const ws = fakeSocket("n1");
     handleNodeOpen(ws);
-    await handleNodeMessage(h.deps, ws, readyFrame({ homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "/custom" } }));
-    expect(getLive("n1")?.agent).toMatchObject({ homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "/custom" } });
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      readyFrame({
+        homeDir: "/home/n",
+        mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
+        // A frame still bearing the dead field must not resurrect it on the
+        // facts: the handler reads named fields, not the raw object.
+        env: { CLAUDE_CONFIG_DIR: "/custom" },
+      } as never),
+    );
+    const f = getLive("n1")?.agent;
+    expect(f).toMatchObject({ homeDir: "/home/n", mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] } });
+    expect(f).not.toHaveProperty("env");
 
     const h2 = makeHarness();
     const ws2 = fakeSocket("n2");
@@ -248,6 +263,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const plain = getLive("n2")?.agent;
     expect(plain).toMatchObject({ hostname: "box" });
     expect(plain).not.toHaveProperty("homeDir");
+    expect(plain).not.toHaveProperty("mcpLaunch");
     expect(plain).not.toHaveProperty("env");
   });
 

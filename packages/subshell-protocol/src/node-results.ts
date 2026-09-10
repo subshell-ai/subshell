@@ -19,7 +19,7 @@
  * validators stand on live in `guards.ts` (shared with `node-frames.ts`).
  */
 
-import { BASE64_RE, isBool, isInt, isRecord, isStr } from "./guards.js";
+import { BASE64_RE, isBool, isInt, isRecord, isStr, isStringMap } from "./guards.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -197,12 +197,31 @@ export type DetectResultWire = {
 };
 
 /**
- * Validates and narrows a `detect` command's `result{data}` into its rows.
- * @param data - the `data` member of a successful result frame
- * @returns the narrowed rows, or null when the payload is malformed
+ * A whole `detect` answer: one row per spec, plus the node's environment
+ * values for the names the command asked about (spec 2026-09-10 §5 as amended
+ * by the final review — the resume-path env moved from `ready` to this round
+ * trip because the node holds no manifests and cannot know the names).
  */
-export function parseNodeDetectResults(data: unknown): DetectResultWire[] | null {
-  if (!isRecord(data) || !Array.isArray(data.results)) return null;
+export interface NodeDetectAnswer {
+  /** Detection rows, one per spec */
+  rows: DetectResultWire[];
+  /**
+   * Values ONLY for the asked names this node actually has — an absent key
+   * means the variable is unset there, which is what triggers the plugin's
+   * own fallback. `{}` is the ordinary answer when `envNames` was empty.
+   */
+  env: Record<string, string>;
+}
+
+/**
+ * Validates and narrows a `detect` command's `result{data}` into its rows and
+ * env answers. Both halves are REQUIRED: a node answers every `detect`, so an
+ * answer missing `env` is a malformed payload, not a silent "no env".
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when the payload is malformed
+ */
+export function parseNodeDetectResults(data: unknown): NodeDetectAnswer | null {
+  if (!isRecord(data) || !Array.isArray(data.results) || !isStringMap(data.env)) return null;
   for (const r of data.results) {
     if (!isRecord(r) || !isStr(r.harnessId) || !isBool(r.installed)) return null;
     if ("rawVersion" in r && !isStr(r.rawVersion)) return null;
@@ -211,7 +230,7 @@ export function parseNodeDetectResults(data: unknown): DetectResultWire[] | null
     if ("reason" in r && r.reason !== "not-on-path" && r.reason !== "override-invalid" && r.reason !== "no-binary")
       return null;
   }
-  return data.results as unknown as DetectResultWire[];
+  return { rows: data.results as unknown as DetectResultWire[], env: data.env };
 }
 
 /* ------------------------------------------------------------------ */

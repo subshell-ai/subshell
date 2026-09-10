@@ -77,6 +77,17 @@ export interface HarnessPlugin {
    * must not carry an `envOverride` key for a plugin with nothing to override.
    */
   detectSpec?: DetectSpec;
+  /**
+   * The manifest's `subshell.hostEnv` names, passed through verbatim, or
+   * absent when the plugin declares none.
+   *
+   * Declared data with a wire job (spec 2026-09-10 §5 as amended): the
+   * control plane unions these across its ENABLED manifests and sends the
+   * list on every `detect` command, so the node answers the values a resume
+   * path computes against. The node cannot answer what it cannot name —
+   * this list is why the plane asks.
+   */
+  hostEnv?: string[];
   /** One-line description shown in the UI */
   description: string;
   /** Optional emoji/icon label */

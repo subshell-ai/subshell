@@ -108,9 +108,9 @@ const testFacts: NodeAgentFacts = {
   capabilities: ["mcp", "uploads"],
   hostname: "box",
   agentVersion: "0.2.0",
-  executablePath: "/usr/bin/subshell",
+  mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
   // Spec 2026-09-10 §5. `env` is deliberately absent on the default: the
-  // "node reported no env" case is the DEFAULT case in these tests, and the
+  // "no detect answer yet" case is the DEFAULT case in these tests, and the
   // canResume describe overrides it per case.
   homeDir: "/home/n",
 };
@@ -846,11 +846,12 @@ describe("tailStart relay", () => {
 });
 
 describe("canResume", () => {
-  // The inversion (spec 2026-09-10 §5): the plugin's `resumePath` runs HERE,
-  // against the env the node reported at `ready`, and the node only stats the
-  // resulting path. The REAL claude-code plugin, not the stub: the path is
-  // the plugin's computation, and pinning it against a fake would let the
-  // fake and the server drift from what claude-code actually builds.
+  // The inversion (spec 2026-09-10 §5, as amended): the plugin's `resumePath`
+  // runs HERE, against the home the node reported at `ready` and the env its
+  // last `detect` round trip answered, and the node only stats the resulting
+  // path. The REAL claude-code plugin, not the stub: the path is the
+  // plugin's computation, and pinning it against a fake would let the fake
+  // and the server drift from what claude-code actually builds.
   const claudeCode = getHarness("claude-code");
   if (!claudeCode) throw new Error("claude-code plugin is not in the registry");
   const pi = getHarness("pi");
@@ -866,9 +867,12 @@ describe("canResume", () => {
     ]);
   });
 
-  it("the env the node reported moves the computed path", async () => {
+  it("the env the node answered on detect moves the computed path", async () => {
     // This is the whole point of the §5 reporting: `CLAUDE_CONFIG_DIR` lives
-    // on the node, not here, and the computed path must follow it.
+    // on the node, not here, and the computed path must follow it. (The
+    // facts here stand in for what `detectOnNode` stashes after a real
+    // round trip; the end-to-end landmine is pinned in
+    // `inventory-detect.test.ts`.)
     const h = makeHarness();
     h.setFacts({ ...testFacts, env: { CLAUDE_CONFIG_DIR: "/custom" } });
     h.answer("path_exists", { exists: true });
@@ -876,10 +880,10 @@ describe("canResume", () => {
     expect(h.calls[0]?.cmd).toEqual({ type: "path_exists", path: "/custom/projects/-w-x/abc.jsonl" });
   });
 
-  it("a node that reported no env still resolves a default path", async () => {
-    // A node whose `ready` predates the reporting (or declared nothing):
+  it("a node with no detect answer yet still resolves a default path", async () => {
+    // Fresh connection, detect never landed (or the plane declared nothing):
     // facts carry homeDir but no env at all. The default must still be
-    // computed and still still be probed — silence here would mean every
+    // computed and still be probed — silence here would mean every
     // such node silently loses restart-resume.
     const h = makeHarness();
     h.answer("path_exists", { exists: true });
@@ -1034,6 +1038,7 @@ describe("launch-driven detection kick — default wiring (spec §4/§6.2)", () 
       launch: () => new Error("harness binary missing: claude-code"),
       detect: () => ({
         results: [{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude", rawVersion: "2.0.0" }],
+        env: {},
       }),
     });
     try {

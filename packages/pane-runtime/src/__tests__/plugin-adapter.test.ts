@@ -130,6 +130,24 @@ describe("adaptPlugin: the detect block rides through as data", () => {
   });
 });
 
+describe("adaptPlugin: the hostEnv declaration rides through as data (spec §5 as amended)", () => {
+  it("carries the manifest's hostEnv names so the plane can ask nodes for their values", () => {
+    // The resume landmine's data path: `detectEnvNames` unions this list on
+    // the plane because the NODE holds no manifest to name it. A copy, not
+    // the manifest's array — the wire's `envNames` must never alias
+    // module-loaded manifest data that another consumer could mutate.
+    const manifest = { ...MANIFEST, hostEnv: ["CLAUDE_CONFIG_DIR"] };
+    const a = adaptPlugin(manifest, minimal());
+    expect(a.hostEnv).toEqual(["CLAUDE_CONFIG_DIR"]);
+    expect(a.hostEnv).not.toBe(manifest.hostEnv);
+  });
+
+  it("has no hostEnv key when the manifest declares none", () => {
+    // Absent-not-undefined, like detectSpec: the union skips what is absent.
+    expect("hostEnv" in adaptPlugin(MANIFEST, minimal())).toBe(false);
+  });
+});
+
 describe("adaptPlugin carries parseVersion for the detect command's server-side mapping", () => {
   it("attaches the plugin's parser when it has one, applied to RAW text without probing", () => {
     // The hermes half of the inversion (spec 2026-09-10 §4): the node answers

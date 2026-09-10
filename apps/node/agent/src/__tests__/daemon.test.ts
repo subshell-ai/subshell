@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { TmuxRunner } from "@internal/pane-runtime";
 import {
   type ControlKeyPair,
@@ -341,19 +341,34 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
     // surface; Task 13 shipped the `mcp` subcommand, so `mcp` is advertised
     // alongside `uploads` (this list is what the backend's capability gate reads).
     capabilities: ["uploads", "mcp"],
-    // Task 1's additive field: the control plane composes the MCP spec against it.
-    executablePath: process.execPath,
-    // Spec 2026-09-10 §5: the environment the control plane computes resume
-    // paths against. The home is always reported; the env carries ONLY values
-    // the manifests DECLARE. The node holds no plugins anymore (inversion §6)
-    // and this data dir never had any, so the honest report declares nothing.
+    // Spec 2026-09-10 §5: the resume-path home. The env VALUES a resume may
+    // need answer on the plane's `detect` round trip, not here — a node holds
+    // no manifests to know the names (inversion §6).
     homeDir: homedir(),
   });
   const os = (ready as Extract<NodeEvent, { type: "ready" }>).os;
   expect(["linux", "darwin", "unknown"]).toContain(os);
-  const reportedEnv = (ready as Extract<NodeEvent, { type: "ready" }>).env;
-  expect(reportedEnv ?? {}).toEqual({});
+  expect(ready as Record<string, unknown>).not.toHaveProperty("env");
+  expect(ready as Record<string, unknown>).not.toHaveProperty("executablePath");
   expect(h.plane.unparsed).toEqual([]); // every frame so far satisfies the backend's parser
+});
+
+test("ready's mcpLaunch is the branched self-invocation, not a bare execPath", async () => {
+  // The Critical chain (final review R14a): the plane writes the pane's MCP
+  // registration from this field VERBATIM (launch.ts consumes no plugin), and
+  // under an interpreter run `process.execPath` is `bun` — `bun mcp` is not a
+  // command, so the bare path poisoned every pane a dev-run agent launched.
+  // `bun test` IS an interpreter run, so this frame is exactly the case: the
+  // command is the interpreter and the args lead with the entry script.
+  const h = await startDaemon();
+  const ready = (await waitForReady(h)) as Extract<NodeEvent, { type: "ready" }>;
+  expect(ready.mcpLaunch).toBeDefined();
+  expect(ready.mcpLaunch?.command).toBe(process.execPath);
+  expect(ready.mcpLaunch?.args.at(-1)).toBe("mcp");
+  expect(ready.mcpLaunch?.args.length).toBe(2); // [<entry script>, "mcp"]
+  // ABSOLUTE, the pane-config spawn cwd rule from `selfInvocation`: the entry
+  // is resolved, never shipped as the relative argv[1] it may arrive as.
+  expect(ready.mcpLaunch?.args[0]).toBe(resolve(process.argv[1] ?? ""));
 });
 
 test("valid ping (test-local EC keypair pinned in config) → result ok with matching ref", async () => {
@@ -434,14 +449,16 @@ test("inventory command: inventory EVENT first, then result ok; harness list wel
 test("detect command: signed frame through the socket → result ok with the parsed rows payload", async () => {
   const h = await startDaemon();
   await waitFor(h, (e) => e.type === "inventory", "connect inventory push");
-  const jti = await signAndSend(h, { type: "detect", specs: [] }, { jti: "detect-1", seq: 1 });
+  const jti = await signAndSend(h, { type: "detect", specs: [], envNames: [] }, { jti: "detect-1", seq: 1 });
   const result = await waitFor<Extract<NodeEvent, { type: "result" }>>(
     h,
     (e) => e.type === "result" && e.ref === jti,
     "detect result",
   );
   expect(result).toMatchObject({ ok: true });
-  expect((result as { data?: unknown }).data).toEqual({ results: [] });
+  // The `{}` half of the result is REQUIRED: an empty envNames answers an
+  // empty env, never an omitted field (§5 as amended).
+  expect((result as { data?: unknown }).data).toEqual({ results: [], env: {} });
 });
 
 test("replayed jti (same connection): ONE execution (spy), verify/replay error event, cached result re-sent", async () => {

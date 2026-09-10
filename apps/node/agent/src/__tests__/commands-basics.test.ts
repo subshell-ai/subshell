@@ -393,6 +393,7 @@ describe("detect (inversion spec §4)", () => {
   // that half moved to the control plane (see the server's detectOnNode tests).
 
   const DETECT_ENV = "SUBSHELL_DETECT_TEST_BINARY";
+  const DETECT_ENV_ANSWERED = "SUBSHELL_DETECT_TEST_ANSWERED";
   const DETECT_BANNER = "Hermes Agent v0.16.0 (2026.6.5) - upstream 5e01a5db\nbuilt 2026-06-05";
   // Path computed in beforeAll, not at collection: `base` is assigned by the
   // file-level beforeAll, which has not run while this describe body evaluates.
@@ -410,9 +411,13 @@ describe("detect (inversion spec §4)", () => {
     chmodSync(fakeHarness, 0o755);
   });
 
-  it("detect: one row per spec; found answers RAW unparsed text; misses answer with a reason", async () => {
+  it("detect: one row per spec; found answers RAW unparsed text; misses answer with a reason; env answers the asked names", async () => {
     expect(fakeHarness).toBeTruthy();
     process.env[DETECT_ENV] = fakeHarness;
+    // §5-as-amended: the plane names the env vars; the node answers the ones
+    // it HAS. One set, one unset — and one set-but-never-asked, which must
+    // not appear (the answer is never a scan).
+    process.env[DETECT_ENV_ANSWERED] = "/custom/config";
     try {
       const { ctx } = makeCtx({}, []);
       const res = await dispatchCommand(ctx, {
@@ -426,23 +431,31 @@ describe("detect (inversion spec §4)", () => {
             knownPaths: [],
           },
         ],
+        envNames: [DETECT_ENV_ANSWERED, "SUBSHELL_DETECT_TEST_UNSET"],
       });
       expect(res.ok).toBe(true);
       const data = (res as { ok: true; data: unknown }).data;
       // The Task-1 contract validator round trip (suite idiom): the agent's
       // answer is exactly what the backend expects to parse.
-      const rows = parseNodeDetectResults(data);
-      expect(rows).toHaveLength(2);
-      const found = rows?.find((r) => r.harnessId === "hermesish");
+      const answer = parseNodeDetectResults(data);
+      expect(answer?.rows).toHaveLength(2);
+      const found = answer?.rows.find((r) => r.harnessId === "hermesish");
       expect(found).toMatchObject({ installed: true, binaryPath: fakeHarness });
       // RAW text, unparsed: the full banner, second line included. A node that
       // ran parseVersion here could never produce this byte-for-byte.
       expect(found?.rawVersion).toBe(DETECT_BANNER);
       expect(found?.rawVersion).not.toBe("0.16.0");
       expect(found).not.toHaveProperty("version");
-      expect(rows?.find((r) => r.harnessId === "ghost")).toMatchObject({ installed: false, reason: "not-on-path" });
+      expect(answer?.rows.find((r) => r.harnessId === "ghost")).toMatchObject({
+        installed: false,
+        reason: "not-on-path",
+      });
+      // present-only: the set name answered, the unset one ABSENT, the
+      // unasked one invisible.
+      expect(answer?.env).toEqual({ [DETECT_ENV_ANSWERED]: "/custom/config" });
     } finally {
       delete process.env[DETECT_ENV];
+      delete process.env[DETECT_ENV_ANSWERED];
     }
   });
 
@@ -453,8 +466,9 @@ describe("detect (inversion spec §4)", () => {
       const res = await dispatchCommand(ctx, {
         type: "detect",
         specs: [{ id: "term", binaryName: "", envOverride: DETECT_ENV, knownPaths: [] }],
+        envNames: [],
       });
-      const rows = parseNodeDetectResults((res as { ok: true; data: unknown }).data);
+      const rows = parseNodeDetectResults((res as { ok: true; data: unknown }).data)?.rows;
       expect(rows?.[0]).toMatchObject({ harnessId: "term", installed: false, reason: "no-binary" });
       expect(rows?.[0]).not.toHaveProperty("rawVersion");
     } finally {
@@ -469,11 +483,14 @@ describe("detect (inversion spec §4)", () => {
       const res = await dispatchCommand(ctx, {
         type: "detect",
         specs: [{ id: "x", binaryName: "anything", envOverride: DETECT_ENV, knownPaths: [] }],
+        envNames: [],
       });
-      const rows = parseNodeDetectResults((res as { ok: true; data: unknown }).data);
+      const rows = parseNodeDetectResults((res as { ok: true; data: unknown }).data)?.rows;
       expect(rows?.[0]).toMatchObject({ installed: false, reason: "override-invalid" });
-      const empty = await dispatchCommand(ctx, { type: "detect", specs: [] });
-      expect(empty).toEqual({ ok: true, data: { results: [] } });
+      const empty = await dispatchCommand(ctx, { type: "detect", specs: [], envNames: [] });
+      // An empty envNames answers an empty env — the `{}` half of the result
+      // shape is REQUIRED, never omitted.
+      expect(empty).toEqual({ ok: true, data: { results: [], env: {} } });
     } finally {
       delete process.env[DETECT_ENV];
     }

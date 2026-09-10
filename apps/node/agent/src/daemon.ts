@@ -19,10 +19,11 @@ import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
-import { hostEnvReport } from "./host-env.js";
+import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
+import { selfInvocation } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -222,12 +223,7 @@ export function updateRequiredMessage(reason: string | undefined): string {
     : `the control plane refused this agent (close 4406); a newer subshell is required; exiting`;
 }
 
-async function readyEvent(config: AgentConfig): Promise<Extract<NodeEvent, { type: "ready" }>> {
-  // The env report reads installed MANIFESTS (no plugin code) on every
-  // connect, so a plugin installed since the last one is reflected here
-  // (spec 2026-09-10 §5). It is async for that read and total: there is
-  // always a ready to send.
-  const { homeDir, env } = await hostEnvReport(config.dataDir);
+function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
     agentVersion: AGENT_VERSION,
@@ -241,16 +237,20 @@ async function readyEvent(config: AgentConfig): Promise<Extract<NodeEvent, { typ
     // (HAS_MCP, shipped in Task 13) is what lets the control plane register
     // `subshell mcp` for subshells launched here.
     capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
-    // Task 1's additive field: the control plane composes the MCP launch spec
-    // against this path (the agent re-runs the dialect locally regardless —
-    // see the design note in commands/launch.ts).
-    executablePath: process.execPath,
-    // Spec 2026-09-10 §5: the environment the control plane computes resume
-    // paths against. The home is the fallback root for every such path; the
-    // env carries ONLY values the manifests declared, never the whole
-    // environment.
-    homeDir,
-    env,
+    // The FULL self-invocation of the mcp subcommand, not `process.execPath`:
+    // under an interpreter run execPath is `bun`, and `bun mcp` is not a
+    // command — every pane launched by a source-run agent would get an MCP
+    // registration that cannot start. `selfInvocation` answers the
+    // compiled-versus-interpreted question (its header records the original
+    // bug), and the control plane composes the registration from the result
+    // verbatim — the node writes what the plane sends, it recomputes nothing
+    // (launch.ts, inversion §5). Sent only when the capability is advertised.
+    ...(HAS_MCP ? { mcpLaunch: selfInvocation("mcp") } : {}),
+    // Spec 2026-09-10 §5: the fallback root for resume paths the control
+    // plane computes. The env VALUES a resume path may need are no longer
+    // reported here — the node holds no manifests to know the names (§6);
+    // they answer on the plane's `detect` round trip (host-env.ts).
+    homeDir: reportHomeDir(),
   };
 }
 
@@ -283,10 +283,10 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   // No plugin seeding, recovery, or refresh: the node holds no plugin concept
   // (inversion spec 2026-09-10 §6). A `<dataDir>/plugins/` directory left by a
   // pre-inversion agent is deliberately NOT deleted, NOT seeded, and NOT
-  // refreshed — nothing in this binary EXECUTES plugin code anymore (the one
-  // reader left is `host-env.ts`, which reads the leftover manifests for the
-  // `ready` env declarations: DATA, never code), and nothing here may delete
-  // user data (spec §6: no users, leave it on disk).
+  // refreshed — nothing in this binary reads that directory at all anymore
+  // (the last reader, the `ready` env declarations, moved to the plane's
+  // `detect` round trip), and nothing here may delete user data (spec §6: no
+  // users, leave it on disk).
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
@@ -528,29 +528,30 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       ws.addEventListener("open", async () => {
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
-        // `ready` is now ASYNC-built (it reads the installed manifests for the
-        // env report, spec §5), which opens a window the old sync build did
-        // not have: a socket that dies during the read must not announce
-        // ready onto a corpse or arm this connection's timers — the
-        // reconnect loop owns the next attempt. (The census chain below and
-        // the ready send stay LINEAR on purpose: `ready` before
-        // `subshells_report` before the inventory push is pinned order.)
-        const ready = await readyEvent(config);
-        if (settled) return;
-        send(ws, ready);
+        // `ready` is built SYNCHRONOUSLY: nothing it reports needs a read
+        // (identity is config + OS facts, `mcpLaunch` is `selfInvocation`,
+        // and the env VALUES the resume paths need answer on the plane's
+        // `detect` round trip, not here). So the send lands in the same
+        // turn the open event fires — a socket cannot die mid-build because
+        // there is no mid. (The census chain below and the ready send stay
+        // LINEAR on purpose: `ready` before `subshells_report` before the
+        // inventory push is pinned order.)
+        send(ws, readyEvent(config));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
         // refusing) must never cost the connection.
         // One inventory-push body for both beats below (identical builder +
         // never-fatal posture; only the log label differs). The event is the
-        // v2 protocol's shape with no harness content (inversion §6, see
+        // protocol-3 shape with no harness content (inversion §6, see
         // inventory.ts); the server's guard treats the empty claim as
         // "don't touch". The backend no longer PULLS the `inventory` command
-        // on `ready` (Task 7 fix round: for a plugin-less agent the pull
-        // round-tripped to nothing) — the command itself stays for the
-        // Re-check ladder and paired pre-inversion agents until Task 8.
-        // Cheap enough that the old scan memo has no job left.
+        // at all — Task 7 retired the pull on `ready` (for a plugin-less
+        // agent it round-tripped to nothing) and the re-check wave retired
+        // the pull on Re-check with the same reasoning (R14c): the plane's
+        // own `detect` command is what carries harness facts. The push stays
+        // because the EVENT contract does; cheap enough that the old scan
+        // memo has no job left.
         const pushInventory = (label: string): Promise<void> =>
           buildInventoryEvent(nowMs())
             .then((inv) => send(ws, inv))

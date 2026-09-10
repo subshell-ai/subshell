@@ -51,9 +51,12 @@ export interface PendingEntry {
 }
 
 /**
- * What the agent told us about itself in its `ready` frame (spec §6.4) —
- * per-CONNECTION facts stashed by the WS handler so launch/attach paths can
- * compose paths without another round trip. Refreshed on every `ready`.
+ * What the agent told us about itself — per-CONNECTION facts stashed so
+ * launch/attach paths can compose paths and compute resume targets without
+ * another round trip. The identity fields arrive on every `ready`; the env
+ * VALUES are refreshed by the plane's own `detect` round trip (the driver in
+ * `inventory.ts` writes them when an answer lands), so a reconnect carries
+ * homeDir from the fresh `ready` and no env until the next detect.
  */
 export interface NodeAgentFacts {
   /** agent-side `<dataDir>` — composes log/mcp paths (spec §6.4) */
@@ -64,8 +67,14 @@ export interface NodeAgentFacts {
   hostname: string;
   /** agent build version from the ready frame */
   agentVersion: string;
-  /** agent `process.execPath` (Task 1 additive field) — MCP launch spec target */
-  executablePath?: string;
+  /**
+   * The agent's full self-invocation of its `mcp` subcommand, from `ready`.
+   * The control plane composes the pane's MCP registration from it verbatim —
+   * a bare `process.execPath` was wrong under an interpreter run (`bun mcp`
+   * is not a command). Absent = the agent sent none; the registration then
+   * falls back to `subshell mcp` on PATH.
+   */
+  mcpLaunch?: { command: string; args: string[] };
   /**
    * The node's home directory, reported at `ready` (spec 2026-09-10 §5) —
    * the fallback root for resume paths the control plane computes. Absent
@@ -74,10 +83,14 @@ export interface NodeAgentFacts {
    */
   homeDir?: string;
   /**
-   * Values for the environment variables the node's installed plugins'
-   * manifests declared, and only those (spec §5). Absent = nothing reported;
-   * a key absent WITHIN it = that declared variable is unset on the node,
-   * which is what triggers the plugin's fallback.
+   * Values for the environment variables the plane's enabled harness
+   * manifests declared (`subshell.hostEnv`), and only those — answered by
+   * THIS connection's last `detect` round trip (spec §5 as amended by the
+   * final review; the node holds no manifests, so it could not have named
+   * these at `ready`). Absent = no detect has landed since the connect, which
+   * `canResume` reads as "answer {}": the plugin's home-default path is
+   * computed and probed anyway. A key absent WITHIN it = that variable is
+   * unset on the node, which is what triggers the plugin's fallback.
    */
   env?: Record<string, string>;
 }

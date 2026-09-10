@@ -170,8 +170,9 @@ export class RemoteLauncher implements NodeLauncher {
    * rules, the node probes, and the answer merges over the cache. What feeds
    * `inventory_json` freshness: node-page load, Re-check, and these
    * launch-driven kicks (a launch IS a human request — spec §4's trigger).
-   * The agent's 5-min inventory push stays on the wire but carries nothing,
-   * and Task 8 removes it.
+   * The agent's 5-min inventory push stays on the wire but carries nothing
+   * (empty `harnesses`, which the handler treats as "nothing to apply"), so
+   * only what comes through here moves a launch gate.
    */
   #kickDetect(): void {
     try {
@@ -220,25 +221,26 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * One `launch` command (60 s) carrying the structured plan (spec §6.4), plus
-   * the inversion's three additive fields (spec 2026-09-10 §5) — every one of
-   * them optional, so today's agent ignores them and composes the pane command
-   * with ITS env and ITS harness plugin exactly as before; the consumer switch
-   * is Task 4:
-   * - `argv`: the complete command line, built HERE from the plugin's
-   *   `buildCommand` with {@link HARNESS_BINARY_PLACEHOLDER} in the binary
-   *   slot. The plan's `binary` is deliberately NOT used: an inventory can be
-   *   minutes old and predate an upgrade, so the node substitutes its own
-   *   freshly resolved path at the moment of spawn.
-   * - `resolve`: the plugin manifest's `subshell.detect` block passed straight
-   *   through — the rule for that lookup, the same data the node's own
-   *   detection reads. REQUIRED since protocol 3: a harness without a detect
-   *   rule cannot name a binary for the node to resolve, and is refused
-   *   locally below rather than sent as an unparseable frame.
-   * - `mcp`: `{ path, fileContent }` as today, now plus the `args`/`env`
-   *   dialect `plan.mcp` already holds, so the node stops recomputing them
-   *   once Task 4 lands. The caller composes `path` from the node's
-   *   `ready.dataDir`.
+   * One `launch` command (60 s) carrying the structured plan (spec §6.4) and
+   * the inversion's three fields (spec 2026-09-10 §5), which the protocol-3
+   * agent consumes whole — it holds no plugin and builds nothing itself:
+   * - `argv` (REQUIRED): the complete command line, built HERE from the
+   *   plugin's `buildCommand` with {@link HARNESS_BINARY_PLACEHOLDER} in the
+   *   binary slot. The plan's `binary` is deliberately NOT used: an inventory
+   *   can be minutes old and predate an upgrade, so the node substitutes its
+   *   own freshly resolved path at the moment of spawn (strict element
+   *   equality — the argv-parity gate's binding rule).
+   * - `resolve` (REQUIRED): the plugin manifest's `subshell.detect` block
+   *   passed straight through — the rule for that lookup, the same data the
+   *   detection probe ships. A harness without a detect rule cannot name a
+   *   binary for the node to resolve, and is refused locally below rather
+   *   than sent as an unparseable frame.
+   * - `mcp`: the WHOLE dialect — `path`, `fileContent`, and the `args`/`env`
+   *   halves `plan.mcp` holds — written by the node verbatim; the old
+   *   node-side recompute and its drift rule are gone with the node's plugin
+   *   concept. The caller composes `path` from the node's `ready.dataDir`,
+   *   and the registration's spawn command is the agent's own reported
+   *   `mcpLaunch` (spec 2026-09-10 §5; `planRemoteSubshellMcp`).
    * A `binary missing` failure means our cached path was stale: kick the
    * detection pass (unawaited, {@link #kickDetect}) before rethrowing
    * (spec §6.2, detection-shaped by Task 7).
@@ -629,19 +631,20 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * Resume, inverted (spec 2026-09-10 §5): the path is computed HERE with the
-   * plugin's pure `resumePath` — from the node's `ready`-reported `homeDir`
-   * and manifest-declared `env` — and the node only stats the finished path
-   * (`path_exists`). The node holds no plugin code to ask, and the local and
-   * remote paths now run the SAME plugin code, one on each side of "does this
-   * file exist".
+   * Resume, inverted (spec 2026-09-10 §5, as amended by the final review):
+   * the path is computed HERE with the plugin's pure `resumePath` — from the
+   * node's `ready`-reported `homeDir` and the `env` values its last `detect`
+   * round trip answered for the plane's manifest-declared names — and the
+   * node only stats the finished path (`path_exists`). The node holds no
+   * plugin code to ask, and the local and remote paths now run the SAME
+   * plugin code, one on each side of "does this file exist".
    *
    * A plugin without `resume` never reaches the wire (the question cannot be
-   * phrased); facts are NOT required — a node that reported no env computes
-   * the plugin's default path anyway, which probes honestly. Any rpc error
-   * or malformed answer is `false`: a dead/unreachable node can't resume, so
-   * the caller falls back to a fresh id — exactly the local "transcript
-   * gone" behavior.
+   * phrased); facts are NOT required — a node with no detect answer yet
+   * computes the plugin's default path anyway (`{}` env, today's pre-detect
+   * behavior), which probes honestly. Any rpc error or malformed answer is
+   * `false`: a dead/unreachable node can't resume, so the caller falls back
+   * to a fresh id — exactly the local "transcript gone" behavior.
    */
   async canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean> {
     const resume = harness.resume;

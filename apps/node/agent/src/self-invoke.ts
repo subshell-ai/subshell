@@ -2,16 +2,21 @@
  * How this agent invokes ITSELF — the one place that decides it.
  *
  * The agent re-enters itself for two unrelated things: the service manager
- * runs `<self> run`, and every pane it launches gets `<self> mcp` registered
- * as its MCP server. Both have to answer the same awkward question — am I a
- * compiled binary, or is `bun` running my entry script? — and getting it wrong
- * produces a command that does not exist.
+ * runs `<self> run` (`service.ts`), and every pane it launches gets
+ * `<self> mcp` registered as its MCP server — the `ready` frame reports
+ * `selfInvocation("mcp")` and the control plane composes the registration
+ * from it verbatim (the node writes what the plane sends, launch.ts). Both
+ * have to answer the same awkward question — am I a compiled binary, or is
+ * `bun` running my entry script? — and getting it wrong produces a command
+ * that does not exist.
  *
  * They used to answer it separately, and only one of them answered it at all:
- * `execLine` branched correctly while `commands/launch.ts` passed
- * `process.execPath` bare, so a source-run agent registered `bun mcp` for its
- * panes. `bun` has no `mcp` subcommand, so every pane launched from a dev
- * agent got an MCP entry that could never start.
+ * `execLine` branched correctly while the launch-side MCP path carried
+ * `process.execPath` bare, so a source-run agent registered `bun mcp` for
+ * its panes. `bun` has no `mcp` subcommand, so every pane launched from a
+ * dev agent got an MCP entry that could never start (the final review's
+ * R14a — the ready frame reporting the bare path let it ride straight into
+ * the pane config once the node stopped recomputing).
  */
 import { basename, resolve } from "node:path";
 

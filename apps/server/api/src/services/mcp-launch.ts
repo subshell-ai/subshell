@@ -62,31 +62,38 @@ export function subshellMcpConfigPath(subshellId: string): string {
 /**
  * The PURE (no-disk-write) mirror of {@link registerSubshellMcp} for AGENT
  * nodes (spec §6.4): computes the same harness dialect but against the
- * node's own filesystem — `subshell mcp` as the spawn command (its
- * `executablePath` from the `ready` facts, the bare name as fallback) and
- * `<dataDir>/mcp/<subshellId>.json` as the target path. Nothing is written
- * locally: `RemoteLauncher.launch` ships the WHOLE registration inline with
- * the launch command — `fileContent` and, since the inversion spec §5, the
- * `args`/`env` dialect too, which the node consumes as sent (its own plugin
- * concept, and with it the recompute, went away in Task 7) — so the launch
- * command is the ONLY writer of
+ * node's own filesystem. The spawn command is the AGENT'S OWN
+ * self-invocation of `mcp` as its `ready` frame reported it (`mcpLaunch` —
+ * a compiled binary and a bun-interpreted run answer differently, and only
+ * the agent can tell them apart; `selfInvocation` in the agent is the one
+ * place that decides), with `subshell` mcp on PATH as the fallback when the
+ * agent sent none. The target path is `<dataDir>/mcp/<subshellId>.json`.
+ * Nothing is written locally: `RemoteLauncher.launch` ships the WHOLE
+ * registration inline with the launch command — `fileContent` and, since the
+ * inversion spec §5, the `args`/`env` dialect too, which the node consumes
+ * as sent (its own plugin concept, and with it the recompute, went away in
+ * Task 7) — so the launch command is the ONLY writer of
  * node-side MCP configs; `RemoteLauncher.subshellArtifacts` owns the layout
- * for cleanup.
+ * for cleanup. The node therefore never re-derives the command either: what
+ * is composed HERE from the agent's `mcpLaunch` is exactly what the pane
+ * will spawn.
  * The capability gate and the debug-log note live in the
  * subshell manager, not here — this function answers "what would the
  * registration be", for any node facts handed to it.
  * @param harness - The resolved plugin (its `mcpRegistration` dialect)
  * @param subshellId - The subshell the config is generated for
- * @param facts - The node's live `ready` facts (dataDir + executablePath)
+ * @param facts - The node's live facts (dataDir + the ready-reported mcpLaunch)
  * @returns the registration plus the node-side path, or undefined for
  *          harnesses with no per-subshell format (hermes, pi)
  */
 export function planRemoteSubshellMcp(
   harness: HarnessPlugin,
   subshellId: string,
-  facts: Pick<NodeAgentFacts, "dataDir" | "executablePath">,
+  facts: Pick<NodeAgentFacts, "dataDir" | "mcpLaunch">,
 ): { reg: McpRegistration; configPath: string } | undefined {
-  const launch: McpLaunchSpec = { command: facts.executablePath ?? "subshell", args: ["mcp"] };
+  const launch: McpLaunchSpec = facts.mcpLaunch
+    ? { command: facts.mcpLaunch.command, args: [...facts.mcpLaunch.args] }
+    : { command: "subshell", args: ["mcp"] };
   const configPath = `${facts.dataDir}/mcp/${subshellId}.json`;
   const reg = harness.mcpRegistration?.(launch, configPath);
   if (!reg) return undefined;

@@ -161,32 +161,46 @@ describe("subscribeOutput / dispatchOutput (spec §3.3)", () => {
 /* ------------------- agent facts on `ready` ---------------------- */
 
 describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
-  it("sets ws.data.nodeConn.agent EXACTLY from the frame when executablePath is present", async () => {
+  it("sets ws.data.nodeConn.agent EXACTLY from the frame when mcpLaunch is present", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     handleNodeOpen(ws);
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
 
-    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ executablePath: "/usr/local/bin/subshell" })));
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify(
+        readyFrame({
+          mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+          homeDir: "/home/u",
+        }),
+      ),
+    );
 
     expect(conn.agent).toEqual({
       dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
       agentVersion: MIN_AGENT_VERSION,
-      executablePath: "/usr/local/bin/subshell",
+      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+      homeDir: "/home/u",
     });
   });
 
-  it("omits executablePath entirely for pre-phase-2 agents (no undefined key)", async () => {
+  it("a ready frame carries NO env: the resume-path values arrive on detect, and ready cannot stash them", async () => {
+    // R14b: the field left the wire. A frame bearing `env` parses (unknown
+    // keys pass) but must NEVER reach the facts — and the mcpLaunch/homeDir
+    // halves stay ABSENT when unreported, never undefined-valued keys a
+    // later `in`-check would misread.
     const h = makeHarness();
     const ws = fakeSocket("n1");
     handleNodeOpen(ws);
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
 
-    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ ...readyFrame(), env: { CLAUDE_CONFIG_DIR: "/x" } }));
 
     expect(conn.agent).toEqual({
       dataDir: "/home/u/.local/share/subshell",
@@ -194,7 +208,9 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       hostname: "box",
       agentVersion: MIN_AGENT_VERSION,
     });
-    expect(conn.agent && "executablePath" in conn.agent).toBe(false);
+    for (const key of ["mcpLaunch", "homeDir", "env"] as const) {
+      expect(conn.agent && key in conn.agent).toBe(false);
+    }
   });
 
   it("records facts even for an agent it is about to refuse (diagnosis first)", async () => {

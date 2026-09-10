@@ -75,6 +75,12 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     // `launch` frame instead of shipping plugin code to resolve it, so a
     // consumer reading `detectSpec` sees exactly what `detectFor` closes over.
     ...(manifest.detect ? { detectSpec: manifest.detect } : {}),
+    // Declared env names ride through as DATA, verbatim and only when
+    // present (§5-as-amended): the plane asks nodes for these values on the
+    // `detect` round trip, so a resume path computes against the TARGET
+    // machine's environment without the node ever holding the manifest that
+    // named them.
+    ...(manifest.hostEnv ? { hostEnv: [...manifest.hostEnv] } : {}),
     description: manifest.description,
     icon: manifest.icon,
     installHint: manifest.install ?? { command: "", docsUrl: "" },

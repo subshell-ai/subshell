@@ -103,19 +103,23 @@ The agent's first frame is `ready`:
   "hostname": "mac-mini",
   "dataDir": "/Users/x/.config/subshell/data",
   "capabilities": ["uploads", "mcp"],
-  "executablePath": "/Users/x/.local/bin/subshell",
-  "homeDir": "/Users/x",                       // resume-path defaults hang off it
-  "env": { "CLAUDE_CONFIG_DIR": "/custom" }    // ONLY manifest-declared values
+  "mcpLaunch": { "command": "/Users/x/.local/bin/subshell", "args": ["mcp"] },
+  "homeDir": "/Users/x"                        // resume-path defaults hang off it
 }
 ```
 
-`executablePath` is how the control plane composes the MCP launch spec for panes
-on this node — it must point at the running binary. `homeDir` and `env` are the
-environment the control plane computes resume paths against (spec 2026-09-10
-§5): the env carries the values of the variables the INSTANCE's installed
-plugin manifests declared (`subshell.hostEnv`), and nothing else — never the
-whole environment. Both are optional on the wire; a node reporting neither gets
-the plugin's default path computed anyway (which simply will not exist).
+`mcpLaunch` is the agent's FULL self-invocation of its `mcp` subcommand: the
+control plane composes the pane's MCP registration from `command` + `args`
+verbatim. It cannot derive this itself — under a bun-interpreted agent run the
+process's exec path is `bun`, and `bun mcp` is not a command; the agent answers
+`{ command: <bun>, args: [<entry script>, "mcp"] }` in that case (its
+`selfInvocation`). Only `mcp`-capable agents send it; absent means the control
+plane falls back to `subshell` mcp on PATH. `homeDir` is the fallback root the
+control plane computes resume paths against (spec 2026-09-10 §5); a node
+reporting none gets the plugin's default path computed anyway (which simply
+will not exist). The resume path's other input — the env VALUES a plugin
+declares — is NOT reported here: a node holds no manifests and so cannot know
+the names. They are asked by name on the `detect` round trip (§5).
 
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
@@ -196,7 +200,7 @@ and answered by exactly one `result` event.
 
 | Command | |
 |---|---|
-| `launch` | Start a harness pane: `cwd` (already stat-verified), `harnessId`, a `ProfileDefinitionWire`, the `SUBSHELL_*` credential env, an optional 0600 MCP registration file to write first, optional resume pin and initial geometry. `bestEffortLog` downgrades a log-attach failure to a note instead of failing the launch. Since protocol 3 the node builds nothing itself: `argv` (REQUIRED) is the complete command line the CONTROL PLANE built, with `@@HARNESS_BINARY@@` in the binary slot; `resolve` (REQUIRED) is the manifest's lookup rule (`binaryName`/`envOverride`/`knownPaths`) the node runs at the moment of spawn to fill that slot — late binding of the one fact the node owns; and `mcp.args` / `mcp.env` ride alongside the file content, so the node no longer recomputes the harness's MCP dialect (only its own `subshell mcp` executable path stays node-supplied, by `selfInvocation`) |
+| `launch` | Start a harness pane: `cwd` (already stat-verified), `harnessId`, a `ProfileDefinitionWire`, the `SUBSHELL_*` credential env, an optional 0600 MCP registration file to write first, optional resume pin and initial geometry. `bestEffortLog` downgrades a log-attach failure to a note instead of failing the launch. Since protocol 3 the node builds nothing itself: `argv` (REQUIRED) is the complete command line the CONTROL PLANE built, with `@@HARNESS_BINARY@@` in the binary slot; `resolve` (REQUIRED) is the manifest's lookup rule (`binaryName`/`envOverride`/`knownPaths`) the node runs at the moment of spawn to fill that slot — late binding of the one fact the node owns; and `mcp.args` / `mcp.env` ride alongside the file content, so the node no longer recomputes the harness's MCP dialect (the spawn command inside it is still node-supplied knowledge — the agent's `selfInvocation` answer, carried on `ready` as `mcpLaunch` and composed by the plane, never guessed from a path) |
 | `terminate` / `kill` | Graceful stop / hard kill of a subshell's tmux tree |
 | `prompt_deliver` | Agent-side settle loop: capture-poll until the pane is quiet, then type the text and Enter |
 
@@ -224,7 +228,7 @@ nowhere near the directories subshells are allowed to run in.
 | Command | |
 |---|---|
 | `stat_dir` | Verify a directory exists and is usable; answers the realpath. Deliberately NOT gated by the directory allowlist — the control plane resolves each new rule through this probe, so gating it made the second rule unaddable (see the 2026-09-05 allowlist revision note) |
-| `path_exists` | Does `{ path }` exist on the node? `{ exists }` answers; an absent path is a SUCCESSFUL `false`, never an error. The path arrives COMPUTED: the control plane builds it with the plugin's pure `resumePath` against this node's reported `homeDir`/`env` (spec 2026-09-10 §5) — the generalised `probe_resume`, ungated like its neighbours: a probe is not a launch |
+| `path_exists` | Does `{ path }` exist on the node? `{ exists }` answers; an absent path is a SUCCESSFUL `false`, never an error. The path arrives COMPUTED: the control plane builds it with the plugin's pure `resumePath` against this node's `ready`-reported `homeDir` and the `env` values its last `detect` answer carried (spec 2026-09-10 §5 as amended) — the generalised `probe_resume`, ungated like its neighbours: a probe is not a launch |
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
@@ -236,7 +240,7 @@ nowhere near the directories subshells are allowed to run in.
 |---|---|
 | `probe` | Liveness of a set of subshell ids |
 | `inventory` | Pull the harness inventory on demand. Since protocol 3 the agent has no plugin concept, so its answer is an EMPTY `harnesses` list (protocol filler it still owes the wire) and the server correctly treats an empty array as "nothing to apply" — the rows that matter arrive via `detect` |
-| `detect` | Probe THIS node for the binaries the named detection rules point at (spec 2026-09-10 §4): `specs` is one `{ id, binaryName, envOverride, knownPaths }` per harness to check — the plugin manifests' data, which the control plane holds and re-ships every time; the node remembers nothing and loads no plugin code to answer. Each answer row is `{ harnessId, installed, binaryPath?, rawVersion?, reason? }` inside a `{ results }` envelope — the same entry shape the inventory event uses, with `version` replaced by `rawVersion`, because `parseVersion` is plugin code and runs on the control plane. The agent stamps no time: the probe just happened, and the plane's driver stamps its own clock when merging. An empty-`binaryName` spec is the no-binary marker, answered `no-binary` without searching. An empty `specs` array is a legal no-op. Detection runs ONLY when asked — node-page load, Re-check, or a launch kick — there is no sweep |
+| `detect` | Probe THIS node for the binaries the named detection rules point at, and answer the env the plane asks about (spec 2026-09-10 §4, env per §5 as amended): `specs` is one `{ id, binaryName, envOverride, knownPaths }` per harness to check — the plugin manifests' data, which the control plane holds and re-ships every time; the node remembers nothing and loads no plugin code to answer. `envNames` (REQUIRED, may be empty) is the list of environment-variable names to report values for — the union of `subshell.hostEnv` across the plane's ENABLED harness manifests, since the node holds no manifests to name them itself. The answer is `{ results, env }`: one row `{ harnessId, installed, binaryPath?, rawVersion?, reason? }` per spec — the same entry shape the inventory event uses, with `version` replaced by `rawVersion`, because `parseVersion` is plugin code and runs on the control plane — plus `env` with values for ONLY the asked names this node actually has (unset names stay absent; unasked names are never looked at). The agent stamps no time: the probe just happened, and the plane's driver stamps its own clock when merging; the driver stashes `env` on the connection's facts, where resume-path computation reads it. An empty-`binaryName` spec is the no-binary marker, answered `no-binary` without searching. Empty `specs`/`envNames` are legal no-ops. Detection runs ONLY when asked — node-page load, Re-check, or a launch kick — there is no sweep |
 | `ping` | Liveness |
 
 Subshell ids are interpolated into node-side paths, so both sides gate them
@@ -249,7 +253,7 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 
 | Event | |
 |---|---|
-| `ready` | First frame — identity, versions, capabilities, `executablePath`, and the resume-path environment: `homeDir` plus the manifest-declared `env` values (§3, spec 2026-09-10 §5) |
+| `ready` | First frame — identity, versions, capabilities, the `mcpLaunch` self-invocation (only for `mcp`-capable agents), and the resume-path `homeDir` (§3, spec 2026-09-10 §5; the resume env is NOT here — it is asked by name on `detect`) |
 | `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp. Since protocol 3 the event carries NO plugin set (the node has none) and the agent's answer is an empty `harnesses` list — the periodic push and the `inventory` command are protocol filler the wire still expects, and the server treats the empty array as "nothing to apply" so it can never wipe the detection rows its own `detect` command collected. Those detect answers, not this event, are the node's harness facts |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |
