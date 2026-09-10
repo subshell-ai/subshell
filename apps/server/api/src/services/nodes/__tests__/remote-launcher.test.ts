@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   type BuildCommandInput,
   getHarness,
@@ -12,9 +12,14 @@ import {
   type NodeEvent,
   parseNodeCommandBody,
 } from "@internal/subshell-protocol";
+import { db } from "@/db/index.js";
+import { runMigrations } from "@/db/migrate.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
+import { readAgentInventory } from "@/services/nodes/inventory.js";
 import { launcherFor, resetLauncherRegistryForTests } from "@/services/nodes/launcher-registry.js";
 import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
+import { attachScriptedNode } from "@/test-helpers/scripted-node.js";
 
 const defaultLocalLauncher = getDefaultLocalLauncher();
 
@@ -46,6 +51,12 @@ type Script = unknown | (() => unknown);
 function makeHarness(facts: NodeAgentFacts | null = testFacts) {
   const calls: Sent[] = [];
   const scripts = new Map<string, Script[]>();
+  // The detect-kick recorder: production leaves the seam unbound and gets
+  // `detectOnNodeBestEffort`; these unit tests watch the KNOT, the wire to
+  // the fake node (the default driver's own send is proven below, against
+  // `attachScriptedNode`).
+  const detects: string[] = [];
+  let detectThrows = false;
   // `null` (not `undefined`) means offline — an explicit `undefined` would
   // re-trigger the default-parameter above.
   let currentFacts: NodeAgentFacts | undefined = facts ?? undefined;
@@ -63,11 +74,20 @@ function makeHarness(facts: NodeAgentFacts | null = testFacts) {
     send,
     nodes: { findById: async () => row },
     facts: () => currentFacts,
+    detect: (nodeId) => {
+      if (detectThrows) throw new Error("detect seam exploded");
+      detects.push(nodeId);
+    },
   });
 
   return {
     launcher,
     calls,
+    detects,
+    /** Make the next detect kick throw (the seam, not the default driver). */
+    failDetect() {
+      detectThrows = true;
+    },
     /** Queue one answer for the next command of `type` (functions may throw/return promises). */
     answer(type: string, script: Script) {
       const q = scripts.get(type) ?? [];
@@ -232,22 +252,24 @@ describe("resolveBinary", () => {
     expect(h.calls).toEqual([]);
   });
 
-  it("a stale snapshot still answers from cache and fires the refresh UNAWAITED", async () => {
+  it("a stale snapshot still answers from cache and kicks DETECTION, never the vacuous inventory command", async () => {
     const h = makeHarness();
     h.setRow(inventoryRow("2020-01-01T00:00:00.000Z"));
-    // A never-resolving inventory command: if the refresh were awaited this test would hang.
-    h.answer("inventory", () => new Promise(() => {}));
     expect(await h.launcher.resolveBinary(harness)).toBe("/usr/bin/claude");
-    expect(h.calls).toEqual([{ cmd: { type: "inventory" }, timeoutMs: 10_000 }]);
+    // Task 7 rewired the stale-kick: the `inventory` command's only write-back
+    // on a post-inversion agent is the empty claim the /ws/node handler
+    // refuses, so the kick is `detectOnNode` best-effort now (spec §4 — a
+    // launch is a human request). Nothing may ride the wire seam here.
+    expect(h.detects).toEqual(["node-1"]);
+    expect(h.calls).toEqual([]);
   });
 
-  it("a failing fire-and-forget refresh never rejects resolveBinary", async () => {
+  it("a throwing detect kick never rejects resolveBinary (the kick is total)", async () => {
     const h = makeHarness();
     h.setRow(inventoryRow("2020-01-01T00:00:00.000Z"));
-    h.answer("inventory", () => {
-      throw new NodeRpcError("offline", 'node "node-1" has no live connection', "node-1");
-    });
+    h.failDetect();
     expect(await h.launcher.resolveBinary(harness)).toBe("/usr/bin/claude");
+    expect(h.detects).toEqual([]);
     await flush();
   });
 });
@@ -410,23 +432,27 @@ describe("launch", () => {
     expect(h.calls).toEqual([]);
   });
 
-  it("a `binary missing` failure refreshes the inventory (unawaited) then rethrows", async () => {
+  it("a `binary missing` failure kicks detection (unawaited) then rethrows", async () => {
     const h = makeHarness();
     const rpcErr = new NodeRpcError("failed", 'node "node-1" reported: harness binary missing: claude-code', "node-1");
     h.answer("launch", () => {
       throw rpcErr;
     });
     expect(await rejection(h.launcher.launch(planBase()))).toBe(rpcErr);
-    expect(h.calls.map((c) => c.cmd.type)).toEqual(["launch", "inventory"]);
+    // The §6.2 refresh no longer sends the vacuous `inventory` command —
+    // one wire frame, and the kick rides the detect path instead.
+    expect(h.calls.map((c) => c.cmd.type)).toEqual(["launch"]);
+    expect(h.detects).toEqual(["node-1"]);
   });
 
-  it("other launch failures rethrow without an inventory refresh", async () => {
+  it("other launch failures rethrow without a detect kick", async () => {
     const h = makeHarness();
     h.answer("launch", () => {
       throw new NodeRpcError("failed", 'node "node-1" reported: mcp path refused', "node-1");
     });
     expect(((await rejection(h.launcher.launch(planBase()))) as Error).message).toContain("mcp path refused");
     expect(h.calls.map((c) => c.cmd.type)).toEqual(["launch"]);
+    expect(h.detects).toEqual([]);
   });
 });
 
@@ -980,5 +1006,70 @@ describe("paneSize — the pane's confirmed grid, or nothing", () => {
     const h = makeHarness();
     h.answer("pane_size", { cols: 0, rows: 24 });
     expect(await h.launcher.paneSize("sock", "s1")).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 7 fix round (I1): the PRODUCTION default of the detect kick.   */
+/* The unit seams above prove WHEN it fires; this proves it sends a    */
+/* real `detect` command down the wire and the answer lands in the     */
+/* cache — through `sendCommand`, the node registry, and the real      */
+/* NodesRepository, with a scripted agent on the other end.            */
+/* ------------------------------------------------------------------ */
+
+describe("launch-driven detection kick — default wiring (spec §4/§6.2)", () => {
+  beforeAll(async () => {
+    await runMigrations(); // no-op when already applied (server suite idiom)
+  });
+
+  it("a `binary missing` launch failure sends the node a detect command and caches the answer", async () => {
+    const id = `rl-kick-${crypto.randomUUID().slice(0, 8)}`;
+    const nodes = new NodesRepository(db);
+    await nodes.create({ id, ownerUserId: "rl-owner", name: id, kind: "agent", status: "online" });
+    const scripted = attachScriptedNode(id, {
+      launch: () => new Error("harness binary missing: claude-code"),
+      detect: () => ({
+        results: [{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude", rawVersion: "2.0.0" }],
+      }),
+    });
+    try {
+      const launcher = new RemoteLauncher(id); // ALL defaults: the kick under test is the production one
+      const err = (await rejection(
+        launcher.launch({
+          id: "s1",
+          socket: "subshell-abc",
+          harness,
+          binary: "/usr/bin/claude",
+          cwd: "/work",
+          profile: testProfile,
+          subshellName: "s1",
+          subshellEnv: { SUBSHELL_ID: "s1" },
+        }),
+      )) as NodeRpcError;
+      expect(err).toBeInstanceOf(NodeRpcError);
+      expect(err.code).toBe("failed");
+      expect(err.message).toContain("harness binary missing");
+      // The kick is taken synchronously inside the catch, but its round trip
+      // is fire-and-forget — the detect frame leaves after an await — so
+      // poll (bounded) for the wire, then for the merged cache.
+      for (let i = 0; i < 100 && scripted.cmdTypes().length < 2; i += 1) {
+        await Bun.sleep(10);
+      }
+      expect(scripted.cmdTypes()).toEqual(["launch", "detect"]);
+      const detect = scripted.cmdsOf("detect")[0];
+      // The plane's OWN rules rode the command (spec §4: rules from this
+      // build's plugins, node probes).
+      expect(detect?.specs.some((spec) => spec.id === "claude-code")).toBe(true);
+      let cached = readAgentInventory((await nodes.findById(id)) as NodeTable);
+      for (let i = 0; i < 100 && !cached.entries.get("claude-code"); i += 1) {
+        await Bun.sleep(10);
+        cached = readAgentInventory((await nodes.findById(id)) as NodeTable);
+      }
+      expect(cached.entries.get("claude-code")?.version).toBe("2.0.0"); // parsed control-side (claude has no parseVersion ⇒ raw text is the version)
+      expect(cached.fresh).toBe(true); // ...through the ordinary applyInventory path
+    } finally {
+      scripted.detach();
+      await nodes.deleteById(id);
+    }
   });
 });

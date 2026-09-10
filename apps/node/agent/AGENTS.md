@@ -91,7 +91,6 @@ subshell configure --server <url> [--json]
                                    # install` verbs fetched from, and those verbs (and the
                                    # whole node-side plugin concept) are GONE — see below.
 subshell run                       # foreground daemon (what the service unit runs)
-subshell run                       # foreground daemon (what the service unit runs)
                                      # NOTE: there is no `subshell plugin` command anymore
                                      # (inversion spec 2026-09-10 §6, Task 7). The node
                                      # holds no plugins: harnesses live on the control

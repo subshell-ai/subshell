@@ -60,7 +60,6 @@ interface Harness {
   statuses: { id: string; status: string }[];
   /** what deps.resolveResult saw: the connection handed to it + the event */
   results: { conn: NodeConnection; event: Extract<NodeEvent, { type: "result" }> }[];
-  inventoryRequests: string[];
   /** when set, deps.resolveResult returns false instead of true */
   resultMiss: boolean;
 }
@@ -75,7 +74,6 @@ function makeHarness(): Harness {
     touched: [],
     statuses: [],
     results: [],
-    inventoryRequests: [],
     resultMiss: false,
   } as unknown as Harness;
   h.deps = {
@@ -102,9 +100,6 @@ function makeHarness(): Harness {
     resolveResult: (conn, event) => {
       h.results.push({ conn, event });
       return !h.resultMiss;
-    },
-    requestInventory: (nodeId) => {
-      h.inventoryRequests.push(nodeId);
     },
   };
   return h;
@@ -209,7 +204,7 @@ describe("handleNodeOpen", () => {
 /* --------------------------- message ---------------------------- */
 
 describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => {
-  it("ready → applyReady with the mapped report, then an inventory refresh (spec §5.3)", async () => {
+  it("ready → applyReady with the mapped report; NO inventory pull follows (Task 7)", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
@@ -226,7 +221,13 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         },
       },
     ]);
-    expect(h.inventoryRequests).toEqual(["n1"]);
+    // Task 7 retired the §5.3 pull: a post-inversion agent answers the
+    // `inventory` command with an EMPTY harness claim the handler refuses to
+    // apply, so `ready` must not send it — freshness rides the
+    // request-driven detect path instead (remote-launcher's kick, page
+    // load, Re-check). The pull had a dedicated `requestInventory` dep until
+    // this commit; its removal from {@link NodeWsDeps} is itself the pin that
+    // `ready` cannot pull anymore, whatever a future frame handler grows.
     expect(ws.closed).toHaveLength(0);
   });
 
@@ -250,21 +251,19 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(plain).not.toHaveProperty("env");
   });
 
-  it("ready with a foreign protocol → recorded FIRST, then close 4406, no inventory", async () => {
+  it("ready with a foreign protocol → recorded FIRST, then close 4406", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: 999 }));
     expect(h.ready).toHaveLength(1); // persisted so the UI can say "agent too old"
     expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(h.inventoryRequests).toEqual([]);
   });
 
-  it("ready at the agent floor → accepted, inventory still requested", async () => {
+  it("ready at the agent floor → accepted", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: MIN_AGENT_VERSION }));
     expect(ws.closed).toHaveLength(0);
-    expect(h.inventoryRequests).toEqual(["n1"]);
   });
 
   it("refuses an agent below the floor, and the reason names BOTH versions", async () => {

@@ -215,7 +215,6 @@ describe("detectOnNode", () => {
       verifyApiKey: async () => null,
       nodes: new NodesRepository(db),
       resolveResult: () => false,
-      requestInventory: () => {},
     } as unknown as NodeWsDeps;
 
     await handleNodeMessage(
@@ -244,7 +243,6 @@ describe("detectOnNode", () => {
       verifyApiKey: async () => null,
       nodes: new NodesRepository(db),
       resolveResult: () => false,
-      requestInventory: () => {},
     } as unknown as NodeWsDeps;
     const harnesses = [{ harnessId: "claude-code", installed: true, version: "9.9.9" }];
     await handleNodeMessage(deps, ws, JSON.stringify({ type: "inventory", harnesses, ts: new Date().toISOString() }));

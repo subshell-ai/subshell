@@ -23,11 +23,14 @@ const RecheckResponseSchema = t.Object({
  * like the rest of the registry.
  *
  * Sends the signed `{type:"inventory"}` command and waits for the agent's
- * `result`; the agent's `inventory` EVENT is persisted by the `/ws/node`
- * handler's `applyInventory` path. Agents send the event before the answer
- * and per-socket dispatch is serialized (phase 2, `handleNodeMessageQueued`),
- * so `{ ok: true }` truthfully attests "inventory stored" — the client's
- * refetch can never read the previous snapshot off this response.
+ * `result`; a paired pre-inversion agent's `inventory` EVENT is persisted by
+ * the `/ws/node` handler's `applyInventory` path (agents send the event
+ * before the answer and per-socket dispatch is serialized (phase 2,
+ * `handleNodeMessageQueued`)). Since Task 7 the post-inversion agent answers
+ * with an EMPTY harness claim the handler (correctly) does not apply, so for
+ * those agents the freshness below is the whole story; `{ ok: true }` still
+ * truthfully attests "fresh state stored" because the awaited detect pass
+ * lands after this response's precondition either way.
  *
  * Then it runs the plane's own `detect` pass (spec 2026-09-10 §4), awaited for
  * the same reason: the detection rows (raw answers parsed HERE by the plugin)
@@ -35,9 +38,9 @@ const RecheckResponseSchema = t.Object({
  * fresh state is stored must not land before they are. ONE exception: a
  * deployed v2 agent predates the `detect` handler (the add did not bump the
  * protocol; the bump is Task 8), and the switch's contract answer is
- * `unsupported`. That is not a failed re-check — the node's own inventory
- * scan already stored its self-parsed versions above, exactly as before the
- * command existed — so ONLY `NodeRpcError("unsupported")` from the detect
+ * `unsupported`. That is not a failed re-check — on those agents the node's
+ * own inventory scan stored its self-parsed versions above, exactly as before
+ * the command existed — so ONLY `NodeRpcError("unsupported")` from the detect
  * pass is swallowed (debug-logged); every other failure keeps the ladder.
  *
  * Error mapping from `NodeRpcError.code` (the actual enum): `offline` → 409

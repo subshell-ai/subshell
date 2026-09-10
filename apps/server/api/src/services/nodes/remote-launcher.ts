@@ -14,7 +14,7 @@ import {
 import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { logger } from "@/utils/logger.js";
-import { readAgentInventory } from "./inventory.js";
+import { detectOnNodeBestEffort, readAgentInventory } from "./inventory.js";
 import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "./log-tail.js";
 import { subscribeOutput } from "./node-events.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
@@ -84,6 +84,12 @@ export interface RemoteLauncherDeps {
   nodes?: Pick<NodesRepository, "findById">;
   /** Agent-facts seam (default `getLive(nodeId)?.agent` — offline reads as undefined). */
   facts?: (nodeId: string) => NodeAgentFacts | undefined;
+  /**
+   * Launch-driven detection kick (default {@link detectOnNodeBestEffort}).
+   * Test seam: production passes nothing. Synchronous-throwing seams are
+   * caught by the caller — the kick is total.
+   */
+  detect?: (nodeId: string) => void;
 }
 
 /**
@@ -152,11 +158,29 @@ export class RemoteLauncher implements NodeLauncher {
     return new Error(`node "${this.#nodeId}" returned a malformed ${command} result`);
   }
 
-  /** Fire-and-forget inventory refresh (spec §6.2): never awaited, errors go to debug. */
-  #refreshInventory(): void {
-    this.#send({ type: "inventory" }, DEFAULT_COMMAND_TIMEOUT_MS).catch((err: unknown) => {
-      logger.withError(err).debug(`node ${this.#nodeId}: on-demand inventory refresh failed`);
-    });
+  /**
+   * Fire-and-forget DETECTION kick (spec 2026-09-10 §4, rewired from the
+   * `inventory` command by Task 7): never awaited, errors go to debug.
+   *
+   * The old refresh sent `{type:"inventory"}`. Since the agent lost its
+   * plugin concept (inversion §6), that command's only write-back is the
+   * empty `harnesses: []` claim the `/ws/node` handler rightly refuses to
+   * apply (the H2 guard), so the round trip stored NOTHING — the kick here
+   * is what actually refreshes the snapshot now: the plane ships its detect
+   * rules, the node probes, and the answer merges over the cache. What feeds
+   * `inventory_json` freshness: node-page load, Re-check, and these
+   * launch-driven kicks (a launch IS a human request — spec §4's trigger).
+   * The agent's 5-min inventory push stays on the wire but carries nothing,
+   * and Task 8 removes it.
+   */
+  #kickDetect(): void {
+    try {
+      (this.#deps.detect ?? detectOnNodeBestEffort)(this.#nodeId);
+    } catch (err: unknown) {
+      // Only a throwing seam can land here; the default never throws. The
+      // kick is fire-and-forget — nothing that observes it may learn it broke.
+      logger.withError(err).debug(`node ${this.#nodeId}: on-demand detection kick failed`);
+    }
   }
 
   /**
@@ -182,15 +206,16 @@ export class RemoteLauncher implements NodeLauncher {
   /**
    * Cached-inventory lookup ONLY — never blocks on the network (spec §6.2).
    * A stale (aged or never-reported) snapshot still answers from cache, and
-   * kicks an unawaited `inventory` command so the next launch sees fresh
-   * data. Absent node row / absent entry read as null (not installed).
+   * kicks an unawaited detection pass ({@link #kickDetect}) so the next
+   * launch sees fresh data. Absent node row / absent entry read as null
+   * (not installed).
    */
   async resolveBinary(harness: HarnessPlugin): Promise<string | null> {
     const nodes = this.#deps.nodes ?? getRequestlessContext().repos.nodes;
     const node = await nodes.findById(this.#nodeId);
     if (!node) return null;
     const inv = readAgentInventory(node);
-    if (inv.stale) this.#refreshInventory();
+    if (inv.stale) this.#kickDetect();
     return inv.entries.get(harness.id)?.binaryPath ?? null;
   }
 
@@ -212,8 +237,9 @@ export class RemoteLauncher implements NodeLauncher {
    *   dialect `plan.mcp` already holds, so the node stops recomputing them
    *   once Task 4 lands. The caller composes `path` from the node's
    *   `ready.dataDir`.
-   * A `binary missing` failure means our inventory cache lied: refresh it
-   * (unawaited) before rethrowing (spec §6.2).
+   * A `binary missing` failure means our cached path was stale: kick the
+   * detection pass (unawaited, {@link #kickDetect}) before rethrowing
+   * (spec §6.2, detection-shaped by Task 7).
    */
   async launch(plan: LaunchPlan): Promise<void> {
     if (plan.mcp && !plan.mcpConfigPath) {
@@ -259,7 +285,7 @@ export class RemoteLauncher implements NodeLauncher {
       await this.#send(cmd, LAUNCH_TIMEOUT_MS);
     } catch (err) {
       if (err instanceof NodeRpcError && err.code === "failed" && BINARY_MISSING_RE.test(err.message)) {
-        this.#refreshInventory();
+        this.#kickDetect();
       }
       throw err;
     }

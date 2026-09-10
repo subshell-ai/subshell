@@ -40,7 +40,6 @@ const deps: NodeWsDeps = {
   },
   nodes,
   resolveResult: () => false, // no RPC in flight in this test
-  requestInventory: () => {}, // phase-2 wiring; unit tests cover the call
 };
 
 const app = new Elysia()

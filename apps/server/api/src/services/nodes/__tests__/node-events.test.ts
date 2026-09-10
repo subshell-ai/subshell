@@ -74,7 +74,6 @@ function makeHarness(): Harness {
       setStatus: async () => {},
     } as unknown as NodeWsDeps["nodes"],
     resolveResult: () => false,
-    requestInventory: () => {},
   };
   h.releaseTouch = () => {
     for (const r of resolvers.splice(0)) r();

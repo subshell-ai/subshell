@@ -591,6 +591,7 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
       // (Task 7), there is no second source a drift rule could arbitrate.
       expect(await Bun.file(mcpFile).text()).toBe('{"from":"the control plane"}\n');
       expect(statSync(mcpFile).mode & 0o077).toBe(0); // the 0600 write is unchanged on both paths
+      expect(statSync(join(dataDir, "mcp")).mode & 0o077).toBe(0); // dir re-tightened to 0700 (its own pin, survived the fallback's death)
       expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(0); // the drift warn is gone
       // The sent env rides the pane env layer; the sent argv is the whole command line.
       expect(paneCmd).toInclude(`OPENCODE_CONFIG='${mcpFile}'`);
