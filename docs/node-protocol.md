@@ -215,7 +215,7 @@ instead. See `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
-| `plugin_install` | Install one plugin on the node. The node performs the install from the copies its build carries and answers with its WHOLE set, because the control plane mirrors what the node reports and a partial answer would leave it guessing at the rest. It also pushes a fresh `inventory`, since the probe follows what is installed. An offline node is refused rather than queued: the node owns its set, so there is no desired state to reconcile |
+| `plugin_install` | Install one plugin on the node. The node performs the install from the copies its build carries and answers with its WHOLE set, because the control plane mirrors what the node reports and a partial answer would leave it guessing at the rest. It also pushes a fresh `inventory`, since the probe follows what is installed. An offline node is refused rather than queued: the node owns its set, so there is no desired state to reconcile. An optional spec (protocol v2) names an npm package to fetch — `name`, `@scope/name`, optionally `@version` or `@dist-tag`; absent means the embedded copy this build carries. The node does the fetching (the §8.1 trust model lives in docs/security.md) |
 | `plugin_uninstall` | Remove one plugin. Removing something already absent is a SUCCESS — the caller asked for a state and that state holds, so a retry after a dropped connection does not look like a failure. Answers with the set that remains, plus a fresh `inventory` |
 | `set_allowed_dirs` | Replace the node's persisted directory allowlist (v5). The node stores it at `<dataDir>/allowed-dirs.json` (0600) and checks every `launch`/`stat_dir` against its OWN copy — signing proves who sent a launch, never whether the directory is permitted. An empty array clears the rules (unrestricted). Pushed on every owner edit and again after each `ready`, which is what reconciles a node that was offline for an edit |
 
@@ -349,8 +349,9 @@ Two numbers, changed on different schedules:
   **restarted at 1 on 2026-09-09**: the protocol had reached 6 under a
   numbering that predated any deployment, no instance ever ran on those
   versions, and the GitHub releases of that era are removed. Everything in
-  this document is v1-era; the first real bump is 1 → 2, and old numbers from
-  the retired sequence do not recur here (their history is in git).
+  this document is v1-era except where annotated otherwise; 1 → 2 was the
+  first real bump (phase 3, registry installs), and old numbers from the
+  retired sequence do not recur here (their history is in git).
 - **`MIN_AGENT_VERSION`** — bump when the server needs newer agent *behaviour*
   that the frames alone do not express.
 

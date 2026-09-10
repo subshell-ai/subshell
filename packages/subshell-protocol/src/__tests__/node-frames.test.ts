@@ -114,10 +114,10 @@ describe("parseNodeCommandBody", () => {
   it("pins the protocol version", () => {
     // Matched EXACTLY: there is no compat window and no per-feature gating,
     // because the server and the agent ship together. Bump this whenever a
-    // frame changes and release both sides. (1 is the post-restart baseline:
-    // the numbering restarted on 2026-09-09 with no deployed instances, so
-    // the first REAL bump will be 1 → 2.)
-    expect(NODE_PROTOCOL_VERSION).toBe(1);
+    // frame changes and release both sides. (2 is phase 3's bump — the
+    // registry spec on `plugin_install` — and the first REAL one: the
+    // numbering restarted at 1 on 2026-09-09 with no deployed instances.)
+    expect(NODE_PROTOCOL_VERSION).toBe(2);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -228,5 +228,16 @@ describe("plugin commands", () => {
       type: "plugin_install",
       id: "not-a-real-plugin",
     });
+  });
+  it("accepts an optional spec alongside the id (phase 3)", () => {
+    expect(
+      parseNodeCommandBody({ type: "plugin_install", id: "codex", spec: "@subshell-ai/plugin-codex@2.0.0" }),
+    ).toEqual({ type: "plugin_install", id: "codex", spec: "@subshell-ai/plugin-codex@2.0.0" });
+    // Absent stays absent — the byte-identical v1 shape.
+    expect(parseNodeCommandBody({ type: "plugin_install", id: "pi" })).toEqual({ type: "plugin_install", id: "pi" });
+  });
+  it("rejects a non-string spec rather than coercing", () => {
+    expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: 3 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "plugin_install", id: "pi", spec: "" })).toBeNull();
   });
 });

@@ -29,14 +29,14 @@ import type { JsonValue } from "./json.js";
  * goes offline, while an agent that lags is refused just as clearly — the
  * Nodes page names it either way.
  *
- * **The numbering restarted at 1 on 2026-09-09.** The protocol had reached 6
- * under a numbering that predated any deployment; since no instance was ever
- * run on those versions (and their GitHub releases are removed), the history
- * was reset rather than carried: every frame in this file is v1-era, the
- * first real bump is 1 → 2, and nothing here should annotate frames with the
+ * **The numbering restarted at 1 on 2026-09-09 and 1 → 2 was the first real
+ * bump (phase 3, the registry).** The protocol had reached 6 under a
+ * numbering that predated any deployment; since no instance was ever run on
+ * those versions (and their GitHub releases are removed), the history was
+ * reset rather than carried, and nothing here should annotate frames with the
  * retired numbers.
  */
-export const NODE_PROTOCOL_VERSION = 1;
+export const NODE_PROTOCOL_VERSION = 2;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -240,6 +240,14 @@ export type NodeCommandBody =
       type: "plugin_install";
       /** Plugin id, which is also its directory name on the node */
       id: string;
+      /**
+       * npm package spec to install from INSTEAD of the embedded copy
+       * (protocol 1 → 2, phase 3): `name`, `@scope/name`, or either with
+       * `@version` / `@dist-tag`. Absent means the embedded copy, exactly as
+       * in v1, which is why this is the only kind of change the exact-match
+       * gate can admit as a pair-release: nobody runs the old side.
+       */
+      spec?: string;
     }
   | {
       /**
@@ -543,8 +551,12 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     // Shape only, for both. Whether the id names something installable is the
     // node's question, and it answers with a message naming the plugin, which
     // is more useful than a parser rejecting the frame with no context.
-    case "plugin_install":
-      return isStr(value.id) ? { type: "plugin_install", id: value.id } : null;
+    case "plugin_install": {
+      if (!isStr(value.id)) return null;
+      if (value.spec === undefined) return { type: "plugin_install", id: value.id };
+      if (!isStr(value.spec) || value.spec === "") return null;
+      return { type: "plugin_install", id: value.id, spec: value.spec };
+    }
     case "plugin_uninstall":
       return isStr(value.id) ? { type: "plugin_uninstall", id: value.id } : null;
     case "set_allowed_dirs":
