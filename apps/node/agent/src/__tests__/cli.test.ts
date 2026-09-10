@@ -442,3 +442,67 @@ describe("configure — repoint an enrolled node", () => {
     expect(result.err).toInclude("subshell configure");
   });
 });
+
+describe("plugin subtoken parsing", () => {
+  test("install/uninstall/update take exactly one bare positional (the spec/id)", () => {
+    expect(parseArgs(["plugin", "install", "@scope/pkg@1.2.3"])).toEqual({
+      command: "plugin",
+      sub: "install",
+      arg: "@scope/pkg@1.2.3",
+      flags: {},
+    });
+    expect(parseArgs(["plugin", "uninstall", "third"])).toEqual({
+      command: "plugin",
+      sub: "uninstall",
+      arg: "third",
+      flags: {},
+    });
+    expect(parseArgs(["plugin", "update", "third"])).toEqual({
+      command: "plugin",
+      sub: "update",
+      arg: "third",
+      flags: {},
+    });
+    // `update`'s positional is optional (omit it to check every sidecar'd
+    // install); `list` takes none at all.
+    expect(parseArgs(["plugin", "update"])).toEqual({ command: "plugin", sub: "update", flags: {} });
+    expect(parseArgs(["plugin", "list"])).toEqual({ command: "plugin", sub: "list", flags: {} });
+  });
+
+  test("a second bare token names the subcommand it overflowed", () => {
+    expect(() => parseArgs(["plugin", "install", "a", "b"])).toThrow(/too many arguments to 'plugin install'/);
+    expect(() => parseArgs(["plugin", "update", "a", "b"])).toThrow(/too many arguments to 'plugin update'/);
+  });
+
+  test("--json belongs to the two views only, and the refusal names them", () => {
+    expect(parseArgs(["plugin", "list", "--json"]).flags.json).toBe("1");
+    expect(parseArgs(["plugin", "update", "--json"]).flags.json).toBe("1");
+    expect(() => parseArgs(["plugin", "install", "--json"])).toThrow(/not valid for 'plugin install'/);
+    expect(() => parseArgs(["plugin", "install", "--json"])).toThrow(
+      /only 'plugin list' and 'plugin update' accepts it/,
+    );
+    expect(() => parseArgs(["plugin", "uninstall", "--json"])).toThrow(/not valid for 'plugin uninstall'/);
+  });
+
+  test("install and uninstall require their argument", () => {
+    expect(() => parseArgs(["plugin", "install"])).toThrow(/plugin install requires <name\|@scope\/pkg\[@version\]>/);
+    expect(() => parseArgs(["plugin", "uninstall"])).toThrow(/plugin uninstall requires <id>/);
+  });
+
+  test("an unknown verb names the four", async () => {
+    expect(() => parseArgs(["plugin", "bogus"])).toThrow(
+      /unknown plugin subcommand 'bogus': plugin requires install or list or uninstall or update/,
+    );
+    // The bare verb hits the same refusal through `run` (exit 2, usage dump).
+    const res = await run(["plugin"]);
+    expect(res.code).toBe(2);
+    expect(res.err).toInclude("install or list or uninstall or update");
+  });
+
+  test("the positional capture is gated to plugin: other commands still die as unknown flags", () => {
+    // The gate is load-bearing: without it `service status extra` and
+    // `status extra` would change meaning rather than refuse as they always have.
+    expect(() => parseArgs(["status", "extra"])).toThrow(/unknown flag 'extra'/);
+    expect(() => parseArgs(["service", "install", "extra"])).toThrow(/unknown flag 'extra'/);
+  });
+});

@@ -6,6 +6,7 @@ import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, readLock } from "./lock.js";
 import { runAgentMcp } from "./mcp/main.js";
+import { runPlugin } from "./plugin-cli.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -53,6 +54,10 @@ usage:
   subshell service status [--json]     (what the service manager reports)
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell status [--json] [--probe]
+  subshell plugin list [--json]
+  subshell plugin install <name|@scope/pkg[@version]> [--json omitted]
+  subshell plugin uninstall <id>
+  subshell plugin update [<id>] [--json]
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane, internal)
@@ -61,7 +66,7 @@ usage:
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["configure", "enroll", "license", "mcp", "run", "service", "status", "version"]);
+const COMMANDS = new Set(["configure", "enroll", "license", "mcp", "plugin", "run", "service", "status", "version"]);
 /**
  * Bare flags accepted IN THE COMMAND SLOT. argv[0] is the command here, so
  * `subshell --version` would otherwise die as `unknown command '--version'`
@@ -80,8 +85,11 @@ const COMMAND_ALIASES: Record<string, string> = {
  * cannot be silently unreachable here.
  */
 const SUBCOMMANDS: Record<string, string[]> = {
+  plugin: ["install", "list", "uninstall", "update"],
   service: ["install", "uninstall", "status", ...SERVICE_VERBS],
 };
+/** Commands whose SUBTOKEN takes exactly one bare positional (the spec/id). */
+const POSITIONAL_SUBCOMMANDS = new Set(["install", "uninstall", "update"]);
 /**
  * Command → subtoken → the flags THAT subtoken accepts. `service` is the only
  * command whose flags are per-subcommand: `--json` is a view's flag and
@@ -90,6 +98,12 @@ const SUBCOMMANDS: Record<string, string[]> = {
  * meaningful.
  */
 const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
+  // `--json` is a VIEW's flag, same rule as `service status`: the two
+  // machine-readable verbs get it, `install`/`uninstall` print one honest
+  // line either way and have nothing structured to promise. Insertion order
+  // is the refusal's wording ("only 'plugin list' and 'plugin update'
+  // accepts it"), so keep list/update first.
+  plugin: { list: ["--json"], update: ["--json"], install: [], uninstall: [] },
   service: { status: ["--json"], restart: ["--force"] },
 };
 /** Known flag → does it take a value? */
@@ -118,6 +132,11 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   license: [],
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
+  // Derived, like `service`: the command-level check is the union of the
+  // per-subtoken table above, and that table is what actually decides. No
+  // --registry-url here: the mirror is config (set once with `configure`),
+  // not a per-invocation argument.
+  plugin: subcommandFlagUnion("plugin"),
   run: [],
   // Derived, never hand-listed: the command-level check is the union and the
   // per-subtoken check below is what actually decides.
@@ -134,6 +153,8 @@ export interface ParsedArgs {
   command: string;
   /** Bare first positional, validated against the command's {@link SUBCOMMANDS} list. */
   sub?: string;
+  /** The one bare positional after the subtoken (`plugin install <spec>`); see the POSITIONAL_SUBCOMMANDS set. */
+  arg?: string;
   /** Flag map (camelCased key, `"1"` for booleans). */
   flags: Record<string, string>;
 }
@@ -149,10 +170,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const flags: Record<string, string> = {};
   const allowed = new Set(COMMAND_FLAGS[command]);
   // The FIRST bare (non-`--`) token is the subtoken slot — only commands with a
-  // SUBCOMMANDS entry may see one, and only one; a second bare token falls
+  // SUBCOMMANDS entry may see one, and only one; a later bare token is the
+  // positional for the verbs that take one, and everywhere else it falls
   // through to the flag arm below and dies as `unknown flag`.
   const subcommands = SUBCOMMANDS[command];
   let sub: string | undefined;
+  let arg: string | undefined;
   // Raw tokens as typed (`flags` is camelCased and lossy) — the per-subtoken
   // check below reports the flag the way the operator wrote it.
   const used: string[] = [];
@@ -164,6 +187,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
         );
       }
       sub = rest[i];
+      continue;
+    }
+    // Gated to `plugin` on purpose: its verbs' names collide with `service`'s
+    // (`install`, `uninstall`), and a service positional must keep dying as
+    // `unknown flag` exactly as it always has.
+    if (sub !== undefined && !rest[i].startsWith("--") && command === "plugin" && POSITIONAL_SUBCOMMANDS.has(sub)) {
+      if (arg !== undefined) throw new UsageError(`too many arguments to '${command} ${sub}'`);
+      arg = rest[i];
       continue;
     }
     // `--flag=value` is accepted alongside `--flag value` (split on the FIRST
@@ -193,7 +224,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
     throw new UsageError(`${command} requires ${subcommands.join(" or ")}`);
   }
   if (sub !== undefined) assertSubcommandFlags(command, sub, used);
-  return { command, sub, flags };
+  // `update` takes its id optionally (empty = every sidecar'd install); the
+  // other two cannot act without theirs, and "install what?" is a mistyped
+  // command, so it is a usage error, not a runtime one.
+  if (command === "plugin" && (sub === "install" || sub === "uninstall") && arg === undefined) {
+    throw new UsageError(`plugin ${sub} requires ${sub === "install" ? "<name|@scope/pkg[@version]>" : "<id>"}`);
+  }
+  return { command, sub, arg, flags };
 }
 
 /**
@@ -224,6 +261,8 @@ function assertSubcommandFlags(command: string, sub: string, used: string[]): vo
 export interface RunDeps {
   /** Service-manager + filesystem seams for `service` (default: {@link DEFAULT_DEPS}). */
   service?: ServiceDeps;
+  /** Test seam for the plugin verbs: registry base + data dir override. */
+  plugin?: { registryUrl?: string; dataDir?: string };
 }
 
 /**
@@ -358,6 +397,13 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             "restart the agent to apply it: subshell service restart (or restart `subshell run`)\n",
           err: "",
         };
+      }
+      case "plugin": {
+        // The plugin set lives in the data dir, so config comes first and a
+        // missing one exits 1 pointing at enroll. The verb logic is in
+        // plugin-cli.ts, which shares pane-runtime's install door with the
+        // signed commands — one install path, not two.
+        return await runPlugin(parsed, deps);
       }
       case "status": {
         // NON-DESTRUCTIVE by default (fix wave 1): a live `daemon.lock` (pid alive, same
