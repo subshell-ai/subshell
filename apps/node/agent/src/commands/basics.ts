@@ -1,8 +1,8 @@
+import { existsSync } from "node:fs";
 import { realpath, stat, unlink } from "node:fs/promises";
 import {
   buildPluginReports,
   detectBinary,
-  getHarness,
   installPlugin,
   probeVersion,
   tmuxSocketFor,
@@ -161,15 +161,22 @@ export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise
 }
 
 /**
- * `probe_resume` (spec §6.4): run the harness plugin's OWN resume probe on this
- * machine (identical `@internal/pane-runtime` code as the local path). Unknown
- * harness → failure; a harness without the capability can never resume.
+ * `path_exists` (inversion spec §5): stat the path the CONTROL PLANE computed
+ * and answer whether it is there. The command used to be `probe_resume`,
+ * which ran the harness plugin's own transcript probe here — plugin code the
+ * node no longer needs to hold, because the plane builds the path from the
+ * plugin it DOES hold plus this node's `ready`-reported environment, and
+ * existence was always the only fact the node had that the plane lacked.
+ *
+ * `existsSync` is total (no throw for an absent path), and absence is a
+ * successful `exists:false`, never an error: "the transcript is gone" is the
+ * ordinary restart case. Deliberately OUTSIDE the directory allowlist like
+ * `stat_dir` and `fs_ls` — a probe is not a launch, and the resume transcript
+ * lives in the harness's own state dir, nowhere near the directories an owner
+ * allows subshells to run in.
  */
-export async function execProbeResume(_ctx: CommandContext, cmd: Cmd<"probe_resume">): Promise<CommandResult> {
-  const harness = getHarness(cmd.harnessId);
-  if (!harness) return { ok: false, error: "unknown harness" };
-  const canResume = harness.resume ? harness.resume.canResume(cmd.harnessSessionId, cmd.cwd) : false;
-  return { ok: true, data: { canResume } };
+export async function execPathExists(_ctx: CommandContext, cmd: Cmd<"path_exists">): Promise<CommandResult> {
+  return { ok: true, data: { exists: existsSync(cmd.path) } };
 }
 
 /**

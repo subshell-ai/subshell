@@ -66,6 +66,20 @@ export interface NodeAgentFacts {
   agentVersion: string;
   /** agent `process.execPath` (Task 1 additive field) — MCP launch spec target */
   executablePath?: string;
+  /**
+   * The node's home directory, reported at `ready` (spec 2026-09-10 §5) —
+   * the fallback root for resume paths the control plane computes. Absent
+   * when the node reported none; `canResume` still computes a (relative, so
+   * will-not-exist) default rather than skipping the probe.
+   */
+  homeDir?: string;
+  /**
+   * Values for the environment variables the node's installed plugins'
+   * manifests declared, and only those (spec §5). Absent = nothing reported;
+   * a key absent WITHIN it = that declared variable is unset on the node,
+   * which is what triggers the plugin's fallback.
+   */
+  env?: Record<string, string>;
 }
 
 /** Live state for exactly one node's current connection. */

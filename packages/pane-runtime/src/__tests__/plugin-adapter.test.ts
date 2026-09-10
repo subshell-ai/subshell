@@ -78,7 +78,7 @@ describe("adaptPlugin: optional members are present only when implemented", () =
   });
 
   it("attaches them when the plugin has them", () => {
-    const resume = { allocateHarnessSessionId: () => "id", canResume: () => true };
+    const resume = { allocateHarnessSessionId: () => "id", resumePath: () => "/p" };
     const a = adaptPlugin(
       MANIFEST,
       minimal({

@@ -58,6 +58,16 @@ export interface SubshellManifest {
   detect?: DetectSpec;
   /** Install guidance shown when the binary is missing */
   install?: InstallSpec;
+  /**
+   * Environment variables this plugin computes against (spec 2026-09-10 §5).
+   *
+   * The node reports the VALUES of exactly these names at `ready`, so the
+   * reported set grows by declaration rather than a machine shipping its
+   * whole environment to the control plane. Declaring data is deliberate: a
+   * WRONG name is silent, yielding an absent key and the plugin's own
+   * fallback, i.e. a resume that quietly never offers itself (§11).
+   */
+  hostEnv?: string[];
 }
 
 /** A parse failure, carrying the sentence to render. */
@@ -155,6 +165,18 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     install = { command: i.command, docsUrl: i.docsUrl };
   }
 
+  // Names, not values: the package.json is checked in, the values are what
+  // the node reads off its own machine at `ready`. An empty name would make
+  // the node read `process.env[""]`, so it is refused here rather than
+  // reported as a mystery absent key downstream.
+  let hostEnv: string[] | undefined;
+  if (block.hostEnv !== undefined) {
+    if (!Array.isArray(block.hostEnv) || !block.hostEnv.every((k) => typeof k === "string" && k.trim() !== "")) {
+      return { error: "`subshell.hostEnv` must be an array of environment variable names" };
+    }
+    hostEnv = [...(block.hostEnv as string[])];
+  }
+
   return {
     apiVersion: block.apiVersion,
     id: block.id,
@@ -165,5 +187,6 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     entry: block.entry,
     ...(detect ? { detect } : {}),
     ...(install ? { install } : {}),
+    ...(hostEnv ? { hostEnv } : {}),
   };
 }

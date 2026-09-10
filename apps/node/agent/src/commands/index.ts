@@ -6,10 +6,10 @@ import {
   execInventory,
   execKill,
   execPaneSize,
+  execPathExists,
   execPluginInstall,
   execPluginUninstall,
   execProbe,
-  execProbeResume,
   execRemovePaths,
   execResize,
   execSetAllowedDirs,
@@ -28,7 +28,8 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
 /**
  * The command switch (spec 2026-08-31 §7): wired types from phase-2 Tasks 3–6
  * are `ping`, `inventory`, `terminate`, `kill`, `input`, `resize`, `capture`,
- * `stat_dir`, `probe`, `probe_resume`, `remove_paths`, `launch`,
+ * `stat_dir`, `probe`, `path_exists` (the generalised `probe_resume`,
+ * inversion spec §5), `remove_paths`, `launch`,
  * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`,
  * `set_allowed_dirs`
  * (Task 6), `fs_ls` (remote folder picker), and `detect` (detection-on-demand,
@@ -75,8 +76,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execFsLs(ctx, cmd);
       case "probe":
         return await execProbe(ctx, cmd);
-      case "probe_resume":
-        return await execProbeResume(ctx, cmd);
+      case "path_exists":
+        return await execPathExists(ctx, cmd);
       case "log_read":
         return await execLogRead(ctx, cmd);
       case "tail_start":

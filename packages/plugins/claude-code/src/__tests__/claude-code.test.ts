@@ -1,7 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ProfileDefinition } from "@subshell-ai/plugin-api";
 import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
@@ -29,6 +26,10 @@ describe("ClaudeCodePlugin", () => {
     expect(manifest.type).toBe("agent-harness");
     expect(manifest.detect?.binaryName).toBe("claude");
     expect(manifest.detect?.envOverride).toBe("CLAUDE_PATH");
+    // The env `resumePath` computes against. A typo here is the silent
+    // failure documented in the resumePath describe: the node reports a name
+    // nothing sets, and the resume quietly stops offering itself.
+    expect(manifest.hostEnv).toEqual(["CLAUDE_CONFIG_DIR"]);
   });
 
   it("declares the capabilities it implements", () => {
@@ -191,34 +192,56 @@ describe("ClaudeCodePlugin restart-resume", () => {
     expect(cmd).not.toContain("--session-id");
   });
 
-  describe("resume.canResume", () => {
-    const saved = process.env.CLAUDE_CONFIG_DIR;
-    // Point claude's state dir at a temp tree so the probe is testable
-    // without touching the developer's real ~/.claude.
-    function withConfigDir(body: (dir: string) => void) {
-      const dir = mkdtempSync(join(tmpdir(), "subshell-claude-cfg-"));
-      process.env.CLAUDE_CONFIG_DIR = dir;
-      try {
-        body(dir);
-      } finally {
-        delete process.env.CLAUDE_CONFIG_DIR;
-        if (saved !== undefined) process.env.CLAUDE_CONFIG_DIR = saved;
-        rmSync(dir, { recursive: true, force: true });
-      }
-    }
+  describe("resume.resumePath", () => {
+    // The contract is PURE (spec 2026-09-10 §5): the plugin computes where a
+    // transcript WOULD be from the target machine's reported environment, and
+    // never touches a filesystem or process.env itself, so the control plane
+    // can build the path for a node it cannot see. These cases pass a made-up
+    // home and override; what exists is the HOST's question.
+    const resume = () => plugin.resume as NonNullable<typeof plugin.resume>;
 
-    it("is true only when the pinned transcript exists under the cwd's slug dir", () => {
-      withConfigDir((dir) => {
-        const id = plugin.resume?.allocateHarnessSessionId() ?? "";
-        expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-        const slug = join(dir, "projects", "-tmp-my-project");
-        mkdirSync(slug, { recursive: true });
-        expect(plugin.resume?.canResume(id, "/tmp/my.project")).toBe(false);
-        writeFileSync(join(slug, `${id}.jsonl`), "{}");
-        expect(plugin.resume?.canResume(id, "/tmp/my.project")).toBe(true);
-        // The same id in another project dir is not resumable there.
-        expect(plugin.resume?.canResume(id, "/tmp/other")).toBe(false);
-      });
+    it("allocateHarnessSessionId mints a v4 uuid (the pin `--session-id` later resumes by)", () => {
+      expect(resume().allocateHarnessSessionId()).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    });
+
+    it("is pure and honours the target machine's override", () => {
+      const p = resume().resumePath("abc", "/w/x", { homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "/custom" } });
+      expect(p).toBe("/custom/projects/-w-x/abc.jsonl");
+    });
+
+    it("falls back to the reported home when the variable is absent", () => {
+      const p = resume().resumePath("abc", "/w/x", { homeDir: "/home/n", env: {} });
+      expect(p).toBe("/home/n/.claude/projects/-w-x/abc.jsonl");
+    });
+
+    it("a manifest naming the wrong variable falls back to the home default, silently", () => {
+      // The landmine of spec §11, documented as a permanent test.
+      // `subshell.hostEnv` declares WHICH variable the node reports; a typo
+      // (`CLAUDE_CONFIG_DIRR`) means the node dutifully reports a variable
+      // nothing sets, so it is simply absent and the plugin's own fallback
+      // applies. The resume does not throw and is not refused; it just never
+      // offers itself on a machine whose real config dir is overridden. That
+      // silence is why the declaration is worth reading carefully.
+      const p = resume().resumePath("abc", "/w/x", { homeDir: "/home/n", env: { CLAUDE_CONFIG_DIRR: "/custom" } });
+      expect(p).toBe("/home/n/.claude/projects/-w-x/abc.jsonl");
+    });
+
+    it("slugs the cwd without consulting the filesystem (dots and slashes alike)", () => {
+      // A home nothing could have and a cwd nothing could contain: a member
+      // that probed would throw or return false here. It does neither; the
+      // string just lands where Claude would put it.
+      const p = resume().resumePath("abc", "/tmp/my.project", { homeDir: "/does/not/matter", env: {} });
+      expect(p).toBe("/does/not/matter/.claude/projects/-tmp-my-project/abc.jsonl");
+    });
+
+    it("trims a blank override into the home default", () => {
+      // process.env could carry `CLAUDE_CONFIG_DIR=""` or spaces; the old
+      // `claudeConfigDir` trimmed before deciding. Same rule on the reported
+      // value: whitespace-only is "unset", not a directory named " ".
+      const p = resume().resumePath("abc", "/w/x", { homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "  " } });
+      expect(p).toBe("/home/n/.claude/projects/-w-x/abc.jsonl");
     });
   });
 });

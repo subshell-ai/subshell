@@ -151,6 +151,22 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "pane_size" })).toBeNull();
     expect(parseNodeCommandBody({ type: "pane_size", subshellId: 7 })).toBeNull();
   });
+
+  it("path_exists takes the computed path, and the renamed-away probe_resume no longer parses", () => {
+    // `probe_resume` did not survive the inversion (spec 2026-09-10 §5): the
+    // command is now a general stat of a path the CONTROL PLANE computed, so
+    // the resume-shaped frame must be rejected rather than silently
+    // half-supported by either side.
+    expect(parseNodeCommandBody({ type: "path_exists", path: "/home/n/.claude/projects/-w-x/abc.jsonl" })).toEqual({
+      type: "path_exists",
+      path: "/home/n/.claude/projects/-w-x/abc.jsonl",
+    });
+    expect(parseNodeCommandBody({ type: "path_exists" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "path_exists", path: 7 })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "probe_resume", harnessId: "claude-code", harnessSessionId: "abc", cwd: "/w" }),
+    ).toBeNull();
+  });
 });
 
 describe("parseNodeEvent", () => {
@@ -164,8 +180,43 @@ describe("parseNodeEvent", () => {
       hostname: "mac-mini",
       dataDir: "/Users/u/.local/share/subshell",
       capabilities: ["mcp"],
+      // Spec 2026-09-10 §5: the environment a manifest-declared resume path
+      // computes against. Both optional — absent means the node reported
+      // neither, and the control plane computes the default path anyway.
+      homeDir: "/Users/u",
+      env: { CLAUDE_CONFIG_DIR: "/custom" },
     });
     expect(ev?.type).toBe("ready");
+    expect(ev).toMatchObject({ homeDir: "/Users/u", env: { CLAUDE_CONFIG_DIR: "/custom" } });
+    expect(parseNodeEvent({ type: "ready", agentVersion: "0.1.0" })).toBeNull(); // malformed base fields still refuse
+    // A non-string homeDir or a non-string env value is a malformed frame, not
+    // a partial one: the parse is all-or-nothing like every other event here.
+    expect(
+      parseNodeEvent({
+        type: "ready",
+        agentVersion: "0.1.0",
+        protocolVersion: 1,
+        os: "darwin",
+        arch: "arm64",
+        hostname: "h",
+        dataDir: "/d",
+        capabilities: [],
+        homeDir: 7,
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeEvent({
+        type: "ready",
+        agentVersion: "0.1.0",
+        protocolVersion: 1,
+        os: "darwin",
+        arch: "arm64",
+        hostname: "h",
+        dataDir: "/d",
+        capabilities: [],
+        env: { CLAUDE_CONFIG_DIR: 7 },
+      }),
+    ).toBeNull();
     const inv = parseNodeEvent(
       JSON.stringify({
         type: "inventory",

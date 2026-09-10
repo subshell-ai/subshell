@@ -282,6 +282,13 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           hostname: event.hostname,
           agentVersion: event.agentVersion,
           ...(event.executablePath ? { executablePath: event.executablePath } : {}),
+          // Spec 2026-09-10 §5: the resume-path inputs. Conditional spreads,
+          // never bare `homeDir: event.homeDir` — an unreported field must
+          // stay ABSENT on the facts (that is the state `canResume` reads as
+          // "node predates the reporting"), not arrive as undefined-valued
+          // keys a later `in`-check would misread.
+          ...(event.homeDir ? { homeDir: event.homeDir } : {}),
+          ...(event.env ? { env: event.env } : {}),
         };
       }
       // The floor FIRST, because its refusal is the one a person can act on:

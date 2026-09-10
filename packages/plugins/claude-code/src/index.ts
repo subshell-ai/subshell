@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   type BuildCommandInput,
@@ -153,12 +151,6 @@ export const ATTENTION_HOOKS = {
   SessionStart: [{ hooks: [{ type: "command", command: sessionReportPing() }] }],
 } as const;
 
-/** Claude's state dir: the documented override, else `~/.claude`. */
-function claudeConfigDir(): string {
-  const override = process.env.CLAUDE_CONFIG_DIR?.trim();
-  return override ? resolve(override) : join(homedir(), ".claude");
-}
-
 /** Claude's transcript folder name for a project dir: every non-alphanumeric → `-`. */
 function projectSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, "-");
@@ -196,8 +188,19 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
    */
   resume: {
     allocateHarnessSessionId: () => crypto.randomUUID(),
-    canResume: (harnessSessionId, cwd) =>
-      existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${harnessSessionId}.jsonl`)),
+    /**
+     * Claude's state dir: the documented override, else `<homeDir>/.claude`.
+     * Both halves come from the TARGET machine's `ready` report, never from
+     * this process, and no filesystem is touched (spec 2026-09-10 §5) — that
+     * is what lets the control plane build the path for a node it cannot
+     * see. The host stats the result and decides; this member cannot answer
+     * whether the transcript exists.
+     */
+    resumePath: (harnessSessionId, cwd, hostEnv) => {
+      const override = hostEnv.env.CLAUDE_CONFIG_DIR?.trim();
+      const configDir = override ? resolve(override) : join(hostEnv.homeDir, ".claude");
+      return join(configDir, "projects", projectSlug(cwd), `${harnessSessionId}.jsonl`);
+    },
   } satisfies HarnessResume,
 
   buildCommand(input: BuildCommandInput): string[] {

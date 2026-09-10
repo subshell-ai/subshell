@@ -12,6 +12,7 @@ export {
   type DetectionReason,
   type DetectionResult,
   type HarnessResume,
+  type HostEnv,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,

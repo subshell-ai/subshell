@@ -230,6 +230,26 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(ws.closed).toHaveLength(0);
   });
 
+  it("ready stashes homeDir and env on the live facts; a node reporting neither keeps them absent", async () => {
+    // Spec 2026-09-10 §5: `remote-launcher.canResume` computes the plugin's
+    // path from these, and the "reported no env" branch is a real node state
+    // (one that connected before the field existed), not a hypothetical.
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    await handleNodeMessage(h.deps, ws, readyFrame({ homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "/custom" } }));
+    expect(getLive("n1")?.agent).toMatchObject({ homeDir: "/home/n", env: { CLAUDE_CONFIG_DIR: "/custom" } });
+
+    const h2 = makeHarness();
+    const ws2 = fakeSocket("n2");
+    handleNodeOpen(ws2);
+    await handleNodeMessage(h2.deps, ws2, readyFrame());
+    const plain = getLive("n2")?.agent;
+    expect(plain).toMatchObject({ hostname: "box" });
+    expect(plain).not.toHaveProperty("homeDir");
+    expect(plain).not.toHaveProperty("env");
+  });
+
   it("ready with a foreign protocol → recorded FIRST, then close 4406, no inventory", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");

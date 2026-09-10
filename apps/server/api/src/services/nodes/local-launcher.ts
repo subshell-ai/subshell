@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
+import { homedir } from "node:os";
 import { stripAnsi } from "@internal/backend-errors";
 import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/pane-runtime";
 import { logger } from "@/utils/logger.js";
@@ -302,9 +303,23 @@ export class LocalLauncher implements NodeLauncher {
     };
   }
 
-  /** Trusts the plugin's transcript probe (machine-local state dir). */
+  /**
+   * Resume, twin of {@link RemoteLauncher.canResume} (spec 2026-09-10 §5):
+   * the plugin's PURE `resumePath` computes where the transcript would be,
+   * this process stats it. Here the "target machine" is this one, so the
+   * HostEnv is honestly this process's own home and environment — the values
+   * `claudeConfigDir` used to read directly from inside the plugin. One
+   * computation both sides of the wire; the difference is only whose
+   * filesystem answers.
+   */
   async canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean> {
-    return harness.resume ? harness.resume.canResume(storedId, cwd) : false;
+    const resume = harness.resume;
+    if (!resume) return false;
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) env[key] = value;
+    }
+    return existsSync(resume.resumePath(storedId, cwd, { homeDir: homedir(), env }));
   }
 
   /**

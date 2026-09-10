@@ -91,8 +91,8 @@ export interface BuildCommandInput {
    * declares the `resume` capability. `mode: "start"` means the conversation
    * is NEW and must be created under exactly this id (pin it, because the host
    * stores it and later resumes by it); `mode: "resume"` names an EXISTING
-   * conversation to continue (the host only asks after {@link HarnessResume.canResume}
-   * confirmed it survives).
+   * conversation to continue (the host only asks after {@link HarnessResume.resumePath}
+   * pointed at a file the host found there).
    */
   harnessSession?: { id: string; mode: "start" | "resume" };
 }
@@ -103,18 +103,32 @@ export interface BuildCommandInput {
  *
  * The ids here are HARNESS conversation ids (a claude transcript uuid, say),
  * never subshell ids: the host pins {@link allocateHarnessSessionId} at launch,
- * stores it on the subshell row, and consults {@link canResume} before every
+ * stores it on the subshell row, and consults {@link resumePath} before every
  * restart to choose between continuing and starting fresh.
+ *
+ * Both members are PURE, and that is the load-bearing property (spec
+ * 2026-09-10 §5): a resume runs on the CONTROL PLANE, for a pane that lives on
+ * a machine the plane cannot see. Computing (rather than checking) is what
+ * lets one plugin implementation serve local and remote restarts identically.
  */
 export interface HarnessResume {
   /** Allocates the HARNESS conversation id to pin at launch (a uuid for claude). */
   allocateHarnessSessionId(): string;
   /**
-   * Whether the harness conversation `harnessSessionId` (last run in `cwd`)
-   * still exists and can be resumed. False means the host launches a fresh
-   * conversation rather than handing the harness an id it would reject.
+   * Where the resumable transcript would be, given the target machine's
+   * environment. PURE: it computes a path and never touches a filesystem, so
+   * the control plane can build it for a machine it cannot see. The HOST
+   * checks existence.
    */
-  canResume(harnessSessionId: string, cwd: string): boolean;
+  resumePath(harnessSessionId: string, cwd: string, hostEnv: HostEnv): string;
+}
+
+/** The parts of a target machine's environment a plugin may compute against. */
+export interface HostEnv {
+  /** The node's home directory */
+  homeDir: string;
+  /** Values for the variables this plugin's manifest declared it needs */
+  env: Record<string, string>;
 }
 
 /** How to spawn the `subshell mcp` stdio server. */

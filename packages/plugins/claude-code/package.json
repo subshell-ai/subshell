@@ -54,6 +54,7 @@
         ".npm-global/bin/claude"
       ]
     },
+    "hostEnv": ["CLAUDE_CONFIG_DIR"],
     "install": {
       "command": "curl -fsSL https://claude.ai/install.sh | bash",
       "docsUrl": "https://code.claude.com/docs/en/setup"

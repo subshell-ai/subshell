@@ -183,7 +183,8 @@ export class SubshellManagerService {
    * is pinned and every launch starts a fresh conversation, as before.
    *
    * `storedId` is what an earlier launch of this lineage pinned. It is only
-   * trusted when the plugin confirms the transcript still exists
+   * trusted when the launcher finds the transcript the plugin's pure
+   * `resumePath` names actually present on the machine that runs the pane
    * (`canResume`): a resumed-but-never-used launch never wrote one, and a
    * wiped harness state dir removed it — handing Claude a dead id prints
    * "No conversation found" and exits, killing the pane. When the stored id

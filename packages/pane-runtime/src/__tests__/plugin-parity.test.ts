@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   BuildCommandInput,
@@ -123,14 +125,45 @@ describe("claude-code parity", () => {
     expect(loaded.suggestedFlags?.()).toEqual(legacy.suggestedFlags());
   });
 
-  it("allocates a resumable conversation id and answers canResume the same way", async () => {
+  it("computes the transcript path the legacy probe checks (the resume contract's inversion)", async () => {
+    // Spec 2026-09-10 §5 moved the resume from node-local I/O to a PURE path
+    // computation the host stats. Parity now means: the path the extracted
+    // `resumePath` computes IS the path the legacy `canResume` existsSync'd,
+    // for the same environment. Planting a real transcript at the
+    // legacy-computed location and requiring the extracted path to land on
+    // the same file is what catches either side's slug/config-dir drifting —
+    // a bare both-false comparison would pass on any two mismatched paths.
     const loaded = await loadExtracted();
-    const id = loaded.resume?.allocateHarnessSessionId();
-    expect(typeof id).toBe("string");
+    const resume = loaded.resume;
+    if (!resume) throw new Error("the extracted claude-code lost its resume member");
+    const id = resume.allocateHarnessSessionId();
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
-    // No transcript exists for a fresh uuid, so both must refuse it.
-    expect(loaded.resume?.canResume(id as string, "/tmp/work")).toBe(false);
-    expect(new ClaudeCodePlugin().resume.canResume(id as string, "/tmp/work")).toBe(false);
+
+    const cfg = mkdtempSync(join(tmpdir(), "subshell-parity-cfg-"));
+    const saved = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = cfg; // what the LEGACY class reads from the environment
+    try {
+      const computed = resume.resumePath(id, "/tmp/work", { homeDir: homedir(), env: { CLAUDE_CONFIG_DIR: cfg } });
+      // Fresh id: the file is not there, and the legacy probe says the same.
+      expect(existsSync(computed)).toBe(false);
+      expect(new ClaudeCodePlugin().resume.canResume(id, "/tmp/work")).toBe(false);
+
+      // Plant the transcript where the OLD implementation looked, and the new
+      // pure computation must name exactly that file.
+      mkdirSync(join(cfg, "projects", "-tmp-work"), { recursive: true });
+      writeFileSync(join(cfg, "projects", "-tmp-work", `${id}.jsonl`), "{}");
+      expect(computed).toBe(join(cfg, "projects", "-tmp-work", `${id}.jsonl`));
+      expect(existsSync(computed)).toBe(true);
+      expect(new ClaudeCodePlugin().resume.canResume(id, "/tmp/work")).toBe(true);
+      // The same id in another project dir: neither side finds it there.
+      expect(
+        existsSync(resume.resumePath(id, "/tmp/other", { homeDir: homedir(), env: { CLAUDE_CONFIG_DIR: cfg } })),
+      ).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = saved;
+      rmSync(cfg, { recursive: true, force: true });
+    }
   });
 
   it("declares the capabilities it actually implements", async () => {

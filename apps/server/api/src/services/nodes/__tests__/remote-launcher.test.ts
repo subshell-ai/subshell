@@ -89,6 +89,10 @@ const testFacts: NodeAgentFacts = {
   hostname: "box",
   agentVersion: "0.2.0",
   executablePath: "/usr/bin/subshell",
+  // Spec 2026-09-10 §5. `env` is deliberately absent on the default: the
+  // "node reported no env" case is the DEFAULT case in these tests, and the
+  // canResume describe overrides it per case.
+  homeDir: "/home/n",
 };
 
 /**
@@ -812,24 +816,65 @@ describe("tailStart relay", () => {
 });
 
 describe("canResume", () => {
-  it("sends probe_resume and reads the answer", async () => {
+  // The inversion (spec 2026-09-10 §5): the plugin's `resumePath` runs HERE,
+  // against the env the node reported at `ready`, and the node only stats the
+  // resulting path. The REAL claude-code plugin, not the stub: the path is
+  // the plugin's computation, and pinning it against a fake would let the
+  // fake and the server drift from what claude-code actually builds.
+  const claudeCode = getHarness("claude-code");
+  if (!claudeCode) throw new Error("claude-code plugin is not in the registry");
+  const pi = getHarness("pi");
+  if (!pi) throw new Error("pi plugin is not in the registry");
+
+  it("computes the path here and asks the node to stat it", async () => {
     const h = makeHarness();
-    h.answer("probe_resume", { canResume: true });
-    expect(await h.launcher.canResume(harness, "h9", "/work")).toBe(true);
+    h.setFacts({ ...testFacts, env: {} });
+    h.answer("path_exists", { exists: true });
+    expect(await h.launcher.canResume(claudeCode, "abc", "/w/x")).toBe(true);
     expect(h.calls).toEqual([
-      {
-        cmd: { type: "probe_resume", harnessId: "claude-code", harnessSessionId: "h9", cwd: "/work" },
-        timeoutMs: 10_000,
-      },
+      { cmd: { type: "path_exists", path: "/home/n/.claude/projects/-w-x/abc.jsonl" }, timeoutMs: 10_000 },
     ]);
+  });
+
+  it("the env the node reported moves the computed path", async () => {
+    // This is the whole point of the §5 reporting: `CLAUDE_CONFIG_DIR` lives
+    // on the node, not here, and the computed path must follow it.
+    const h = makeHarness();
+    h.setFacts({ ...testFacts, env: { CLAUDE_CONFIG_DIR: "/custom" } });
+    h.answer("path_exists", { exists: true });
+    expect(await h.launcher.canResume(claudeCode, "abc", "/w/x")).toBe(true);
+    expect(h.calls[0]?.cmd).toEqual({ type: "path_exists", path: "/custom/projects/-w-x/abc.jsonl" });
+  });
+
+  it("a node that reported no env still resolves a default path", async () => {
+    // A node whose `ready` predates the reporting (or declared nothing):
+    // facts carry homeDir but no env at all. The default must still be
+    // computed and still still be probed — silence here would mean every
+    // such node silently loses restart-resume.
+    const h = makeHarness();
+    h.answer("path_exists", { exists: true });
+    expect(await h.launcher.canResume(claudeCode, "abc", "/w/x")).toBe(true);
+    expect(h.calls).toHaveLength(1);
+    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "path_exists" }>;
+    expect(cmd.path).toContain("/.claude/projects/");
+  });
+
+  it("a plugin with no resume member never sends the command", async () => {
+    // pi has no resume capability; the question cannot even be phrased, so
+    // the wire stays quiet and the answer is the same false the probe would
+    // give. (The old code asked the NODE to answer this; the node no longer
+    // holds the plugin to ask.)
+    const h = makeHarness();
+    expect(await h.launcher.canResume(pi, "abc", "/w/x")).toBe(false);
+    expect(h.calls).toHaveLength(0);
   });
 
   it("any rpc error reads as false (dead node ⇒ fresh id, like local)", async () => {
     const h = makeHarness();
-    h.answer("probe_resume", () => {
+    h.answer("path_exists", () => {
       throw new NodeRpcError("offline", 'node "node-1" has no live connection', "node-1");
     });
-    expect(await h.launcher.canResume(harness, "h9", "/work")).toBe(false);
+    expect(await h.launcher.canResume(claudeCode, "h9", "/work")).toBe(false);
   });
 });
 
@@ -867,11 +912,18 @@ describe("offline short-circuit (no facts ⇒ no send)", () => {
       throw new NodeRpcError("offline", 'node "node-1" has no live connection', "node-1");
     };
     h.answer("prompt_deliver", offline);
-    h.answer("probe_resume", offline);
+    h.answer("path_exists", offline);
     h.answer("remove_paths", offline);
     h.answer("launch", offline);
     expect(await h.launcher.deliverPrompt("sock", "s1", "x", 100, 10)).toBe(false);
-    expect(await h.launcher.canResume(harness, "h", "/w")).toBe(false);
+    // A resume-capable harness with NO facts at all: `resumePath` still
+    // computes (an empty home yields a relative default), and the offline
+    // answer is false. It goes through `send`, unlike a no-resume plugin,
+    // which never reaches the wire (see the canResume describe).
+    const claudeCode = getHarness("claude-code");
+    if (!claudeCode) throw new Error("claude-code plugin is not in the registry");
+    expect(await h.launcher.canResume(claudeCode, "h", "/w")).toBe(false);
+    expect(h.calls.some((c) => c.cmd.type === "path_exists")).toBe(true);
     await h.launcher.removeArtifacts(["/p"]);
     await rejection(
       h.launcher.launch({

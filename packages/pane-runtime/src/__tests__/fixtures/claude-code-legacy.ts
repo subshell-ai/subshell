@@ -14,7 +14,6 @@ import { validateGenericProfile } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
-  HarnessResume,
   McpLaunchSpec,
   McpRegistration,
   McpSetupInfo,
@@ -24,6 +23,19 @@ import type {
 } from "../../types.js";
 import { MCP_SERVER_NAME } from "../../types.js";
 import { probeVersion } from "../../version-probe.js";
+
+/**
+ * The resume member AS THE PRE-EXTRACTION CONTRACT HAD IT.
+ *
+ * Frozen on purpose: the live `HarnessResume` moved to the pure `resumePath`
+ * contract (spec 2026-09-10 §5) and this class must keep answering the
+ * question the old way, or the parity test would compare the new contract
+ * against itself. Nothing outside the parity suite may use this shape.
+ */
+interface LegacyHarnessResume {
+  allocateHarnessSessionId(): string;
+  canResume(harnessSessionId: string, cwd: string): boolean;
+}
 
 /** Known claude-code settings editor fields (top-level `--settings` keys). */
 const CLAUDE_SETTINGS_FIELDS: SettingsField[] = [
@@ -238,7 +250,7 @@ export class ClaudeCodePlugin {
    * "most recent in this directory" ambiguity — several subshells can share
    * a cwd — and parsing the exit banner back out of the pane log.
    */
-  readonly resume: HarnessResume = {
+  readonly resume: LegacyHarnessResume = {
     allocateHarnessSessionId: () => crypto.randomUUID(),
     canResume: (harnessSessionId, cwd) =>
       existsSync(join(claudeConfigDir(), "projects", projectSlug(cwd), `${harnessSessionId}.jsonl`)),

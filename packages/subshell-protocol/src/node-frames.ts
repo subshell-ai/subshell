@@ -249,7 +249,21 @@ export type NodeCommandBody =
       subshellId: string;
     }
   | { type: "probe"; subshellIds: string[] }
-  | { type: "probe_resume"; harnessId: string; harnessSessionId: string; cwd: string }
+  | {
+      /**
+       * Does this path exist on the node? The path arrives COMPUTED: the
+       * control plane builds it with plugin code (`resumePath`) against the
+       * node's reported environment, and the node is the stat endpoint
+       * (spec 2026-09-10 §5). This is the generalised `probe_resume` — once
+       * it carries a path rather than a resume question it is one capability
+       * with one caller, not a resume-specific command, and the general name
+       * is what stops the next person adding a second near-identical probe.
+       * Not allowlist-gated: a probe is not a launch, same posture as
+       * `stat_dir` and `fs_ls`.
+       */
+      type: "path_exists";
+      path: string;
+    }
   | { type: "stat_dir"; path: string }
   | {
       /**
@@ -444,6 +458,24 @@ export type NodeEvent =
        * pre-phase-2 agents.
        */
       executablePath?: string;
+      /**
+       * The node's home directory (spec 2026-09-10 §5). Plugin resume paths
+       * fall back to `<homeDir>/.claude` style defaults, and the control
+       * plane cannot expand `~` against a machine it cannot see — the same
+       * reason `fs_ls` answers the agent's home for an empty path. Absent
+       * means the node reported none; the computed path then degrades to a
+       * relative default that will simply not exist, i.e. a fresh
+       * conversation rather than a failure.
+       */
+      homeDir?: string;
+      /**
+       * Values for the environment variables the node's installed plugins'
+       * manifests declared (`subshell.hostEnv`), and ONLY those — never the
+       * node's whole environment. Absent means nothing was reported; an
+       * absent KEY within it means a declared variable is unset on that
+       * machine, which is what triggers the plugin's own fallback.
+       */
+      env?: Record<string, string>;
     }
   | {
       type: "inventory";
@@ -614,10 +646,13 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         : null;
     case "probe":
       return isStrArray(value.subshellIds) ? { type: "probe", subshellIds: value.subshellIds } : null;
-    case "probe_resume":
-      return isStr(value.harnessId) && isStr(value.harnessSessionId) && isStr(value.cwd)
-        ? { type: "probe_resume", harnessId: value.harnessId, harnessSessionId: value.harnessSessionId, cwd: value.cwd }
-        : null;
+    case "path_exists":
+      // Shape only: the path's correctness (does it name the real transcript?)
+      // belongs to the plugin that computed it, and its existence is what the
+      // command EXISTS to ask. Absolute-vs-relative is NOT enforced — the
+      // honest degradation for a node that reported no home is a relative
+      // default that stats absent.
+      return isStr(value.path) ? { type: "path_exists", path: value.path } : null;
     case "stat_dir":
       return isStr(value.path) ? { type: "stat_dir", path: value.path } : null;
     case "fs_ls":
@@ -713,7 +748,9 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         isStr(value.hostname) &&
         isStr(value.dataDir) &&
         isStrArray(value.capabilities) &&
-        (!("executablePath" in value) || isStr(value.executablePath))
+        (!("executablePath" in value) || isStr(value.executablePath)) &&
+        (!("homeDir" in value) || isStr(value.homeDir)) &&
+        (!("env" in value) || isStringMap(value.env))
         ? (value as unknown as NodeEvent)
         : null;
     case "inventory": {

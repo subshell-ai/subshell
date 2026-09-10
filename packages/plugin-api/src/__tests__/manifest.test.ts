@@ -110,6 +110,24 @@ describe("parseManifest", () => {
     );
   });
 
+  it("carries the hostEnv declaration through, and its absence stays absence", () => {
+    const result = parseManifest(pkg({ hostEnv: ["CLAUDE_CONFIG_DIR"] }));
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.hostEnv).toEqual(["CLAUDE_CONFIG_DIR"]);
+    // Absent is not `[]`: the field means "these names drive what the node
+    // reports"; a plugin that declared nothing never sends the key.
+    const bare = parseManifest(pkg());
+    expect("error" in bare ? null : bare.hostEnv).toBeUndefined();
+  });
+
+  it("rejects a hostEnv that is not a list of variable names", () => {
+    expect("error" in parseManifest(pkg({ hostEnv: "CLAUDE_CONFIG_DIR" }))).toBe(true);
+    expect("error" in parseManifest(pkg({ hostEnv: [1] }))).toBe(true);
+    expect("error" in parseManifest(pkg({ hostEnv: [""] }))).toBe(true);
+    expect("error" in parseManifest(pkg({ hostEnv: ["  "] }))).toBe(true);
+  });
+
   it("carries the optional icon and install block through", () => {
     const result = parseManifest(pkg({ icon: "X" }));
     expect("error" in result).toBe(false);

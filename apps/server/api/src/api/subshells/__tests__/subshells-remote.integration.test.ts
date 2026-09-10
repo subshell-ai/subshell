@@ -74,7 +74,9 @@ const LIFECYCLE = {
   resize: ok,
   probe: probeAllAlive,
   prompt_deliver: () => ({ promptDelivered: true }),
-  probe_resume: () => ({ canResume: true }),
+  // The control plane computes the transcript path (plugin `resumePath` +
+  // the ready-reported env); the scripted node only stats what it is given.
+  path_exists: () => ({ exists: true }),
   remove_paths: ok,
 };
 
@@ -288,7 +290,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
     }
   });
 
-  it("restart in place ⇒ kill, rotate, `probe_resume` first, relaunch with bestEffortLog on the wire", async () => {
+  it("restart in place ⇒ kill, rotate, `path_exists` first, relaunch with bestEffortLog on the wire", async () => {
     const sim = attachScriptedNode(nodeId, LIFECYCLE);
     try {
       const body = await createOnNode({ name: "it-restart" });
@@ -300,18 +302,22 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       expect(await res.json()).toMatchObject({ id: body.id, tmuxSocket: body.tmuxSocket, promptDelivered: false });
 
       // Wire order of the whole life so far: create (stat, launch), then the
-      // in-place restart — kill the live pane, re-validate the dir, probe the
-      // transcript, relaunch. (Binary resolve + MCP compose are cache/compute-
-      // only; NO inventory round trip mid-restart.)
-      expect(sim.cmdTypes()).toEqual(["stat_dir", "launch", "kill", "stat_dir", "probe_resume", "launch"]);
+      // in-place restart — kill the live pane, re-validate the dir, stat the
+      // transcript path the CONTROL PLANE computed, relaunch. (Binary resolve
+      // + MCP compose are cache/compute-only; NO inventory round trip
+      // mid-restart.)
+      expect(sim.cmdTypes()).toEqual(["stat_dir", "launch", "kill", "stat_dir", "path_exists", "launch"]);
 
       const second = launches(sim)[1];
       // Revive parity: a pane this live must survive a lost replay-log pipe.
       expect("bestEffortLog" in firstLaunch).toBe(false); // create stays strict
       expect(second.bestEffortLog).toBe(true);
-      // Resume rode on the stored conversation id, decided by the NODE's probe.
-      expect(sim.cmdsOf("probe_resume")).toEqual([
-        { type: "probe_resume", harnessId: "claude-code", harnessSessionId: storedId, cwd: "/srv/work/remote" },
+      // Resume rode on the stored conversation id. The probe is a path the
+      // server computed from the plugin + the scripted node's reported
+      // `homeDir` (no reported env → the home default): the node only sees
+      // the finished path (spec 2026-09-10 §5).
+      expect(sim.cmdsOf("path_exists")).toEqual([
+        { type: "path_exists", path: `/home/scripted/.claude/projects/-srv-work-remote/${storedId}.jsonl` },
       ]);
       expect(second.harnessSession).toEqual({ id: storedId, mode: "resume" });
       // Token rotation: the dead pane's baked key is replaced by a fresh one.

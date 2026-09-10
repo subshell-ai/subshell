@@ -97,18 +97,25 @@ The agent's first frame is `ready`:
 {
   "type": "ready",
   "agentVersion": "0.3.1",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
   "dataDir": "/Users/x/.config/subshell/data",
   "capabilities": ["uploads", "mcp"],
-  "executablePath": "/Users/x/.local/bin/subshell"
+  "executablePath": "/Users/x/.local/bin/subshell",
+  "homeDir": "/Users/x",                       // resume-path defaults hang off it
+  "env": { "CLAUDE_CONFIG_DIR": "/custom" }    // ONLY manifest-declared values
 }
 ```
 
 `executablePath` is how the control plane composes the MCP launch spec for panes
-on this node — it must point at the running binary.
+on this node — it must point at the running binary. `homeDir` and `env` are the
+environment the control plane computes resume paths against (spec 2026-09-10
+§5): the env carries the values of the variables the node's installed plugins'
+manifests declared (`subshell.hostEnv`), and nothing else — never the whole
+environment. Both are optional on the wire; a node reporting neither gets the
+plugin's default path computed anyway (which simply will not exist).
 
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
@@ -120,7 +127,7 @@ names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `1`, the post-restart baseline, §11) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `2`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -204,14 +211,20 @@ and answered by exactly one `result` event.
 | `log_read` | Byte-ranged read of the pane log |
 | `tail_start` / `tail_stop` | Subscribe/unsubscribe a byte-offset tail, keyed by `subId` |
 
-**Filesystem** (all path-policy enforced agent-side). `fs_ls` is deliberately
-NOT gated by the directory allowlist — browsing is not launching, and the owner
-browses through it to choose what to permit; the control plane filters listings
-instead. See `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.md`.
+**Filesystem**. The deletions and writes (`remove_paths`, `write_file`) are
+path-policy enforced agent-side; the PROBEs deliberately are not. `fs_ls`:
+browsing is not launching, and the owner browses through it to choose what to
+permit; the control plane filters listings instead (see
+`docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.md`).
+`stat_dir` and `path_exists` join them for the same reason — gating `stat_dir`
+once made the second allowlist rule unaddable, and gating `path_exists` would
+silently disable restart-resume wherever the harness state dir lives, which is
+nowhere near the directories subshells are allowed to run in.
 
 | Command | |
 |---|---|
-| `stat_dir` | Verify a directory exists and is usable. **Also the allowlist gate**: refused when the node has directory rules and the resolved path is outside them, so the pre-launch probe answers the same way `launch` will |
+| `stat_dir` | Verify a directory exists and is usable; answers the realpath. Deliberately NOT gated by the directory allowlist — the control plane resolves each new rule through this probe, so gating it made the second rule unaddable (see the 2026-09-05 allowlist revision note) |
+| `path_exists` | Does `{ path }` exist on the node? `{ exists }` answers; an absent path is a SUCCESSFUL `false`, never an error. The path arrives COMPUTED: the control plane builds it with the plugin's pure `resumePath` against this node's reported `homeDir`/`env` (spec 2026-09-10 §5) — the generalised `probe_resume`, ungated like its neighbours: a probe is not a launch |
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
@@ -224,7 +237,6 @@ instead. See `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.
 | Command | |
 |---|---|
 | `probe` | Liveness of a set of subshell ids |
-| `probe_resume` | Whether a harness session id can be resumed in a cwd |
 | `inventory` | Pull a fresh harness inventory on demand |
 | `ping` | Liveness |
 
@@ -238,7 +250,7 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 
 | Event | |
 |---|---|
-| `ready` | First frame — identity, versions, capabilities, `executablePath` (§3) |
+| `ready` | First frame — identity, versions, capabilities, `executablePath`, and the resume-path environment: `homeDir` plus the manifest-declared `env` values (§3, spec 2026-09-10 §5) |
 | `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp, and `plugins` — the node's own report of what it has INSTALLED. The probe follows that installed set, not the plugins this build happens to know, so a third-party plugin is probed and an uninstalled one stops being. Pushed at connect, every 5 min (`INVENTORY_PERIOD_MS`), after any plugin change, and on demand |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |

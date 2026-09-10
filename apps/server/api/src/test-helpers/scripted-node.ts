@@ -80,6 +80,10 @@ const DEFAULT_FACTS: NodeAgentFacts = {
   hostname: "scripted",
   agentVersion: "0.2.0",
   executablePath: "/usr/bin/subshell",
+  // Spec 2026-09-10 §5. `env` is deliberately absent here: a scripted node
+  // with no reported env is a permanent regression pin for the "node
+  // reported no env" branch of resume-path computation.
+  homeDir: "/home/scripted",
 };
 
 /** The always-ok answer for no-data commands (launch, kill, remove_paths, …). */

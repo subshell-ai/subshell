@@ -6,8 +6,8 @@ import {
   parseNodeCaptureResult,
   parseNodeLogReadResult,
   parseNodePaneSizeResult,
+  parseNodePathExistsResult,
   parseNodeProbeEntries,
-  parseNodeProbeResume,
   parseNodePromptDeliver,
   parseNodeStatDirResult,
 } from "@internal/subshell-protocol";
@@ -588,15 +588,28 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * `probe_resume` — the agent runs the harness plugin's OWN transcript probe
-   * on its machine (identical code to local). Any rpc error or malformed
-   * answer is `false`: a dead/unreachable node can't resume, so the caller
-   * falls back to a fresh id — exactly the local "transcript gone" behavior.
+   * Resume, inverted (spec 2026-09-10 §5): the path is computed HERE with the
+   * plugin's pure `resumePath` — from the node's `ready`-reported `homeDir`
+   * and manifest-declared `env` — and the node only stats the finished path
+   * (`path_exists`). The node holds no plugin code to ask, and the local and
+   * remote paths now run the SAME plugin code, one on each side of "does this
+   * file exist".
+   *
+   * A plugin without `resume` never reaches the wire (the question cannot be
+   * phrased); facts are NOT required — a node that reported no env computes
+   * the plugin's default path anyway, which probes honestly. Any rpc error
+   * or malformed answer is `false`: a dead/unreachable node can't resume, so
+   * the caller falls back to a fresh id — exactly the local "transcript
+   * gone" behavior.
    */
   async canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean> {
+    const resume = harness.resume;
+    if (!resume) return false;
     try {
-      const data = await this.#send({ type: "probe_resume", harnessId: harness.id, harnessSessionId: storedId, cwd });
-      return parseNodeProbeResume(data)?.canResume ?? false;
+      const facts = this.#facts();
+      const path = resume.resumePath(storedId, cwd, { homeDir: facts?.homeDir ?? "", env: facts?.env ?? {} });
+      const data = await this.#send({ type: "path_exists", path });
+      return parseNodePathExistsResult(data)?.exists ?? false;
     } catch {
       return false;
     }

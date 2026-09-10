@@ -702,8 +702,9 @@ describe("pane-title auto-naming (reconcile sweep)", () => {
 describe("SubshellManagerService restart-resume", () => {
   /**
    * Swaps in a stub harness that records its argv, plus a sandboxed
-   * CLAUDE_CONFIG_DIR so `canResume` probes a temp transcript tree instead of
-   * the operator's ~/.claude. Returns the argv file lines for later asserts.
+   * CLAUDE_CONFIG_DIR so the launcher's `canResume` stats a temp transcript
+   * tree (through the plugin's pure `resumePath`) instead of the operator's
+   * ~/.claude. Returns the argv file lines for later asserts.
    */
   async function resumeSandbox(name: string): Promise<{
     argv: () => Promise<string[]>;
@@ -747,7 +748,7 @@ describe("SubshellManagerService restart-resume", () => {
     };
   }
 
-  /** Transcript path Claude (and the plugin's canResume) uses for cwd+id. */
+  /** Transcript path Claude (and the plugin's `resumePath`) names for cwd+id. */
   function transcriptPath(configDir: string, cwd: string, id: string): string {
     return join(configDir, "projects", realpathSync(cwd).replace(/[^a-zA-Z0-9]/g, "-"), `${id}.jsonl`);
   }

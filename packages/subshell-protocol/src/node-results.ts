@@ -234,20 +234,24 @@ export function parseNodePromptDeliver(data: unknown): NodePromptDeliverResult |
   return data as unknown as NodePromptDeliverResult;
 }
 
-/** `probe_resume` answer: whether the harness reports the pinned conversation as resumable on this node. */
-export interface NodeProbeResumeResult {
-  /** True when `harnessId` can resume `harnessSessionId` at the probed cwd */
-  canResume: boolean;
+/** `path_exists` answer: whether the given path is there on the node. */
+export interface NodePathExistsResult {
+  /**
+   * True when the stat-ed path exists. False is a SUCCESSFUL answer, not an
+   * error: "the transcript is gone" is the ordinary half of a restart, and
+   * the launcher reads an `ok:false` as a broken node instead.
+   */
+  exists: boolean;
 }
 
 /**
- * Validates and narrows a `probe_resume` command's `result{data}`.
+ * Validates and narrows a `path_exists` command's `result{data}`.
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed result, or null when malformed
  */
-export function parseNodeProbeResume(data: unknown): NodeProbeResumeResult | null {
-  if (!isRecord(data) || !isBool(data.canResume)) return null;
-  return data as unknown as NodeProbeResumeResult;
+export function parseNodePathExistsResult(data: unknown): NodePathExistsResult | null {
+  if (!isRecord(data) || !isBool(data.exists)) return null;
+  return data as unknown as NodePathExistsResult;
 }
 
 /** `write_file` answer, sent on EVERY chunk (spec §3.4): confirms the write and reports progress. */

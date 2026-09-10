@@ -9,8 +9,8 @@ import {
   parseNodeCaptureResult,
   parseNodeDetectResults,
   parseNodePaneSizeResult,
+  parseNodePathExistsResult,
   parseNodeProbeEntries,
-  parseNodeProbeResume,
   parseNodeStatDirResult,
 } from "@internal/subshell-protocol";
 import { PROBE_RESULT_BUDGET_BYTES } from "../commands/basics.js";
@@ -286,22 +286,31 @@ describe("command executors (spec §7)", () => {
     expect(!notDir.ok && notDir.error.startsWith("ENOTDIR: ")).toBe(true);
   });
 
-  it("probe_resume: unknown harness errors; a harness without resume answers canResume:false", async () => {
+  it("path_exists: stats the given path; absence is a successful `exists:false`, never an error", async () => {
+    // The command-census entry (inversion spec §5): `probe_resume` is gone,
+    // the node is a stat endpoint for a path the CONTROL PLANE computed. An
+    // absent path is DATA, not a failure — the caller reads `exists:false` as
+    // "start fresh", and an error result would mean "node broken" instead.
     const { ctx } = makeCtx({}, []);
-    expect(
-      await dispatchCommand(ctx, { type: "probe_resume", harnessId: "no-such", harnessSessionId: "x", cwd: workDir }),
-    ).toEqual({
-      ok: false,
-      error: "unknown harness",
+    const transcript = join(workDir, "abc.jsonl");
+    writeFileSync(transcript, "{}");
+    const hit = await dispatchCommand(ctx, { type: "path_exists", path: transcript });
+    expect(hit).toEqual({ ok: true, data: { exists: true } });
+    expect(parseNodePathExistsResult(hit.ok ? hit.data : null)).toEqual({ exists: true });
+
+    const miss = await dispatchCommand(ctx, { type: "path_exists", path: join(base, "never-here.jsonl") });
+    expect(miss).toEqual({ ok: true, data: { exists: false } });
+    expect(parseNodePathExistsResult(miss.ok ? miss.data : null)).toEqual({ exists: false });
+
+    // A relative path is answered honestly too: the plane computes from the
+    // node's reported home, and a node that reported NO home gets a relative
+    // default — which stats under the agent's cwd and, being absent there,
+    // degrades to a fresh conversation rather than a crash.
+    const relative = await dispatchCommand(ctx, {
+      type: "path_exists",
+      path: `.subshell-path-exists-probe-${crypto.randomUUID()}.jsonl`,
     });
-    const result = await dispatchCommand(ctx, {
-      type: "probe_resume",
-      harnessId: "pi",
-      harnessSessionId: "x",
-      cwd: workDir,
-    });
-    expect(result).toEqual({ ok: true, data: { canResume: false } });
-    expect(parseNodeProbeResume(result.ok ? result.data : null)).toEqual({ canResume: false });
+    expect(relative).toEqual({ ok: true, data: { exists: false } });
   });
 
   it("remove_paths: unlinks what exists under the roots; an absent path counts not", async () => {

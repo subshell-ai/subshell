@@ -125,7 +125,13 @@ export interface NodeLauncher {
     fromByte: number,
     onChunk: (bytes: Uint8Array, next: number) => void,
   ): Promise<() => void>;
-  /** Whether the harness can actually resume the stored subshell id in that cwd. */
+  /**
+   * Whether the transcript the harness would resume by is actually there.
+   * The path is computed by the plugin's pure `resumePath` on THIS process
+   * and checked for existence ON THE MACHINE that owns the filesystem —
+   * locally here, by `path_exists` for a remote node (spec 2026-09-10 §5).
+   * False means the caller launches a fresh conversation, never an error.
+   */
   canResume(harness: HarnessPlugin, storedId: string, cwd: string): Promise<boolean>;
   /**
    * The node-side files a subshell owns — what delete removes. `[]` when the

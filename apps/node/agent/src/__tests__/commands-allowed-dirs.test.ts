@@ -189,6 +189,23 @@ describe("stat_dir is deliberately NOT gated", () => {
   });
 });
 
+describe("path_exists is deliberately NOT gated", () => {
+  it("stats a path outside the rules — the same posture as stat_dir and fs_ls", async () => {
+    // The resume path lives in the harness's own state dir (`~/.claude`),
+    // which is nowhere near the directories the owner allowed subshells to
+    // RUN in. Gating this probe would silently disable restart-resume on any
+    // node with a directory rule — the exact inversion of the restriction's
+    // purpose. A probe is not a launch (and discloses strictly less than the
+    // ungated `stat_dir` already does).
+    const dataDir = freshDir();
+    const outside = join(freshDir(), "abc.jsonl");
+    writeAllowedDirs(dataDir, [join(dataDir, "work")]);
+
+    const res = await dispatchCommand(makeCtx(dataDir), { type: "path_exists", path: outside });
+    expect(res).toEqual({ ok: true, data: { exists: false } });
+  });
+});
+
 describe("fs_ls is deliberately NOT gated", () => {
   it("lists a directory outside the rules — browsing is not launching", async () => {
     // Gating this made the SECOND allowlist rule unaddable: the owner browses

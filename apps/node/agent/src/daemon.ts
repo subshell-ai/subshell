@@ -19,6 +19,7 @@ import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
+import { hostEnvReport } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log, logger } from "./log.js";
@@ -221,7 +222,12 @@ export function updateRequiredMessage(reason: string | undefined): string {
     : `the control plane refused this agent (close 4406); a newer subshell is required; exiting`;
 }
 
-function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
+async function readyEvent(config: AgentConfig): Promise<Extract<NodeEvent, { type: "ready" }>> {
+  // The env report reads installed MANIFESTS (no plugin code) on every
+  // connect, so a plugin installed since the last one is reflected here
+  // (spec 2026-09-10 §5). It is async for that read and total: there is
+  // always a ready to send.
+  const { homeDir, env } = await hostEnvReport(config.dataDir);
   return {
     type: "ready",
     agentVersion: AGENT_VERSION,
@@ -239,6 +245,12 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     // against this path (the agent re-runs the dialect locally regardless —
     // see the design note in commands/launch.ts).
     executablePath: process.execPath,
+    // Spec 2026-09-10 §5: the environment the control plane computes resume
+    // paths against. The home is the fallback root for every such path; the
+    // env carries ONLY values the manifests declared, never the whole
+    // environment.
+    homeDir,
+    env,
   };
 }
 
@@ -519,10 +531,19 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         stopAllTails(ctx);
         resolve(close);
       };
-      ws.addEventListener("open", () => {
+      ws.addEventListener("open", async () => {
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
-        send(ws, readyEvent(config));
+        // `ready` is now ASYNC-built (it reads the installed manifests for the
+        // env report, spec §5), which opens a window the old sync build did
+        // not have: a socket that dies during the read must not announce
+        // ready onto a corpse or arm this connection's timers — the
+        // reconnect loop owns the next attempt. (The census chain below and
+        // the ready send stay LINEAR on purpose: `ready` before
+        // `subshells_report` before the inventory push is pinned order.)
+        const ready = await readyEvent(config);
+        if (settled) return;
+        send(ws, ready);
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux

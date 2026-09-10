@@ -26,7 +26,7 @@ describe("capabilityMismatches", () => {
   });
 
   it("catches a capability implemented but not declared", () => {
-    const p = plugin([], { resume: { allocateHarnessSessionId: () => "x", canResume: () => true } });
+    const p = plugin([], { resume: { allocateHarnessSessionId: () => "x", resumePath: () => "/p" } });
     expect(capabilityMismatches(p)[0]).toContain('implements "resume" members');
   });
 
@@ -49,7 +49,7 @@ describe("capabilityMismatches", () => {
   it("passes a fully consistent plugin", () => {
     const p = plugin(["mcp", "resume", "attention", "settings"], {
       mcpSetup: () => ({ mode: "auto", summary: "" }),
-      resume: { allocateHarnessSessionId: () => "x", canResume: () => true },
+      resume: { allocateHarnessSessionId: () => "x", resumePath: () => "/p" },
       supportsAttentionHooks: true,
       profileSettings: () => [],
     });

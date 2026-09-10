@@ -10,8 +10,8 @@ import {
   parseNodeFsLsResult,
   parseNodeLogReadResult,
   parseNodePaneSizeResult,
+  parseNodePathExistsResult,
   parseNodeProbeEntries,
-  parseNodeProbeResume,
   parseNodePromptDeliver,
   parseNodeStatDirResult,
   parseNodeWriteFileResult,
@@ -51,8 +51,10 @@ describe("node result contracts (spec §3.3, phase-2 wire note)", () => {
     expect(parseNodeStatDirResult({ path: "/x", isDirectory: "yes" })).toBeNull();
     expect(parseNodePromptDeliver({ promptDelivered: false })).not.toBeNull();
     expect(parseNodePromptDeliver({})).toBeNull();
-    expect(parseNodeProbeResume({ canResume: true })).not.toBeNull();
-    expect(parseNodeProbeResume({ canResume: null })).toBeNull();
+    expect(parseNodePathExistsResult({ exists: true })).not.toBeNull();
+    expect(parseNodePathExistsResult({ exists: false })).not.toBeNull(); // "absent" is a real answer, not a missing one
+    expect(parseNodePathExistsResult({ exists: null })).toBeNull();
+    expect(parseNodePathExistsResult({})).toBeNull();
     expect(parseNodeWriteFileResult({ path: "/x", received: 12 })).not.toBeNull();
     expect(parseNodeWriteFileResult({ path: "", received: 0 })).toBeNull();
   });

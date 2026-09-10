@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TmuxRunner } from "@internal/pane-runtime";
 import {
@@ -338,9 +338,18 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
     capabilities: ["uploads", "mcp"],
     // Task 1's additive field: the control plane composes the MCP spec against it.
     executablePath: process.execPath,
+    // Spec 2026-09-10 §5: the environment the control plane computes resume
+    // paths against. The home is always reported; the env carries ONLY values
+    // the installed plugins' manifests declared (this daemon seeds the
+    // built-ins, so the union is claude-code's single `CLAUDE_CONFIG_DIR`).
+    homeDir: homedir(),
   });
   const os = (ready as Extract<NodeEvent, { type: "ready" }>).os;
   expect(["linux", "darwin", "unknown"]).toContain(os);
+  const reportedEnv = (ready as Extract<NodeEvent, { type: "ready" }>).env;
+  expect(reportedEnv).toEqual(
+    process.env.CLAUDE_CONFIG_DIR === undefined ? {} : { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
+  );
   expect(h.plane.unparsed).toEqual([]); // every frame so far satisfies the backend's parser
 });
 
