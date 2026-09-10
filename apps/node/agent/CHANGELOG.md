@@ -1,5 +1,38 @@
 # @internal/node
 
+## 0.2.0
+
+### Minor Changes
+
+- [`6580d29`](https://github.com/subshell-ai/subshell/commit/6580d291219606b36a59a370880715beb8d92f56) Thanks [@theogravity](https://github.com/theogravity)! - A node now owns which harnesses it offers.
+  
+  `<dataDir>/plugins/` on the node is the answer: what is installed there is what that machine offers, and the enable table the control plane used to keep is gone. The node reports its set, the server mirrors it, and installing or removing one is a signed command to a running node. An offline node is refused rather than queued, so the Nodes page can never show a plugin a machine is not actually running.
+  
+  Two consequences you can see. A node can offer a plugin this control plane has never heard of, because the list comes from the node. And a node that has never reported shows nothing rather than a list invented here, which is the honest rendering for a machine running an older agent.
+  
+  Existing nodes keep working: on first start after upgrading, an agent seeds the built-ins it carries. That happens once, keyed on the plugins directory not existing yet, so uninstalling a plugin is not undone by the next restart.
+  
+  **This requires upgrading agents and the server together** (node protocol v6).
+
+### Patch Changes
+
+- [`da0dfaf`](https://github.com/subshell-ai/subshell/commit/da0dfaf6e2af6f913f81cd0bf1647fcb30505eb9) Thanks [@theogravity](https://github.com/theogravity)! - Harness detection now finds a harness installed through a version manager, says why a binary was not found, and reports when it last looked.
+  
+  The nvm fix in the previous release never ran: the production entry point suppressed the login-shell rung it added. That rung could not have fixed the case anyway, because nvm initializes in `~/.bashrc` and a non-interactive login shell returns early from it. Detection now globs the version-manager layouts directly (nvm, fnm, n, volta, asdf, mise, pnpm, bun).
+  
+  A lookup that fails reports `not-on-path` or `override-invalid`, so a mis-set `CLAUDE_PATH` is named instead of being answered with an install command that cannot help. Every entry carries the time it was probed, which is what distinguishes the control-plane host's live probe from an agent's cached inventory on screen.
+  
+  The version probe is now bounded, and the deadline holds even when the harness leaves a child holding its stdout.
+
+- [`7e3d3be`](https://github.com/subshell-ai/subshell/commit/7e3d3bef23170f36644fe50c93025eaa1b4cf24d) Thanks [@theogravity](https://github.com/theogravity)! - The five built-in harnesses are now plugin packages behind a published contract.
+  
+  Nothing changes for a user: the same five harnesses are detected, launched and configured exactly as before, and parity is pinned by tests comparing each extracted plugin against the class it replaced. What changes is that a harness is no longer compiled into the control plane. `@subshell-ai/plugin-api` is the contract a third party builds against, and `packages/harnesses` is now `packages/pane-runtime`, which holds no plugin classes at all.
+  
+  One behaviour was nearly lost and is now explicit in the contract: Hermes prints a version banner rather than a bare version, so plugins can declare `parseVersion` to interpret their own probe output. The host still owns the timeout.
+- Updated dependencies [[`7e3d3be`](https://github.com/subshell-ai/subshell/commit/7e3d3bef23170f36644fe50c93025eaa1b4cf24d)]:
+  - @subshell-ai/plugin-api@0.2.0
+  - @internal/pane-runtime@1.0.0
+
 ## 0.1.2
 
 ### Patch Changes
