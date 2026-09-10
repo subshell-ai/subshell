@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installEmbedded, TmuxRunner } from "@internal/pane-runtime";
-import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
+import { HARNESS_BINARY_PLACEHOLDER, type NodeCommandBody, type NodeEvent } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import type { CommandContext, CommandResult } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
@@ -528,6 +528,164 @@ describe("execLaunch (spec §6.4/§7)", () => {
       expect(await dispatchCommand(ctx, launchCmd())).toEqual({ ok: true });
       expect(lines.some((l) => l.toLowerCase().includes("resize"))).toBe(true);
       stopWatcher(ctx, S1);
+    } finally {
+      restore();
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 4 (inversion spec §5): the node PREFERS the argv it was sent.  */
+/* The no-argv fallback stays until Task 7 deletes it; both paths must */
+/* answer `harness binary missing:` byte-identically (the backend      */
+/* regex-matches the prefix to refresh an inventory), and substitution */
+/* is STRICT ELEMENT EQUALITY (the argv-parity gate's binding rule).   */
+/* ------------------------------------------------------------------ */
+
+describe("execLaunch with a server-built argv (inversion §5)", () => {
+  it("a launch carrying argv spawns exactly that, with the binary substituted", async () => {
+    const dataDir = await freshDataDir("sent-argv");
+    let paneCmd = "";
+    const { ctx } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    const result = await dispatchCommand(
+      ctx,
+      launchCmd({
+        argv: [HARNESS_BINARY_PLACEHOLDER, "--flag"],
+        resolve: { binaryName: "claude", envOverride: "CLAUDE_PATH" },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+    stopWatcher(ctx, S1);
+    // The binary slot carries the path resolved NOW from the resolve rule
+    // (CLAUDE_PATH=/bin/sh), and the rest of the argv is the sent list verbatim.
+    expect(paneCmd).toInclude(`'/bin/sh' '--flag'`);
+    expect(paneCmd.endsWith("'--flag'")).toBe(true);
+    // The locally-built claude argv (--settings/--name) is NOT on this pane:
+    // with argv present, the plugin's buildCommand never runs.
+    expect(paneCmd).not.toInclude("'--settings'");
+    expect(paneCmd).not.toInclude(HARNESS_BINARY_PLACEHOLDER);
+  });
+
+  it("substitution is strict element equality: a longer token containing the placeholder survives untouched", async () => {
+    const dataDir = await freshDataDir("sent-argv-element-equality");
+    let paneCmd = "";
+    const { ctx } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    // A flag may legitimately carry the placeholder TEXT inside a longer token
+    // (argv-parity matrix row: `--append-system-prompt … @@HARNESS_BINARY@@ …`).
+    // Substring replacement would silently rewrite it; only an entry EQUAL to
+    // the placeholder is the binary.
+    const longToken = `--note=the ${HARNESS_BINARY_PLACEHOLDER} stays`;
+    const result = await dispatchCommand(
+      ctx,
+      launchCmd({
+        argv: [longToken, HARNESS_BINARY_PLACEHOLDER, "tail"],
+        resolve: { binaryName: "claude", envOverride: "CLAUDE_PATH" },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+    stopWatcher(ctx, S1);
+    expect(paneCmd).toInclude(`'${longToken}'`); // untouched, placeholder text intact
+    expect(paneCmd).toInclude(`'/bin/sh' 'tail'`); // the bare element was substituted
+    expect(paneCmd.endsWith("'tail'")).toBe(true);
+  });
+
+  it("a launch with no argv still builds one locally, as today", async () => {
+    const dataDir = await freshDataDir("no-argv-fallback");
+    let paneCmd = "";
+    const { ctx } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    const result = await dispatchCommand(ctx, launchCmd({}));
+    expect(result).toEqual({ ok: true });
+    stopWatcher(ctx, S1);
+    // The fallback is deliberate (Task 7 removes it): absent argv, the node
+    // resolves via its own plugin and runs buildHarnessCommand exactly as
+    // before — binary first, the plugin's own flags after it.
+    expect(paneCmd).toInclude(`'/bin/sh' '--settings'`);
+    expect(paneCmd).toInclude("'--name' 's1'");
+  });
+
+  it("an unresolvable resolve rule on the sent path fails with the missing prefix, no tmux, no meta", async () => {
+    const dataDir = await freshDataDir("sent-argv-unresolvable");
+    const { ctx, calls } = makeCtx(dataDir, {}, []);
+    // The PLUGIN would find its binary (CLAUDE_PATH=/bin/sh stands) — the
+    // failure must come from the frame's resolve rule, which is what the sent
+    // path binds to. A distinct env var keeps the two lookups independent.
+    process.env.SENT_MISSING_PATH = join(base, "definitely-not-executable");
+    try {
+      const result = await dispatchCommand(
+        ctx,
+        launchCmd({
+          argv: [HARNESS_BINARY_PLACEHOLDER],
+          resolve: { binaryName: "nope", envOverride: "SENT_MISSING_PATH" },
+        }),
+      );
+      // The exact message CLASS the backend maps to inventory-refresh-on-failure (§6.2),
+      // byte-identical to the fallback path's answer above.
+      expect(result).toEqual({ ok: false, error: "harness binary missing: claude-code" });
+      expect(calls).toEqual([]);
+      expect(await ctx.meta.get(S1)).toBeUndefined();
+    } finally {
+      delete process.env.SENT_MISSING_PATH;
+    }
+  });
+
+  it("a sent placeholder with no resolve rule fails with the missing prefix", async () => {
+    const dataDir = await freshDataDir("sent-argv-no-resolve");
+    const { ctx, calls } = makeCtx(dataDir, {}, []);
+    // argv names the binary slot but ships no rule to fill it — nothing local
+    // substitutes for it; failing with the same prefix is the fail-closed answer.
+    const result = await dispatchCommand(ctx, launchCmd({ argv: [HARNESS_BINARY_PLACEHOLDER] }));
+    expect(result).toEqual({ ok: false, error: "harness binary missing: claude-code" });
+    expect(calls).toEqual([]);
+    expect(await ctx.meta.get(S1)).toBeUndefined();
+  });
+
+  it("sent mcp content and env ride verbatim; the drift rule does not run on this path", async () => {
+    const dataDir = await freshDataDir("sent-mcp-verbatim");
+    const mcpFile = join(dataDir, "mcp", `${S1}.json`);
+    const { lines, restore } = captureLogs();
+    let paneCmd = "";
+    try {
+      const { ctx } = makeCtx(
+        dataDir,
+        { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+        [],
+      );
+      const result = await dispatchCommand(
+        ctx,
+        launchCmd({
+          argv: [HARNESS_BINARY_PLACEHOLDER, "--mcp-config", mcpFile],
+          resolve: { binaryName: "claude", envOverride: "CLAUDE_PATH" },
+          mcp: {
+            path: mcpFile,
+            fileContent: '{"from":"the control plane"}\n',
+            args: ["--mcp-config", mcpFile],
+            env: { OPENCODE_CONFIG: mcpFile },
+          },
+        }),
+      );
+      expect(result).toEqual({ ok: true });
+      stopWatcher(ctx, S1);
+      // The WIRE content wins here — the local regeneration (and its
+      // local-wins drift rule) is fallback-only code, Task 7's removal target.
+      expect(await Bun.file(mcpFile).text()).toBe('{"from":"the control plane"}\n');
+      expect(statSync(mcpFile).mode & 0o077).toBe(0); // the 0600 write is unchanged on both paths
+      expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(0); // no drift warn fires
+      // The sent env rides the pane env layer; the sent argv is the whole command line.
+      expect(paneCmd).toInclude(`OPENCODE_CONFIG='${mcpFile}'`);
+      expect(paneCmd).toInclude(`'/bin/sh' '--mcp-config' '${mcpFile}'`);
+      expect(paneCmd).not.toInclude("'--settings'");
     } finally {
       restore();
     }

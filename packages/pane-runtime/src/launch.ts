@@ -38,13 +38,35 @@ export function buildHarnessCommand(
   harnessSession?: { id: string; mode: "start" | "resume" },
 ): string {
   const argv = harness.buildCommand({ binary, cwd, profile, subshellName, mcp, harnessSession });
+  return assembleHarnessCommand(argv, profile, subshellEnv, mcp?.env);
+}
+
+/**
+ * Assembles the `env -i` shell string around a FINAL argv — the entire body of
+ * {@link buildHarnessCommand} after `harness.buildCommand`. Split out so an
+ * argv that arrives already built (the `launch` frame's server-built argv,
+ * inversion spec §5) assembles through the identical env rules: extracting
+ * this IS the byte-identity, for a command line this machine never built.
+ *
+ * @param argv the complete, already-resolved command line (no placeholder left)
+ * @param profile the wire profile (its `env` layer rides above `subshellEnv`)
+ * @param subshellEnv SUBSHELL_* credentials from the control plane
+ * @param mcpEnv the MCP registration's wiring env (highest layer; see below)
+ * @throws Error when a merged env key is not a valid shell variable name
+ */
+export function assembleHarnessCommand(
+  argv: string[],
+  profile: ProfileDefinition,
+  subshellEnv: Record<string, string> = {},
+  mcpEnv?: Record<string, string>,
+): string {
   // Precedence, lowest to highest: curated host env < SUBSHELL_* credentials
   // (a profile may deliberately override SUBSHELL_BASE_URL) < the profile's own
   // env < the registration's wiring env. Wiring env goes LAST on purpose:
   // a key like OPENCODE_CONFIG is transport plumbing, not a user knob — a
   // profile setting it would otherwise silently drop the subshell's subshell
   // tools while the UI still promised automatic registration.
-  const env = { ...curatedEnv(), ...subshellEnv, ...profile.env, ...(mcp?.env ?? {}) };
+  const env = { ...curatedEnv(), ...subshellEnv, ...profile.env, ...(mcpEnv ?? {}) };
   // Defense-in-depth at the last chokepoint before the shell string exists:
   // this catches legacy DB rows and any other env source merged above,
   // regardless of what the entry-point (profile-save) validation allowed.
