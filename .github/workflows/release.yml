@@ -142,8 +142,22 @@ jobs:
           # per package on npmjs.com by a human FIRST. Until both land, a
           # publish attempt fails with npm's OWN error — loud, correct, and
           # not a "403 until configured, then it works" story.
+          #
+          # So `publish-script` is gated behind a repo VARIABLE rather than
+          # wired unconditionally: merging the version PR always leaves this
+          # job with NO pending changesets, and changesets/action treats an
+          # empty publish-script exactly like an absent one there — it logs
+          # "not publishing because no publish script found" and returns
+          # 0, it does not fail (checked against the action's dist/index.js
+          # at this pin: `w = !!getInput("publish-script")`, and the
+          # `!hasChangesets && !w` branch is a no-op return). That is what
+          # keeps this pipeline SHIPPING INERT: a merge cannot redden main
+          # over a publish nobody can perform yet. Arm it by setting the repo
+          # variable `NPM_PUBLISH_ENABLED=true` AFTER deciding the runner
+          # question above AND configuring trusted publishing per package on
+          # npmjs.com — flipping the variable is then the entire cutover.
           version-script: bun run version-packages
-          publish-script: bun run publish-packages
+          publish-script: ${{ vars.NPM_PUBLISH_ENABLED == 'true' && 'bun run publish-packages' || '' }}
           commit-message: "chore: release package(s)"
           pr-title: "chore: release package(s)"
           create-github-releases: false
