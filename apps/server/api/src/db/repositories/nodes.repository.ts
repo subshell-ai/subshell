@@ -244,7 +244,8 @@ export class NodesRepository extends BaseRepository {
   /**
    * Delete a node, unpinning profiles in the same transaction (spec §5.4:
    * `profiles.node_id` is NULLed so the profile survives as "any node";
-   * `node_shares`/`node_harnesses` ride the FK cascade).
+   * `node_shares` rides the FK cascade, and the plugin report is a column on
+   * the row itself).
    */
   async deleteById(id: string): Promise<void> {
     await this.db.transaction().execute(async (tx) => {

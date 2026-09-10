@@ -48,6 +48,18 @@ export const NodeHarnessViewSchema = t.Object({
         "Why there is no binary, when there is not (`no-binary` means the plugin declares none). Per entry rather than per node, because one harness can be missing while another has a bad env override",
     }),
   ),
+  broken: t.Optional(
+    t.String({
+      description:
+        "Why the node cannot use this plugin (it failed to load there). Present means the row is shown so a reader can see the reason, not that the plugin is absent",
+    }),
+  ),
+  restartRequired: t.Optional(
+    t.Boolean({
+      description:
+        "The node installed a newer copy of this plugin than the code it is running, so `version` describes the disk and not the behaviour. Cleared when that agent restarts",
+    }),
+  ),
   checkedAt: t.Optional(
     t.String({
       description:

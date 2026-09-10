@@ -408,11 +408,14 @@ is [`node-protocol.md`](node-protocol.md)). The daemon on it is
 `apps/server/api/src/services/nodes/` + `api/nodes/`.
 
 **Registry.** Rows in `nodes` / `node_shares` / `node_setup_keys` /
-the node's own plugin report in `nodes.plugins_json` (migration 0023; `node_harnesses` was dropped in 0024 when the node took ownership of the answer). REST: setup keys mint single-use `nsk_…`
+the node's own plugin report in `nodes.plugins_json` (migration 0023;
+`node_harnesses` was dropped in 0024 when the node took ownership of the
+answer). REST: setup keys mint single-use `nsk_…`
 enrollment credentials; `POST /api/nodes/enroll` consumes one and returns the
 node's long-lived bearer key exactly once; shares follow the subshell model
-(any share grants launch, `edit` adds node config); per-node harness enablement
-and Re-check live beside it. A node key can do **nothing on REST** — the auth
+(any share grants launch, `edit` adds node config); installing and removing a
+node's plugins (`POST`/`DELETE /api/nodes/:id/plugins`, owner-only, refused
+rather than queued while the node is offline) and Re-check live beside it. A node key can do **nothing on REST** — the auth
 guard rejects `kind: "node"` keys outright (spec §5.5); its whole blast radius
 is impersonating that node on `/ws/node`.
 

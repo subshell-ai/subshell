@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -37,6 +37,16 @@ import { createPluginHost } from "./plugin-host.js";
 export interface LoadedPlugin {
   manifest: SubshellManifest;
   plugin: SubshellPlugin;
+  /**
+   * The entry file changed since THIS PROCESS first imported it, so `plugin`
+   * is the previously loaded code while `manifest` is what is on disk now.
+   *
+   * Absent on every ordinary load. Present after an upgrade in place, and it
+   * cannot be repaired from here — see {@link IMPORTED}. A caller that shows
+   * a version has to say a restart is pending, or it shows the new number
+   * beside the old behaviour.
+   */
+  stale?: true;
 }
 
 /**
@@ -72,9 +82,50 @@ export interface PluginRuntime {
   load(dir: string, options?: LoadOptions): Promise<LoadedPlugin | BrokenPlugin>;
 }
 
+/**
+ * Entry paths this process has imported, and what the file looked like then.
+ *
+ * **The ESM module cache cannot be evicted, so an upgrade in place does not
+ * take effect until the agent restarts.** Measured on bun 1.4.2, against a
+ * file overwritten between two imports: a `?v=` query, a `#` fragment and a
+ * freshly named symlink all return the CACHED module (a symlink resolves to
+ * its realpath, and the query/fragment are dropped from the cache key, unlike
+ * Node), and `Loader.registry` is not exposed. Only a genuinely different real
+ * path loads new code.
+ *
+ * Copying each plugin to a per-install path would buy the reload, at the price
+ * of moving `import.meta.dir` out from under the plugin and making
+ * `<dataDir>/plugins/<id>/` no longer the thing that runs. So the staleness is
+ * REPORTED instead: the daemon is service-managed and comes back with its
+ * panes intact, which makes "restart to finish the upgrade" a remedy rather
+ * than a dead end.
+ *
+ * Keyed by resolved entry path, valued by mtime and size — a pair, because a
+ * filesystem with second-granularity timestamps can reproduce an mtime within
+ * one second of an install.
+ */
+const IMPORTED = new Map<string, string>();
+
+/**
+ * Forgets which entry paths have been imported.
+ *
+ * Only for tests: the real cache is the runtime's own and cannot be cleared,
+ * so this makes the DETECTION testable, never the reload.
+ * @internal
+ */
+export function resetImportedForTests(): void {
+  IMPORTED.clear();
+}
+
 /** The message for a thrown value, which is not always an Error. */
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** What a file looks like right now, for comparison against a past import. */
+async function fingerprint(path: string): Promise<string> {
+  const s = await stat(path);
+  return `${s.mtimeMs}:${s.size}`;
 }
 
 /**
@@ -108,12 +159,20 @@ export function createInProcessRuntime(): PluginRuntime {
       }
 
       try {
+        // Read BEFORE the import: afterwards the module is cached either way,
+        // and the comparison is the only evidence left that it is the wrong
+        // one.
+        const seen = await fingerprint(entryPath);
         // `pathToFileURL`, not the bare path: an ESM specifier is a URL, so
         // `#` in a directory name truncates at the fragment, `?` starts a
         // query and `%2F` decodes to a separator. A data dir with any of them
         // otherwise fails as "Cannot find module /home/me/proj", naming
-        // neither the plugin nor the cause.
+        // neither the plugin nor the cause. Nothing is appended to it: a query
+        // string does NOT bust this cache (see IMPORTED).
         const mod: unknown = await import(pathToFileURL(entryPath).href);
+        const before = IMPORTED.get(entryPath);
+        if (before === undefined) IMPORTED.set(entryPath, seen);
+        const stale = before !== undefined && before !== seen;
         const factory = (mod as { default?: unknown }).default;
         if (typeof factory !== "function") {
           return { manifest, error: "the plugin module has no default export, so there is no factory to call" };
@@ -137,7 +196,7 @@ export function createInProcessRuntime(): PluginRuntime {
         if (mismatches.length > 0) {
           return { manifest, error: `capabilities do not match the implementation: ${mismatches.join("; ")}` };
         }
-        return { manifest, plugin };
+        return stale ? { manifest, plugin, stale: true } : { manifest, plugin };
       } catch (err) {
         return { manifest, error: describe(err) };
       }

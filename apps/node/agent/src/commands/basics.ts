@@ -2,7 +2,8 @@ import { realpath, stat, unlink } from "node:fs/promises";
 import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import { type JsonValue, NODE_MAX_FRAME_BYTES, type NodeProbeEntry } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
-import { buildInventoryEvent } from "../inventory.js";
+import { buildInventoryEvent, resetInventoryScanCache } from "../inventory.js";
+import { log } from "../log.js";
 import { pathAllowed } from "../path-policy.js";
 import { buildPluginReports } from "../plugin-report.js";
 import { installEmbedded, uninstallPlugin } from "../plugins-dir.js";
@@ -264,11 +265,44 @@ export async function execInventory(ctx: CommandContext): Promise<CommandResult>
  * it guessing at the rest. Phase 2 installs from the copies this build
  * carries, so there is no network here; phase 3 adds a registry behind the
  * same command.
+ *
+ * It also pushes a fresh inventory, and that is not a nicety: the probe covers
+ * the plugins that are INSTALLED, so a plugin installed a moment ago has no
+ * row in the last one. Without this the node page would show the new plugin
+ * as "program not found" for up to the inventory cadence, on a machine where
+ * the program is sitting on the PATH.
  */
+/**
+ * Re-probes and pushes an inventory after the installed set changed.
+ *
+ * The memo is dropped first: it exists to coalesce the several inventories
+ * that land together on a connection, and reusing a probe from before the
+ * change is exactly the staleness it must not cause here.
+ *
+ * Best-effort. The install itself already succeeded, so a failed push must not
+ * turn it into an error the operator sees; the next cadence tick corrects it.
+ */
+async function pushInventory(ctx: CommandContext): Promise<void> {
+  try {
+    resetInventoryScanCache();
+    ctx.ws.send(await buildInventoryEvent(ctx.nowMs(), undefined, ctx.config.dataDir));
+  } catch (err) {
+    log(`could not push an inventory after a plugin change: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_install">): Promise<CommandResult> {
   try {
     await installEmbedded(ctx.config.dataDir, cmd.id);
-    return { ok: true, data: { plugins: await buildPluginReports(ctx.config.dataDir) } };
+    const plugins = await buildPluginReports(ctx.config.dataDir);
+    await pushInventory(ctx);
+    // The one moment where the restriction is actionable. The control plane
+    // renders the same fact, but an operator who upgraded from a terminal is
+    // reading this log, not that page.
+    if (plugins.find((p) => p.id === cmd.id)?.restartRequired) {
+      log(`installed plugin '${cmd.id}', but this agent keeps running the copy it loaded; restart it to pick it up`);
+    }
+    return { ok: true, data: { plugins } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -285,7 +319,9 @@ export async function execPluginInstall(ctx: CommandContext, cmd: Cmd<"plugin_in
 export async function execPluginUninstall(ctx: CommandContext, cmd: Cmd<"plugin_uninstall">): Promise<CommandResult> {
   try {
     const removed = await uninstallPlugin(ctx.config.dataDir, cmd.id);
-    return { ok: true, data: { removed, plugins: await buildPluginReports(ctx.config.dataDir) } };
+    const plugins = await buildPluginReports(ctx.config.dataDir);
+    await pushInventory(ctx);
+    return { ok: true, data: { removed, plugins } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

@@ -90,6 +90,11 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         // reported at all rather than recomputed on the control plane.
         mcpSetup: plugin.mcpSetup?.({ command: "subshell", args: ["mcp"] }),
         ...(Object.keys(exitStatuses).length > 0 ? { exitStatuses } : {}),
+        // Everything above this line was read from the copy on disk; the
+        // plugin object answering them is the one already in the module
+        // cache. Reporting the version without this flag would show an
+        // upgrade that has not happened yet.
+        ...(loaded.stale ? { restartRequired: true } : {}),
       });
     } catch (err) {
       reports.push({

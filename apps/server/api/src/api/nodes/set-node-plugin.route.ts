@@ -6,6 +6,7 @@ import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanManageFor } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
+import { audit } from "@/services/audit.js";
 import { installNodePlugin, uninstallNodePlugin } from "@/services/nodes/plugin-sync.js";
 
 /**
@@ -15,6 +16,11 @@ import { installNodePlugin, uninstallNodePlugin } from "@/services/nodes/plugin-
  * `view`, already lets a grantee launch subshells there, so an `edit` grantee
  * who could install a plugin would face no restriction at all. The directory
  * allowlist is gated the same way for exactly this reason.
+ *
+ * **Both paths are audited.** Installing a plugin adds a program the node
+ * will execute under its own OS user, and removing one takes launch targets
+ * away from everyone that node is shared with. That is the same class of act
+ * as `node.rename` and `node.shares.set`, which are audited beside it here.
  *
  * **An offline node is REFUSED, not queued.** The node owns its plugin set and
  * the server mirrors what it reports, so there is no desired state to
@@ -56,6 +62,16 @@ export const setNodePluginRoute = new Elysia()
       if (!nodeCanManageFor(gate.row.kind, gate.access, gate.isAdmin)) throw new ForbiddenError();
 
       await installNodePlugin(gate.row, body.pluginId);
+      // After the node accepted it, never before: an audit line for a change
+      // an offline node refused would be a record of something that did not
+      // happen.
+      await audit({
+        actorUserId: user.id,
+        action: "node.plugin.install",
+        targetType: "node",
+        targetId: gate.row.id,
+        metadataJson: JSON.stringify({ pluginId: body.pluginId, node: gate.row.name }),
+      });
       const fresh = await loadNodeGate(user.id, params.id);
       return await toNodeView(fresh?.row ?? gate.row, gate.access, gate.isAdmin);
     },
@@ -82,6 +98,13 @@ export const setNodePluginRoute = new Elysia()
       if (!nodeCanManageFor(gate.row.kind, gate.access, gate.isAdmin)) throw new ForbiddenError();
 
       await uninstallNodePlugin(gate.row, params.pluginId);
+      await audit({
+        actorUserId: user.id,
+        action: "node.plugin.uninstall",
+        targetType: "node",
+        targetId: gate.row.id,
+        metadataJson: JSON.stringify({ pluginId: params.pluginId, node: gate.row.name }),
+      });
       const fresh = await loadNodeGate(user.id, params.id);
       return await toNodeView(fresh?.row ?? gate.row, gate.access, gate.isAdmin);
     },

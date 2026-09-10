@@ -1,9 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installEmbedded, listInstalled, pluginsDir, refreshStaleBuiltIns, uninstallPlugin } from "../plugins-dir.js";
+import {
+  installEmbedded,
+  listInstalled,
+  pluginsDir,
+  recoverInterruptedInstalls,
+  refreshStaleBuiltIns,
+  uninstallPlugin,
+} from "../plugins-dir.js";
 
 /**
  * `<dataDir>/plugins/` IS the node's declaration of what it offers.
@@ -139,5 +146,93 @@ describe("the plugins directory", () => {
     await writeFile(join(foreign, "index.js"), "export default () => ({});", "utf8");
     expect(await refreshStaleBuiltIns(dir)).toEqual([]);
     expect((await listInstalled(dir)).map((p) => p.id)).toEqual(["third-party"]);
+  });
+});
+
+describe("an install interrupted mid-swap", () => {
+  /** Exactly what a kill between the two renames leaves on disk. */
+  async function interruptMidSwap(dataDir: string, id: string): Promise<void> {
+    const root = pluginsDir(dataDir);
+    renameSync(join(root, id), join(root, `.old-${id}-${crypto.randomUUID()}`));
+  }
+
+  it("keeps the working directories out of the listing", async () => {
+    // These used to read as plugins with no package.json: a broken row that
+    // no uninstall could remove, since uninstall refuses the same names.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+    mkdirSync(join(pluginsDir(dir), ".tmp-codex-abc"), { recursive: true });
+    mkdirSync(join(pluginsDir(dir), ".old-codex-def"), { recursive: true });
+
+    expect((await listInstalled(dir)).map((p) => p.id)).toEqual(["codex"]);
+  });
+
+  it("puts the plugin back at the next boot, rather than losing it", async () => {
+    // The old order was rm-then-rename, so a kill during the recursive delete
+    // UNINSTALLED the plugin being upgraded, with no copy left anywhere.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+    await interruptMidSwap(dir, "codex");
+    expect(await listInstalled(dir)).toEqual([]);
+
+    expect(await recoverInterruptedInstalls(dir)).toEqual({ recovered: ["codex"], removed: 0 });
+    const back = await listInstalled(dir);
+    expect(back.map((p) => p.id)).toEqual(["codex"]);
+    expect(back[0]?.broken).toBeUndefined();
+  });
+
+  it("discards the displaced copy when the swap did complete", async () => {
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+    const root = pluginsDir(dir);
+    cpSync(join(root, "codex"), join(root, `.old-codex-${crypto.randomUUID()}`), { recursive: true });
+
+    expect(await recoverInterruptedInstalls(dir)).toEqual({ recovered: [], removed: 1 });
+    expect(readdirSync(root)).toEqual(["codex"]);
+  });
+
+  it("removes a staging directory and a copy that declares nothing", async () => {
+    // A `.tmp-` is never promotable, and an `.old-` with no readable manifest
+    // names no id to restore it as.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+    mkdirSync(join(pluginsDir(dir), ".tmp-codex-abc"), { recursive: true });
+    mkdirSync(join(pluginsDir(dir), ".old-junk-def"), { recursive: true });
+
+    expect(await recoverInterruptedInstalls(dir)).toEqual({ recovered: [], removed: 2 });
+    expect(readdirSync(pluginsDir(dir))).toEqual(["codex"]);
+  });
+
+  it("recovering a data dir with no plugins directory is a no-op", async () => {
+    expect(await recoverInterruptedInstalls(tempDataDir())).toEqual({ recovered: [], removed: 0 });
+  });
+});
+
+describe("upgrading a plugin in place", () => {
+  it("removes the copy it set aside, so upgrades do not accumulate", async () => {
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+    await installEmbedded(dir, "codex");
+    expect(readdirSync(pluginsDir(dir))).toEqual(["codex"]);
+  });
+});
+
+describe("a refresh pass with an unreadable plugin in it", () => {
+  it("carries on past one that this build cannot replace", async () => {
+    // `aaa` sorts first and is nobody's built-in, so the pass can neither
+    // read its version nor repair it. What must not happen is that ending the
+    // pass: `codex` sorts after it and IS repairable.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "codex");
+    await writeFile(join(pluginsDir(dir), "codex", "package.json"), "{ not json");
+    mkdirSync(join(pluginsDir(dir), "aaa"), { recursive: true });
+    await writeFile(join(pluginsDir(dir), "aaa", "package.json"), "{ also not json");
+
+    expect(await refreshStaleBuiltIns(dir)).toEqual(["codex"]);
+    const after = await listInstalled(dir);
+    expect(after.map((p) => p.id)).toEqual(["aaa", "codex"]);
+    // Repaired from this build's bytes; the stranger is left exactly as found.
+    expect(after.find((p) => p.id === "codex")?.broken).toBeUndefined();
+    expect(after.find((p) => p.id === "aaa")?.broken).toBeTruthy();
   });
 });

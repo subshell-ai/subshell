@@ -27,7 +27,7 @@ function node(harnesses: NodeHarness[], over: Partial<Node> = {}): Node {
 }
 
 /** Renders with the node view already in the cache, so no fetch is needed. */
-function renderCard(view: Node, canManage = true): ReactElement {
+function renderCard(view: Node, canManage = true, isLocal = false): ReactElement {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   qc.setQueryData([...NODE_QUERY_KEY, NODE_ID], view);
   qc.setQueryData(
@@ -39,7 +39,7 @@ function renderCard(view: Node, canManage = true): ReactElement {
   );
   const ui = (
     <QueryClientProvider client={qc}>
-      <NodeHarnessCard nodeId={NODE_ID} canManage={canManage} />
+      <NodeHarnessCard nodeId={NODE_ID} canManage={canManage} isLocal={isLocal} />
     </QueryClientProvider>
   );
   render(ui);
@@ -95,5 +95,56 @@ describe("NodeHarnessCard", () => {
   it("says a plugin needing no program needs none", () => {
     renderCard(node([{ harnessId: "some-terminal", enabled: true, installed: false, reason: "no-binary" }]));
     expect(screen.getByText(/needs no separate program/)).toBeDefined();
+  });
+
+  it("shows a broken plugin's reason rather than a healthy-looking row", () => {
+    // The whole reason a broken plugin keeps a row is so the page can say why.
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: true, broken: "boom at import" }]));
+    expect(screen.getByText(/could not load the plugin: boom at import/)).toBeDefined();
+    expect(screen.getByText("not usable")).toBeDefined();
+  });
+
+  it("says the version on screen is not the code running yet", () => {
+    // A module cannot be swapped inside a live process, so an upgrade shows
+    // the new number beside the old behaviour until the agent restarts. The
+    // number alone would be a lie.
+    renderCard(
+      node([{ harnessId: "claude-code", enabled: true, installed: true, version: "2.1.0", restartRequired: true }]),
+    );
+    expect(screen.getByText(/Version 2.1.0 is installed/)).toBeDefined();
+    expect(screen.getByText(/Restart the agent/)).toBeDefined();
+  });
+
+  it("does not repeat the restart notice on a plugin that will not load at all", () => {
+    // "Restart to finish the upgrade" beside "could not load the plugin"
+    // points at the wrong remedy.
+    renderCard(
+      node([
+        {
+          harnessId: "claude-code",
+          enabled: true,
+          installed: true,
+          version: "2.1.0",
+          restartRequired: true,
+          broken: "boom",
+        },
+      ]),
+    );
+    expect(screen.queryByText(/Restart the agent/)).toBeNull();
+  });
+
+  it("does not badge a no-binary plugin as missing its program", () => {
+    // The badge and the explanation underneath used to contradict each other.
+    renderCard(node([{ harnessId: "some-terminal", enabled: true, installed: false, reason: "no-binary" }]));
+    expect(screen.getByText("ready")).toBeDefined();
+    expect(screen.queryByText("program not found")).toBeNull();
+  });
+
+  it("offers no actions on the control-plane host, whose plugins this route cannot reach", () => {
+    // Every action there would 400; a control that cannot work is worse than
+    // none at all.
+    renderCard(node([{ harnessId: "claude-code", enabled: true, installed: true }]), true, true);
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 });

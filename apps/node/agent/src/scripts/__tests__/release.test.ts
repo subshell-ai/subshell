@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { NODE_TARGETS, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { digestFile } from "@internal/subshell-protocol/release-artifacts";
-import { type BuildAllResult, buildAll, buildArgs, buildTargets, parseScope, resolveArtifactsDir } from "../release.js";
+import {
+  type BuildAllResult,
+  buildAll,
+  buildArgs,
+  buildTargets,
+  parseScope,
+  resolveArtifactsDir,
+  runEmbedPlugins,
+} from "../release.js";
 
 describe("buildArgs (always-bytecode, spec 2026-09-03 §5)", () => {
   test("every triple compiles with --bytecode AND an explicit --target", () => {
@@ -193,5 +201,32 @@ describe("buildAll — signing hook (sign between build and digest)", () => {
     expect(refused.ok).toBe(false);
     if (refused.ok) throw new Error("expected refusal");
     expect(refused.failed).toBe(NODE_TARGETS[0]);
+  });
+});
+
+describe("runEmbedPlugins (the step whose absence ships an unusable binary)", () => {
+  test("aborts the release when the generator fails", async () => {
+    // The generator reads each plugin's built dist, so a missing `turbo build`
+    // is the common cause. Publishing anyway would produce an agent that seeds
+    // nothing and refuses every launch.
+    await expect(runEmbedPlugins({ runGenerator: async () => 1 })).rejects.toThrow(/embedding the built-in plugins/);
+  });
+
+  test("passes when the generator succeeds", async () => {
+    await expect(runEmbedPlugins({ runGenerator: async () => 0 })).resolves.toBeUndefined();
+  });
+
+  test("is actually CALLED by the release pipeline, before the build", async () => {
+    // The defect this guards: the generator existed and nothing invoked it, so
+    // every compiled binary carried an empty embedded set. A unit test of the
+    // step alone would have stayed green through that.
+    const src = await Bun.file(new URL("../release.ts", import.meta.url)).text();
+    const embedAt = src.indexOf("await runEmbedPlugins(");
+    const buildAt = src.indexOf("await buildAll(");
+    expect(embedAt).toBeGreaterThan(-1);
+    expect(buildAt).toBeGreaterThan(-1);
+    expect(embedAt).toBeLessThan(buildAt);
+    // And the stub is restored whatever the build does.
+    expect(src).toContain("restoreEmbedStub()");
   });
 });

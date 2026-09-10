@@ -61,9 +61,26 @@ what constrains it.
 | Does a `.ts` plugin load? | **Yes.** Bun transpiles on the fly. |
 | Is a top-level `throw` contained by `try/catch` around `import()`? | **Yes**, fully. |
 | Does a stray async throw after load kill the host? | **No**, in the case measured. It logged and the process continued. |
+| Can a module be re-loaded after its file changes? | **No.** A `?v=` query, a `#` fragment and a freshly named symlink all return the CACHED module, and `Loader.registry` is not exposed. Only a different real path loads new code. |
 
 The second row is the load-bearing one: it is why a plugin cannot import
 anything of ours and why the host object in §4 exists.
+
+The last row was measured later, against the phase-2 install path, and it
+changes what an upgrade can promise. Bun differs from Node here: a query
+string busts Node's ESM cache and does not bust bun's. So **an upgrade in
+place does not take effect until the agent restarts**, and the two ways to buy
+the reload were both worse than saying so. Copying each plugin to a
+per-install path moves `import.meta.dir` out from under the plugin and makes
+`<dataDir>/plugins/<id>/` no longer the thing that runs, which is the property
+the whole layout rests on; a generation directory with a pointer costs the
+same property plus a symlink. The daemon is service-managed and comes back
+with its panes intact, so a restart is a one-command remedy rather than a dead
+end — what was not acceptable was the silence. The loader therefore compares
+the entry's mtime and size against what it imported and marks the load
+`stale`, which reaches the wire as `restartRequired` and the node page as a
+sentence under the row. Without it the page shows the new version number
+beside the old behaviour.
 
 ## 3. Vocabulary
 

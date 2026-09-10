@@ -241,6 +241,45 @@ describe("services/nodes/inventory", () => {
       expect(report.stale).toBe(true);
     });
 
+    it("the two gates AGREE on a plugin this build has never heard of", async () => {
+      // The point of the phase: a node may offer a plugin the control plane
+      // does not carry. `harnessUsable` used to short-circuit on the compiled
+      // registry, so the picker (usableHarnessIds) offered such a plugin and
+      // the launch then refused it with nothing on screen explaining why.
+      const node = await mkNode("agent", { json: [entry("third-party-tool", true)], at: freshAt() });
+      await nodes.recordPluginReport(node.id, [
+        {
+          id: "third-party-tool",
+          name: "Third Party Tool",
+          type: "agent-harness",
+          version: "1.0.0",
+          description: "",
+          capabilities: [],
+        },
+      ]);
+      const fresh = (await nodes.findById(node.id)) as NodeTable;
+      expect(await harnessUsable("third-party-tool", fresh.id)).toBe(true);
+      expect(await usableHarnessIds(fresh.id)).toEqual(new Set(["third-party-tool"]));
+    });
+
+    it("both gates refuse a declared plugin the node reported BROKEN", async () => {
+      const node = await mkNode("agent", { json: [entry("broken-tool", true)], at: freshAt() });
+      await nodes.recordPluginReport(node.id, [
+        {
+          id: "broken-tool",
+          name: "Broken Tool",
+          type: "agent-harness",
+          version: "1.0.0",
+          description: "",
+          capabilities: [],
+          broken: "boom at import",
+        },
+      ]);
+      const fresh = (await nodes.findById(node.id)) as NodeTable;
+      expect(await harnessUsable("broken-tool", fresh.id)).toBe(false);
+      expect(await usableHarnessIds(fresh.id)).toEqual(new Set());
+    });
+
     it("agent gate: a node that has never reported is NOT usable", async () => {
       // Never-reported is not "offers everything" and not "offers nothing
       // deliberately": it is a node that has not been asked, and launching

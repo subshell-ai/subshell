@@ -16,6 +16,7 @@ export {
   type LoadedPlugin,
   type LoadOptions,
   type PluginRuntime,
+  resetImportedForTests,
 } from "./plugin-runtime.js";
 export {
   allHarnesses,

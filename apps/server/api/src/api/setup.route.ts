@@ -146,11 +146,10 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
     "/harnesses/:id",
     async ({ request, params, body }) => {
       await requireHarnessAccess(request, true);
-      // The shared local-harness toggle — the SAME service function
-      // `PATCH /api/nodes/local/harnesses/:id` calls (spec 2026-08-31 §6.2),
-      // so `harness_plugins` stays the single authoritative store for the
-      // control-plane host: enable re-checks installation (409 when missing),
-      // disable never checks, and enabling best-effort seeds Default profiles.
+      // The local-harness toggle, and now its only caller: `harness_plugins`
+      // is the single authoritative store for the control-plane host. Enable
+      // re-checks installation (409 when missing), disable never checks, and
+      // enabling best-effort seeds Default profiles.
       return await toggleLocalHarness(params.id, body.enabled);
     },
     {

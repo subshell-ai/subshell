@@ -29,6 +29,10 @@ export interface NodeHarness {
   reason?: "not-on-path" | "override-invalid" | "no-binary";
   /** ISO 8601 stamp of when this entry was probed; absent from an older agent */
   checkedAt?: string;
+  /** Why the node cannot use this plugin, when it cannot */
+  broken?: string;
+  /** The node holds a newer copy than the code it is running; restart clears it */
+  restartRequired?: boolean;
 }
 
 /** One node as the registry renders it — no secrets, no machine keys. */

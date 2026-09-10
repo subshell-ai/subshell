@@ -8,9 +8,10 @@ import type { NodeTable } from "@/db/types/nodes.db-types.js";
  * Node harness-state resolution (spec 2026-08-31 §6.2) — the single merge of
  * the two per-node stores:
  *
- * - **enabled** — `node_harnesses` rows for agents, `harness_plugins` for the
- *   local node (the lazy rule both times: absent row ⇒ the plugin's
- *   `enabledByDefault`).
+ * - **offered** — for an agent, the node's own plugin report
+ *   (`nodes.plugins_json`): a plugin it has installed is offered, and there is
+ *   no enable flag to consult. For `local` it is still `harness_plugins`, with
+ *   the lazy rule that an absent row means the plugin's `enabledByDefault`.
  * - **installed/version** — the cached agent inventory (`nodes.inventory_json`
  *   captured by the `/ws/node` handler) or the live process probe for local.
  *
@@ -38,6 +39,22 @@ export interface EffectiveHarnessState {
   reason?: DetectionReason;
   /** ISO 8601 stamp of when this entry was probed. Absent from older agents. */
   checkedAt?: string;
+  /**
+   * Why the node cannot use this plugin, when it cannot.
+   *
+   * Carried all the way to the view because the whole reason a broken plugin
+   * keeps a ROW is so a page can say why. Dropping it here made the row render
+   * as an ordinary healthy plugin whose launches then failed silently.
+   */
+  broken?: string;
+  /**
+   * The node holds a newer copy of the plugin than the code it is running.
+   *
+   * `version` is then what is installed there, not what a launch would use.
+   * The remedy is a restart of that agent, so the state has to reach a screen
+   * an operator looks at.
+   */
+  restartRequired?: boolean;
 }
 
 /** The full per-node harness picture plus the freshness verdict on its source. */
@@ -190,6 +207,8 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
     if (entry?.version) state.version = entry.version;
     if (entry?.reason) state.reason = entry.reason;
     if (entry?.checkedAt) state.checkedAt = entry.checkedAt;
+    if (report.broken) state.broken = report.broken;
+    if (report.restartRequired) state.restartRequired = true;
     return state;
   });
   return { harnesses, stale: inv.stale };

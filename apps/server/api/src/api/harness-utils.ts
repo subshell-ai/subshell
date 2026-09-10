@@ -1,4 +1,4 @@
-import { allHarnesses, getHarness, type HarnessPlugin, scanOne } from "@internal/pane-runtime";
+import { allHarnesses, getHarness, scanOne } from "@internal/pane-runtime";
 import type { Static } from "elysia";
 import type { HarnessInfoSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
@@ -78,18 +78,23 @@ export async function harnessInfo(id: string, enabled: boolean): Promise<Static<
 }
 
 /**
- * The ONE local-harness toggle (spec 2026-08-31 §6.2): both
- * `PATCH /api/setup/harnesses/:id` and `PATCH /api/nodes/local/harnesses/:id`
- * call this, so `harness_plugins` stays the single authoritative store for
- * the control-plane host and the two paths can never drift.
+ * The local-harness toggle, reached by `PATCH /api/setup/harnesses/:id`.
+ *
+ * `harness_plugins` is the authoritative store for the control-plane host, and
+ * this is the only writer. It used to have a second caller on the nodes routes
+ * (`PATCH /api/nodes/local/harnesses/:id`), which is gone: what a node offers
+ * is now what it has installed, and `local` is the one host whose set is still
+ * a toggle rather than an install.
  *
  * Semantics preserved from the setup route verbatim: enable re-runs the
  * install check (409 when the binary is missing), disable never checks, and
  * enabling best-effort seeds a "Default" profile per user (a seeding failure
  * must not undo the committed enable — the boot sweep heals it).
  *
- * Agent nodes do NOT go through here — their state lives in `node_harnesses`
- * (see `patch-node-harness.route.ts`).
+ * Agent nodes do NOT go through here, and no longer have an equivalent: what
+ * a node offers is what it has INSTALLED, which the node itself owns
+ * (`services/nodes/plugin-sync.ts`, spec 2026-09-09 §6). There is nothing to
+ * toggle there.
  * @param harnessId - harness plugin id
  * @param enabled - the new state
  * @returns the fresh plugin info for the response body
@@ -137,15 +142,21 @@ export async function toggleLocalHarness(
  * view are deliberately separate strictnesses.
  */
 export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID): Promise<boolean> {
-  const plugin = getHarness(id);
-  if (!plugin) return false;
   if (nodeId !== LOCAL_NODE_ID) {
     const node = await new NodesRepository(db).findById(nodeId);
     if (!node) return false;
     // A local-kind row (defensively: only the seeded host is `local`) always
     // resolves through the instance store, never an inventory.
-    if (node.kind !== "local") return agentHarnessUsableForNode(node, plugin);
+    //
+    // The registry is deliberately NOT consulted first for an agent. A node
+    // may offer a plugin this build has never heard of, which is the point of
+    // the phase, and a `getHarness(id)` short-circuit here made this gate
+    // disagree with {@link usableHarnessIds}: the picker offered such a plugin
+    // and the launch then refused it with no explanation.
+    if (node.kind !== "local") return agentHarnessUsableForNode(node, id);
   }
+  const plugin = getHarness(id);
+  if (!plugin) return false;
   const states = await harnessEnabledStates();
   if (!(states.get(id) ?? plugin.enabledByDefault)) return false;
   return await plugin.isInstalled();
@@ -174,8 +185,8 @@ function agentHarnessUsable(pluginId: string, declared: NodePluginSet, inv: Agen
  * (per-node enabled rows, parsed inventory) and defers every verdict to the
  * single {@link agentHarnessUsable} predicate.
  */
-async function agentHarnessUsableForNode(node: NodeTable, plugin: HarnessPlugin): Promise<boolean> {
-  return agentHarnessUsable(plugin.id, readNodePlugins(node), readAgentInventory(node));
+async function agentHarnessUsableForNode(node: NodeTable, pluginId: string): Promise<boolean> {
+  return agentHarnessUsable(pluginId, readNodePlugins(node), readAgentInventory(node));
 }
 
 /**

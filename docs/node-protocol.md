@@ -120,7 +120,7 @@ names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `5`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `6`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -215,6 +215,8 @@ instead. See `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
+| `plugin_install` | Install one plugin on the node (v6). The node performs the install from the copies its build carries and answers with its WHOLE set, because the control plane mirrors what the node reports and a partial answer would leave it guessing at the rest. It also pushes a fresh `inventory`, since the probe follows what is installed. An offline node is refused rather than queued: the node owns its set, so there is no desired state to reconcile |
+| `plugin_uninstall` | Remove one plugin (v6). Removing something already absent is a SUCCESS — the caller asked for a state and that state holds, so a retry after a dropped connection does not look like a failure. Answers with the set that remains, plus a fresh `inventory` |
 | `set_allowed_dirs` | Replace the node's persisted directory allowlist (v5). The node stores it at `<dataDir>/allowed-dirs.json` (0600) and checks every `launch`/`stat_dir` against its OWN copy — signing proves who sent a launch, never whether the directory is permitted. An empty array clears the rules (unrestricted). Pushed on every owner edit and again after each `ready`, which is what reconciles a node that was offline for an edit |
 
 **Status**
@@ -237,7 +239,7 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 | Event | |
 |---|---|
 | `ready` | First frame — identity, versions, capabilities, `executablePath` (§3) |
-| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath? }` + timestamp. Pushed at connect and every 5 min (`INVENTORY_PERIOD_MS`), plus on demand |
+| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp, and (v6) `plugins` — the node's own report of what it has INSTALLED. The probe follows that installed set, not the plugins this build happens to know, so a third-party plugin is probed and an uninstalled one stops being. Pushed at connect, every 5 min (`INVENTORY_PERIOD_MS`), after any plugin change, and on demand |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |
 | `output` | Tail bytes: `subId`, `fromByte`, `toByte`, `data_b64` |
@@ -246,7 +248,15 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 | `error` | `{ code, message }` |
 
 **The launch gate demands a fresh inventory** reporting the harness installed, so
-an un-inventoried node cannot silently fail launches.
+an un-inventoried node cannot silently fail launches. It also demands that the
+node DECLARED the plugin: what a node offers is what it has installed, and
+there is no enable flag on either side.
+
+A plugin report may carry `restartRequired`. A module cannot be swapped inside
+a live process, so upgrading a plugin in place leaves the agent running the
+code it loaded: the reported `version` then describes the disk, not the
+behaviour, and the flag is what keeps the two from being confused. It clears
+when that agent restarts.
 
 **Exit detection** is a 2 s tick probing each tmux socket. An authoritative
 `ok: true` answer that lacks the pane reports death immediately with the pane's

@@ -323,6 +323,15 @@ export type PluginReportWire = {
   exitStatuses?: Record<string, string>;
   /** Why it cannot be used, when it cannot */
   broken?: string;
+  /**
+   * The node installed a newer copy than the code it is running.
+   *
+   * A module cannot be swapped inside a live process (see `IMPORTED` in
+   * `@internal/pane-runtime`), so `version` here is what is on disk while the
+   * behaviour is the previous build's. Reported rather than hidden, because
+   * the pair is what makes the remedy obvious: restart the agent.
+   */
+  restartRequired?: boolean;
 };
 
 export type NodeEvent =

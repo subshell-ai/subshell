@@ -22,7 +22,28 @@ import { checkedAtLabel } from "@/lib/checked-at";
  * the PLUGIN, and the plugin's BINARY was detected there. A node can have the
  * claude-code plugin and no `claude` on its PATH.
  */
-export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canManage: boolean }) {
+/** The row's one-word verdict: not usable, ready, or its program is missing. */
+function badgeLabel(h: { installed: boolean; broken?: string; reason?: string }): string {
+  if (h.broken) return "not usable";
+  return h.installed || h.reason === "no-binary" ? "ready" : "program not found";
+}
+
+/** The tone that verdict carries. */
+function badgeVariant(h: { installed: boolean; broken?: string; reason?: string }): "success" | "warning" | "muted" {
+  if (h.broken) return "warning";
+  return h.installed || h.reason === "no-binary" ? "success" : "muted";
+}
+
+export function NodeHarnessCard({
+  nodeId,
+  canManage,
+  isLocal = false,
+}: {
+  nodeId: string;
+  canManage: boolean;
+  /** The control-plane host, whose plugin set this route cannot reach yet. */
+  isLocal?: boolean;
+}) {
   const { harnesses, data, isLoading } = useNodeHarnesses(nodeId);
   // The catalog this build knows about, used only to offer installs and to
   // name a row. A row whose id is absent from it still renders, by id.
@@ -42,6 +63,10 @@ export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canMana
 
   const installedIds = new Set(harnesses.map((h) => h.harnessId));
   const available = (catalog ?? []).filter((c) => !installedIds.has(c.id));
+  // `local` has no plugins directory and no socket to send a command over, so
+  // every action here would 400. Showing a control that cannot work is worse
+  // than showing none.
+  const actionable = canManage && !isLocal;
 
   return (
     <Card>
@@ -74,12 +99,16 @@ export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canMana
                 <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
                 {/* The plugin is installed; whether its program is present is
                     a separate fact, and the badge is about that one. */}
-                <Badge variant={h.installed ? "success" : "muted"}>{h.installed ? "ready" : "program not found"}</Badge>
+                {/* Three states, not two. A plugin that declares no program is
+                    not one whose program is missing, and a broken plugin is
+                    neither: badging all three "program not found" put a
+                    negative right above the sentence explaining it away. */}
+                <Badge variant={badgeVariant(h)}>{badgeLabel(h)}</Badge>
                 {h.version && <span className="font-mono text-muted-foreground text-xs">{h.version}</span>}
                 {checkedAtLabel(h.checkedAt) && (
                   <span className="text-muted-foreground text-xs">{checkedAtLabel(h.checkedAt)}</span>
                 )}
-                {canManage && (
+                {actionable && (
                   <Button
                     type="button"
                     variant="outline"
@@ -91,6 +120,20 @@ export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canMana
                   </Button>
                 )}
               </div>
+              {h.broken && (
+                <p role="alert" className="text-destructive text-xs">
+                  This node could not load the plugin: {h.broken}
+                </p>
+              )}
+              {/* The version beside the name is the copy on disk. Until the
+                  agent restarts, launches still run the code it started
+                  with, so saying nothing here would make the number a lie. */}
+              {h.restartRequired && !h.broken && (
+                <p className="text-muted-foreground text-xs">
+                  Version {h.version} is installed, but this node is still running the copy it started with. Restart the
+                  agent to finish the upgrade.
+                </p>
+              )}
               {h.reason === "override-invalid" && (
                 <p className="text-muted-foreground text-xs">
                   An environment variable overrides where this program is looked for, and it doesn't point at an
@@ -109,7 +152,7 @@ export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canMana
           );
         })}
 
-        {canManage && available.length > 0 && (
+        {actionable && available.length > 0 && (
           <div className="space-y-2 border-t pt-3">
             <p className="text-muted-foreground text-xs">Add a plugin</p>
             {available.map((c) => (

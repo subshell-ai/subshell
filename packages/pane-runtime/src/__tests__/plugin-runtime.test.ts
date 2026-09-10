@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPluginHost } from "../plugin-host.js";
-import { createInProcessRuntime } from "../plugin-runtime.js";
+import { createInProcessRuntime, resetImportedForTests } from "../plugin-runtime.js";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "plugins");
 const runtime = () => createInProcessRuntime();
@@ -93,5 +95,85 @@ describe("createPluginHost", () => {
     expect(typeof host.findBinary).toBe("function");
     expect(typeof host.detectBinary).toBe("function");
     expect(typeof host.probeVersion).toBe("function");
+  });
+});
+
+describe("re-loading a plugin whose files changed", () => {
+  it("reports the load as stale rather than pretending it reloaded", async () => {
+    // The ESM cache is not evictable (see IMPORTED in plugin-runtime.ts), so
+    // an upgrade in place keeps running the old code. What must never happen
+    // is that silently: the manifest read here is the NEW one, so a caller
+    // showing a version has to know the behaviour behind it is the old one.
+    resetImportedForTests();
+    const dir = join(tmpdir(), `plugin-reload-${crypto.randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const pkg = (version: string) =>
+      JSON.stringify({
+        name: "reload",
+        version,
+        private: true,
+        subshell: {
+          apiVersion: 1,
+          id: "reload",
+          type: "agent-harness",
+          name: "Reload",
+          description: "",
+          entry: "index.js",
+        },
+      });
+    const plugin = (marker: string) =>
+      `export default () => ({ buildCommand: () => ["${marker}"], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
+
+    await Bun.write(join(dir, "package.json"), pkg("1.0.0"));
+    const entry = join(dir, "index.js");
+    await Bun.write(entry, plugin("FIRST"));
+
+    const first = await createInProcessRuntime().load(dir);
+    expect("error" in first).toBe(false);
+    if ("error" in first) return;
+    expect(first.stale).toBeUndefined();
+    expect(first.plugin.buildCommand({} as never)).toEqual(["FIRST"]);
+
+    await Bun.write(join(dir, "package.json"), pkg("2.0.0"));
+    await Bun.write(entry, plugin("SECOND-and-longer"));
+    const second = await createInProcessRuntime().load(dir);
+    expect("error" in second).toBe(false);
+    if ("error" in second) return;
+    // The pair that must be reported together: new manifest, old code.
+    expect(second.stale).toBe(true);
+    expect(second.plugin.buildCommand({} as never)).toEqual(["FIRST"]);
+  });
+
+  it("does not call an unchanged plugin stale when it is loaded twice", async () => {
+    resetImportedForTests();
+    const dir = join(tmpdir(), `plugin-reload-${crypto.randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    await Bun.write(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "steady",
+        version: "1.0.0",
+        private: true,
+        subshell: {
+          apiVersion: 1,
+          id: "steady",
+          type: "agent-harness",
+          name: "Steady",
+          description: "",
+          entry: "index.js",
+        },
+      }),
+    );
+    await Bun.write(
+      join(dir, "index.js"),
+      `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`,
+    );
+
+    const first = await createInProcessRuntime().load(dir);
+    const second = await createInProcessRuntime().load(dir);
+    expect("error" in first).toBe(false);
+    expect("error" in second).toBe(false);
+    if ("error" in second) return;
+    expect(second.stale).toBeUndefined();
   });
 });

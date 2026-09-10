@@ -5,6 +5,7 @@ import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { db } from "@/db/index.js";
+import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -23,14 +24,15 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
- * Task 10 (spec 2026-08-31 §6.2): per-node harness state on the node view
- * (inventory-backed for agents, live probe for `local`), the
- * `PATCH /api/nodes/:id/harnesses/:harnessId` toggle (409 not-installed ONLY
- * on a FRESH inventory that explicitly says absent — stale and never-reported
- * snapshots are lenient), `POST /api/nodes/:id/recheck` (signed inventory RPC;
- * 409 NODE_OFFLINE / NODE_UNREACHABLE), and the local-node path agreement with
- * `PATCH /api/setup/harnesses/:id` — one store (`harness_plugins`), never a
- * `node_harnesses` row for `local`.
+ * Per-node harness state on the node view (inventory-backed for agents, live
+ * probe for `local`), `POST /api/nodes/:id/recheck` (signed inventory RPC; 409
+ * NODE_OFFLINE / NODE_UNREACHABLE), and `local`'s agreement with
+ * `PATCH /api/setup/harnesses/:id` — one store (`harness_plugins`).
+ *
+ * The per-node toggle these cases were written around is GONE (spec 2026-09-09
+ * §6): an agent offers what it has installed, so there is no enable state to
+ * flip. Installing and removing it are here instead, sharing this file's
+ * fake-socket harness.
  */
 
 const H0 = "claude-code";
@@ -276,8 +278,6 @@ describe("/api/nodes harness state + recheck", () => {
     expect(v2.harnesses).toEqual([]);
   });
 
-  // ── PATCH /api/nodes/:id/harnesses/:harnessId on an agent ─────────────────
-
   // ── POST /api/nodes/:id/recheck ────────────────────────────────────────────
 
   function fakeSocket(): NodeSocket & { sent: string[] } {
@@ -350,6 +350,108 @@ describe("/api/nodes harness state + recheck", () => {
 
     const remove = await req("DELETE", `/api/nodes/${id}/plugins/claude-code`, { cookie: aliceCookie });
     expect(remove.status).toBe(409);
+  });
+
+  /** Settle one in-flight plugin command with the answer an agent would send. */
+  async function pluginCommandWithAnswer(
+    nodeId: string,
+    fire: () => Promise<Response>,
+    expectType: string,
+    data: unknown,
+  ): Promise<Response> {
+    const sock = fakeSocket();
+    attachConnection(nodeId, sock);
+    try {
+      const resP = fire();
+      await waitFor(() => sock.sent.length > 0, `${expectType} command on the wire`);
+      const frame = JSON.parse(sock.sent[0]) as { jws: string };
+      const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1], "base64url").toString("utf8")) as {
+        jti: string;
+        cmd: { type: string; id: string };
+      };
+      expect(claims.cmd.type).toBe(expectType);
+      expect(resolveResult(liveConn(nodeId), { type: "result", ref: claims.jti, ok: true, data: data as never })).toBe(
+        true,
+      );
+      return await resP;
+    } finally {
+      resetNodeRegistryForTests();
+    }
+  }
+
+  /** The actions this suite's audit assertions care about, newest last. */
+  async function pluginAuditFor(nodeId: string): Promise<string[]> {
+    const events = await new AuditRepository(db).listLatest(200);
+    return events
+      .filter((e) => e.targetId === nodeId && e.action.startsWith("node.plugin."))
+      .map((e) => e.action)
+      .reverse();
+  }
+
+  it("an accepted install is mirrored from the node's own answer, and audited", async () => {
+    // The node OWNS the set, so the row the server keeps is whatever the node
+    // reported back — not what was asked for.
+    const id = await mkAgent();
+    const res = await pluginCommandWithAnswer(
+      id,
+      () => req("POST", `/api/nodes/${id}/plugins`, { cookie: aliceCookie, body: { pluginId: "claude-code" } }),
+      "plugin_install",
+      {
+        plugins: [
+          {
+            id: "claude-code",
+            name: "Claude Code",
+            type: "agent-harness",
+            version: "1.2.3",
+            description: "",
+            capabilities: [],
+          },
+        ],
+      },
+    );
+    expect(res.status).toBe(200);
+    const view = (await res.json()) as { harnesses: { harnessId: string; version?: string }[] };
+    expect(view.harnesses.map((h) => h.harnessId)).toEqual(["claude-code"]);
+
+    expect(await pluginAuditFor(id)).toEqual(["node.plugin.install"]);
+  });
+
+  it("an accepted uninstall empties the mirror, and is audited too", async () => {
+    const id = await mkAgent();
+    await pluginCommandWithAnswer(
+      id,
+      () => req("POST", `/api/nodes/${id}/plugins`, { cookie: aliceCookie, body: { pluginId: "claude-code" } }),
+      "plugin_install",
+      {
+        plugins: [
+          {
+            id: "claude-code",
+            name: "Claude Code",
+            type: "agent-harness",
+            version: "1",
+            description: "",
+            capabilities: [],
+          },
+        ],
+      },
+    );
+    const res = await pluginCommandWithAnswer(
+      id,
+      () => req("DELETE", `/api/nodes/${id}/plugins/claude-code`, { cookie: aliceCookie }),
+      "plugin_uninstall",
+      { removed: true, plugins: [] },
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { harnesses: unknown[] }).harnesses).toEqual([]);
+    expect(await pluginAuditFor(id)).toEqual(["node.plugin.install", "node.plugin.uninstall"]);
+  });
+
+  it("writes no audit line for a change the node never heard", async () => {
+    // The audit call sits AFTER the node accepts. A line for an offline
+    // refusal would record an install onto a machine that was switched off.
+    const id = await mkAgent();
+    await req("POST", `/api/nodes/${id}/plugins`, { cookie: aliceCookie, body: { pluginId: "claude-code" } });
+    expect(await pluginAuditFor(id)).toEqual([]);
   });
 
   it("plugin management is OWNER-only, not merely configure-capable", async () => {

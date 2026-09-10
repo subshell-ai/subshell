@@ -22,7 +22,7 @@ import { mapOs } from "./enroll.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
-import { refreshStaleBuiltIns } from "./plugins-dir.js";
+import { recoverInterruptedInstalls, refreshStaleBuiltIns } from "./plugins-dir.js";
 import { seedBuiltIns } from "./plugins-seed.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
@@ -278,6 +278,13 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   // node that cannot seed is still a node worth connecting.
   await seedBuiltIns(config.dataDir).catch((err: unknown) => {
     log(`could not seed built-in plugins: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  // Boot is the one moment nothing can be installing, which is what makes it
+  // safe to touch an install's working directories. This runs BEFORE the
+  // refresh so a plugin restored here is one the refresh can then bring
+  // current, rather than one it never sees.
+  await recoverInterruptedInstalls(config.dataDir).catch(() => {
+    // Already logged per directory; clutter is not worth failing a boot over.
   });
   // And keep an installed built-in current with this build, which is the
   // separate concern of the agent having been upgraded underneath it.
