@@ -59,7 +59,6 @@ export {
   type BrokenBuiltIn,
   type BrokenInstalled,
   brokenBuiltIns,
-  brokenInstalledPlugins,
   builtInHarnesses,
   clearInstalledPlugins,
   getBuiltInHarness,

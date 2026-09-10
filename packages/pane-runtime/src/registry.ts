@@ -141,7 +141,9 @@ export interface BrokenInstalled {
 export interface InstalledRefresh {
   /** Ids that resolved into the overlay */
   loaded: string[];
-  /** Ids that will not, with why (same array as {@link brokenInstalledPlugins}) */
+  /** Ids that will not, with why. The result IS the read path for broken
+   * state: callers log it or render it; the overlay keeps no second copy to
+   * drift. */
   broken: BrokenInstalled[];
 }
 
@@ -208,18 +210,6 @@ export async function refreshInstalledPlugins(dataDir: string): Promise<Installe
   overlay = { plugins, broken };
   merged = null;
   return { loaded: [...plugins.keys()], broken };
-}
-
-/**
- * Installed plugins that did not load on the last refresh.
- *
- * The mirror of {@link brokenBuiltIns} for the disk set: the rows exist so a
- * broken plugin is diagnosable rather than merely absent. (The instance page
- * renders broken state from `buildPluginReports`, which reads the disk per
- * request; this is what a host that resolved rather than reported can show.)
- */
-export function brokenInstalledPlugins(): BrokenInstalled[] {
-  return overlay.broken;
 }
 
 /**

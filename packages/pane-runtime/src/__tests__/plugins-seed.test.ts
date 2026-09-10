@@ -1,17 +1,20 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listInstalled, pluginsDir, uninstallPlugin } from "../plugins-dir.js";
-import { seedBuiltIns } from "../plugins-seed.js";
+import { prepareInstalledPlugins, seedBuiltIns } from "../plugins-seed.js";
 
 /**
- * Without this, every existing node upgrades into offering nothing.
+ * Without the boot prepare, an instance store that has never existed would
+ * upgrade into offering nothing.
  *
- * `<dataDir>/plugins/` is the declaration and empty means "offers nothing", so
- * a node that has never had one needs its built-ins put there once. The whole
- * difficulty is doing that exactly once: a user who uninstalls everything must
- * not have it undone on the next restart.
+ * `<SUBSHELL_SERVER_DATA_DIR>/plugins/` is the instance declaration and empty
+ * means "the operator uninstalled everything", so a store that has never
+ * completed a seed needs its built-ins put there once. The whole difficulty is
+ * doing that exactly once: an emptied directory must not be re-seeded on the
+ * next restart. (Spec 2026-09-10 moved the store from nodes to the control
+ * plane; the seed mechanics were already node-free.)
  */
 function tempDataDir(): string {
   return mkdtempSync(join(tmpdir(), "plugins-seed-"));
@@ -100,5 +103,30 @@ describe("a seed that was interrupted", () => {
     const dir = tempDataDir();
     await seedBuiltIns(dir, ["codex"]);
     expect((await listInstalled(dir)).map((p) => p.id)).toEqual(["codex"]);
+  });
+});
+
+describe("prepareInstalledPlugins", () => {
+  it("resolves even when every step fails", async () => {
+    // The boot contract depends on this function being TOTAL: the server's
+    // `prepareLocalPlugins` syncs the registry overlay after it, so an
+    // unresolvable disk must still leave every loadable plugin resolved and
+    // must never reject up into the boot. Every step is caught inside
+    // (recover, seed, refresh each log-and-continue); a `<dir>/plugins`
+    // path that is a regular FILE makes all three of them fail, since none
+    // can read a directory out of one.
+    const dir = tempDataDir();
+    writeFileSync(join(dir, "plugins"), "not a directory");
+    await expect(prepareInstalledPlugins(dir)).resolves.toBeUndefined();
+  });
+
+  it("is the same pass through when the directory is merely absent", async () => {
+    // A never-seen store is the ordinary first boot, not an error: the pass
+    // must complete and leave the seed marker behind.
+    const parent = tempDataDir();
+    const dir = join(parent, "fresh-home");
+    mkdirSync(dir);
+    await expect(prepareInstalledPlugins(dir)).resolves.toBeUndefined();
+    expect(await listInstalled(dir)).toHaveLength(5);
   });
 });

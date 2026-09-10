@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { pluginsDir, uninstallPlugin } from "../plugins-dir.js";
 import {
   allHarnesses,
-  brokenInstalledPlugins,
   builtInHarnesses,
   clearInstalledPlugins,
   getBuiltInHarness,
@@ -150,7 +149,6 @@ describe("the installed overlay", () => {
         .map((h) => h.id)
         .sort(),
     ).toEqual(BUILT_IN_IDS);
-    expect(brokenInstalledPlugins()).toEqual([]);
   });
 
   it("a plugin that throws at import is reported broken and costs nothing else", async () => {
@@ -162,7 +160,6 @@ describe("the installed overlay", () => {
 
     expect(broken.map((b) => b.id)).toEqual(["boom"]);
     expect(broken[0]?.error).toContain("boom at import");
-    expect(brokenInstalledPlugins().map((b) => b.id)).toEqual(["boom"]);
     expect(getHarness("boom")).toBeUndefined();
     // The containment rule: one bad plugin costs its own resolution, never
     // the healthy install beside it and never the built-in set.
@@ -282,6 +279,5 @@ describe("the installed overlay", () => {
     clearInstalledPlugins();
     expect(getHarness("acme")).toBeUndefined();
     expect(allHarnesses()).toBe(allHarnesses());
-    expect(brokenInstalledPlugins()).toEqual([]);
   });
 });

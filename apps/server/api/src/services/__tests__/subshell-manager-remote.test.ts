@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { runMigrations } from "@/db/migrate.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
 import * as remoteOpsMigration from "@/db/migrations/0003-remote-ops.js";
@@ -51,6 +52,17 @@ const tokens: SubshellTokenProvider = {
 };
 
 beforeAll(async () => {
+  // TWO databases are in play and only one is this file's. The manager's
+  // directory-allowlist check (`assertDirAllowed`) does not read the private
+  // `:memory:` handle below; it goes through the process's requestless
+  // context, i.e. the shared test-mode DB every non-request code path opens.
+  // That graph's schema comes from the boot migrator, so the honest setup is
+  // the boot migrator itself: journal-backed and idempotent, and exactly the
+  // code the shipped server runs. Without this call the file's launch-path
+  // tests passed only when some earlier test file had happened to migrate
+  // the shared DB in the same process, green in the full suite, red in any
+  // narrower run.
+  await runMigrations();
   dbHandle = new Kysely<Database>({
     dialect: new BunSqliteDialect({ database: async () => openSqliteDatabase(":memory:") }),
     plugins: [new CamelCasePlugin()],
