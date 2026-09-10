@@ -146,9 +146,29 @@ own executable path for the `subshell mcp` invocation, which is node
 self-knowledge and not plugin knowledge: it stays a placeholder the node fills,
 for the reason `selfInvocation` already exists.
 
-`canResume` follows the same shape: the control plane computes the candidate
-path with plugin code and asks the node whether it exists, which is what
-`probe_resume` already does one layer up.
+`canResume` follows the same shape, with one wrinkle the plan must not
+improvise. The plugin computes the candidate path, but claude-code's
+`claudeConfigDir()` reads `CLAUDE_CONFIG_DIR` from the environment of the
+machine the pane will run on, which the control plane cannot see.
+
+**The node reports the environment values a manifest declares it needs**, and
+nothing else:
+
+```
+node -> server        { env: { CLAUDE_CONFIG_DIR: "/home/theo/.claude" } }
+server                path = <plugin computes it from cwd + env>
+server -> node        path_exists { path }
+```
+
+The reported set is driven by what manifests declare, so it grows deliberately
+rather than a node shipping its whole environment to the plane. All plugin
+logic stays here, which is the point of the inversion.
+
+**`probe_resume` is renamed `path_exists` and generalized.** Once it carries a
+computed path and answers whether it is there, it is a general capability with
+one caller rather than a resume-specific command, and a name describing what it
+does is what stops the next person adding a second near-identical probe. The
+protocol is already breaking here, so the rename is free.
 
 ## 6. Installing a plugin
 
@@ -174,7 +194,9 @@ The shipped version is 2. Phases 4 and 5 would have taken it to 3 and 4 and
 were never built, so this takes it to **3**.
 
 Removed: `plugin_install`, `plugin_uninstall`.
+Renamed: `probe_resume` becomes `path_exists`, taking a computed path (§5).
 Added: `detect` (§4).
+Changed: a node reports the manifest-declared environment values of §5.
 Changed: `launch` gains `argv`, `resolve`, and `mcp.args` / `mcp.env`.
 Changed: the inventory a node reports no longer carries a plugin set, because
 the node has none. What it reports is the detection results of §4.
@@ -208,7 +230,11 @@ Both specs are superseded in full. Their decisions do not all die with them.
 
 **Phase 4** (UX) survives in intent: a setup step that asks where subshells run,
 and a page for managing plugins. The page becomes an INSTANCE-level surface
-rather than a per-node card, since plugins are no longer per node. The node page
+rather than a per-node card, since plugins are no longer per node, and it lives
+at **`/settings/plugins`**. Settings already nests (`settings_.status.tsx`
+renders `/settings/status`, linked from the Settings page), so this is the
+existing pattern rather than new navigation, and it puts an admin-only
+capability where the other admin-only surfaces already are. The node page
 keeps a read-only list of which harnesses this machine can actually run, which
 is detection output, not a plugin set. The install-by-name field and its
 non-catalog confirmation carry over unchanged, moved to the instance page.
@@ -277,6 +303,36 @@ being instance-level means one store and one policy, and anything a pane needs
 privately can stay in the node's environment, where it lives today and where
 the control plane never sees it.
 
+### 9.2 Instance-level secrets, encrypted at rest
+
+A credential a PLUGIN needs while building argv has to be readable on the
+control plane, which is the one thing moving plugins here genuinely costs
+(§8). It is stored encrypted, with the key held outside the database.
+
+- **AES-256-GCM via `node:crypto`**, so this adds no dependency. The key comes
+  from the environment (`SUBSHELL_SECRETS_KEY`), never from a settings row and
+  never from the database, which is the whole point: a stolen database file is
+  not a stolen credential.
+- **Write-only over the API**, keeping phase 5 §2.3's shape: a write accepts a
+  value, a read reports only that one is set, and no response body, log line or
+  audit entry ever carries it. Encryption and non-disclosure are separate
+  controls and this has both.
+- **No key means no secrets, and it fails closed.** With `SUBSHELL_SECRETS_KEY`
+  unset, writing a secret is refused rather than stored in the clear, and
+  reading an existing one is an error that names the missing variable. Storing
+  plaintext because a variable was forgotten is the failure this design exists
+  to prevent.
+- **A lost key is unrecoverable, by construction.** Rotating it re-encrypts
+  every stored secret and losing it means every operator re-enters theirs.
+  `docs/security.md` must say so plainly beside the `BETTER_AUTH_SECRET`
+  guidance, because an operator who learns this during a restore has learned it
+  too late.
+
+What this is NOT for: a credential the agent CLI needs inside its pane. That
+stays in the node's own environment, where it lives today and where the control
+plane never sees it (§9.1). The distinction is the whole reason this store can
+be small.
+
 ## 10. Testing
 
 - **Spike replication as a test:** for each built-in, the argv built on the
@@ -301,10 +357,10 @@ the control plane never sees it.
 - **`parseVersion` moves hosts.** Only hermes implements it, and the version
   string is rendered in the UI, so a mistake here shows up as a cosmetic bug
   rather than a failure. Pin it with a test using hermes's real banner output.
-- **`claudeConfigDir()` reads a node's env var.** The control plane cannot read
-  `CLAUDE_CONFIG_DIR` on a remote machine, so the resume-path probe must either
-  send a path template the node expands or have the node report that variable.
-  Decide it in the plan; do not let it become an assumption.
+- **`claudeConfigDir()` reads a node's env var**, and §5 now settles how: the
+  node reports manifest-declared environment values. What remains a landmine is
+  the declaration itself, since a manifest naming the wrong variable fails
+  silently, as a resume that never offers itself.
 - **`local` is not special any more, in the other direction.** It is now the
   only node whose plugin directory matters, because it IS the control plane.
   Watch for code that treats `local` as "a node like any other" and now needs
@@ -318,10 +374,12 @@ the control plane never sees it.
 
 ## 12. What this does not decide
 
-- How an INSTANCE-level plugin secret is stored, now that per-node settings are
-  out (§9.1) and the plugin runs on the control plane. Anything a pane needs
-  privately stays in the node's environment; what is left is credentials the
-  plugin itself needs while building argv, which have to be readable here.
-- Whether the instance plugins page lives under Settings or gets its own route.
-- Whether `probe_resume` keeps its name once it carries a computed path rather
-  than a plugin id.
+Everything this document opened has since been closed: secrets in §9.2, the
+plugins page and the resume-path probe in §9 and §5. What is left is genuinely
+downstream of building it.
+
+- The shape of the `detect` result beyond `{ id, found, path, rawVersion,
+  reason }`, which the plan should settle against the existing
+  `EffectiveHarnessState` rather than inventing a parallel type.
+- Whether `SUBSHELL_SECRETS_KEY` rotation is a CLI verb or a documented manual
+  re-entry. It only matters once a plugin actually stores a secret (§9.2).
