@@ -1,0 +1,15 @@
+{
+  "name": "e2e-demo",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Fixture plugin served by the e2e fake registry (stack.ts) and installed by spec 14",
+  "subshell": {
+    "apiVersion": 1,
+    "id": "e2e-demo",
+    "type": "agent-harness",
+    "name": "E2E demo",
+    "description": "A third-party-style harness plugin for the registry e2e; never launched, only installed, reported, and removed",
+    "entry": "index.js"
+  }
+}

@@ -32,6 +32,14 @@ backend, `NODE_ENV=development`, `SUBSHELL_TEST_MODE=false`) with:
 The backend serves the frontend bundle, so **one origin = the whole app**; all
 specs use `baseURL` from `ports.ts`.
 
+Spec `14` adds a THIRD process: `stack.ts` also spawns `bun fake-registry.ts
+3198` — a `Bun.serve` fake npm registry (it must be a child process because the
+Playwright runner is Node, so globalSetup cannot host `Bun.serve` itself). It
+packs `e2e/fixtures/plugin-demo/` with `bun pm pack` at boot, computes the
+sha512 over the real tgz bytes, and serves that one package; the backend child's
+`SUBSHELL_PLUGIN_REGISTRY_URL` points at it, so no spec in the suite can ever
+dial a real registry. It is torn down with the stack.
+
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
 `SUBSHELL_CONFIG_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
@@ -48,12 +56,12 @@ against ONE shared database:
 - `01-setup-wizard` creates the admin (`.test` email TLD — better-auth rejects
   digit TLDs like `.e2e`) and writes `.auth/admin.json`.
 - The specs after it load that storage state via `ADMIN_STATE` from
-  `helpers.ts` (`04`–`12`; `02` deliberately stays anonymous — it pins the
+  `helpers.ts` (`04`–`14`; `02` deliberately stays anonymous — it pins the
   401 boundary itself).
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and
-both the writer (spec `01`) and the readers (`04`–`12`) use that same constant —
+both the writer (spec `01`) and the readers (`04`–`14`) use that same constant —
 so the CWD the run is launched from never matters.
 
 ## What the terminal assertions may use
