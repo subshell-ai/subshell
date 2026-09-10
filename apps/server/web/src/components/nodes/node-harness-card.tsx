@@ -33,18 +33,28 @@ function badgeVariant(h: { installed: boolean; reason?: string }): "success" | "
  * control-plane process, and the instance plugins page says so. Rendering
  * them here would attribute an instance failure to one node.
  *
- * The only control is Re-check, and it is a manage action: the server still
- * honours it from an `edit` grantee, but refreshing this machine's detection
- * is the manager's call, and `local` is excluded outright — its view probes
+ * The only control is Re-check, gated by the SAME rule the server's recheck
+ * route applies — `nodeCanConfigure` (owner or `edit`;
+ * `api/src/lib/node-access.ts`, and the security posture states it plainly:
+ * "edit (or owner) additionally configures the node (re-checks)"). It is
+ * deliberately NOT `canManage`: on an agent that flag is owner-or-admin-on-
+ * local, narrower than what the route honours, and hiding a permitted action
+ * is a capability regression. `access` is server-derived on the view (admins
+ * resolve to `edit` there), so this mirrors the gate without re-deriving
+ * admin identity client-side. `local` is excluded outright — its view probes
  * live on every read, and the recheck route answers it 400.
  */
-export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canManage: boolean }) {
+export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const { harnesses, data, isLoading } = useNodeHarnesses(nodeId);
   const recheck = useRecheckNode(nodeId);
 
   if (isLoading) return <p className="text-muted-foreground text-sm">Loading…</p>;
 
-  const canRecheck = canManage && data?.kind === "agent";
+  // The web-side mirror of `nodeCanConfigure` — the SPA hand-mirrors the
+  // server's view model and its rules (see `types/node.ts`), and no helper
+  // for this one existed here. `access` is "none" nowhere a view exists, so
+  // owner|edit is exactly the route's gate.
+  const canRecheck = data !== undefined && data.kind === "agent" && (data.access === "owner" || data.access === "edit");
 
   return (
     <Card>

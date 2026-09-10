@@ -30,8 +30,9 @@ export const Route = createFileRoute("/nodes_/$id")({
  *
  * The harness card is read-only everywhere (spec 2026-09-10: plugins are
  * instance-level and managed under `/settings/plugins`); its one control,
- * Re-check, moved inside the card and is gated on `Node.canManage` together
- * with everything else here.
+ * Re-check, moved inside the card and gates itself on the view's server-
+ * derived `access` (owner|edit — the rule the recheck route applies), not on
+ * `canManage`.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
  * error, never a leak), and Share/Delete enable on `Node.canManage` (owner,
@@ -243,7 +244,7 @@ function NodeDetailPage() {
 
       {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
-      <NodeHarnessCard nodeId={n.id} canManage={n.canManage} />
+      <NodeHarnessCard nodeId={n.id} />
 
       <p className="text-sm">
         <Link to="/nodes" className="text-muted-foreground underline">

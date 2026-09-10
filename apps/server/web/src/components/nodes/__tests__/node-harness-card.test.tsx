@@ -32,7 +32,8 @@ import type { NodeDetail, NodeHarness } from "@/types/node";
 interface CardOpts {
   /** Rows the node view carries (before the `instanceHas` server filter). */
   harnesses?: NodeHarness[];
-  canManage?: boolean;
+  /** The viewer's server-derived access on the node view. */
+  access?: NodeDetail["access"];
   inventoryStale?: boolean;
   kind?: NodeDetail["kind"];
   /** The plugins the instance has installed and enabled. */
@@ -73,7 +74,7 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
   const original = globalThis.fetch;
   const data = view({
     kind: opts.kind ?? "agent",
-    canManage: opts.canManage ?? false,
+    access: opts.access ?? "owner",
     inventoryStale: opts.inventoryStale ?? false,
     harnesses: (opts.harnesses ?? []).filter((h) => !opts.instanceHas || opts.instanceHas.includes(h.harnessId)),
   });
@@ -108,7 +109,7 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
       <QueryClientProvider
         client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
       >
-        <NodeHarnessCard nodeId={NODE_ID} canManage={opts.canManage ?? false} />
+        <NodeHarnessCard nodeId={NODE_ID} />
       </QueryClientProvider>
     ),
   });
@@ -129,11 +130,11 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
 describe("NodeHarnessCard", () => {
   afterEach(cleanup);
 
-  it("the card manages nothing, even for its manager", async () => {
+  it("the card manages nothing, even for the node's owner", async () => {
     // The route these controls POSTed to is gone (Task 9 deleted
-    // set-node-plugin.route.ts), so even a manager gets no manage affordance
+    // set-node-plugin.route.ts), so even the owner gets no manage affordance
     // here — managing plugins moved to the instance page.
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], canManage: true });
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }] });
     try {
       expect(screen.queryByRole("button", { name: /remove/i })).toBeNull();
       expect(screen.queryByText(/add a plugin/i)).toBeNull();
@@ -159,7 +160,7 @@ describe("NodeHarnessCard", () => {
   });
 
   it("Re-check issues exactly one detect", async () => {
-    const { calls, restore } = await mount({ harnesses: [], canManage: true });
+    const { calls, restore } = await mount({ harnesses: [] });
     try {
       const btn = screen.getByRole("button", { name: /re-check/i });
       fireEvent.click(btn);
@@ -172,12 +173,26 @@ describe("NodeHarnessCard", () => {
     }
   });
 
-  it("only the manager is offered Re-check", async () => {
-    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], canManage: false });
+  it("an edit grantee is offered Re-check, because that is the server's gate", async () => {
+    // The recheck route gates on `nodeCanConfigure` = owner|edit
+    // (api/src/lib/node-access.ts), and the security posture documents it:
+    // "edit (or owner) additionally configures the node (re-checks)".
+    // Gating the button on `canManage` hid a permitted action — the button
+    // mirrors the route, and the manage affordances stay gone for everyone.
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], access: "edit" });
+    try {
+      expect(screen.getByRole("button", { name: /re-check/i })).toBeDefined();
+      expect(screen.queryByRole("button", { name: /remove/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a view grantee is offered no Re-check, but sees the same rows", async () => {
+    const { restore } = await mount({ harnesses: [{ harnessId: "pi", installed: true }], access: "view" });
     try {
       expect(screen.queryByRole("button", { name: /re-check/i })).toBeNull();
-      // Read-only means read-only, but the DETECTION still renders — the
-      // manager and the non-manager see the same card, and no rows.
       expect(screen.getByText("pi")).toBeDefined();
     } finally {
       restore();
@@ -187,7 +202,7 @@ describe("NodeHarnessCard", () => {
   it("never offers Re-check on the local node (its probe is live on every read)", async () => {
     // The recheck route 400s `local`; the card offers only what the server
     // would honour.
-    const { restore } = await mount({ harnesses: [], canManage: true, kind: "local" });
+    const { restore } = await mount({ harnesses: [], kind: "local" });
     try {
       expect(screen.queryByRole("button", { name: /re-check/i })).toBeNull();
     } finally {
@@ -272,7 +287,7 @@ describe("NodeHarnessCard", () => {
   });
 
   it("surfaces a failed Re-check", async () => {
-    const { restore } = await mount({ harnesses: [], canManage: true, recheckStatus: 409 });
+    const { restore } = await mount({ harnesses: [], recheckStatus: 409 });
     try {
       fireEvent.click(screen.getByRole("button", { name: /re-check/i }));
       expect(await screen.findByRole("alert")).toBeDefined();

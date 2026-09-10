@@ -9,12 +9,12 @@ import type { NodeDetail } from "@/types/node";
 
 /**
  * The node detail page's manager affordances (spec 2026-08-31 §9/§10, card
- * gating per spec 2026-09-10): the harness card's Re-check (manager-only,
- * inside the card, never on `local`), the owner-only inline rename, the
- * manager-only rotate-key flow with its plaintext-once reveal, and the
- * `node too old` chip. The page component is rendered through the real route
- * object (its `useParams` is strict), mounted under a minimal memory router
- * the way routeTree.gen wires it.
+ * gating per spec 2026-09-10): the harness card's Re-check (inside the card,
+ * gated like the server's route on owner|edit, never on `local`), the
+ * owner-only inline rename, the manager-only rotate-key flow with its
+ * plaintext-once reveal, and the `node too old` chip. The page component is
+ * rendered through the real route object (its `useParams` is strict), mounted
+ * under a minimal memory router the way routeTree.gen wires it.
  */
 function agentNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
   return {
@@ -93,27 +93,43 @@ afterEach(cleanup);
 
 describe("NodeDetailPage re-check gating", () => {
   // Re-check lives INSIDE the harness card now (spec 2026-09-10): the card is
-  // detection output and Re-check is its one control. It is offered only to
-  // the node's manager (an edit grantee can re-check through the API, but
-  // refreshing this machine's detection is the manager's call here), never on
-  // `local`, whose probe is live on every read and whose recheck 400s.
-  it("offers non-managers no Re-check at all, `view` or `edit`", async () => {
-    for (const access of ["view", "edit"] as const) {
-      const { calls, restore } = mockFetch(agentNode({ access, canManage: false }));
-      try {
-        renderDetail("agent1");
-        await screen.findByText("Your access");
-        expect(screen.queryByRole("button", { name: /Re-check/ })).toBeNull();
-        expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/recheck")).toBe(false);
-      } finally {
-        restore();
-        // The loop mounts two trees without an intervening afterEach.
-        cleanup();
-      }
+  // detection output and Re-check is its one control. It gates on the
+  // recheck route's OWN rule — `nodeCanConfigure` = owner|edit (security
+  // context: "edit (or owner) additionally configures the node (re-checks)")
+  // — so an `edit` grantee gets it even though `canManage` is false; hiding
+  // it from them would strip a documented, server-honoured capability.
+  // `local` never shows it: its probe is live on every read and recheck 400s.
+  it("offers a `view` grantee no Re-check and POSTs nothing", async () => {
+    const { calls, restore } = mockFetch(agentNode({ access: "view", canManage: false }));
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.queryByRole("button", { name: /Re-check/ })).toBeNull();
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/recheck")).toBe(false);
+    } finally {
+      restore();
     }
   });
 
-  it("offers the manager a working Re-check that POSTs once", async () => {
+  it("offers an `edit` grantee a working Re-check despite not managing the node", async () => {
+    const { calls, restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
+    try {
+      renderDetail("agent1");
+      const btn = await screen.findByRole("button", { name: /Re-check/ });
+      expect(btn.hasAttribute("disabled")).toBe(false);
+      fireEvent.click(btn);
+      await waitFor(() => {
+        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/recheck")).toHaveLength(1);
+      });
+      // Configure yes, manage no: Share/Delete stay gated on `canManage`.
+      expect(screen.getByRole("button", { name: /Share/ }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: /Delete/ }).hasAttribute("disabled")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("offers the owner a working Re-check that POSTs once", async () => {
     const { calls, restore } = mockFetch(agentNode());
     try {
       renderDetail("agent1");
