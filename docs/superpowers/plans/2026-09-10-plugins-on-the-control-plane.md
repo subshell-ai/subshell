@@ -591,6 +591,33 @@ Message: `feat(server): one plugin host, and an instance-level door to it`.
 
 ---
 
+### Task 9b: The control plane can launch what the registry installed (added by controller ruling R12, 2026-09-10)
+
+**Why this task exists:** the plan had a hole. After Task 9 the instance door
+sells registry installs, but every launch-path lookup —
+`detectSpecs`/`getHarness`/profile validation — keys off pane-runtime's
+compiled-in `BUILT_INS`, which has no registration path, while
+`plugin-report.ts` loads each installed plugin via `runtime.load` and discards
+the result. A third-party plugin therefore lists, toggles and uninstalls but
+can never detect or launch, and Task 13's repointed e2e spec 14 (which asserts
+launchability from a node holding nothing) cannot pass. The spec is the
+authority: §2 says plugins stay "third-party authorable" and §8 already
+accepts plugin code running in the control-plane process. This task closes the
+last gap that claim implies.
+
+**Files:**
+- Modify: `packages/pane-runtime/src/registry.ts` (or a new `installed-registry.ts` beside it): a function that returns the RESOLVED plugin set = compiled built-ins + successfully-loaded installed plugins from a dataDir, memoized by dataDir+mtime, with per-plugin fault containment (a throwing installed plugin yields a broken entry, never a lost built-in)
+- Modify: the server call sites to consult it: `services/nodes/inventory.ts` (`detectSpecs`, the local probe paths), `services/subshell-manager.service.ts` (the `getHarness` resolutions at create/revive), profile validation wherever `profiles.route.ts` resolves harness ids
+- Test: pane-runtime suite for the merge (built-in + installed; shadowing rule: a built-in wins, with a warn, because the compiled copy is the one this release tested; corrupt install skipped as broken; same id re-installed → reload after memo invalidation) + one server test proving a scripted "acme" plugin installed into a temp dataDir flows into `detectSpecs()` output and a create against it builds argv
+
+**Rules:** no new runtime deps; the loader stays the single sanctioned
+`await import()` site (`plugin-runtime.ts`); loading must not run at module
+import (lazy, per the registry's existing fault-boundary comment); the agent
+NEVER calls this (the agent holds no plugins — Task 7). Commit subject:
+`feat(runtime): installed plugins resolve where they now run`.
+
+---
+
 ### Task 10: Drop the per-node plugin columns
 
 **Files:**
