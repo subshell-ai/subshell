@@ -208,9 +208,11 @@ shares and subshell shares are two independent axes:
 
 - **Any node share — even `view` — lets the grantee launch their own subshells
   on it**; those subshells stay invisible to the node's owner unless separately
-  shared. `edit` (or owner) additionally configures the node (harness
-  toggles, re-checks); only the owner manages it (shares, rename) — admin for
-  `local`. The owner controls everything launched there; whoever owns the
+  shared. `edit` (or owner) additionally configures the node (re-checks);
+  INSTALLING AND REMOVING PLUGINS is owner-only, on the same reasoning as the
+  directory allowlist, and so are shares and rename — admin for `local`, whose
+  plugins are now managed through that same route rather than an enable table
+  (spec 2026-09-09 §12). The owner controls everything launched there; whoever owns the
   node's OS user owns every pane the backend launches on it, including its
   files.
 - Command signing (§4) proves authenticity, freshness and target — **not**

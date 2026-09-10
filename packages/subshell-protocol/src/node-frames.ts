@@ -360,9 +360,14 @@ export type NodeEvent =
         binaryPath?: string;
         /**
          * Why the binary was not found (2026-09-09 §7). Optional on the wire
-         * and absent from agents older than the field, so a reader treats
-         * absence as unknown. Additive, which is why NODE_PROTOCOL_VERSION
-         * does not move for it: nothing an older agent sends becomes invalid.
+         * and absent when the probe itself failed rather than having looked,
+         * so a reader treats absence as unknown rather than as a verdict.
+         *
+         * (An earlier note here justified the optionality as compatibility
+         * with agents predating the field. Gate 2 refuses any protocol
+         * mismatch in either direction, so no such agent can send a frame at
+         * all; the optionality is about what a probe can answer, not about
+         * who is on the other end.)
          */
         reason?: "not-on-path" | "override-invalid" | "no-binary";
         /** ISO 8601 stamp of when this entry was probed. Also optional, also additive. */

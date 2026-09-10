@@ -8,15 +8,21 @@ import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { installLocalPlugin, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import {
+  authedRequest,
+  deleteUserByEmailOrId,
+  seedLocalPluginsForTests,
+  setupAuthTables,
+  signIn,
+} from "./helpers/auth-tables.js";
 
 /**
  * Profile WRITES (POST /, PUT /:id, DELETE /:id) are cookie-only; reads stay
@@ -517,12 +523,11 @@ describe("GET /api/profiles — node=any", () => {
   const email = `profany-${crypto.randomUUID()}@subshell.local`;
   const password = "profany-pass-1234";
   const profiles = new ProfilesRepository(db);
-  const plugins = new HarnessPluginsRepository(db);
 
   beforeAll(async () => {
-    // claude-code must read as INSTALLED so the row's absence under the
-    // default listing can only come from the disabled state (same technique
-    // as the file's first describe).
+    // claude-code's BINARY must read as installed, so the row's absence under
+    // the default listing can only come from the host not having the PLUGIN.
+    // Those were the same fact when this was an enable flag; they are two now.
     process.env.CLAUDE_PATH = TRUE_BINARY;
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
@@ -545,17 +550,18 @@ describe("GET /api/profiles — node=any", () => {
         restartOnExit: 0,
       })
     ).id;
-    await plugins.setEnabled("claude-code", false);
+    await seedLocalPluginsForTests();
+    await uninstallLocalPlugin("claude-code");
   });
 
   afterAll(async () => {
-    // Restore the lazy-default state so sibling suites see the plugin's own
-    // enabledByDefault again.
-    await plugins.setEnabled("claude-code", true);
+    // Put it back: these suites share one data dir, so leaving it uninstalled
+    // changes what every later suite in the process sees.
+    await installLocalPlugin("claude-code");
     await deleteUserByEmailOrId(email);
   });
 
-  it("hides the disabled-harness profile without the param", async () => {
+  it("hides the profile of a harness this host does not have, without the param", async () => {
     const res = await app.fetch(authedRequest("/api/profiles", cookie));
     expect(res.status).toBe(200);
     const rows = (await res.json()) as { id: string }[];

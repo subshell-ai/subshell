@@ -15,7 +15,7 @@ const base: HarnessInfo = {
   binary: "pi",
   description: "minimal coding agent from pi.dev",
   installed: true,
-  enabled: true,
+  installedHere: true,
   install: { command: "npm i -g @mariozechner/pi", docsUrl: "https://pi.dev" },
 };
 
@@ -24,10 +24,10 @@ const noop = () => {};
 describe("HarnessRow", () => {
   afterEach(cleanup);
 
-  it("renders name, status text and the labeled switch for an installed harness", () => {
+  it("renders name, status text and the labeled switch for a plugin that is ready", () => {
     render(<HarnessRow harness={base} pending={false} onToggle={noop} onRecheck={noop} />);
-    expect(screen.getByText("enabled", { exact: true })).toBeDefined();
-    expect(screen.getByRole("switch", { name: "pi enabled" })).toBeDefined();
+    expect(screen.getByText("ready", { exact: true })).toBeDefined();
+    expect(screen.getByRole("switch", { name: "pi added to this host" })).toBeDefined();
   });
 
   // The setup wizard's e2e locates this row by role=group/name and filters on
@@ -39,7 +39,7 @@ describe("HarnessRow", () => {
     expect(screen.getByText("minimal coding agent from pi.dev")).toBeDefined();
   });
 
-  it("a not-installed harness offers Enable + install help instead of a switch", () => {
+  it("a harness whose program is missing still offers the switch, plus install help", () => {
     const calls: [string, boolean][] = [];
     render(
       <HarnessRow
@@ -49,14 +49,18 @@ describe("HarnessRow", () => {
         onRecheck={noop}
       />,
     );
-    expect(screen.getByText("not installed", { exact: true })).toBeDefined();
-    expect(screen.queryByRole("switch")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Enable" }));
-    expect(calls).toEqual([["pi", true]]);
+    // The switch is present even though the program is missing: adding the
+    // plugin and having its CLI are independent facts now, so the row lets
+    // you add it and then tells you to install the program.
+    expect(screen.getByText("program not found", { exact: true })).toBeDefined();
+    const toggle = screen.getByRole("switch", { name: "pi added to this host" });
+    fireEvent.click(toggle);
+    // Already added in the fixture, so clicking removes it.
+    expect(calls).toEqual([["pi", false]]);
   });
 
-  it("a disabled installed harness explains the consequence", () => {
-    render(<HarnessRow harness={{ ...base, enabled: false }} pending={false} onToggle={noop} onRecheck={noop} />);
+  it("a plugin this host has not added explains the consequence", () => {
+    render(<HarnessRow harness={{ ...base, installedHere: false }} pending={false} onToggle={noop} onRecheck={noop} />);
     expect(screen.getByText(/Its profiles are hidden/)).toBeDefined();
   });
 
@@ -113,7 +117,7 @@ describe("HarnessRow", () => {
   });
 
   it("says nothing about checking when the node reported no stamp", () => {
-    // Absence is an older agent having nothing to say, not "checked never".
+    // Absence is no probe having produced a stamp, not "checked never".
     render(<HarnessRow harness={base} pending={false} onToggle={noop} onRecheck={noop} />);
     expect(screen.queryByText(/^checked /)).toBeNull();
   });

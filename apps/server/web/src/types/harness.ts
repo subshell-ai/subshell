@@ -20,10 +20,10 @@ export interface HarnessInfo {
   version?: string;
   /** Why the binary was not found, when it was not */
   reason?: "not-on-path" | "override-invalid" | "no-binary";
-  /** ISO 8601 stamp of when detection last ran; absent from a node running an older agent */
+  /** ISO 8601 stamp of when detection last ran; absent when no probe has produced one */
   checkedAt?: string;
-  /** True when enabled for use */
-  enabled: boolean;
+  /** True when THIS HOST has the plugin installed (not the program it drives) */
+  installedHere: boolean;
   /** Official install instructions, shown when detection fails */
   install: { command: string; docsUrl: string };
 }

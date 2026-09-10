@@ -31,6 +31,51 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Where this module reports what it did.
+ *
+ * A SINK rather than a direct `console` call, because both hosts route their
+ * own output: the agent through LogLayer with an `[subshell <ISO>]` prefix and
+ * a flattened error, the server through LogLayer too. Writing to `console`
+ * from here put an unmanaged writer inside both, unstructured and outside the
+ * `withError` chain the surrounding boot code logs with.
+ *
+ * The default is `console` so a bare consumer of this package still says
+ * something rather than swallowing failures.
+ */
+export interface PluginLog {
+  info(message: string): void;
+  warn(message: string, err?: unknown): void;
+}
+
+const CONSOLE_LOG: PluginLog = {
+  info: (m) => console.info(`subshell: ${m}`),
+  warn: (m, err) => console.warn(err === undefined ? `subshell: ${m}` : `subshell: ${m}: ${describe(err)}`),
+};
+
+let sink: PluginLog = CONSOLE_LOG;
+
+/**
+ * Routes this module's output through the host's logger.
+ *
+ * Called once at boot by each host. Module-level rather than a parameter on
+ * every function because the alternative is threading a logger through five
+ * signatures and their callers for one setting that never varies per call.
+ */
+export function setPluginLog(log: PluginLog): void {
+  sink = log;
+}
+
+/** @internal Restores the default sink; tests only. */
+export function resetPluginLogForTests(): void {
+  sink = CONSOLE_LOG;
+}
+
+/** The sink this module writes to. */
+export function pluginLog(): PluginLog {
+  return sink;
+}
+
 /** Directory name inside the agent data dir. */
 const DIR = "plugins";
 
@@ -265,13 +310,13 @@ export async function recoverInterruptedInstalls(dataDir: string): Promise<Recov
       if (id && !existsSync(join(root, id))) {
         await rename(path, join(root, id));
         recovered.push(id);
-        console.warn(`subshell: restored plugin "${id}" from an install that was interrupted mid-swap`);
+        sink.info(`restored plugin "${id}" from an install that was interrupted mid-swap`);
         continue;
       }
       await rm(path, { recursive: true, force: true });
       removed += 1;
     } catch (err) {
-      console.warn(`subshell: could not clean up the leftover plugin directory "${name}": ${describe(err)}`);
+      sink.warn(`could not clean up the leftover plugin directory "${name}"`, err);
     }
   }
   return { recovered: recovered.sort(), removed };
@@ -318,9 +363,7 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
     } catch (err) {
       // A refresh that fails leaves the previous copy in place, which is the
       // safe direction: the node keeps offering what it last had.
-      console.warn(
-        `subshell: could not refresh built-in plugin "${installed.id}", keeping the installed copy: ${describe(err)}`,
-      );
+      sink.warn(`could not refresh built-in plugin "${installed.id}", keeping the installed copy`, err);
     }
   }
   return refreshed.sort();

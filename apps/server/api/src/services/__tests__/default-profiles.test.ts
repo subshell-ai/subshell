@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { allHarnesses } from "@internal/pane-runtime";
+import { allHarnesses, listInstalled } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { ensureSystemUser } from "@/auth/system-user.js";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import {
@@ -12,7 +12,8 @@ import {
   ensureDefaultProfilesForHarness,
   ensureDefaultProfilesForUser,
 } from "@/services/default-profiles.js";
-import { setupAuthTables } from "../../api/__tests__/helpers/auth-tables.js";
+import { installLocalPlugin, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
+import { seedLocalPluginsForTests, setupAuthTables } from "../../api/__tests__/helpers/auth-tables.js";
 
 /**
  * Auto-defaulted profiles. The invariant: every (user, ENABLED harness) pair
@@ -30,12 +31,17 @@ const profiles = new ProfilesRepository(db);
 const [firstHarness] = allHarnesses();
 if (!firstHarness) throw new Error("harness registry must not be empty");
 
-/** The harness ids currently enabled — the exact set a seed should cover. */
+/**
+ * The harness ids this host OFFERS — the exact set a seed should cover.
+ *
+ * Was the enable table until phase 2b; it is the plugins installed here now,
+ * intersected with the registry (a default profile needs plugin code this
+ * build has).
+ */
 async function enabledIds(): Promise<string[]> {
-  const ids = allHarnesses().map((h) => h.id);
-  const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
+  const installed = new Set((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id));
   return allHarnesses()
-    .filter((h) => states.get(h.id) ?? h.enabledByDefault)
+    .filter((h) => installed.has(h.id))
     .map((h) => h.id);
 }
 
@@ -55,6 +61,9 @@ async function harnessesWithProfile(userId: string): Promise<Set<string>> {
 
 beforeAll(async () => {
   await setupAuthTables();
+  // This host offers what it has installed, so a suite about seeding profiles
+  // for the offered set has to give it something to offer.
+  await seedLocalPluginsForTests();
 });
 
 describe("ensureDefaultProfilesForUser", () => {
@@ -114,38 +123,38 @@ describe("ensureDefaultProfilesForUser", () => {
     expect(await harnessesWithProfile(userId)).toEqual(expected);
   });
 
-  it("does not seed a disabled harness", async () => {
+  it("does not seed a harness this host does not have installed", async () => {
     const userId = await freshUser();
     const target = firstHarness;
-    // Restore what was there (another suite may legitimately leave a harness
-    // disabled); forcing `true` here silently re-enables across the process.
+    // Restore what was there: these suites share one data dir, so leaving a
+    // plugin uninstalled would change what every later case sees.
     const prior = await effectiveEnabled(target.id);
-    await new HarnessPluginsRepository(db).setEnabled(target.id, false);
+    await uninstallLocalPlugin(target.id);
     try {
       await ensureDefaultProfilesForUser(db, userId);
       expect(await harnessesWithProfile(userId)).not.toContain(target.id);
     } finally {
-      await new HarnessPluginsRepository(db).setEnabled(target.id, prior);
+      if (prior) await installLocalPlugin(target.id);
     }
   });
 });
 
 describe("ensureDefaultProfilesForHarness (enable seam)", () => {
-  it("seeds the targeted harness for a user who had none, ignoring the enabled filter", async () => {
+  it("seeds the targeted harness for a user who had none, ignoring the offered filter", async () => {
     const userId = await freshUser();
     const target = firstHarness;
-    // A disabled target on purpose: the enable route flips the flag BEFORE
-    // calling this, and the function must seed the target unconditionally
-    // regardless of what the sweep filter would have said.
+    // An uninstalled target on purpose: the caller decides, and this function
+    // must seed what it was asked for regardless of what the sweep filter
+    // would have said.
     const prior = await effectiveEnabled(target.id);
-    await new HarnessPluginsRepository(db).setEnabled(target.id, false);
+    await uninstallLocalPlugin(target.id);
     try {
       await ensureDefaultProfilesForHarness(db, target.id);
       const rows = (await profiles.listByUser(userId)).filter((p) => p.harnessId === target.id);
       expect(rows.length).toBe(1);
       expect(rows[0]?.name).toBe(DEFAULT_PROFILE_NAME);
     } finally {
-      await new HarnessPluginsRepository(db).setEnabled(target.id, prior);
+      if (prior) await installLocalPlugin(target.id);
       await db.deleteFrom("profiles").where("userId", "=", userId).where("harnessId", "=", target.id).execute();
     }
   });
@@ -189,8 +198,7 @@ describe("system user exclusion", () => {
   });
 });
 
-/** The effective enabled state (row override, else the plugin's own default). */
+/** Whether this host currently has the plugin installed. */
 async function effectiveEnabled(harnessId: string): Promise<boolean> {
-  const states = await new HarnessPluginsRepository(db).getEnabledStates([harnessId]);
-  return states.get(harnessId) ?? allHarnesses().find((h) => h.id === harnessId)?.enabledByDefault ?? true;
+  return (await listInstalled(SUBSHELL_SERVER_DATA_DIR)).some((p) => p.id === harnessId);
 }

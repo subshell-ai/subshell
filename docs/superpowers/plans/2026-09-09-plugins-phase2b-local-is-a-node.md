@@ -77,7 +77,7 @@ Pure move. No behaviour change, so the existing tests must pass unmodified apart
 
 **Interfaces produced:** `pluginsDir`, `listInstalled`, `installEmbedded`, `uninstallPlugin`, `refreshStaleBuiltIns`, `recoverInterruptedInstalls`, `seedBuiltIns`, `buildPluginReports`, `InstalledPlugin`, `RecoveredInstalls` — all from `@internal/pane-runtime`, all with today's signatures.
 
-- [ ] **Step 1: Move the files with `git mv`** so history follows them.
+- [x] **Step 1: Move the files with `git mv`** so history follows them.
 
 ```bash
 cd /home/theo/projects/subshell
@@ -90,7 +90,7 @@ git mv apps/node/agent/src/__tests__/plugins-seed.test.ts packages/pane-runtime/
 
 `plugin-commands.test.ts` stays with the agent: it tests `execPluginInstall`, which is a command handler, not a directory operation.
 
-- [ ] **Step 2: Replace the agent logger with the package convention.**
+- [x] **Step 2: Replace the agent logger with the package convention.**
 
 In `plugins-dir.ts` and `plugins-seed.ts`, drop `import { logger } from "./log.js"` and replace each call:
 
@@ -101,14 +101,14 @@ console.warn(`subshell: could not refresh built-in plugin "${id}", keeping the i
 
 Match `registry.ts`'s existing wording shape (`subshell: ` prefix, the reason last). Add a local `describe(err)` helper, or import the one already in `plugin-runtime.ts` if it is exported.
 
-- [ ] **Step 3: Export from the package index and repoint the agent.**
+- [x] **Step 3: Export from the package index and repoint the agent.**
 
-- [ ] **Step 4: Verify the move changed nothing.**
+- [x] **Step 4: Verify the move changed nothing.**
 
 Run: `cd packages/pane-runtime && bun test && cd ../../apps/node/agent && bun test`
 Expected: every test that passed before passes now. If a test needed editing beyond its import path, the move was not pure. Stop and find out why.
 
-- [ ] **Step 5: `bunx turbo run verify-types --force` and commit.**
+- [x] **Step 5: `bunx turbo run verify-types --force` and commit.**
 
 ---
 
@@ -134,7 +134,7 @@ export async function localPluginReports(): Promise<PluginReportWire[]>;
 
 `localPluginsDir()` is `join(SUBSHELL_SERVER_DATA_DIR, "plugins")`, which under `IS_TEST` already hangs off the per-process temp data dir, so suites get their own.
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
 
 ```typescript
 it("seeds the built-ins on first run and reports them in an agent's shape", async () => {
@@ -156,10 +156,10 @@ it("does not re-seed a directory a user emptied", async () => {
 
 The second is the load-bearing one: "offers nothing" has to be reachable on this host too.
 
-- [ ] **Step 2: Run it and watch it fail** with "cannot find module".
-- [ ] **Step 3: Implement**, delegating to the moved functions in the boot order the agent uses: `recoverInterruptedInstalls`, then `seedBuiltIns`, then `refreshStaleBuiltIns`.
-- [ ] **Step 4: Call `prepareLocalPlugins()` at boot**, after migrations and before the listener, best-effort with a logged failure. A host that cannot seed still serves.
-- [ ] **Step 5: Run the tests, then commit.**
+- [x] **Step 2: Run it and watch it fail** with "cannot find module".
+- [x] **Step 3: Implement**, delegating to the moved functions in the boot order the agent uses: `recoverInterruptedInstalls`, then `seedBuiltIns`, then `refreshStaleBuiltIns`.
+- [x] **Step 4: Call `prepareLocalPlugins()` at boot**, after migrations and before the listener, best-effort with a logged failure. A host that cannot seed still serves.
+- [x] **Step 5: Run the tests, then commit.**
 
 ---
 
@@ -171,10 +171,10 @@ The server already stores an agent's report in `nodes.plugins_json`. `local` use
 - Modify: `apps/server/api/src/services/nodes/local-plugins.ts`, `services/nodes/seed-local.ts`
 - Test: `services/nodes/__tests__/local-plugins.test.ts`
 
-- [ ] **Step 1: Write the failing test** asserting that after `prepareLocalPlugins()`, `NodesRepository.findById(LOCAL_NODE_ID)` has a `pluginsJson` naming the five built-ins.
-- [ ] **Step 2: Run it, watch it fail.**
-- [ ] **Step 3: Implement** — `prepareLocalPlugins` ends with `recordPluginReport(LOCAL_NODE_ID, await localPluginReports())`, after `ensureLocalNode(db)` so the row exists.
-- [ ] **Step 4: Run and commit.**
+- [x] **Step 1: Write the failing test** asserting that after `prepareLocalPlugins()`, `NodesRepository.findById(LOCAL_NODE_ID)` has a `pluginsJson` naming the five built-ins.
+- [x] **Step 2: Run it, watch it fail.**
+- [x] **Step 3: Implement** — `prepareLocalPlugins` ends with `recordPluginReport(LOCAL_NODE_ID, await localPluginReports())`, after `ensureLocalNode(db)` so the row exists.
+- [x] **Step 4: Run and commit.**
 
 ---
 
@@ -201,7 +201,7 @@ export async function installNodePlugin(node: NodeTable, pluginId: string): Prom
 }
 ```
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 ```typescript
 it("installs on the control-plane host through the same route as any node", async () => {
@@ -215,9 +215,9 @@ it("still refuses a non-admin on the control-plane host", () => { /* 403, unchan
 
 Note the gate does NOT change: `local`'s `canManage` already resolves to admin.
 
-- [ ] **Step 2: Run, watch the first fail with 400.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run both, then commit.**
+- [x] **Step 2: Run, watch the first fail with 400.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run both, then commit.**
 
 ---
 
@@ -229,7 +229,7 @@ Note the gate does NOT change: `local`'s `canManage` already resolves to admin.
 
 Both kinds become (declared set × probe). The differences that remain are real and stay: `local`'s probe is live and `stale` is always false; an agent's is the cached inventory with a TTL.
 
-- [ ] **Step 1: Write the failing test** — the §16 requirement, finally expressible:
+- [x] **Step 1: Write the failing test** — the §16 requirement, finally expressible:
 
 ```typescript
 it("local and agent rows have the same shape, because one function builds both", async () => {
@@ -246,9 +246,9 @@ it("a plugin uninstalled from the control-plane host stops being offered there",
 });
 ```
 
-- [ ] **Step 2: Run, watch them fail.**
-- [ ] **Step 3: Implement** the single path, reading `readNodePlugins(node)` for both and choosing the probe by kind.
-- [ ] **Step 4: Run and commit.**
+- [x] **Step 2: Run, watch them fail.**
+- [x] **Step 3: Implement** the single path, reading `readNodePlugins(node)` for both and choosing the probe by kind.
+- [x] **Step 4: Run and commit.**
 
 ---
 
@@ -260,7 +260,7 @@ Only now, when nothing reads it for a real answer.
 - Delete: `db/repositories/harness-plugins.repository.ts` and its `db/types/index.ts` entry
 - Modify: `services/nodes/inventory.ts` (`EffectiveHarnessState.enabled`), `api/nodes/node-view.ts` (wire field), `api/harness-utils.ts` (`harnessUsable`, `usableHarnessIds`, delete `toggleLocalHarness`), `services/default-profiles.ts`, `packages/pane-runtime/src/{types.ts,plugin-adapter.ts}` (`enabledByDefault`), `apps/server/web/src/{types/node.ts,components/nodes/node-row.tsx,hooks/use-harnesses.ts}`
 
-- [ ] **Step 1: Write the failing test** pinning that the launch gate now answers from the declared set:
+- [x] **Step 1: Write the failing test** pinning that the launch gate now answers from the declared set:
 
 ```typescript
 it("refuses a launch for a plugin the host does not have installed", async () => {
@@ -274,10 +274,10 @@ it("permits one that is installed with its binary present", async () => {
 });
 ```
 
-- [ ] **Step 2: Run, watch the first fail** (today it answers from `harness_plugins`, which still says enabled).
-- [ ] **Step 3: Delete `enabledByDefault` and every `states.get(id) ?? …` site**, replacing each with a declared-set read. `node-row.tsx`'s `.filter((h) => h.installed && h.enabled)` becomes `.filter((h) => h.installed)`.
-- [ ] **Step 4: `bunx turbo run verify-types --force`** — this is the step that finds the sites a grep missed.
-- [ ] **Step 5: Run the full suite, then commit.**
+- [x] **Step 2: Run, watch the first fail** (today it answers from `harness_plugins`, which still says enabled).
+- [x] **Step 3: Delete `enabledByDefault` and every `states.get(id) ?? …` site**, replacing each with a declared-set read. `node-row.tsx`'s `.filter((h) => h.installed && h.enabled)` becomes `.filter((h) => h.installed)`.
+- [x] **Step 4: `bunx turbo run verify-types --force`** — this is the step that finds the sites a grep missed.
+- [x] **Step 5: Run the full suite, then commit.**
 
 ---
 
@@ -319,7 +319,7 @@ in the spec's §13 as well as here.
 - Delete: `useSetHarnessEnabled`, `harnessToggleErrorMessage`
 - Test: `api/__tests__/setup-route.test.ts`
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 ```typescript
 it("PATCH /api/setup/harnesses/:id is gone", async () => {
@@ -348,10 +348,10 @@ it("installs only what this build carries, never an arbitrary name", async () =>
 The last one is the load-bearing test of this task: it fails closed on anything
 not embedded, so phase 3 has to make a deliberate change to open it.
 
-- [ ] **Step 2: Run, watch them fail.**
-- [ ] **Step 3: Implement**, rejecting any id not in `builtInIds()` with a 400 naming it.
-- [ ] **Step 4: Repoint the SPA's step 2** at the two new endpoints, reusing `NodeHarnessCard`.
-- [ ] **Step 5: Run and commit.**
+- [x] **Step 2: Run, watch them fail.**
+- [x] **Step 3: Implement**, rejecting any id not in `builtInIds()` with a 400 naming it.
+- [x] **Step 4: Repoint the SPA's step 2** at the two new endpoints, reusing `NodeHarnessCard`.
+- [x] **Step 5: Run and commit.**
 
 ---
 
@@ -362,10 +362,10 @@ not embedded, so phase 3 has to make a deliberate change to open it.
 - Modify: `apps/server/api/src/db/migrate.ts` (the static provider map, file name = key)
 - Test: `db/migrations/__tests__/0025-drop-harness-plugins.test.ts`
 
-- [ ] **Step 1: Write the failing test** — after `up`, `harness_plugins` is absent; `down` recreates it with its original columns.
-- [ ] **Step 2: Run, watch it fail.**
-- [ ] **Step 3: Write the migration and register it.** The table is dropped WITHOUT being read: see Global Constraints.
-- [ ] **Step 4: `bun run db:migrate:latest` against a scratch DB, then the tests. Commit.**
+- [x] **Step 1: Write the failing test** — after `up`, `harness_plugins` is absent; `down` recreates it with its original columns.
+- [x] **Step 2: Run, watch it fail.**
+- [x] **Step 3: Write the migration and register it.** The table is dropped WITHOUT being read: see Global Constraints.
+- [x] **Step 4: `bun run db:migrate:latest` against a scratch DB, then the tests. Commit.**
 
 ---
 
@@ -375,17 +375,17 @@ Six places document a fleet of older agents that gate 2 makes impossible and tha
 
 **Files:** `apps/server/web/src/types/{harness.ts,node.ts}`, `apps/server/web/src/lib/__tests__/checked-at.test.ts`, `apps/server/api/src/services/nodes/inventory.ts:38,40`, `packages/pane-runtime/src/inventory.ts:20`
 
-- [ ] **Step 1:** Replace each "absent from older agents" with what is actually true: the field is optional because a PROBE may not have produced it (a plugin that declares no binary reports no version), not because a peer might be old. `checked-at.test.ts`'s comment becomes "a probe that never ran reports nothing here; that is unknown, not never".
-- [ ] **Step 2:** `bun run lint:check` and commit.
+- [x] **Step 1:** Replace each "absent from older agents" with what is actually true: the field is optional because a PROBE may not have produced it (a plugin that declares no binary reports no version), not because a peer might be old. `checked-at.test.ts`'s comment becomes "a probe that never ran reports nothing here; that is unknown, not never".
+- [x] **Step 2:** `bun run lint:check` and commit.
 
 ---
 
 ### Task 10: End to end, and the docs
 
 - [ ] **Step 1:** Extend `e2e/` nodes spec: install and uninstall a plugin on the control-plane host through the UI, and assert the launch picker gains and loses it.
-- [ ] **Step 2:** Update `docs/architecture.md` (the Registry paragraph still describes per-node harness enablement) and `apps/server/api/AGENTS.md` (the `harness_plugins` references).
+- [x] **Step 2:** Update `docs/architecture.md` (the Registry paragraph still describes per-node harness enablement) and `apps/server/api/AGENTS.md` (the `harness_plugins` references).
 - [ ] **Step 3:** `bunx turbo run verify-types --force`, `bun run lint:check`, `bun run test`, `bun run test:e2e`.
-- [ ] **Step 4:** Code review, then commit.
+- [x] **Step 4:** Code review, then commit.
 
 ## Self-Review
 

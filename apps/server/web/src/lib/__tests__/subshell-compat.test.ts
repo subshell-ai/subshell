@@ -22,19 +22,24 @@ function node(overrides: Partial<Node>): Node {
     ...overrides,
   };
 }
-const CLAUDE_ON = { harnessId: "claude-code", enabled: true, installed: true };
-const CLAUDE_OFF = { harnessId: "claude-code", enabled: false, installed: true };
+const CLAUDE_ON = { harnessId: "claude-code", installed: true };
+// A plugin the node declared whose PROGRAM was not found. There is no third
+// state any more: "disabled" went with the enable flag (spec 2026-09-09 §12).
+const CLAUDE_NO_BINARY = { harnessId: "claude-code", installed: false };
 const PROF = { id: "p1", name: "Default", harnessId: "claude-code", nodeId: null };
 
 describe("harnessFitsNode", () => {
-  it("fits when the entry is enabled and installed", () => {
+  it("fits when the node declared the plugin and its program was found", () => {
     expect(harnessFitsNode(node({ harnesses: [CLAUDE_ON] }), "claude-code")).toBeNull();
   });
-  it("an absent entry is 'not-installed' — the lazy default never grants a launch", () => {
+  it("an absent entry is 'not-installed'", () => {
     expect(harnessFitsNode(node({ harnesses: [] }), "claude-code")).toBe("not-installed");
   });
-  it("an installed-but-disabled entry is 'disabled'", () => {
-    expect(harnessFitsNode(node({ harnesses: [CLAUDE_OFF] }), "claude-code")).toBe("disabled");
+  it("a declared plugin whose program is missing is also 'not-installed'", () => {
+    // Two different facts collapse to one verdict here on purpose: from a
+    // launcher's point of view, "no plugin" and "plugin but no program" are
+    // both "you cannot start this here". The node page keeps them apart.
+    expect(harnessFitsNode(node({ harnesses: [CLAUDE_NO_BINARY] }), "claude-code")).toBe("not-installed");
   });
   it("an offline agent is 'offline' regardless of the entry", () => {
     const n = node({ status: "offline", harnesses: [CLAUDE_ON] });
@@ -58,12 +63,12 @@ describe("buildProfileOptions", () => {
     expect(opt && "reason" in opt).toBe(false);
   });
   it("greys an incompatible profile with the node-appropriate reason", () => {
-    const n = node({ id: "mac", name: "mac", harnesses: [CLAUDE_OFF] });
+    const n = node({ id: "mac", name: "mac", harnesses: [CLAUDE_NO_BINARY] });
     expect(buildProfileOptions([PROF], n)[0]).toEqual({
       value: "p1",
       label: "Default (claude-code)",
       disabled: true,
-      reason: "disabled on this node",
+      reason: "not installed on this node",
     });
   });
   it("a stale inventory makes 'not installed' honest as last-known", () => {
@@ -108,10 +113,11 @@ describe("buildNodeOptions", () => {
     const stale = node({ id: "a9", name: "ghost", harnesses: [], inventoryStale: true });
     expect(buildNodeOptions([stale], PROF, null)[0]?.reason).toBe("no claude-code here (inventory may be outdated)");
   });
-  it("a stale inventory does NOT hedge the 'disabled' reason (entry state is confirmed)", () => {
-    const stale = node({ id: "a9", name: "ghost", harnesses: [CLAUDE_OFF], inventoryStale: true });
-    expect(buildNodeOptions([stale], PROF, null)[0]?.reason).toBe("no claude-code here");
-  });
+  // The case that used to sit here asserted that a stale inventory does NOT
+  // hedge a "disabled" verdict, because enablement was server-side config
+  // rather than something the inventory reported. There is no enable flag any
+  // more, so every not-usable verdict now rests on the inventory and every one
+  // of them hedges. The row above is that assertion.
   it("an offline agent stays disabled with the offline label and no reason text", () => {
     const opts = buildNodeOptions(
       [node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] })],

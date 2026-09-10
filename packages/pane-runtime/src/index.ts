@@ -24,13 +24,16 @@ export {
   type InstalledPlugin,
   installEmbedded,
   listInstalled,
+  type PluginLog,
   pluginsDir,
   type RecoveredInstalls,
   recoverInterruptedInstalls,
   refreshStaleBuiltIns,
+  resetPluginLogForTests,
+  setPluginLog,
   uninstallPlugin,
 } from "./plugins-dir.js";
-export { seedBuiltIns } from "./plugins-seed.js";
+export { prepareInstalledPlugins, seedBuiltIns } from "./plugins-seed.js";
 export {
   allHarnesses,
   type BrokenBuiltIn,

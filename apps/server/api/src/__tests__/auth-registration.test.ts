@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { seedLocalPluginsForTests } from "@/api/__tests__/helpers/auth-tables.js";
 import { AUTH_OPTIONS, getAuth, promoteFirstUserAtomically, setAuthPolicyDb } from "@/auth.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
@@ -82,6 +83,10 @@ beforeAll(async () => {
   await runMigrations();
   await runAuthMigrations();
   setAuthPolicyDb(db);
+  // The seeding hook gives a new user one Default per harness this host
+  // OFFERS, which since phase 2b is the plugins installed on it. A host with
+  // none offers none, so without this the hook correctly seeds nothing.
+  await seedLocalPluginsForTests();
 });
 
 afterAll(async () => {

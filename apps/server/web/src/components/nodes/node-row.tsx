@@ -17,7 +17,7 @@ export function osLabel(os: string | null): string {
 
 /**
  * One row of the Nodes list: name + hostname line, the OS/arch chip, the
- * status badge, installed-and-enabled harness chips, the access badge, and
+ * status badge, chips for the harnesses whose program was detected, the access badge, and
  * the overflow menu. Delete/Share are gated on `node.canManage` — the
  * SERVER's answer (real owner, or admin on `local`) so admins keep the
  * surfaces the routes actually let them use; shown DISABLED rather than
@@ -63,7 +63,7 @@ export function NodeRow({
       <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
       {node.inventoryStale && <Badge variant="warning">inventory stale</Badge>}
       {node.harnesses
-        .filter((h) => h.installed && h.enabled)
+        .filter((h) => h.installed)
         .map((h) => (
           <Badge key={h.harnessId} variant="outline" className="border-emerald-500/50 text-emerald-400">
             {h.harnessId}

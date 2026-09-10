@@ -174,7 +174,10 @@ export const HarnessInfoSchema = t.Object({
     }),
   ),
   checkedAt: t.Optional(t.String({ description: "ISO 8601 stamp of when detection last ran for this harness" })),
-  enabled: t.Boolean({ description: "Whether the plugin is enabled" }),
+  installedHere: t.Boolean({
+    description:
+      "Whether the control-plane host has this plugin INSTALLED. Distinct from `installed`, which is about the program the plugin drives",
+  }),
   install: t.Object({
     command: t.String({ description: "Official install command" }),
     docsUrl: t.String({ description: "Installation documentation URL" }),

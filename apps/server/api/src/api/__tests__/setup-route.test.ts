@@ -39,6 +39,8 @@ describe("/api/setup/harnesses conditional auth", () => {
   const password = "setup-pass-1234";
   let userId: string;
   let cookie: string;
+  let adminCookie: string;
+  const adminEmail = `setup-admin-${crypto.randomUUID()}@subshell.local`;
   let subshellKey = "";
   let subshellId = "";
   let apiKeyId: string | undefined;
@@ -51,18 +53,23 @@ describe("/api/setup/harnesses conditional auth", () => {
     return new Request(`http://localhost:3080${path}`, { ...init, headers });
   }
 
-  function patchBody(enabled: boolean): RequestInit {
-    return { method: "PATCH", body: JSON.stringify({ enabled }) };
+  /**
+   * The write on this route since phase 2b: installing a plugin on this host,
+   * where it used to be flipping an enable flag. Same gate, different verb —
+   * see `requireHarnessAccess`, which is public while no user exists.
+   */
+  function installBody(): RequestInit {
+    return { method: "POST", body: JSON.stringify({ pluginId: HARNESS_ID }) };
   }
 
   async function anonymousGet(path: string): Promise<Response> {
     return await app.fetch(new Request(`http://localhost:3080${path}`));
   }
 
-  async function anonymousPatch(): Promise<Response> {
+  async function anonymousWrite(): Promise<Response> {
     return await app.fetch(
-      new Request(`http://localhost:3080/api/setup/harnesses/${HARNESS_ID}`, {
-        ...patchBody(false),
+      new Request(`http://localhost:3080/api/setup/plugins`, {
+        ...installBody(),
         headers: { "content-type": "application/json" },
       }),
     );
@@ -82,9 +89,26 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect(Array.isArray(await res.json())).toBe(true);
     });
 
-    it("anonymous PATCH /harnesses/:id is public", async () => {
-      const res = await anonymousPatch();
+    it("anonymous POST /plugins is public while no user exists", async () => {
+      const res = await anonymousWrite();
       expect(res.status).toBe(200);
+    });
+
+    it("anonymous POST /plugins refuses an id this build does not carry", async () => {
+      // The guard that matters, and it fails CLOSED. This route is reachable
+      // with no credential at all during first-run, which is fine for bytes
+      // already in the binary. The moment phase 3 puts an npm fetch behind
+      // the same command, an open id here would be an unauthenticated caller
+      // making this host download and execute a package of their choosing.
+      const res = await app.fetch(
+        new Request(`http://localhost:3080/api/setup/plugins`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pluginId: "some-package-from-npm" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(await res.json())).toContain("some-package-from-npm");
     });
 
     it("every harness reports when detection ran, and why it failed when it did", async () => {
@@ -128,6 +152,14 @@ describe("/api/setup/harnesses conditional auth", () => {
         role: "user",
       });
       cookie = await signIn(email, password);
+      // The writes are admin-only once a user exists, so the suite needs both
+      // roles to tell the refusal from the grant.
+      await new UsersRepository(db).createUser({
+        email: adminEmail,
+        passwordHash: await hashPassword(password),
+        role: "admin",
+      });
+      adminCookie = await signIn(adminEmail, password);
 
       subshellId = crypto.randomUUID();
       await new SubshellsRepository(db).create({
@@ -147,8 +179,8 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect((await anonymousGet("/api/setup/harnesses")).status).toBe(401);
     });
 
-    it("anonymous PATCH /harnesses/:id -> 401", async () => {
-      expect((await anonymousPatch()).status).toBe(401);
+    it("anonymous POST /plugins -> 401", async () => {
+      expect((await anonymousWrite()).status).toBe(401);
     });
 
     it("subshell bearer GET /harnesses -> 200 (any authenticated actor)", async () => {
@@ -156,8 +188,8 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect(res.status).toBe(200);
     });
 
-    it("subshell bearer PATCH /harnesses/:id -> 403 (machine-config write is cookie-only)", async () => {
-      const res = await app.fetch(bearerRequest(`/api/setup/harnesses/${HARNESS_ID}`, subshellKey, patchBody(false)));
+    it("subshell bearer POST /plugins -> 403 (machine-config write is cookie-only)", async () => {
+      const res = await app.fetch(bearerRequest(`/api/setup/plugins`, subshellKey, installBody()));
       expect(res.status).toBe(403);
     });
 
@@ -186,10 +218,18 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect((await app.fetch(authedRequest("/api/setup/harnesses", cookie))).status).toBe(200);
     });
 
-    it("cookie PATCH /harnesses/:id -> 200", async () => {
-      expect(
-        (await app.fetch(authedRequest(`/api/setup/harnesses/${HARNESS_ID}`, cookie, patchBody(false)))).status,
-      ).toBe(200);
+    it("cookie POST /plugins by a non-admin -> 403", async () => {
+      // Phase 2b tightened this. The write used to flip an enable flag and
+      // took any cookie session; it installs and removes plugins on this host
+      // now, which is what `POST /api/nodes/local/plugins` restricts to
+      // admins. Leaving it open would have made this the weaker of two doors
+      // onto one operation: any user could remove claude-code and hide every
+      // user's claude-code profiles instance-wide.
+      expect((await app.fetch(authedRequest(`/api/setup/plugins`, cookie, installBody()))).status).toBe(403);
+    });
+
+    it("cookie POST /plugins by an admin -> 200", async () => {
+      expect((await app.fetch(authedRequest(`/api/setup/plugins`, adminCookie, installBody()))).status).toBe(200);
     });
 
     it("GET /status remains the public carve-out", async () => {
@@ -205,7 +245,6 @@ describe("/api/setup/harnesses conditional auth", () => {
     if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     if (userId) await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
-    await db.deleteFrom("harnessPlugins").where("id", "=", HARNESS_ID).execute();
     await deleteUserByEmailOrId(email);
   });
 });

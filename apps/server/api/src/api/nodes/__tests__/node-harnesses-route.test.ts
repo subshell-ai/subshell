@@ -91,6 +91,7 @@ describe("/api/nodes harness state + recheck", () => {
     bob: `nh-bob-${crypto.randomUUID()}@subshell.local`,
     carol: `nh-carol-${crypto.randomUUID()}@subshell.local`,
     out: `nh-out-${crypto.randomUUID()}@subshell.local`,
+    admin: `nh-admin-${crypto.randomUUID()}@subshell.local`,
   };
   let aliceId: string;
   let bobId: string;
@@ -99,6 +100,7 @@ describe("/api/nodes harness state + recheck", () => {
   let aliceCookie = "";
   let bobCookie = "";
   let carolCookie = "";
+  let adminCookie = "";
   let subshellKey = "";
 
   const createdNodeIds: string[] = [];
@@ -176,6 +178,14 @@ describe("/api/nodes harness state + recheck", () => {
       role: "user",
     });
     outCookie = await signIn(emails.out, pw);
+    // `local`'s manage gate resolves to admin, so reaching its plugin path at
+    // all needs one.
+    await new UsersRepository(db).createUser({
+      email: emails.admin,
+      passwordHash: await hashPassword(pw),
+      role: "admin",
+    });
+    adminCookie = await signIn(emails.admin, pw);
     await ensureLocalNode(db);
 
     // A real subshell bearer key owned by alice — proves cookie-only enforcement.
@@ -248,14 +258,16 @@ describe("/api/nodes harness state + recheck", () => {
     const e0 = harnessOf(view, H0);
     expect(e0.installed).toBe(true);
     expect(e0.version).toBe("9.9.9");
-    // Every row that exists is offered: the node having the plugin IS that.
-    expect(e0.enabled).toBe(true);
+    // There is no `enabled` on the wire any more (spec 2026-09-09 §12): a row
+    // existing IS the node offering that plugin, so a second field saying so
+    // could only ever disagree with it.
+    expect("enabled" in e0).toBe(false);
 
     // Declared, binary absent. Two different facts, deliberately separate: a
     // node can have the plugin and not the program it drives.
     const e1 = harnessOf(view, H1);
     expect(e1.installed).toBe(false);
-    expect(e1.enabled).toBe(true);
+    expect("enabled" in e1).toBe(false);
 
     // Not declared: no row at all, rather than a row saying "off".
     expect(view.harnesses.find((h) => h.harnessId === H2)).toBeUndefined();
@@ -489,14 +501,33 @@ describe("/api/nodes harness state + recheck", () => {
 
   it("the control-plane host is not managed through this route by a non-admin", async () => {
     // `local`'s manage gate is admin-only, so an ordinary owner never reaches
-    // the command path at all. (An admin gets 400 instead: `local` has no
-    // socket to send a command over, and phase 2 leaves its plugin set to the
-    // seeding step rather than pretending this route can reach it.)
+    // the command path at all. What changed in 2b is what an ADMIN gets:
+    // `local` used to be refused outright with a 400, and is now installed to
+    // like any other node (see the case below).
     const res = await req("POST", "/api/nodes/local/plugins", {
       cookie: aliceCookie,
       body: { pluginId: "claude-code" },
     });
     expect(res.status).toBe(403);
+  });
+
+  it("an admin installs on the control-plane host through this same route", async () => {
+    // The whole point of 2b: one route, one meaning. `local` runs in this
+    // process so there is no socket and no offline, but every other property
+    // is shared, including that the row afterwards reflects what is on disk.
+    const res = await req("POST", "/api/nodes/local/plugins", {
+      cookie: adminCookie,
+      body: { pluginId: "codex" },
+    });
+    expect(res.status).toBe(200);
+    const view = (await res.json()) as { harnesses: { harnessId: string }[] };
+    expect(view.harnesses.map((h) => h.harnessId)).toContain("codex");
+
+    const gone = await req("DELETE", "/api/nodes/local/plugins/codex", { cookie: adminCookie });
+    expect(gone.status).toBe(200);
+    expect(
+      ((await gone.json()) as { harnesses: { harnessId: string }[] }).harnesses.map((h) => h.harnessId),
+    ).not.toContain("codex");
   });
 
   it("recheck offline → 409 NODE_OFFLINE", async () => {

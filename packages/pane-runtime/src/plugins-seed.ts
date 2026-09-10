@@ -3,7 +3,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { builtInIds } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
-import { installEmbedded, pluginsDir } from "./plugins-dir.js";
+import {
+  installEmbedded,
+  pluginLog,
+  pluginsDir,
+  recoverInterruptedInstalls,
+  refreshStaleBuiltIns,
+} from "./plugins-dir.js";
 
 /**
  * Giving a node its built-ins, exactly once.
@@ -58,9 +64,7 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
     } catch (err) {
       // One built-in that cannot be installed must not cost the node every
       // other harness it could have offered.
-      console.warn(
-        `subshell: could not seed built-in plugin "${id}", continuing with the rest: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      pluginLog().warn(`could not seed built-in plugin "${id}", continuing with the rest`, err);
     }
   }
   // Last, and only on the way out. Written before the loop it would record a
@@ -69,7 +73,47 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
   // file is not a directory either), so it never shows up as a plugin.
   await writeFile(marker, `${new Date().toISOString()}\n`, { mode: 0o600 });
   if (seeded.length > 0) {
-    console.info(`subshell: seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
+    pluginLog().info(`seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
   }
   return seeded;
+}
+
+/**
+ * Bring a data dir's plugins to a usable state: recover, seed, refresh.
+ *
+ * ONE definition of the boot sequence, called by both the agent daemon and the
+ * control plane. They ran the same three steps in two different orders before,
+ * each with a comment claiming the order mattered, which is exactly the drift
+ * `local` stopped being an exception in order to remove.
+ *
+ * The order is recover, then seed, then refresh:
+ *
+ * 1. **Recover first.** An install interrupted mid-swap left the plugin only
+ *    under `.old-…`; putting it back before anything else means seeding sees a
+ *    populated directory and the refresh can bring the restored copy current.
+ *    Seeding first would find the directory already there, skip, and leave the
+ *    recovery to run against a set nothing will then refresh.
+ * 2. **Seed second**, keyed on the completion marker, so a node that has never
+ *    had a plugins directory gets the built-ins exactly once.
+ * 3. **Refresh last**, so a built-in whose on-disk copy predates this build is
+ *    brought current whether it was seeded, recovered, or already there.
+ *
+ * Every step is independently guarded. One failing must not cost the others:
+ * a node that cannot refresh should still offer what it has, and a node that
+ * cannot seed should still recover.
+ * @param dataDir - the data dir whose `plugins/` to prepare
+ */
+export async function prepareInstalledPlugins(dataDir: string): Promise<void> {
+  const steps: [string, () => Promise<unknown>][] = [
+    ["recover interrupted plugin installs", () => recoverInterruptedInstalls(dataDir)],
+    ["seed built-in plugins", () => seedBuiltIns(dataDir)],
+    ["refresh stale built-in plugins", () => refreshStaleBuiltIns(dataDir)],
+  ];
+  for (const [what, run] of steps) {
+    try {
+      await run();
+    } catch (err) {
+      pluginLog().warn(`could not ${what}`, err);
+    }
+  }
 }

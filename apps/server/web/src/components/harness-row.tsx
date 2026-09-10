@@ -1,5 +1,4 @@
 import { HarnessInstallHelp } from "@/components/harness-install-help";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { checkedAtLabel } from "@/lib/checked-at";
 import type { HarnessInfo } from "@/types/harness";
@@ -12,8 +11,8 @@ export interface HarnessRowProps {
   pending: boolean;
   /** Last toggle failure for THIS harness (from `useHarnessToggles`) */
   error?: string;
-  /** Flip this harness's enabled state */
-  onToggle: (id: string, enabled: boolean) => void;
+  /** Install this plugin on the control-plane host, or remove it */
+  onToggle: (id: string, installed: boolean) => void;
   /** Re-run server-side detection (refetch) */
   onRecheck: () => void;
 }
@@ -47,7 +46,7 @@ export function HarnessRow({ harness, pending, error, onToggle, onRecheck }: Har
         </div>
         <div className="text-right">
           <span className="text-muted-foreground text-xs">
-            {!harness.installed ? "not installed" : harness.enabled ? "enabled" : "disabled"}
+            {!harness.installedHere ? "not added" : harness.installed ? "ready" : "program not found"}
           </span>
           {/* How old the answer is. The local list probes per request and an
               agent's can be ten minutes stale; without this they look alike. */}
@@ -55,29 +54,23 @@ export function HarnessRow({ harness, pending, error, onToggle, onRecheck }: Har
             <p className="text-muted-foreground text-xs">{checkedAtLabel(harness.checkedAt)}</p>
           )}
         </div>
-        {harness.installed ? (
-          <Switch
-            checked={harness.enabled}
-            onCheckedChange={(checked) => onToggle(harness.id, checked)}
-            disabled={pending}
-            aria-label={`${harness.name} enabled`}
-          />
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={pending}
-            onClick={() => onToggle(harness.id, true)}
-          >
-            {pending ? "Checking…" : "Enable"}
-          </Button>
-        )}
+        {/* One control, always available. It used to be a switch when the
+            PROGRAM was present and an "Enable" button when it was not, because
+            enabling re-ran detection and refused without it. Adding the plugin
+            and having its program are independent now: you can add a plugin
+            before installing the CLI it drives, and the row says so below. */}
+        <Switch
+          checked={harness.installedHere}
+          onCheckedChange={(checked) => onToggle(harness.id, checked)}
+          disabled={pending}
+          aria-label={`${harness.name} added to this host`}
+        />
       </div>
       {!harness.installed && <HarnessInstallHelp harness={harness} onRecheck={onRecheck} />}
-      {harness.installed && !harness.enabled && (
+      {!harness.installedHere && (
         <p className="text-muted-foreground text-xs">
-          Disabled. Its profiles are hidden and new subshells can't start. Running subshells keep going.
+          Not added here. Its profiles are hidden and new subshells can't start on this machine. Running subshells keep
+          going.
         </p>
       )}
       {error && <p className="text-destructive text-xs">{error}</p>}

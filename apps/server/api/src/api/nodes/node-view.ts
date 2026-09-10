@@ -12,11 +12,11 @@ import { localPlatform } from "@/services/nodes/seed-local.js";
  * Node registry view schemas + mappers (spec 2026-08-31 §9) — the shared
  * rendering layer behind list/detail so the two never drift.
  *
- * `harnesses` is the Task-10 inventory-backed merge:
- * `services/nodes/inventory.ts → effectiveHarnessStates` resolves enabled
- * state from the per-node/per-instance lazy rows (absent row → plugin
- * default) and installed/version from the local probe (`local`) or the
- * cached agent inventory (`agent`, false until the first inventory lands).
+ * `harnesses` is the merge in `services/nodes/inventory.ts →
+ * effectiveHarnessStates`: one row per plugin the node DECLARED, crossed with
+ * a probe of its binary — live for `local`, the cached inventory for an agent
+ * (false until the first one lands). There is no enable state to resolve; a
+ * plugin being installed is it being offered.
  * Staleness is a PER-NODE flag (`inventoryStale`) — the inventory ages as a
  * unit, so tagging individual entries would only repeat the same boolean
  * across every row; a stale node still reports its last-known `installed`
@@ -37,7 +37,6 @@ export const NodeAccessSchema = t.Union([t.Literal("owner"), t.Literal("edit"), 
 /** One harness row of a node view — plugin identity × per-node state. */
 export const NodeHarnessViewSchema = t.Object({
   harnessId: t.String({ description: "Harness plugin id" }),
-  enabled: t.Boolean({ description: "Explicit node state when set, else the plugin's default" }),
   installed: t.Boolean({
     description: "local: live binary probe; enrolled node: cached inventory (false until the first inventory lands)",
   }),

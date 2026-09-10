@@ -18,7 +18,7 @@ interface NodeRow {
   id: string;
   name: string;
   status: "online" | "offline";
-  harnesses: { harnessId: string; installed: boolean; enabled: boolean }[];
+  harnesses: { harnessId: string; installed: boolean }[];
   inventoryStale: boolean;
 }
 
@@ -247,7 +247,10 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // are separate ones (the plugin is installed, its program was found).
     const listed = await request.get("/api/nodes");
     const seeded = ((await listed.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
-    expect(seeded?.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true, enabled: true });
+    // No `enabled` on the wire since phase 2b: a row existing IS the node
+    // offering that plugin, so `installed` (its program was found) is the only
+    // other fact there is.
+    expect(seeded?.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true });
     expect(seeded?.inventoryStale).toBe(false);
 
     // ── 5. The /nodes page renders the row: name, online badge, pi chip.

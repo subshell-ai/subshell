@@ -44,7 +44,7 @@ export function ProfileFields({
   // registry is in flight (or after it failed) is the first thing a fresh
   // wizard user's profile step used to say.
   const { data: allHarnesses, isLoading: harnessesLoading, isError: harnessesFailed } = useHarnesses();
-  const harnesses = useMemo(() => allHarnesses?.filter((h) => h.enabled), [allHarnesses]);
+  const harnesses = useMemo(() => allHarnesses?.filter((h) => h.installedHere), [allHarnesses]);
   const { data: schema } = useHarnessSchema(value.harnessId);
   // Node pin options (spec 2026-08-31 §6.2): every node VISIBLE to the caller
   // — any share level may host a profile's subshells, so this is the plain

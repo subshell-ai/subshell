@@ -3,7 +3,7 @@ import { checkedAtLabel } from "@/lib/checked-at";
 
 describe("checkedAtLabel", () => {
   it("is silent when there is no stamp", () => {
-    // An older agent reports nothing here; that is unknown, not "never".
+    // A probe that never ran reports nothing here; that is unknown, not "never".
     expect(checkedAtLabel(undefined)).toBeNull();
   });
 

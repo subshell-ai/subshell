@@ -29,6 +29,7 @@ import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
+import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
@@ -111,10 +112,28 @@ async function bootServer(): Promise<void> {
   setAuthPolicyDb(db);
   // Service user that owns admin-managed system keys; idempotent.
   await ensureSystemUser();
+  // Seed/repair the control-plane host's `local` node row + Everyone/edit
+  // share (spec 2026-08-31 §2). Idempotent; needs the system user seeded above.
+  await ensureLocalNode(db);
+  // This host's own plugins directory, prepared exactly like an agent's and
+  // mirrored into the `local` row it just ensured. Best-effort for the same
+  // reason the profile backfill below is: a plugin directory that cannot be
+  // prepared must not be why a serviceable instance refuses to boot.
+  try {
+    await prepareLocalPlugins();
+  } catch (err) {
+    getLogger().withError(err).warn("could not prepare this host's plugins at boot; will retry next start");
+  }
+
   // Upgrade backfill: existing installs get a blank "Default" profile for any
-  // (user, enabled-harness) pair that has none, so no one has to create a
+  // (user, offered-harness) pair that has none, so no one has to create a
   // profile before their first subshell. Idempotent; new users get the same
   // seeding at registration. See services/default-profiles.ts.
+  //
+  // AFTER the plugins above, not before. What this host offers is read from
+  // `local`'s mirrored report since phase 2b, so running it first meant
+  // reading an absent or empty mirror and seeding nothing at all — on exactly
+  // the boot the backfill exists for.
   // Wrapped: this is a convenience sweep over healthy schema+data, and an
   // optional insert failing (SQLITE_BUSY behind a stale lock holder) must
   // never be the reason a serviceable instance refuses to boot — the next
@@ -124,10 +143,6 @@ async function bootServer(): Promise<void> {
   } catch (err) {
     getLogger().withError(err).warn("default-profile backfill failed at boot; will retry next start");
   }
-  // Seed/repair the control-plane host's `local` node row + Everyone/edit
-  // share (spec 2026-08-31 §2). Idempotent; needs the system user seeded above.
-  await ensureLocalNode(db);
-
   await startServer({ port: SERVER_PORT, host: HOST });
 
   // Background housekeeping: expire WS attach tokens, reconcile tmux state.

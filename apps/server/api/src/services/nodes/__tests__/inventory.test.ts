@@ -3,7 +3,6 @@ import { allHarnesses } from "@internal/pane-runtime";
 import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { effectiveHarnessStates, INVENTORY_TTL_MS, readAgentInventory } from "../inventory.js";
@@ -54,6 +53,21 @@ describe("services/nodes/inventory", () => {
       ...(inv ? { inventoryJson: JSON.stringify(inv.json), inventoryAt: inv.at } : {}),
     });
     createdNodeIds.push(id);
+    if (kind === "local") {
+      // `local` declares its plugins the same way an agent does now, so the
+      // fixture has to give it a report or it offers nothing.
+      await nodes.recordPluginReport(
+        id,
+        allHarnesses().map((h) => ({
+          id: h.id,
+          name: h.name,
+          type: "agent-harness",
+          version: "1.0.0",
+          description: "",
+          capabilities: [],
+        })),
+      );
+    }
     if (kind === "agent" && inv) {
       const ids = inv.json
         .map((e) => (e as { harnessId?: string }).harnessId)
@@ -95,9 +109,9 @@ describe("services/nodes/inventory", () => {
       // plugin IS it being offered there. The only false-ish state left is a
       // plugin the node did not declare, which has no row at all.
       const e0 = report.harnesses.find((h) => h.harnessId === H0);
-      expect(e0).toMatchObject({ enabled: true, installed: true, version: "9.9.9" });
+      expect(e0).toMatchObject({ installed: true, version: "9.9.9" });
       const e1 = report.harnesses.find((h) => h.harnessId === H1);
-      expect(e1).toMatchObject({ enabled: true, installed: false });
+      expect(e1).toMatchObject({ installed: false });
       expect(e1?.version).toBeUndefined();
       // Undeclared: absent, not a row saying "off".
       expect(report.harnesses.find((h) => h.harnessId === H2)).toBeUndefined();
@@ -131,7 +145,7 @@ describe("services/nodes/inventory", () => {
   });
 
   describe("effectiveHarnessStates (local)", () => {
-    it("harness_plugins state × live probe, with the version, reason and stamp an agent reports", async () => {
+    it("declared set × live probe, with the version, reason and stamp an agent reports", async () => {
       const node = await mkNode("local");
       // The local branch probes through `scanOne`, so `detect` is what has to
       // be stubbed. It used to stub `isInstalled`, which `scanOne` no longer
@@ -142,7 +156,6 @@ describe("services/nodes/inventory", () => {
         getVersion: h.getVersion.bind(h),
         versionAt: h.versionAt.bind(h),
       }));
-      const prior = (await new HarnessPluginsRepository(db).getEnabledStates([H0])).get(H0);
       const found: Record<string, boolean> = { [H0]: true, [H1]: false };
       for (const s of stubs) {
         s.h.detect = async () =>
@@ -150,20 +163,19 @@ describe("services/nodes/inventory", () => {
         s.h.getVersion = async () => "7.7.7";
         s.h.versionAt = async () => "7.7.7";
       }
-      await new HarnessPluginsRepository(db).setEnabled(H0, false);
       try {
         const report = await effectiveHarnessStates(node);
         expect(report.stale).toBe(false);
 
         const e0 = report.harnesses.find((h) => h.harnessId === H0);
-        // Local now carries a version too. It used not to, which meant the
-        // node page showed one for an agent and nothing for the host.
-        expect(e0).toMatchObject({ enabled: false, installed: true, version: "7.7.7" });
+        // Local carries a version too. It used not to, which meant the node
+        // page showed one for an agent and nothing for the host.
+        expect(e0).toMatchObject({ installed: true, version: "7.7.7" });
         expect(e0?.reason).toBeUndefined();
         expect(typeof e0?.checkedAt).toBe("string");
 
         const e1 = report.harnesses.find((h) => h.harnessId === H1);
-        expect(e1).toMatchObject({ enabled: true, installed: false, reason: "override-invalid" });
+        expect(e1).toMatchObject({ installed: false, reason: "override-invalid" });
         expect(e1?.version).toBeUndefined();
       } finally {
         for (const s of stubs) {
@@ -171,9 +183,33 @@ describe("services/nodes/inventory", () => {
           s.h.getVersion = s.getVersion;
           s.h.versionAt = s.versionAt;
         }
-        if (prior === undefined) await db.deleteFrom("harnessPlugins").where("id", "=", H0).execute();
-        else await new HarnessPluginsRepository(db).setEnabled(H0, prior);
       }
+    });
+
+    it("offers nothing when the host declared nothing, rather than the whole registry", async () => {
+      // The property phase 2b buys: `local` is a node, so an empty plugins
+      // directory means "offers nothing" here exactly as it does on an agent.
+      // The old branch crossed the compiled-in registry with an enable table
+      // and could not express this at all.
+      const node = await mkNode("local");
+      await nodes.recordPluginReport(node.id, []);
+      const fresh = await nodes.findById(node.id);
+
+      const report = await effectiveHarnessStates(fresh as NodeTable);
+      expect(report.harnesses).toEqual([]);
+    });
+
+    it("gives a local row and an agent row the same shape", async () => {
+      // §16's phase 2 requirement, finally expressible: one function builds
+      // both, so the keys cannot drift apart.
+      const local = await mkNode("local");
+      const agent = await mkNode("agent", {
+        json: [{ harnessId: H0, installed: true, version: "9.9.9", checkedAt: new Date().toISOString() }],
+        at: new Date().toISOString(),
+      });
+      const l = (await effectiveHarnessStates(local)).harnesses.find((h) => h.harnessId === H0);
+      const a = (await effectiveHarnessStates(agent)).harnesses.find((h) => h.harnessId === H0);
+      expect(Object.keys(l ?? {}).sort()).toEqual(Object.keys(a ?? {}).sort());
     });
 
     it("gives every local entry one shared stamp", async () => {

@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { recoverInterruptedInstalls, refreshStaleBuiltIns, seedBuiltIns, TmuxRunner } from "@internal/pane-runtime";
+import { prepareInstalledPlugins, setPluginLog, TmuxRunner } from "@internal/pane-runtime";
 import {
   type CommandClaims,
   JtiLru,
@@ -21,7 +21,7 @@ import type { AgentConfig } from "./config.js";
 import { mapOs } from "./enroll.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
-import { log } from "./log.js";
+import { log, logger } from "./log.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -268,27 +268,19 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const nowMs = deps.now ?? ((): number => Date.now());
   const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
 
-  // The node's plugin set is its declaration, and empty means "offers
-  // nothing": a node upgrading from a build that had no plugins directory
-  // would otherwise come online offering no harnesses at all. Runs exactly
-  // once, keyed on the directory's existence, so a user who uninstalled
-  // everything does not have it undone on the next restart. Best-effort: a
-  // node that cannot seed is still a node worth connecting.
-  await seedBuiltIns(config.dataDir).catch((err: unknown) => {
-    log(`could not seed built-in plugins: ${err instanceof Error ? err.message : String(err)}`);
+  // Bring this node's plugins to a usable state: recover an install that was
+  // interrupted mid-swap, seed the built-ins on a node that has never had a
+  // plugins directory, then bring any stale built-in current with this build.
+  //
+  // The sequence is `prepareInstalledPlugins` rather than three calls here,
+  // because the control plane runs the identical one for its own host and the
+  // two used to be spelled in different orders. Every step is guarded inside
+  // it: a node that cannot seed is still a node worth connecting.
+  setPluginLog({
+    info: (m) => log(m),
+    warn: (m, err) => (err === undefined ? logger.warn(m) : logger.withError(err).warn(m)),
   });
-  // Boot is the one moment nothing can be installing, which is what makes it
-  // safe to touch an install's working directories. This runs BEFORE the
-  // refresh so a plugin restored here is one the refresh can then bring
-  // current, rather than one it never sees.
-  await recoverInterruptedInstalls(config.dataDir).catch(() => {
-    // Already logged per directory; clutter is not worth failing a boot over.
-  });
-  // And keep an installed built-in current with this build, which is the
-  // separate concern of the agent having been upgraded underneath it.
-  await refreshStaleBuiltIns(config.dataDir).catch(() => {
-    // Already logged per plugin; a refresh failure keeps the installed copy.
-  });
+  await prepareInstalledPlugins(config.dataDir);
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):

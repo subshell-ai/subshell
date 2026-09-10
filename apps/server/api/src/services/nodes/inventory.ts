@@ -1,17 +1,14 @@
 import { allHarnesses, type DetectionReason, type HarnessInventoryEntry, scanOne } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
-import { db } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 
 /**
  * Node harness-state resolution (spec 2026-08-31 §6.2) — the single merge of
  * the two per-node stores:
  *
- * - **offered** — for an agent, the node's own plugin report
- *   (`nodes.plugins_json`): a plugin it has installed is offered, and there is
- *   no enable flag to consult. For `local` it is still `harness_plugins`, with
- *   the lazy rule that an absent row means the plugin's `enabledByDefault`.
+ * - **offered** — the node's own plugin report (`nodes.plugins_json`), for
+ *   `local` and for an agent alike: a plugin it has installed is offered, and
+ *   there is no enable flag anywhere to consult.
  * - **installed/version** — the cached agent inventory (`nodes.inventory_json`
  *   captured by the `/ws/node` handler) or the live process probe for local.
  *
@@ -29,15 +26,13 @@ export const INVENTORY_TTL_MS = 10 * 60 * 1000;
 export interface EffectiveHarnessState {
   /** Harness plugin id */
   harnessId: string;
-  /** Explicit per-node (agent) / per-instance (local) state when set, else the plugin default */
-  enabled: boolean;
   /** local: live binary probe; agent: cached inventory (false until the first inventory lands) */
   installed: boolean;
   /** Version from the inventory (agent nodes only — the local view skips the `--version` probe) */
   version?: string;
-  /** Why the binary was not found, when it was not. Absent when installed, and absent from older agents. */
+  /** Why the binary was not found, when it was not. Absent when installed, and when no probe has run. */
   reason?: DetectionReason;
-  /** ISO 8601 stamp of when this entry was probed. Absent from older agents. */
+  /** ISO 8601 stamp of when this entry was probed. Absent when no probe has run. */
   checkedAt?: string;
   /**
    * Why the node cannot use this plugin, when it cannot.
@@ -64,11 +59,10 @@ export interface EffectiveHarnessReport {
   /**
    * The rows for this node.
    *
-   * For an AGENT that is one entry per plugin the node DECLARED, which is not
-   * the same set as the registry compiled into this server: a node can offer
-   * a plugin this build never heard of, and a plugin this build ships that
-   * the node did not install has no row. For `local` it is still one per
-   * registered harness.
+   * One entry per plugin the node DECLARED, which is not the same set as the
+   * registry compiled into this server: a node can offer a plugin this build
+   * never heard of, and a plugin this build ships that the node did not
+   * install has no row. `local` is no exception to either half.
    */
   harnesses: EffectiveHarnessState[];
   /**
@@ -158,60 +152,36 @@ export function readNodePlugins(node: NodeTable): NodePluginSet {
 // `api/harness-utils.ts` (gate rule deduped with the batch path there).
 
 /**
- * Effective harness states for every registered plugin on one node — the
- * merge behind `NodeView.harnesses` (spec §6.2). Agent: per-node lazy rows ×
- * the cached inventory; local: `harness_plugins` rows × the live probe.
+ * Effective harness states for one node — the merge behind `NodeView.harnesses`.
  *
- * NOTE (dedup): the local branch reads `harness_plugins` through the
- * repository directly — the same lazy rule `api/harness-utils.ts` applies —
- * rather than importing that module's `harnessEnabledStates`, because
- * harness-utils imports this module for the agent gate and a cross-import
- * would cycle (precedent: `services/default-profiles.ts` reads the store the
- * same way).
+ * ONE path for both kinds, which it was not until phase 2b. Every row is
+ * (the node DECLARED this plugin) × (a probe of its binary), and the only
+ * things that differ by kind are where each half comes from:
+ *
+ * | | declared set | probe | `stale` |
+ * |---|---|---|---|
+ * | `local` | its own report, mirrored into its row at boot and on every change | LIVE, run here | never |
+ * | agent | the report it sent | the inventory it sent | past the TTL |
+ *
+ * `local` used to be the other thing entirely: the registry compiled into
+ * this server crossed with a `harness_plugins` table only it had. That is
+ * what made "this host offers X" mean two different things depending on the
+ * host, and it is why there is no `enabled` here any more. A plugin being
+ * installed IS it being offered, everywhere.
  * @param node - the node row to resolve for
  */
 export async function effectiveHarnessStates(node: NodeTable): Promise<EffectiveHarnessReport> {
-  const ids = allHarnesses().map((h) => h.id);
-
-  if (node.kind === "local") {
-    const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
-    // One clock for the batch, and `scanOne` rather than a bare isInstalled():
-    // the local branch reports the same reason and stamp an agent does, from
-    // the same function, so the two halves of this merge cannot disagree about
-    // what an entry means.
-    const now = new Date();
-    const harnesses = await Promise.all(
-      allHarnesses().map(async (h) => {
-        const entry = await scanOne(h, now);
-        const state: EffectiveHarnessState = {
-          harnessId: h.id,
-          enabled: states.get(h.id) ?? h.enabledByDefault,
-          installed: entry.installed,
-        };
-        if (entry.version) state.version = entry.version;
-        if (entry.reason) state.reason = entry.reason;
-        if (entry.checkedAt) state.checkedAt = entry.checkedAt;
-        return state;
-      }),
-    );
-    return { harnesses, stale: false };
-  }
-
-  // An agent's rows come from what the NODE declared, not from the registry
-  // compiled into this server crossed with a table this server owned. That
-  // table is gone: a plugin being installed on the node IS it being offered
-  // there, so `enabled` is true for every row that exists.
-  const inv = readAgentInventory(node);
   const declared = readNodePlugins(node);
+  const probe = node.kind === "local" ? await probeLocally(declared) : readAgentInventory(node);
+
   const harnesses = [...declared.entries.values()].map((report) => {
     // Two different facts, deliberately kept apart: the node has the PLUGIN
     // installed (it is in this list at all), and the plugin's BINARY was
-    // detected there (the harness inventory). A node can have the claude-code
-    // plugin and no `claude` on its PATH.
-    const entry = inv.entries.get(report.id);
+    // detected there. A node can have the claude-code plugin and no `claude`
+    // on its PATH.
+    const entry = probe.entries.get(report.id);
     const state: EffectiveHarnessState = {
       harnessId: report.id,
-      enabled: true,
       installed: entry?.installed === true,
     };
     if (entry?.version) state.version = entry.version;
@@ -221,5 +191,28 @@ export async function effectiveHarnessStates(node: NodeTable): Promise<Effective
     if (report.restartRequired) state.restartRequired = true;
     return state;
   });
-  return { harnesses, stale: inv.stale };
+  return { harnesses, stale: probe.stale };
+}
+
+/**
+ * The control-plane host's own binary probe, shaped like an agent's inventory.
+ *
+ * Live rather than cached, so `stale` is never true for it: this process can
+ * simply look. `scanOne` is the same function an agent runs, which is what
+ * keeps a `reason` or a `checkedAt` meaning the same thing on both sides.
+ */
+async function probeLocally(declared: NodePluginSet): Promise<AgentInventory> {
+  // One clock for the batch: entries probed together should not drift by
+  // milliseconds in the reader's eyes.
+  const now = new Date();
+  // Only what the host DECLARED, and concurrently. Each `scanOne` walks the
+  // lookup ladder and spawns `<binary> --version`, so probing the whole
+  // compiled registry in sequence made every `GET /api/nodes` pay the sum of
+  // five subprocess latencies, including for plugins whose results were then
+  // discarded because the host does not offer them.
+  const wanted = allHarnesses().filter((h) => declared.entries.has(h.id));
+  const probed = await Promise.all(wanted.map(async (h) => [h.id, await scanOne(h, now)] as const));
+  // `fresh` is the gate's view and `stale` the reader's; a live probe is both
+  // as fresh as it can be and never stale.
+  return { entries: new Map<string, HarnessInventoryEntry>(probed), fresh: true, stale: false };
 }

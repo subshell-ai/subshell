@@ -12,12 +12,13 @@ export interface HarnessInventoryEntry {
   /** Resolved binary path when installed */
   binaryPath?: string;
   /**
-   * Why the binary was not found. Absent when installed, and absent from
-   * entries reported by an agent older than this field, so a reader treats
-   * absence as "unknown" rather than as a default that asserts something.
+   * Why the binary was not found. Absent when installed, and absent when the
+   * probe itself failed rather than having looked and not found it, so a
+   * reader treats absence as "unknown" rather than as a default that asserts
+   * something.
    */
   reason?: DetectionReason;
-  /** ISO 8601 stamp of when this entry was probed. Absent from older agents. */
+  /** ISO 8601 stamp of when this entry was probed. Absent when no probe has run. */
   checkedAt?: string;
 }
 

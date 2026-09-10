@@ -4,6 +4,8 @@ import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
+import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
+import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 
 /**
  * Shared test scaffolding for route tests that need better-auth's tables
@@ -60,6 +62,11 @@ export async function setupAuthTables(): Promise<void> {
   // rather than a second one nothing else uses.
   await runMigrations();
   await runAuthMigrations();
+  // Boot also gives this host its plugins, and since phase 2b that is what
+  // decides which harnesses it offers. Leaving it out made a pristine DB mean
+  // "a control plane with no plugins", which is a real state but not the one
+  // a suite that never mentions plugins is asking for.
+  await seedLocalPluginsForTests();
 }
 
 /** Signs in through the real rate-limited wrapper; returns the session token. */
@@ -94,4 +101,24 @@ export function authedRequest(path: string, token: string, init?: RequestInit): 
  */
 export function deleteUserByEmailOrId(emailOrId: string): Promise<unknown> {
   return sql`DELETE FROM user WHERE id = ${emailOrId} OR email = ${emailOrId}`.execute(db);
+}
+
+/**
+ * Gives the control-plane host its built-in plugins, as boot does.
+ *
+ * Since phase 2b `local` offers what it has INSTALLED, and both the launch
+ * gate and the profile listing read that. Production writes it in `index.ts`
+ * right after `ensureLocalNode`, so {@link setupAuthTables} calls this too:
+ * a suite that skipped it saw every harness unavailable and every profile
+ * filtered out, which is correct behaviour for a host with no plugins and
+ * almost never the state a test means to be in.
+ *
+ * Idempotent and cheap after the first call. The data dir is per PROCESS and
+ * suites share it, so the seed short-circuits on its completion marker from
+ * the second file onwards. Exported as well, for the suites that uninstall
+ * something and want the host put back.
+ */
+export async function seedLocalPluginsForTests(): Promise<void> {
+  await ensureLocalNode(db);
+  await prepareLocalPlugins();
 }

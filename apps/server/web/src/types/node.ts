@@ -19,15 +19,13 @@ export type NodeStatus = "online" | "offline";
 export interface NodeHarness {
   /** Harness plugin id (e.g. "claude") */
   harnessId: string;
-  /** Explicit per-node state when set, else the plugin's default */
-  enabled: boolean;
   /** local: live binary probe; agent: cached inventory (false until the first inventory lands) */
   installed: boolean;
   /** Installed version from the node's own detection */
   version?: string;
   /** Why the binary was not found, when it was not */
   reason?: "not-on-path" | "override-invalid" | "no-binary";
-  /** ISO 8601 stamp of when this entry was probed; absent from an older agent */
+  /** ISO 8601 stamp of when this entry was probed; absent when no probe has produced one */
   checkedAt?: string;
   /** Why the node cannot use this plugin, when it cannot */
   broken?: string;

@@ -379,8 +379,8 @@ subshell may only be launched in one of them or beneath it.
 - **Empty means unrestricted**, not "deny everything" — every node predating
   the feature is unaffected, and clearing the rules returns a node to that
   state.
-- **Owner-only to edit** (`canManage`), deliberately not the `edit` gate the
-  harness toggles use: any node share lets the grantee launch there, so an
+- **Owner-only to edit** (`canManage`), the same gate plugin installs use and
+  deliberately not `edit`: any node share lets the grantee launch there, so an
   `edit` grantee able to widen the list to `/` would face no restriction at
   all. The rules are **read-visible to everyone who can see the node**,
   grantees included — a refusal is unexplainable without them, and they name

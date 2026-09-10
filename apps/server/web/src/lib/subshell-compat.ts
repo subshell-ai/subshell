@@ -14,36 +14,38 @@ import type { ProfileRow } from "@/types/profile";
 /** The profile fields the launch pickers read. */
 export type LaunchProfile = Pick<ProfileRow, "id" | "name" | "harnessId" | "nodeId">;
 
-/** Why a harness cannot launch on a node right now. */
-export type IncompatReason = "offline" | "not-installed" | "disabled";
+/**
+ * Why a profile cannot launch on a node.
+ *
+ * "disabled" is gone (spec 2026-09-09 §12): a node offers what it has
+ * INSTALLED, so there is no enable flag left to be off. What used to be a
+ * disabled harness is now simply a plugin the node does not have, which is
+ * "not-installed" and already the row a reader sees.
+ */
+export type IncompatReason = "offline" | "not-installed";
 
 /**
- * Whether `harnessId` could launch on `node`, informational-grade:
- * offline agent beats entry state; absent entry counts as not-installed
- * (the lazy `enabledByDefault` rule never grants a launch the inventory
- * has not confirmed).
+ * Whether `harnessId` could launch on `node`, informational-grade: an offline
+ * agent beats entry state, and an absent entry counts as not-installed — the
+ * node either declared the plugin and its binary was seen, or it did not.
  * @returns null when usable, else the reason code
  */
 export function harnessFitsNode(node: Node, harnessId: string): IncompatReason | null {
   if (isOfflineAgent(node)) return "offline";
   const entry = node.harnesses.find((h) => h.harnessId === harnessId);
   if (!entry?.installed) return "not-installed";
-  if (!entry.enabled) return "disabled";
   return null;
 }
 
 /**
  * The hedge both sides of the matrix append when a grey rests on STALE
- * inventory: a missing entry there is last-known state, not a confirmed
- * fact — while a present-but-disabled entry IS confirmed (enablement is
- * server-side config, never inventory-reported).
+ * inventory: a missing entry there is last-known state, not a confirmed fact.
  */
 const STALE_HEDGE = " (inventory may be outdated)";
 
 /** The muted reason text on a greyed profile row (node must be non-null). */
 function profileReasonText(node: Node, reason: IncompatReason): string {
   if (reason === "offline") return "node offline";
-  if (reason === "disabled") return "disabled on this node";
   return node.inventoryStale ? `not installed here${STALE_HEDGE}` : "not installed on this node";
 }
 

@@ -2,17 +2,14 @@ import { allHarnesses, getHarness, scanOne } from "@internal/pane-runtime";
 import type { Static } from "elysia";
 import type { HarnessInfoSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
-import { ensureDefaultProfilesForHarness } from "@/services/default-profiles.js";
 import {
   type AgentInventory,
   type NodePluginSet,
   readAgentInventory,
   readNodePlugins,
 } from "@/services/nodes/inventory.js";
-import { logger } from "@/utils/logger.js";
 
 /** All known harness plugin ids. */
 export function getAllHarnessIds(): string[] {
@@ -20,21 +17,10 @@ export function getAllHarnessIds(): string[] {
 }
 
 /**
- * Enabled state for every registered plugin, from the lazily-written
- * `harnessPlugins` rows (absent row => the plugin's own default).
- */
-export async function harnessEnabledStates(): Promise<Map<string, boolean>> {
-  const ids = getAllHarnessIds();
-  const repo = new HarnessPluginsRepository(db);
-  return await repo.getEnabledStates(ids);
-}
-
-/**
  * Route error with an HTTP status; the global error handler maps `status` to
  * the response code (the same duck-typed shape the per-route `*Error` classes
- * carry — `SetupError`'s successor). Raised by the shared local-harness
- * toggle and the agent-node enable gate so both PATCH paths produce the same
- * wire shape.
+ * carry — `SetupError`'s successor). Raised by every plugin-management path,
+ * on this host and on an agent, so they produce one wire shape.
  */
 export class HarnessStateError extends Error {
   readonly status: number;
@@ -48,8 +34,8 @@ export class HarnessStateError extends Error {
 /**
  * Report one plugin with fresh detection: install state, version, the reason
  * a lookup failed and when it ran are probed per request (a re-check is just
- * another GET); enabled state comes from the lazily-written `harnessPlugins`
- * row.
+ * another GET); whether THIS HOST has the plugin comes from the caller, which
+ * reads `local`'s own declared set.
  *
  * The probe is {@link scanOne}, the SAME function the node agent runs against
  * its own filesystem, so a local row and an agent row cannot disagree about
@@ -58,7 +44,7 @@ export class HarnessStateError extends Error {
  * timestamp while the agent reported both, and how it came to walk the lookup
  * ladder twice per harness per request.
  */
-export async function harnessInfo(id: string, enabled: boolean): Promise<Static<typeof HarnessInfoSchema>> {
+export async function harnessInfo(id: string, installedHere: boolean): Promise<Static<typeof HarnessInfoSchema>> {
   const h = getHarness(id);
   if (!h) throw new HarnessStateError("Unknown harness", 404);
   const entry = await scanOne(h);
@@ -72,68 +58,21 @@ export async function harnessInfo(id: string, enabled: boolean): Promise<Static<
     version: entry.version,
     reason: entry.reason,
     checkedAt: entry.checkedAt,
-    enabled,
+    installedHere,
     install: h.installHint,
   };
 }
 
 /**
- * The local-harness toggle, reached by `PATCH /api/setup/harnesses/:id`.
+ * Usable = the node DECLARED the plugin (and did not report it broken) AND
+ * its binary is installed. The binary half is load-bearing, matching the
+ * product rule "if it isn't installed it stays unavailable": a missing
+ * program hides the harness's profiles and blocks new subshells even on a
+ * host that has the plugin.
  *
- * `harness_plugins` is the authoritative store for the control-plane host, and
- * this is the only writer. It used to have a second caller on the nodes routes
- * (`PATCH /api/nodes/local/harnesses/:id`), which is gone: what a node offers
- * is now what it has installed, and `local` is the one host whose set is still
- * a toggle rather than an install.
- *
- * Semantics preserved from the setup route verbatim: enable re-runs the
- * install check (409 when the binary is missing), disable never checks, and
- * enabling best-effort seeds a "Default" profile per user (a seeding failure
- * must not undo the committed enable — the boot sweep heals it).
- *
- * Agent nodes do NOT go through here, and no longer have an equivalent: what
- * a node offers is what it has INSTALLED, which the node itself owns
- * (`services/nodes/plugin-sync.ts`, spec 2026-09-09 §6). There is nothing to
- * toggle there.
- * @param harnessId - harness plugin id
- * @param enabled - the new state
- * @returns the fresh plugin info for the response body
- */
-export async function toggleLocalHarness(
-  harnessId: string,
-  enabled: boolean,
-): Promise<Static<typeof HarnessInfoSchema>> {
-  const h = getHarness(harnessId);
-  if (!h) throw new HarnessStateError("Unknown harness", 404);
-  if (enabled && !(await h.isInstalled())) {
-    // Turning a harness on re-runs detection: the "I just installed it, make
-    // it usable" flow is exactly this toggle, with no separate check step to
-    // invent. Disabling never needs a check.
-    throw new HarnessStateError(`"${h.name}" is not installed on this machine`, 409);
-  }
-  await new HarnessPluginsRepository(db).setEnabled(h.id, enabled);
-  if (enabled) {
-    // Enabling a harness makes it usable for everyone, so guarantee each user
-    // has a Default profile for it (insert-only when they have none).
-    // BEST-EFFORT: the enable itself already committed, so a seeding failure
-    // must not 500 (and flip the client's switch back) over an optional
-    // convenience — the boot sweep heals it; log so it is diagnosable.
-    await ensureDefaultProfilesForHarness(db, h.id).catch((err: unknown) => {
-      logger.withError(err).warn(`default-profile seeding failed on enabling harness ${h.id}`);
-    });
-  }
-  return await harnessInfo(h.id, enabled);
-}
-
-/**
- * Usable = the plugin exists, is enabled, AND its binary is installed. The
- * install check is load-bearing here, matching the product rule "if it isn't
- * installed it stays unavailable": a missing binary hides the harness's
- * profiles and blocks new subshells even when the enabled flag defaults on.
- *
- * Node-aware (spec 2026-08-31 §6.2): with no `nodeId` (or `"local"`) this is
- * the process-local probe, verbatim — every existing zero-arg caller keeps
- * today's behavior. For an AGENT node it is the strict LAUNCH gate: the node
+ * Node-aware (spec 2026-08-31 §6.2): with no `nodeId` (or `"local"`) the
+ * declared set is this host's own and the probe is live. For an AGENT node it
+ * is the strict LAUNCH gate: the node
  * DECLARED the plugin and did not report it broken ∧ a FRESH (≤ 10-min TTL)
  * cached inventory that says its binary is installed.
  * Stale or never-reported inventory ⇒ NOT usable for launch, even though the
@@ -155,11 +94,27 @@ export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID):
     // and the launch then refused it with no explanation.
     if (node.kind !== "local") return agentHarnessUsableForNode(node, id);
   }
+  // `local` resolves the same way an agent does: it DECLARED the plugin, and
+  // the plugin's binary is present. The difference is only that this host can
+  // look now rather than reading a snapshot someone sent.
+  const declared = await localDeclaredPlugins();
+  const entry = declared.get(id);
+  if (!entry || entry.broken) return false;
   const plugin = getHarness(id);
   if (!plugin) return false;
-  const states = await harnessEnabledStates();
-  if (!(states.get(id) ?? plugin.enabledByDefault)) return false;
   return await plugin.isInstalled();
+}
+
+/**
+ * What the control-plane host has installed, by id.
+ *
+ * Read from the mirror in its own node row rather than from the disk, so the
+ * gate and the view answer from one source. Boot writes it and every install
+ * refreshes it.
+ */
+async function localDeclaredPlugins(): Promise<Map<string, { broken?: string }>> {
+  const node = await new NodesRepository(db).findById(LOCAL_NODE_ID);
+  return node ? readNodePlugins(node).entries : new Map();
 }
 
 /**
@@ -215,9 +170,11 @@ export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<
     return usable;
   }
 
-  const states = await harnessEnabledStates();
+  // `local`, resolved the same way: declared here, and its binary present.
+  const declared = await localDeclaredPlugins();
   for (const h of allHarnesses()) {
-    if ((states.get(h.id) ?? h.enabledByDefault) && (await h.isInstalled())) usable.add(h.id);
+    const entry = declared.get(h.id);
+    if (entry && !entry.broken && (await h.isInstalled())) usable.add(h.id);
   }
   return usable;
 }

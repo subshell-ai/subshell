@@ -20,7 +20,7 @@ const claude: HarnessInfo = {
   binary: "claude",
   description: "",
   installed: true,
-  enabled: true,
+  installedHere: true,
   install: { command: "", docsUrl: "" },
 };
 

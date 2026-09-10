@@ -27,22 +27,28 @@ export function useRecheckHarnesses() {
 }
 
 /**
- * Flips a harness's enabled state. Turning one on makes the server re-run
- * detection and 409 if the binary is missing — the toggle is the check.
+ * Installs or removes a plugin on the CONTROL-PLANE HOST (spec 2026-09-09 §12).
+ *
+ * Was an enable toggle, and the difference is not cosmetic: installing no
+ * longer re-runs binary detection, so a plugin whose program is missing
+ * installs fine and the row reports the missing program separately. The 409
+ * the toggle answered with is gone.
  */
-export function useSetHarnessEnabled() {
+export function useSetHarnessInstalled() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiFetch<HarnessInfo>(`/api/setup/harnesses/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled }),
-      }),
+    mutationFn: ({ id, installed }: { id: string; installed: boolean }) =>
+      installed
+        ? apiFetch<HarnessInfo>(`/api/setup/plugins`, {
+            method: "POST",
+            body: JSON.stringify({ pluginId: id }),
+          })
+        : apiFetch<HarnessInfo>(`/api/setup/plugins/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HARNESS_QUERY_KEY });
-      // Enabling a harness has an invisible second effect server-side: it
+      // Installing a plugin has an invisible second effect server-side: it
       // seeds a Default profile for every user. Without this the profile
-      // list/picker holds pre-enable data for the whole staleTime window,
+      // list/picker holds pre-install data for the whole staleTime window,
       // making the auto-seeded profile look like it was never created.
       void queryClient.invalidateQueries({ queryKey: PROFILES_QUERY_KEY });
     },
@@ -50,12 +56,12 @@ export function useSetHarnessEnabled() {
 }
 
 /** Turns an apiFetch failure into the message a harness card should show. */
-export function harnessToggleErrorMessage(err: unknown): string {
+export function harnessInstallErrorMessage(err: unknown): string {
   // The HTTP status, not its string rendering: ApiError carries it as a
   // number (lib/api.ts), so this survives message/format changes.
-  if (err instanceof ApiError && err.status === 409)
-    return "Not installed on this node yet. Install it, then re-check.";
-  return "Could not change the harness state.";
+  if (err instanceof ApiError && err.status === 400) return "This build does not carry that plugin.";
+  if (err instanceof ApiError && err.status === 403) return "Only an admin can change what this host has installed.";
+  return "Could not change what this host has installed.";
 }
 
 /**

@@ -181,8 +181,9 @@ function SetupPage() {
               ))}
               {/* First-run escape hatch (spec §8): a host with no usable
                   harness is not a dead end — subshells can run on an enrolled
-                  node instead. "Usable" = installed AND enabled. */}
-              {harnesses !== undefined && !harnesses.some((h) => h.installed && h.enabled) && (
+                  node instead. "Usable" = this host has the PLUGIN and the
+                  PROGRAM it drives was found. */}
+              {harnesses !== undefined && !harnesses.some((h) => h.installed && h.installedHere) && (
                 <p className="text-muted-foreground text-sm">
                   Nothing usable on this machine?{" "}
                   <Link to="/nodes" className="underline">

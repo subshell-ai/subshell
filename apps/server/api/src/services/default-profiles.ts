@@ -2,9 +2,11 @@ import { allHarnesses } from "@internal/pane-runtime";
 import { sql } from "kysely";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db as appDb } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import type { Database } from "@/db/types/index.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { readNodePlugins } from "@/services/nodes/inventory.js";
 import { logger } from "@/utils/logger.js";
 
 /** The typed application database handle every seam passes in. */
@@ -43,15 +45,26 @@ type Db = import("kysely").Kysely<Database>;
 export const DEFAULT_PROFILE_NAME = "Default";
 
 /**
- * Harness plugin ids that are currently enabled — the `harnessPlugins` DB
- * override, falling back to each plugin's own `enabledByDefault` (the exact
- * rule `harness-utils` uses, so a seeded harness and a listed harness agree).
+ * Harness plugin ids this host OFFERS — the plugins installed on it.
+ *
+ * Read from `local`'s own mirrored report, the same source the launch gate
+ * uses, so a seeded profile and a launchable harness cannot disagree. It was
+ * the `harness_plugins` enable table until phase 2b; there is no enable state
+ * any more, and a plugin being installed here is it being offered.
+ *
+ * Intersected with the registry, because a profile needs plugin CODE this
+ * build has: a third-party plugin on this host is offered and launchable, but
+ * nothing here can invent a default profile for it. That gap closes when the
+ * profile editor is driven by reported data (spec §11).
  */
 async function enabledHarnessIds(db: Db): Promise<string[]> {
-  const ids = allHarnesses().map((h) => h.id);
-  const states = await new HarnessPluginsRepository(db).getEnabledStates(ids);
+  const node = await new NodesRepository(db).findById(LOCAL_NODE_ID);
+  const declared = node ? readNodePlugins(node).entries : new Map();
   return allHarnesses()
-    .filter((h) => states.get(h.id) ?? h.enabledByDefault)
+    .filter((h) => {
+      const entry = declared.get(h.id);
+      return entry !== undefined && !entry.broken;
+    })
     .map((h) => h.id);
 }
 

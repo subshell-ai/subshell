@@ -34,16 +34,7 @@ function badgeVariant(h: { installed: boolean; broken?: string; reason?: string 
  * the PLUGIN, and the plugin's BINARY was detected there. A node can have the
  * claude-code plugin and no `claude` on its PATH.
  */
-export function NodeHarnessCard({
-  nodeId,
-  canManage,
-  isLocal = false,
-}: {
-  nodeId: string;
-  canManage: boolean;
-  /** The control-plane host, whose plugin set this route cannot reach yet. */
-  isLocal?: boolean;
-}) {
+export function NodeHarnessCard({ nodeId, canManage }: { nodeId: string; canManage: boolean }) {
   const { harnesses, data, isLoading } = useNodeHarnesses(nodeId);
   // The catalog this build knows about, used only to offer installs and to
   // name a row. A row whose id is absent from it still renders, by id.
@@ -63,10 +54,10 @@ export function NodeHarnessCard({
 
   const installedIds = new Set(harnesses.map((h) => h.harnessId));
   const available = (catalog ?? []).filter((c) => !installedIds.has(c.id));
-  // `local` has no plugins directory and no socket to send a command over, so
-  // every action here would 400. Showing a control that cannot work is worse
-  // than showing none.
-  const actionable = canManage && !isLocal;
+  // `local` included. It has its own plugins directory now and this same route
+  // installs to it (spec 2026-09-09 §11), so suppressing the controls here
+  // left the host's own page saying "install one below" with nothing below.
+  const actionable = canManage;
 
   return (
     <Card>
@@ -86,8 +77,8 @@ export function NodeHarnessCard({
 
         {harnesses.length === 0 && (
           <p className="text-muted-foreground text-sm">
-            This node hasn't reported any plugins. If it's running an older agent, update it; otherwise install one
-            below.
+            This node hasn't reported any plugins yet. If it has just enrolled, its first report is on the way;
+            otherwise install one below.
           </p>
         )}
 

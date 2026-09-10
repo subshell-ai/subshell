@@ -18,9 +18,9 @@ const BASE: Node = {
   canManage: true,
   capabilities: [],
   harnesses: [
-    { harnessId: "claude", enabled: true, installed: true },
-    { harnessId: "opencode", enabled: true, installed: false },
-    { harnessId: "hermes", enabled: false, installed: true },
+    { harnessId: "claude", installed: true },
+    { harnessId: "opencode", installed: false },
+    { harnessId: "hermes", installed: true },
   ],
   inventoryStale: false,
 };
@@ -43,14 +43,17 @@ describe("osLabel", () => {
 });
 
 describe("NodeRow", () => {
-  it("shows the OS/arch chip, status, and only installed∧enabled harness chips", () => {
+  it("shows the OS/arch chip, status, and a chip per harness whose program was found", () => {
     render(<NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
     expect(screen.getByText("mac mini")).toBeDefined();
     expect(screen.getByText(/Apple · arm64/)).toBeDefined();
     expect(screen.getByText("online")).toBeDefined();
     expect(screen.getByText("claude")).toBeDefined();
+    expect(screen.getByText("hermes")).toBeDefined();
+    // The one filter left. `opencode` is a plugin this node has whose program
+    // was not detected; the enable flag that used to be the other filter is
+    // gone (spec 2026-09-09 §12).
     expect(screen.queryByText("opencode")).toBeNull();
-    expect(screen.queryByText("hermes")).toBeNull();
     expect(screen.getByText("yours")).toBeDefined();
   });
 

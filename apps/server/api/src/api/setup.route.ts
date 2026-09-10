@@ -1,25 +1,36 @@
-import { allHarnesses } from "@internal/pane-runtime";
+import { BackendErrorCodes } from "@internal/backend-errors";
+import { allHarnesses, builtInIds } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { ForbiddenError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
-import { harnessInfo, toggleLocalHarness } from "@/api/harness-utils.js";
+import { harnessInfo } from "@/api/harness-utils.js";
 import { HarnessInfoSchema } from "@/api/models.js";
 import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { apiErrorBody } from "@/lib/api-error.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
+import { apiModels } from "@/schema/index.js";
+import { readNodePlugins } from "@/services/nodes/inventory.js";
+import { installLocalPlugin, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
 
 const SetupStatusSchema = t.Object({
   needsSetup: t.Boolean({ description: "True until the first user is registered" }),
   hasUsers: t.Boolean({ description: "Whether any user exists" }),
 });
 
-const EnableBodySchema = t.Object({
-  enabled: t.Boolean({ description: "Whether the harness should be available for profiles" }),
-});
-
-async function enabledStatesById(): Promise<Map<string, boolean>> {
-  const repo = new HarnessPluginsRepository(db);
-  return await repo.getEnabledStates(allHarnesses().map((h) => h.id));
+/**
+ * The plugin ids installed on this host, from `local`'s own mirrored report.
+ *
+ * Was the `harness_plugins` enable table until phase 2b, and the wizard's
+ * question changed with it: not "which of these do you want on" but "which of
+ * these do you want installed".
+ */
+async function installedIdsHere(): Promise<Set<string>> {
+  const node = await new NodesRepository(db).findById(LOCAL_NODE_ID);
+  const declared = node ? readNodePlugins(node).entries : new Map<string, { broken?: string }>();
+  return new Set([...declared.entries()].filter(([, e]) => !e.broken).map(([id]) => id));
 }
 
 /** Counts `user_meta` rows — the instance's "a user exists" truth. */
@@ -63,12 +74,16 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
  * again. Kept local because these routes need CONDITIONAL auth — the
  * first-run window is public — which a static guard cannot express.
  */
-async function resolveSetupActor(request: Request): Promise<"cookie" | "machine"> {
+async function resolveSetupActor(request: Request): Promise<"cookie" | "admin" | "machine"> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   if (extractSessionToken(cookieHeader)) {
     const session = await resolveCookieSession(cookieHeader);
     if (!session) throw new UnauthorizedError();
-    return "cookie";
+    // The role lives in the app's `user_meta`, NOT on better-auth's session
+    // user — the same source `requireAdmin` reads, so the two gates cannot
+    // disagree about who is an admin.
+    const role = await new UserMetaRepository(db).getRole(session.user.id);
+    return role === "admin" ? "admin" : "cookie";
   }
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (bearer) {
@@ -83,29 +98,48 @@ async function resolveSetupActor(request: Request): Promise<"cookie" | "machine"
 
 /**
  * Gate for the harness endpoints once a user exists (security audit 2026-08,
- * F3): GETs need any authenticated actor; PATCH additionally needs a COOKIE
- * actor. PATCH flips this machine's harness enable/disable state — machine
- * configuration with no machine consumer (the `subshell mcp` binary never calls
- * it; its endpoint census in packages/mcp-core/src/tools.ts covers subshells, channels,
- * profiles reads and identities only), so bearer keys have no reason to
- * exist on this write and are refused with 403 after authenticating.
+ * F3): GETs need any authenticated actor; a write needs a COOKIE actor, and
+ * once a user exists it needs an ADMIN one.
+ *
+ * **The admin requirement is not inherited, it was added in phase 2b.** The
+ * write used to flip an enable flag; it now installs and removes plugins on
+ * the control-plane host, which is the same operation
+ * `POST /api/nodes/local/plugins` restricts to admins (`local`'s `canManage`
+ * resolves to admin). Leaving this at "any signed-in user" would have made it
+ * the weaker of two doors onto one operation: any user could have removed
+ * claude-code from the host, hiding every user's claude-code profiles and
+ * refusing every claude-code launch instance-wide.
+ *
+ * Bearer keys are refused on writes even for an admin-owned key: this is
+ * machine configuration with no machine consumer (the `subshell mcp` binary
+ * never calls it; its endpoint census in packages/mcp-core/src/tools.ts covers
+ * subshells, channels, profiles reads and identities only).
+ *
+ * The pre-auth window stays open, because the wizard runs before any user
+ * exists and the first person through it is the admin. What keeps that window
+ * narrow is the built-in id check on the install handler, not this gate.
  */
 async function requireHarnessAccess(request: Request, write: boolean): Promise<void> {
   if (!(await hasUsersProbe())) return; // first-run boot wizard stays public
   const actor = await resolveSetupActor(request);
-  if (write && actor !== "cookie") throw new ForbiddenError();
+  if (write && actor !== "admin") throw new ForbiddenError();
 }
 
 /**
  * Setup status + harness registry endpoints. `GET /status` is the only
  * always-public route (the login page needs it to find the wizard).
- * `GET /harnesses` and `PATCH /harnesses/:id` are public ONLY while the
+ *
+ * `GET /harnesses` and the two `/plugins` writes are public ONLY while the
  * instance has no users — the setup wizard must work before an admin exists
  * — and gated afterwards (security audit 2026-08, F3): the GET requires any
- * authenticated actor, the PATCH (a machine-config write) a cookie session.
- * See {@link requireHarnessAccess}.
+ * authenticated actor, the writes an ADMIN cookie session. The writes install
+ * and remove plugins on the control-plane host, which is the same operation
+ * `POST /api/nodes/local/plugins` performs; both gates resolve to admin so
+ * neither is the weaker door. See {@link requireHarnessAccess}.
  */
 export const setupRoutes = new Elysia({ prefix: "/api/setup" })
+  // For the named `ApiErrorResponse` the plugin routes below answer with.
+  .use(apiModels)
   .get(
     "/status",
     async () => {
@@ -127,10 +161,8 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
     "/harnesses",
     async ({ request }) => {
       await requireHarnessAccess(request, false);
-      const states = await enabledStatesById();
-      return await Promise.all(
-        allHarnesses().map(async (h) => await harnessInfo(h.id, states.get(h.id) ?? h.enabledByDefault)),
-      );
+      const installed = await installedIdsHere();
+      return await Promise.all(allHarnesses().map(async (h) => await harnessInfo(h.id, installed.has(h.id))));
     },
     {
       response: t.Array(HarnessInfoSchema, { description: "All harness plugins" }),
@@ -142,25 +174,70 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
       },
     },
   )
-  .patch(
-    "/harnesses/:id",
-    async ({ request, params, body }) => {
+  .post(
+    "/plugins",
+    async ({ request, body, status }) => {
       await requireHarnessAccess(request, true);
-      // The local-harness toggle, and now its only caller: `harness_plugins`
-      // is the single authoritative store for the control-plane host. Enable
-      // re-checks installation (409 when missing), disable never checks, and
-      // enabling best-effort seeds Default profiles.
-      return await toggleLocalHarness(params.id, body.enabled);
+      // BUILT-IN IDS ONLY, and this is the load-bearing line of the handler.
+      // `requireHarnessAccess` lets this through with no credential at all
+      // while the instance has no users, because the wizard runs before an
+      // admin exists. That is fine for bytes this build already carries. It
+      // would not be fine the moment a registry sits behind the same command:
+      // an unauthenticated caller on a fresh instance making this host fetch
+      // and execute a package of their choosing is remote code execution, not
+      // a widened config write. Phase 3 has to keep this closed or require
+      // auth for setup writes; see spec 2026-09-09 §13.
+      if (!(await builtInIds()).includes(body.pluginId)) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+            message: `"${body.pluginId}" is not a plugin this build carries`,
+          }),
+        );
+      }
+      await installLocalPlugin(body.pluginId);
+      return await harnessInfo(body.pluginId, true);
     },
     {
-      params: t.Object({ id: t.String({ description: "Harness plugin id" }) }),
-      body: EnableBodySchema,
-      response: HarnessInfoSchema,
+      body: t.Object({ pluginId: t.String({ description: "Plugin id to install on this host" }) }),
+      response: { 200: HarnessInfoSchema, 400: "ApiErrorResponse", 401: "ApiErrorResponse", 403: "ApiErrorResponse" },
       detail: {
-        operationId: "setHarnessEnabled",
+        operationId: "installSetupPlugin",
         tags: ["setup"],
         description:
-          "Enables (after a fresh install check) or disables a harness plugin (public only while no user exists; cookie session afterwards)",
+          "Installs one built-in plugin on the control-plane host (public only while no user exists, cookie-gated afterwards; ids are limited to what this build carries)",
+      },
+    },
+  )
+  .delete(
+    "/plugins/:pluginId",
+    async ({ request, params, status }) => {
+      await requireHarnessAccess(request, true);
+      // Refused BEFORE acting. `harnessInfo` throws 404 for an id outside the
+      // compiled registry, so answering with it after a successful removal
+      // would report a failure for something that happened — and 404 is not
+      // in this route's response map.
+      if (!(await builtInIds()).includes(params.pluginId)) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+            message: `"${params.pluginId}" is not a plugin this build carries`,
+          }),
+        );
+      }
+      await uninstallLocalPlugin(params.pluginId);
+      return await harnessInfo(params.pluginId, false);
+    },
+    {
+      params: t.Object({ pluginId: t.String({ description: "Plugin id to remove from this host" }) }),
+      response: { 200: HarnessInfoSchema, 400: "ApiErrorResponse", 401: "ApiErrorResponse", 403: "ApiErrorResponse" },
+      detail: {
+        operationId: "uninstallSetupPlugin",
+        tags: ["setup"],
+        description:
+          "Removes one plugin from the control-plane host. Removing one already absent succeeds: the caller asked for a state and that state holds",
       },
     },
   );

@@ -12,7 +12,6 @@ import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { HarnessPluginsRepository } from "@/db/repositories/harness-plugins.repository.js";
 import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
@@ -26,7 +25,6 @@ const db = new Kysely<Database>({
 });
 
 const repos = {
-  harnessPlugins: new HarnessPluginsRepository(db),
   profiles: new ProfilesRepository(db),
   subshells: new SubshellsRepository(db),
   recentPaths: new RecentPathsRepository(db),
@@ -54,30 +52,8 @@ beforeEach(async () => {
   await db.deleteFrom("recentPaths").execute();
   await db.deleteFrom("subshells").execute();
   await db.deleteFrom("profiles").execute();
-  await db.deleteFrom("harnessPlugins").execute();
   await db.deleteFrom("userMeta").execute();
   await db.deleteFrom("settings").execute();
-});
-
-describe("harness plugins repository", () => {
-  it("reports only plugins with a row — the caller owns the default", async () => {
-    const states = await repos.harnessPlugins.getEnabledStates(["claude-code", "hermes"]);
-    // Absent, NOT pre-filled `true`: every reader applies the plugin's own
-    // enabledByDefault (`states.get(id) ?? h.enabledByDefault`), so a future
-    // ship-disabled plugin can still say so.
-    expect(states.has("claude-code")).toBe(false);
-    expect(states.has("hermes")).toBe(false);
-  });
-
-  it("can disable and re-enable a plugin", async () => {
-    await repos.harnessPlugins.setEnabled("claude-code", false);
-    let states = await repos.harnessPlugins.getEnabledStates(["claude-code"]);
-    expect(states.get("claude-code")).toBe(false);
-
-    await repos.harnessPlugins.setEnabled("claude-code", true);
-    states = await repos.harnessPlugins.getEnabledStates(["claude-code"]);
-    expect(states.get("claude-code")).toBe(true);
-  });
 });
 
 describe("profiles repository", () => {
