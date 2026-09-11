@@ -50,25 +50,24 @@ branches on the same stored flag and closes the window it supersedes. The
 branch lives in one function so a machine can never have its manage window
 decided in two places.
 
-## The first-run wizard
+## The setup assistant
 
-Steps are DECISIONS; machine work is PROGRESS (spec 2026-09-10 § 5):
-Welcome → Prerequisites → Addresses → Agents → Run → Done. The Run step is the
-chain (`desktop_setup`, the same one-press contract the console has had since
-2026-09-10) watched by a live checklist, and the checklist's updater IS the
-page's 1500 ms poll — no Refresh button, same rule as the console's. The
-Agents step is optional by design and lists all five built-in harnesses; a
-plain terminal needs no install and the copy says so.
-
-The page holds NO memory of where the human was: `firstOpenStep(probe)`
-decides the landing spot on every open from the machine's facts, so quitting
-mid-wizard, or doing half the setup from a terminal, resumes honestly. Every
-such judgment lives in `ui/src/lib/wizard-state.ts`, pure, tested without a
-webview — the split rule the console established, unchanged. The wizard's
-window is opened at `wizard.html`, a second rollup input in the SAME Vite
-build: one bundle, one CSP, one set of `lib/` modules shared with the console
-on purpose (prefill, install plans and the IPC edge are one contract, not
-two).
+Three screens in one fixed frame (spec 2026-09-11, which superseded the
+six-step wizard of 2026-09-10 § 5): Welcome, Install tmux (shown only while
+tmux is missing, and it advances itself the moment the poll sees one), and
+Set Up Your Server, whose press replaces the screen with a progress
+checklist and then opens the dashboard by itself. `screensFor(probe)` decides
+which screens exist, `dots(probe, screen)` where the three dots stand,
+`setupRows`/`canSetup`/`failureLine` the checklist, the gate and the failure
+line, all in `ui/src/lib/wizard-state.ts`, pure and tested without a
+webview. There is no rail, no Done screen and no log pane: a failed chain
+shows the CLI's last stderr line under the failed row and the verbatim
+output behind a collapsed Show Details. Agents are not asked about here; the
+SPA's `/setup` owns that question, because detection lives in the server.
+The window is 1024×720 and not resizable, and `open_main` takes its position
+and size when the dashboard is created, so the swap reads as one window
+changing screen; the SPA continues the dot row (six dots, three filled) when
+it sees the desktop UA marker.
 
 ## Resetting the machine
 
@@ -417,7 +416,7 @@ With it, the split is enforced:
 | Window | Gets |
 | --- | --- |
 | `console` | every command — it is the control surface, and the only holder of the destructive ones (`desktop_reset` included) |
-| `wizard` | what first run needs: probe, setup, install (tmux/agent), set the binary, open tmux docs, open main, open the console, and the dialog plugin's open — no service verbs, no bare `init`, no logs, no settings |
+| `wizard` | probe, setup, install tmux, set the binary, open tmux docs, open main, open the console, and the dialog plugin's open — no service verbs, no bare `init`, no logs, no settings |
 | `main` | `desktop_open_console`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
 
 `main`'s three are chosen for what they cannot do: show a window that already

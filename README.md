@@ -69,14 +69,14 @@ macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
 Ubuntu 24.04+ / Debian 13+ (glibc 2.39).
 
 Each app ships the binary it manages inside it — nothing is downloaded on first
-run. On a machine with nothing installed, Subshell Server opens a guided
-first-run wizard: what it will do, tmux (with its install button where one can
-exist), port and addresses with sane defaults you can skip through, an
-optional agent CLI from the built-in set, then one "Set up and start" press
-whose checklist ticks live as the chain installs the bundled `subshell-server`
-to `~/.local/bin`, writes a `config.env`, registers the service (a systemd user
-unit on Linux, a launchd agent on macOS), starts it and opens the dashboard —
-stopping at the first failure and saying so. The console keeps everything it
+run. On a machine with nothing installed, Subshell Server opens a setup
+assistant: Welcome, Install tmux if it is missing (one button where your
+package manager allows it), and Set Up Your Server, one press that installs
+the bundled `subshell-server` to `~/.local/bin`, writes a `config.env`,
+registers the service (systemd user unit or launchd agent) and starts it,
+with port and addresses behind "Customize". The dashboard then opens in the
+same window and carries on: your account, agents, and your first subshell.
+The console keeps everything it
 was for an onboarded machine: state, logs, settings, repair actions. Subshell
 Client does the same for the `subshell` agent, from a second window reached
 from its tray ("This machine…").

@@ -4,6 +4,7 @@ Date: 2026-09-10
 Status: approved design (brainstorm 2026-09-10); this document revises
 `2026-09-10-onboarding-to-first-subshell-design.md` §2/§5 as recorded in § 2
 below, and changes nothing else that spec decided.
+Superseded in part: § 5 (the six-step wizard) by 2026-09-11-first-run-second-pass-design.md. § 3, § 4, § 6, § 7 stand.
 
 ## Review disposition (2026-09-10)
 
