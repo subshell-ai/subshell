@@ -392,12 +392,12 @@ const STEPS: Partial<Record<ProbeStep | "configure", Step>> = Object.assign(Obje
     body: "The server is running.",
     actions: () => [
       // The tray's item for this same window says "Open Dashboard".
+      //
+      // There is deliberately no agent-install button beside it. Installing an
+      // agent CLI moved to the control plane (spec 2026-09-11 § 7), so this app
+      // has nothing left to run - and a second button whose only job is to open
+      // the dashboard is the button immediately to its left.
       ["Open Dashboard", openMain, true],
-      // Agent installs moved to the control plane (spec 2026-09-11 § 7): the
-      // setup assistant's Add an Agent screen runs them, admin-cookie-only,
-      // on the server that has the plugin manifests. This app just gets the
-      // user there.
-      ["Add agents in the dashboard", openMain, false],
       ["Restart", doRestart, false, true],
       ["Stop", doStop],
       ["Change addresses…", showConfigure],
