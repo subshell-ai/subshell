@@ -64,3 +64,34 @@ describe("terminal plugin", () => {
     expect(plugin().validateProfile(BLANK).valid).toBe(true);
   });
 });
+
+describe("terminal version parsing", () => {
+  it("takes the number out of bash's multi-line banner, not the licence", () => {
+    // What a real host answers, and what the harness list rendered whole
+    // before this existed (found running the first-run wizard end to end).
+    const bash = [
+      "GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)",
+      "Copyright (C) 2022 Free Software Foundation, Inc.",
+      "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>",
+      "",
+      "This is free software; you are free to change and redistribute it.",
+      "There is NO WARRANTY, to the extent permitted by law.",
+    ].join("\n");
+
+    expect(plugin().parseVersion?.(bash)).toBe("5.2.21");
+  });
+
+  it("leaves a one-line shell alone", () => {
+    expect(plugin().parseVersion?.("zsh 5.9 (x86_64-ubuntu-linux-gnu)")).toBe("5.9");
+  });
+
+  it("falls back to the first line rather than to nothing", () => {
+    // A shell that names itself oddly is still usable; its row should say
+    // something instead of going blank.
+    expect(plugin().parseVersion?.("some-shell (unversioned)")).toBe("some-shell (unversioned)");
+  });
+
+  it("answers null only when there is nothing to read", () => {
+    expect(plugin().parseVersion?.("   \n\n  ")).toBeNull();
+  });
+});

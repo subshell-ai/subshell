@@ -55,6 +55,27 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     return [binary, ...profile.flags, ...(extraFlags ?? [])];
   },
 
+  /**
+   * Shells announce themselves at length. `bash --version` prints its
+   * version, a copyright line, the GPL URL and a warranty disclaimer, and
+   * the host uses a probe's raw output verbatim unless a plugin interprets
+   * it — so without this the harness list rendered the entire licence notice
+   * as the "version" (found running the first-run wizard against a real
+   * host). `zsh --version` and `sh --version` are one line and survive this
+   * unchanged; anything unrecognisable falls back to the first line rather
+   * than to nothing, because a shell that names itself oddly is still
+   * usable and its row should say something.
+   */
+  parseVersion(raw: string): string | null {
+    const firstLine = raw
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean);
+    if (!firstLine) return null;
+    const match = firstLine.match(/\d+\.\d+(?:\.\d+)?/);
+    return match ? match[0] : firstLine;
+  },
+
   validateProfile(profile: ProfileDefinition): ProfileValidationResult {
     return validateGenericProfile(profile);
   },
