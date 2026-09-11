@@ -257,6 +257,35 @@ misreading.
   refusals from screen-time ones, with the empty stash as the mechanism that
   makes an unarmed screen unactionable from either side.
 
+## Review notes, round 4 (2026-09-11)
+
+R18, R19 and R20 are addressed, and R18's resolution is the right shape:
+stashing the plan in the handler that already decides the screen means
+`desktop_reset` takes one argument, so "the page passes paths" is
+unrepresentable rather than merely disallowed. § 11 line 819 pins it.
+
+**One finding, and it is a single sentence.** The design is otherwise ready to
+implement.
+
+**R21. § 6's worst-case claim stopped being true when R18 moved the read into
+the `desktop_open_console` handler.** It still says: "an XSS in a control
+plane's SPA can now raise this app's window **to a confirmation dialog**. It
+reaches no execution."
+
+As of R18 that handler performs the screen-open `status --json` spawn (§ 7.2
+step 1, § 6's own delivery paragraph). So a remote page calling
+`desktop_open_console({screen: "reset"})` now does reach execution: one
+read-only CLI command, and it can be called repeatedly.
+
+Nothing about the boundary actually got worse. `status --json` is read-only,
+the app already spawns it every five seconds on its own poll, and no
+destructive verb moved anywhere. But this sentence is quoted into
+`docs/security.md` (§ 12 says so), which makes it the one place in this
+document where being literally right matters most, and the accurate version is
+also the stronger one: *it reaches exactly one read-only command the app
+already runs on a timer, and no verb that changes the machine.* Same ceiling,
+stated so it survives someone checking it.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
