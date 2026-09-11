@@ -1517,9 +1517,12 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
     let keep = subshell_desktop_core::sidecar::install_path(&crate::server_bin::SERVER_SIDECAR)
         .ok_or_else(|| "cannot locate this app's managed server copy to protect it".to_string())?;
     // Canonicalize the kept path so the containment comparison is between
-    // real locations, not spellings (P3). Absent keep = no binary on disk to
-    // take down, and a non-existent path cannot be contained by anything -
-    // the guard passes honestly. Present-but-unresolvable is a refusal.
+    // real locations, not spellings (P3). An absent binary keeps the
+    // uncanonicalized path, and containment THEN STILL REFUSES a delete
+    // target that would prefix-contain it (N3): fail-closed on purpose,
+    // because that path is where the binary would be reinstalled, so
+    // recursive-deleting its ancestor is what should stop the chain even
+    // with no file standing there yet. Present-but-unresolvable is a refusal.
     let keep = match std::fs::canonicalize(&keep) {
         Ok(k) => k,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => keep,
@@ -1529,12 +1532,14 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
         .map(std::path::PathBuf::from)
         .map_err(|_| "HOME is unset; reset refuses to delete with no home to guard".to_string())?;
 
-    for p in [
-        &plan.data_dir,
-        &plan.logs_dir,
-        &plan.artifacts_dir,
-        &plan.database.parent().unwrap_or(&plan.database),
-    ] {
+    // The three RECURSIVE deletes get the containment guard (N1): the
+    // database is removed as a single file, so its parent directory is never
+    // deleted and guarding it could only refuse a reset that was never going
+    // to touch the binary (a database at ~/.local/bin/subshell.db would
+    // otherwise refuse on its parent). All three elements are &PathBuf, so
+    // the array type-checks; plan.database keeps its own path_rules_ok check
+    // two paragraphs below.
+    for p in [&plan.data_dir, &plan.logs_dir, &plan.artifacts_dir] {
         if !path_rules_ok(p, &home) {
             return Err(format!("refusing to delete {p:?}: fails the shape rules"));
         }
@@ -1574,7 +1579,15 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
         s.onboarded = false;
     });
     *stash.plan.lock().unwrap() = None; // the consent has been spent
-    // 7. Windows: dashboard first (its port just died), console, then wizard.
+    // 7. Windows, in the order that keeps the app alive (N2; spec § 7.2
+    // step 7 amended to match): close main (its port just died), OPEN THE
+    // WIZARD, and close the console last. The order is not cosmetic: if the
+    // console closed while it was the last window, the zero-window moment
+    // runs the last-window path, and lib.rs's ExitRequested prevent-exit
+    // fires only when a `main` window exists - which a reset may well have
+    // just closed. An app that quits in the middle of the one command that
+    // is supposed to land the user in the wizard is the failure this order
+    // forecloses.
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.close();
     }
@@ -2268,4 +2281,5 @@ spec.
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
 - Plan-review round (P1-P6, this section's author round): P1 resolved in the plan (reset's toml entry + grant both moved to Task 8; Task 6 names the two ipc-acl unions it widens); P2 resolved (six test call sites enumerated with the file's own `void`/`await` convention, and Task 2 now ends on the repo-root trio); P3 resolved (both guard sides canonicalized, unresolvable-present is a refusal, absent keep passes honestly); P4 resolved (Task 8 step 5 spells "the set invoked from ui/src/main.ts, the CONSOLE page's entry module"); P5 fixed (Vite 8.2.1); P6 partially: the attribution is now declared inherited from the executing session's guidance, but the reviewer's stated current value conflicts with this session's guidance ("replaces any earlier attribution guidance", naming Claude Code) - the plan defers to whichever session executes, which is the fix the finding's structure wanted.
+- Plan re-review round 2 (N1-N3, all verified against the code before adopting): N1 adopted with its better reason (the fourth guard element protected a directory the chain never deletes, so it could only mis-refuse; and the mixed `&PathBuf`/`&&Path` array indeed does not compile, E0308 measured by the reviewer); N2 adopted IN THE CODE'S ORDER with spec § 7.2 step 7 amended to match, because the zero-window moment the comment-vs-code mismatch hid is a real quit-mid-reset path (lib.rs's ExitRequested guard requires a `main` window); N3 adopted as a comment correction only, the behavior was already the fail-closed one, now stated truthfully.
 - Remaining intentional softness: a few comments defer to the file on disk ("match the file's existing style", "read `proc.rs` for the result field names") - those point at named sources of truth rather than at nothing.

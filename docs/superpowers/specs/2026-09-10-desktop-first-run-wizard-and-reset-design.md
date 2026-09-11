@@ -746,9 +746,15 @@ and **retry converges** because every step tolerates having half-happened.
    Result` called with the one kept path, and it refuses before the chain
    has touched the disk.
 6. **Clear app settings:** `binary_path` to none, `onboarded` to false.
-7. **Windows:** close `main` (its port is dead), close the console, open the
-   wizard at Welcome. The chain's final result log is shown by the wizard's
-   ordinary first probe, not smuggled anywhere.
+7. **Windows, in an order that keeps the app alive:** close `main` (its port
+   is dead), open the wizard at Welcome, and close the console LAST (plan
+   review N2 amended this order; the earlier "console before wizard" wording
+   was the bug). A moment at zero windows runs the last-window path, and the
+   prevent-exit guard in `lib.rs` fires only while a `main` window exists,
+   which a reset may have just closed: an app that quit mid-reset would
+   strand the machine between wiped and re-set-up, exactly the state this
+   chain exists to survive. The chain's final result log is shown by the
+   wizard's ordinary first probe, not smuggled anywhere.
 
 A failure mid-chain leaves the reset screen up with verbatim output and
 Retry. What makes Retry converge is that the plan was captured while the
