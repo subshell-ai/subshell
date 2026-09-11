@@ -244,3 +244,16 @@ export const HarnessSchemaResponseSchema = t.Object({
   suggestedFlags: t.Array(SuggestedFlagSchema, { description: "Known CLI flag suggestions" }),
   mcp: McpSetupSchema,
 });
+
+/**
+ * The result of running a built-in agent CLI's own installer on the
+ * control-plane host (`POST /api/setup/agents/:pluginId/install`). `harness`
+ * is re-probed AFTER the installer exits so one round trip reports both the
+ * run's own log and the resulting detection state.
+ */
+export const AgentInstallResultSchema = t.Object({
+  ok: t.Boolean({ description: "Whether the installer exited 0 within the time limit" }),
+  exitCode: t.Nullable(t.Number({ description: "The installer's exit code; null when it was killed" })),
+  output: t.String({ description: "The installer's stdout then stderr, each capped at 64 KiB" }),
+  harness: HarnessInfoSchema,
+});

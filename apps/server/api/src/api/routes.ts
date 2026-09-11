@@ -15,6 +15,7 @@ import { profileRoutes } from "@/api/profiles.route.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
+import { setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
 import { uploadsRoutes } from "@/api/uploads.route.js";
@@ -42,6 +43,7 @@ import { wsTokenRoutes } from "@/api/ws-token.route.js";
 const coreRoutes = new Elysia()
   .use(settingsRoutes)
   .use(setupRoutes)
+  .use(setupAgentInstallRoute)
   .use(pluginsRoutes)
   .use(metaRoutes)
   .use(usersRoutes)

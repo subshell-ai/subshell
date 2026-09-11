@@ -75,7 +75,7 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
  * again. Kept local because these routes need CONDITIONAL auth — the
  * first-run window is public — which a static guard cannot express.
  */
-async function resolveSetupActor(request: Request): Promise<"cookie" | "admin" | "machine"> {
+export async function resolveSetupActor(request: Request): Promise<"cookie" | "admin" | "machine"> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   if (extractSessionToken(cookieHeader)) {
     const session = await resolveCookieSession(cookieHeader);
