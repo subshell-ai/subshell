@@ -2182,6 +2182,88 @@ The attribution in force for this repo's current sessions is
 executing agent carries its own attribution, it should use that and the plan
 should say so rather than hardcoding a third value in ten places.
 
+## Re-review (2026-09-11), round 2
+
+P1 through P6 all landed in the task bodies, not just in the disposition: I
+checked each against the file. P1's resolution is better than the finding asked
+for (Task 7 now explains *why* the toml block moves rather than just moving it,
+and Task 6 names both unions it widens). P6's resolution is correct and the
+disagreement is not one: two sessions carry different attribution guidance, and
+deferring to whichever session executes is exactly the fix, so nothing further
+is owed there.
+
+Three findings, all in Task 7's new guard code. One does not compile.
+
+**N1. The guard loop's array has two different element types, and `rustc`
+rejects it.** In `desktop_reset`:
+
+```rust
+for p in [
+    &plan.data_dir,        // &PathBuf
+    &plan.logs_dir,        // &PathBuf
+    &plan.artifacts_dir,   // &PathBuf
+    &plan.database.parent().unwrap_or(&plan.database),   // &&Path
+] {
+```
+
+`DeletePlan`'s fields are all `PathBuf`, so the first three are `&PathBuf`;
+`parent()` yields `Option<&Path>`, so the fourth is `&&Path`. Measured, not
+reasoned:
+
+```
+error[E0308]: mismatched types
+  |     for p in [&data_dir, &database.parent().unwrap_or(&database)] {
+  |                          ^^^ expected `&PathBuf`, found `&&Path`
+```
+
+**The fourth element should not be there at all**, which is the cleaner fix.
+The containment guard exists to stop a *recursive directory delete* from taking
+the server binary with it. The database is removed as a single file
+(`delete_consent(&plan.database, ...)`), so its parent directory is never
+deleted, and guarding that parent can only produce false refusals: a database
+at `~/.local/bin/subshell.db` would have a parent containing the binary and
+would refuse a reset that was never going to touch it. Drop the fourth element,
+keep the three directories that actually get `delete_tree`d, and let
+`plan.database` keep the separate `path_rules_ok` check it already has below.
+
+**N2. The window-order comment contradicts the code beneath it, and the spec
+sides with the comment.** The comment reads "dashboard first (its port just
+died), console, then wizard"; the code closes `main`, then calls
+`open_wizard`, then closes `console`. Spec § 7.2 step 7 says "close `main`,
+close the console, open the wizard at Welcome", which is the comment's order.
+
+The code's order is probably the right one, and that is why this needs saying
+out loud rather than quietly correcting: opening the wizard before closing the
+console means the app is never momentarily at zero windows, which on this app
+matters because closing the last window runs the close-to-tray path
+(`lib.rs`'s `CloseRequested` handler, and `effective_close_to_tray`'s clamp).
+An executor who "fixes" the code to match the comment and the spec would be
+introducing that window, not removing a discrepancy. Decide it, make the
+comment state the reason, and amend spec § 7.2 step 7 to match whichever order
+wins.
+
+**N3. The `keep` NotFound comment claims the opposite of what the code does.**
+
+```rust
+Err(e) if e.kind() == std::io::ErrorKind::NotFound => keep,
+// "Absent keep = no binary on disk to take down, and a non-existent path
+//  cannot be contained by anything - the guard passes honestly."
+```
+
+`delete_guard_ok` is a path-prefix comparison, so a non-existent
+`~/.local/bin/subshell-server` is still "contained by" `~/.local`, and the
+guard still refuses. The behaviour is fine and fails closed, which is the right
+direction: that path is where the binary would be reinstalled, so refusing to
+recursively delete its ancestor is defensible. Only the comment is wrong, and a
+comment asserting a guard passes when it refuses is the kind a later reader
+trusts instead of re-deriving. Say what it does: an absent binary keeps the
+uncanonicalized path, and containment still refuses an ancestor, deliberately.
+
+Nothing else in the re-read changed. The delete order, the `delete_tree_but`
+skip for a nested `config.env`, the stash clearing only on success so a Retry
+still has its consent, and the tmux socket rule all read correctly against the
+spec.
+
 ## Self-review notes (author, post-write)
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
