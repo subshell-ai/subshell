@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
-import { SUBSHELL_PLUGIN_REGISTRY_URL } from "../constants.js";
+import { DATABASE_PATH, SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "../constants.js";
 
 /**
  * Save/restore guard for env-mutating tests (client `config.test.ts` idiom)
@@ -451,6 +451,30 @@ describe("dispatchCli — status --json", () => {
     // is covered by the text-view test above.
     expect(v.listen).toMatchObject({ host: "127.0.0.1", port: 4321, portRaw: "4321", portValid: true });
     expect(v.service.definitionPath).toContain("subshell-server.service");
+  });
+
+  /**
+   * The desktop app's reset deletes exactly what this block names and nothing
+   * else, so the four paths are a contract with a consumer that removes files.
+   * They must be the constants THIS process resolved (under the test env that
+   * is the per-process temp data dir and temp DB, and the assertions import the
+   * same module-level constants, so they hold either way), and the block must
+   * not become a second source for a fact `status` already reports.
+   */
+  test("paths reports the four resolved data locations", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir }, async () => {
+      expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
+    });
+    const view = JSON.parse(out[0] as string);
+    expect(Object.keys(view.paths).sort()).toEqual(["dataDir", "database", "logsDir", "nodeArtifacts"]);
+    expect(isAbsolute(view.paths.dataDir)).toBe(true);
+    expect(view.paths.dataDir).toBe(SUBSHELL_SERVER_DATA_DIR);
+    expect(view.paths.database).toBe(DATABASE_PATH);
+    expect(view.paths.logsDir).toBe(`${SUBSHELL_SERVER_DATA_DIR}/subshells`);
+    // Already a StatusView fact: the paths block must not be a second source.
+    expect(view.paths.nodeArtifacts).toBe(view.nodeArtifacts.dir);
   });
 
   /**
