@@ -1017,6 +1017,12 @@ fn file_tail(configured: Option<&str>) -> LogTail {
 }
 
 /// The first non-empty line of a command's stderr, trimmed.
+///
+/// Gated with its only caller (`journal_tail`): reading a journald refusal is a
+/// Linux act, and left unconditional this is `dead_code` in every darwin build
+/// — which the release shards show, because only test.yml's Linux clippy runs
+/// `-D warnings`.
+#[cfg(target_os = "linux")]
 fn first_line(text: &str) -> Option<String> {
     text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
 }
