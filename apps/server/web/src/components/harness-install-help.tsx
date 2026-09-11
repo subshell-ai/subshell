@@ -54,25 +54,39 @@ export function HarnessInstallHelp({
     );
   }
 
+  // The command NAME, not the plugin id: what wasn't found on PATH is
+  // `bash`, and telling someone "the terminal command wasn't found" sends
+  // them hunting for a program called terminal.
+  //
+  // A plugin with no `install` block (the terminal plugin has nothing to
+  // install) gets the reason and a Re-check only. An empty copy box and an
+  // "Install docs" link to the current page are not fallbacks, they are
+  // affordances that lead nowhere.
+  const installable = harness.install.command !== "";
   return (
     <div className="space-y-2">
       <p className="text-muted-foreground text-xs">
-        Not installed: the <code className="font-mono">{harness.id}</code> command wasn't found. To install it:
+        Not installed: the <code className="font-mono">{harness.binary}</code> command wasn't found.{" "}
+        {installable
+          ? "To install it:"
+          : "Nothing needs installing for this plugin, so this machine's PATH is the problem."}
       </p>
-      <CopyCommandRow text={harness.install.command} />
+      {installable && <CopyCommandRow text={harness.install.command} />}
       <div className="flex items-center gap-3 text-xs">
         <Button type="button" variant="link" size="sm" className={denseLink} onClick={onRecheck} disabled={rechecking}>
           {rechecking ? "Checking…" : "Re-check"}
         </Button>
-        <Button
-          variant="link"
-          size="sm"
-          className={denseLink}
-          nativeButton={false}
-          render={<a href={harness.install.docsUrl} target="_blank" rel="noreferrer" />}
-        >
-          Install docs ↗
-        </Button>
+        {installable && (
+          <Button
+            variant="link"
+            size="sm"
+            className={denseLink}
+            nativeButton={false}
+            render={<a href={harness.install.docsUrl} target="_blank" rel="noreferrer" />}
+          >
+            Install docs ↗
+          </Button>
+        )}
       </div>
     </div>
   );
