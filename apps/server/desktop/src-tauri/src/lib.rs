@@ -12,6 +12,7 @@ mod control;
 // Linux has none — and a module compiled there would be entirely dead code.
 #[cfg(target_os = "macos")]
 mod menu;
+mod reset;
 mod server_bin;
 mod tray;
 mod windows;
@@ -88,6 +89,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::ShellReady::new())
+        // The reset's stashed plan and screen request live HERE, not on any
+        // page: the consent is spent by the command that mutates the disk,
+        // and a window reload must not be able to lose or repeat it.
+        .manage(reset::Stash::default())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
             control::desktop_logs,
@@ -100,6 +105,7 @@ pub fn run() {
             control::desktop_set_server_bin,
             control::desktop_open_main,
             control::desktop_open_console,
+            reset::desktop_reset,
             control::desktop_open_path,
             control::desktop_open_control_plane,
             control::desktop_open_tmux_docs,

@@ -348,7 +348,13 @@ pub fn boot_window(p: &Probe) -> WindowChoice {
     }
 }
 
-fn probe_now(configured: Option<&str>) -> Probe {
+/// One full look at the machine: binary ladder, `status --json`, service
+/// state, and the decision `decide()` draws from them.
+///
+/// `pub(crate)` for `reset::arm_and_raise`, which re-reads at press time so
+/// the stashed delete plan is a fresh fact and not a page's cached value
+/// (spec R18).
+pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
     let server = server_bin::resolve(configured);
     let managed = match (&server, sidecar::install_path(&SERVER_SIDECAR)) {
         (Some(s), Some(managed_path)) => s.argv.first().map(|p| p.as_str()) == managed_path.to_str(),
@@ -773,8 +779,9 @@ pub fn desktop_service(settings: State<'_, SettingsState>, verb: ServiceCommand,
 /// `desktop_service`'s body, reachable without a command context.
 ///
 /// See [`install_server_now`] for why the body lives below its wrapper;
-/// `desktop_setup` calls this for the install and start steps.
-fn service_now(settings: &SettingsState, verb: ServiceCommand, force: bool) -> ActionResult {
+/// `desktop_setup` calls this for the install and start steps, and
+/// `reset::desktop_reset` for the stop and uninstall the wipe needs first.
+pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force: bool) -> ActionResult {
     let server = server_bin::resolve(settings.get().binary_path.as_deref());
     let Some(mut cmd) = server_cmd(&server, &["service", verb.as_str()]) else {
         return ActionResult {
@@ -1212,10 +1219,18 @@ pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(),
 
 /// Open (or focus) the window that MANAGES this machine, whichever that is:
 /// the console after a completed setup, the wizard before one. Called from
-/// the SPA's own footer pill.
+/// the SPA's own footer pill — and from its reset card, whose `screen`
+/// argument arms the reset (spec § 7.1). The argument is optional on the
+/// wire: Tauri answers an absent declared key with None, which is exactly
+/// what every pre-reset caller sends.
 #[tauri::command(async)]
-pub fn desktop_open_console(app: AppHandle) -> Result<(), String> {
-    crate::windows::open_manage_window(&app).map(|_| ())
+pub fn desktop_open_console(app: AppHandle, screen: Option<String>) -> Result<(), String> {
+    if !app.state::<SettingsState>().get().onboarded {
+        // A wizard machine cannot reset: the argument is dropped here, and
+        // open_manage_window lands on the wizard like any other opener (R6).
+        return crate::windows::open_manage_window(&app).map(|_| ());
+    }
+    crate::reset::arm_and_raise(&app, screen)
 }
 
 /// The SPA has rendered its desktop chrome and the window can lose its title bar.
