@@ -58,6 +58,7 @@ export async function harnessInfo(id: string, installedHere: boolean): Promise<S
   return {
     id: h.id,
     name: h.name,
+    type: h.type,
     binary: h.binaryName,
     // Read off the SAME detectSpec the nodes are shipped as the lookup rule,
     // so the UI-named variable can never drift from the one that is honoured

@@ -17,6 +17,7 @@ import type { Node } from "@/types/node";
 const claude: HarnessInfo = {
   id: "claude",
   name: "Claude",
+  type: "agent-harness",
   binary: "claude",
   envOverride: "CLAUDE_PATH",
   description: "",

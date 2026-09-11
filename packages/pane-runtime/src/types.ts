@@ -38,6 +38,7 @@ import type {
   McpLaunchSpec,
   McpRegistration,
   McpSetupInfo,
+  PluginType,
   ProfileDefinition,
   ProfileValidationResult,
   SettingsField,
@@ -63,6 +64,8 @@ export interface HarnessPlugin {
   id: string;
   /** Display name, e.g. "Claude Code" */
   name: string;
+  /** The manifest's plugin type: what kind of thing this drives. Groups and labels; the launch pipeline never branches on it. */
+  type: PluginType;
   /** Executable command name, e.g. "claude" — the same string `findBinary` looks up */
   binaryName: string;
   // NOTE on the binary-override NAME: it lives in {@link detectSpec} and

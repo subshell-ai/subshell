@@ -8,6 +8,8 @@ export interface HarnessInfo {
   id: string;
   /** Human-readable name, e.g. "Claude Code" */
   name: string;
+  /** Manifest plugin type: an agent CLI or a plain shell */
+  type: "agent-harness" | "terminal";
   /** Executable command name, e.g. "claude" — what a launch command starts with */
   binary: string;
   /** Environment variable that overrides binary lookup, e.g. "CLAUDE_PATH"; "" when the plugin declares no detection */

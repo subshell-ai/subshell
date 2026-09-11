@@ -17,6 +17,7 @@ describe("HarnessInstallHelp", () => {
         harness={{
           id: "terminal",
           name: "Terminal",
+          type: "terminal",
           binary: "bash",
           envOverride: "SHELL",
           description: "A plain shell in a subshell pane.",
@@ -39,6 +40,7 @@ describe("HarnessInstallHelp", () => {
         harness={{
           id: "terminal",
           name: "Terminal",
+          type: "terminal",
           binary: "bash",
           envOverride: "SHELL",
           description: "A plain shell in a subshell pane.",

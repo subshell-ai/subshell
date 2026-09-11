@@ -15,6 +15,7 @@ function stubPlugin(overrides: Partial<HarnessPlugin>): HarnessPlugin {
   return {
     id: "stub",
     name: "Stub",
+    type: "agent-harness",
     binaryName: "stub",
     description: "",
     installHint: { command: "", docsUrl: "" },

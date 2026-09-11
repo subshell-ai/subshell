@@ -42,6 +42,7 @@ describe("adaptPlugin: identity comes from the manifest", () => {
     const a = adaptPlugin(MANIFEST, minimal());
     expect(a.id).toBe("stub");
     expect(a.name).toBe("Stub Harness");
+    expect(a.type).toBe("agent-harness");
     expect(a.description).toBe("a stub");
     expect(a.icon).toBe("S");
     expect(a.binaryName).toBe("stubtool");

@@ -148,6 +148,15 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect(res.status).toBe(200);
       expect(((await res.json()) as { needsSetup: boolean }).needsSetup).toBe(true);
     });
+
+    it("reports each harness's plugin type, so a wizard can list agents apart from the terminal", async () => {
+      setHasUsersProbeForTests(async () => false);
+      const res = await anonymousGet("/api/setup/harnesses");
+      const rows = (await res.json()) as { id: string; type: string }[];
+      expect(rows.find((r) => r.id === "terminal")?.type).toBe("terminal");
+      expect(rows.find((r) => r.id === "claude-code")?.type).toBe("agent-harness");
+      setHasUsersProbeForTests(null);
+    });
   });
 
   describe("with a user present (real has-users probe: anonymous is locked out)", () => {

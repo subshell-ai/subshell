@@ -69,6 +69,7 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
   const adapted: HarnessPlugin = {
     id: manifest.id,
     name: manifest.name,
+    type: manifest.type,
     binaryName: manifest.detect?.binaryName ?? manifest.id,
     // The detect block rides through as DATA, verbatim and only when present
     // (inversion spec §5): the control plane ships this same rule on the

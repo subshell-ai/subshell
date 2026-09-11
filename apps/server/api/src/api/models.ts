@@ -162,6 +162,9 @@ export const WorkspaceDetailSchema = t.Object({
 export const HarnessInfoSchema = t.Object({
   id: t.String({ description: "Harness plugin id" }),
   name: t.String({ description: "Display name" }),
+  type: t.Union([t.Literal("agent-harness"), t.Literal("terminal")], {
+    description: "Plugin type from the manifest: an agent CLI, or a plain shell",
+  }),
   binary: t.String({ description: 'Executable command name, e.g. "claude"' }),
   envOverride: t.String({
     description:

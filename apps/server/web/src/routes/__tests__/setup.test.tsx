@@ -36,6 +36,7 @@ const { Route } = await import("@/routes/setup");
 const CLAUDE_ABSENT: HarnessInfo = {
   id: "claude-code",
   name: "Claude Code",
+  type: "agent-harness",
   binary: "claude",
   envOverride: "CLAUDE_PATH",
   description: "Anthropic's coding agent",

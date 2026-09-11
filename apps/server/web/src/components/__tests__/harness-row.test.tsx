@@ -12,6 +12,7 @@ import type { HarnessInfo } from "@/types/harness";
 const base: HarnessInfo = {
   id: "pi",
   name: "pi",
+  type: "agent-harness",
   binary: "pi",
   envOverride: "PI_PATH",
   description: "minimal coding agent from pi.dev",
