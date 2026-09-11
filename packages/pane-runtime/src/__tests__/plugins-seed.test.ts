@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listInstalled, pluginsDir, uninstallPlugin } from "../plugins-dir.js";
@@ -103,6 +103,54 @@ describe("a seed that was interrupted", () => {
     const dir = tempDataDir();
     await seedBuiltIns(dir, ["codex"]);
     expect((await listInstalled(dir)).map((p) => p.id)).toEqual(["codex"]);
+  });
+});
+
+describe("seeding a store that has already been seeded", () => {
+  it("installs a built-in the store has never seen, and only that one", async () => {
+    const dir = tempDataDir();
+    await seedBuiltIns(dir, ["claude-code", "codex"]);
+
+    const second = await seedBuiltIns(dir, ["claude-code", "codex", "terminal"]);
+
+    expect(second).toEqual(["terminal"]);
+    expect((await listInstalled(dir)).map((p) => p.id).sort()).toEqual(["claude-code", "codex", "terminal"]);
+  });
+
+  it("never resurrects a built-in the operator uninstalled", async () => {
+    const dir = tempDataDir();
+    await seedBuiltIns(dir, ["claude-code", "codex"]);
+    await uninstallPlugin(dir, "codex");
+
+    const second = await seedBuiltIns(dir, ["claude-code", "codex"]);
+
+    // Seeded once, so it is in the record and never seeded again. This is
+    // the property the original boolean marker existed to protect.
+    expect(second).toEqual([]);
+    expect((await listInstalled(dir)).map((p) => p.id)).toEqual(["claude-code"]);
+  });
+
+  it("treats a legacy marker as the five pre-terminal built-ins", async () => {
+    const dir = tempDataDir();
+    const root = pluginsDir(dir);
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    // What the old code wrote: a timestamp, not JSON.
+    writeFileSync(join(root, ".seeded"), `${new Date().toISOString()}\n`, { mode: 0o600 });
+
+    const seeded = await seedBuiltIns(dir, ["claude-code", "codex", "terminal"]);
+
+    // An instance upgrading from before this change gains the new built-in
+    // and nothing else, whatever it had uninstalled.
+    expect(seeded).toEqual(["terminal"]);
+  });
+
+  it("records ids as JSON so a later pass can read them", async () => {
+    const dir = tempDataDir();
+    await seedBuiltIns(dir, ["claude-code"]);
+
+    const raw = readFileSync(join(pluginsDir(dir), ".seeded"), "utf8");
+
+    expect(JSON.parse(raw)).toEqual(["claude-code"]);
   });
 });
 

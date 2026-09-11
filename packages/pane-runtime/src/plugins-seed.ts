@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { builtInIds } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
@@ -23,57 +23,101 @@ import {
  * that node", while a seeded directory says "this instance has the plugin",
  * and only the store can say the second thing.
  *
- * **The check is a MARKER FILE, not the directory.** Directory existence looked
- * equivalent and was not: `installEmbedded` creates the directory before it
- * writes anything, so a kill during the very first seed left a directory that
- * seeding then skipped forever, and the store offered nothing for the rest of
- * the instance's life with nothing anywhere saying why. The marker is written
- * only after the pass completes, so an interrupted first seed is retried and a
- * completed one never is.
+ * **The check is the MARKER'S CONTENTS, not the directory and not the
+ * marker's existence.** Directory existence looked equivalent to a completed
+ * seed and was not: `installEmbedded` creates the directory before it writes
+ * anything, so a kill during the very first seed left a directory that
+ * seeding then skipped forever. Existence of the marker fixed that and
+ * introduced a second problem: it made seeding a one-time EVENT, so a
+ * built-in added in a later release could never reach an instance that had
+ * already booted. The marker therefore records WHICH ids were seeded.
  *
  * It must not be emptiness either. An empty directory is an operator who
  * uninstalled everything, and re-seeding would undo that on every restart,
- * which is why the empty case still creates the directory and the marker:
- * "I want nothing here" has to be reachable.
+ * which is why an id in the record is never installed a second time even when
+ * it is absent from disk: "I want nothing here" has to be reachable.
  *
- * One-way by construction. It never removes, never upgrades, and never runs
- * again once the directory exists; `refreshStaleBuiltIns` is the separate
- * concern of keeping an installed built-in current.
+ * One-way per id. It never removes and never upgrades;
+ * `refreshStaleBuiltIns` is the separate concern of keeping an installed
+ * built-in current.
  */
 
-/** Written once the first seed COMPLETES; its presence is what stops a second. */
+/** Records which built-ins this store has ever seeded; its CONTENTS stop a re-seed. */
 const SEEDED_MARKER = ".seeded";
 
 /**
- * Installs the built-ins into an instance store that has never completed a seed.
+ * The built-ins that existed before the marker recorded ids.
+ *
+ * A legacy marker is a timestamp, which says a seed completed but not of
+ * what. It can only have been these five, so that is what it reads as. Frozen
+ * deliberately: this is a historical fact about old instances, not the
+ * current built-in set, and appending to it would re-seed something an
+ * operator uninstalled.
+ */
+const PRE_RECORD_BUILT_INS = ["claude-code", "codex", "hermes", "opencode", "pi"] as const;
+
+/**
+ * Which built-ins this store has already seeded.
+ *
+ * Absent marker = none, so a virgin store seeds everything. A marker that is
+ * not a JSON array of strings was written by the pre-record implementation
+ * and means {@link PRE_RECORD_BUILT_INS}.
+ */
+async function seededIds(marker: string): Promise<Set<string>> {
+  if (!existsSync(marker)) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(await readFile(marker, "utf8"));
+    if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) return new Set(parsed);
+  } catch {
+    // Fall through: unreadable or not JSON is the legacy shape.
+  }
+  return new Set(PRE_RECORD_BUILT_INS);
+}
+
+/**
+ * Installs the built-ins this store has never seeded.
+ *
+ * Was keyed on the marker's EXISTENCE, which made the seed a one-time event
+ * and meant a built-in added in a later release could never reach an instance
+ * that had already booted. The marker now records which ids were seeded, so
+ * the set can grow while the property that mattered is unchanged: an id in
+ * the record is never installed again, so an uninstall still sticks forever.
  * @param dataDir - the data dir whose plugins directory is the store
- * @param ids - which built-ins to seed (defaults to every one this build carries)
- * @returns the ids actually installed; empty when the marker already exists
+ * @param ids - which built-ins to consider (defaults to every one this build carries)
+ * @returns the ids actually installed by THIS pass; empty when there is nothing new
  */
 export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<string[]> {
   const root = pluginsDir(dataDir);
   const marker = join(root, SEEDED_MARKER);
-  if (existsSync(marker)) return [];
+  const already = await seededIds(marker);
+  const wanted = ids ?? (await builtInIds());
+  const todo = wanted.filter((id) => !already.has(id));
 
   await mkdir(root, { recursive: true, mode: 0o700 });
   await enforceMode(root, 0o700);
 
   const seeded: string[] = [];
-  for (const id of ids ?? (await builtInIds())) {
+  for (const id of todo) {
     try {
       await installEmbedded(dataDir, id);
       seeded.push(id);
     } catch (err) {
-      // One built-in that cannot be installed must not cost the node every
-      // other harness it could have offered.
+      // One built-in that cannot be installed must not cost the instance every
+      // other harness it could have offered. It stays OUT of the record, so
+      // the next boot retries it.
       pluginLog().warn(`could not seed built-in plugin "${id}", continuing with the rest`, err);
     }
   }
+
   // Last, and only on the way out. Written before the loop it would record a
   // seed that never happened; written on a throw it would record a partial
   // one. Its name cannot be a plugin id (`listInstalled` skips non-ids, and a
   // file is not a directory either), so it never shows up as a plugin.
-  await writeFile(marker, `${new Date().toISOString()}\n`, { mode: 0o600 });
+  //
+  // The union, not `seeded`: everything previously recorded stays recorded,
+  // including the five a legacy marker stood for, or an upgrade would offer
+  // to re-seed what an operator had removed.
+  await writeFile(marker, JSON.stringify([...already, ...seeded].sort()), { mode: 0o600 });
   if (seeded.length > 0) {
     pluginLog().info(`seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
   }
@@ -98,8 +142,8 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
  *    populated directory and the refresh can bring the restored copy current.
  *    Seeding first would find the directory already there, skip, and leave the
  *    recovery to run against a set nothing will then refresh.
- * 2. **Seed second**, keyed on the completion marker, so a store that has
- *    never completed a seed gets the built-ins exactly once.
+ * 2. **Seed second**, keyed on the marker's record of which ids were seeded,
+ *    so a store gets every built-in it has never been seeded and none twice.
  * 3. **Refresh last**, so a built-in whose on-disk copy predates this build is
  *    brought current whether it was seeded, recovered, or already there.
  *

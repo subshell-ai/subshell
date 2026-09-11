@@ -119,6 +119,12 @@ async function bootServer(): Promise<void> {
   // mirrored into the `local` row it just ensured. Best-effort for the same
   // reason the profile backfill below is: a plugin directory that cannot be
   // prepared must not be why a serviceable instance refuses to boot.
+  //
+  // BEFORE ensureDefaultProfilesEverywhere below, and that order is
+  // load-bearing: seeding can add a built-in this instance has never had
+  // (the plugins-seed record), and the backfill is what gives every existing
+  // user a Default profile for it. Reversed, an upgraded instance would show
+  // a harness nobody can launch until the next restart.
   try {
     await prepareLocalPlugins();
   } catch (err) {
@@ -130,7 +136,9 @@ async function bootServer(): Promise<void> {
   // profile before their first subshell. Idempotent; new users get the same
   // seeding at registration. See services/default-profiles.ts.
   //
-  // AFTER the plugins above, not before. What this host offers is read from
+  // AFTER prepareLocalPlugins above — see the note there; the built-in set
+  // grows (the seed record), and this sweep is what arms each new offering
+  // for every existing user. What this host offers is read from
   // the instance's plugin DIRECTORY (`instanceHarnessIds` walks it), so
   // running it first meant reading the directory before boot had seeded the
   // built-ins into it — and seeding nothing at all, on exactly the first boot
