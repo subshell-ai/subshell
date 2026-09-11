@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { DetectionResult } from "@subshell-ai/plugin-api";
 import { loginPathEntries } from "./login-path.js";
@@ -118,9 +118,53 @@ export async function detectBinaryWithOptions(
  * unreachable from every production caller while that rung's own test, which
  * omits the key, kept passing. The service-PATH bug it was added to fix was
  * therefore still live after the fix landed. Let the derivation happen inside.
+ *
+ * **A missing `SHELL` is filled from the passwd entry, but only here.**
+ * Service managers start units with a stock env; the ones this repo writes
+ * add `PATH` and nothing else, so `SHELL` is ABSENT in every
+ * systemd/launchd-run server and node agent. For the terminal plugin that
+ * would mean rung 1 never fires there and the pane silently runs whatever
+ * `bash` PATH happens to hold instead of the user's login shell, sourcing
+ * none of their config. The passwd entry IS the login shell (that is its
+ * definition), so it answers honestly where the variable is missing.
+ *
+ * Live-only, on purpose: the env is the primary source, so an explicit
+ * `SHELL` (and every test that injects one) still wins, and a caller that
+ * injects `env` sees exactly the world it described, not this host's passwd.
  */
 export async function detectBinary(name: string, envName: string, knownPaths: string[]): Promise<DetectionResult> {
-  return detectBinaryWithOptions(name, envName, knownPaths, { env: process.env });
+  return detectBinaryWithOptions(name, envName, knownPaths, {
+    env: withShellBackfill(process.env, accountLoginShell()),
+  });
+}
+
+/**
+ * The OS login shell for the current user, or `undefined` when the passwd
+ * entry cannot be read or names none. The ONLY source that survives a
+ * service-managed boot, where `SHELL` is absent from the process env.
+ */
+export function accountLoginShell(): string | undefined {
+  try {
+    return userInfo().shell || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `env` with `SHELL` backfilled from `accountShell` when the env does not
+ * already carry one.
+ *
+ * Pure (the passwd read is the caller's), so the three answers are pinable
+ * without a live getpwuid: an explicit `SHELL` WINS (identity returned, not a
+ * copy — it is already the answer), a missing one takes the account shell,
+ * and a machine that can name neither gets the env untouched so the ladder
+ * falls to the PATH rung. Spreading, not mutating: the caller's object is
+ * `process.env` and must not gain a key.
+ */
+export function withShellBackfill(env: NodeJS.ProcessEnv, accountShell: string | undefined): NodeJS.ProcessEnv {
+  if (env.SHELL) return env;
+  return accountShell ? { ...env, SHELL: accountShell } : env;
 }
 
 /** Path-only view of {@link detectBinary}, for callers that cannot act on a reason. */

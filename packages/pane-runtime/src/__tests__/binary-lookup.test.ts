@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectBinary, detectBinaryWithOptions, findBinaryWithOptions } from "../binary-lookup.js";
+import { detectBinary, detectBinaryWithOptions, findBinaryWithOptions, withShellBackfill } from "../binary-lookup.js";
 import { loginPathEntries, resetLoginPathForTests } from "../login-path.js";
 
 /**
@@ -292,5 +292,33 @@ describe("a plugin whose override is SHELL", () => {
     });
 
     expect(found).toEqual({ path: null, reason: "override-invalid" });
+  });
+});
+
+describe("the account login shell backfill (service-managed hosts)", () => {
+  it("backfills a SHELL the daemon env never had, without mutating the env", () => {
+    // systemd and launchd start units without SHELL (this repo's own units
+    // carry only PATH), so this is the terminal plugin's ONLY path to the
+    // user's real login shell on every production host.
+    const env = { PATH: "/usr/bin" };
+    const merged = withShellBackfill(env, "/usr/bin/zsh");
+    expect(merged.SHELL).toBe("/usr/bin/zsh");
+    expect("SHELL" in env).toBe(false); // process.env must not gain a key
+  });
+
+  it("an explicit SHELL wins and the env comes back untouched", () => {
+    const env = { SHELL: "/bin/bash" };
+    expect(withShellBackfill(env, "/usr/bin/zsh")).toBe(env);
+  });
+
+  it("no env value and no account shell leaves the ladder to PATH", () => {
+    const env = { PATH: "/usr/bin" };
+    expect(withShellBackfill(env, undefined)).toBe(env);
+  });
+
+  it("the backfilled value is what rung 1 then answers", async () => {
+    const env = withShellBackfill({}, "/bin/sh");
+    const found = await detectBinaryWithOptions("bash", "SHELL", [], { env, pathEntries: [] });
+    expect(found).toEqual({ path: "/bin/sh" });
   });
 });
