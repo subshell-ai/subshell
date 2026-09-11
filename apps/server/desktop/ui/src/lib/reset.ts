@@ -42,6 +42,12 @@ export function resetRows(status: StatusLike): { label: string; path: string }[]
   ];
 }
 
+/**
+ * The page-side mirror of Rust's consent compare, same exactness and one
+ * added refusal it used to lack (PR review, fail-open): an EMPTY hostname is
+ * a failed read on this machine, not a name - the empty box that used to
+ * match it arms nothing, here and in Rust alike.
+ */
 export function armed(typed: string, hostname: string): boolean {
-  return typed.trim() === hostname;
+  return hostname !== "" && typed.trim() === hostname;
 }

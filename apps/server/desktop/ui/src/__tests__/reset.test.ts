@@ -33,5 +33,9 @@ describe("armed", () => {
     expect(armed("Devbox", "devbox")).toBe(false);
     expect(armed("devbox ", "devbox")).toBe(true); // trailing space is a typing artifact, trimmed
     expect(armed("", "devbox")).toBe(false);
+    // The fail-open the PR review caught: an empty hostname is a FAILED READ
+    // of hostname(1), not a name - and two empties must never arm a wipe.
+    expect(armed("", "")).toBe(false);
+    expect(armed("   ", "")).toBe(false);
   });
 });

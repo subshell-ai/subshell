@@ -126,6 +126,14 @@ pub fn is_subshell_socket(name: &str) -> bool {
     name.starts_with("subshell-")
 }
 
+/// The consent comparison, pure so its fail-closed half is testable: a
+/// non-empty memo must equal the trimmed typing, and the EMPTY memo (a
+/// hostname read that failed) matches NOTHING — least of all the empty box
+/// it used to arm. A wipe's only gate opens on a name, never on its absence.
+fn consent_granted(typed: &str, memo: &str) -> bool {
+    !memo.is_empty() && typed.trim() == memo
+}
+
 /// What a reset press leaves behind: the requested screen until some page
 /// collects it, and the delete plan until the consent is spent.
 #[derive(Default)]
@@ -181,8 +189,15 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     // the probe carries the same memoized `machine_hostname` the page
     // rendered, so comparison is two reads of one OnceLock, never a re-spawn
     // that could race a rename mid-session into an instruction nobody typed.
-    // A mismatch is a refusal to start, not a failed run: Err.
-    if typed.trim() != crate::control::machine_hostname() {
+    // A mismatch is a refusal to start, not a failed run: Err. An EMPTY memo
+    // — hostname(1) would not run — is refused by name, because the empty
+    // box it used to match is the one thing this gate may never accept
+    // (PR review, fail-open finding).
+    let memo = crate::control::machine_hostname();
+    if memo.is_empty() {
+        return Err("this machine's name could not be read, so reset cannot confirm it".into());
+    }
+    if !consent_granted(&typed, &memo) {
         return Err("the hostname did not match this machine".into());
     }
     let stash = app.state::<Stash>();
@@ -238,9 +253,13 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     }
 
     let mut log = String::new();
-    // 2. Stop, tolerating "there is nothing to stop" (the CLI's own words).
+    // 2. Stop. Tolerates the CLI's measured refusal for a machine with no
+    // service (`controlService` answers exit 1, `nothing installed: no
+    // service definition at ...` on stderr): without it a Retry after any
+    // step-5 failure dies here forever, because step 4 of the half-run
+    // already removed what this step would then refuse on (PR review).
     let stop = crate::control::service_now(&settings, ServiceCommand::Stop, false);
-    if let Some(stderr) = push_step(&mut log, &stop, &[]) {
+    if let Some(stderr) = push_step(&mut log, &stop, &["nothing installed"]) {
         return Ok(ActionResult {
             ok: false,
             stdout: log,
@@ -256,8 +275,12 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         });
     }
     // 4. Uninstall the service, while the binary and config it names exist.
+    // Linux answers a missing unit with exit 0 (its "nothing installed" goes
+    // to stdout), so this tolerance is belt-and-braces - but anchored on the
+    // CLI's real spelling, not the old "not installed", which matched nothing
+    // anywhere (PR review).
     let un = crate::control::service_now(&settings, ServiceCommand::Uninstall, false);
-    if let Some(stderr) = push_step(&mut log, &un, &["not installed"]) {
+    if let Some(stderr) = push_step(&mut log, &un, &["nothing installed"]) {
         return Ok(ActionResult {
             ok: false,
             stdout: log,
@@ -465,6 +488,17 @@ fn delete_except(dir: &Path, keep_out: &Path) -> std::io::Result<()> {
 /// already dead: unlink the stale socket and continue. Any other failure ends
 /// the chain (as a half-run): a pane that survived is a reset that lied.
 fn close_subshell_tmux(log: &mut String) -> Option<String> {
+    // "No tmux on this machine" is a fact about the machine, established ONCE
+    // before the loop (PR review): drawing it from one failed kill instead
+    // would report the step as succeeding while abandoning every remaining
+    // socket, on any spawn failure at all - fork refused under memory
+    // pressure, a PATH race, anything. Inside the loop a failure is either
+    // the stale-socket case or a real refusal that stops the chain, exactly
+    // as the uid read below already does.
+    if subshell_desktop_core::shell_env::which("tmux").is_none() {
+        log.push_str("tmux is not installed; no pane servers to close\n");
+        return None;
+    }
     let base_raw = std::env::var("TMUX_TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
     let base = std::fs::canonicalize(&base_raw).unwrap_or_else(|_| PathBuf::from(&base_raw));
     // A uid this side cannot read means a directory this side cannot name,
@@ -500,13 +534,6 @@ fn close_subshell_tmux(log: &mut String) -> Option<String> {
             ACTION_TIMEOUT,
         );
         if !r.ok() {
-            // No tmux binary at all: the spawn never started (no exit code,
-            // not a deadline). That is the same fact an absent directory
-            // gives — nothing was ever listening — not a failure.
-            if r.code.is_none() && !r.timed_out {
-                log.push_str("tmux is not installed; no pane servers to close\n");
-                return None;
-            }
             let combined = format!("{}{}", r.stdout, r.stderr);
             if combined.contains("error connecting") {
                 let _ = std::fs::remove_file(dir.join(&name));
@@ -593,6 +620,52 @@ mod tests {
         assert!(
             survived.contains("/data/subshell.db"),
             "the message names the path that survived"
+        );
+    }
+
+    #[test]
+    fn an_unread_hostname_grants_consent_to_nothing_least_of_all_the_empty_box() {
+        // The PR review's fail-open finding: `machine_hostname`'s memo is
+        // empty when hostname(1) cannot run, and the old comparison accepted
+        // the empty box it armed. The wipe's only gate opens on a name.
+        assert!(!consent_granted("", ""));
+        assert!(consent_granted("devbox", "devbox"));
+        assert!(consent_granted("  devbox  ", "devbox")); // typing artifact, trimmed - the UX half
+        assert!(!consent_granted("Devbox", "devbox")); // the compare is exact
+        assert!(!consent_granted("devbox", "")); // a name never satisfies a failed read
+    }
+
+    #[test]
+    fn retry_past_an_uninstalled_service_walks_past_the_clis_stop_refusal() {
+        // The review's convergence finding, over the pure mechanism: after
+        // step 4 uninstalls and step 5 fails, Retry's stop meets
+        // `controlService`'s refusal - exit 1, "nothing installed: ..." on
+        // STDERR (service.ts `errLine` is code 1). The tolerance is pinned to
+        // that measured string; the no-tolerance assertion restates the bug
+        // this sequence used to have, and the last line names why the old
+        // anchor was inert: "not installed" is not a substring here.
+        let refused = ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "subshell-server: nothing installed: no service definition at /home/u/.config/systemd/user/subshell-server.service (run `subshell-server service install` first)\n".into(),
+        };
+        let mut log = String::new();
+        assert!(
+            push_step(&mut log, &refused, &["nothing installed"]).is_none(),
+            "a tolerated refusal walks on"
+        );
+        assert!(
+            log.contains("nothing installed"),
+            "and the CLI's words still render verbatim"
+        );
+        let mut strict = String::new();
+        assert!(
+            push_step(&mut strict, &refused, &[]).is_some(),
+            "untolerated, it ends the chain - which is how Retry used to die forever"
+        );
+        assert!(
+            !refused.stderr.contains("not installed"),
+            "the phrase the code used to carry matches nothing the CLI emits"
         );
     }
 

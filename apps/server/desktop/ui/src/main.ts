@@ -1101,8 +1101,17 @@ let view: "status" | "reset" = "status";
 
 function renderReset(): void {
   const st = probe?.status;
+  const host = probe?.hostname ?? "";
   const why = refusal(st);
-  el("reset-refusal").textContent = why ?? "";
+  // One sentence names one cause. A paths block that is complete but a name
+  // that could not be read still leaves the button disabled (armed() refuses
+  // an empty hostname) - and no control is disabled without its reason named
+  // beside it, which is what this line is for.
+  el("reset-refusal").textContent =
+    why ??
+    (host === ""
+      ? "This machine's name could not be read, so there is nothing reset can confirm against; it refuses rather than arming on an empty box."
+      : "");
   const rows = el("reset-rows");
   rows.textContent = "";
   if (why === null && st !== undefined && st !== null) {
@@ -1114,10 +1123,10 @@ function renderReset(): void {
   }
   el("reset-disclosures").textContent =
     "Enrolled remote nodes are NOT reached: their agents and panes keep running with keys to a plane that will not exist. A subshell node agent on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
-  el("reset-hostname").textContent = probe?.hostname ?? "";
+  el("reset-hostname").textContent = host;
   const typed = (el("reset-confirm") as HTMLInputElement).value;
-  (el("reset-run") as HTMLButtonElement).disabled = !(why === null && armed(typed, probe?.hostname ?? ""));
-  el("reset-run").dataset.armed = String(armed(typed, probe?.hostname ?? ""));
+  (el("reset-run") as HTMLButtonElement).disabled = !(why === null && armed(typed, host));
+  el("reset-run").dataset.armed = String(armed(typed, host));
 }
 
 function showReset(): void {

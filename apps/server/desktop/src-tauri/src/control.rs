@@ -292,15 +292,22 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
 /// rename itself, and the memo is the SINGLE source: the value the reset
 /// screen displays and the value `desktop_reset` compares are the same read
 /// by construction (R15), so a mid-session rename surfaces next launch
-/// rather than as an instruction that cannot be followed.
+/// rather than as an instruction that cannot be followed. An empty return
+/// is a failed read, never a name: consent compares against it only after
+/// refusing it.
 pub fn machine_hostname() -> String {
     static HOSTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HOSTNAME
         .get_or_init(|| {
-            run(&["hostname".to_string()], std::time::Duration::from_secs(5))
-                .stdout
-                .trim()
-                .to_string()
+            // The empty string means COULD NOT READ, and every consumer
+            // refuses on it (PR review): the old shape returned a failed
+            // spawn's empty stdout as if it were the name, which made the
+            // wipe's typed-hostname gate accept an empty box. Fail closed.
+            let r = run(&["hostname".to_string()], std::time::Duration::from_secs(5));
+            if !r.ok() {
+                return String::new();
+            }
+            r.stdout.trim().to_string()
         })
         .clone()
 }
