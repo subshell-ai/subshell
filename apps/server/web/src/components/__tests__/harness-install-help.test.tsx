@@ -26,7 +26,6 @@ describe("HarnessInstallHelp", () => {
           installedHere: true,
           install: { command: "", docsUrl: "" },
         }}
-        onRecheck={() => {}}
       />,
     );
 
@@ -49,7 +48,6 @@ describe("HarnessInstallHelp", () => {
           installedHere: true,
           install: { command: "", docsUrl: "" },
         }}
-        onRecheck={() => {}}
       />,
     );
 
@@ -60,7 +58,5 @@ describe("HarnessInstallHelp", () => {
     // are affordances that lead nowhere.
     expect(screen.queryByText("Copy")).toBeNull();
     expect(screen.queryByText(/Install docs/)).toBeNull();
-    // The re-check, which is the one action that can actually help, stays.
-    expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
   });
 });

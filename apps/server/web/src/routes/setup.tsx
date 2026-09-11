@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Bot, KeyRound, Rocket } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
-import { HarnessRow } from "@/components/harness-row";
+import { AgentRow } from "@/components/setup/agent-row";
+import { SetupAssistant } from "@/components/setup/setup-assistant";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -10,15 +12,14 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/new-subshell-form";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
-import { useHarnessToggles } from "@/hooks/use-harness-toggles";
-import { useHarnesses, useRecheckHarnesses } from "@/hooks/use-harnesses";
+import { useHarnesses } from "@/hooks/use-harnesses";
 import { apiFetch } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { desktopPlatform, isDesktop } from "@/lib/desktop";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/setup")({
@@ -45,14 +46,17 @@ function SetupPage() {
   const [regError, setRegError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Harness management — install help and the Enable/switch live on each row
-  // (the shared HarnessRow). No selection: every enabled harness
-  // already has a blank Default profile (seeded at registration), so a user
-  // who wants to launch straight away can finish here and never touch a
-  // profile. Enabling a harness on this step also seeds its Default.
-  const { data: harnesses, isLoading: harnessesLoading, isError: harnessesError } = useHarnesses();
-  const recheck = useRecheckHarnesses();
-  const { toggle: toggleHarness, errors: harnessErrors, pending: togglePending } = useHarnessToggles();
+  // Add an Agent: a detection-first list, no toggle. Every harness's install
+  // is a separate step (Settings → Plugins); this screen only says what's on
+  // this host right now, and refreshes on its own so an install made in a
+  // terminal beside it shows up without a control.
+  const {
+    data: harnesses,
+    isLoading: harnessesLoading,
+    isError: harnessesError,
+    refetch: refetchHarnesses,
+  } = useHarnesses({ refetchInterval: step === 1 ? 4000 : undefined });
+  const agents = (harnesses ?? []).filter((h) => h.type === "agent-harness");
 
   // Launch step. The form defaults itself (node `local`, the first launchable
   // profile, the node's home directory), so this is one click unless the user
@@ -131,165 +135,157 @@ function SetupPage() {
     }
   }
 
-  return (
-    <main className="flex min-h-dvh items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Welcome to Subshell</CardTitle>
-          <CardDescription>
-            Step {step + 1} of {STEPS.length}: {STEPS[step]}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {step === 0 && (
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void register();
-              }}
-            >
-              <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" required value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password-confirm">Confirm password</Label>
-                <Input
-                  id="password-confirm"
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  onBlur={() => setConfirmTouched(true)}
-                />
-                {confirmTouched && confirmPassword !== password && (
-                  <p className="text-destructive text-sm">Passwords do not match</p>
-                )}
-              </div>
-              {regError && <p className="text-destructive text-sm">{regError}</p>}
-              <Button type="submit" className="w-full" disabled={busy || confirmPassword !== password}>
-                {busy ? "Creating account…" : "Create admin account"}
-              </Button>
-            </form>
+  // In the desktop shell the native assistant already showed three screens;
+  // the dot row continues from there so the two programs read as one
+  // (spec § 4).
+  const NATIVE_STEPS = isDesktop() ? 3 : 0;
+  const dotsFor = (n: number) => ({
+    total: STEPS.length + NATIVE_STEPS,
+    done: NATIVE_STEPS + n,
+    current: NATIVE_STEPS + n,
+  });
+  const here = desktopPlatform() === "macos" ? "this Mac" : "this machine";
+
+  if (step === 0) {
+    return (
+      <SetupAssistant
+        illustration={<KeyRound />}
+        title="Create Your Account"
+        subtitle={
+          isDesktop()
+            ? `Subshell Server is running on ${here}. This is its admin account.`
+            : "Welcome to Subshell. This is the admin account for your Subshell server."
+        }
+        dots={dotsFor(0)}
+        primary={{
+          label: "Create Account",
+          onClick: () => void register(),
+          disabled: busy || !name || !email || password.length < 8 || confirmPassword !== password,
+          pending: busy,
+          pendingLabel: "Creating account…",
+        }}
+      >
+        <form
+          className="mx-auto grid w-[360px] gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void register();
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password-confirm">Confirm password</Label>
+            <Input
+              id="password-confirm"
+              type="password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              onBlur={() => setConfirmTouched(true)}
+            />
+          </div>
+          {confirmTouched && confirmPassword !== password && (
+            <p className="text-destructive text-sm">Passwords do not match</p>
           )}
+          {regError && <p className="text-destructive text-sm">{regError}</p>}
+        </form>
+      </SetupAssistant>
+    );
+  }
 
-          {step === 1 && (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <p className="font-medium">Add an agent (optional)</p>
-                <p className="text-muted-foreground text-sm">
-                  Install a coding-agent CLI and switch it on to run agent subshells. You can skip this: a subshell can
-                  run a plain terminal, and you can add an agent any time from Settings.
-                </p>
-              </div>
-              {/* First-run dead-end fix: while the registry is in flight the
-                  step used to show nothing, and an error left it blank forever. */}
-              {harnessesLoading && <p className="text-muted-foreground text-sm">Loading harnesses…</p>}
-              {harnessesError && (
-                <ErrorBanner
-                  message="Couldn't load harnesses."
-                  className="rounded-md border"
-                  action={
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-inherit text-xs underline"
-                      onClick={() => void recheck()}
-                    >
-                      Retry
-                    </Button>
-                  }
-                />
-              )}
-              {harnesses?.map((h) => (
-                <HarnessRow
-                  key={h.id}
-                  harness={h}
-                  pending={togglePending}
-                  error={harnessErrors[h.id]}
-                  onToggle={toggleHarness}
-                  onRecheck={recheck}
-                />
-              ))}
-              {/* First-run escape hatch (spec §8): a host with no usable
-                  harness is not a dead end — subshells can run on an enrolled
-                  node instead. "Usable" = this host has the PLUGIN and the
-                  PROGRAM it drives was found. */}
-              {harnesses !== undefined && !harnesses.some((h) => h.installed && h.installedHere) && (
-                <p className="text-muted-foreground text-sm">
-                  Nothing usable on this machine?{" "}
-                  <Link to="/nodes" className="underline">
-                    …or register a Node →
-                  </Link>
-                </p>
-              )}
-              <Button className="w-full" disabled={busy} onClick={() => setStep(2)}>
-                Continue
-              </Button>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <p className="font-medium">Start your first subshell</p>
-                <p className="text-muted-foreground text-sm">
-                  Everything below is already filled in. Change anything you like, or just start it.
-                </p>
-              </div>
-
-              <NewSubshellForm
-                value={launchForm}
-                onChange={setLaunchForm}
-                ids={{
-                  profile: "setup-profile",
-                  workingDir: "setup-working-dir",
-                  name: "setup-subshell-name",
-                  node: "setup-node",
-                }}
-              />
-
-              {create.error && (
-                <p className="text-destructive text-sm">
-                  {createSubshellErrorMessage(create.error, "Failed to start the subshell")}
-                </p>
-              )}
-
+  if (step === 1) {
+    return (
+      <SetupAssistant
+        illustration={<Bot />}
+        title="Add an Agent"
+        subtitle="A plain terminal is always available with nothing to install. Add an agent CLI now, or later in Settings."
+        dots={dotsFor(1)}
+        primary={{ label: "Continue", onClick: () => setStep(2), disabled: busy }}
+      >
+        {harnessesLoading && <p className="text-muted-foreground text-sm">Checking {here}…</p>}
+        {harnessesError && (
+          <ErrorBanner
+            message="Couldn't check for agents."
+            className="rounded-md border"
+            action={
               <Button
-                className="w-full"
-                disabled={create.isPending || !canSubmit(launchForm)}
-                onClick={() => void launch()}
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-inherit text-xs underline"
+                onClick={() => void refetchHarnesses()}
               >
-                {create.isPending ? "Starting…" : "Start my first subshell"}
+                Retry
               </Button>
+            }
+          />
+        )}
+        <ul>
+          {agents.map((h) => (
+            <AgentRow key={h.id} harness={h} />
+          ))}
+        </ul>
+        {harnesses !== undefined && !agents.some((h) => h.installed) && (
+          <p className="mt-4 text-muted-foreground text-sm">
+            Nothing on {here}?{" "}
+            <Link to="/nodes" className="underline">
+              …or register a Node →
+            </Link>
+          </p>
+        )}
+      </SetupAssistant>
+    );
+  }
 
-              {/* Never a dead end: a machine that cannot launch anything must
-                  still be able to leave the wizard and reach the app. */}
-              <Button variant="link" className="w-full" disabled={create.isPending} onClick={finish}>
-                Skip for now
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </main>
+  return (
+    <SetupAssistant
+      illustration={<Rocket />}
+      title="Start Your First Subshell"
+      subtitle="Everything below is already filled in. Change anything you like."
+      dots={dotsFor(2)}
+      skip={{ label: "Skip", onClick: finish, disabled: create.isPending }}
+      primary={{
+        label: "Start",
+        onClick: () => void launch(),
+        disabled: create.isPending || !canSubmit(launchForm),
+        pending: create.isPending,
+        pendingLabel: "Starting…",
+      }}
+    >
+      <NewSubshellForm
+        value={launchForm}
+        onChange={setLaunchForm}
+        ids={{
+          profile: "setup-profile",
+          workingDir: "setup-working-dir",
+          name: "setup-subshell-name",
+          node: "setup-node",
+        }}
+      />
+      {create.error && (
+        <p className="mt-3 text-destructive text-sm">
+          {createSubshellErrorMessage(create.error, "Failed to start the subshell")}
+        </p>
+      )}
+    </SetupAssistant>
   );
 }

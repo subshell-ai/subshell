@@ -7,21 +7,15 @@ const denseLink = "h-auto p-0 text-xs text-muted-foreground underline hover:text
 
 /**
  * The "how do I get this harness" block shown under a not-installed card:
- * the official command (copy-to-clipboard), a docs link, and a Re-check that
- * just refetches detection. Also renders the plain reason for a harness that
- * is installed but disabled, so every non-usable card says why.
+ * the official command (copy-to-clipboard) and a docs link. Also renders the
+ * plain reason for a harness that is installed but disabled, so every
+ * non-usable card says why.
  */
 export function HarnessInstallHelp({
   harness,
-  onRecheck,
-  rechecking = false,
 }: {
   /** The harness this block explains */
   harness: HarnessInfo;
-  /** Re-run server-side detection (refetch) */
-  onRecheck: () => void;
-  /** True while the re-check is in flight */
-  rechecking?: boolean;
 }) {
   if (harness.installed) {
     return (
@@ -47,15 +41,10 @@ export function HarnessInstallHelp({
     // cached bundle talking to a server predating it. If we cannot name the
     // variable we do not write a sentence about it.
     return (
-      <div className="space-y-2">
-        <p className="text-muted-foreground text-xs">
-          The <code className="font-mono">{harness.envOverride}</code> environment variable is set, but it doesn't point
-          at an executable file. Fix it or unset it, then re-check.
-        </p>
-        <Button type="button" variant="link" size="sm" className={denseLink} onClick={onRecheck} disabled={rechecking}>
-          {rechecking ? "Checking…" : "Re-check"}
-        </Button>
-      </div>
+      <p className="text-muted-foreground text-xs">
+        The <code className="font-mono">{harness.envOverride}</code> environment variable is set, but it doesn't point
+        at an executable file. Fix it or unset it, then check again.
+      </p>
     );
   }
 
@@ -64,9 +53,9 @@ export function HarnessInstallHelp({
   // them hunting for a program called terminal.
   //
   // A plugin with no `install` block (the terminal plugin has nothing to
-  // install) gets the reason and a Re-check only. An empty copy box and an
-  // "Install docs" link to the current page are not fallbacks, they are
-  // affordances that lead nowhere.
+  // install) gets the reason only. An empty copy box and an "Install docs"
+  // link to the current page are not fallbacks, they are affordances that
+  // lead nowhere.
   const installable = harness.install.command.trim() !== "";
   // The docs link gates on its OWN field, not on the command's: a plugin
   // can honestly ship one without the other, and `href=""` is a link that
@@ -81,22 +70,17 @@ export function HarnessInstallHelp({
           : "Nothing needs installing for this plugin, so this machine's PATH is the problem."}
       </p>
       {installable && <CopyCommandRow text={harness.install.command} />}
-      <div className="flex items-center gap-3 text-xs">
-        <Button type="button" variant="link" size="sm" className={denseLink} onClick={onRecheck} disabled={rechecking}>
-          {rechecking ? "Checking…" : "Re-check"}
+      {hasDocs && (
+        <Button
+          variant="link"
+          size="sm"
+          className={denseLink}
+          nativeButton={false}
+          render={<a href={harness.install.docsUrl} target="_blank" rel="noreferrer" />}
+        >
+          Install docs ↗
         </Button>
-        {hasDocs && (
-          <Button
-            variant="link"
-            size="sm"
-            className={denseLink}
-            nativeButton={false}
-            render={<a href={harness.install.docsUrl} target="_blank" rel="noreferrer" />}
-          >
-            Install docs ↗
-          </Button>
-        )}
-      </div>
+      )}
     </div>
   );
 }

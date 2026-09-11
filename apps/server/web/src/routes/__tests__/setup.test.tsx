@@ -8,6 +8,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { resetDesktopShellForTests } from "@/lib/desktop";
 import { setFetchRouter } from "@/test-setup";
 import type { HarnessInfo } from "@/types/harness";
 
@@ -168,10 +169,10 @@ async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2) {
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
     fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "correct-horse-battery" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create admin account" }));
-    // Wait on real step-1 CONTENT (the harness row), not the button label:
-    // "Creating account…" makes "Create admin account" vanish while the
-    // sign-up promise is still in flight.
+    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
+    // Wait on real step-1 CONTENT (the agent row), not the button label:
+    // "Creating account…" makes "Create Account" vanish while the sign-up
+    // promise is still in flight.
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
   }
   if (upto >= 2) {
@@ -189,15 +190,69 @@ afterEach(() => {
 describe("setup wizard: the agent step is optional", () => {
   it("presents the agent step as optional and says what happens if you skip it", async () => {
     await renderSetup({}, 1);
-    expect(screen.getByText(/Add an agent \(optional\)/)).toBeTruthy();
-    expect(screen.getByText(/plain terminal/i)).toBeTruthy();
+    expect(screen.getByText(/A plain terminal is always available/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
   });
 
   it("keeps the node escape hatch for a machine with nothing usable", async () => {
     await renderSetup({ harnesses: [CLAUDE_ABSENT] }, 1);
     expect(await screen.findByText(/register a Node/)).toBeTruthy();
+  });
+
+  it("lists a detected agent with its version, and never lists the terminal plugin", async () => {
+    await renderSetup(
+      {
+        harnesses: [
+          { ...CLAUDE_ABSENT, installed: true, version: "1.0.0", reason: undefined },
+          {
+            id: "terminal",
+            name: "Terminal",
+            type: "terminal",
+            binary: "bash",
+            envOverride: "SHELL",
+            description: "A plain shell in a subshell pane.",
+            installed: true,
+            installedHere: true,
+            install: { command: "", docsUrl: "" },
+          },
+        ],
+      },
+      1,
+    );
+    const row = screen.getByRole("listitem", { name: "Claude Code" });
+    expect(row.textContent).toContain("Detected · v1.0.0");
+    expect(screen.queryByRole("listitem", { name: "Terminal" })).toBeNull();
+    // Nothing usable? hatch stays hidden once an agent is detected.
+    expect(screen.queryByText(/register a Node/)).toBeNull();
+  });
+});
+
+describe("setup wizard: the dot row continues the native assistant", () => {
+  afterEach(() => {
+    resetDesktopShellForTests();
+  });
+
+  it("reads Step 2 of 3 under a plain browser UA", async () => {
+    await renderSetup({}, 1);
+    expect(screen.getByText("Step 2 of 3")).toBeTruthy();
+  });
+
+  it("reads Step 5 of 6 under the desktop shell's UA, continuing its three native screens", async () => {
+    const nav = globalThis.navigator as unknown as Record<string, unknown>;
+    const prev = Object.getOwnPropertyDescriptor(nav, "userAgent");
+    resetDesktopShellForTests();
+    Object.defineProperty(nav, "userAgent", {
+      value: "Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)",
+      configurable: true,
+    });
+    try {
+      await renderSetup({}, 1);
+      expect(screen.getByText("Step 5 of 6")).toBeTruthy();
+    } finally {
+      if (prev) Object.defineProperty(nav, "userAgent", prev);
+      else delete nav.userAgent;
+      resetDesktopShellForTests();
+    }
   });
 });
 
@@ -211,7 +266,7 @@ describe("setup wizard: the launch step", () => {
 
   it("arrives filled in: Task 6's defaults make it submittable without input", async () => {
     await renderSetup(LAUNCH_MOCKS, 2);
-    const start = screen.getByRole("button", { name: "Start my first subshell" }) as HTMLButtonElement;
+    const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
     // Not just "eventually enabled" — the settle inside the walk means the
     // defaults have already composed; a regression in them fails HERE rather
     // than as a click that silently launches with blanks.
@@ -221,7 +276,7 @@ describe("setup wizard: the launch step", () => {
 
   it("launches a subshell and lands on it", async () => {
     const { history } = await renderSetup(LAUNCH_MOCKS, 2);
-    fireEvent.click(screen.getByRole("button", { name: "Start my first subshell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
     // The final ROUTER LOCATION, not just a navigate call: the redirect
     // effect on this page fires when the setup-status cache flips, and an
     // effect-bounce to "/" after the launch would pass a call spy while
@@ -231,7 +286,7 @@ describe("setup wizard: the launch step", () => {
 
   it("retires the setup-status cache on launch, so the shell does not bounce back", async () => {
     const { client } = await renderSetup(LAUNCH_MOCKS, 2);
-    fireEvent.click(screen.getByRole("button", { name: "Start my first subshell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() =>
       expect(client.getQueryData<{ needsSetup: boolean }>(["setup-status"])).toEqual({ needsSetup: false }),
     );
@@ -239,7 +294,7 @@ describe("setup wizard: the launch step", () => {
 
   it("lets a user leave without launching, and still finishes setup", async () => {
     const { client, history } = await renderSetup(LAUNCH_MOCKS, 2);
-    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(client.getQueryData<{ needsSetup: boolean }>(["setup-status"])).toEqual({ needsSetup: false });
     await waitFor(() => expect(history.location.pathname).toBe("/"));
   });
@@ -255,9 +310,9 @@ describe("setup wizard: the launch step", () => {
       },
       2,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Start my first subshell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText(/offline/i)).toBeTruthy());
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(history.location.pathname).toBe("/setup");
   });
 });

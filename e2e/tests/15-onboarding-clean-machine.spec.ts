@@ -156,24 +156,23 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   await page.fill("#email", `onboarding-${test.info().retry}@subshell.test`);
   await page.fill("#password", "e2e-onboarding-pass-1");
   await page.fill("#password-confirm", "e2e-onboarding-pass-1");
-  await page.getByRole("button", { name: "Create admin account" }).click();
+  await page.getByRole("button", { name: "Create Account" }).click();
 
   // Step 2: skip the agent entirely. This is the whole point: nothing agent-
-  // shaped is installed, and the wizard must still reach a subshell.
-  await expect(page.getByText("Add an agent (optional)")).toBeVisible();
-  // Terminal — the one plugin that needs no program of its own — is the only
-  // "ready" row on this machine.
-  await expect(
-    page.getByRole("group", { name: "Terminal", exact: true }).getByText("ready", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole("group", { name: "pi", exact: true }).getByText("ready", { exact: true })).toHaveCount(0);
+  // shaped is installed, and the wizard must still reach a subshell. The
+  // agent list is agent-harness plugins only — the terminal plugin (which
+  // needs no program of its own) never appears as a row here.
+  await expect(page.getByRole("heading", { name: "Add an Agent" })).toBeVisible();
+  await expect(page.getByText(/A plain terminal is always available/)).toBeVisible();
+  await expect(page.getByRole("listitem", { name: "Terminal", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("listitem", { name: "pi", exact: true }).getByText(/Detected/)).toHaveCount(0);
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Step 3: the form arrives filled in. Assert that BEFORE clicking, so a
   // regression in the defaults fails here rather than as a disabled button.
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
   await expect(page.getByPlaceholder("Choose a profile")).toHaveValue(/terminal/);
-  const start = page.getByRole("button", { name: "Start my first subshell" });
+  const start = page.getByRole("button", { name: "Start" });
   await expect(start).toBeEnabled();
 
   // Arm the liveness listeners BEFORE the click (spec 06's pattern): the
