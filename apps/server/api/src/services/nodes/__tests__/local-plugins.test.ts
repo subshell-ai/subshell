@@ -50,7 +50,7 @@ describe("the control-plane host's plugins", () => {
     await prepareLocalPlugins();
 
     const reports = await localPluginReports();
-    expect(reports.map((r) => r.id).sort()).toEqual(["claude-code", "codex", "hermes", "opencode", "pi"]);
+    expect(reports.map((r) => r.id).sort()).toEqual(["claude-code", "codex", "hermes", "opencode", "pi", "terminal"]);
     // Built by the same function that builds an agent's, so the shape cannot
     // drift: this is the §16 property that could not be written before.
     const one = reports.find((r) => r.id === "codex");
