@@ -1,5 +1,17 @@
 # @internal/desktop-server
 
+## 0.2.0
+
+### Minor Changes
+
+- [#38](https://github.com/subshell-ai/subshell/pull/38) [`6a3daa8`](https://github.com/subshell-ai/subshell/commit/6a3daa8956f7d42658da5b55db03d104ef013468) Thanks [@theogravity](https://github.com/theogravity)! - First-run setup is now a guided wizard in its own window, and a hostname-confirmed "reset this machine" wipes the instance from the dashboard's Settings danger zone.
+
+- [`e67b068`](https://github.com/subshell-ai/subshell/commit/e67b068a603991536ddad1668a198dc12a981f7c) Thanks [@theogravity](https://github.com/theogravity)! - One-press setup: a machine with nothing installed now gets a single disclosed "Set up and start" button instead of a four-step flow, and the app installs tmux (platform package manager, never a bare sudo) and Claude Code from the console instead of sending the user to a terminal.
+
+### Patch Changes
+
+- [`f760ae0`](https://github.com/subshell-ai/subshell/commit/f760ae048d5952ef727b3001d356f97dab18d1a8) Thanks [@theogravity](https://github.com/theogravity)! - The Subshell Server console moved to TypeScript, Vite and Tailwind (its logic now builds into `ui/dist`; `tauri dev`/`tauri build` run the build as their own before-hooks). Behavior is unchanged except a fix the rebuild caught: after a failed action the console's "That did not work. See the output below." line is no longer erased by the action's own re-probe before it can appear.
+
 ## 0.1.2
 
 ### Patch Changes
