@@ -136,17 +136,46 @@ describe("detectBinaryWithOptions", () => {
     expect(result.reason).toBeUndefined();
   });
 
-  it("treats a bare-name override as no override at all", async () => {
+  it("resolves a bare-name override against PATH by the name it carries", async () => {
     // `SHELL=bash` (no slash) is a real shape in containers and hand-written
-    // service units. Stopping the ladder there answers `override-invalid` for
-    // a machine that can launch the binary all day: the rung means "the
-    // operator said WHERE", and a bare name says no where.
+    // service units. A bare value NAMES a program rather than pointing
+    // WHERE, so it is answered by scanning PATH for that name — and stopping
+    // the ladder on a bare MISS would strand the service-PATH cases the
+    // later rungs exist for.
     const dir = dirWith("thing");
     const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
       env: { THING_PATH: "thing" },
       pathEntries: [dir],
     });
     expect(result.path).toBe(join(dir, "thing"));
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("a bare override names ITS program, not the plugin's default binary", async () => {
+    // The `SHELL=zsh` case (review round 2): the override's whole point is
+    // "this host's program is this one". Scanning for `bash` here instead
+    // answers not-on-path on a zsh-only host that has a perfectly good
+    // shell — exactly where terminal is supposed to be launchable.
+    const dir = dirWith("sh");
+    const result = await detectBinaryWithOptions("bash", "SHELL", [], {
+      env: { SHELL: "sh", HOME: join(tmpdir(), "definitely-absent") },
+      pathEntries: [dir],
+    });
+    expect(result.path).toBe(join(dir, "sh"));
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("a bare override naming nothing falls through instead of refusing", async () => {
+    // `SHELL=nosuchshell` must not answer override-invalid: the plugin's
+    // actual binary may be perfectly launchable, and refusing here would
+    // strand exactly the `SHELL=bash`-on-a-stock-service-PATH hosts where
+    // the version-manager/login rungs below carry the answer.
+    const dir = dirWith("bash");
+    const result = await detectBinaryWithOptions("bash", "SHELL", [], {
+      env: { SHELL: "nosuchshell-xyz", HOME: join(tmpdir(), "definitely-absent") },
+      pathEntries: [dir],
+    });
+    expect(result.path).toBe(join(dir, "bash"));
     expect(result.reason).toBeUndefined();
   });
 
@@ -201,6 +230,21 @@ describe("detectBinaryWithOptions", () => {
     });
     expect(result.path).toBe(join(bin, "thing"));
     expect(result.reason).toBeUndefined();
+  });
+
+  it("treats a blank HOME as missing when expanding a ~ override", async () => {
+    // Some container images ship HOME="". `env.HOME ?? homedir()` keeps the
+    // blank, so `~/thing` expands to the RELATIVE "thing" — and the new
+    // bare-name rule would then run it as a program name and happily match
+    // an unrelated PATH binary. `||` falls back to the real home, so the
+    // pin stays absolute: it resolves against home or fails as the bad
+    // pointer it is, never as a coincidental PATH hit.
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { THING_PATH: "~/thing", HOME: "" },
+      pathEntries: [dirWith("thing")],
+    });
+    expect(result.path).toBeNull();
+    expect(result.reason).toBe("override-invalid");
   });
 });
 

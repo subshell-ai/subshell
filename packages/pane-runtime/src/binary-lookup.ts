@@ -56,36 +56,48 @@ export async function detectBinaryWithOptions(
   options: BinaryLookupOptions,
 ): Promise<DetectionResult> {
   const env = options.env ?? process.env;
-  const explicit = expandHome(env[envName], env.HOME ?? homedir());
+  // `||`, not `??`: HOME set-but-BLANK (real in some container images) would
+  // expand a `~/…` pin to a RELATIVE path and land it in the refusal below —
+  // the opposite of what the operator pinned.
+  const home = env.HOME || homedir();
+  const pathEntries = options.pathEntries ?? (env.PATH ?? "").split(":");
+  const explicit = expandHome(env[envName], home);
   if (explicit) {
-    // A bare name says no WHERE, and real environments carry them (`SHELL=bash`
-    // in containers): the rung is a pointer or it is nothing, so a slash-less
-    // value falls through to the PATH scan that finds the binary honestly.
-    // Anything ELSE the operator wrote was an attempt at a pointer, and an
-    // attempt that does not resolve is an answer, not a hint — searching past
-    // it would hide their mistake, which is what `override-invalid` exists to
-    // prevent. Two shapes fail closed here rather than being silently ignored:
-    // a RELATIVE path (`isExecutable` would test it against THIS process's
-    // cwd, and a hit would bake a relative argv token that tmux later execs
+    // An absolute pin that does not resolve is an ANSWER, not a hint —
+    // searching past it would hide the operator's mistake, which is what
+    // `override-invalid` exists to prevent. Same for a slash-bearing
+    // RELATIVE one: `isExecutable` would test it against THIS process's cwd,
+    // and a hit would bake a relative argv token that tmux later execs
     // against the PANE's directory — a different file, or an exec failure at
-    // launch instead of detection), and an unexpandable `~user/...` (a
-    // systemd `Environment=` line never expands tildes; silently ignoring the
-    // pin would resolve a different build forever, silently).
+    // launch instead of detection. (An unexpandable `~user/...` is relative
+    // by this test: systemd `Environment=` lines never expand tildes, so
+    // silently ignoring such a pin would resolve a different build forever.)
     if (isAbsolute(explicit)) {
       if (await isExecutable(explicit)) return { path: explicit };
       return { path: null, reason: "override-invalid" };
     }
     if (explicit.includes("/")) return { path: null, reason: "override-invalid" };
+    // A bare value NAMES a program — `SHELL=zsh` says WHICH, not WHERE.
+    // Answer that instruction by scanning PATH for the named thing, so a
+    // host whose login shell is not the plugin's default binary detects (and
+    // launches) the shell the variable actually names. A MISS here is
+    // deliberately not `override-invalid`: the commonest bare value is the
+    // binary name itself (`SHELL=bash`), and on a service host the answer
+    // arrives from the version-manager or login-shell rungs below — refusing
+    // a bare miss there would recreate the exact stock-PATH bug those rungs
+    // exist to fix. Fall through as if no override were set.
+    for (const dir of pathEntries) {
+      if (!dir) continue;
+      const candidate = join(dir, explicit);
+      if (await isExecutable(candidate)) return { path: candidate };
+    }
   }
 
-  const pathEntries = options.pathEntries ?? (env.PATH ?? "").split(":");
   for (const dir of pathEntries) {
     if (!dir) continue;
     const candidate = join(dir, name);
     if (await isExecutable(candidate)) return { path: candidate };
   }
-
-  const home = env.HOME ?? homedir();
   for (const rel of knownPaths) {
     const candidate = join(home, rel);
     if (await isExecutable(candidate)) return { path: candidate };
