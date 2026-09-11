@@ -79,7 +79,8 @@ subshell/
 │   │   ├── codex/                  # @subshell-ai/plugin-codex (published)
 │   │   ├── hermes/                 # @subshell-ai/plugin-hermes (published)
 │   │   ├── opencode/               # @subshell-ai/plugin-opencode (published)
-│   │   └── pi/                     # @subshell-ai/plugin-pi (published)
+│   │   ├── pi/                     # @subshell-ai/plugin-pi (published)
+│   │   └── terminal/               # @subshell-ai/plugin-terminal (published; a plain shell, no agent CLI)
 │   ├── pane-runtime/               # Running a pane here: binary detection, plugin loading, argv, TmuxRunner
 │   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
 ├── e2e/                            # Playwright suite — its own backend on :3199, real tmux (see e2e/AGENTS.md)
@@ -130,9 +131,11 @@ Package names follow the same words: `@internal/server`, `@internal/server-web`,
 
 ### Plugins are packages, and the control plane loads them
 
-A **plugin** teaches Subshell how to drive one agent CLI. Five ship built in
-(`packages/plugins/*`, published as `@subshell-ai/plugin-<id>`), and the
-contract a third party builds against is `@subshell-ai/plugin-api`.
+A **plugin** teaches Subshell how to drive one thing in a pane — an agent
+CLI, or a plain shell. Six ship built in (`packages/plugins/*`, published as
+`@subshell-ai/plugin-<id>`; `terminal` is the one that drives no agent and
+needs nothing installed, which is what makes a clean machine launchable), and
+the contract a third party builds against is `@subshell-ai/plugin-api`.
 
 Three facts about the shape, each measured rather than assumed:
 
@@ -709,13 +712,16 @@ which is why they share their own smoke, parameterized by app id.
   app's `package.json` + CHANGELOG. Merging does NOT cut a release — that
   stays true for the four GitHub Releases app cuts, which are an explicit
   `workflow_dispatch`. It DOES publish npm packages: merging the version PR
-  bumps the six `@subshell-ai/*` packages and the `npm-publish` job then ships
+  bumps the seven `@subshell-ai/*` packages and the `npm-publish` job then ships
   them and pushes their `<pkg>@<version>` tags. The
   Action commits those bumps itself, which is why `version-packages` also
   resyncs `bun.lock` — see "The one thing `bun install` will not fix".
   The six were bootstrapped on npm by hand at `0.0.1` on 2026-09-10, because a
   trusted publisher cannot be configured for a package that does not exist
-  yet; every version after that comes from CI.
+  yet; every version after that comes from CI. The seventh,
+  `@subshell-ai/plugin-terminal`, still needs that same hand bootstrap
+  (`npm publish` once + trusted publisher) before a version PR that includes
+  it can publish; until then CI can bump it forever and never ship it.
 - **Release notes live in the GitHub Release.** The publish job slices this
   version's section out of `apps/<dir>/CHANGELOG.md` and passes it as the
   release body, so the page a user lands on says what changed instead of

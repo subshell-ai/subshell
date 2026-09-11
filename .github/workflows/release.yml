@@ -5,9 +5,9 @@
 #                 ("chore: release package(s)"). Merging it bumps the FOUR
 #                 releasable apps' package.jsons + CHANGELOGs (apps/server/api,
 #                 apps/node/agent, apps/server/desktop and apps/client/desktop)
-#                 AND the six publishable @subshell-ai/* packages (plugin-api +
-#                 the five plugins). It VERSIONS ONLY, and ends by asking the
-#                 registry which of those six versions are missing from npm.
+#                 AND the seven publishable @subshell-ai/* packages (plugin-api +
+#                 the six plugins). It VERSIONS ONLY, and ends by asking the
+#                 registry which of those seven versions are missing from npm.
 #                 Private packages: changesets creates NO tags or releases for
 #                 them (privatePackages.tag is false; create-github-releases
 #                 is off). `.changeset/config.json` ignores the other ten
