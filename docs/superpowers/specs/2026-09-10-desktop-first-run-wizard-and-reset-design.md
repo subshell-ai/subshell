@@ -286,6 +286,16 @@ also the stronger one: *it reaches exactly one read-only command the app
 already runs on a timer, and no verb that changes the machine.* Same ceiling,
 stated so it survives someone checking it.
 
+## Review disposition, round 4 (2026-09-11)
+
+One finding (R21, full text in git history at `a6107aa`), and it held: when
+R18 moved the screen-open read into the `desktop_open_console` handler, § 6's
+"reaches no execution" stopped being literally true. § 6 now says what is
+actually reached (one read-only, fixed-argv, already-on-a-timer command,
+spammable, nothing else) and what is not (every verb that changes the
+machine), so the sentence `docs/security.md` will quote survives the check
+R21 ran on it.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
@@ -546,13 +556,19 @@ argument is the entire boundary change, chosen to stay small:
   console page to its second view, the reset screen; there is no URL or path
   involved, and no path crosses back out of Rust.
 
-The honest worst case of the new reach, recorded in `docs/security.md`: an XSS
-in a control plane's SPA can now raise this app's window **to a confirmation
-dialog**. It reaches no execution. The reset command lives only on the console
-window; the hostname must be typed by a human into the privileged window; a
-remote page cannot read or type in another window's DOM. Raising a scary
-dialog, with nothing behind it a remote page can advance, is the widened
-ceiling.
+The honest worst case of the new reach, recorded in `docs/security.md` (and
+therefore held to being literally right, R21): an XSS in a control plane's
+SPA can now raise this app's window **to a confirmation dialog**, and because
+the handler also performs the screen-open read, it can make the app spawn
+exactly one CLI command, `status --json`, with fixed argv nothing caller-side
+text can alter, as often as it likes. That command is read-only and is one
+the app already runs on a five-second timer of its own; the new reach over it
+is call-frequency, nothing else. No verb that changes the machine moved
+anywhere: the reset command lives only on the console window, the hostname
+must be typed by a human into the privileged window, and a remote page cannot
+read or type in another window's DOM. A raised dialog and a rung doorbell the
+app was already ringing is the ceiling, stated so it survives someone
+checking it.
 
 Version skew, accepted rather than papered over: the SPA ships inside the
 server binary, so the two directions of skew both resolve to "console raised,
