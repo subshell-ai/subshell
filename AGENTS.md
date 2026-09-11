@@ -594,7 +594,8 @@ the day npm supports it.
 
 `test.yml`'s four jobs run **inside the repo's own builder image**
 (`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
-image as well as the release one). It already carried bun 1.4.0, rustup stable
+image as well as the release one). It already carried bun (1.4.2, pinned to
+the root `packageManager` so CI runs what developers run), rustup stable
 and Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
 CI's sake. That is what let `setup-bun`, `dtolnay/rust-toolchain` and every
 `sudo apt-get` disappear from the workflow — **nothing on the fleet assumes

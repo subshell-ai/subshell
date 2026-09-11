@@ -48,6 +48,17 @@ export default defineConfig({
     // mode this app may not have.
     modulePreload: { polyfill: false },
     assetsInlineLimit: 0,
+    rollupOptions: {
+      // Two bundled pages, two windows: the console (index.html) and the
+      // first-run wizard. Tauri resolves each by name against the dev server
+      // in dev and the bundle in prod (WebviewUrl::App), so both must be
+      // inputs or one window loads the other's page in a release build,
+      // silently. Pinned by tauri-config.test.ts.
+      input: {
+        index: path.resolve(dirname, "ui/index.html"),
+        wizard: path.resolve(dirname, "ui/wizard.html"),
+      },
+    },
   },
   server: {
     // Loopback only (Vite's default host): this dev server serves one

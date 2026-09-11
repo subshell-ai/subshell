@@ -97,8 +97,65 @@ pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
         .inner_size(720.0, 620.0)
         .min_inner_size(560.0, 480.0)
         .resizable(true)
+        .on_page_load(|window, _| {
+            // A console created under a screen request delivers it once the
+            // page exists; a request while one was live is emitted directly
+            // by reset::arm_and_raise.
+            if let Some(stash) = window.app_handle().try_state::<crate::reset::Stash>() {
+                if let Some(screen) = stash.screen.lock().unwrap().take() {
+                    use tauri::Emitter;
+                    let _ = window.emit("desktop-screen", screen.as_str());
+                }
+            }
+        })
         .build()
         .map_err(|e| format!("could not open the console window: {e}"))
+}
+
+/// Create (or focus) the first-run wizard.
+///
+/// Same one-press-then-focus contract as the console: `raise` on an existing
+/// window, never a second creation. Resolves `wizard.html` through
+/// `WebviewUrl::App` exactly like the console resolves `index.html` - dev
+/// against the Vite server, prod against the bundle, no branch here.
+pub fn open_wizard(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(w) = app.get_webview_window("wizard") {
+        raise(&w);
+        return Ok(w);
+    }
+    WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
+        .title("Subshell Server")
+        .inner_size(720.0, 620.0)
+        .min_inner_size(560.0, 480.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| format!("could not open the setup window: {e}"))
+}
+
+/// Raise whichever window MANAGES this machine: the wizard while the setup
+/// has never finished, the console after. Every opener (tray, menu, the SPA's
+/// pill through `desktop_open_console`) comes through here, so a machine can
+/// never have its manage surface decided twice in two places - the branch is
+/// one read of the flag the probe writes.
+pub fn open_manage_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    let onboarded = app
+        .state::<subshell_desktop_core::settings::SettingsState>()
+        .get()
+        .onboarded;
+    if onboarded {
+        let w = open_console(app)?;
+        // Raising the console retires the wizard, the same rule the
+        // dashboard applies in open_main_now: there is ONE manage window,
+        // and the Done screen's second button ("Go to status page") is this
+        // path with the wizard still standing. The page holds no
+        // window-close permission by design; the shell closes what it just
+        // superseded.
+        if let Some(z) = app.get_webview_window("wizard") {
+            let _ = z.close();
+        }
+        return Ok(w);
+    }
+    open_wizard(app)
 }
 
 /// Create (or focus) the window that shows the server's SPA at `origin`.

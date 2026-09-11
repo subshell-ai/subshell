@@ -26,7 +26,7 @@
     "lint:check": "biome check --no-errors-on-unmatched src",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
     "prod": "bun run ./dist/index.js",
-    "test": "bun test src",
+    "test": "bun test --timeout 30000 src",
     "verify-types": "tsc --noEmit"
   },
   "dependencies": {

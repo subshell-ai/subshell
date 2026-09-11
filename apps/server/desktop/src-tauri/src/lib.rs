@@ -12,6 +12,7 @@ mod control;
 // Linux has none — and a module compiled there would be entirely dead code.
 #[cfg(target_os = "macos")]
 mod menu;
+mod reset;
 mod server_bin;
 mod tray;
 mod windows;
@@ -52,6 +53,7 @@ pub fn run() {
             .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
                 if let Some(w) = app
                     .get_webview_window("main")
+                    .or_else(|| app.get_webview_window("wizard"))
                     .or_else(|| app.get_webview_window("console"))
                 {
                     windows::raise(&w);
@@ -87,6 +89,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::ShellReady::new())
+        // The reset's stashed plan and screen request live HERE, not on any
+        // page: the consent is spent by the command that mutates the disk,
+        // and a window reload must not be able to lose or repeat it.
+        .manage(reset::Stash::default())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
             control::desktop_logs,
@@ -99,6 +105,7 @@ pub fn run() {
             control::desktop_set_server_bin,
             control::desktop_open_main,
             control::desktop_open_console,
+            reset::desktop_reset,
             control::desktop_open_path,
             control::desktop_open_control_plane,
             control::desktop_open_tmux_docs,
@@ -138,7 +145,23 @@ pub fn run() {
             if let Err(err) = tray::build(&handle) {
                 eprintln!("subshell: could not create the tray icon: {err}");
             }
-            windows::open_console(&handle)?;
+            // Boot looks before it leaps: the probe marks what it proves
+            // (control::boot_probe -> mark_onboarded), and the WINDOW CHOICE
+            // is made from the fresh answer, never the stored flag. A machine
+            // set up entirely from the CLI opens the console, because by the
+            // time the branch runs, onboarded is true (spec § 3/§ 4, R6).
+            let choice = {
+                let settings = handle.state::<subshell_desktop_core::settings::SettingsState>();
+                control::boot_window(&control::boot_probe(&settings))
+            };
+            match choice {
+                control::WindowChoice::Wizard => {
+                    windows::open_wizard(&handle)?;
+                }
+                control::WindowChoice::Console => {
+                    windows::open_console(&handle)?;
+                }
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -164,6 +187,7 @@ pub fn run() {
             tauri::RunEvent::Reopen { .. } => {
                 let window = app
                     .get_webview_window("main")
+                    .or_else(|| app.get_webview_window("wizard"))
                     .or_else(|| app.get_webview_window("console"));
                 if let Some(w) = window {
                     windows::raise(&w);

@@ -18,6 +18,7 @@
  * shown VERBATIM and never re-worded here. Two surfaces that phrase the same
  * refusal differently are two surfaces that drift.
  */
+import { listen } from "@tauri-apps/api/event";
 import { ask as askDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   CONFIG_FIELDS,
@@ -32,6 +33,7 @@ import {
 import { type InstallPlan, tmuxInstallPlan } from "./lib/installers";
 import type { ActionResult, OpenTarget, Probe, ProbeStep } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
+import { armed, refusal, resetRows } from "./lib/reset";
 import "./styles.css";
 
 const el = (id: string): HTMLElement => {
@@ -708,6 +710,9 @@ function render(): void {
   renderFacts();
   el("problem").textContent = problem;
   renderStep();
+  // The reset view coexists with the busy state; buttons re-arm themselves
+  // from the probe, so every re-render keeps the screen honest about it.
+  if (view === "reset") renderReset();
 }
 
 async function refresh(): Promise<void> {
@@ -1080,6 +1085,114 @@ async function poll(): Promise<void> {
 for (const id of ["log", "output"] as const) {
   el(`tab-${id}`).addEventListener("click", () => showPane(id));
 }
+
+// ---------------------------------------------------------------------------
+// The reset view (spec § 7.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * The console's second view. Entered ONLY by the desktop-screen event from
+ * the dashboard's danger card (no console-side entry: § 7.1 says so); it
+ * renders the captured-plan truth from the live probe and compares the typed
+ * hostname the same way Rust will (displayed value wins nowhere: both sides
+ * read the probe's single memo, R15).
+ */
+let view: "status" | "reset" = "status";
+
+function renderReset(): void {
+  const st = probe?.status;
+  const host = probe?.hostname ?? "";
+  const why = refusal(st);
+  // One sentence names one cause. A paths block that is complete but a name
+  // that could not be read still leaves the button disabled (armed() refuses
+  // an empty hostname) - and no control is disabled without its reason named
+  // beside it, which is what this line is for.
+  el("reset-refusal").textContent =
+    why ??
+    (host === ""
+      ? "This machine's name could not be read, so there is nothing reset can confirm against; it refuses rather than arming on an empty box."
+      : "");
+  const rows = el("reset-rows");
+  rows.textContent = "";
+  if (why === null && st !== undefined && st !== null) {
+    for (const row of resetRows(st)) {
+      const li = document.createElement("li");
+      li.textContent = `${row.label}: ${row.path}`;
+      rows.append(li);
+    }
+  }
+  el("reset-disclosures").textContent =
+    "Enrolled remote nodes are NOT reached: their agents and panes keep running with keys to a plane that will not exist. A subshell node agent on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
+  el("reset-hostname").textContent = host;
+  const typed = (el("reset-confirm") as HTMLInputElement).value;
+  (el("reset-run") as HTMLButtonElement).disabled = !(why === null && armed(typed, host));
+  el("reset-run").dataset.armed = String(armed(typed, host));
+}
+
+function showReset(): void {
+  view = "reset";
+  el("status-view").hidden = true;
+  el("reset-view").hidden = false;
+  renderReset();
+}
+
+el("reset-confirm").addEventListener("input", renderReset);
+el("reset-cancel").addEventListener("click", () => {
+  view = "status";
+  el("reset-view").hidden = true;
+  el("status-view").hidden = false;
+});
+
+/**
+ * M1's promise kept by the page: a half-run's verbatim log renders where
+ * the human still is, AND reads as a failure (J1) - the same `output-bad`
+ * treatment `show()` gives the command pane, so two surfaces never phrase
+ * one outcome differently. Success normally needs no rendering (the chain
+ * closes this window on its way to the wizard), but the wizard-open failure
+ * arm (M2) answers ok:true with a note in the log, and a half-run needs
+ * Retry named (J2): the button re-labels, because the stash is deliberately
+ * still held and the screen must say pressing it again is the intended,
+ * safe move.
+ */
+function showResetResult(text: string, bad: boolean): void {
+  const box = el("reset-log");
+  box.textContent = text;
+  box.classList.toggle("output-bad", bad);
+  box.hidden = text === "";
+  if (bad) el("reset-run").textContent = "Retry reset";
+}
+
+el("reset-run").addEventListener("click", () => {
+  void (async () => {
+    const typed = (el("reset-confirm") as HTMLInputElement).value;
+    if (!armed(typed, probe?.hostname ?? "")) return;
+    busy = true;
+    showResetResult("", false);
+    render();
+    try {
+      const result = await ipc.reset(typed);
+      const parts: string[] = [];
+      if (result?.stdout?.trim()) parts.push(result.stdout.trim());
+      if (result?.stderr?.trim()) parts.push(result.stderr.trim());
+      showResetResult(parts.join("\n\n"), result?.ok === false);
+    } catch (err) {
+      // Err is the pre-flight channel (hostname mismatch, no plan, refused
+      // guard): one sentence, no partial log exists to show.
+      showResetResult(errText(err), true);
+    }
+    busy = false;
+    try {
+      await refresh();
+    } catch {
+      /* the machine is being deleted under us */
+    }
+    render();
+  })();
+});
+
+void listen<string>("desktop-screen", (event) => {
+  if (event.payload === "reset") showReset();
+});
 
 setInterval(() => void poll(), POLL_MS);
 // A window being shown again should not wait out the rest of the interval —

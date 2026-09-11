@@ -69,15 +69,25 @@ macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
 Ubuntu 24.04+ / Debian 13+ (glibc 2.39).
 
 Each app ships the binary it manages inside it — nothing is downloaded on first
-run. On a machine with nothing installed, Subshell Server is one screen and one
-button: "Set up and start" installs the bundled `subshell-server` to
-`~/.local/bin`, writes a `config.env` with the CLI's defaults, registers it as
-a service (a systemd user unit on Linux, a launchd agent on macOS), starts it
-and opens the dashboard, stopping at the first failure and saying so. The hint
-on the button lists every path that press writes to; the addresses are offered
-as a second step for anyone who wants different ones. Subshell Client does the
-same for the `subshell` agent, from a second window reached from its tray
-("This machine…").
+run. On a machine with nothing installed, Subshell Server opens a guided
+first-run wizard: what it will do, tmux (with its install button where one can
+exist), port and addresses with sane defaults you can skip through, an
+optional agent CLI from the built-in set, then one "Set up and start" press
+whose checklist ticks live as the chain installs the bundled `subshell-server`
+to `~/.local/bin`, writes a `config.env`, registers the service (a systemd user
+unit on Linux, a launchd agent on macOS), starts it and opens the dashboard —
+stopping at the first failure and saying so. The console keeps everything it
+was for an onboarded machine: state, logs, settings, repair actions. Subshell
+Client does the same for the `subshell` agent, from a second window reached
+from its tray ("This machine…").
+
+Undoing all of it is deliberately a Settings action, not a window state: the
+dashboard's danger zone carries an admin-only "Reset this machine" card, which
+raises the Subshell Server window at a confirmation listing every path the
+reset deletes and arms only after you type this machine's hostname. It stops
+the service, closes this machine's panes, deletes the instance data and this
+app's choices, and returns you to the wizard — the installed server binary
+stays. Details in `apps/server/desktop/AGENTS.md`.
 
 Both apps show the plane's UI in a window loading it from the server's own
 address, because that is where the session cookie lives. The window is a plain

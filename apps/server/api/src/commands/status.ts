@@ -3,10 +3,17 @@ import { homedir } from "node:os";
 import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
-import { DEFAULT_TRUSTED_ORIGINS, NODE_ARTIFACTS_DIR, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
+import {
+  DATABASE_PATH,
+  DEFAULT_TRUSTED_ORIGINS,
+  NODE_ARTIFACTS_DIR,
+  SUBSHELL_PLUGIN_REGISTRY_URL,
+  SUBSHELL_SERVER_DATA_DIR,
+} from "@/constants.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, serviceArtifactPath } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
+import { subshellLogDir } from "@/services/nodes/subshell-paths.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -90,6 +97,15 @@ export interface StatusView {
   version: string;
   /** The config file's resolved path, and whether it is there. A consumer branches on `exists` to offer `init`. */
   configEnv: { path: string; exists: boolean };
+  /**
+   * The four absolute locations instance data lives at, as THIS process
+   * resolved them. `status` is the authority on where the server's data is -
+   * the desktop app's reset deletes exactly these and nothing else, which is
+   * why they travel as data instead of being re-derived elsewhere. Read-only,
+   * like everything here; presence with an unusable value is impossible
+   * because these are already-resolved constants.
+   */
+  paths: { dataDir: string; database: string; logsDir: string; nodeArtifacts: string };
   /** The `configure`-owned keys, each with its layer attribution. */
   settings: Record<StatusSettingKey, StatusSetting>;
   /** Presence only — never the value. */
@@ -199,6 +215,12 @@ export function collectStatus(deps: StatusDeps): StatusView {
   return {
     version: SERVER_VERSION,
     configEnv: { path: cfg.path, exists: cfg.exists },
+    paths: {
+      dataDir: SUBSHELL_SERVER_DATA_DIR,
+      database: DATABASE_PATH,
+      logsDir: subshellLogDir(),
+      nodeArtifacts: NODE_ARTIFACTS_DIR,
+    },
     settings: {
       SERVER_PORT: setting("SERVER_PORT", portRaw),
       HOST: setting("HOST", host),

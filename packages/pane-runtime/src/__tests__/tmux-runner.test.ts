@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
@@ -478,6 +478,31 @@ echo "server exited unexpectedly" >&2; exit 1
     expect(runner.paneSize(socket, "no-such-session")).toBeNull();
     expect(runner.paneSize(freshSocket("panesize-absent"), "s1")).toBeNull();
     runner.killSubshell(socket, "s1");
+  });
+
+  describe("cleanSocket", () => {
+    it("unlinks under TMUX_TMPDIR, which is where tmux put it", async () => {
+      // The bug this pins: the old code joined process.env.TMPDIR, which on
+      // macOS is a per-user /var/folders path holding no tmux sockets. tmux
+      // itself resolves -L names under TMUX_TMPDIR ?? /tmp (tmuxSocketPath).
+      const base = mkdtempSync(join(tmpdir(), "tmux-sock-test-"));
+      const uid = process.getuid?.() ?? 0;
+      const dir = join(base, `tmux-${uid}`);
+      mkdirSync(dir, { recursive: true });
+      const socket = "subshell-0123456789ab";
+      const file = join(dir, socket);
+      writeFileSync(file, "");
+      const prev = process.env.TMUX_TMPDIR;
+      process.env.TMUX_TMPDIR = base;
+      try {
+        await new TmuxRunner().cleanSocket(socket);
+        expect(existsSync(file)).toBe(false);
+      } finally {
+        if (prev === undefined) delete process.env.TMUX_TMPDIR;
+        else process.env.TMUX_TMPDIR = prev;
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
   });
 });
 

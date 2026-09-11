@@ -66,6 +66,8 @@ export interface SettingEntry {
 /** `status --json`, forwarded by the Rust side as an opaque `serde_json::Value`. */
 export interface StatusBody {
   configEnv?: { path: string; exists: boolean };
+  /** `status --json`'s data locations (spec § 8); absent on an older server, which arms nothing. */
+  paths?: { dataDir?: string; database?: string; logsDir?: string; nodeArtifacts?: string };
   settings?: Record<string, SettingEntry>;
   listen?: { portValid?: boolean; port?: number; portRaw?: string; listening?: boolean };
   /** Absent/null means the entrypoint did not resolve, which 500s every create. */
@@ -108,6 +110,10 @@ export interface Probe {
   /** The OS in the names `installers.ts` branches on ("linux", "darwin"). */
   platform: string;
   hasBrew: boolean;
+  /** Whether setup has reached `ready` here at least once (spec § 4). */
+  onboarded: boolean;
+  /** The hostname the reset screen shows, types for, and compares (R15). */
+  hostname: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +178,17 @@ export const init = (payload: InitPayload): Promise<ActionResult> => invoke<Acti
 export const service = (verb: ServiceVerb, force: boolean): Promise<ActionResult> =>
   invoke<ActionResult>("desktop_service", { verb, force });
 
-export const setup = (): Promise<ActionResult> => invoke<ActionResult>("desktop_setup");
+/**
+ * The one-press chain. The address fields are the wizard's Addresses step;
+ * omitting the payload (or every field) is today's derived-defaults run,
+ * byte for byte. Empty-string vs absent follows `init_args`' per-field rules,
+ * the same contract `desktop_init` gets through `configPayload`.
+ */
+export const setup = (payload?: InitPayload): Promise<ActionResult> =>
+  invoke<ActionResult>("desktop_setup", payload ?? {});
+
+/** The one destructive verb. Typed hostname in, machine state wiped out; the paths are Rust's plan, never this side's. */
+export const reset = (typed: string): Promise<ActionResult> => invoke<ActionResult>("desktop_reset", { typed });
 
 export const installServer = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_server");
 
@@ -185,6 +201,13 @@ export const installAgent = (id: string): Promise<ActionResult> =>
 export const setServerBin = (path: string | null): Promise<void> => invoke<void>("desktop_set_server_bin", { path });
 
 export const openMain = (): Promise<void> => invoke<void>("desktop_open_main");
+
+/**
+ * Raise the console window. Only the WIZARD's Done screen calls it ("Go to
+ * status page"); the console itself is refused this command (the page that IS
+ * the console does not need to open it, and `main` holds the third grant).
+ */
+export const openConsole = (): Promise<void> => invoke<void>("desktop_open_console");
 
 export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("desktop_open_path", { target });
 

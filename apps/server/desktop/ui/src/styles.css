@@ -156,6 +156,47 @@
   .output-bad {
     border-color: var(--color-bad);
   }
+  /* The wizard's step rail: five names, three states. current/done/locked is
+     the whole vocabulary - the wizard is linear, so there is no fourth state
+     of "skipped", and a locked step reads dimmer rather than unreachable
+     because Back and the window chrome are never locked (spec R12). */
+  .rail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 12.5px;
+    letter-spacing: 0.01em;
+  }
+  .rail-step {
+    color: var(--color-muted);
+  }
+  .rail-step.done {
+    color: var(--color-ok);
+  }
+  .rail-step.done::before {
+    content: "✓ ";
+  }
+  .rail-step.current {
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+  /* Run's checklist rows: pending is deliberately dimmer, not striped or
+     animated. The tick is a fact that arrived from the probe. */
+  .row-done {
+    color: var(--color-ok);
+    margin: 2px 0;
+    font-size: 14px;
+  }
+  .row-pending {
+    color: var(--color-muted);
+    margin: 2px 0;
+    font-size: 14px;
+  }
+  .wizard-copy {
+    margin: 0 0 8px;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
   /* The tray switch: the control stays visible when DISABLED because the
      reason beside it is the actionable part. */
   .switch {
