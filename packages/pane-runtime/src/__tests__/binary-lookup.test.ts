@@ -150,16 +150,33 @@ describe("detectBinaryWithOptions", () => {
     expect(result.reason).toBeUndefined();
   });
 
-  it("refuses to resolve a relative override against the process cwd", async () => {
-    // A relative hit here would become a relative argv token that tmux execs
-    // against the PANE's working directory — a different file, or a failure at
-    // launch instead of at detection. Falling through reports honestly.
+  it("refuses a relative override by name rather than resolving it against the cwd", async () => {
+    // A relative hit would become a relative argv token that tmux execs against
+    // the PANE's working directory — a different file, or a failure at launch.
+    // Silently falling through hides the operator's bad pin, so a PATH-like
+    // (slash-containing) value names the reason instead.
     const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
       env: { THING_PATH: "./thing", HOME: join(tmpdir(), "definitely-absent") },
-      pathEntries: [],
+      pathEntries: [dirWith("thing")],
     });
     expect(result.path).toBeNull();
-    expect(result.reason).toBe("not-on-path");
+    expect(result.reason).toBe("override-invalid");
+  });
+
+  it("expands a ~ override against HOME before the executability check", async () => {
+    // A systemd Environment= line never expands tildes, so `~/.local/bin/claude`
+    // reaches the ladder verbatim. Ignoring it would silently resolve a
+    // different PATH build forever; expanding it makes the pin honest.
+    const home = mkdtempSync(join(tmpdir(), "harness-tilde-"));
+    const bin = join(home, ".local", "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "thing"), "#!/bin/sh\n");
+    chmodSync(join(bin, "thing"), 0o755);
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { THING_PATH: "~/.local/bin/thing", HOME: home },
+      pathEntries: [],
+    });
+    expect(result.path).toBe(join(bin, "thing"));
   });
 
   it("returns the path and no reason for a good override", async () => {

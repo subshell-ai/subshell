@@ -28,8 +28,10 @@ export type { DetectionReason, DetectionResult } from "@subshell-ai/plugin-api";
 
 /**
  * Cross-platform-ish binary lookup, reporting why when it fails:
- *   1. `env[ENV_NAME]` (explicit override, e.g. CLAUDE_PATH) — when absolute;
- *      a relative or bare value is not a pointer and does not stop the ladder
+ *   1. `env[ENV_NAME]` (explicit override, e.g. CLAUDE_PATH) — `~/` expands
+ *      against HOME; an absolute value answers, a broken PATH-like value
+ *      (relative, unresolvable tilde) refuses with `override-invalid`, and a
+ *      bare name is no pointer and falls through to rung 2
  *   2. `which`-style scan of PATH entries
  *   3. A couple of well-known install locations (resolved against HOME)
  *   4. Version-manager layouts, by glob (nvm, fnm, volta, asdf, mise, n)
@@ -54,21 +56,27 @@ export async function detectBinaryWithOptions(
   options: BinaryLookupOptions,
 ): Promise<DetectionResult> {
   const env = options.env ?? process.env;
-  const explicit = env[envName];
-  if (explicit && isAbsolute(explicit)) {
-    // An override that does not resolve is an answer, not a hint: the operator
-    // said where it is, and searching past them would hide their mistake.
-    if (await isExecutable(explicit)) return { path: explicit };
-    return { path: null, reason: "override-invalid" };
+  const explicit = expandHome(env[envName], env.HOME ?? homedir());
+  if (explicit) {
+    // A bare name says no WHERE, and real environments carry them (`SHELL=bash`
+    // in containers): the rung is a pointer or it is nothing, so a slash-less
+    // value falls through to the PATH scan that finds the binary honestly.
+    // Anything ELSE the operator wrote was an attempt at a pointer, and an
+    // attempt that does not resolve is an answer, not a hint — searching past
+    // it would hide their mistake, which is what `override-invalid` exists to
+    // prevent. Two shapes fail closed here rather than being silently ignored:
+    // a RELATIVE path (`isExecutable` would test it against THIS process's
+    // cwd, and a hit would bake a relative argv token that tmux later execs
+    // against the PANE's directory — a different file, or an exec failure at
+    // launch instead of detection), and an unexpandable `~user/...` (a
+    // systemd `Environment=` line never expands tildes; silently ignoring the
+    // pin would resolve a different build forever, silently).
+    if (isAbsolute(explicit)) {
+      if (await isExecutable(explicit)) return { path: explicit };
+      return { path: null, reason: "override-invalid" };
+    }
+    if (explicit.includes("/")) return { path: null, reason: "override-invalid" };
   }
-  // A NON-absolute override is not a pointer, so it does not stop the ladder.
-  // The rung answers "where did the operator say it is", and a relative value
-  // says no such thing: `isExecutable` would test it against THIS process's
-  // cwd (not the pane's), and a hit would bake a relative token into argv that
-  // tmux later execs against the working directory — a different file, or an
-  // exec failure at launch instead of detection. A bare `SHELL=bash`, which
-  // real environments do contain, falls through to the PATH scan that finds
-  // the same binary honestly.
 
   const pathEntries = options.pathEntries ?? (env.PATH ?? "").split(":");
   for (const dir of pathEntries) {
@@ -186,4 +194,18 @@ async function isExecutable(path: string): Promise<boolean> {
   if (!existsSync(path)) return false;
   const stat = await Bun.file(path).stat();
   return stat.isFile() && (stat.mode & 0o111) !== 0;
+}
+
+/**
+ * Expands a leading `~` or `~/` against `home`, the one form of override a
+ * systemd `Environment=` line or a hand-written unit reliably carries UNexpanded.
+ * A `~user/...` is left verbatim (resolving another account's home is out of
+ * scope); a relative or bare value is returned untouched so rung 1 can sort
+ * pointer-from-no-pointer. `null`/`undefined` pass through.
+ */
+function expandHome(value: string | undefined, home: string): string | undefined {
+  if (!value) return value;
+  if (value === "~") return home;
+  if (value.startsWith("~/")) return join(home, value.slice(2));
+  return value;
 }
