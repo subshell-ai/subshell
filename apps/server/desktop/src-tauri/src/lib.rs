@@ -101,6 +101,7 @@ pub fn run() {
             control::desktop_open_console,
             control::desktop_open_path,
             control::desktop_open_control_plane,
+            control::desktop_open_tmux_docs,
             control::desktop_notify,
             control::desktop_shell_ready,
             control::desktop_settings,

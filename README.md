@@ -11,8 +11,8 @@ browser, attach/detach via a terminal UI, and terminate them — all local-first
 - **tmux-backed subshells** — subshells survive browser close; attach/detach freely
 - **Profiles per harness** — env vars, CLI flags, settings JSON, config-source isolation
 - **Plugins** — harnesses are packages behind the published `@subshell-ai/plugin-api`
-  contract; five ship built in (claude-code, opencode, codex, hermes, pi), installed and
-  disabled instance-wide at Settings → Plugins (admin)
+  contract; six ship built in (terminal, claude-code, opencode, codex, hermes, pi),
+  installed and disabled instance-wide at Settings → Plugins (admin)
 - **Auth** — better-auth (email/password) + passkeys, first user becomes admin,
   registration gate, break-glass recovery password
 - **Dark-only UI** — xterm 6 terminal, shadcn/ui (Base UI)

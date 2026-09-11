@@ -20,6 +20,17 @@ describe("tmuxInstallPlan", () => {
     expect(tmuxInstallPlan("linux", false)).toMatchObject({ kind: "run" });
     expect(tmuxInstallPlan("linux", false).command[0]).toBe("pkexec");
   });
+
+  it("shows nothing installable on a platform with nothing installable", () => {
+    // Reachable from `dev:app` on an unsupported OS. Putting the missing
+    // binary on the line AS the fix ("tmux") invites someone to install a
+    // program by running it; an empty command means the warning shows only
+    // the reading link.
+    const plan = tmuxInstallPlan("win32", false);
+    expect(plan.kind).toBe("manual");
+    expect(plan.command).toEqual([]);
+    expect(plan.docsUrl).toBeTruthy();
+  });
 });
 
 describe("agentInstallPlan", () => {

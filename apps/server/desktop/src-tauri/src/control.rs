@@ -395,6 +395,12 @@ pub fn desktop_setup(settings: State<'_, SettingsState>) -> Result<ActionResult,
     ] {
         let result = step.run(&settings)?;
         log.push_str(&result.stdout);
+        // The chain's contract is "the CLI's own words, verbatim", and a
+        // substep that warns on stderr while exiting 0 must not warn on the
+        // single-button path and go silent on the one-press one.
+        if !result.stderr.is_empty() {
+            log.push_str(&result.stderr);
+        }
         log.push('\n');
         if !result.ok {
             return Ok(ActionResult {
@@ -479,8 +485,11 @@ pub fn desktop_install_tmux() -> Result<ActionResult, String> {
 ///
 /// Mirrors `tmuxInstallPlan` in `ui/installers.js`, which owns the same
 /// decision for the rendering side. Two copies because one runs in a webview
-/// with no process access and one runs where `which` works; they are pinned
-/// against each other by the console test and this module's test.
+/// with no process access and one runs where `which` works, and
+/// `the_js_install_table_and_the_rust_one_agree` fails the build when the two
+/// drift. `apt-get` is hardcoded because the only Linux artifact this app
+/// ships is the `.deb`, so every machine this reaches is Debian-family; the
+/// note in `installers.js` carries the lever if that changes.
 fn tmux_install_argv() -> Option<Vec<String>> {
     let argv = match std::env::consts::OS {
         // No package manager we can drive without installing one first, and
@@ -506,7 +515,9 @@ fn tmux_install_argv() -> Option<Vec<String>> {
 /// ships, and this process is the one that can write to the user's PATH. The
 /// list is duplicated from `ui/installers.js` for the same reason it exists
 /// there: what this app may EXECUTE has to be changeable only by editing this
-/// file, never by anything it reads at runtime.
+/// file, never by anything it reads at runtime. This is the copy that
+/// ENFORCES; the JS copy renders, and `the_js_install_table_and_the_rust_one_agree`
+/// holds them identical so revoking in one file cannot silently half-happen.
 ///
 /// All five are user-space installers that need no elevation.
 const AGENT_INSTALLS: &[(&str, &str)] = &[
@@ -1018,6 +1029,26 @@ pub fn desktop_open_control_plane(app: AppHandle, settings: State<'_, SettingsSt
         .map_err(|e| format!("could not open {url}: {e}"))
 }
 
+/// The tmux formula page — spec §6.1's reading for the plan the console
+/// cannot run itself (a Mac without Homebrew). The same string
+/// `ui/installers.js` carries as its plans' `docsUrl`, pinned equal to it by
+/// `the_js_install_table_and_the_rust_one_agree`.
+const TMUX_DOCS_URL: &str = "https://formulae.brew.sh/formula/tmux";
+
+/// Open the tmux formula page in the system browser.
+///
+/// A command that HOLDS the URL rather than a link whose href the page
+/// supplies: the same boundary `desktop_open_control_plane` and
+/// `desktop_open_path` keep, applied to a constant for the one surface that
+/// needs reading material (the console's CSP makes an ordinary `<a>` open in
+/// the webview, which is the wrong window for docs).
+#[tauri::command(async)]
+pub fn desktop_open_tmux_docs(app: AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url(TMUX_DOCS_URL, None::<&str>)
+        .map_err(|e| format!("could not open {TMUX_DOCS_URL}: {e}"))
+}
+
 /// Show a native notification, and focus the app when it is clicked.
 ///
 /// A dedicated command rather than granting the server-origin page the whole
@@ -1164,10 +1195,47 @@ mod tests {
         // The refusal happens before any spawn — an id outside the shipped
         // list never reaches a shell.
         assert!(desktop_install_agent("acme-harness".into()).is_err());
-        // And the ids the console offers are exactly the ones shipped here.
-        for (id, _) in AGENT_INSTALLS {
-            assert!(!id.is_empty());
+    }
+
+    /// The two halves of the install contract speak different languages and
+    /// each comment claims the other: `ui/installers.js` decides what the
+    /// console SHOWS, `tmux_install_argv` and `AGENT_INSTALLS` here decide
+    /// what gets RUN. Nothing else fails if they drift — the warning would
+    /// display one command while its own button ran another, on CI that is
+    /// green. Text-matching rather than a shared data file: the JS copy is
+    /// prose-shaped on purpose (readable, hand-edited), and this is the
+    /// price of that shape.
+    #[test]
+    fn the_js_install_table_and_the_rust_one_agree() {
+        let js = include_str!("../../ui/installers.js");
+        if let Some(argv) = tmux_install_argv() {
+            for token in &argv {
+                assert!(
+                    js.contains(token.as_str()),
+                    "installers.js lost the tmux token {token:?}"
+                );
+            }
         }
+        for (id, script) in AGENT_INSTALLS {
+            assert!(js.contains(id), "installers.js lost the agent id {id:?}");
+            // The script is the load-bearing half: a drifted URL or shell
+            // there is a different install, whatever the id still says.
+            assert!(js.contains(script), "installers.js lost the install script for {id:?}");
+        }
+        // The docs button opens Rust's constant; the JS plans carry the same
+        // URL for readers of the table.
+        assert!(
+            js.contains(TMUX_DOCS_URL),
+            "installers.js and the docs command name different pages"
+        );
+        // And the dialect pair holds on EVERY host, not only where
+        // `console_platform`'s mac arm runs: the JS must branch on "darwin",
+        // and must not have learned Rust's "macos" spelling.
+        assert!(js.contains("\"darwin\""), "installers.js does not branch on darwin");
+        assert!(
+            !js.contains("\"macos\""),
+            "installers.js must not branch on the Rust consts::OS spelling"
+        );
     }
 
     #[test]

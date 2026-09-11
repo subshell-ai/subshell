@@ -42,6 +42,17 @@ export function tmuxInstallPlan(platform, hasBrew) {
     // pkexec so the user gets their desktop's own password prompt. A bare
     // sudo from a GUI has no terminal to read a password from and simply
     // hangs until the timeout.
+    //
+    // `apt-get` is hardcoded, not resolved: the only Linux artifact this app
+    // SHIPS is the `.deb` (targets are linux-x64 and Debian-family by that
+    // packaging), so apt-get is the manager on every machine this button
+    // reaches. A `dev:app` on Fedora sees the installer's own "apt-get not
+    // found" in the output pane rather than a guess gone wrong. If shipping
+    // wider, resolve the manager in RUST (where `which` works) and pass the
+    // answer in as this function does with `hasBrew` — never guess here, and
+    // change BOTH copies together (the Rust `tmux_install_argv` mirrors this
+    // decision; `the_js_install_table_and_the_rust_one_agree` fails if they
+    // drift).
     return {
       kind: "run",
       label: "Install tmux",
@@ -49,17 +60,25 @@ export function tmuxInstallPlan(platform, hasBrew) {
       docsUrl: TMUX_DOCS,
     };
   }
-  return { kind: "manual", label: "Install tmux", command: ["tmux"], docsUrl: TMUX_DOCS };
+  // Nothing installable, nothing to show as a command: an empty list means
+  // the warning renders only the reading link. Putting "tmux" on the line
+  // would read as the fix and cannot be a fix.
+  return { kind: "manual", label: "Install tmux", command: [], docsUrl: TMUX_DOCS };
 }
 
 /**
  * The install commands for the agents this app may run on a user's behalf.
  *
  * BUILT-INS ONLY, and the ids and strings are duplicated here rather than read
- * from a manifest on purpose: this list is what the console is allowed to
- * EXECUTE, so it must be readable in one place and changeable only by editing
- * this file. A registry-driven version of this would let an installed plugin
- * choose what the desktop app runs.
+ * from a manifest on purpose: a registry-driven version of this would let an
+ * installed plugin choose what the desktop app runs. This copy is the
+ * RENDERING mirror and the readable list; the table ENFORCING what executes
+ * is `AGENT_INSTALLS` in `control.rs`, because that is the side the webview
+ * talks to and it never runs a string the page handed it, only its own. The
+ * two are held identical by the Rust test
+ * `the_js_install_table_and_the_rust_one_agree`, so removing an id here is a
+ * CI failure pointing at the copy that must change with it, not a silent
+ * half-revocation.
  *
  * All five are user-space installers that need no elevation.
  */
@@ -73,11 +92,15 @@ const AGENT_INSTALLS = {
 
 /**
  * How to install one built-in agent CLI, or null when this app will not.
+ * `command` is shown to nobody and run by nothing from this side — the Rust
+ * command holds its own copy and the cross-check test keeps them equal; the
+ * plan exists here so the allowlist is readable next to the tmux plans and
+ * pinned in `test/installers.test.js`.
  * @param {string} id - plugin id
- * @returns {{kind: "run", label: string, command: string[]}|null}
+ * @returns {{kind: "run", command: string[]}|null}
  */
 export function agentInstallPlan(id) {
   const script = Object.hasOwn(AGENT_INSTALLS, id) ? AGENT_INSTALLS[id] : undefined;
   if (!script) return null;
-  return { kind: "run", label: `Install ${id}`, command: ["sh", "-c", script] };
+  return { kind: "run", command: ["sh", "-c", script] };
 }

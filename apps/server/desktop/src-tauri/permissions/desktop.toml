@@ -95,6 +95,11 @@ description = "Open the server's own control plane URL in the system browser. Th
 commands.allow = ["desktop_open_control_plane"]
 
 [[permission]]
+identifier = "allow-desktop-open-tmux-docs"
+description = "Open the tmux formula page in the system browser. The URL is a constant in this app, not an argument from the page — the same boundary desktop_open_control_plane keeps."
+commands.allow = ["desktop_open_tmux_docs"]
+
+[[permission]]
 identifier = "allow-desktop-notify"
 description = "Show one native notification. The shape is fixed here — a title and a body, nothing schedulable or enumerable — so the server-origin page never receives the notification plugin itself."
 commands.allow = ["desktop_notify"]

@@ -23,6 +23,7 @@
     "allow-desktop-open-console",
     "allow-desktop-open-path",
     "allow-desktop-open-control-plane",
+    "allow-desktop-open-tmux-docs",
     "opener:allow-reveal-item-in-dir",
     "allow-desktop-settings",
     "allow-desktop-set-close-to-tray"

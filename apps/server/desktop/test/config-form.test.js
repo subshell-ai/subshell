@@ -330,8 +330,11 @@ describe("the console's own asset root and stylesheet", () => {
       // "Set up and start" is the one press that runs the whole chain, so it
       // inherits the "Install server" gate it replaced: the chain ends in
       // `init` and `service install`, both of which the CLI refuses without
-      // tmux.
+      // tmux. The agent buttons carry the flag as POLICY (no pane to run an
+      // agent in without tmux), pinned here so the policy cannot rot.
       "Set up and start",
+      "Also install Claude Code",
+      "Install Claude Code",
       "Save and start",
       "Install and start as a service",
       "Start",
@@ -341,6 +344,33 @@ describe("the console's own asset root and stylesheet", () => {
       expect(at, `no action entry found for "${label}"`).toBeGreaterThan(-1);
       expect(args(entryAt(at))[3], `"${label}" is not tmux-gated`).toBe("true");
     }
+  });
+
+  test("the setup step offers nothing that cannot run without a server", () => {
+    // `setup` is emitted exactly when no binary resolves (`Setup` replaces
+    // `InstallServer` only where `resolve` found nothing), and every write
+    // verb — `desktop_init`, `desktop_service` — answers "no subshell-server
+    // found" there. "Change addresses…" lived on this screen briefly: its
+    // save could only ever fail, and the next "Set up and start" discarded
+    // what was typed without a word. The form is reachable the moment a
+    // server exists, which is every screen after this one.
+    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
+    const at = js.indexOf("  setup: {");
+    expect(at).toBeGreaterThan(-1);
+    const entry = js.slice(at, js.indexOf("\n  },", at));
+    expect(entry).not.toContain("showConfigure");
+    expect(entry).not.toContain("doInit");
+  });
+
+  test("the tmux warning links out to the docs", () => {
+    // Spec §6.1 requires the no-Homebrew screen to LINK to the tmux formula
+    // page, not just show a command. The link is a button calling a Rust
+    // command that holds the URL as its own constant (the page sends no URL
+    // anywhere, the same rule `desktop_open_control_plane` follows), and
+    // `applyPlan` decides visibility from the plan's `docsUrl`.
+    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
+    expect(js).toContain("desktop_open_tmux_docs");
+    expect(js).toContain("docsUrl");
   });
 
   test("`.warn-text` is declared after `.hint`, or a combined class renders muted", () => {

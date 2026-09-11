@@ -305,7 +305,12 @@ const STEPS = Object.assign(Object.create(null), {
       // secondary (setup never waits on it) and tmux-gated like the chain:
       // with no tmux there is no pane to run an agent in yet.
       ["Also install Claude Code", () => doInstallAgent("claude-code"), false, true],
-      ["Change addresses…", showConfigure],
+      // No "Change addresses…" here: this screen exists exactly where no
+      // server resolves, and the form's save IS `subshell-server init` — it
+      // could only answer "no subshell-server found", and the next press
+      // would then overwrite the edit without a word. The hint discloses the
+      // defaults the press writes; the form is one button deep from every
+      // screen where saving can work. (Pinned by test.)
       ["Choose an existing server…", pickBinary],
     ],
   },
@@ -474,10 +479,14 @@ function buildTmuxWarning() {
   const wrap = document.createElement("div");
   wrap.className = "tmux-warning";
   wrap.hidden = true;
+  // Names the whole gate, not just the server verbs: the agent installs carry
+  // the flag too (no pane to run an agent in without tmux), and a disabled
+  // button whose reason the sentence does not name is the drift this line
+  // once was.
   const p = document.createElement("p");
   p.textContent =
-    "tmux was not found on the login PATH. The server launches every pane through it, so installing, " +
-    "configuring and starting are disabled until tmux is installed.";
+    "tmux was not found on the login PATH. The server launches every pane through it, so the actions that " +
+    "run or configure the server, and installing an agent, are disabled until tmux is installed.";
   const row = document.createElement("div");
   // Ahead of the command it acts on, when the plan says we can run it at
   // all: a user who downloaded a GUI should not be sent to a terminal for
@@ -516,7 +525,22 @@ function buildTmuxWarning() {
         }, 1600);
       });
   });
-  row.append(install, code, copy);
+  // Reading, not running: the no-Homebrew plan needs somewhere to go, and
+  // spec §6.1 names this page. A button calling a Rust command that holds the
+  // URL itself, so no URL is a value that crosses the IPC boundary — the same
+  // rule `desktop_open_control_plane` follows. Opted out of the busy-disable
+  // like Copy: reading the docs is most apt while something else is in flight.
+  const docs = document.createElement("button");
+  docs.type = "button";
+  docs.textContent = "Read the docs";
+  docs.dataset.always = "1";
+  docs.addEventListener("click", () => {
+    invoke("desktop_open_tmux_docs").catch((err) => {
+      problem = String(err?.message ?? err);
+      render();
+    });
+  });
+  row.append(install, code, copy, docs);
   wrap.append(p, row);
   wrap.applyPlan = (plan) => {
     install.hidden = plan.kind !== "run";
@@ -524,8 +548,13 @@ function buildTmuxWarning() {
     // The command line follows the plan rather than a UA guess: on a Mac
     // without Homebrew there is no button, so this line IS the fix, and the
     // plan's MacPorts alternative is the honest thing to show — a brew line
-    // would advise installing a tool we just checked is absent.
+    // would advise installing a tool we just checked is absent. An empty
+    // command (a platform with nothing installable) hides the code and its
+    // Copy rather than showing "tmux" as a fix it is not.
     code.textContent = plan.command.join(" ");
+    code.hidden = plan.command.length === 0;
+    copy.hidden = plan.command.length === 0;
+    docs.hidden = !plan.docsUrl;
   };
   return wrap;
 }
@@ -742,8 +771,22 @@ const doSetup = guard(async () => {
     await sleep(SETTLE_DELAY_MS);
     await refresh();
   }
-  if (probe?.next === "ready") await invoke("desktop_open_main");
-  return result;
+  if (probe?.next === "ready") {
+    await invoke("desktop_open_main");
+    return result;
+  }
+  // The settle ran out, not the setup: the chain installed and started a
+  // server that has not bound its port yet (a first boot runs migrations; a
+  // launchd job mid-throttle reports its wait verbatim). Say the press ended
+  // without its last act, rather than letting the hint's promise of an
+  // opened dashboard read as a silent lie. The background poll keeps
+  // checking, and "Open Dashboard" appears on its own the moment READY lands.
+  return {
+    ...result,
+    stdout:
+      `${result.stdout}\nThe server is set up and still starting. The console keeps checking, and ` +
+      "the dashboard opens the moment it answers.\n",
+  };
 }, true);
 
 /**
