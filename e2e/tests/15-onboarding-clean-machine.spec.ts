@@ -38,36 +38,49 @@ interface CleanInstance {
 let instance: CleanInstance | undefined;
 
 async function startCleanInstance(): Promise<CleanInstance> {
+  // Retried attempt first: `afterAll` waits until every retry is done, so a
+  // dead attempt's detached backend would still hold :3200 — attempt 1's spawn
+  // would die on EADDRINUSE while the readiness poll happily drove the
+  // zombie (or misread it as a leaked run). Playwright config runs retries on
+  // the persistent fleet, so an orphan would outlive the run entirely.
+  stopCleanInstance();
   const dir = mkdtempSync(path.join(tmpdir(), "subshell-e2e-clean-"));
   const tmuxBase = shortTmuxBase();
   mkdirSync(tmuxBase, { recursive: true });
   const missing = path.join(dir, "absent-binaries");
   mkdirSync(missing, { recursive: true });
 
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    NODE_ENV: "development",
+    SUBSHELL_TEST_MODE: "false",
+    SUBSHELL_SERVER_CONFIG_DIR: dir,
+    SERVER_PORT: String(PORTS.onboarding),
+    HOST: "127.0.0.1",
+    DATABASE_PATH: path.join(dir, "subshell.db"),
+    SUBSHELL_SERVER_DATA_DIR: path.join(dir, "data"),
+    APP_BASE_URL: ORIGIN,
+    BETTER_AUTH_SECRET: "e2e-secret-not-used-outside-tests-0000000000",
+    // Keep the suite's promise that nothing dials the public registry, even
+    // though this spec never installs a plugin.
+    SUBSHELL_PLUGIN_REGISTRY_URL: `http://127.0.0.1:${PORTS.fakeRegistry}`,
+    TMUX_TMPDIR: tmuxBase,
+    // The clean machine: each agent's override names a file in an empty
+    // scratch dir, so detection is deterministic on EVERY host — CI image,
+    // dev laptop with CLIs installed, both.
+    ...Object.fromEntries(AGENT_OVERRIDES.map((name) => [name, path.join(missing, name.toLowerCase())])),
+  };
+  // A developer running the suite from inside tmux would otherwise hand the
+  // backend their own session's TMUX/TMUX_PANE — pane spawns would aim at the
+  // wrong server and the clean-machine claim becomes host-dependent.
+  delete env.TMUX;
+  delete env.TMUX_PANE;
+
   const child = spawn("bun", ["run", "src/index.ts"], {
     cwd: BACKEND_DIR,
     detached: true,
     stdio: process.env.E2E_VERBOSE ? "inherit" : "ignore",
-    env: {
-      ...process.env,
-      NODE_ENV: "development",
-      SUBSHELL_TEST_MODE: "false",
-      SUBSHELL_SERVER_CONFIG_DIR: dir,
-      SERVER_PORT: String(PORTS.onboarding),
-      HOST: "127.0.0.1",
-      DATABASE_PATH: path.join(dir, "subshell.db"),
-      SUBSHELL_SERVER_DATA_DIR: path.join(dir, "data"),
-      APP_BASE_URL: ORIGIN,
-      BETTER_AUTH_SECRET: "e2e-secret-not-used-outside-tests-0000000000",
-      // Keep the suite's promise that nothing dials the public registry, even
-      // though this spec never installs a plugin.
-      SUBSHELL_PLUGIN_REGISTRY_URL: `http://127.0.0.1:${PORTS.fakeRegistry}`,
-      TMUX_TMPDIR: tmuxBase,
-      // The clean machine: each agent's override names a file in an empty
-      // scratch dir, so detection is deterministic on EVERY host — CI image,
-      // dev laptop with CLIs installed, both.
-      ...Object.fromEntries(AGENT_OVERRIDES.map((name) => [name, path.join(missing, name.toLowerCase())])),
-    },
+    env,
   });
   child.unref();
   const inst: CleanInstance = { child, dir, tmuxBase };
