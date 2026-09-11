@@ -142,8 +142,35 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
   });
 
   it("409s a second install of the same id while one is already running", async () => {
-    setAgentInstallDepsForTests({ commandFor: async () => "sleep 0.5", timeoutMs: 5_000, extraPath: async () => [] });
+    // The second request must arrive AFTER the first has taken the in-flight
+    // slot, and firing them back to back does not guarantee that: each one
+    // first walks `resolveSetupActor`, which resolves a better-auth session
+    // and reads a role, both real SQLite round trips. Nothing orders those two
+    // chains, so the first request only USUALLY wins the race, and the loser
+    // gets the 200. Gate on the service actually being entered instead.
+    //
+    // `commandFor` is awaited immediately inside `installBuiltInAgent`, and
+    // everything from there to `inFlight.add(id)` is synchronous - so once the
+    // microtask queue has drained, the slot is taken. A `setTimeout` callback
+    // runs only after that drain, which is what makes this ordering exact
+    // rather than merely likely.
+    let entered!: () => void;
+    const firstIsInside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let calls = 0;
+    setAgentInstallDepsForTests({
+      commandFor: async () => {
+        if (++calls === 1) entered();
+        return "sleep 0.5";
+      },
+      timeoutMs: 5_000,
+      extraPath: async () => [],
+    });
     const first = app.fetch(authedRequest(`/api/setup/agents/codex/install`, adminCookie, { method: "POST" }));
+    await firstIsInside;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     const second = await app.fetch(authedRequest(`/api/setup/agents/codex/install`, adminCookie, { method: "POST" }));
     expect(second.status).toBe(409);
     expect((await first).status).toBe(200);
