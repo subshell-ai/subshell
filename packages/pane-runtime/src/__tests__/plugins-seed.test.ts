@@ -60,8 +60,11 @@ describe("seedBuiltIns", () => {
   });
 
   it("creates the directory even when there is nothing to put in it", async () => {
-    // Otherwise the next boot would see an absent directory and seed again,
-    // making "the user uninstalled everything" unreachable.
+    // An empty-ids pass records `[]` — "nothing seeded YET", not "nothing
+    // ever", which is why a later default pass still seeds. The operator's
+    // "I want nothing here" is the UNINSTALL path instead (the id stays in the
+    // record after it leaves the disk, pinned below); this case only proves
+    // the pass is total when there is nothing to do.
     const dir = tempDataDir();
     await seedBuiltIns(dir, []);
     expect(existsSync(pluginsDir(dir))).toBe(true);

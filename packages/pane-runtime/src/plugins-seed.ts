@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { builtInIds } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
@@ -114,10 +114,19 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
   // one. Its name cannot be a plugin id (`listInstalled` skips non-ids, and a
   // file is not a directory either), so it never shows up as a plugin.
   //
+  // Temp + rename, never in place: the marker's CONTENTS are the record now,
+  // and a torn write (killed mid-`writeFile`) would leave empty or truncated
+  // JSON — which reads as the legacy shape, i.e. "the five pre-record ids",
+  // and would resurrect a built-in the operator uninstalled in exactly the
+  // window the record exists to close. A leftover `.tmp-<pid>` file costs
+  // nothing: `listInstalled` skips files.
+  //
   // The union, not `seeded`: everything previously recorded stays recorded,
   // including the five a legacy marker stood for, or an upgrade would offer
   // to re-seed what an operator had removed.
-  await writeFile(marker, JSON.stringify([...already, ...seeded].sort()), { mode: 0o600 });
+  const tmp = `${marker}.tmp-${process.pid}`;
+  await writeFile(tmp, JSON.stringify([...already, ...seeded].sort()), { mode: 0o600 });
+  await rename(tmp, marker);
   if (seeded.length > 0) {
     pluginLog().info(`seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
   }
