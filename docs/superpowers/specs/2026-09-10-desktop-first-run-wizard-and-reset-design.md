@@ -5,6 +5,143 @@ Status: approved design (brainstorm 2026-09-10); this document revises
 `2026-09-10-onboarding-to-first-subshell-design.md` §2/§5 as recorded in § 2
 below, and changes nothing else that spec decided.
 
+## Review notes (2026-09-10), to address before implementation
+
+Eleven findings against the code as it stands. Three block, four should be
+settled in the text, four are one line each. Nothing here disputes the design's
+shape; §§ 1 to 6 read as sound and the reset chain's "stop at the first
+failure, retry converges" discipline is the right one.
+
+### Blocking
+
+**R1. § 7.2 step 3 names the wrong environment variable, and the failure is
+silent on every Mac.** The step says sockets live under `<TMPDIR ?? /tmp>/
+tmux-<uid>/`. tmux does not consult `TMPDIR`. This repo's own authority says
+so: `tmuxSocketPath` (`packages/pane-runtime/src/tmux-runner.ts:382-385`)
+resolves `$TMUX_TMPDIR || "/tmp"`, and its docblock states the rule. macOS sets
+`TMPDIR` for every process (to a per-user `/var/folders/.../T/`), so as written
+reset would enumerate a directory holding no tmux sockets at all, find nothing,
+and, because "a failure to enumerate is ignored, matching nothing to kill",
+**report success while every pane on the machine keeps running.** A reset
+disclosed as "close this instance's local panes" that silently closes none is
+the worst shape this bug could take.
+
+Two attached details:
+
+- `tmuxSocketPath` wraps the base in `resolveExisting()` because on macOS
+  `/tmp` is a symlink to `/private/tmp` and the kernel binds the resolved path.
+  The Rust enumeration needs the same resolution or it misses on macOS a second
+  independent way.
+- **`cleanSocket` already has this exact bug**
+  (`tmux-runner.ts:353` uses `process.env.TMPDIR ?? "/tmp"`). It is best-effort
+  and swallows its own failure, which is why nobody has noticed. Fix it in the
+  same pass, or at minimum do not cite it as the precedent to copy: the spec
+  appears to have copied the broken one rather than `tmuxSocketPath`.
+
+The socket **prefix** claim is correct: `tmuxSocketFor` returns
+`subshell-<12 hex>` (`tmux-runner.ts:361-364`).
+
+**R2. § 3 and § 5 contradict each other about the wizard's grants.** § 3 lists
+the wizard's capability set as probe, setup, install-tmux, install-agent,
+set-server-bin, open-tmux-docs, open-main, `dialog:allow-open`, `core:default`.
+§ 5's Done step offers "Secondary: Go to status page (opens `console`
+instead)", which needs `desktop_open_console`. Either add it to the grant list
+in § 3 and to § 9's contracts table, or drop the secondary button. § 11's
+`ipc-acl.test.ts` extension ("wizard's invoke set == wizard's grant set") would
+catch this at implementation time, which is good, but the two sections should
+not ship disagreeing.
+
+**R3. § 7.2 step 5's guards are shape-based only, so § 7.1's promise that "the
+installed server binary itself stays" is not enforced.** The listed refusals
+(absolute, exists, not `/`, not the user's home itself, final component not a
+symlink) are all about the path's own shape. None of them stops a configured
+`SUBSHELL_SERVER_DATA_DIR` from being an **ancestor** of something the screen
+promised to keep. A data dir of `$HOME/.local` passes every guard and takes
+`~/.local/bin/subshell-server` with it on the recursive delete.
+
+The existing guards are right, and the reasoning behind them ("an
+operator-configured `/data` is legitimately theirs to lose, so the guard is
+shape-based, not location-based") is right too. This is the one containment
+check that reasoning does not cover, because it protects a promise the UI
+makes rather than a location: **refuse when a directory to be deleted contains,
+or equals, the resolved server binary path or the `configEnv.path` directory.**
+One comparison against paths the probe already carries.
+
+### Settle in the text
+
+**R4. § 7.2 step 5 buries an ordering rule that is load-bearing.** `config.env`
+is what tells `status --json` where overridden paths are, so it must be deleted
+**last**. As written it appears as a trailing sentence after the numbered
+order, reading as an aside. If it ever moves ahead of the directory deletions,
+a Retry after a partial failure re-reads a machine with no config, resolves
+every path to its DEFAULT location, deletes nothing that exists, and reports
+success while the operator's real data dir survives untouched. State it as a
+rule with that reason, the way step 3's prefix rule is stated.
+
+**R5. § 4 does not say whether the flag write is safe under concurrent
+probes.** `desktop_probe` is polled by the console at 5 s and by the wizard at
+~1 s during a Run, and § 3 allows both windows to exist. The first-Ready write
+is therefore a read-modify-write on `settings.json` that can overlap itself,
+and it shares that file with `binary_path`. Say whether `desktop-core`'s
+settings write is atomic (temp plus rename) and whether an overlapping write
+can drop a concurrent `binary_path` change. `plugins-seed.ts` has just been
+through exactly this: its marker moved to temp-plus-rename precisely because
+the contents became the record.
+
+**R6. § 3 and § 4 leave the boot ordering ambiguous, and it decides which
+window a CLI-provisioned machine opens.** § 3 says boot "branches on
+`onboarded`"; § 4 says the probe sets that flag on first Ready. A machine set
+up entirely from the CLI has `onboarded: false` stored until some probe runs.
+If boot reads the stored flag and then probes, that user gets the wizard on
+first launch, which § 4 explicitly calls incorrect ("they never see a wizard,
+which is correct"). § 4's "the probe at boot is the same one the page will
+poll" implies probe-then-branch, but it is implied rather than stated. Say it,
+and add the case to § 11: the fixtures list "ready-at-boot" for the page's step
+state, not for the window choice.
+
+**R7. § 7.1's blast radius omits a node agent on this same machine.** Both
+disclosures concern *remote* nodes. The root `README.md` says the machine
+running the control plane is usually also one you want to launch agents on, and
+both desktop apps are expected to coexist there. After a reset that machine can
+still be running a `subshell` agent daemon, enrolled to a plane whose database
+and signing key have just been deleted, retrying a connection forever. Either
+name it in the list (it is the honest scope of "back to virgin machine") or add
+it to § 13 as an explicit non-goal. Silence is the one option that leaves a
+user surprised.
+
+**R8. § 6's version-skew argument rests on an asserted Tauri behaviour.**
+"Tauri ignores undeclared extras" carries the whole "degrades to a raised
+window, never to a partial action" conclusion. Everywhere else this repo
+measures a claim like that and says so (`better-auth 1.7.1 derives the rpID
+from the static baseURL`, `measured on bun 1.4.2`). Either pin it with a test
+or record the measurement inline.
+
+### One line each
+
+**R9. § 7.1's hostname.** Spawning `hostname(1)` works, but `libc::gethostname`
+answers without a process, and libc is already in the dependency graph. More
+usefully: on macOS `hostname` and `hostname -s` differ (FQDN versus short), and
+the user has to type the value back **exactly**. Say which form is displayed.
+
+**R10. § 8's licence note reasons from the wrong premise.** It argues the line
+is unaffected because "the console consumes it as opaque JSON". The actual
+reason is simpler and stronger: `apps/server/desktop` is itself inside
+`AGPL_PREFIX` (`scripts/license-fields.ts:49`), so `@internal/desktop-server`
+is AGPL and a type import from `@internal/server` is AGPL to AGPL, not a
+crossing at all. No `PERMITTED_CROSSINGS` entry is needed. The conclusion is
+correct; the stated reason would stop holding the moment someone moved the
+console out of `apps/server/`, which is exactly when it would be consulted.
+
+**R11. § 11 has no test for R3, R4 or R6.** Add: the ancestor guard rejects a
+data dir containing the server binary; the chain's delete order puts
+`config.env` last; boot probes before choosing a window.
+
+**R12. § 5 step 2 has no exit for a machine that cannot get tmux.** Continue is
+gated until tmux answers, and the Mac-without-brew branch has no button, only a
+command to copy and a poll. That is correct (nothing works without tmux), but
+confirm the user can still close the window and quit the app from that step
+rather than being held there, since it is the one step with no forward path.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
