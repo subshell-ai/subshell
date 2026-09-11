@@ -43,6 +43,11 @@ export function screensFor(probe: Probe): ScreenId[] {
  * row's WIDTH never changes at the swap, only which dots are filled. A
  * machine that skips the tmux screen sees its dot already filled rather than
  * a shorter row.
+ *
+ * `_probe` is unused now that the total is fixed at six and `done`/`current`
+ * derive from `current`'s index alone. Kept for signature stability (call
+ * sites, and parity with the other pure functions here that all take a
+ * `Probe`) rather than dropped — deliberately, not an oversight.
  */
 export function dots(_probe: Probe, current: ScreenId): { total: 6; done: number; current: number } {
   const index = ALL_SCREENS.indexOf(current);

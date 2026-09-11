@@ -106,14 +106,14 @@ describe("screensFor", () => {
 });
 
 describe("dots", () => {
-  it("always has three positions", () => expect(dots(virgin(), "welcome").total).toBe(3));
+  it("always has six positions", () => expect(dots(virgin(), "welcome").total).toBe(6));
   it("counts a skipped tmux screen as done", () => {
-    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 3, done: 2, current: 2 });
-    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 3, done: 0, current: 0 });
+    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 6, done: 2, current: 2 });
+    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 6, done: 0, current: 0 });
   });
   it("walks the three when tmux is missing", () => {
-    expect(dots(virgin(), "tmux")).toEqual({ total: 3, done: 1, current: 1 });
-    expect(dots(virgin(), "setup")).toEqual({ total: 3, done: 2, current: 2 });
+    expect(dots(virgin(), "tmux")).toEqual({ total: 6, done: 1, current: 1 });
+    expect(dots(virgin(), "setup")).toEqual({ total: 6, done: 2, current: 2 });
   });
 });
 
@@ -210,13 +210,15 @@ export function screensFor(probe: Probe): ScreenId[] {
 }
 
 /**
- * Dot semantics: three positions always, so a machine that skips the tmux
- * screen sees its dot already filled rather than a shorter row. The SPA
- * continues this row (spec § 4): six dots in the desktop shell, three filled.
+ * Dot semantics: six positions always, not three. The SPA's three `/setup`
+ * screens always follow the native ones on a desktop first run, so a
+ * three-dot row would grow to six the moment the SPA takes over — the row's
+ * width never changes at the handoff. A machine that skips the tmux screen
+ * sees its dot already filled rather than a shorter row.
  */
-export function dots(_probe: Probe, current: ScreenId): { total: 3; done: number; current: number } {
+export function dots(_probe: Probe, current: ScreenId): { total: 6; done: number; current: number } {
   const index = ALL_SCREENS.indexOf(current);
-  return { total: 3, done: index, current: index };
+  return { total: 6, done: index, current: index };
 }
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";

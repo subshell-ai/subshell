@@ -57,7 +57,7 @@ six-step wizard of 2026-09-10 § 5): Welcome, Install tmux (shown only while
 tmux is missing, and it advances itself the moment the poll sees one), and
 Set Up Your Server, whose press replaces the screen with a progress
 checklist and then opens the dashboard by itself. `screensFor(probe)` decides
-which screens exist, `dots(probe, screen)` where the three dots stand,
+which screens exist, `dots(probe, screen)` where the six dots stand,
 `setupRows`/`canSetup`/`failureLine` the checklist, the gate and the failure
 line, all in `ui/src/lib/wizard-state.ts`, pure and tested without a
 webview. There is no rail, no Done screen and no log pane: a failed chain

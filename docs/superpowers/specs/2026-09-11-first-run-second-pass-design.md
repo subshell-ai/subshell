@@ -324,8 +324,14 @@ If phase 3 is declined, § 6.2 ships with **How to install** only.
 export type ScreenId = "welcome" | "tmux" | "setup";
 /** Which screens exist for THIS machine, in order: tmux only while missing. */
 export function screensFor(probe: Probe): ScreenId[];
-/** Dot semantics: always three positions (Welcome, tmux, Set Up); a skipped tmux counts as done. */
-export function dots(probe: Probe, current: ScreenId): { total: 3; done: number; current: number };
+/**
+ * Dot semantics: always six positions, not three. The SPA's three `/setup`
+ * screens (Account, Agent, Launch) always follow the three native ones on a
+ * desktop first run, so a three-dot row would grow to six the moment the SPA
+ * takes over — contradicting § 4's claim that the row's width never changes
+ * at the handoff. Rendering six from the start keeps it constant throughout.
+ */
+export function dots(probe: Probe, current: ScreenId): { total: 6; done: number; current: number };
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";
 export interface SetupRow { id: SetupRowId; label: string; detail: string; done: boolean }

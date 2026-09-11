@@ -23,6 +23,12 @@ export function AgentRow({
 }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const chip = chipFor(harness);
+  // Same predicate as HarnessInstallHelp's copyable command: the server 400s
+  // an id whose install.command is empty, so offering the button for one
+  // would ship a control that always fails. Latent today (every built-in
+  // agent harness carries a command, and `terminal` is filtered out by type)
+  // but not derivable from `installed` alone once a command-less agent joins.
+  const installable = harness.install.command.trim() !== "";
   return (
     <li aria-label={harness.name} className="border-border/60 border-b last:border-b-0">
       <div className="flex min-h-11 items-center gap-3 py-2">
@@ -31,7 +37,7 @@ export function AgentRow({
         </span>
         <span className="flex-1 font-medium">{harness.name}</span>
         <span className={cn("text-xs", chip.className)}>{chip.text}</span>
-        {!harness.installed && onInstall && (
+        {!harness.installed && installable && onInstall && (
           <Button size="sm" disabled={installing} onClick={() => onInstall(harness.id)}>
             {installing ? "Installing…" : "Install"}
           </Button>

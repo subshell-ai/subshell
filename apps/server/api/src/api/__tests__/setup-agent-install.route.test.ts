@@ -5,6 +5,7 @@ import { setHasUsersProbeForTests } from "@/api/setup.route.js";
 import { setAgentInstallDepsForTests, setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
+import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -34,6 +35,20 @@ async function install(pluginId: string, init?: RequestInit): Promise<Response> 
   return await app.fetch(
     new Request(`http://localhost:3080/api/setup/agents/${pluginId}/install`, { method: "POST", ...init }),
   );
+}
+
+/** The `agent.install` audit trail for one id, newest first (mirrors `plugins-route.test.ts`'s `pluginAudit`). */
+async function agentInstallAudit(
+  pluginId: string,
+): Promise<{ actorUserId: string | null; targetType: string | null; metadata: Record<string, unknown> }[]> {
+  const events = await new AuditRepository(db).listLatest(300);
+  return events
+    .filter((e) => e.action === "agent.install" && e.targetId === pluginId)
+    .map((e) => ({
+      actorUserId: e.actorUserId,
+      targetType: e.targetType,
+      metadata: JSON.parse(String(e.metadataJson ?? "{}")) as Record<string, unknown>,
+    }));
 }
 
 describe("POST /api/setup/agents/:pluginId/install", () => {
@@ -143,5 +158,16 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
     expect(body.ok).toBe(true);
     expect(body.output).toContain("ok");
     expect(body.harness.id).toBe("claude-code");
+
+    // docs/security.md §11.10: this row is the only durable record that a
+    // vendor script ran on the host, since the output is deliberately not
+    // logged, and the audit call is best-effort - nothing else would catch a
+    // renamed action or a broken metadataJson.
+    const audits = await agentInstallAudit("claude-code");
+    const row = audits[0];
+    expect(row).toBeDefined();
+    expect(row?.targetType).toBe("plugin");
+    expect(row?.metadata).toMatchObject({ ok: true, exitCode: 0 });
+    expect(typeof row?.metadata.durationMs).toBe("number");
   });
 });

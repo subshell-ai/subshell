@@ -112,6 +112,30 @@ pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
         .map_err(|e| format!("could not open the console window: {e}"))
 }
 
+/// The wizard's design height — the frame's fixed idiom (spec 2026-09-11 § 4).
+const WIZARD_HEIGHT: f64 = 720.0;
+
+/// Room reserved for OS chrome a monitor's `work_area` does not already
+/// exclude everywhere (a title bar, in particular), subtracted from the
+/// available height before clamping to it.
+const WIZARD_HEIGHT_MARGIN: f64 = 80.0;
+
+/// Clamps the wizard's initial height to a monitor's available (logical)
+/// height, pure so it is testable without a display.
+///
+/// The window is fixed-frame and non-resizable, so on a 1366x768 or
+/// 1280x720 display a 720-tall window can put the bottom bar carrying
+/// Continue below the work area — the content area scrolls, but the bar is a
+/// separate grid row, and nothing can bring an off-screen Continue button
+/// into view. `None` (no monitor could be queried) keeps today's fixed
+/// height rather than guessing.
+fn wizard_height(available_logical_height: Option<f64>) -> f64 {
+    match available_logical_height {
+        Some(h) if h.is_finite() && h > 0.0 => WIZARD_HEIGHT.min(h - WIZARD_HEIGHT_MARGIN),
+        _ => WIZARD_HEIGHT,
+    }
+}
+
 /// Create (or focus) the first-run wizard.
 ///
 /// Same one-press-then-focus contract as the console: `raise` on an existing
@@ -126,9 +150,16 @@ pub fn open_wizard(app: &AppHandle) -> Result<WebviewWindow, String> {
     // A setup assistant is a fixed frame (spec 2026-09-11 § 4): 1024 wide
     // because that is MIN_WIDTH, the dashboard's own floor, which is what
     // lets `open_main` take this window's geometry and appear in its place.
+    // The height is clamped rather than fixed - see `wizard_height`.
+    let available_height = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.work_area().size.to_logical::<f64>(m.scale_factor()).height);
+    let height = wizard_height(available_height);
     WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
         .title("Set Up Subshell Server")
-        .inner_size(MIN_WIDTH, 720.0)
+        .inner_size(MIN_WIDTH, height)
         .resizable(false)
         .center()
         .build()
@@ -315,5 +346,22 @@ mod tests {
     fn min_width_matches_the_spa_tiling_breakpoint() {
         // WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts.
         assert_eq!(super::MIN_WIDTH as u32, 1024);
+    }
+
+    #[test]
+    fn wizard_height_shrinks_to_fit_a_small_displays_work_area() {
+        // 1280x720 laptop panel: the design height of 720 would exceed the
+        // work area outright, let alone leave the bottom bar reachable.
+        assert_eq!(super::wizard_height(Some(720.0)), 640.0);
+    }
+
+    #[test]
+    fn wizard_height_keeps_the_design_height_on_a_roomy_display() {
+        assert_eq!(super::wizard_height(Some(1200.0)), super::WIZARD_HEIGHT);
+    }
+
+    #[test]
+    fn wizard_height_falls_back_to_the_design_height_when_no_monitor_answers() {
+        assert_eq!(super::wizard_height(None), super::WIZARD_HEIGHT);
     }
 }

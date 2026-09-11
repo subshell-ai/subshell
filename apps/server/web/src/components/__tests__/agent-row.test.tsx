@@ -69,4 +69,17 @@ describe("AgentRow", () => {
     );
     expect((screen.getByRole("button", { name: "Installing…" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("never offers Install for a harness with nothing to install, even with a handler", () => {
+    // Mirrors HarnessInstallHelp's predicate: the server 400s an id whose
+    // install.command is empty. Latent today (every built-in agent harness
+    // ships a command), but this is what keeps a future command-less one
+    // from shipping a button that always fails.
+    render(
+      <ul>
+        <AgentRow harness={{ ...base, install: { ...base.install, command: "" } }} onInstall={() => {}} />
+      </ul>,
+    );
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+  });
 });

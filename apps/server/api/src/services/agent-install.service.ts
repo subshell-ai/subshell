@@ -161,7 +161,11 @@ export async function installBuiltInAgent(
     try {
       const [stdout, stderr] = await Promise.all([cap(stdoutReader), cap(stderrReader)]);
       const exitCode = await proc.exited;
-      const output = [stdout, stderr, timedOut ? `[installer timed out after ${deps.timeoutMs} ms]` : ""]
+      const output = [
+        stdout,
+        stderr,
+        timedOut ? `[installer timed out after ${deps.timeoutMs} ms; it may still be running]` : "",
+      ]
         .filter(Boolean)
         .join("\n");
       return { ok: exitCode === 0 && !timedOut, exitCode, output, durationMs: Date.now() - started };

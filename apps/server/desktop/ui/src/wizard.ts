@@ -64,8 +64,14 @@ const ART = {
 };
 function setFrame(art: keyof typeof ART, title: string, subtitle: string): void {
   el("art").innerHTML = ART[art];
-  el("title").textContent = title;
-  el("subtitle").textContent = subtitle;
+  // `title` and `subtitle` are `aria-live="polite"` regions, and `tick()`
+  // calls `render()` on a 1500ms poll: rewriting them with the SAME string
+  // is still a DOM mutation, so assistive tech would re-announce them on a
+  // timer even when nothing changed on screen.
+  const titleEl = el("title");
+  if (titleEl.textContent !== title) titleEl.textContent = title;
+  const subtitleEl = el("subtitle");
+  if (subtitleEl.textContent !== subtitle) subtitleEl.textContent = subtitle;
 }
 function clear(...ids: string[]): void {
   for (const id of ids) el(id).textContent = "";
@@ -418,8 +424,14 @@ function render(): void {
   // replay has to be triggered here explicitly or this transition would be
   // the one screen change that never animates.
   if (probe.next === "ready" || (screen === "tmux" && probe.tmux !== null)) {
-    screen = "setup";
-    replayEnter();
+    // The tmux half self-limits (`screen` stops being "tmux" after the first
+    // pass), but `probe.next === "ready"` stays true on EVERY later poll, so
+    // without this guard the replay fired every 1500ms forever — visibly on
+    // the `openFailed` screen, which stays up indefinitely.
+    if (screen !== "setup") {
+      screen = "setup";
+      replayEnter();
+    }
   }
   const p = probe;
   const views: Record<ScreenId, () => void> = {

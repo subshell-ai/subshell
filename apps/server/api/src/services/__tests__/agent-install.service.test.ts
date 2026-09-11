@@ -50,4 +50,25 @@ describe("installBuiltInAgent", () => {
     expect(r.output.length).toBeLessThan(70_000);
     expect(r.output).toContain("[truncated]");
   });
+  it("hands the installer an allowlist, not this process's environment", async () => {
+    // Pins both halves of installerEnv's rule: a variable this process holds
+    // (a stand-in for BETTER_AUTH_SECRET / the database path) must not reach
+    // the child, while HOME - which a real installer legitimately needs -
+    // still does. Deleting installerEnv and passing `env: process.env` would
+    // leave this failing (both would print non-empty).
+    process.env.SUBSHELL_TEST_SECRET_MARKER = "must-not-leak";
+    try {
+      const r = await installBuiltInAgent(
+        "claude-code",
+        deps('echo "marker=[$SUBSHELL_TEST_SECRET_MARKER]"; echo "home=[$HOME]"'),
+      );
+      expect(r.ok).toBe(true);
+      // Excluded: a variable this process holds must not reach the child.
+      expect(r.output).toContain("marker=[]");
+      // Included: an installer still needs to know where to put things.
+      expect(r.output).not.toContain("home=[]");
+    } finally {
+      delete process.env.SUBSHELL_TEST_SECRET_MARKER;
+    }
+  });
 });
