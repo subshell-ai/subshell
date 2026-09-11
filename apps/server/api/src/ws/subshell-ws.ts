@@ -11,7 +11,7 @@ import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { resolveAttach } from "@/ws/attach-resolve.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
 import type { PaneGeometry } from "@/ws/pane-geometry.js";
-import { captureStable, nudgePaneForRepaint, RESIZE_SETTLE_MS, waitForPaneRepaint } from "@/ws/pane-repaint.js";
+import { captureStable, fitPaneAndRepaint, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
@@ -24,7 +24,6 @@ import {
   persistOutputFor,
   readPaneGeometry,
   registerViewer,
-  seedPaneGeometry,
   setSizingPolicy,
   sharedGridFor,
   type WsData,
@@ -212,27 +211,21 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       // watching must shrink the pane for both, so the capture below matches
       // the grid both of them will render.
       const fit = sharedGridFor(row.id) ?? params.size;
-      await launcher.resize(row.tmuxSocket, row.id, fit.cols, fit.rows);
-      // Tell the queue: this fit bypassed it, and a client frame asking for
-      // the same size must not then be swallowed as already-applied.
-      seedPaneGeometry(row.id, fit.cols, fit.rows);
       // `logStart` is the pre-resize size — the baseline a repaint has to grow
       // past. Re-sampling it after the resize would miss a repaint that beat
-      // us to the log.
-      repainted = await waitForPaneRepaint(sizeOf, { baseline: logStart });
-      // Nudge only when the log is a usable signal and someone is still
-      // watching: with no log `sizeOf` reads 0 forever, so "no burst" carries
-      // no information and a blind nudge would thrash every pane-poll attach.
-      if (!repainted && hasLog && !detached) {
-        nudged = true;
-        // `fit`, NOT the joiner's own size: the nudge ENDS by resizing the pane to
-        // the size it is handed (it steps ±1 and back), and seeds the queue
-        // with it. Handing it the joiner's own size undid the shared fit
-        // three lines above — an incumbent at 122x49 was left rendering a
-        // pane a 122x52 joiner had claimed, clipping every later frame, with
-        // nothing scheduled to re-decide it.
-        repainted = await nudgePaneForRepaint(launcher, row.tmuxSocket, row.id, fit.cols, fit.rows, sizeOf);
-      }
+      // us to the log. Nudge only when the log is a usable signal and someone
+      // is still watching: with no log `sizeOf` reads 0 forever, so "no
+      // burst" carries no information and a blind nudge would thrash every
+      // pane-poll attach. The nudge is handed `fit`, NOT the joiner's own
+      // size: it ENDS by resizing the pane to what it is given, and the
+      // joiner's size once undid the shared fit — an incumbent at 122x49 was
+      // left rendering a pane a 122x52 joiner had claimed.
+      const outcome = await fitPaneAndRepaint(launcher, row.tmuxSocket, row.id, fit, sizeOf, {
+        baseline: logStart,
+        canNudge: () => hasLog && !detached,
+      });
+      repainted = outcome.repainted;
+      nudged = outcome.nudged;
     } catch (err) {
       logger.withError(err).warn("ws attach: initial resize failed; replay uses the current size");
       await Bun.sleep(RESIZE_SETTLE_MS);

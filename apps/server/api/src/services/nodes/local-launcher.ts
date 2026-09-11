@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { stripAnsi } from "@internal/backend-errors";
 import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/pane-runtime";
 import { logger } from "@/utils/logger.js";
-import { readLogTailFrom, TAIL_BACKSTOP_MS } from "./log-tail.js";
+import { readLogTailFrom, TAIL_POLL_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
 import { subshellLogDir, subshellLogPath } from "./subshell-paths.js";
 
@@ -286,7 +286,7 @@ export class LocalLauncher implements NodeLauncher {
     let watcher: FSWatcher | null = null;
     try {
       watcher = watch(logFile, () => void pump());
-      // If the inode dies the watcher is dead weight; the backstop still delivers.
+      // If the inode dies the watcher is dead weight; the poll still delivers.
       watcher.on("error", () => {
         watcher?.close();
         watcher = null;
@@ -294,7 +294,7 @@ export class LocalLauncher implements NodeLauncher {
     } catch {
       watcher = null;
     }
-    const timer = setInterval(() => void pump(), TAIL_BACKSTOP_MS);
+    const timer = setInterval(() => void pump(), TAIL_POLL_MS);
     await pump(); // ship anything written before the subscription attached
     return () => {
       if (stopped) return;

@@ -33,7 +33,7 @@ export const TAIL_CHUNK_BYTES = 192 * 1024;
 export const TAIL_BACKPRESSURE_BYTES = 512 * 1024;
 
 /** Safety net for missed watch events — same value the backend's log-tail pump uses. */
-export const TAIL_BACKSTOP_MS = 1_000;
+export const TAIL_POLL_MS = 50;
 
 /** Re-check cadence inside the backpressure wait. */
 const TAIL_BACKPRESSURE_POLL_MS = 50;
@@ -226,7 +226,7 @@ export async function execTailStart(ctx: CommandContext, cmd: Cmd<"tail_start">)
   } catch {
     watcher = null; // file not created yet — the backstop interval carries the pump until it appears
   }
-  const timer = setInterval(() => void pump().catch(pumpFailed), TAIL_BACKSTOP_MS);
+  const timer = setInterval(() => void pump().catch(pumpFailed), TAIL_POLL_MS);
   timer.unref?.(); // a tail must never hold the daemon (or a test process) open on its own
   ctx.tails.set(cmd.subId, handle);
   void pump().catch(pumpFailed); // immediate catch-up read, NOT awaited (see JSDoc)

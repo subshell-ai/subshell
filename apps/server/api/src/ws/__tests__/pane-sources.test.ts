@@ -128,6 +128,36 @@ describe("createLogTailSource", () => {
 /** Comfortably past the 1s backstop, so "nothing arrived" is meaningful. */
 const TAIL_SETTLE_MS = 1500;
 
+describe("createLogTailSource latency (an EXTERNAL appender, as pipe-pane is)", () => {
+  it("delivers promptly when the writer is another process", async () => {
+    // Every other case in this file appends with `appendFileSync`, in THIS
+    // process — and an in-process write is the one case `fs.watch` reports
+    // reliably (measured on bun 1.4.2 / macOS: 7 events for 7 self-writes,
+    // but 0-1 for an external appender). Production is always the external
+    // case: tmux `pipe-pane` runs `sh -c 'cat >> log'`. So this is the shape
+    // that decides what a person feels when they type, and the only shape
+    // that can catch the delivery falling back on the poll behind the watch.
+    //
+    // At a 1000ms poll this measured 698ms per keystroke, every sample within
+    // 2ms of the others — a fixed timer, not an event.
+    const file = freshLog("");
+    const seen: string[] = [];
+    const appender = Bun.spawn({ cmd: ["sh", "-c", `cat >> '${file}'`], stdin: "pipe" });
+    const stop = createLogTailSource({ logFile: file, fromByte: 0 }).start((t) => seen.push(t));
+    try {
+      await Bun.sleep(100); // let the appender and the watch settle
+      const sentAt = Date.now();
+      appender.stdin.write("typed\r\n");
+      appender.stdin.flush();
+      await waitFor(() => seen.join("").includes("typed"), "the externally appended bytes");
+      expect(Date.now() - sentAt).toBeLessThan(400);
+    } finally {
+      stop();
+      appender.kill();
+    }
+  });
+});
+
 describe("createPanePollSource", () => {
   /** A launcher whose capture returns whatever the test sets. */
   function fakeLauncher(): { launcher: NodeLauncher; screen: string; captures: number } {

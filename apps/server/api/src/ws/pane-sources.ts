@@ -5,8 +5,25 @@ import { captureToTerminalText } from "@/ws/capture-text.js";
 import type { PaneSource } from "@/ws/pane-stream.js";
 import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 
-/** Safety net for missed watch events (file replaced under the watch, quota). */
-export const TAIL_BACKSTOP_MS = 1000;
+/**
+ * How often the pane log is re-read for new bytes.
+ *
+ * This is the PRIMARY delivery path, not a safety net, and its interval is the
+ * latency a person feels when they type: the pane echoes a keystroke into the
+ * log, and nothing ships it until the next poll. The `fs.watch` beside it is an
+ * optimization that cannot be relied on — measured on bun 1.4.2 / macOS, a
+ * watch on a file appended by ANOTHER process (which is what tmux `pipe-pane`
+ * is: `sh -c 'cat >> log'`) fired 0/10 in one run and 1/3 in another, while
+ * the same watch reports in-process writes reliably. At the old 1000ms
+ * "backstop" that made every keystroke land 698ms late, every sample within
+ * 2ms of the rest.
+ *
+ * 50ms costs one `stat` per poll per ATTACHED pane — 9.4µs measured, so
+ * ~0.19ms of work per second per pane, and the pump exists only while somebody
+ * is watching. That is a price worth paying twenty times a second for a
+ * terminal that feels live.
+ */
+export const TAIL_POLL_MS = 50;
 
 /** How often the capture fallback re-reads the pane. */
 export const PANE_POLL_MS = 300;
@@ -89,7 +106,7 @@ export function createLogTailSource(options: LogTailSourceOptions): PaneSource {
       let watcher: FSWatcher | null = null;
       try {
         watcher = watch(options.logFile, () => void pump());
-        // If the inode dies the watcher is dead weight; the backstop delivers.
+        // If the inode dies the watcher is dead weight; the poll delivers.
         watcher.on("error", () => {
           watcher?.close();
           watcher = null;
@@ -97,7 +114,7 @@ export function createLogTailSource(options: LogTailSourceOptions): PaneSource {
       } catch {
         watcher = null;
       }
-      const timer = setInterval(() => void pump(), TAIL_BACKSTOP_MS);
+      const timer = setInterval(() => void pump(), TAIL_POLL_MS);
       void pump(); // ship anything written between the offset and the attach
 
       return () => {

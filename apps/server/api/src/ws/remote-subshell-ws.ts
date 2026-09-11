@@ -7,7 +7,7 @@ import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import type { AttachParams } from "@/ws/attach-params.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
-import { captureStable, nudgePaneForRepaint, RESIZE_SETTLE_MS, waitForPaneRepaint } from "@/ws/pane-repaint.js";
+import { captureStable, fitPaneAndRepaint, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
 import { createRemoteTailSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import {
@@ -18,7 +18,6 @@ import {
   persistOutputFor,
   readPaneGeometry,
   registerViewer,
-  seedPaneGeometry,
   sharedGridFor,
   type WsData,
   type WsSocket,
@@ -231,26 +230,17 @@ export async function attachRemoteSubshellWs(
         // so the pane bounced between the two exactly as it did before
         // eviction was removed.
         const fit = sharedGridFor(row.id) ?? size;
-        await launcher.resize(data.socket, row.id, fit.cols, fit.rows);
-        // Tell the queue this fit bypassed it, or `applied` keeps naming a
-        // size the pane no longer holds and the next client frame asking for
-        // the real one is swallowed as already-applied.
-        seedPaneGeometry(row.id, fit.cols, fit.rows);
-        // Wait for the pane's TUI to repaint at the new geometry (burst of
-        // fresh log bytes, then quiet) — a flat settle captures tmux's
-        // re-wrapped approximation of the OLD frame — and when no burst comes
-        // (a no-op resize fires no SIGWINCH), force one. The local twin
-        // carries the full reasoning. Improves the first paint only;
-        // correctness lives in the gap-free join above.
-        // `logStart` is the pre-resize size (the local twin's reasoning): the
-        // baseline a repaint must grow past, so a fast repaint still counts.
-        repainted = await waitForPaneRepaint(sizeOf, { baseline: logStart });
-        if (!repainted && !detached) {
-          nudged = true;
-          // `fit`, not `size`: the nudge ENDS by resizing to what it is
-          // handed, which would undo the shared fit three lines above.
-          repainted = await nudgePaneForRepaint(launcher, data.socket, row.id, fit.cols, fit.rows, sizeOf);
-        }
+        // Fit, detect the TUI's real repaint (a burst of fresh log bytes —
+        // a flat settle captures tmux's re-wrapped approximation of the OLD
+        // frame), and when no burst comes force one. One shared sequence with
+        // the local twin, which carries the full reasoning. Improves the
+        // first paint only; correctness lives in the gap-free join above.
+        const outcome = await fitPaneAndRepaint(launcher, data.socket, row.id, fit, sizeOf, {
+          baseline: logStart,
+          canNudge: () => !detached,
+        });
+        repainted = outcome.repainted;
+        nudged = outcome.nudged;
       } catch (err) {
         logger.withError(err).warn("remote attach: initial resize failed; replay uses the current size");
         await Bun.sleep(RESIZE_SETTLE_MS);

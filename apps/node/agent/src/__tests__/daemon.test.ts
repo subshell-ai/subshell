@@ -15,7 +15,7 @@ import {
   signCommand,
 } from "@internal/subshell-protocol";
 import { run as runCli } from "../cli.js";
-import { TAIL_BACKSTOP_MS } from "../commands/tail.js";
+import { TAIL_POLL_MS } from "../commands/tail.js";
 import { type AgentConfig, saveConfig } from "../config.js";
 import {
   type DaemonDeps,
@@ -1107,7 +1107,7 @@ test("socket close stops every live tail: no output into the dead ws, none resur
     // Outlast the backstop window: a surviving pump WOULD have delivered —
     // tails must never push into a dead ws, and the daemon must not auto-resume
     // subscriptions (the control plane re-`tail_start`s with its own cursors).
-    await sleep(TAIL_BACKSTOP_MS + 300);
+    await sleep(TAIL_POLL_MS + 300);
     expect(count(h, (e) => e.type === "output")).toBe(1);
     expect(h.plane.unparsed).toEqual([]);
   } finally {

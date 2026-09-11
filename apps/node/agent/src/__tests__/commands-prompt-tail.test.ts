@@ -12,7 +12,7 @@ import {
 import type { CommandContext, CommandWs } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { execPromptDeliver } from "../commands/prompt.js";
-import { stopAllTails, TAIL_BACKPRESSURE_BYTES, TAIL_BACKSTOP_MS, TAIL_CHUNK_BYTES } from "../commands/tail.js";
+import { stopAllTails, TAIL_BACKPRESSURE_BYTES, TAIL_CHUNK_BYTES, TAIL_POLL_MS } from "../commands/tail.js";
 import type { AgentConfig } from "../config.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
@@ -375,7 +375,10 @@ describe("tail executors (spec §3.1/§3.4)", () => {
   it("constants pin the frozen contract", () => {
     expect(TAIL_CHUNK_BYTES).toBe(192 * 1024); // ≤ 192 KiB RAW per output event
     expect(TAIL_BACKPRESSURE_BYTES).toBe(512 * 1024);
-    expect(TAIL_BACKSTOP_MS).toBe(1_000);
+    // The poll IS the delivery path (fs.watch is unreliable for an externally
+    // appended file), so this interval is the typing latency a node's panes
+    // have — not a safety net's cadence.
+    expect(TAIL_POLL_MS).toBe(50);
   });
 
   it("catch-up: bytes written BEFORE tail_start arrive as ONE output event", async () => {
@@ -409,7 +412,7 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     expect(await dispatchCommand(ctx, { type: "tail_stop", subId: "sub-1" })).toEqual({ ok: true });
     expect(ctx.tails.size).toBe(0);
     appendFileSync(file, "f");
-    await sleep(TAIL_BACKSTOP_MS + 300); // outlast the backstop window: a live pump WOULD have delivered
+    await sleep(TAIL_POLL_MS + 300); // outlast the poll window: a live pump WOULD have delivered
     expect(outputs(ws.events).length).toBe(2);
   });
 

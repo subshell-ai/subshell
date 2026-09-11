@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
-import { TAIL_BACKSTOP_MS } from "@/services/nodes/log-tail.js";
+import { TAIL_POLL_MS } from "@/services/nodes/log-tail.js";
 import { LocalLauncher } from "../local-launcher.js";
 import type { LaunchPlan } from "../node-launcher.js";
 import { subshellLogPath } from "../subshell-paths.js";
@@ -63,12 +63,11 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     const stop = await launcher.tailStart(lid, "sub1", read.next, (b) => chunks.push(b));
     const total = () => chunks.reduce((n, c) => n + c.byteLength, 0);
     tmux.sendInput(lsock, lid, "streamed\r");
-    // POLL rather than sleep a fixed span. tailStart delivers on an fs.watch
-    // event with a TAIL_BACKSTOP_MS (1s) poll behind it, and only Linux's
-    // inotify is prompt: macOS coalesces FSEvents, so a fixed 600ms wait —
-    // shorter than the backstop itself — lost the race deterministically on a
-    // Mac and passed in CI. The deadline is comfortably past the backstop, so
-    // this asserts the same delivery on both platforms.
+    // POLL rather than sleep a fixed span. Delivery rides TAIL_POLL_MS, with
+    // an fs.watch in front of it that only some platforms honour (see that
+    // constant), so a fixed wait would encode one platform's timing. The
+    // latency itself is asserted separately, by the case below that appends
+    // from another process the way pipe-pane does.
     const deadline = Date.now() + 5000;
     while (total() === 0 && Date.now() < deadline) await sleep(50);
     stop();
@@ -77,13 +76,52 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     stop(); // disposer is idempotent
     tmux.sendInput(lsock, lid, "after-stop\r");
     // A fixed wait is right for proving ABSENCE, but it has to outlast the
-    // backstop or a stopped tailer would look quiet merely by being polled.
-    await sleep(TAIL_BACKSTOP_MS + 500);
+    // poll or a stopped tailer would look quiet merely by being between ticks.
+    await sleep(TAIL_POLL_MS + 500);
     expect(total()).toBe(before);
     tmux.killSubshell(lsock, lid);
     void tmux.cleanSocket(lsock);
     await launcher.removeArtifacts([subshellLogPath(lid)]);
     expect((await launcher.readLogTail(lid)).lines).toEqual([]); // missing log = empty
+  });
+
+  it("tailStart delivers pane output PROMPTLY, without depending on an fs.watch event", async () => {
+    // The latency a person feels when typing: a keystroke is echoed by the
+    // pane, and this is what carries it back to their terminal.
+    //
+    // It must not rest on `fs.watch`. Measured on bun 1.4.2 / macOS, a watch on
+    // a file appended by ANOTHER process (tmux pipe-pane's `sh -c 'cat >> log'`)
+    // fires unreliably-to-never — 0/10 in one run, 1/3 in another — so the poll
+    // behind it is the real transport, and its interval IS the typing latency.
+    // At the old 1000ms that measured 698ms per keystroke, every sample within
+    // 2ms of the rest: the signature of a fixed timer, not an event.
+    const lid = `${id}-latency`;
+    const lsock = tmuxSocketFor(lid);
+    // `cat` echoes whatever is typed, so one keystroke is one round trip.
+    tmux.newSubshell(lsock, lid, tmpdir(), "cat");
+    tmux.pipePane(lsock, lid, subshellLogPath(lid));
+    await sleep(400); // pipe-pane attach
+
+    const read = await launcher.readLog(lid, 0, 1024);
+    let deliveredAt = 0;
+    const stop = await launcher.tailStart(lid, "sub-latency", read.next, () => {
+      deliveredAt ||= Date.now();
+    });
+
+    const sentAt = Date.now();
+    tmux.sendInput(lsock, lid, "k");
+    const deadline = Date.now() + 5000;
+    while (!deliveredAt && Date.now() < deadline) await sleep(2);
+    stop();
+
+    expect(deliveredAt).toBeGreaterThan(0); // delivered at all
+    // Generously above the poll interval and far below the old 1s cadence, so
+    // this fails on a watch-only delivery without being a stopwatch test.
+    expect(deliveredAt - sentAt).toBeLessThan(400);
+
+    tmux.killSubshell(lsock, lid);
+    void tmux.cleanSocket(lsock);
+    await launcher.removeArtifacts([subshellLogPath(lid)]);
   });
 
   it("signalPaneWinch repaints the pane WITHOUT touching its geometry; dead pane ⇒ false", async () => {

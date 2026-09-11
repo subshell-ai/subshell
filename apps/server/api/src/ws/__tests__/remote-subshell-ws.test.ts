@@ -371,8 +371,12 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // geometry.
     // Collapsed: the size probes repeat on a timing cadence, order is the point.
     // The tail precedes the resize now — see the ordering note above; what
-    // still matters here is that the RESIZE lands ahead of the CAPTURE.
-    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,resize,capture,pane_size");
+    // still matters here is that the RESIZE lands ahead of the CAPTURE. A
+    // `pane_size` read now comes FIRST: `fitPaneAndRepaint` asks what size
+    // the pane already holds so a same-size reopen skips a resize that tmux
+    // would make a no-op (no SIGWINCH, nothing to wait for) — the 450ms every
+    // reattach used to spend waiting on exactly that.
+    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,pane_size,resize,capture");
     // The scripted log never grows, so the pane reads as "never repainted"
     // and the relay nudges it (±1 col) to force a SIGWINCH — the local twin's
     // rule, and the cure for a no-op resize leaving a half-painted frame on

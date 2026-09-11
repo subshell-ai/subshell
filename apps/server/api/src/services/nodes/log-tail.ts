@@ -23,8 +23,25 @@ export function replayLineCap(stored: number | null | undefined): number {
   return stored == null ? TERMINAL_REPLAY_LINES : Math.min(REPLAY_LINE_CEILING, Math.max(1, Math.trunc(stored)));
 }
 
-/** Safety net for missed watch events (file replaced under the watch, quota). */
-export const TAIL_BACKSTOP_MS = 1000;
+/**
+ * How often the pane log is re-read for new bytes.
+ *
+ * This is the PRIMARY delivery path, not a safety net, and its interval is the
+ * latency a person feels when they type: the pane echoes a keystroke into the
+ * log, and nothing ships it until the next poll. The `fs.watch` beside it is an
+ * optimization that cannot be relied on — measured on bun 1.4.2 / macOS, a
+ * watch on a file appended by ANOTHER process (which is what tmux `pipe-pane`
+ * is: `sh -c 'cat >> log'`) fired 0/10 in one run and 1/3 in another, while
+ * the same watch reports in-process writes reliably. At the old 1000ms
+ * "backstop" that made every keystroke land 698ms late, every sample within
+ * 2ms of the rest.
+ *
+ * 50ms costs one `stat` per poll per ATTACHED pane — 9.4µs measured, so
+ * ~0.19ms of work per second per pane, and the pump exists only while somebody
+ * is watching. That is a price worth paying twenty times a second for a
+ * terminal that feels live.
+ */
+export const TAIL_POLL_MS = 50;
 
 /**
  * Pure line math behind {@link readLogTailFrom}: turn the decoded text of a
