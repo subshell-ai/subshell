@@ -1932,14 +1932,20 @@ el("reset-cancel").addEventListener("click", () => {
   el("status-view").hidden = false;
 });
 /** M1's promise kept by the page: a half-run's verbatim log renders where
- *  the human still is. Success normally needs no rendering - the chain
- *  closes this window on its way to the wizard - but the wizard-open failure
- *  arm (M2) answers ok:true with a note in the log, and Retry needs the
- *  partial record on screen. */
-function showResetResult(text: string): void {
+ *  the human still is, AND reads as a failure (J1) - the same `output-bad`
+ *  treatment `show()` gives the command pane at main.ts:81, so two surfaces
+ *  never phrase one outcome differently. Success normally needs no rendering
+ *  (the chain closes this window on its way to the wizard), but the
+ *  wizard-open failure arm (M2) answers ok:true with a note in the log, and
+ *  a half-run needs Retry named (J2): the button re-labels, because the
+ *  stash is deliberately still held and the screen must say pressing it
+ *  again is the intended, safe move. */
+function showResetResult(text: string, bad: boolean): void {
   const box = el("reset-log");
   box.textContent = text;
+  box.classList.toggle("output-bad", bad);
   box.hidden = text === "";
+  if (bad) el("reset-run").textContent = "Retry reset";
 }
 
 el("reset-run").addEventListener("click", () => {
@@ -1947,18 +1953,18 @@ el("reset-run").addEventListener("click", () => {
     const typed = (el("reset-confirm") as HTMLInputElement).value;
     if (!armed(typed, probe?.hostname ?? "")) return;
     busy = true;
-    showResetResult("");
+    showResetResult("", false);
     render();
     try {
       const result = await ipc.reset(typed);
       const parts: string[] = [];
       if (result?.stdout?.trim()) parts.push(result.stdout.trim());
       if (result?.stderr?.trim()) parts.push(result.stderr.trim());
-      showResetResult(parts.join("\n\n"));
+      showResetResult(parts.join("\n\n"), result?.ok === false);
     } catch (err) {
       // Err is the pre-flight channel (hostname mismatch, no plan, refused
       // guard): one sentence, no partial log exists to show.
-      showResetResult(errText(err));
+      showResetResult(errText(err), true);
     }
     busy = false;
     try {
@@ -2527,7 +2533,10 @@ before the chain runs and nothing yet covers a refusal inside it: a delete step
 whose target cannot be removed answers `ok: false` with the path in the log,
 never `ok: true`.
 
-## Re-review (2026-09-11), round 5
+## Re-review (2026-09-11), round 5 - RESOLVED (J1: `showResetResult(text, bad)`
+## toggles `output-bad` exactly as `show()` does; J2: the button re-labels
+## "Retry reset" on a half-run; and the review loop closes here, per the
+## round's own recommendation to start executing)
 
 K1 and K2 both landed, and K2's fix is better than the finding: extracting
 `delete_outcome(io::Result, path)` as a pure seam so the refusal case is pinned
@@ -2600,4 +2609,5 @@ Task 8 again. My recommendation is to land J1 and J2 and start.
 - Plan re-review round 2 (N1-N3, all verified against the code before adopting): N1 adopted with its better reason (the fourth guard element protected a directory the chain never deletes, so it could only mis-refuse; and the mixed `&PathBuf`/`&&Path` array indeed does not compile, E0308 measured by the reviewer); N2 adopted IN THE CODE'S ORDER with spec § 7.2 step 7 amended to match, because the zero-window moment the comment-vs-code mismatch hid is a real quit-mid-reset path (lib.rs's ExitRequested guard requires a `main` window); N3 adopted as a comment correction only, the behavior was already the fail-closed one, now stated truthfully.
 - Plan re-review round 3 (M1-M2, both verified against spec § 10 and `control.rs:399-408` before adopting): M1 adopted across five call sites plus every helper contract (`push_step` gained the tolerance list, `close_subshell_tmux` and `delete_tree_but` return `Option<String>`); the failure paths fall before the stash clearing so a Retry still holds its consent; and M1's page-side consequence - the half-run log rendering into the HIDDEN status view's `#output` - got its own fix: `#reset-log` renders the record where the human still is. M2 adopted as given: the wizard-open failure after a completed wipe logs the truth, keeps ok:true, and leaves the console open deliberately (the one arm where closing it would recreate N2's zero-window moment with no wizard to replace it). No spec change: § 10 already said the right thing; the plan had drifted from it.
 - Plan re-review round 4 (K1-K2, both confirmed against the plan's own text before adopting; K1 was quoted verbatim from the reviewer's self-correction because the error had already propagated once through a citation): K1 adopted as the rename it wants - `delete_consent` never existed, the database line calls `remove_if_exists`, and the "one failure mode the writing-plans rules name explicitly" is now gone from the plan's only undefined symbol. K2 adopted with one addition of its own: the three deletions that M1's rewrite had left return-less now answer `Option<String>` through a shared pure `delete_outcome(io::Result, path)`, pure specifically so the refusal case is pinned on the root-run CI where chmod-based tests silently pass; the post-consent remove-if-empty tidies stay fire-and-forget, with the reason at the call site (every confirmed byte is gone by then; an empty-directory leftover changes no consent).
+- Plan re-review round 5 (J1-J2, both verified against `main.ts:81` / `styles.css`'s `.output-bad` before adopting): J1 adopted as the one-parameter change it is; `showResetResult` now toggles the same class the command pane uses, so a half-run and a truth-noted success cannot render identically on the screen where the difference is the signing key. J2 adopted as the button label (the cleaner of the finding's two options): `Retry reset` names the move the held stash makes safe. Per the round's own closing note, this is the last review round before execution: everything still unwritten is code, and the next new information comes from Task 1, not from another read-through.
 - Remaining intentional softness: a few comments defer to the file on disk ("match the file's existing style", "read `proc.rs` for the result field names") - those point at named sources of truth rather than at nothing.
