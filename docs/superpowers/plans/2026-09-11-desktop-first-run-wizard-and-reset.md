@@ -6,7 +6,7 @@
 
 **Architecture:** The app gains a third bundled window (`wizard`) opened at boot when a new `onboarded` settings flag is false; the flag is marked by Rust the first time a probe sees `ready`. All setup acts ride existing IPC commands; `desktop_setup` gains an optional address payload. Reset is one new console-only command executing a delete plan stashed in Rust app state by the `desktop_open_console` handler, reached from a danger card in the SPA via a new optional argument on a command `main` already holds.
 
-**Tech Stack:** Tauri v2 (Rust 2021, tauri 2.11.5), TypeScript on Vite 7 + Tailwind (the bundled pages, plain DOM, no framework), Bun workspaces, `bun test`, Elysia/Bun for the server CLI change, React 19 for the SPA card.
+**Tech Stack:** Tauri v2 (Rust 2021, tauri 2.11.5), TypeScript on Vite 8.2.1 + Tailwind (the bundled pages, plain DOM, no framework), Bun workspaces, `bun test`, Elysia/Bun for the server CLI change, React 19 for the SPA card.
 
 **Spec:** `docs/superpowers/specs/2026-09-10-desktop-first-run-wizard-and-reset-design.md` - read it first; every task cites its sections. Four review rounds shaped it; the dispositions at the top of the spec explain WHY several guards are shaped the way they are.
 
@@ -21,7 +21,11 @@
 - Serde conventions already in force: `#[serde(rename_all = "camelCase")]` on structs, `kebab-case` on `ProbeStep`; keep them.
 - The console's CSP is `script-src 'self'` - no inline scripts or styles in any bundled HTML page, dev or prod (`ui/src/__tests__/tauri-config.test.ts` pins the pairing).
 - No new direct dependencies, anywhere (Rust or npm).
-- Commit messages end with `Co-Authored-By: Claude Code <noreply@anthropic.com>`.
+- Commit messages end with the attribution line the EXECUTING session's own
+  guidance dictates; session guidance supersedes any value written in this plan
+  (reviewer P6, and the plan should not be the source of truth for it). The line
+  in force at plan-writing time, and the one the example blocks below use, is
+  `Co-Authored-By: Claude Code <noreply@anthropic.com>`.
 
 ---
 
@@ -162,7 +166,11 @@ Spec § 7.2 step 3 / review disposition R1. `tmuxSocketPath` (the authority) res
 
 **Files:**
 - Modify: `packages/pane-runtime/src/tmux-runner.ts:350-357` (`cleanSocket`)
+- Modify: `apps/server/api/src/services/nodes/__tests__/local-launcher.test.ts` (five call sites: lines 21, 84, 117, 141, 149)
+- Modify: `apps/node/agent/src/__tests__/commands-launch.test.ts` (one call site: line 1129)
 - Test: `packages/pane-runtime/src/__tests__/tmux-runner.test.ts` (exists - extend)
+
+A grep of the repo finds NO production callers of `cleanSocket` (only the definition and these six test sites); the signature change therefore lands entirely in test hygiene, which is exactly why the two test files must be touched in THIS task rather than "found later by CI".
 
 **Interfaces:**
 - Produces: `cleanSocket(socket: string): Promise<void>` (now awaits instead of firing and forgetting, which is what makes it testable; existing callers that ignore the value still compile).
@@ -221,14 +229,33 @@ Run: `cd packages/pane-runtime && bun test src/__tests__/tmux-runner.test.ts` - 
 
 `tmuxSocketPath` is a module-level export in the same file - call it directly.
 
-- [ ] **Step 4: Run the package suite**
+- [ ] **Step 4: Update the six test call sites (P2)**
 
-Run: `cd packages/pane-runtime && bun test` - expected: all pass.
+The return type changed under them: each bare call becomes a floating promise
+AND loses the (never-real, but assumed) ordering guarantee that the unlink ran
+before the test moved on. Match each file's local style, which is already
+visible at `local-launcher.test.ts:20-22`: the file's own convention for an
+ignored fire-and-forget is `void` on the neighboring call (`void
+Bun.file(...).unlink().catch(...)`, three lines below the bare
+`tmux.cleanSocket(socket)`). So: prefix the bare five in
+`local-launcher.test.ts` and the one in `commands-launch.test.ts` with `void `
+where they sit in a synchronous callback, and use `await` where the enclosing
+hook is already `async` and a later assertion depends on the unlink (check the
+next three lines of each site; where nothing reads the socket afterward,
+`void` is honest and `await` is noise).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Verify at the right scope**
+
+Run: `cd packages/pane-runtime && bun test` (the new test plus the package),
+then the repo-root trio, because this task touched TS in three packages:
+`bun run verify-types && bun run lint:check && bun run test`. Expected: all
+pass - the two touched test files run inside the root `test`, which is the
+gate that sees all six call sites.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/pane-runtime/src/tmux-runner.ts packages/pane-runtime/src/__tests__/tmux-runner.test.ts
+git add packages/pane-runtime/src apps/server/api/src/services/nodes/__tests__/local-launcher.test.ts apps/node/agent/src/__tests__/commands-launch.test.ts
 git commit -m "fix(pane-runtime): cleanSocket resolves the socket path the way tmux does
 
 TMPDIR is not the variable tmux reads; TMUX_TMPDIR is, and on macOS the
@@ -804,6 +831,8 @@ function commandsInvokedBy(pageFile: string): Set<string> {
 
 Then the assertions: `commandsInvokedBy("main.ts")` equals console.json's `allow-desktop-*` grants; `commandsInvokedBy("wizard.ts")` equals wizard.json's grants; main.json stays exactly its three + dragging (existing pin, unchanged).
 
+And widen the two existing union assertions (P1; without this the wizard's legitimate grants fail checks that predate it, in a way that reads like a permissions bug): "names no permission the manifest does not define" and "defines no app permission neither capability grants" each hardcode `console.json + main.json`; both unions gain `capabilityPermissions("wizard.json")`.
+
 Run: `cd apps/server/desktop && bun test ui/src/__tests__/` - expect the two new pins to FAIL.
 
 - [ ] **Step 2: Vite input** - in `vite.config.ts` `build`:
@@ -1363,7 +1392,7 @@ Spec § 7, §§ R13/R14/R17/R18 dispositions. The screen argument, the stashes, 
   - `pub struct DeletePlan { config_env, database, logs_dir, artifacts_dir, data_dir: PathBuf }` (`Clone, PartialEq`)
   - `pub fn parse_delete_plan(status: &serde_json::Value) -> Option<DeletePlan>` (all-or-nothing, R17)
   - `pub fn path_rules_ok(p: &Path, home: &Path) -> bool` (pure shape: absolute, not `/`, not home)
-  - `pub fn delete_guard_ok(dir: &Path, keep: &Path) -> bool` (dir contains-or-equals keep ⇒ false)
+  - `pub fn delete_guard_ok(dir: &Path, keep: &Path) -> bool` (dir contains-or-equals keep ⇒ false). **Callers pass canonicalized paths** (P3): a prefix test between a symlinked and a real spelling would pass while the delete still reached the binary, so the chain canonicalizes both sides before calling, and a path that exists but cannot be canonicalized is a refusal.
   - `pub fn is_subshell_socket(name: &str) -> bool` (`subshell-` prefix)
   - `pub struct Stash { pub screen: Mutex<Option<Screen>>, pub plan: Mutex<Option<DeletePlan>> }` (`Default`)
   - `pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), String>`
@@ -1487,6 +1516,15 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
     // path, resolved exactly as install_server_now resolves it.
     let keep = subshell_desktop_core::sidecar::install_path(&crate::server_bin::SERVER_SIDECAR)
         .ok_or_else(|| "cannot locate this app's managed server copy to protect it".to_string())?;
+    // Canonicalize the kept path so the containment comparison is between
+    // real locations, not spellings (P3). Absent keep = no binary on disk to
+    // take down, and a non-existent path cannot be contained by anything -
+    // the guard passes honestly. Present-but-unresolvable is a refusal.
+    let keep = match std::fs::canonicalize(&keep) {
+        Ok(k) => k,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => keep,
+        Err(e) => return Err(format!("cannot resolve the protected path {keep:?}: {e}")),
+    };
     let home = std::env::var("HOME")
         .map(std::path::PathBuf::from)
         .map_err(|_| "HOME is unset; reset refuses to delete with no home to guard".to_string())?;
@@ -1500,7 +1538,12 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
         if !path_rules_ok(p, &home) {
             return Err(format!("refusing to delete {p:?}: fails the shape rules"));
         }
-        if !delete_guard_ok(p, &keep) {
+        if !p.exists() {
+            continue; // already-deleted is a step succeeding, not a guard case
+        }
+        let canonical = std::fs::canonicalize(p)
+            .map_err(|e| format!("cannot resolve {p:?} to guard it against the protected binary: {e}"))?;
+        if !delete_guard_ok(&canonical, &keep) {
             return Err(format!("refusing to delete {p:?}: it contains the installed server binary this reset promises to keep"));
         }
     }
@@ -1618,20 +1661,13 @@ Visibility, one edit list: `probe_now`, `service_now`, and `ACTION_TIMEOUT` beco
 
 `lib.rs`: `mod reset;`, `.manage(reset::Stash::default())`, add `reset::desktop_reset` to `generate_handler!`.
 
-- [ ] **Step 3: Add the permission entry** - `permissions/desktop.toml`:
+- [ ] **Step 3: No ACL changes in this task (P1, decided here rather than at the keyboard)**
 
-```toml
-[[permission]]
-identifier = "allow-desktop-reset"
-description = "Wipe this machine's Subshell instance: stop and uninstall the service, close this instance's panes, delete the paths status reported, and clear this app's choices. Takes ONLY the typed hostname; the paths are a plan Rust captured when the screen was opened, and the command refuses without one. Console window only."
-commands.allow = ["desktop_reset"]
-```
-
-Do NOT add the grant to `console.json` yet: the ACL test pins grants == the page's invokes, and the console page starts invoking `desktop_reset` in Task 8, where the grant lands with it.
+The `allow-desktop-reset` toml entry and its `console.json` grant BOTH land in Task 8 as one step: `ipc-acl.test.ts`'s "defines no app permission neither capability grants" unions exactly `console.json + main.json` and fails any manifest entry granted nowhere, so a lone toml entry here turns a green task red on a check this task is otherwise unrelated to. The toml block goes to Task 8 verbatim.
 
 - [ ] **Step 4: Verify**
 
-`bun run rust:check` (fmt, clippy -D warnings, all tests including the new pure ones) and `cd apps/server/desktop && bun test ui/src/__tests__/` (still green: the toml entry is granted to nothing yet, and the defined-but-ungranted check scopes to capabilities… if that check counts a permission granted nowhere as a failure, move this toml addition into Task 8 where the grant arrives, and note it in the commit message either way - the test file you are in is the arbiter, not this sentence).
+`bun run rust:check` (fmt, clippy -D warnings, all tests including the new pure ones) and `cd apps/server/desktop && bun test ui/src/__tests__/` - expected green: this task touches no manifest or capability file, so the pin cannot move.
 
 - [ ] **Step 5: Commit**
 
@@ -1657,7 +1693,7 @@ Spec §§ 7.1, 9. The second view of the console page, its pure decision module,
 
 **Files:**
 - Create: `apps/server/desktop/ui/src/lib/reset.ts`, test `apps/server/desktop/ui/src/__tests__/reset.test.ts`
-- Modify: `apps/server/desktop/ui/index.html` (second-view markup), `apps/server/desktop/ui/src/main.ts` (view swap + listener), `apps/server/desktop/ui/src/lib/ipc.ts` (`reset`, `StatusBody.paths`), `apps/server/desktop/src-tauri/capabilities/console.json` (grant), `permissions/desktop.toml` (if deferred from Task 7)
+- Modify: `apps/server/desktop/ui/index.html` (second-view markup), `apps/server/desktop/ui/src/main.ts` (view swap + listener), `apps/server/desktop/ui/src/lib/ipc.ts` (`reset`, `StatusBody.paths`), `apps/server/desktop/src-tauri/capabilities/console.json` (grant), `apps/server/desktop/src-tauri/permissions/desktop.toml` (permission entry - both ACL halves arrive in THIS task, together with the invoke that makes them honest; Task 7 deliberately carried neither)
 
 **Interfaces:**
 - Consumes: `Probe.hostname` (Task 4), `status.paths` (Task 3), the `desktop-screen` event with payload `"reset"` (Task 7), `desktop_reset` command (Task 7).
@@ -1855,11 +1891,18 @@ void listen<string>("desktop-screen", (event) => {
 
 `render()` gains one line: `if (view === "reset") renderReset();` (the reset view coexists with the busy state; buttons re-arm themselves from the probe).
 
-`console.json`: add `"allow-desktop-reset"` to `permissions`.
+`console.json`: add `"allow-desktop-reset"` to `permissions`. `permissions/desktop.toml` gains, in the same commit as that grant and the `ipc.ts` invoke (this is the trio Task 7 deferred):
+
+```toml
+[[permission]]
+identifier = "allow-desktop-reset"
+description = "Wipe this machine's Subshell instance: stop and uninstall the service, close this instance's panes, delete the paths status reported, and clear this app's choices. Takes ONLY the typed hostname; the paths are a plan Rust captured when the screen was opened, and the command refuses without one. Console window only."
+commands.allow = ["desktop_reset"]
+```
 
 - [ ] **Step 5: Verify the trio and everything**
 
-`cd apps/server/desktop && bun test ui/src/ && bun run verify-types && bun run build`, repo root `bun run rust:check && bun run verify-types && bun run lint:check && bun run test`. The `ipc-acl` main.ts set now includes `desktop_reset` and matches console.json exactly, which is the proof the trio held.
+`cd apps/server/desktop && bun test ui/src/ && bun run verify-types && bun run build`, repo root `bun run rust:check && bun run verify-types && bun run lint:check && bun run test`. The set of commands invoked from `ui/src/main.ts` (the CONSOLE page's entry module - not the `main` window, which holds and must keep holding only its three) now includes `desktop_reset` and matches `console.json` exactly, which is the proof the trio held.
 
 - [ ] **Step 6: Commit**
 
@@ -2035,7 +2078,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
-## Review notes (2026-09-11), to address before execution
+## Review notes (2026-09-11) - RESOLVED; where each fix landed is in the
+## self-review notes at the end of this plan
 
 The plan is accurate where I checked it against the code. Task 1's claims about
 `settings.rs` all hold (struct at 51, `save` at 107, the hand-written `Default`,
@@ -2141,4 +2185,5 @@ should say so rather than hardcoding a third value in ten places.
 ## Self-review notes (author, post-write)
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
-- Known intentional softness: Task 7's step 3 note about whether the reset permission's toml entry can land a task before its console grant (the defined-but-ungranted pin decides, and the task says so). Everything else is exact, and a few plan comments defer to the file on disk ("match the file's existing style", "read `proc.rs` for the result field names") - those point at named sources of truth rather than at nothing.
+- Plan-review round (P1-P6, this section's author round): P1 resolved in the plan (reset's toml entry + grant both moved to Task 8; Task 6 names the two ipc-acl unions it widens); P2 resolved (six test call sites enumerated with the file's own `void`/`await` convention, and Task 2 now ends on the repo-root trio); P3 resolved (both guard sides canonicalized, unresolvable-present is a refusal, absent keep passes honestly); P4 resolved (Task 8 step 5 spells "the set invoked from ui/src/main.ts, the CONSOLE page's entry module"); P5 fixed (Vite 8.2.1); P6 partially: the attribution is now declared inherited from the executing session's guidance, but the reviewer's stated current value conflicts with this session's guidance ("replaces any earlier attribution guidance", naming Claude Code) - the plan defers to whichever session executes, which is the fix the finding's structure wanted.
+- Remaining intentional softness: a few comments defer to the file on disk ("match the file's existing style", "read `proc.rs` for the result field names") - those point at named sources of truth rather than at nothing.
