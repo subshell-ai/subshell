@@ -6,7 +6,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(page).toHaveURL(/\/setup$/); // "/" redirects while needsSetup
   await expect(page.getByText("Welcome to Subshell")).toBeVisible();
 
-  // Step 1/2 — Account
+  // Step 1/3 — Account
   await page.fill("#name", ADMIN.name);
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
@@ -19,12 +19,14 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await page.fill("#password-confirm", ADMIN.password);
   await page.getByRole("button", { name: "Create admin account" }).click();
 
-  // Step 2/2 — Harness management. There is no profile step any more:
-  // registration already seeded a blank "Default" profile for every harness
-  // this host declares, so this step is purely add/remove (the same HarnessRow
-  // settings renders). Boot seeds all five built-in plugins here, so pi's row
-  // reads "ready" (stub binary on PATH) and the others "program not found".
-  await expect(page.getByText("Step 2 of 2")).toBeVisible();
+  // Step 2/3 — the agent step, now explicitly optional: a terminal plugin
+  // always exists, so this step can never dead-end. Registration already
+  // seeded a blank "Default" profile for every harness this host declares,
+  // so this step is purely add/remove (the same HarnessRow settings
+  // renders). Boot seeds all six built-in plugins here, so pi's row reads
+  // "ready" (stub binary on PATH) and the others "program not found".
+  await expect(page.getByText("Step 2 of 3")).toBeVisible();
+  await expect(page.getByText("Add an agent (optional)")).toBeVisible();
   // HarnessRow names itself role=group / aria-label=<harness name> (pinned by
   // components/__tests__/harness-row.test.tsx). Exact name so a future
   // "pi-something" can't shadow it, and no dependence on class names.
@@ -33,7 +35,17 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   // pi is installed on the host AND its program was found → "ready".
   await expect(piRow.getByText("ready", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Finish setup" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // Step 3/3 — the launch step arrives filled in (Task 6's defaults), but
+  // this spec's job is the admin handoff, not the launch: spec 15 owns the
+  // end-to-end launch on a dedicated clean instance. "Skip for now" must
+  // finish setup exactly like a launch does — this also pins that no stray
+  // pane is left on the shared DB by the wizard itself.
+  await expect(page.getByText("Step 3 of 3")).toBeVisible();
+  await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
+  await expect(page.getByRole("button", { name: "Start my first subshell" })).toBeEnabled();
+  await page.getByRole("button", { name: "Skip for now" }).click();
   await expect(page.getByRole("heading", { name: "Subshells" })).toBeVisible();
 
   // The wizard must never show again on a DB with users.
