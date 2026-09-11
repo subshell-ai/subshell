@@ -136,6 +136,32 @@ describe("detectBinaryWithOptions", () => {
     expect(result.reason).toBeUndefined();
   });
 
+  it("treats a bare-name override as no override at all", async () => {
+    // `SHELL=bash` (no slash) is a real shape in containers and hand-written
+    // service units. Stopping the ladder there answers `override-invalid` for
+    // a machine that can launch the binary all day: the rung means "the
+    // operator said WHERE", and a bare name says no where.
+    const dir = dirWith("thing");
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { THING_PATH: "thing" },
+      pathEntries: [dir],
+    });
+    expect(result.path).toBe(join(dir, "thing"));
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("refuses to resolve a relative override against the process cwd", async () => {
+    // A relative hit here would become a relative argv token that tmux execs
+    // against the PANE's working directory — a different file, or a failure at
+    // launch instead of at detection. Falling through reports honestly.
+    const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
+      env: { THING_PATH: "./thing", HOME: join(tmpdir(), "definitely-absent") },
+      pathEntries: [],
+    });
+    expect(result.path).toBeNull();
+    expect(result.reason).toBe("not-on-path");
+  });
+
   it("returns the path and no reason for a good override", async () => {
     const good = join(dirWith("thing"), "thing");
     const result = await detectBinaryWithOptions("thing", "THING_PATH", [], {
@@ -239,6 +265,18 @@ describe("a plugin whose override is SHELL", () => {
   it("falls through to bash on PATH when SHELL is unset", async () => {
     const found = await detectBinaryWithOptions("bash", "SHELL", [], {
       env: {},
+      pathEntries: ["/bin", "/usr/bin"],
+    });
+
+    expect(found.path).toMatch(/bash$/);
+  });
+
+  it("falls through to bash on PATH when SHELL is a bare name", async () => {
+    // `SHELL=bash` with no slash: a bare override is no pointer, so the PATH
+    // rung answers — the terminal stays launchable on exactly the machines
+    // whose env is too minimal to hold a full path.
+    const found = await detectBinaryWithOptions("bash", "SHELL", [], {
+      env: { SHELL: "bash" },
       pathEntries: ["/bin", "/usr/bin"],
     });
 

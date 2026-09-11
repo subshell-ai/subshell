@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { DetectionResult } from "@subshell-ai/plugin-api";
 import { loginPathEntries } from "./login-path.js";
 import { versionManagerBins } from "./version-manager-paths.js";
@@ -28,7 +28,8 @@ export type { DetectionReason, DetectionResult } from "@subshell-ai/plugin-api";
 
 /**
  * Cross-platform-ish binary lookup, reporting why when it fails:
- *   1. `env[ENV_NAME]` (explicit override, e.g. CLAUDE_PATH)
+ *   1. `env[ENV_NAME]` (explicit override, e.g. CLAUDE_PATH) — when absolute;
+ *      a relative or bare value is not a pointer and does not stop the ladder
  *   2. `which`-style scan of PATH entries
  *   3. A couple of well-known install locations (resolved against HOME)
  *   4. Version-manager layouts, by glob (nvm, fnm, volta, asdf, mise, n)
@@ -54,12 +55,20 @@ export async function detectBinaryWithOptions(
 ): Promise<DetectionResult> {
   const env = options.env ?? process.env;
   const explicit = env[envName];
-  if (explicit) {
+  if (explicit && isAbsolute(explicit)) {
     // An override that does not resolve is an answer, not a hint: the operator
     // said where it is, and searching past them would hide their mistake.
     if (await isExecutable(explicit)) return { path: explicit };
     return { path: null, reason: "override-invalid" };
   }
+  // A NON-absolute override is not a pointer, so it does not stop the ladder.
+  // The rung answers "where did the operator say it is", and a relative value
+  // says no such thing: `isExecutable` would test it against THIS process's
+  // cwd (not the pane's), and a hit would bake a relative token into argv that
+  // tmux later execs against the working directory — a different file, or an
+  // exec failure at launch instead of detection. A bare `SHELL=bash`, which
+  // real environments do contain, falls through to the PATH scan that finds
+  // the same binary honestly.
 
   const pathEntries = options.pathEntries ?? (env.PATH ?? "").split(":");
   for (const dir of pathEntries) {
