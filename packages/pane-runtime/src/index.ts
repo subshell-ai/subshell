@@ -16,6 +16,7 @@ export {
   ENV_KEY_RE,
   validateWorkingDir,
 } from "./launch.js";
+export { loginPathEntries } from "./login-path.js";
 export {
   DEFAULT_REGISTRY_URL,
   fetchVerifiedTarball,
