@@ -44,6 +44,8 @@ let running = false;
 let failure: ActionResult | null = null;
 /** True once this page has asked for the dashboard. Never twice. */
 let opened = false;
+/** The dashboard refused to open, so stop retrying and let the human press something. */
+let openFailed = false;
 let problem = "";
 let customizeOpen = false;
 const form: FormValues = effectiveForm(undefined);
@@ -199,6 +201,23 @@ function planRows(p: Probe): HTMLUListElement {
 
 function renderProgress(p: Probe): void {
   if (p.next === "ready") {
+    if (openFailed) {
+      setFrame("server", "Subshell Is Running", "The dashboard did not open by itself.");
+      el("bar-left").append(button("Open Status Page", () => void ipc.openConsole().catch(setProblem), "ghost"));
+      el("bar-right").append(
+        button(
+          "Open Dashboard",
+          () => {
+            opened = false;
+            openFailed = false;
+            problem = "";
+            render();
+          },
+          "primary",
+        ),
+      );
+      return;
+    }
     setFrame("server", "Setting Up Subshell…", "Opening your dashboard…");
     openWhenReady();
     return;
@@ -365,7 +384,7 @@ function openWhenReady(): void {
   if (opened || probe?.next !== "ready") return;
   opened = true;
   void ipc.openMain().catch((e: unknown) => {
-    opened = false;
+    openFailed = true;
     setProblem(e);
   });
 }
