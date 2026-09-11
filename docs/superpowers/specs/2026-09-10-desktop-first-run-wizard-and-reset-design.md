@@ -177,6 +177,67 @@ two coincide on every default install).
 - **R17** (partial `paths` block): § 7.2 step 1 is all-or-nothing, with
   § 11 covering each of absent, missing-field, empty, and relative.
 
+## Review notes, round 3 (2026-09-11), to address before implementation
+
+R13 through R17 are addressed, and two of the resolutions are better than what
+was asked for: R14 took both offered exits rather than the cheaper one, and
+R15's reasoning ("a fresh re-read would buy the one outcome this surface must
+never produce, a screen whose instruction cannot be followed") is a stronger
+argument for the memo than the one in the finding. § 11 pinning R13's trap
+*from both sides*, so the default layout is asserted as a passing case rather
+than only the dangerous one as failing, is the right instinct.
+
+Three findings. One is a decision the R14 fix left unstated; two are sentences
+that went stale when the fixes landed and now contradict them. Nothing here
+disputes the design, and after these the document reads as implementable.
+
+### Decide
+
+**R18. The spec does not say where the captured delete plan lives, and the two
+readings differ in a way that matters.** § 7.2 step 1 says the plan is "held
+for the screen's life"; § 9 says `desktop_reset` "executes the plan captured
+when the screen opened". Neither names the holder.
+
+If the console page holds it and passes it as a command argument, the webview
+is naming the paths to delete, which contradicts the discipline § 7.1 states
+two paragraphs earlier ("The page names intent; Rust re-checks... the command
+takes the typed string and owns the truth") and the `desktop_open_path`
+closed-intent precedent it cites. It would also make the guards the only thing
+standing between a page bug and an arbitrary recursive delete, when the design
+elsewhere is careful that a page never supplies a path at all.
+
+The plan belongs in Rust app state, stashed the way § 6 already stashes the
+requested screen, with `desktop_reset` taking only the typed hostname and
+reading the plan from there. Say so explicitly, and say what happens when the
+command is called with no plan captured (refuse: it means the screen was never
+opened). The guards still run at execute time as step 5 says; this is about
+removing the webview from the path, not about trusting it less.
+
+### Stale text
+
+**R19. § 7.2's closing paragraph now asserts what R14 disproved.** It still
+reads: "The half-deleted machine is exactly the state Retry walks out of: step
+1 still answers (deleting data does not silence `status`; `configEnv.exists`
+and the `paths` block still resolve to their configured locations), and delete
+steps tolerate absence."
+
+Two of those claims stopped being true. Step 1 no longer runs on Retry (it
+runs once when the screen opens, and Retry re-runs the captured plan), and
+"the `paths` block still resolve to their configured locations" is precisely
+the assumption R14 showed fails once `config.env` is gone. The paragraph
+predates the fix and now argues against it. Rewrite it to say what actually
+makes Retry converge: the plan was captured while the machine could still be
+read, and a planned path found absent counts as success.
+
+**R20. § 10's refusal list points at the wrong moment.** It says an `Err` from
+`desktop_reset` is "a refusal to start (hostname mismatch, unreadable status,
+missing `paths` block, refused deletion guard)". Two of those four are now
+plan-capture-time refusals: an unreadable `status` or a non-conforming `paths`
+block stops the screen from arming, so `desktop_reset` is never reached.
+Either move them to a "the screen refuses to arm" line, or say that
+`desktop_reset` re-validates the plan and can still answer `Err` for them.
+Both are defensible; leaving the list describing the pre-capture chain is not.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
