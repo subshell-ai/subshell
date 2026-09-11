@@ -2277,6 +2277,106 @@ skip for a nested `config.env`, the stash clearing only on success so a Retry
 still has its consent, and the tmux socket rule all read correctly against the
 spec.
 
+## Re-review (2026-09-11), round 3
+
+N1, N2 and N3 all landed correctly. N2's resolution is better than the finding:
+I asked for a decision and got a measured reason. `lib.rs:153-158` really does
+gate `api.prevent_exit()` on `app.get_webview_window("main").is_some()`, and
+reset closes `main` first, so a console closed while it was the last window
+would hit `ExitRequested` with nothing to prevent the exit. Adopting the code's
+order and amending spec § 7.2 step 7 is right.
+
+Two findings, both about how the chain reports failure rather than what it
+does. They are one issue seen from two distances, and the second is the one
+with a bad end state.
+
+**M1. Mid-chain failures return `Err`, which contradicts § 10, § 7.2, and the
+function the plan says it copies.** Spec § 10: "an `Err` is a refusal to start
+(hostname mismatch, no plan stashed, refused deletion guard), **never a
+half-run**; a half-run is `ok: false` with the log showing where it stopped."
+§ 7.2: "A failure mid-chain leaves the reset screen up with verbatim output and
+Retry."
+
+Five sites in `desktop_reset` return `Err` after work has already happened:
+
+```rust
+push_step(&mut log, "stop", &stop)?;                       // service already stopped
+close_subshell_tmux(&mut log)?;                            // panes already killed
+push_step_tolerant(&mut log, "uninstall", &un, "...")?;    // service already uninstalled
+delete_tree_but(&plan.data_dir, &plan.config_env, ...)?;   // deletions already done
+crate::windows::open_wizard(&app)?;                        // everything already done
+```
+
+and the helper contract makes it explicit: "`push_step` (append stdout;
+`ok == false` and not tolerated ⇒ `Err` carrying stderr verbatim)". On every one
+of those paths the accumulated `log`, which is the verbatim CLI output § 7.2
+promises the screen, is dropped on the floor; the user gets one error string
+instead of a record of which steps succeeded before the stop.
+
+The shape to copy is in the same file, a hundred lines away, and already gets
+this right (`control.rs:399-408`):
+
+```rust
+if !result.ok {
+    // The failure's stderr leaves on the failure channel, not also
+    // into the log: the console renders both halves, and the refusal
+    // a user most needs to read must appear exactly once.
+    return Ok(ActionResult { ok: false, stdout: log, stderr: result.stderr });
+}
+```
+
+`desktop_setup` reserves `?` for "the step could not even be run" and returns
+`Ok(ok: false)` for "the step ran and refused". `desktop_reset` should do the
+same: the four in-chain sites become `return Ok(ActionResult { ok: false,
+stdout: log, stderr })`, and `Err` stays for the pre-flight refusals § 10 lists,
+which are all already above the first mutation. This also makes the helper
+contracts change: `push_step` and `delete_tree_but` should hand back a failure
+the caller converts, rather than deciding the channel themselves.
+
+**M2. `open_wizard(&app)?` fires after a complete, successful wipe, and the
+stash has already been spent, so the user cannot retry out of it.** Sequence as
+written:
+
+```rust
+*stash.plan.lock().unwrap() = None;   // consent spent
+if let Some(w) = app.get_webview_window("main") { let _ = w.close(); }
+crate::windows::open_wizard(&app)?;   // <- Err here
+```
+
+A webview build can fail. If it does: the machine is fully reset, the log of
+everything that succeeded is discarded, `desktop_reset` answers `Err`, the
+screen renders a failure, and Retry is impossible because the plan is already
+`None` (it would answer "no plan stashed"). The user is told the reset failed,
+on a machine where it entirely succeeded, with no route forward.
+
+One accident is currently load-bearing and should become deliberate: the early
+return *skips* closing the console, which is the only window left once `main` is
+closed, so the app does not end up with zero windows. That is the right outcome
+reached by the wrong mechanism. Make it explicit, and let the reset report the
+truth:
+
+```rust
+match crate::windows::open_wizard(&app) {
+    Ok(()) => {
+        if let Some(w) = app.get_webview_window("console") {
+            let _ = w.close();
+        }
+    }
+    // The machine IS reset; a window that would not build does not undo that.
+    // The console stays open on purpose: closing it here would be the
+    // zero-window moment N2 exists to prevent, with no wizard to replace it.
+    Err(e) => log.push_str(&format!(
+        "\nthe wizard window could not be opened: {e}\nthis machine is reset; reopen the app to continue setup\n"
+    )),
+}
+Ok(ActionResult { ok: true, stdout: log, stderr: String::new() })
+```
+
+Nothing else changed on re-read. The N1 guard loop now type-checks (three
+`&PathBuf` elements), N3's comment states the fail-closed behaviour it actually
+has, and `plan.config_env.parent().unwrap()` cannot panic because
+`path_rules_ok` has already rejected `/` for that path.
+
 ## Self-review notes (author, post-write)
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
