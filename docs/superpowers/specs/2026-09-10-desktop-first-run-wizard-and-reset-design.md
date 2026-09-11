@@ -151,6 +151,32 @@ would then delete a subset and report a successful reset, which is the same
 class of quiet under-delete as R1. State that the block is all-or-nothing: four
 absolute paths or the same refusal as no block at all.
 
+## Review disposition, round 2 (2026-09-10)
+
+Five findings (R13-R17, full text in git history at `dcc742a`); both blockers
+were blowback from round 1's fixes, and both held against the code
+(`configure.ts:423` really does seed `DATABASE_PATH` into the config dir, and
+`paths.ts` really does derive the data dir from that file's location, so the
+two coincide on every default install).
+
+- **R13** (guard refused every default machine): keep set narrowed to the
+  one path the screen promises to keep, the server binary; § 7.2 step 5 says
+  outright that `config.env`'s directory is not protected because it is a
+  deletion target. § 11 pins the default layout as a *passing* case.
+- **R14** (config.env inside the recursive delete inverts the order rule):
+  both offered exits, taken together. The screen captures the plan at open
+  and Retry re-runs it (step 1), and the recursive step skips the nested
+  `config.env` so it still dies last, which is what keeps a crash-and-restart
+  re-read correct in the layout the plan capture cannot cover. § 11 gained
+  the order, skip, and convergence tests.
+- **R15** (memoized display vs fresh check): § 7.1 makes the memo the single
+  source; displayed and compared values are the same read by construction.
+- **R16** (marking rule in two places): `mark_onboarded` extracted in § 4;
+  boot and the command wrapper call it, and "one place" now means one
+  function, which is what it was always claiming.
+- **R17** (partial `paths` block): § 7.2 step 1 is all-or-nothing, with
+  § 11 covering each of absent, missing-field, empty, and relative.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
@@ -226,8 +252,9 @@ Mechanics:
   which resolves against the Vite dev server in dev and the bundle in prod
   with no config change beyond `rollupOptions.input` gaining the second page.
 - Boot (`lib.rs` setup) **probes first, then branches on the probe's answer,
-  never on the stored flag**: `probe_now` runs (with the § 4 marking on its
-  result), and only the resulting `onboarded` value chooses the window. A
+  never on the stored flag**: `probe_now` runs, its result passes through the
+  same `mark_onboarded` (§ 4), and only the resulting `onboarded` value
+  chooses the window. A
   machine set up entirely from the CLI therefore has `onboarded: true` by the
   time the branch runs and opens the console, which is § 4's "they never see a
   wizard" made structurally true rather than hoped for. The choice is a pure
@@ -265,8 +292,10 @@ instance someone set up entirely from the CLI (they never see a wizard, which
 is correct; they chose their flow). There is no command to set it and no
 argument that clears it; only `desktop_reset` clears it, as step 6 of wiping
 the machine. `Probe` grows `onboarded: boolean` so the page reads the answer
-from the round trip it already makes. The write lives in the command wrapper,
-not in `probe_now`, keeping the pure probe pure and testable.
+from the round trip it already makes. "One place" means one function (R16):
+the marking is `mark_onboarded(&Probe, &SettingsState)`, called by the
+`desktop_probe` command wrapper and by boot's first probe, never by
+`probe_now`, which keeps the pure probe pure and testable.
 
 **Write safety, stated rather than assumed (R5).** Two windows may poll at
 once (console at 5 s, wizard at ~1 s during a Run), so the first-Ready write
@@ -480,8 +509,14 @@ screen displays the exact string `hostname` printed, the comparison is that
 same string, byte for byte, no short-form or case-folding leniency in either
 direction, and the screen says "exactly as shown". The arming check exists twice on purpose and only once counts:
 the page disables the button on a string compare against the probe's value
-(UX), and `desktop_reset` re-reads the hostname itself and refuses unless the
-typed argument equals it. The page names intent; Rust re-checks. That is
+(UX), and `desktop_reset` refuses unless the typed argument equals the
+machine's hostname **as Rust read it at app start, the same memoized value
+the probe displayed** (R15). Displayed and checked values cannot drift by
+construction: the check's job is denying a string the page invented, not
+tracking a rename mid-session, and a fresh re-read would buy the one outcome
+this surface must never produce, a screen whose instruction cannot be
+followed. A rename is picked up at next app start, when the memo is rebuilt.
+The page names intent; Rust re-checks. That is
 `desktop_open_path`'s closed-intent contract pointed at the one verb that
 destroys, so it is pinned: the command takes the typed string and owns the
 truth.
@@ -493,8 +528,18 @@ truth.
 chain, stop at the first failure, every CLI word verbatim in the returned log,
 and **retry converges** because every step tolerates having half-happened.
 
-1. **Read.** Spawn `status --json`; refuse to proceed unless it answers.
-   Nothing is deleted from a machine whose state cannot be read.
+1. **Read, once, when the screen opens.** Spawn `status --json`; refuse to
+   proceed unless it answers, and refuse unless its `paths` block is
+   **all-or-nothing** (R17): present, with all four of `dataDir`, `database`,
+   `logsDir`, `nodeArtifacts` non-empty and absolute, or the block is treated
+   exactly as absent and gets § 7.1's refusal. A block with a field missing
+   must not mean "delete a subset and report success", which is R1's quiet
+   under-delete wearing a different hat. What the read resolves is both the
+   confirmation screen's list and the **delete plan** the chain executes,
+   held for the screen's life; Retry re-runs the captured plan rather than
+   re-deriving from a machine that may no longer be able to answer (R14).
+   Nothing is deleted from a machine whose state cannot be read, and the
+   machine is only read while it still can be.
 2. **Stop.** `service stop`. "Not installed" and "not running" are tolerable
    answers, taken from the CLI's own exit behavior, not re-litigated here.
 3. **Close orphan panes.** Each pane is its own tmux server on a socket named
@@ -527,31 +572,41 @@ and **retry converges** because every step tolerates having half-happened.
 4. **Uninstall the service** (`service uninstall`), while the binary and
    config it names are still on disk and the CLI is still the authority on the
    unit file.
-5. **Delete**, in this order and no other: the database file, the logs
-   directory, the node-artifacts directory, the data directory recursively
-   (the default layout nests those three inside it, so the recursive delete is
-   the same bytes; overridden paths stand alone), and **`config.env` last,
-   the file, not a side sentence** (R4). The order is load-bearing:
-   `config.env` is what tells `status --json` where the overridden paths are,
-   so if it went first, a Retry after a partial failure would re-read a
-   machine with no config, resolve every path to its *default*, delete nothing
-   that exists, and report success with the operator's real data directory
-   untouched. Deletion of it is therefore the chain's point of no return and
-   runs only once every directory it points at is gone.
+5. **Delete**, executing the captured plan, in this order and no other: the
+   database file, the logs directory, the node-artifacts directory, the data
+   directory recursively (the default layout nests those three inside it;
+   overridden paths stand alone), then **`config.env`**, then a
+   remove-if-empty attempt on whatever directory held it. Two properties the
+   order earns:
 
-   Only paths the `paths` block reported, each under two layers of refusals.
-   **Shape** (as before): absolute, exists, not `/`, not the user's home
-   itself, final component not a symlink. An operator-configured `/data` is
-   legitimately theirs to lose, so the guard stays shape-based rather than
-   location-based. **Containment** (R3), which protects the promise on the
-   screen rather than a location: a directory to be deleted is refused if it
-   contains, or equals, the resolved server binary path or the directory
-   holding `config.env`. Without it, a data dir configured as `$HOME/.local`
-   passes every shape guard and takes `~/.local/bin/subshell-server` down with
-   it, while the confirmation screen promised the binary stays. The compared
-   paths are ones the probe already carries; the check is a pure
-   `delete_guard(dir, keep) -> Result`, and it refuses before anything in the
-   chain has touched the disk.
+   - **`config.env` is the last consented byte the chain removes** (R4), and
+     when it lives *inside* the data directory it is skipped by the recursive
+     step and deleted as its own final act (R14). The nesting is not exotic,
+     it is the default: `configure.ts:423` seeds `DATABASE_PATH` to
+     `<configDir>/subshell.db`, and `defaultSubshellServerDataDir` derives
+     the data dir from that file's location, so on every machine this app
+     sets up the data dir IS `~/.config/subshell-server`. While `config.env`
+     survives, every fresh read of the machine (a crash-and-restart's step 1,
+     a re-opened screen) resolves the same overridden paths it names; once it
+     is gone there is nothing left to find.
+   - **Absence is "already deleted"; only a refusal stops the chain.** The
+     shape guards run against the plan before anything touches disk, and a
+     planned path found absent at execution time is the step succeeding.
+     That is what makes Retry converge instead of dead-end.
+
+   The refusals, two layers. **Shape**, at plan-capture time: absolute, not
+   `/`, not the user's home itself, final component not a symlink. An
+   operator-configured `/data` is legitimately theirs to lose, so the guard
+   stays shape-based rather than location-based. **Containment**, narrowed to
+   one comparison per R13: a directory scheduled for deletion is refused if
+   it equals or contains **the resolved server binary path**. That is the
+   screen's only promise a directory delete can break. The directory holding
+   `config.env` is deliberately *not* in the keep set: it is a deletion
+   target by design, and R13's measurement (data dir equals config dir on
+   the default layout) means protecting it would refuse every machine this
+   app has ever set up. The check is a pure `delete_guard(dir, keep) ->
+   Result` called with the one kept path, and it refuses before the chain
+   has touched the disk.
 6. **Clear app settings:** `binary_path` to none, `onboarded` to false.
 7. **Windows:** close `main` (its port is dead), close the console, open the
    wizard at Welcome. The chain's final result log is shown by the wizard's
@@ -599,7 +654,7 @@ consulted. No `PERMITTED_CROSSINGS` entry is needed either way.)
 | `desktop_probe` | marks onboarded on first Ready; `Probe.onboarded` and `Probe.hostname` | behavior + fields |
 | `desktop_setup` | optional `InitPayload` argument (four fields, serde-default) | additive argument |
 | `desktop_open_console` | optional `screen` argument, closed enum | additive argument |
-| `desktop_reset` | new, console-only | new command + permission |
+| `desktop_reset` | new, console-only; executes the plan captured when the screen opened | new command + permission |
 | `status --json` | `paths: { dataDir, database, logsDir, nodeArtifacts }` | additive field |
 | `desktop-core` `Settings::save` | temp-file + rename (was one `fs::write`) | bugfix, pinned |
 | `pane-runtime` `cleanSocket` | resolve via `tmuxSocketPath`, not `TMPDIR ?? /tmp` | bugfix, pinned |
@@ -651,11 +706,23 @@ across the boundary they drift across.
   **Console** (the CLI-provisioned fixture from R6), virgin picks Wizard.
 - reset hostname compare and the deletion **shape** guards (rejects relative,
   `/`, home itself, symlink final component; accepts an absolute `/data`).
-- reset deletion **containment** guard (R3's test): a data dir of
-  `$HOME/.local` containing the resolved server binary is refused outright,
-  and so is one equal to the config directory.
+- reset deletion **containment** guard: a data dir of `$HOME/.local`
+  containing the resolved server binary is refused (R3), **and the default
+  layout passes**: data dir equal to the config dir, containing `config.env`,
+  is a valid plan (R13's trap, pinned from both sides).
 - chain order (R4's test): the pure plan assembly puts `config.env` after
-  every directory deletion, asserted as order, not inferred from layout.
+  every directory deletion and the remove-if-empty after it, asserted as
+  order; the recursive step's skip predicate keeps the one nested
+  `config.env` until that step (R14).
+- plan capture (R14): Retry deletes the captured set after the machine has
+  changed underneath, and a planned path that is absent at execution time
+  converges as success rather than refusing.
+- `paths` block validation (R17): absent, present-but-missing-a-field,
+  empty, and relative each produce the § 7.1 refusal; only four absolute
+  paths arm the screen.
+- hostname is one value (R15): the probe's field and the reset comparison
+  read the same memo, pinned as a function-level invariant, not two spawns
+  that happen to agree.
 - `Settings::save` writes via temp + rename in the same directory and leaves
   no temp file behind (R5's fix, pinned per behavior).
 - tmux socket prefix **and directory** mirror pin against pane-runtime
