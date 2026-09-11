@@ -2421,6 +2421,78 @@ Nothing else changed on re-read. The N1 guard loop now type-checks (three
 has, and `plan.config_env.parent().unwrap()` cannot panic because
 `path_rules_ok` has already rejected `/` for that path.
 
+## Re-review (2026-09-11), round 4
+
+M1 and M2 both landed, and two parts of the fix are better than the finding
+asked for: collapsing `push_step_tolerant` into `push_step(log, r, tolerated:
+&[&str])` removes a helper rather than adding one, and putting every half-run
+return **before** `*stash.plan.lock().unwrap() = None` is the detail that makes
+Retry actually work on a partial run. The page-side note at line 1903 closes
+the loop M1 opened, which the finding did not ask for.
+
+Two findings, both in the delete step, both about the same asymmetry the M1
+rewrite settled in the wrong direction.
+
+**K1. `delete_consent` is called and never defined.** Line 1575:
+
+```rust
+delete_consent(&plan.database, &mut log);
+```
+
+The helper contract at line 1625 defines `push_step`, `remove_if_exists`,
+`delete_tree`, `delete_tree_but` and `close_subshell_tmux`. `delete_consent`
+is not among them, and appears nowhere else in the plan except inside my own
+round-3 text, where I quoted the call as though it existed without checking.
+That is my error propagating, so it is worth saying plainly rather than filing
+it as purely the plan's.
+
+The database is a single file, and `remove_if_exists` is the file helper
+("`NotFound` is success"), so the call almost certainly wants to be
+`remove_if_exists(&plan.database, &mut log)`. Either rename the call or add
+`delete_consent` to the contract list with its own sentence. An undefined
+helper in a plan is the one failure mode the writing-plans rules name
+explicitly, and this one sits on the line that deletes the database.
+
+**K2. Three of the four deletions cannot fail the chain, so a reset that leaves
+the database behind reports success.** After the rewrite only `delete_tree_but`
+hands a failure back:
+
+```rust
+delete_consent(&plan.database, &mut log);        // no return
+delete_tree(&plan.logs_dir, &mut log);           // no return
+delete_tree(&plan.artifacts_dir, &mut log);      // no return
+if let Some(detail) = delete_tree_but(&plan.data_dir, &plan.config_env, &mut log) { … }
+remove_if_exists(&plan.config_env, &mut log);    // no return
+```
+
+`delete_tree(log)` is specified with no return value, and `remove_if_exists`
+only with "`NotFound` is success". So a database that cannot be unlinked
+(permission, a file lock, a read-only mount) is logged and the chain answers
+`ok: true`.
+
+That is the most consequential version of the under-delete class this document
+has already guarded twice. § 7.1 lists what the database holds: "users,
+sessions, API keys, **the node signing keypair**". R1 refused to let a
+zero-kill report a successful reset; R17 refused to let a partial `paths` block
+delete a subset and report success. A surviving signing key, announced as a
+completed wipe, is worse than either, because the whole disclosure the user
+typed their hostname to accept was that this data is gone.
+
+This is not purely a regression from M1. The pre-M1 contract sentence said "a
+missing root is success; **ANY other error fails the chain there**, verbatim
+message" for `delete_tree` and `delete_tree_but` alike, while the call sites
+already had no mechanism to receive that. The contract and the code disagreed;
+the rewrite settled it by silencing the contract rather than by giving the call
+sites the mechanism. Settle it the other way: `delete_tree` and
+`remove_if_exists` return `Option<String>` exactly as `delete_tree_but` does,
+and each call site converts it to the same half-run the others use. Absence
+stays success; a real failure stops the chain and says which path.
+
+Worth one test in Task 7's list, since the guard tests all cover refusals
+before the chain runs and nothing yet covers a refusal inside it: a delete step
+whose target cannot be removed answers `ok: false` with the path in the log,
+never `ok: true`.
+
 ## Self-review notes (author, post-write)
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
