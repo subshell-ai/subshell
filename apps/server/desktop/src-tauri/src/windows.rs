@@ -123,11 +123,14 @@ pub fn open_wizard(app: &AppHandle) -> Result<WebviewWindow, String> {
         raise(&w);
         return Ok(w);
     }
+    // A setup assistant is a fixed frame (spec 2026-09-11 § 4): 1024 wide
+    // because that is MIN_WIDTH, the dashboard's own floor, which is what
+    // lets `open_main` take this window's geometry and appear in its place.
     WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
-        .title("Subshell Server")
-        .inner_size(720.0, 620.0)
-        .min_inner_size(560.0, 480.0)
-        .resizable(true)
+        .title("Set Up Subshell Server")
+        .inner_size(MIN_WIDTH, 720.0)
+        .resizable(false)
+        .center()
         .build()
         .map_err(|e| format!("could not open the setup window: {e}"))
 }
@@ -183,6 +186,17 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         return Ok(());
     }
 
+    // When the assistant is on screen, the dashboard appears exactly where it
+    // was, at the same size, and the assistant closes underneath: one window
+    // changing screen, not two windows trading places (spec § 4). Logical
+    // units, because the builder takes logical and the window reports physical.
+    let inherited = app.get_webview_window("wizard").and_then(|w| {
+        let scale = w.scale_factor().ok()?;
+        let pos = w.outer_position().ok()?.to_logical::<f64>(scale);
+        let size = w.inner_size().ok()?.to_logical::<f64>(scale);
+        Some((pos, size))
+    });
+
     let allowed = url.origin();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         // The page is the SERVER's, and this window holds Tauri globals. A
@@ -194,7 +208,6 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // two windows of one app, and this one's title is hidden under the
         // Overlay title bar the handshake below negotiates.
         .title("Subshell Server")
-        .inner_size(1280.0, 860.0)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         .user_agent(&user_agent(app))
         // Tauri's native file-drop handler otherwise SWALLOWS HTML5 drag
@@ -210,6 +223,11 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // negotiates rather than guessing — no version constant to keep in
         // step with a release it cannot see.
         .visible(false);
+
+    let builder = match inherited {
+        Some((pos, size)) => builder.position(pos.x, pos.y).inner_size(size.width, size.height),
+        None => builder.inner_size(1280.0, 860.0),
+    };
 
     let window = builder
         .build()
