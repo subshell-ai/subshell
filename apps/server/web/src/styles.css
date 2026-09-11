@@ -173,3 +173,22 @@ body {
     touch-action: manipulation;
   }
 }
+
+/* SetupAssistant's entrance (mirrors the native app's `screen-in` keyframe in
+   apps/server/desktop/ui/src/styles.css — one keyframe per side keeps the two
+   implementations comparable rather than reaching for tw-animate-css here). */
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-enter {
+    animation: assistant-in 220ms ease-out;
+  }
+}
+@keyframes assistant-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

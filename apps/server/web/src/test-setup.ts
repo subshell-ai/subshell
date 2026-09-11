@@ -3,6 +3,13 @@
  * render real React trees, then fills the few browser APIs happy-dom lacks
  * that Radix primitives touch (popper measures with ResizeObserver, presence
  * checks matchMedia).
+ *
+ * This must stay its own preload file, ordered before
+ * `test-setup-matchers.ts` in `bunfig.toml`: `@testing-library/dom`'s
+ * `screen` singleton is built at MODULE-EVAL time from whatever `document`
+ * currently is, and never rechecked — so anything that imports it (jest-dom's
+ * matchers do, transitively) before `document` exists poisons `screen` for
+ * every test file in the run, not just the one that imported it early.
  */
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
