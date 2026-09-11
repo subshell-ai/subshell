@@ -58,16 +58,26 @@ interface SetupMocks {
   recent?: { paths: { path: string; label: string | null }[]; home: string | null };
   /** What POST /api/subshells answers; default is a created subshell */
   create?: { status: number; body: unknown };
+  /** What POST /api/setup/agents/:id/install answers */
+  install?: { status: number; body: unknown };
 }
 
 function routeFetch(opts: SetupMocks): void {
+  // Set once an install POST succeeds, so the following harness refetch (the
+  // mutation's onSettled invalidation) reports the row as installed — the
+  // way the real backend re-probes rather than replaying a fixed list.
+  let installedId: string | null = null;
   setFetchRouter((input, init) => {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
     const method = init?.method ?? "GET";
     if (path === "/api/setup/status") return Promise.resolve(new Response(JSON.stringify({ needsSetup: true })));
     if (path === "/api/setup/harnesses") {
-      return Promise.resolve(new Response(JSON.stringify(opts.harnesses ?? [CLAUDE_ABSENT])));
+      const base = opts.harnesses ?? [CLAUDE_ABSENT];
+      const withInstall = installedId
+        ? base.map((h) => (h.id === installedId ? { ...h, installed: true, version: "1.0.0", reason: undefined } : h))
+        : base;
+      return Promise.resolve(new Response(JSON.stringify(withInstall)));
     }
     if (path === "/api/auth/sign-up/email") {
       return Promise.resolve(new Response(JSON.stringify({ user: { id: "u1", name: "Ada" } })));
@@ -79,6 +89,20 @@ function routeFetch(opts: SetupMocks): void {
     }
     if (path === "/api/subshells" && method === "POST") {
       const res = opts.create ?? { status: 201, body: { id: "sub-1" } };
+      return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
+    }
+    if (path.startsWith("/api/setup/agents/") && path.endsWith("/install") && method === "POST") {
+      const id = path.slice("/api/setup/agents/".length, -"/install".length);
+      const res = opts.install ?? {
+        status: 200,
+        body: {
+          ok: true,
+          exitCode: 0,
+          output: "done",
+          harness: { ...CLAUDE_ABSENT, installed: true, version: "1.0.0", reason: undefined },
+        },
+      };
+      if (res.status === 200) installedId = id;
       return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
     }
     return Promise.resolve(new Response(JSON.stringify({})));
@@ -224,6 +248,14 @@ describe("setup wizard: the agent step is optional", () => {
     expect(screen.queryByRole("listitem", { name: "Terminal" })).toBeNull();
     // Nothing usable? hatch stays hidden once an agent is detected.
     expect(screen.queryByText(/register a Node/)).toBeNull();
+  });
+
+  it("installs an agent and flips the row to Detected", async () => {
+    await renderSetup({ harnesses: [CLAUDE_ABSENT] }, 1);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await settle();
+    const row = screen.getByRole("listitem", { name: "Claude Code" });
+    await waitFor(() => expect(row.textContent).toContain("Detected · v1.0.0"));
   });
 });
 

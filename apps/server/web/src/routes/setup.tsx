@@ -16,7 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
-import { apiFetch } from "@/lib/api";
+import { useInstallAgent } from "@/hooks/use-install-agent";
+import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { desktopPlatform, isDesktop } from "@/lib/desktop";
@@ -50,12 +51,14 @@ function SetupPage() {
   // is a separate step (Settings → Plugins); this screen only says what's on
   // this host right now, and refreshes on its own so an install made in a
   // terminal beside it shows up without a control.
+  const install = useInstallAgent();
+  const installingId = install.isPending ? install.variables : undefined;
   const {
     data: harnesses,
     isLoading: harnessesLoading,
     isError: harnessesError,
     refetch: refetchHarnesses,
-  } = useHarnesses({ refetchInterval: step === 1 ? 4000 : undefined });
+  } = useHarnesses({ refetchInterval: step === 1 && !install.isPending ? 4000 : undefined });
   const agents = (harnesses ?? []).filter((h) => h.type === "agent-harness");
 
   // Launch step. The form defaults itself (node `local`, the first launchable
@@ -241,9 +244,23 @@ function SetupPage() {
         )}
         <ul>
           {agents.map((h) => (
-            <AgentRow key={h.id} harness={h} />
+            <AgentRow
+              key={h.id}
+              harness={h}
+              onInstall={(id) => install.mutate(id)}
+              installing={installingId === h.id}
+            />
           ))}
         </ul>
+        {install.data && !install.data.ok && (
+          <details className="mt-4 text-sm">
+            <summary className="cursor-pointer text-muted-foreground">Installer output</summary>
+            <pre className="max-h-48 overflow-auto text-xs">{install.data.output}</pre>
+          </details>
+        )}
+        {install.error && (
+          <p className="mt-4 text-destructive text-sm">{errMessage(install.error, "Failed to install the agent")}</p>
+        )}
         {harnesses !== undefined && !agents.some((h) => h.installed) && (
           <p className="mt-4 text-muted-foreground text-sm">
             Nothing on {here}?{" "}
