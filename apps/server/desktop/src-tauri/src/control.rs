@@ -91,6 +91,14 @@ pub struct Probe {
     /// the MacPorts instructions rather than a button that cannot work, and
     /// the webview has no way to look.
     pub has_brew: bool,
+    /// Whether this app has ever watched a server on this machine reach
+    /// `ready`. Boot branches on it (after marking, via `boot_window`), and
+    /// the page reads it off the probe rather than owning a second source.
+    pub onboarded: bool,
+    /// The machine's hostname: the string the reset screen shows, asks to be
+    /// typed, and compares against — one memoized read, so displayed and
+    /// checked values cannot drift (spec § 7.1, R15).
+    pub hostname: String,
 }
 
 impl Default for Probe {
@@ -107,6 +115,8 @@ impl Default for Probe {
             tmux: None,
             platform: String::new(),
             has_brew: false,
+            onboarded: false,
+            hostname: String::new(),
         }
     }
 }
@@ -257,11 +267,88 @@ fn bundled_version() -> Option<String> {
 /// Also the ONE place the tray's enabled state is updated from. Every console
 /// refresh and every console action runs this, including the first render at
 /// startup, so the tray follows the server without a poll of its own.
+///
+/// And the one writer of `onboarded`: the first probe that sees `ready` marks
+/// the flag, which is the whole marking rule (spec § 4) — one function
+/// ([`mark_onboarded`]) with this command and [`boot_probe`] as its callers,
+/// and `probe_now` itself untouched and still pure.
 #[tauri::command(async)]
 pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Probe {
-    let p = probe_now(settings.get().binary_path.as_deref());
+    let mut p = probe_now(settings.get().binary_path.as_deref());
     crate::tray::set_server_ready(&app, p.next == ProbeStep::Ready);
+    p.hostname = machine_hostname();
+    p.onboarded = settings.get().onboarded;
+    if p.next == ProbeStep::Ready && !p.onboarded {
+        mark_onboarded(p.next, &settings);
+        p.onboarded = true;
+    }
     p
+}
+
+/// The machine's hostname, read once per process. `libc::gethostname` was
+/// declined (libc is no direct dependency of either crate; spec § 7.1), and
+/// `hostname(1)` is one bounded spawn through the discipline every other
+/// subprocess already uses. Memoized because a running machine does not
+/// rename itself, and the memo is the SINGLE source: the value the reset
+/// screen displays and the value `desktop_reset` compares are the same read
+/// by construction (R15), so a mid-session rename surfaces next launch
+/// rather than as an instruction that cannot be followed.
+pub fn machine_hostname() -> String {
+    static HOSTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HOSTNAME
+        .get_or_init(|| {
+            run(
+                &vec!["hostname".to_string()],
+                std::time::Duration::from_secs(5),
+            )
+            .stdout
+            .trim()
+            .to_string()
+        })
+        .clone()
+}
+
+/// Mark `onboarded` once a probe has seen `ready`. One function by name
+/// (spec R16), called by `desktop_probe` and `boot_probe`, never by
+/// `probe_now`. A failed write is survivable by design: the cost is opening
+/// the wizard once more on next boot, and the wizard renders a ready machine
+/// as facts already met within one Continue.
+pub fn mark_onboarded(next: ProbeStep, settings: &SettingsState) {
+    if next != ProbeStep::Ready || settings.get().onboarded {
+        return;
+    }
+    let _ = settings.update(|s| s.onboarded = true);
+}
+
+/// Boot's probe: look at the machine, mark what it proves, return the answer
+/// the window choice is made from. The write-in-read is deliberate — it is
+/// what lets a CLI-provisioned machine skip the wizard (spec § 4).
+pub fn boot_probe(settings: &SettingsState) -> Probe {
+    let mut p = probe_now(settings.get().binary_path.as_deref());
+    p.hostname = machine_hostname();
+    p.onboarded = settings.get().onboarded;
+    mark_onboarded(p.next, settings);
+    if p.next == ProbeStep::Ready {
+        p.onboarded = true;
+    }
+    p
+}
+
+/// Which window boot opens, as a pure decision over the POST-MARK probe.
+/// Never call this on the stored flag alone: that is the R6 bug (a
+/// CLI-provisioned machine would meet a wizard it has nothing to do with).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowChoice {
+    Wizard,
+    Console,
+}
+
+pub fn boot_window(p: &Probe) -> WindowChoice {
+    if p.onboarded {
+        WindowChoice::Console
+    } else {
+        WindowChoice::Wizard
+    }
 }
 
 fn probe_now(configured: Option<&str>) -> Probe {
@@ -384,8 +471,26 @@ fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> 
 /// names it and the user is never worse off than the four-step flow left them.
 /// The CLI's own words are returned verbatim; two surfaces that phrase the
 /// same refusal differently are two surfaces that drift.
+///
+/// The four address fields exist for the wizard's Run step (spec § 5): all
+/// absent is today's derived-defaults chain byte for byte, and present values
+/// map through the same `init_args` as `desktop_init`, so one argv assembly
+/// serves both entry points. Empty-string vs absent keeps `init_args`'
+/// existing per-field rules.
 #[tauri::command(async)]
-pub fn desktop_setup(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+pub fn desktop_setup(
+    settings: State<'_, SettingsState>,
+    port: Option<String>,
+    host: Option<String>,
+    base_url: Option<String>,
+    trusted_origins: Option<String>,
+) -> Result<ActionResult, String> {
+    let addresses = SetupAddresses {
+        port: port.unwrap_or_default(),
+        host: host.unwrap_or_default(),
+        base_url: base_url.unwrap_or_default(),
+        trusted_origins,
+    };
     let mut log = String::new();
     for step in [
         SetupStep::InstallServer,
@@ -393,7 +498,7 @@ pub fn desktop_setup(settings: State<'_, SettingsState>) -> Result<ActionResult,
         SetupStep::ServiceInstall,
         SetupStep::Start,
     ] {
-        let result = step.run(&settings)?;
+        let result = step.run(&settings, &addresses)?;
         log.push_str(&result.stdout);
         log.push('\n');
         if !result.ok {
@@ -434,17 +539,34 @@ enum SetupStep {
     Start,
 }
 
+/// The addresses `desktop_setup`'s Init step may carry. Empty strings for
+/// `port`/`host`/`base_url` mean "omit the flag, let the CLI derive";
+/// `trusted_origins` keeps `init_args`' None-vs-Some("") distinction.
+struct SetupAddresses {
+    port: String,
+    host: String,
+    base_url: String,
+    trusted_origins: Option<String>,
+}
+
 impl SetupStep {
-    fn run(self, settings: &SettingsState) -> Result<ActionResult, String> {
+    fn run(self, settings: &SettingsState, a: &SetupAddresses) -> Result<ActionResult, String> {
         match self {
             SetupStep::InstallServer => install_server_now(settings),
-            // Derived defaults, not a form payload: empty address fields omit
-            // their flags, so `init --yes` falls back to the CLI's own answers
-            // (port 3080, all interfaces, base URL derived from the port), and
-            // a `None` trusted-origins says nothing rather than clearing the
-            // list. This is what the four-step flow wrote on a fresh install
-            // where the operator typed nothing.
-            SetupStep::Init => Ok(init_now(settings, "", "", "", None)),
+            // Derived defaults unless the wizard's Addresses step collected
+            // edits: empty address fields omit their flags, so `init --yes`
+            // falls back to the CLI's own answers (port 3080, all interfaces,
+            // base URL derived from the port), and a `None` trusted-origins
+            // says nothing rather than clearing the list. This is what the
+            // four-step flow wrote on a fresh install where the operator
+            // typed nothing.
+            SetupStep::Init => Ok(init_now(
+                settings,
+                &a.port,
+                &a.host,
+                &a.base_url,
+                a.trusted_origins.as_deref(),
+            )),
             SetupStep::ServiceInstall => Ok(service_now(settings, ServiceCommand::Install, false)),
             // `service install` already starts the server, and `start` on a
             // running service answers "already running" with exit 0
@@ -1525,8 +1647,56 @@ mod tests {
     }
 
     #[test]
-    fn probe_steps_serialize_as_kebab_case_for_the_console() {
-        assert_eq!(
+    fn boot_window_picks_console_on_a_ready_probe_even_before_marking() {
+        // R6 of the spec review: a machine set up entirely from the CLI
+        // stores onboarded:false, and the FIRST probe is what corrects it.
+        // Boot branches on the probe's answer, so a ready (post-mark) probe
+        // names Console no matter what the field carried a moment ago.
+        let mut ready = Probe::default();
+        ready.next = ProbeStep::Ready;
+        ready.onboarded = true; // as mark_onboarded leaves it before boot_window runs
+        assert_eq!(boot_window(&ready), WindowChoice::Console);
+        let mut virgin = Probe::default();
+        virgin.next = ProbeStep::Setup;
+        assert_eq!(boot_window(&virgin), WindowChoice::Wizard);
+    }
+
+    #[test]
+    fn probe_serializes_onboarded_and_hostname_for_the_page() {
+        let mut p = Probe::default();
+        p.onboarded = true;
+        p.hostname = "devbox".into();
+        let v: serde_json::Value = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["onboarded"], serde_json::json!(true));
+        assert_eq!(v["hostname"], serde_json::json!("devbox"));
+    }
+
+    #[test]
+    fn hostname_is_trimmed_and_non_empty_here() {
+        // Memo + trim contract; the value itself is the machine's business.
+        let h = machine_hostname();
+        assert!(!h.is_empty());
+        assert_eq!(h, h.trim(), "the compared string must be exactly what the screen shows");
+        assert!(!h.contains('\n'));
+        // One value per process: the display side and the gate read the same
+        // memo by construction (R15), not two spawns that happen to agree.
+        assert_eq!(h, machine_hostname());
+    }
+
+    #[test]
+    fn setup_payload_maps_through_the_same_init_args_as_init() {
+        // The chain's address fields thread into init_args unchanged, so a
+        // setup press that carried wizard edits writes exactly what the init
+        // form would have. The per-field empty/None rules are pinned by the
+        // init_args tests above; this pins the intent of the shared path.
+        let args = init_args("4100", "0.0.0.0", "http://x:4100", Some("http://lan"));
+        assert!(args.contains(&"--port".to_string()) && args.contains(&"4100".to_string()));
+        let empty = init_args("", "", "", None);
+        assert!(!empty.iter().any(|a| a.starts_with("--port")), "omitted flags fall back to derived defaults");
+    }
+
+    #[test]
+    fn probe_steps_serialize_as_kebab_case_for_the_console() {        assert_eq!(
             serde_json::to_string(&ProbeStep::InstallService).unwrap(),
             "\"install-service\""
         );

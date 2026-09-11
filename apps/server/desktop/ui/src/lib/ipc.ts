@@ -108,6 +108,10 @@ export interface Probe {
   /** The OS in the names `installers.ts` branches on ("linux", "darwin"). */
   platform: string;
   hasBrew: boolean;
+  /** Whether setup has reached `ready` here at least once (spec § 4). */
+  onboarded: boolean;
+  /** The hostname the reset screen shows, types for, and compares (R15). */
+  hostname: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +176,14 @@ export const init = (payload: InitPayload): Promise<ActionResult> => invoke<Acti
 export const service = (verb: ServiceVerb, force: boolean): Promise<ActionResult> =>
   invoke<ActionResult>("desktop_service", { verb, force });
 
-export const setup = (): Promise<ActionResult> => invoke<ActionResult>("desktop_setup");
+/**
+ * The one-press chain. The address fields are the wizard's Addresses step;
+ * omitting the payload (or every field) is today's derived-defaults run,
+ * byte for byte. Empty-string vs absent follows `init_args`' per-field rules,
+ * the same contract `desktop_init` gets through `configPayload`.
+ */
+export const setup = (payload?: InitPayload): Promise<ActionResult> =>
+  invoke<ActionResult>("desktop_setup", payload ?? {});
 
 export const installServer = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_server");
 
