@@ -1559,17 +1559,25 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
     let mut log = String::new();
     // 2. Stop, tolerating "there is nothing to stop" (the CLI's own words).
     let stop = crate::control::service_now(&settings, crate::control::ServiceCommand::Stop, false);
-    push_step(&mut log, "stop", &stop)?;
+    if let Some(stderr) = push_step(&mut log, &stop, &[]) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr });
+    }
     // 3. Close this instance's panes (their per-subshell tmux servers).
-    close_subshell_tmux(&mut log)?;
+    if let Some(detail) = close_subshell_tmux(&mut log) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
+    }
     // 4. Uninstall the service, while the binary and config it names exist.
     let un = crate::control::service_now(&settings, crate::control::ServiceCommand::Uninstall, false);
-    push_step_tolerant(&mut log, "uninstall", &un, "not installed")?;
+    if let Some(stderr) = push_step(&mut log, &un, &["not installed"]) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr });
+    }
     // 5. Delete in the order the screen drew, absence = done, config.env last.
     delete_consent(&plan.database, &mut log);
     delete_tree(&plan.logs_dir, &mut log);
     delete_tree(&plan.artifacts_dir, &mut log);
-    delete_tree_but(&plan.data_dir, &plan.config_env, &mut log)?;
+    if let Some(detail) = delete_tree_but(&plan.data_dir, &plan.config_env, &mut log) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
+    }
     remove_if_exists(&plan.config_env, &mut log);
     let _ = std::fs::remove_dir(plan.config_env.parent().unwrap()); // empty-dir tidy, tolerated
     let _ = std::fs::remove_dir(&plan.data_dir);
@@ -1591,15 +1599,30 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.close();
     }
-    crate::windows::open_wizard(&app)?;
-    if let Some(w) = app.get_webview_window("console") {
-        let _ = w.close();
+    match crate::windows::open_wizard(&app) {
+        Ok(()) => {
+            if let Some(w) = app.get_webview_window("console") {
+                let _ = w.close();
+            }
+        }
+        // M2: the machine IS reset; a window that would not build does not
+        // undo that, and the stash is already spent, so answering Err here
+        // would tell the user the wipe failed on a machine where it fully
+        // succeeded - with Retry impossible ("no plan stashed") and no route
+        // forward. The console stays open ON PURPOSE in this arm: closing it
+        // would be the zero-window moment N2 exists to prevent, with no
+        // wizard to replace it.
+        Err(e) => log.push_str(&format!(
+            "\nthe wizard window could not be opened: {e}\nthis machine is reset; reopen the app to continue setup\n"
+        )),
     }
     Ok(ActionResult { ok: true, stdout: log, stderr: String::new() })
 }
 ```
 
-Implement the named helpers in this same file with these exact contracts, each one or two sentences of doc: `push_step` (append stdout; `ok == false` and not tolerated ⇒ `Err` carrying stderr verbatim so the reset screen shows the CLI's words); `push_step_tolerant` (same, but `ok == false` whose stderr contains the tolerance phrase is appended-and-continued); `remove_if_exists` (`NotFound` is success); `delete_tree` / `delete_tree_but(root, keep_out, log)` (`remove_dir_all` / manual walk skipping exactly `keep_out`; a missing root is success; ANY other error fails the chain there, verbatim message); `close_subshell_tmux`:
+Channel discipline (M1, the correction round 3 earned): an in-chain failure is a **return value the caller puts into `Ok(ActionResult { ok: false, stdout: log, stderr })`**, never a `?` into `Err`. `Err` belongs only to the refusals that fire before the first mutation (hostname, no plan, guard, shape, unresolvable keep) exactly as spec § 10 enumerates. The precedent is `desktop_setup` in the same crate (`control.rs:399-408`): a step that ran and refused answers `ok: false` carrying the accumulated verbatim log; `?` there means "could not even be attempted". The half-run paths also deliberately fall BEFORE `*stash.plan.lock().unwrap() = None`, so a Retry still holds the consent that produced the partial run.
+
+Implement the named helpers in this same file with these exact contracts, each one or two sentences of doc: `push_step(log: &mut String, r: &ActionResult, tolerated: &[&str]) -> Option<String>` (append stdout, and on success any non-empty stderr, the chain's verbatim rule; `None` when ok or when stderr contains a tolerated phrase; otherwise `Some(r.stderr)` verbatim, there being no separate `push_step_tolerant`); `remove_if_exists` (`NotFound` is success); `delete_tree(log)` / `delete_tree_but(root, keep_out, log) -> Option<String>` (`remove_dir_all` / manual walk skipping exactly `keep_out`; a missing root is success; any other error returns `Some(message)` for the caller's half-run); `close_subshell_tmux`:
 
 ```rust
 /// Kill the tmux servers this product created and nobody is watching anymore.
@@ -1609,24 +1632,25 @@ Implement the named helpers in this same file with these exact contracts, each o
 /// per-user /var/folders path with no sockets in it, and a silent zero-kill
 /// would let a reset report success with every pane still running, spec § 7.2
 /// step 3 / R1). A kill answered by "error connecting" means the server is
-/// already dead: unlink the stale socket and continue. Any other failure is
-/// fatal to the chain: a pane that survived is a reset that lied.
-fn close_subshell_tmux(log: &mut String) -> Result<(), String> {
+/// already dead: unlink the stale socket and continue. Any other failure ends
+/// the chain (as M1's half-run Some): a pane that survived is a reset that
+/// lied.
+fn close_subshell_tmux(log: &mut String) -> Option<String> {
     let base_raw = std::env::var("TMUX_TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
     let base = std::fs::canonicalize(&base_raw).unwrap_or_else(|_| std::path::PathBuf::from(&base_raw));
     // A uid this side cannot read means a directory this side cannot name,
     // which means zero kills reported as success - the R1 shape exactly. So
-    // this failure is fatal to the chain, never a silent skip.
+    // this failure ends the chain (as a half-run), never a silent skip.
     let uid_res = proc::run(&vec!["id".to_string(), "-u".to_string()], crate::control::ACTION_TIMEOUT);
     if !uid_res.ok {
-        return Err(format!("could not read the uid to locate tmux sockets: {}", uid_res.stderr.trim()));
+        return Some(format!("could not read the uid to locate tmux sockets: {}", uid_res.stderr.trim()));
     }
     let dir = base.join(format!("tmux-{}", uid_res.stdout.trim()));
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
         Err(_) => {
             log.push_str("no tmux socket directory here; nothing to close\n");
-            return Ok(());
+            return None;
         }
     };
     for entry in entries.flatten() {
@@ -1642,11 +1666,11 @@ fn close_subshell_tmux(log: &mut String) -> Result<(), String> {
                 log.push_str(&format!("stale socket {name} removed\n"));
                 continue;
             }
-            return Err(format!("could not close the pane server {name}: {}", r.stderr.trim()));
+            return Some(format!("could not close the pane server {name}: {}", r.stderr.trim()));
         }
         log.push_str(&format!("closed pane server {name}\n"));
     }
-    Ok(())
+    None
 }
 ```
 
@@ -1824,6 +1848,10 @@ export const reset = (typed: string): Promise<ActionResult> => invoke<ActionResu
     <button type="button" id="reset-run" class="primary" disabled>Reset everything</button>
     <button type="button" id="reset-cancel">Cancel</button>
   </div>
+  <!-- The half-run record lands HERE, not in #output: the status view is
+       hidden while this one is up, so a chain log rendered there would be
+       invisible - which is M1's whole promise unkept by the page. -->
+  <pre class="pane-pre mt-3" id="reset-log" aria-live="polite" hidden></pre>
 </div>
 ```
 
@@ -1872,22 +1900,36 @@ el("reset-cancel").addEventListener("click", () => {
   el("reset-view").hidden = true;
   el("status-view").hidden = false;
 });
+/** M1's promise kept by the page: a half-run's verbatim log renders where
+ *  the human still is. Success normally needs no rendering - the chain
+ *  closes this window on its way to the wizard - but the wizard-open failure
+ *  arm (M2) answers ok:true with a note in the log, and Retry needs the
+ *  partial record on screen. */
+function showResetResult(text: string): void {
+  const box = el("reset-log");
+  box.textContent = text;
+  box.hidden = text === "";
+}
+
 el("reset-run").addEventListener("click", () => {
   void (async () => {
     const typed = (el("reset-confirm") as HTMLInputElement).value;
     if (!armed(typed, probe?.hostname ?? "")) return;
     busy = true;
-    show(null);
+    showResetResult("");
     render();
     try {
       const result = await ipc.reset(typed);
-      show(result);
+      const parts: string[] = [];
+      if (result?.stdout?.trim()) parts.push(result.stdout.trim());
+      if (result?.stderr?.trim()) parts.push(result.stderr.trim());
+      showResetResult(parts.join("\n\n"));
     } catch (err) {
-      problem = errText(err);
+      // Err is the pre-flight channel (hostname mismatch, no plan, refused
+      // guard): one sentence, no partial log exists to show.
+      showResetResult(errText(err));
     }
     busy = false;
-    // On success the Rust chain closes this window on its way to the wizard;
-    // the render below is the failure path's.
     try {
       await refresh();
     } catch {
@@ -2277,7 +2319,9 @@ skip for a nested `config.env`, the stash clearing only on success so a Retry
 still has its consent, and the tmux socket rule all read correctly against the
 spec.
 
-## Re-review (2026-09-11), round 3
+## Re-review (2026-09-11), round 3 - RESOLVED (M1: the chain's channels
+## rewritten to the spec's, M2: the post-wipe wizard-open failure handled; see
+## the self-review notes at the end of this plan)
 
 N1, N2 and N3 all landed correctly. N2's resolution is better than the finding:
 I asked for a decision and got a measured reason. `lib.rs:153-158` really does
@@ -2382,4 +2426,5 @@ has, and `plan.config_env.parent().unwrap()` cannot panic because
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
 - Plan-review round (P1-P6, this section's author round): P1 resolved in the plan (reset's toml entry + grant both moved to Task 8; Task 6 names the two ipc-acl unions it widens); P2 resolved (six test call sites enumerated with the file's own `void`/`await` convention, and Task 2 now ends on the repo-root trio); P3 resolved (both guard sides canonicalized, unresolvable-present is a refusal, absent keep passes honestly); P4 resolved (Task 8 step 5 spells "the set invoked from ui/src/main.ts, the CONSOLE page's entry module"); P5 fixed (Vite 8.2.1); P6 partially: the attribution is now declared inherited from the executing session's guidance, but the reviewer's stated current value conflicts with this session's guidance ("replaces any earlier attribution guidance", naming Claude Code) - the plan defers to whichever session executes, which is the fix the finding's structure wanted.
 - Plan re-review round 2 (N1-N3, all verified against the code before adopting): N1 adopted with its better reason (the fourth guard element protected a directory the chain never deletes, so it could only mis-refuse; and the mixed `&PathBuf`/`&&Path` array indeed does not compile, E0308 measured by the reviewer); N2 adopted IN THE CODE'S ORDER with spec § 7.2 step 7 amended to match, because the zero-window moment the comment-vs-code mismatch hid is a real quit-mid-reset path (lib.rs's ExitRequested guard requires a `main` window); N3 adopted as a comment correction only, the behavior was already the fail-closed one, now stated truthfully.
+- Plan re-review round 3 (M1-M2, both verified against spec § 10 and `control.rs:399-408` before adopting): M1 adopted across five call sites plus every helper contract (`push_step` gained the tolerance list, `close_subshell_tmux` and `delete_tree_but` return `Option<String>`); the failure paths fall before the stash clearing so a Retry still holds its consent; and M1's page-side consequence - the half-run log rendering into the HIDDEN status view's `#output` - got its own fix: `#reset-log` renders the record where the human still is. M2 adopted as given: the wizard-open failure after a completed wipe logs the truth, keeps ok:true, and leaves the console open deliberately (the one arm where closing it would recreate N2's zero-window moment with no wizard to replace it). No spec change: § 10 already said the right thing; the plan had drifted from it.
 - Remaining intentional softness: a few comments defer to the file on disk ("match the file's existing style", "read `proc.rs` for the result field names") - those point at named sources of truth rather than at nothing.
