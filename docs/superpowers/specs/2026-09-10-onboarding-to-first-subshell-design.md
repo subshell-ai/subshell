@@ -119,6 +119,15 @@ and returns it, so this resolves to the user's real login shell and reports
 login shell. **No change to the launch pipeline, the inventories, or the usable
 computation in `api/harness-utils.ts`.**
 
+One correction found in implementation: `$SHELL` is absent from the environment
+of a systemd/launchd-run server or node agent (the units this repo writes carry
+`PATH` and nothing else), so rung 1 alone silently runs PATH's `bash`, not the
+user's login shell, on every service-managed host. The fix backfills a missing
+`SHELL` from the passwd entry (the OS's own definition of the login shell),
+env-first so an explicit value always wins and injected-env tests stay
+deterministic. `detectBinary` applies it at its live boundary;
+`detectBinaryWithOptions` still searches exactly the env it is handed.
+
 `knownPaths` stays empty deliberately, with a comment saying why:
 `binary-lookup.ts:71` joins each entry against `$HOME`, so an absolute
 `/bin/sh` would resolve to `$HOME/bin/sh` and silently never match.
@@ -182,7 +191,8 @@ boolean that a seed happened:
 - An id present in the list is never re-installed, so an uninstall still sticks
   permanently. That is the property the original marker protects and it is
   preserved exactly.
-- A legacy `.seeded` file with non-JSON content (the current empty marker)
+- A legacy `.seeded` file with non-JSON content (the pre-record code wrote an
+  ISO-8601 timestamp, not empty bytes)
   reads as "every built-in that existed before this change", which is the five
   agent harnesses, hardcoded as a migration constant. A pre-existing instance
   therefore gains `terminal` and nothing else, and an operator who had
