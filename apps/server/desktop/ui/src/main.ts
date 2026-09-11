@@ -1189,7 +1189,12 @@ async function armReset(): Promise<string | null> {
     if (await ipc.armReset()) return null;
     return refusal(probe?.status) ?? "This server did not report its data locations, so there is nothing to stage.";
   } catch (err) {
-    return `The reset could not be staged: ${errText(err)}. If this app is running from a dev build, restart it so its Rust half matches this page.`;
+    // Say what is out of step, not what kind of build this is. Reset works
+    // exactly the same in a dev build as in a release one - nothing on this
+    // path branches on either - and the first person to read the older
+    // wording took it as a prohibition, which would have sent them looking
+    // for a setting that does not exist.
+    return `The reset could not be staged: ${errText(err)}. This app's window is newer than the app itself, which is what happens when a dev session reloads the page but not its Rust half. Quit and relaunch it.`;
   }
 }
 
