@@ -5,6 +5,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { InstanceNameCard } from "@/components/instance-name-card";
 import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { PageHeader } from "@/components/page-header";
+import { ResetServerCard, resetCardVisible } from "@/components/settings/reset-card";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { apiFetch, errMessage } from "@/lib/api";
+import { isDesktop } from "@/lib/desktop";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -135,6 +137,11 @@ function SettingsPage() {
           {/* Gated on the server's canManage for `local` (owner/admin) — the card
               renders nothing for everyone else, spec 2026-08-31 §10. */}
           <LocalLaunchCard />
+
+          {/* Danger zone, last (spec 2026-09-10 §6): admin AND the SERVER desktop
+              shell only. The reset verb lives in that app's console, so an entry
+              point anywhere else would be a button that lies. */}
+          {resetCardVisible({ viewerIsAdmin, desktop: isDesktop() }) && <ResetServerCard />}
         </>
       ) : (
         <p className="text-muted-foreground text-sm">
