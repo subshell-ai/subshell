@@ -15,7 +15,6 @@
     "allow-desktop-install-server",
     "allow-desktop-setup",
     "allow-desktop-install-tmux",
-    "allow-desktop-install-agent",
     "allow-desktop-init",
     "allow-desktop-service",
     "allow-desktop-reset",

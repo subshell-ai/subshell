@@ -320,13 +320,12 @@ describe("the console's wiring, pinned at the source", () => {
     // immediately after it is `Create configuration`, which refuses. So the
     // console walked the user to a wall it already knew about.
     //
-    // "Set up and start" inherits that gate as the chain it replaced; the two
-    // agent buttons carry the flag as POLICY (no pane to run an agent in
-    // without tmux), pinned here so the policy cannot rot.
+    // "Set up and start" inherits that gate as the chain it replaced. Agent
+    // CLI installs moved to the control plane (spec 2026-09-11 § 7) and this
+    // app's own "Add agents in the dashboard" button only opens the
+    // dashboard — it is not gated, because opening a window needs no pane.
     for (const label of [
       "Set up and start",
-      "Also install Claude Code",
-      "Install Claude Code",
       "Save and start",
       "Install and start as a service",
       "Start",

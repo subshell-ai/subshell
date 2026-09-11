@@ -276,6 +276,10 @@ shares and subshell shares are two independent axes:
   pane-side credentials stay in the node's own environment, which the plane
   never sees. Full prose: `docs/security.md` §6, "Plugin installs from the
   registry".
+- **Agent CLI installs are an admin act on the control-plane host** (spec
+  2026-09-11 §7): `POST /api/setup/agents/:id/install` runs a BUILT-IN
+  manifest's install command as the server's user; admin cookie only, never
+  public, audited. Accounting in `docs/security.md` §11.10.
 - Trusted-network posture is **unchanged**: node→control traffic is expected to
   ride the same VPN/Tailscale; `wss://` termination is the operator's
   deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-

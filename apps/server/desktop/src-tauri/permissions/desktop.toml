@@ -35,11 +35,6 @@ description = "Install tmux with the platform's own package manager (brew on mac
 commands.allow = ["desktop_install_tmux"]
 
 [[permission]]
-identifier = "allow-desktop-install-agent"
-description = "Install one BUILT-IN agent CLI by id. The id is looked up in a list compiled into this app; a command string from the page is never run, and unknown ids are refused."
-commands.allow = ["desktop_install_agent"]
-
-[[permission]]
 identifier = "allow-desktop-setup"
 description = "The whole first-run chain in one call: install the bundled server, write config.env with the CLI's defaults, register the login service, start it. Stops at the first failure. Console-only: the server-origin page gets no part of the CLI."
 commands.allow = ["desktop_setup"]

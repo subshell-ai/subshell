@@ -341,10 +341,6 @@ const STEPS: Partial<Record<ProbeStep | "configure", Step>> = Object.assign(Obje
       // local pane launches through it), so an enabled button here would just
       // walk the press into that wall.
       ["Set up and start", doSetup, true, true],
-      // An agent is worth having before the dashboard, but the button is
-      // secondary (setup never waits on it) and tmux-gated like the chain:
-      // with no tmux there is no pane to run an agent in yet.
-      ["Also install Claude Code", () => doInstallAgent("claude-code"), false, true],
       // No "Change addresses…" here: this screen exists exactly where no
       // server resolves, and the form's save IS `subshell-server init` — it
       // could only answer "no subshell-server found", and the next press
@@ -397,9 +393,11 @@ const STEPS: Partial<Record<ProbeStep | "configure", Step>> = Object.assign(Obje
     actions: () => [
       // The tray's item for this same window says "Open Dashboard".
       ["Open Dashboard", openMain, true],
-      // Still reachable after setup, for the user who sets the server up
-      // first and thinks about agents second.
-      ["Install Claude Code", () => doInstallAgent("claude-code"), false, true],
+      // Agent installs moved to the control plane (spec 2026-09-11 § 7): the
+      // setup assistant's Add an Agent screen runs them, admin-cookie-only,
+      // on the server that has the plugin manifests. This app just gets the
+      // user there.
+      ["Add agents in the dashboard", openMain, false],
       ["Restart", doRestart, false, true],
       ["Stop", doStop],
       ["Change addresses…", showConfigure],
@@ -523,14 +521,12 @@ function buildTmuxWarning(): TmuxWarning {
   const wrap = document.createElement("div");
   wrap.className = "tmux-warning";
   wrap.hidden = true;
-  // Names the whole gate, not just the server verbs: the agent installs carry
-  // the flag too (no pane to run an agent in without tmux), and a disabled
-  // button whose reason the sentence does not name is the drift this line
-  // once was.
+  // Names the whole gate, not just the server verbs: a disabled button whose
+  // reason the sentence does not name is the drift this line once was.
   const p = document.createElement("p");
   p.textContent =
     "tmux was not found on the login PATH. The server launches every pane through it, so the actions that " +
-    "run or configure the server, and installing an agent, are disabled until tmux is installed.";
+    "run or configure the server are disabled until tmux is installed.";
   const row = document.createElement("div");
   // Ahead of the command it acts on, when the plan says we can run it at
   // all: a user who downloaded a GUI should not be sent to a terminal for
@@ -853,17 +849,6 @@ const doSetup = guard(async () => {
  * the pane verbatim. The user then presses what they were going to press.
  */
 const doInstallTmux = guard(() => ipc.installTmux());
-
-/**
- * Install one agent CLI, by built-in id.
- *
- * Non-fatal by construction: it is offered during setup but never gates it,
- * because Terminal is launchable whether this succeeds or not. A setup run
- * that failed because an unrelated download 404'd would be the worst kind of
- * regression to ship here. `guard()` wraps a zero-arg function (a button's
- * click event must not reach it as a value), so the id is bound per call.
- */
-const doInstallAgent = (id: string) => guard(() => ipc.installAgent(id))();
 
 /**
  * Replacing the installed server stops it first, which ends every running

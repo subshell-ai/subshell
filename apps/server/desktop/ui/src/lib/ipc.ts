@@ -194,9 +194,6 @@ export const installServer = (): Promise<ActionResult> => invoke<ActionResult>("
 
 export const installTmux = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_tmux");
 
-export const installAgent = (id: string): Promise<ActionResult> =>
-  invoke<ActionResult>("desktop_install_agent", { id });
-
 /** Validated Rust-side; an `Err` (not an `ok:false`) says the file is not a server. */
 export const setServerBin = (path: string | null): Promise<void> => invoke<void>("desktop_set_server_bin", { path });
 

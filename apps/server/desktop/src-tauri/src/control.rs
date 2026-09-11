@@ -645,46 +645,6 @@ fn tmux_install_argv() -> Option<Vec<String>> {
     Some(argv.into_iter().map(String::from).collect())
 }
 
-/// The install script for each built-in agent CLI.
-///
-/// **The webview sends an ID, never a command.** A command that runs what it
-/// is handed is a different security property from one that runs what it
-/// ships, and this process is the one that can write to the user's PATH. The
-/// list is duplicated from `ui/src/lib/installers.ts` for the same reason it exists
-/// there: what this app may EXECUTE has to be changeable only by editing this
-/// file, never by anything it reads at runtime. This is the copy that
-/// ENFORCES; the console copy renders, and `the_console_install_table_and_the_rust_one_agree`
-/// keeps them in step as far as revocation goes — an id or script REMOVED or
-/// CHANGED on either side fails that test. A JS-only ADDition passes it and
-/// runs nothing, because only this list executes.
-///
-/// All five are user-space installers that need no elevation.
-const AGENT_INSTALLS: &[(&str, &str)] = &[
-    ("claude-code", "curl -fsSL https://claude.ai/install.sh | bash"),
-    ("codex", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"),
-    (
-        "hermes",
-        "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
-    ),
-    ("opencode", "curl -fsSL https://opencode.ai/install | bash"),
-    ("pi", "curl -fsSL https://pi.dev/install.sh | sh"),
-];
-
-/// Install one built-in agent CLI, by id.
-#[tauri::command(async)]
-pub fn desktop_install_agent(id: String) -> Result<ActionResult, String> {
-    let script = AGENT_INSTALLS
-        .iter()
-        .find(|(known, _)| *known == id)
-        .map(|(_, script)| *script)
-        .ok_or_else(|| format!("this app does not install \"{id}\""))?;
-    let argv = vec!["sh".to_string(), "-c".to_string(), script.to_string()];
-    // `.into()` for the same reason as the tmux install: the installer's own
-    // stderr on success is kept, and a failed spawn with nothing on either
-    // stream still says what happened rather than answering empty.
-    Ok(run(&argv, INSTALL_TIMEOUT).into())
-}
-
 /// The `init --yes` argv for one set of console answers.
 ///
 /// Split out of [`desktop_init`] so the assembly is testable without a Tauri
@@ -1358,29 +1318,24 @@ mod tests {
         assert_eq!(console_platform(), expected);
     }
 
-    #[test]
-    fn an_unknown_agent_id_is_refused_rather_than_run() {
-        // The refusal happens before any spawn — an id outside the shipped
-        // list never reaches a shell.
-        assert!(desktop_install_agent("acme-harness".into()).is_err());
-    }
-
-    /// The two halves of the install contract speak different languages and
-    /// each comment claims the other: `ui/src/lib/installers.ts` decides what the
-    /// console SHOWS, `tmux_install_argv` and `AGENT_INSTALLS` here decide
-    /// what gets RUN. Nothing else fails if they drift — the warning would
-    /// display one command while its own button ran another, on CI that is
-    /// green. Text-matching rather than a shared data file: the console copy is
+    /// The two halves of the tmux-install contract speak different languages
+    /// and each comment claims the other: `ui/src/lib/installers.ts` decides
+    /// what the console SHOWS, `tmux_install_argv` here decides what gets
+    /// RUN. Nothing else fails if they drift — the warning would display one
+    /// command while its own button ran another, on CI that is green.
+    /// Text-matching rather than a shared data file: the console copy is
     /// prose-shaped on purpose (readable, hand-edited), and this is the
     /// price of that shape.
     ///
     /// The pin is CONTAINMENT, Rust into JS, and it is worth being exact
     /// about what that catches: anything either side relies on being REMOVED
     /// or CHANGED in the other fails here (the drift that actually bit), on
-    /// the host that ships. An id added JS-side alone is out of scope by
-    /// construction — no button names it and Rust refuses it — and the mac
-    /// tmux tokens are compared only where they run, since `tmux_install_argv`
-    /// answers for the current OS only.
+    /// the host that ships. The mac tokens are compared only where they run,
+    /// since `tmux_install_argv` answers for the current OS only.
+    ///
+    /// Agent CLI installs used to be pinned here too (`AGENT_INSTALLS`); they
+    /// moved to the control plane (spec 2026-09-11 § 7,
+    /// `POST /api/setup/agents/:id/install`), so this test is tmux-only now.
     #[test]
     fn the_console_install_table_and_the_rust_one_agree() {
         let ts = include_str!("../../ui/src/lib/installers.ts");
@@ -1391,12 +1346,6 @@ mod tests {
                     "installers.ts lost the tmux token {token:?}"
                 );
             }
-        }
-        for (id, script) in AGENT_INSTALLS {
-            assert!(ts.contains(id), "installers.ts lost the agent id {id:?}");
-            // The script is the load-bearing half: a drifted URL or shell
-            // there is a different install, whatever the id still says.
-            assert!(ts.contains(script), "installers.ts lost the install script for {id:?}");
         }
         // The docs button opens Rust's constant; the JS plans carry the same
         // URL for readers of the table.

@@ -567,21 +567,30 @@ when the manager has spawned the process, not when the port is bound, and
 every existing opener of the window (the `ready` button, the tray) opens only
 against a server that answers.
 
-**The install offers mirror a Rust list; the page never sends a command.**
+**The install offer mirrors a Rust list; the page never sends a command.**
 Missing tmux gets `desktop_install_tmux` (brew where it exists, pkexec apt-get
 on Linux — never a bare sudo, which has no tty from a GUI and hangs to the
-timeout), and setup and `ready` offer `desktop_install_agent` for Claude Code.
-Both decisions are pure TypeScript in `ui/src/lib/installers.ts` and are
-MIRRORED in `control.rs` (`tmux_install_argv`, `AGENT_INSTALLS`), because the
-webview cannot look at the machine and the Rust side is what decides what may
-be EXECUTED: the page sends an agent id and an unknown id is refused before
-any spawn. The copies are two languages on purpose — the console's decides
-what the user SEES, Rust's decides what runs — and they are pinned to each
-other by `the_console_install_table_and_the_rust_one_agree`, an `include_str!`
-containment test so a token removed on either side fails the Rust build.
-`console_platform` normalizes Rust's "macos" to the "darwin" the console
-branches on — a wrong spelling there strands every Mac in the no-button
-fallback silently, so both sides carry a pin.
+timeout). The decision is pure TypeScript in `ui/src/lib/installers.ts`
+(`tmuxInstallPlan`) and is MIRRORED in `control.rs` (`tmux_install_argv`),
+because the webview cannot look at the machine and the Rust side is what
+decides what may be EXECUTED. The copies are two languages on purpose — the
+console's decides what the user SEES, Rust's decides what runs — and they are
+pinned to each other by `the_console_install_table_and_the_rust_one_agree`, an
+`include_str!` containment test so a token removed on either side fails the
+Rust build. `console_platform` normalizes Rust's "macos" to the "darwin" the
+console branches on — a wrong spelling there strands every Mac in the
+no-button fallback silently, so both sides carry a pin.
+
+Agent CLI installs used to live here too (`desktop_install_agent`,
+`AGENT_INSTALLS`, and a JS-side `agentInstallPlan` mirror), run from the
+user's own desktop session as the same OS user. They are GONE (spec
+2026-09-11 §7), not widened: installing an agent CLI is now the control
+plane's job, `POST /api/setup/agents/:id/install`, driven from the setup
+assistant's Add an Agent screen (`apps/server/web`) — the host that has the
+plugin manifests, so one install arms every launch rather than one desktop
+user's own machine. This app's `ready` step offers "Add agents in the
+dashboard" instead, which is exactly `desktop_open_main` under a different
+label and carries no tmux gate — opening a window needs no pane.
 
 ## The console's own panes
 

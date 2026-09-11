@@ -99,7 +99,6 @@ pub fn run() {
             control::desktop_install_server,
             control::desktop_setup,
             control::desktop_install_tmux,
-            control::desktop_install_agent,
             control::desktop_init,
             control::desktop_service,
             control::desktop_set_server_bin,

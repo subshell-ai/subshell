@@ -1010,6 +1010,22 @@ find — the failure an operator actually hits — but the old second refusal
 A signature proves who sent a command; it says nothing about whether the
 target should serve it, and this makes that explicit rather than papered over.
 
+## 11.10 The control plane runs an agent CLI's installer on request
+
+`POST /api/setup/agents/:id/install` makes the server spawn `sh -c <command>`
+where `<command>` is the `install.command` of a BUILT-IN plugin's manifest,
+compiled into this binary. What it costs: the control-plane process fetches
+and runs a vendor's install script. What it does not add: the script runs as
+the server's own OS user on the server's own host, with exactly the reach
+the server's children already have (tmux, every harness pane, the plugin
+loader), and it is the same command the desktop app used to run from the
+user's session as the same user — a different parent process, no new
+capability. The id is the only input; the route is admin-cookie-only, never
+public in the no-users window, single-flight per id, 10-minute bounded, and
+audited as `agent.install` without the output. Trusted-network posture,
+unchanged. A hardening pass for a wider deployment would add an operator
+switch to disable the route (§12).
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer
@@ -1038,3 +1054,6 @@ holds and the following are prerequisites, not improvements:
       other account.
 - [ ] **Clear `SUBSHELL_EMERGENCY_PASSWORD`** and verify it is unset in every
       environment file and unit.
+- [ ] **Add an operator switch for `POST /api/setup/agents/:id/install`** (§11.10)
+      or disable it outright — it runs a vendor's install script as the
+      server's own OS user on request from any admin.

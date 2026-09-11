@@ -1,5 +1,6 @@
 /**
- * Which installer the console offers, as a pure function of the platform.
+ * Which installer the console offers for tmux, as a pure function of the
+ * platform.
  *
  * Separate from `main.ts` for the same reason `config-form.ts` is: this is the
  * part with a contract rather than a rendering, and it is the part worth
@@ -10,6 +11,15 @@
  * it), a bundled terminfo directory, a second sidecar in the macOS notarize
  * path, and a CVE cadence for a C dependency nothing here owns. The platform's
  * own package manager is the smaller, honest answer.
+ *
+ * Agent CLI installs used to live here too, mirrored against a Rust
+ * enforcement copy in `control.rs` (`AGENT_INSTALLS`). Both are gone (spec
+ * 2026-09-11 § 7): installing an agent CLI is now the control plane's job —
+ * `POST /api/setup/agents/:id/install` on the server, from the setup
+ * assistant's Add an Agent screen — because that is the host with the plugin
+ * manifests, and one install serves every launch rather than one desktop
+ * user's own machine. This app still gets tmux installed, because tmux has to
+ * exist before the server can start a single pane at all.
  */
 
 /** The docs page to send someone to when we cannot run an installer for them. */
@@ -75,43 +85,4 @@ export function tmuxInstallPlan(platform: string, hasBrew: boolean): InstallPlan
   // the warning renders only the reading link. Putting "tmux" on the line
   // would read as the fix and cannot be a fix.
   return { kind: "manual", label: "Install tmux", command: [], docsUrl: TMUX_DOCS };
-}
-
-/**
- * The install commands for the agents this app may run on a user's behalf.
- *
- * BUILT-INS ONLY, and the ids and strings are duplicated here rather than read
- * from a manifest on purpose: a registry-driven version of this would let an
- * installed plugin choose what the desktop app runs. This copy is the
- * RENDERING mirror and the readable list; the table ENFORCING what executes
- * is `AGENT_INSTALLS` in `control.rs`, because that is the side the webview
- * talks to and it never runs a string the page handed it, only its own. The
- * two are pinned to agree by the Rust test
- * `the_console_install_table_and_the_rust_one_agree`, which holds this copy to
- * contain that one: removing or changing an id or script on EITHER side is a
- * CI failure pointing at the copy that must change with it. Adding an id here
- * alone fails nothing, deliberately — no button would name it, and only the
- * Rust table executes.
- *
- * All five are user-space installers that need no elevation.
- */
-const AGENT_INSTALLS: Record<string, string> = {
-  "claude-code": "curl -fsSL https://claude.ai/install.sh | bash",
-  codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-  hermes: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
-  opencode: "curl -fsSL https://opencode.ai/install | bash",
-  pi: "curl -fsSL https://pi.dev/install.sh | sh",
-};
-
-/**
- * How to install one built-in agent CLI, or null when this app will not.
- * `command` is shown to nobody and run by nothing from this side — the Rust
- * command holds its own copy and the cross-check test keeps them equal; the
- * plan exists here so the allowlist is readable next to the tmux plans and
- * pinned in `__tests__/installers.test.ts`.
- */
-export function agentInstallPlan(id: string): { kind: "run"; command: string[] } | null {
-  const script = Object.hasOwn(AGENT_INSTALLS, id) ? AGENT_INSTALLS[id] : undefined;
-  if (!script) return null;
-  return { kind: "run", command: ["sh", "-c", script] };
 }
