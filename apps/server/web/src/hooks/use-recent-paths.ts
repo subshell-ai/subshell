@@ -9,6 +9,14 @@ export interface RecentPath {
   label: string | null;
 }
 
+/** The `/recent` response: a node's recent working directories, plus its home as a fallback. */
+export interface RecentPathsResponse {
+  /** Recently used directories, newest first */
+  paths: RecentPath[];
+  /** The node's home directory, or null when it has not reported one */
+  home: string | null;
+}
+
 /**
  * The caller's recently used working directories (newest first), recorded
  * whenever a subshell is created. Feeds the new-subshell form's pre-fill; the
@@ -25,7 +33,7 @@ export function useRecentPaths(nodeId?: string) {
   return useQuery({
     queryKey: nodeId ? (["recent-paths", nodeId] as const) : (["recent-paths"] as const),
     queryFn: () =>
-      apiFetch<{ paths: RecentPath[] }>(
+      apiFetch<RecentPathsResponse>(
         nodeId ? `/api/files/recent?node=${encodeURIComponent(nodeId)}` : "/api/files/recent",
       ),
   });

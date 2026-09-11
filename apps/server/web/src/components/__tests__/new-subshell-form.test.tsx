@@ -56,10 +56,10 @@ const AGENT_INCOMPAT = node({ id: "a3", name: "studio", harnesses: [] });
 const AGENT_OFFLINE = node({ id: "a2", name: "old laptop", status: "offline", harnesses: [CLAUDE] });
 
 /** One profile row; only the fields the form reads. */
-function profile(p: { nodeId?: string | null; name?: string; id?: string }) {
+function profile(p: { nodeId?: string | null; name?: string; id?: string; harnessId?: string }) {
   return {
     id: p.id ?? "p1",
-    harnessId: "claude-code",
+    harnessId: p.harnessId ?? "claude-code",
     name: p.name ?? "prof",
     description: null,
     envJson: null,
@@ -75,7 +75,11 @@ function profile(p: { nodeId?: string | null; name?: string; id?: string }) {
 /** Pathname+search of the most recent /api/profiles request — the wire pin. */
 let lastProfilesUrl: string | null = null;
 
-function mockFetch(nodes: Node[], profiles: unknown[] = []) {
+function mockFetch(
+  nodes: Node[],
+  profiles: unknown[] = [],
+  recent: { paths: { path: string; label: string | null }[]; home: string | null } = { paths: [], home: null },
+) {
   lastProfilesUrl = null;
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
@@ -86,7 +90,7 @@ function mockFetch(nodes: Node[], profiles: unknown[] = []) {
       lastProfilesUrl = path + url.search;
       return Promise.resolve(new Response(JSON.stringify(profiles)));
     }
-    if (path === "/api/files/recent") return Promise.resolve(new Response(JSON.stringify({ paths: [] })));
+    if (path === "/api/files/recent") return Promise.resolve(new Response(JSON.stringify(recent)));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
@@ -310,6 +314,66 @@ describe("NewSubshellForm pairing + defaults", () => {
     try {
       await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "a3" });
       expect(await screen.findByText(/No available node runs claude-code/)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to the node's home directory when there are no recent paths", async () => {
+    const restore = mockFetch([LOCAL], [], { paths: [], home: "/home/ada" });
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().workingDir).toBe("/home/ada"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("prefers a recent path over home", async () => {
+    const restore = mockFetch([LOCAL], [], { paths: [{ path: "/srv/app", label: null }], home: "/home/ada" });
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().workingDir).toBe("/srv/app"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("never overwrites a directory the caller already holds", async () => {
+    const restore = mockFetch([LOCAL], [], { paths: [], home: "/home/ada" });
+    try {
+      const { latest } = await renderForm({ ...emptyNewSubshellForm(), workingDir: "/typed/by/hand" });
+      await settle();
+      expect(latest().workingDir).toBe("/typed/by/hand");
+    } finally {
+      restore();
+    }
+  });
+
+  it("selects the first launchable profile when none is chosen", async () => {
+    // p-term is grey (this host's inventory carries no terminal), so the
+    // first LAUNCHABLE option is p-claude — the default reads the same
+    // disabled set the dropdown renders, not list order alone.
+    const restore = mockFetch([LOCAL], [profile({ id: "p-claude" }), profile({ id: "p-term", harnessId: "terminal" })]);
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().profileId).toBe("p-claude"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("never selects a profile that cannot run on the chosen node", async () => {
+    // buildProfileOptions disables what the node cannot run; the auto-select
+    // must read that, or it parks the form on a launch the server will refuse.
+    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
+    const restore = mockFetch(
+      [node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM] })],
+      [profile({ id: "p-claude" }), profile({ id: "p-term", harnessId: "terminal" })],
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().profileId).toBe("p-term"));
     } finally {
       restore();
     }

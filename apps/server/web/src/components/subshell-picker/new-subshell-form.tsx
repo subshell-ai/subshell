@@ -186,10 +186,16 @@ export function NewSubshellForm({
   useEffect(() => {
     let next = value;
     if (!prefillDoneRef.current) {
-      const first = recent?.paths[0]?.path;
-      if (first) {
+      // Most recent path, else the node's home. A fresh instance has no
+      // recents at all, and an empty absolute-path box is the highest-friction
+      // field in the product at the moment the user knows least about it.
+      // Gate on the QUERY having answered, not on a value being present:
+      // keying off `first` alone left the flag unset forever on a node with no
+      // recents, so a later unrelated render could still fire the pre-fill.
+      const fallback = recent?.paths[0]?.path ?? recent?.home ?? "";
+      if (recent !== undefined) {
         prefillDoneRef.current = true;
-        if (next.workingDir === "") next = { ...next, workingDir: first };
+        if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
       }
     }
     if (nodes) {
@@ -209,8 +215,17 @@ export function NewSubshellForm({
       const pick = pickNodeDefault(nodes, next.nodeId);
       if (pick !== next.nodeId) next = { ...next, nodeId: pick };
     }
+    // First launchable profile, when the user has not chosen one. Reads the
+    // same disabled set the dropdown renders (`buildProfileOptions` computes
+    // it against the chosen node), so this can never select a pairing the
+    // server would refuse. Only ever fills a blank: a cleared profile is not
+    // a state this form offers, so there is nothing to fight.
+    if (next.profileId === "" && profiles !== undefined && nodes !== null) {
+      const firstUsable = buildProfileOptions(profiles, selectedNode).find((o) => !o.disabled);
+      if (firstUsable) next = { ...next, profileId: firstUsable.value };
+    }
     if (next !== value) onChange(next);
-  }, [recent, nodes, suggestion, value, onChange]);
+  }, [recent, nodes, profiles, suggestion, value, onChange, selectedNode]);
 
   const nodeOptions = buildNodeOptions(nodes ?? [], selectedProfile ?? null, suggestion?.id ?? null);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already
