@@ -4,12 +4,20 @@
 **Tauri v2** shell that installs, runs and manages a `subshell-server` on this
 machine, so a user never has to touch a CLI binary.
 
-## The two windows, and why they are two
+## The three windows, and why they are three
 
 | Window | Page | Why |
 | --- | --- | --- |
-| `console` | `ui/dist` (Vite output; sources in `ui/src/`), bundled, `tauri://` | Must render with the server **down**, and is the only surface allowed to drive the CLI. |
+| `wizard` | `ui/dist` (Vite output; sources in `ui/src/`), bundled, `tauri://` | Owns first run: a guided chain from virgin machine to running server, on a page that must render with nothing installed. |
+| `console` | same bundle, `index.html` | Must render with the server **down**, and is the only surface allowed to drive the CLI. Owns repair, settings, and the reset view. |
 | `main` | the SERVER's own SPA over `http://127.0.0.1:<port>` | `apps/server/web` is hard same-origin. |
+
+Both local pages are the same Vite build (two rollup inputs, one `ui/dist`,
+one CSP) and the same ACL rule: **CLI-driving commands are granted to bundled
+pages only**. What splits them is lifecycle, not privilege — the wizard is the
+first-run flow and nothing else ("Run setup again" is what reset is), and the
+console is the surface a machine returns to once `onboarded` says it has been
+set up. Raising one retires the other (below).
 
 **`main` never loads a bundled copy of the SPA.** `src/lib/api.ts` fetches
 root-relative with `credentials: "include"`, `src/lib/auth-client.ts` sets no
@@ -18,6 +26,102 @@ root-relative with `credentials: "include"`, `src/lib/auth-client.ts` sets no
 frontend. A `tauri://localhost` page cannot carry the `SameSite=Lax; httpOnly`
 session cookie to any of them, and admin routes reject bearer keys by design —
 so serving the SPA ourselves would mean an auth rework, not a build change.
+
+## Boot looks before it leaps
+
+`setup()` runs one `boot_probe` and THEN chooses the window, from the fresh
+probe rather than the stored flag: `boot_window(&Probe)` returns the wizard
+while `onboarded` is false and the console once it is true (R6). The order is
+the whole point: a machine set up entirely from the CLI opens the CONSOLE on
+its first app launch, because the boot probe answers `ready` and marks the
+flag before the branch runs — the wizard is never shown on a machine that is
+already running.
+
+`mark_onboarded` is the SINGLE writer of the flag (R16), and the only thing
+that sets it is a probe whose decision is `ready`. What `onboarded: false`
+means is exactly "this app has never seen setup complete on this machine" —
+not "this machine is empty" (the probe is the authority on that, and it stays
+the authority on every later tick). Reset is the only other thing that moves
+the flag, back to false, as its last disk act.
+
+Every opener of the manage surface — tray, menu, the SPA's pill, the
+single-instance and Dock handlers — goes through `open_manage_window`, which
+branches on the same stored flag and closes the window it supersedes. The
+branch lives in one function so a machine can never have its manage window
+decided in two places.
+
+## The first-run wizard
+
+Steps are DECISIONS; machine work is PROGRESS (spec 2026-09-10 § 5):
+Welcome → Prerequisites → Addresses → Agents → Run → Done. The Run step is the
+chain (`desktop_setup`, the same one-press contract the console has had since
+2026-09-10) watched by a live checklist, and the checklist's updater IS the
+page's 1500 ms poll — no Refresh button, same rule as the console's. The
+Agents step is optional by design and lists all five built-in harnesses; a
+plain terminal needs no install and the copy says so.
+
+The page holds NO memory of where the human was: `firstOpenStep(probe)`
+decides the landing spot on every open from the machine's facts, so quitting
+mid-wizard, or doing half the setup from a terminal, resumes honestly. Every
+such judgment lives in `ui/src/lib/wizard-state.ts`, pure, tested without a
+webview — the split rule the console established, unchanged. The wizard's
+window is opened at `wizard.html`, a second rollup input in the SAME Vite
+build: one bundle, one CSP, one set of `lib/` modules shared with the console
+on purpose (prefill, install plans and the IPC edge are one contract, not
+two).
+
+## Resetting the machine
+
+Entry is the dashboard's Settings danger card (admin + desktop marker,
+`apps/server/web`); confirmation and execution are the CONSOLE's. The remote
+page may name a SCREEN, never a path or a command:
+`desktop_open_console({ screen: "reset" })` parses a closed enum, and
+`reset::arm_and_raise` then reads the machine NOW — the five deletion paths
+come from the server's own `status --json` (the `paths` block, which is why
+that CLI field exists), all-or-nothing: a partial block is refused exactly
+like no block, because a subset deleted and reported success is the R1 shape
+with a typed hostname in front of it (R17). The plan lives in app state
+(`reset::Stash`), not on the page and not re-read mid-chain: the chain stops
+and uninstalls the very server whose report names the paths, so asking it
+afterward would be asking a dead server where its own data lives (R18). A
+half-run leaves the plan stashed — Retry converges.
+
+`desktop_reset` takes ONLY the typed hostname, compared against the one
+memoized `machine_hostname()` the screen was rendered from (R15: displayed
+value, comparison value, single OnceLock). Two guards, both before the first
+mutation: every target passes the shape rules (absolute, never `/`, never
+`$HOME`), and the single containment guard refuses any recursive delete that
+IS or CONTAINS the managed `~/.local/bin/subshell-server` — with BOTH sides
+canonicalized, because a prefix test between a symlinked and a real spelling
+passes while the delete still reaches the binary (P3). The default data dir
+EQUALS the config dir that holds config.env and that is legal (R13) — the
+config file is a deletion target, not a keepsake; only the binary is kept.
+
+The order is the confirmation screen's: stop, close the pane servers,
+uninstall, delete (database file, pane logs, node artifacts, data dir minus
+config.env, config.env last), clear this app's choices, move the windows —
+close `main`, open the WIZARD, close the console LAST, because a zero-window
+moment mid-command is how a reset could quit the app instead of landing the
+human in setup. Pane closing goes through tmux's OWN directory rule —
+`TMUX_TMPDIR ?? /tmp`, symlink-resolved, `tmux-<uid>/`, and only `subshell-*`
+sockets (R1). `cleanSocket` used to join `TMPDIR`, which on macOS names a
+per-user `/var/folders` path with no sockets in it; that silent-miss class is
+why the rule is one exported function there now (`tmuxSocketPath`,
+pane-runtime). The `subshell-` prefix that decides WHICH sockets a reset may
+kill is pinned between the two languages by containment — an `include_str!`
+test in `reset.rs`, the way the installer table pins its TypeScript twin.
+
+Channel discipline is `desktop_setup`'s, inherited: an in-chain failure
+answers `Ok(ActionResult { ok: false, stdout: log, stderr })` with every word
+the CLI said up to the stop — `Err` belongs only to refusals that fire before
+anything mutated. The console renders the half-run's log where the human
+still is, styled as a failure, with the button re-labelled Retry.
+
+The deep link's true worst case, stated so it survives someone checking it
+(spec R21): an XSS in a control plane's SPA can raise this app's window to
+the reset confirmation, and reaches exactly one read-only command the app
+already runs on a timer, and no verb that changes the machine — execution
+still needs the hostname typed into a box.
 
 ## Native prerequisites
 
@@ -233,29 +337,35 @@ Three things about that table are load-bearing:
 
 ```
 src-tauri/src/
-├── lib.rs         # plugins, command registration, setup (opens `console` FIRST)
-├── windows.rs     # the two windows, the 1024px floor, the UA marker
+├── lib.rs         # plugins, command registration, setup (boot PROBEs, then opens `wizard` or `console`)
+├── windows.rs     # the three windows, the 1024px floor, the UA marker, open_manage_window's branch
 ├── control.rs     # the tauri commands — argument-poor wrappers over the CLI
+├── reset.rs       # the reset screen's Rust side: the stashed plan, the two guards, the chain
 ├── server_bin.rs  # the ladder, ExecStart parsing, bundled-vs-installed policy, SERVER_SIDECAR
 ├── bridge.rs      # the DesktopAction enum and the eval dispatch
 ├── menu.rs        # the macOS menu bar
 └── tray.rs        # the tray icon and its menu
 ```
 
-The console page (TypeScript on Vite with Tailwind since 2026-09-10; the
-plain-JS original had no build step, which the section on the CSP explains):
+The console and the wizard (TypeScript on Vite with Tailwind since 2026-09-10;
+the plain-JS original had no build step, which the section on the CSP
+explains). Two HTML inputs, one build, one bundle:
 
 ```
 ui/
-├── index.html          # static shell; every id the page binds is in it
+├── index.html          # console shell; every id the page binds is in it (two views: #status-view, #reset-view)
+├── wizard.html         # wizard shell; rail + one screen
 ├── src/
-│   ├── main.ts         # render loop, poll, guards — all DOM lives here
+│   ├── main.ts         # console render loop, poll, guards, the reset view — all DOM lives here
+│   ├── wizard.ts       # wizard screens and navigation — DOM only; every judgment is imported
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
 │   ├── lib/
 │   │   ├── ipc.ts      # one typed function per `desktop_*` command
 │   │   ├── config-form.ts   # the pure form contract (see below)
-│   │   └── installers.ts    # the pure install plans (see below)
-│   └── __tests__/      # pure pins: config-form, installers, ipc-acl, tauri-config
+│   │   ├── installers.ts    # the pure install plans (see below)
+│   │   ├── wizard-state.ts  # the wizard's pure decisions: landing step, gates, checklist rows
+│   │   └── reset.ts         # the reset screen's pure decisions: rows, refusal, arming
+│   └── __tests__/      # pure pins: config-form, installers, wizard-state, reset, ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
@@ -306,13 +416,19 @@ With it, the split is enforced:
 
 | Window | Gets |
 | --- | --- |
-| `console` | every command — it is the control surface |
+| `console` | every command — it is the control surface, and the only holder of the destructive ones (`desktop_reset` included) |
+| `wizard` | what first run needs: probe, setup, install (tmux/agent), set the binary, open tmux docs, open main, open the console, and the dialog plugin's open — no service verbs, no bare `init`, no logs, no settings |
 | `main` | `desktop_open_console`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
 
 `main`'s three are chosen for what they cannot do: show a window that already
 exists, drop this app's own title bar, and display one notification with a
 fixed shape. Nothing that touches the CLI, the config, the service or the
-filesystem is reachable from a page the server serves.
+filesystem is reachable from a page the server serves. `desktop_open_console`
+gained an OPTIONAL `screen` argument (spec § 7.1) — still one of the three,
+still cannot execute anything: on the `reset` screen it performs one
+read-only `status --json` spawn the app already runs on its own five-second
+poll, and the execution behind it needs a hostname typed into the console's
+own box.
 
 **`withGlobalTauri` is load-bearing for `main`, not for the console.** The
 SPA's desktop bridge (`apps/server/web/src/lib/desktop.ts`) reads
@@ -325,16 +441,24 @@ Client ships `false` precisely because it strips the marker. The pair, not
 either half, is what `tauri-config.test.ts` pins.
 
 **The three-way contract is pinned, because nothing else catches it.** A
-command name lives in `ui/src/lib/ipc.ts`, in `permissions/desktop.toml` and
-in a capability file; missing from any one is a runtime permission refusal,
-not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts the set
-`ipc.ts` invokes equals the set `console.json` grants, that no capability
-names an undefined permission, that no defined permission goes ungranted, and
-that `main` still holds exactly its three commands plus window dragging —
-"three" is a number worth a test, because "a few harmless ones" is how a
-boundary erodes. It caught one stray on the day it was written:
-`allow-desktop-open-console` sat in `console.json` although no console code
-path invokes it (the command belongs to `main`); the grant is gone.
+command name lives in the calling page module, in `permissions/desktop.toml`
+and in a capability file; missing from any one is a runtime permission
+refusal, not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts the
+set of commands invoked from `ui/src/main.ts` (the CONSOLE page's entry
+module — not the `main` window, which holds and must keep holding only its
+three) equals the set `console.json` grants, that `ui/src/wizard.ts` invoked
+equals what `wizard.json` grants, that no capability names an undefined
+permission, that no defined permission goes ungranted by the union of the
+three capability files, and that `main` still holds exactly its three
+commands plus window dragging — "three" is a number worth a test, because "a
+few harmless ones" is how a boundary erodes. Equality is asserted PER PAGE
+rather than against all of `ipc.ts` because two local pages now share that
+module: a whole-file equality test would slowly become the union of two
+windows' surfaces, which is the exact shape this file exists to prevent. It
+caught one stray on the day it was written: `allow-desktop-open-console` sat
+in `console.json` although no console code path invokes it (the command
+belongs to `main` and to the wizard's Done screen); the console's grant is
+gone.
 
 **The opener surface is the same rule with paths.** `desktop_open_path` takes
 a CLOSED enum (`config-env | server-dir | service-definition | logs`), never a
@@ -503,7 +627,11 @@ Linux tray icon is drawn only where a StatusNotifier host is registered, so
 hiding would strand the console on a stock GNOME exactly as `close_to_tray`
 would. It is called only where the dashboard becomes VISIBLE — the focus path,
 the handshake, the six-second fallback — because the window is created hidden
-and tucking at creation would leave nothing on screen at all.
+and tucking at creation would leave nothing on screen at all. The WIZARD is
+never tucked and never merely hidden: there is one manage window, so raising
+the console or the dashboard CLOSES the wizard, and `desktop_reset` closes the
+console only AFTER the wizard exists, so no sequence of these leaves a
+zero-window moment for the last-window path to quit on (N2).
 
 **The window-state plugin restores size and position but NOT maximized or
 fullscreen**, and a newly created dashboard clears both. A window maximized

@@ -733,12 +733,13 @@ below.
 
 ### The window that loads someone else's page
 
-Each app has **two windows**, and the split is the boundary: one holds a REMOTE
-page and one holds a page bundled with the app, and every command that touches
-a CLI, a config file, a service manager or the filesystem is granted to the
-bundled one alone. What differs between the apps is how much the remote window
-gets, and the difference follows from whether its origin can be known ahead of
-time.
+The split is the boundary, and it is a split by window KIND: every command
+that touches a CLI, a config file, a service manager or the filesystem is
+granted to BUNDLED pages alone. The client app has two windows (one remote,
+one bundled); the server app has three — the remote SPA page, the bundled
+console, and the bundled first-run wizard, which share one build and the same
+ACL rule. What differs between the apps is how much the remote window gets,
+and the difference follows from whether its origin can be known ahead of time.
 
 **Subshell Server — loopback, three commands.** Its `main` window loads
 `http://127.0.0.1:<port>`: the SPA served by the very server this app manages,
@@ -765,6 +766,30 @@ so `apps/server/web` never takes its desktop-shell branch and never calls
 anything; and `on_navigation` still pins it to the origin it opened with, so a
 redirect cannot walk it elsewhere. Enrolment, agent installation and service
 control live on the app's bundled `node` window, which the plane cannot reach.
+
+**The server app's third window, and the reset behind it.** The `wizard`
+window is bundled like the console and gets its own capability file scoped to
+what first run needs (probe, setup chain, tmux/agent installs, the binary
+picker, opening the dashboard or console) — no service verbs, no bare `init`,
+no logs, no settings. The app's one destructive command, `desktop_reset`, is
+granted to the console alone. Its deep link is the boundary working as
+designed, and its true worst case is precise rather than implied: an XSS in a
+control plane's SPA can call `desktop_open_console({ screen: "reset" })`,
+which raises a window that already exists and performs exactly one read-only
+`status --json` the app already runs on a five-second poll — spammable, and
+nothing else; no verb that changes the machine is reachable, because
+execution requires the machine's hostname typed into the console's own box.
+The command takes ONLY that string: the five deletion paths are read from the
+server's own `status --json` `paths` block at the moment the screen opens,
+captured in Rust app state (all-or-nothing — a partial block is refused like
+no block, and the page never sends a path), and every recursive delete is
+refused before the first mutation if it would contain the installed
+`~/.local/bin/subshell-server`. A reset removes accounts, sessions, keys, the
+signing keypair, pane logs and config, and clears this app's own choices; it
+does NOT reach enrolled remote nodes or a same-machine `subshell` node agent,
+which keep their credentials and processes — the confirmation screen says so
+verbatim, because a person wiping the signing keypair is making a fleet-wide
+statement.
 
 Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
 applies to that app's bundled page **only** — a remote window's page carries

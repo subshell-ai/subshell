@@ -341,11 +341,12 @@ person's interface to a control plane AND the place their machine is registered
 as a node. Neither adds a server surface — everything privileged goes through a
 CLI as the same local user.
 
-**Both apps have the same two-window shape, and it is the boundary.** One window
-holds a page THIS REPO DID NOT SHIP (the control plane's own UI) and one holds a
-bundled page; the CLI-driving commands are granted only to the bundled one. The
-`csp` in each `tauri.conf.json` governs the bundled page only — the remote
-window carries whatever CSP the plane sends.
+**The boundary is window KIND, not window count: CLI-driving commands are
+granted only to BUNDLED pages.** The client app is two windows (one remote, one
+bundled); the server app is three (the remote SPA window, plus the bundled
+console AND the bundled first-run wizard, which share one Vite build and one
+ACL rule). The `csp` in each `tauri.conf.json` governs the bundled pages only —
+the remote window carries whatever CSP the plane sends.
 
 - **The server app's remote window is PINNED TO LOOPBACK and holds three
   commands.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
@@ -356,6 +357,21 @@ window carries whatever CSP the plane sends.
   independently refuses a non-loopback origin, and `on_navigation` pins the
   window to the origin it opened with. An XSS in the SPA reaches those three
   commands and nothing else.
+- **The server app's reset is console-only, and the deep link reaches one
+  read-only spawn.** The dashboard's danger card calls
+  `desktop_open_console({ screen: "reset" })`; the remote window's worst case
+  is precisely that: it can raise the console at a confirmation screen and
+  trigger exactly one read-only `status --json` the app already runs on a
+  five-second timer, spammably — and no verb that changes the machine.
+  `desktop_reset` lives in `console.json` alone; it takes ONLY a typed hostname
+  (compared against Rust's own memoized `hostname(1)`, so the page supplies a
+  string, never a path), the five deletion paths come from the server's own
+  `status --json` `paths` block all-or-nothing, an absent or partial block
+  means the screen refuses, and a recursive delete that would contain the
+  installed `~/.local/bin/subshell-server` is refused before anything runs.
+  Enrolled remote nodes and a same-machine `subshell` node agent are NOT
+  reached by a reset and keep their keys and processes; that is stated in the
+  confirmation itself.
 - **The client app's remote window is granted NOTHING.** A control plane can
   live on any host, so its origin cannot be enumerated in a capability file the
   way loopback can — and rather than reach for runtime ACLs, no capability names
