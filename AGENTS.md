@@ -282,7 +282,26 @@ asks. (`subshell mcp` also self-introduces via the MCP `initialize` briefing.)
 ```bash
 bun run start              # Start dev mode with watch (turbo watch dev)
 turbo watch dev            # Same as above
+
+bun run dev:desktop-server # Subshell Server (Tauri) in dev mode
+bun run dev:desktop-client # Subshell Client (Tauri) in dev mode
 ```
+
+**The two desktop apps are deliberately NOT part of `turbo watch dev`** — they
+have no `dev` task, because one would open a Tauri window on every developer's
+machine whenever anyone ran `bun run start`. They get their own root commands
+instead.
+
+Those commands are not proxies to `tauri dev`, and the difference is the whole
+reason they exist: `tauri-build` refuses to build when its `externalBin`
+sidecar is missing, and that file is a gitignored ~110 MB build input, so a
+bare `tauri dev` on a clean checkout dies inside a build script with
+`resource path … doesn't exist`. `scripts/desktop-dev.ts` checks for the host's
+sidecar, builds and stages one through that app's OWN release-pipeline
+`stageSidecar` when it is absent (a few minutes, once, and it says so), and
+then runs `tauri dev`. A leftover zero-byte stub from `bun run rust:check`
+counts as absent — it satisfies the build and then leaves the app reporting
+that it ships no server binary.
 
 ### Building
 

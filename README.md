@@ -137,9 +137,20 @@ bun run start        # turbo watch dev — one command for the whole stack
 - backend — API + WS on `:3080` (`bun --watch`)
 - frontend — Vite HMR on `:5174` (proxies `/api` + `/ws` to the backend)
 
-Open http://localhost:5174 — the first visit runs the **setup wizard** (two steps: register
-admin → choose which harnesses to keep installed), then you can create subshells. Installing
-a harness auto-seeds a blank **Default** profile, so there is no profile step to complete.
+Open http://localhost:5174 — the first visit runs the **setup assistant**: create the admin
+account, add an agent (optional, and the screen says what it found on this machine), then
+start your first subshell. Installing a harness auto-seeds a blank **Default** profile, so
+there is no profile step to complete.
+
+The two Tauri desktop apps are not part of `turbo watch dev` — a `dev` task for them would
+open a window on every developer's machine. Each has its own root command, which stages the
+~110 MB sidecar the app wraps if this host does not have one yet (a few minutes the first
+time, then cached):
+
+```bash
+bun run dev:desktop-server   # Subshell Server
+bun run dev:desktop-client   # Subshell Client
+```
 
 ## Channels & cross-subshell orchestration
 

@@ -170,6 +170,8 @@ dpkg -l libxdo-dev >/dev/null 2>&1 && echo "OK      libxdo-dev" || echo "MISSING
 ## Commands
 
 ```bash
+# From the REPO ROOT, the command that stages the sidecar for you first:
+#   bun run dev:desktop-server
 bun run dev:app             # tauri dev (needs a staged sidecar — see below);
                             # runs `dev:ui` for you via beforeDevCommand
 bun run dev:ui              # just the Vite dev server, on :5178
