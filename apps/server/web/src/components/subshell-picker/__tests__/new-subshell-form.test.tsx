@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import {
   emptyNewSubshellForm,
@@ -9,9 +16,19 @@ import {
 } from "@/components/subshell-picker/new-subshell-form";
 
 /**
- * Serves the two endpoints the form reads; recentPaths is what varies.
- * The returned `restore` also carries `urls` — every requested URL, for
- * assertions on request shape (e.g. which node `recent` was scoped to).
+ * The pre-fill and scoping contract of the shared launch form. The
+ * pairing/suggestion grid lives in the sibling suite under
+ * components/__tests__ — this file owns the working-directory defaults.
+ *
+ * `mockEndpoints` serves the THREE endpoints the form reads; recentPaths is
+ * what varies. The node list answers with a healthy `local` row on purpose:
+ * the directory pre-fill deliberately will not ARM until the node query has
+ * settled (review round 2 — arming on the mount default's scope while the
+ * list is in flight could strand a directory from a node the pick later
+ * leaves, with a one-way flag and no way to re-arm). The real node list also
+ * means a loaded-zero profile list fires the form's honest-hint branch,
+ * which renders a `<Link>` — hence the memory-router wrapper on every
+ * render here.
  */
 function mockEndpoints(paths: { path: string; label: string | null }[]) {
   const original = globalThis.fetch;
@@ -20,7 +37,27 @@ function mockEndpoints(paths: { path: string; label: string | null }[]) {
     const url = String(input);
     urls.push(url);
     if (url.includes("/api/files/recent")) {
-      return Promise.resolve(new Response(JSON.stringify({ paths })));
+      return Promise.resolve(new Response(JSON.stringify({ paths, home: null })));
+    }
+    if (url.includes("/api/nodes")) {
+      const local = {
+        id: "local",
+        name: "Server",
+        kind: "local",
+        os: null,
+        arch: null,
+        hostname: null,
+        status: "online",
+        lastSeenAt: null,
+        agentVersion: null,
+        protocolVersion: null,
+        access: "owner",
+        canManage: true,
+        capabilities: [],
+        harnesses: [],
+        inventoryStale: false,
+      };
+      return Promise.resolve(new Response(JSON.stringify({ nodes: [local] })));
     }
     return Promise.resolve(new Response(JSON.stringify([]))); // /api/profiles
   }) as typeof fetch;
@@ -31,18 +68,36 @@ function mockEndpoints(paths: { path: string; label: string | null }[]) {
   return restore;
 }
 
+/** Flush pending query/effect updates inside act() (50 ms is generous for
+ *  Promise.resolve-backed mocks; keeps "not wrapped in act" out of the log). */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+}
+
 /** A controlled parent like /new and the dialog. */
-function renderForm(initial: NewSubshellFormValue) {
+async function renderForm(initial: NewSubshellFormValue) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function Harness() {
     const [value, setValue] = useState(initial);
     return <NewSubshellForm value={value} onChange={setValue} />;
   }
-  return render(
+  const rootRoute = createRootRoute();
+  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Harness });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  // RouterProvider paints nothing until the router has loaded once.
+  await router.load();
+  render(
     <QueryClientProvider client={client}>
-      <Harness />
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  await settle();
 }
 
 const dir = () => screen.getByLabelText("Working directory") as HTMLInputElement;
@@ -56,7 +111,7 @@ describe("NewSubshellForm working-dir pre-fill", () => {
       { path: "/srv/older", label: null },
     ]);
     try {
-      renderForm(emptyNewSubshellForm());
+      await renderForm(emptyNewSubshellForm());
       await waitFor(() => expect(dir().value).toBe("/srv/app"));
     } finally {
       restore();
@@ -66,9 +121,7 @@ describe("NewSubshellForm working-dir pre-fill", () => {
   it("never overwrites a working dir the caller already set", async () => {
     const restore = mockEndpoints([{ path: "/srv/app", label: null }]);
     try {
-      renderForm({ ...emptyNewSubshellForm(), workingDir: "/keep/me" });
-      // Give the query time to land and (mis)fire before asserting absence.
-      await new Promise((r) => setTimeout(r, 50));
+      await renderForm({ ...emptyNewSubshellForm(), workingDir: "/keep/me" });
       expect(dir().value).toBe("/keep/me");
     } finally {
       restore();
@@ -78,8 +131,7 @@ describe("NewSubshellForm working-dir pre-fill", () => {
   it("stays empty when the user has no history yet", async () => {
     const restore = mockEndpoints([]);
     try {
-      renderForm(emptyNewSubshellForm());
-      await new Promise((r) => setTimeout(r, 50));
+      await renderForm(emptyNewSubshellForm());
       expect(dir().value).toBe("");
     } finally {
       restore();
@@ -89,7 +141,7 @@ describe("NewSubshellForm working-dir pre-fill", () => {
   it("scopes the recent-paths query to the selected node", async () => {
     const restore = mockEndpoints([{ path: "/srv/remote", label: null }]);
     try {
-      renderForm({ ...emptyNewSubshellForm(), nodeId: "node-7" });
+      await renderForm({ ...emptyNewSubshellForm(), nodeId: "node-7" });
       await waitFor(() => expect(dir().value).toBe("/srv/remote"));
       const recentUrl = restore.urls.find((u) => u.includes("/api/files/recent"));
       expect(recentUrl).toContain("node=node-7");
@@ -101,10 +153,10 @@ describe("NewSubshellForm working-dir pre-fill", () => {
   it("respects a user typing over the pre-fill (applies once per mount)", async () => {
     const restore = mockEndpoints([{ path: "/srv/app", label: null }]);
     try {
-      renderForm(emptyNewSubshellForm());
+      await renderForm(emptyNewSubshellForm());
       await waitFor(() => expect(dir().value).toBe("/srv/app"));
       fireEvent.change(dir(), { target: { value: "" } }); // deliberate clear
-      await new Promise((r) => setTimeout(r, 50));
+      await settle();
       expect(dir().value).toBe("");
     } finally {
       restore();

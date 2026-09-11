@@ -154,7 +154,7 @@ export function NewSubshellForm({
   const { data: recent } = useRecentPaths(value.nodeId);
   const prefillDoneRef = useRef(false);
 
-  const { data: nodeData } = useNodes();
+  const { data: nodeData, isPending: nodesPending } = useNodes();
   // A well-formed registry response is `{ nodes: [...] }`; anything else
   // (an error body, an older stub) leaves the current pick untouched.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
@@ -213,7 +213,15 @@ export function NewSubshellForm({
     // still the previous node's, so the directory default waits for the pass
     // that holds the final node (its query re-keys, lands, and fires here).
     const reHomed = next.nodeId !== value.nodeId;
-    if (!prefillDoneRef.current && !reHomed) {
+    // `!nodesPending` is the other half of "the pick is SETTLED". Arming is
+    // one-way, and the recents query can answer while the node list is still
+    // in flight (review round 2): arming then fills the mount default's scope
+    // and a later arrival that re-homes the pick cannot correct it. Once the
+    // node query has SETTLED the risk is gone even if its payload was
+    // unusable — an unusable list can never move the pick (the block above
+    // requires a real array), so gating on `nodes !== null` instead would
+    // strand the pre-fill on a degraded registry for no safety gained.
+    if (!prefillDoneRef.current && !reHomed && !nodesPending) {
       // Most recent path, else the node's home. A fresh instance has no
       // recents at all, and an empty absolute-path box is the highest-friction
       // field in the product at the moment the user knows least about it.
@@ -239,7 +247,10 @@ export function NewSubshellForm({
       if (firstUsable) next = { ...next, profileId: firstUsable.value };
     }
     if (next !== value) onChange(next);
-  }, [recent, nodes, profiles, suggestion, value, onChange]);
+    // nodesPending is a dep in its own right: a pending→ERROR transition
+    // changes no data value, and without the flag the settling would never
+    // re-run the effect that waits on it.
+  }, [recent, nodes, nodesPending, profiles, suggestion, value, onChange]);
 
   const nodeOptions = buildNodeOptions(nodes ?? [], selectedProfile ?? null, suggestion?.id ?? null);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already

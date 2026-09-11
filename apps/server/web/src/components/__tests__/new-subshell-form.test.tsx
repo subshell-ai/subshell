@@ -78,17 +78,29 @@ let lastProfilesUrl: string | null = null;
 /** The `/api/files/recent` answer, or a function of the requested node scope. */
 type RecentStub = { paths: { path: string; label: string | null }[]; home: string | null };
 
+interface MockOpts {
+  /** Answer GET /api/nodes this many ms late — the ordering where recents
+   *  resolve while the node pick is still unsettled (review round 2). */
+  nodesDelayMs?: number;
+}
+
 function mockFetch(
   nodes: Node[],
   profiles: unknown[] = [],
   recent: RecentStub | ((node: string | null) => RecentStub) = { paths: [], home: null },
+  opts: MockOpts = {},
 ) {
   lastProfilesUrl = null;
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
-    if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes })));
+    if (path === "/api/nodes") {
+      const body = () => new Response(JSON.stringify({ nodes }));
+      return opts.nodesDelayMs
+        ? new Promise<Response>((r) => setTimeout(() => r(body()), opts.nodesDelayMs))
+        : Promise.resolve(body());
+    }
     if (path === "/api/profiles") {
       lastProfilesUrl = path + url.search;
       return Promise.resolve(new Response(JSON.stringify(profiles)));
@@ -386,12 +398,14 @@ describe("NewSubshellForm pairing + defaults", () => {
     }
   });
 
-  // The review finding this pair pins: `selectedNode` derives from `value`,
+  // The review findings this trio pins: `selectedNode` derives from `value`,
   // but pickNodeDefault can move the pick WITHIN the same effect pass (local
   // vanished at mount → sole agent becomes the pick). Reading the disabled
   // set off the stale row left the form parked on a profile the NEW node
   // cannot run — the exact 409 the auto-select promises to avoid — and
-  // prefilled the directory from the node being left.
+  // prefilled the directory from the node being left. The third test pins
+  // the ORDERING variant: the recents query answering before the node list
+  // exists, where the same-pass guard has nothing to see.
   it("re-homes the pick at mount before deciding the profile default", async () => {
     const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
     const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
@@ -419,6 +433,30 @@ describe("NewSubshellForm pairing + defaults", () => {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().workingDir).toBe("/home/on-a1"));
       expect(latest().nodeId).toBe("a1");
+    } finally {
+      restore();
+    }
+  });
+
+  it("will not arm the pre-fill before the node list has settled the pick", async () => {
+    // The review's ordering case: the recents query answers WHILE `nodes` is
+    // still loading. Arming then fills local's home and closes the door
+    // forever — the later re-home (local vanished) cannot re-arm, leaving a
+    // directory that exists only on the abandoned node. The same-pass
+    // `reHomed` guard cannot see this ordering; only waiting for the node
+    // list can.
+    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
+    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
+    const restore = mockFetch(
+      [AGENT_ONLY],
+      [],
+      (n) => ({ paths: [], home: n === "a1" ? "/home/on-a1" : "/home/left-behind" }),
+      { nodesDelayMs: 30 },
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().nodeId).toBe("a1"));
+      await waitFor(() => expect(latest().workingDir).toBe("/home/on-a1"));
     } finally {
       restore();
     }
