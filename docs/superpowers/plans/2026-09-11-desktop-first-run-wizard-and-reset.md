@@ -2527,6 +2527,72 @@ before the chain runs and nothing yet covers a refusal inside it: a delete step
 whose target cannot be removed answers `ok: false` with the path in the log,
 never `ok: true`.
 
+## Re-review (2026-09-11), round 5
+
+K1 and K2 both landed, and K2's fix is better than the finding: extracting
+`delete_outcome(io::Result, path)` as a pure seam so the refusal case is pinned
+on a root-running CI is a connection I did not make, and it is the right one.
+Root ignores permission bits, which is why `uploads-route.test.ts` is the one
+test skipped under root (root `AGENTS.md`), so a chmod-based test here would
+have passed while asserting nothing. I checked the errno mapping the new test
+rests on rather than assuming it: `from_raw_os_error(2)` is `NotFound` and
+`(13)` is `PermissionDenied`, so the test is valid on Linux and macOS alike.
+
+One finding and one minor. This is the thin end; see the note after them.
+
+**J1. The reset view renders a half-run and a success identically, on the one
+screen where confusing them costs the most.** The page helper takes text and
+nothing else:
+
+```ts
+function showResetResult(text: string): void {
+  const box = el("reset-log");
+  box.textContent = text;
+  box.hidden = text === "";
+}
+```
+
+and `#reset-log` is `<pre class="pane-pre mt-3">`. So `ok: false` with the
+signing key still on disk and `ok: true` with the wizard-open note both arrive
+as the same block of monospace text.
+
+The console already solved this, deliberately, in the file the reset view lives
+beside:
+
+```ts
+// ui/src/main.ts:81
+out.classList.toggle("output-bad", result?.ok === false);
+```
+
+`styles.css:156` defines `.output-bad`, and the comment above it at line 132
+explains it is a component rather than a utility specifically so its border
+wins. K2 just finished making the backend tell the truth about half-runs; this
+is the last hop of that same fix, and without it the truth arrives unreadable.
+Give `showResetResult` the result (or an `ok` flag) and toggle `output-bad`
+exactly as `show()` does. It is one line plus a parameter, and it keeps the two
+surfaces phrasing one outcome the same way, which is this app's standing rule.
+
+**J2 (minor). Nothing on the screen names Retry, which § 7.2 promises.** "A
+failure mid-chain leaves the reset screen up with verbatim output and Retry."
+Mechanically the retry works: the typed hostname stays in the input, `armed()`
+still returns true, and `reset-run` re-enables on the next render. But the
+button still reads whatever it read the first time, and a user looking at a
+half-run log has nothing telling them pressing it again is the intended move
+and is safe (the stash is deliberately still held). One line above the log on
+`ok: false`, or a label that becomes "Retry reset", closes it.
+
+### Note on continuing to review this
+
+Five rounds, and the yield has moved: rounds 1 to 3 found design and contract
+defects, round 4 found a gap a fix had opened, and this round found the page
+half of a fix that landed correctly in Rust. J1 is real, and it is also the
+kind of thing a code reviewer sees in thirty seconds once the file exists,
+because the precedent is nine lines into the same module.
+
+Everything remaining in this plan is now code that has not been written. The
+next genuinely new information comes from executing Task 1, not from reading
+Task 8 again. My recommendation is to land J1 and J2 and start.
+
 ## Self-review notes (author, post-write)
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
