@@ -482,10 +482,20 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
         expect(cmds[0]).toMatchObject({ chunk: 0, eof: true, chunk_b64: "", path: json.path });
 
         expect(json.size).toBe(0);
-        // The name shape is the honest one (see emptyUploadRequest): Bun drops
-        // the empty part's filename, `pasted` + the collision-suffix tag is
-        // what survives — local path would produce the same.
-        expect(json.name).toMatch(/^\d{8}-\d{6}-pasted-[0-9a-f]{8}$/);
+        // The stem and extension are NOT this route's decision: they are
+        // whatever the runtime's multipart parser surfaced for a ZERO-LENGTH
+        // part, and that differs across supported runtimes. bun 1.4.0 drops
+        // the filename entirely, so `uploads.service.ts`'s `pasted` fallback
+        // names the file and there is no extension; 1.4.2 keeps it, so the
+        // declared `empty.bin` survives. Both are the route behaving
+        // correctly on the input it was handed.
+        //
+        // So this pins what the ROUTE owns — the timestamp prefix and the
+        // collision tag it appends — and admits either stem. Pinned to
+        // 1.4.0's shape alone, this failed on every developer machine running
+        // a newer bun and was carried as a known-failing test rather than
+        // fixed (`docs/superpowers/plans/2026-09-09-plugins-phase2-node-owns-its-set.md`).
+        expect(json.name).toMatch(/^\d{8}-\d{6}-(?:pasted|empty)-[0-9a-f]{8}(?:\.bin)?$/);
         expect(json.path).toBe(join(ws, ".subshell", "uploads", json.name));
         expect(json.contentType).toBe("application/octet-stream");
         // The write really landed: a 0-byte file at the target, no stray .part.
