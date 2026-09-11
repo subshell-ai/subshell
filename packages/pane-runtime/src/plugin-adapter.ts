@@ -70,6 +70,7 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     id: manifest.id,
     name: manifest.name,
     binaryName: manifest.detect?.binaryName ?? manifest.id,
+    envOverride: manifest.detect?.envOverride ?? "",
     // The detect block rides through as DATA, verbatim and only when present
     // (inversion spec §5): the control plane ships this same rule on the
     // `launch` frame instead of shipping plugin code to resolve it, so a

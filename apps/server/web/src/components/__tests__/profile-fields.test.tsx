@@ -18,6 +18,7 @@ const claude: HarnessInfo = {
   id: "claude",
   name: "Claude",
   binary: "claude",
+  envOverride: "CLAUDE_PATH",
   description: "",
   installed: true,
   installedHere: true,

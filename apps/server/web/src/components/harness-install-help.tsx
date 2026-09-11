@@ -44,8 +44,8 @@ export function HarnessInstallHelp({
     return (
       <div className="space-y-2">
         <p className="text-muted-foreground text-xs">
-          The <code className="font-mono">{envOverrideName(harness.binary)}</code> environment variable is set, but it
-          doesn't point at an executable file. Fix it or unset it, then re-check.
+          The <code className="font-mono">{harness.envOverride}</code> environment variable is set, but it doesn't point
+          at an executable file. Fix it or unset it, then re-check.
         </p>
         <Button type="button" variant="link" size="sm" className={denseLink} onClick={onRecheck} disabled={rechecking}>
           {rechecking ? "Checking…" : "Re-check"}
@@ -76,16 +76,4 @@ export function HarnessInstallHelp({
       </div>
     </div>
   );
-}
-
-/**
- * The env var a harness honours as an explicit binary override, derived from
- * its binary name.
- *
- * Every plugin follows `<BINARY>_PATH` (`CLAUDE_PATH`, `CODEX_PATH`), which is
- * worth stating out loud because this is the only place the UI needs the name
- * and no endpoint reports it.
- */
-function envOverrideName(binary: string): string {
-  return `${binary.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_PATH`;
 }

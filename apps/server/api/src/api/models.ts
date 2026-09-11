@@ -163,6 +163,10 @@ export const HarnessInfoSchema = t.Object({
   id: t.String({ description: "Harness plugin id" }),
   name: t.String({ description: "Display name" }),
   binary: t.String({ description: 'Executable command name, e.g. "claude"' }),
+  envOverride: t.String({
+    description:
+      'Environment variable that overrides binary lookup for this plugin, e.g. "CLAUDE_PATH" or "SHELL"; empty when the plugin declares no detection',
+  }),
   description: t.String({ description: "One-line description" }),
   icon: t.Optional(t.String({ description: "Icon label" })),
   installed: t.Boolean({ description: "Whether the harness binary is usable" }),

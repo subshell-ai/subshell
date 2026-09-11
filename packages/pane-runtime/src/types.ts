@@ -65,6 +65,17 @@ export interface HarnessPlugin {
   /** Executable command name, e.g. "claude" — the same string `findBinary` looks up */
   binaryName: string;
   /**
+   * The environment variable this plugin honours as an explicit binary
+   * override, from its manifest `detect.envOverride` ("" when it declares no
+   * detect block).
+   *
+   * Carried rather than derived. Every built-in happened to follow
+   * `<BINARY>_PATH`, so deriving it was right by coincidence until the
+   * terminal plugin, whose override is `SHELL`. A UI that derives the name
+   * tells a user to fix a variable they do not have set.
+   */
+  envOverride: string;
+  /**
    * The manifest's `subshell.detect` block, passed through verbatim (same
    * object {@link detect} closes over), or absent when the plugin declares no
    * binary.

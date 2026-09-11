@@ -13,6 +13,7 @@ const base: HarnessInfo = {
   id: "pi",
   name: "pi",
   binary: "pi",
+  envOverride: "PI_PATH",
   description: "minimal coding agent from pi.dev",
   installed: true,
   installedHere: true,
@@ -78,7 +79,8 @@ describe("HarnessRow", () => {
   });
 
   it("names the env override instead of offering an install command", () => {
-    // The fixture is the `pi` harness, so the override this derives is PI_PATH.
+    // The fixture is the `pi` harness, whose override is PI_PATH — now carried
+    // on HarnessInfo, not derived from the binary name.
     render(
       <HarnessRow
         harness={{ ...base, installed: false, reason: "override-invalid" }}

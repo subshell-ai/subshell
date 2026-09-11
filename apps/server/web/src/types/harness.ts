@@ -10,6 +10,8 @@ export interface HarnessInfo {
   name: string;
   /** Executable command name, e.g. "claude" — what a launch command starts with */
   binary: string;
+  /** Environment variable that overrides binary lookup, e.g. "CLAUDE_PATH"; "" when the plugin declares no detection */
+  envOverride: string;
   /** One-line description of the harness */
   description: string;
   /** Emoji/glyph for the harness, when it has one */

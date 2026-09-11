@@ -59,6 +59,7 @@ export async function harnessInfo(id: string, installedHere: boolean): Promise<S
     id: h.id,
     name: h.name,
     binary: h.binaryName,
+    envOverride: h.envOverride,
     description: h.description,
     icon: h.icon,
     installed: entry.installed,
