@@ -148,7 +148,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         // ready — so this opens the SPA rather than substituting the console.
         "tray:open" => open_dashboard(app),
         "console" => {
-            let _ = crate::windows::open_console(app);
+            let _ = crate::windows::open_manage_window(app);
         }
         // No other ids exist: the tray dispatches no DesktopAction, so nothing
         // here reaches the SPA's own action bridge (see `DashboardItem`).
@@ -181,6 +181,6 @@ fn show_main(app: &AppHandle) {
     if let Some(w) = window {
         crate::windows::raise(&w);
     } else {
-        let _ = crate::windows::open_console(app);
+        let _ = crate::windows::open_manage_window(app);
     }
 }

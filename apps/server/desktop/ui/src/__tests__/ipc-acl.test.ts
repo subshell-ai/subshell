@@ -34,6 +34,38 @@ function invokedCommands(): Set<string> {
 }
 
 /**
+ * The commands ONE page can reach: the `ipc.<name>` calls in its file, mapped
+ * to command names through ipc.ts's own exports.
+ *
+ * This replaced "ipc.ts's full set == console.json" when the wizard arrived.
+ * One shared `lib/ipc.ts` serving two windows makes the full set the union of
+ * two grants, and a per-page pin is the only way both stay EXACT sets: a
+ * command the console stops calling must leave console.json even while the
+ * wizard still calls it (that is how `allow-desktop-open-console` was removed
+ * from the console in the first place).
+ */
+function commandsInvokedBy(pageFile: string): Set<string> {
+  const nameToCommand = new Map<string, string>();
+  const decl = /export const (\w+)[^;]*?invoke\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g;
+  for (const m of ipcSource.matchAll(decl)) {
+    nameToCommand.set(m[1] as string, m[2] as string);
+  }
+  const src = codeOf(join(UI_SRC, pageFile)); // codeOf takes a PATH and strips comments itself
+  const out = new Set<string>();
+  for (const m of src.matchAll(/\bipc\.(\w+)\s*\(/g)) {
+    const cmd = nameToCommand.get(m[1] as string);
+    if (cmd) out.add(cmd);
+  }
+  return out;
+}
+
+/** The `desktop_*` commands a capability file grants, expanded through the manifest. */
+function grantedCommands(file: string): Set<string> {
+  const manifest = manifestPermissions();
+  return new Set(capabilityPermissions(file).flatMap((id) => manifest.get(id) ?? []));
+}
+
+/**
  * A file's CODE, with comments removed.
  *
  * This app's prose names commands and `window.__TAURI__` deliberately — it is
@@ -93,27 +125,47 @@ function sourceFiles(dir: string = UI_SRC): string[] {
 
 describe("the console's IPC contract", () => {
   it("invokes exactly the commands the ACL grants this window", () => {
-    const manifest = manifestPermissions();
-    const granted = new Set(capabilityPermissions("console.json").flatMap((id) => manifest.get(id) ?? []));
-    expect([...invokedCommands()].sort()).toEqual([...granted].sort());
+    // Per-page since the wizard: the console page's ipc.* calls, and console's
+    // grants, are the same exact set - not merely a subset of anything.
+    expect([...commandsInvokedBy("main.ts")].sort()).toEqual([...grantedCommands("console.json")].sort());
+  });
+
+  it("the wizard invokes exactly the commands its capability grants", () => {
+    // The third window holds the setup verbs and nothing else: no service, no
+    // init, no logs, no config reads, no tray settings. This set being exact is
+    // the wizard's whole boundary (§ 3 of the 2026-09-10 spec), and the Done
+    // screen's open-console here is the one command shared with `main`.
+    expect([...commandsInvokedBy("wizard.ts")].sort()).toEqual([...grantedCommands("wizard.json")].sort());
+    // And the union still lands where ipc.ts says it must: every command any
+    // page can invoke is granted SOMEWHERE, and ipc.ts hides nothing extra.
+    const pages = new Set([...commandsInvokedBy("main.ts"), ...commandsInvokedBy("wizard.ts")]);
+    expect([...invokedCommands()].sort()).toEqual([...pages].sort());
   });
 
   it("names no permission the manifest does not define", () => {
     const manifest = manifestPermissions();
     // `core:*`, `dialog:*` and `opener:*` come from Tauri and its plugins; only
     // this app's own `allow-desktop-*` identifiers have to exist in desktop.toml.
-    // BOTH capability files: an undefined id in main.json would contribute
-    // nothing to the "exactly three" expansion and slip past it otherwise.
-    const own = [...capabilityPermissions("console.json"), ...capabilityPermissions("main.json")].filter(
-      (id) => !id.includes(":"),
-    );
+    // ALL THREE capability files: an undefined id in main.json or wizard.json
+    // would contribute nothing to its file's expansion and slip past otherwise.
+    const own = [
+      ...capabilityPermissions("console.json"),
+      ...capabilityPermissions("main.json"),
+      ...capabilityPermissions("wizard.json"),
+    ].filter((id) => !id.includes(":"));
     for (const id of own) expect(manifest.has(id), `${id} is granted but not defined`).toBe(true);
   });
 
   it("defines no app permission neither capability grants", () => {
     // A granted-nowhere permission is a command no page can call, which is the
-    // same runtime rejection read from the other end.
-    const granted = new Set([...capabilityPermissions("console.json"), ...capabilityPermissions("main.json")]);
+    // same runtime rejection read from the other end. This is the check that
+    // makes the reset permission's toml entry and its console.json grant land
+    // in the same commit (plan P1).
+    const granted = new Set([
+      ...capabilityPermissions("console.json"),
+      ...capabilityPermissions("main.json"),
+      ...capabilityPermissions("wizard.json"),
+    ]);
     for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
   });
 
@@ -141,6 +193,13 @@ describe("the console's IPC contract", () => {
     // strand on the first refusal.
     const dialog = capabilityPermissions("console.json").filter((id) => id.startsWith("dialog:"));
     expect(dialog.sort()).toEqual(["dialog:allow-ask", "dialog:allow-open"]);
+  });
+
+  it("keeps the wizard's dialog surface to open alone", () => {
+    // pickBinary's file dialog is the wizard's only native popup; its consent
+    // is on-screen (the Run screen's bullet list), not a system ask sheet.
+    const dialog = capabilityPermissions("wizard.json").filter((id) => id.startsWith("dialog:"));
+    expect(dialog.sort()).toEqual(["dialog:allow-open"]);
   });
 
   it("reaches Tauri through lib/ipc.ts and nowhere else", () => {

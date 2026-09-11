@@ -52,6 +52,7 @@ pub fn run() {
             .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
                 if let Some(w) = app
                     .get_webview_window("main")
+                    .or_else(|| app.get_webview_window("wizard"))
                     .or_else(|| app.get_webview_window("console"))
                 {
                     windows::raise(&w);
@@ -138,7 +139,23 @@ pub fn run() {
             if let Err(err) = tray::build(&handle) {
                 eprintln!("subshell: could not create the tray icon: {err}");
             }
-            windows::open_console(&handle)?;
+            // Boot looks before it leaps: the probe marks what it proves
+            // (control::boot_probe -> mark_onboarded), and the WINDOW CHOICE
+            // is made from the fresh answer, never the stored flag. A machine
+            // set up entirely from the CLI opens the console, because by the
+            // time the branch runs, onboarded is true (spec § 3/§ 4, R6).
+            let choice = {
+                let settings = handle.state::<subshell_desktop_core::settings::SettingsState>();
+                control::boot_window(&control::boot_probe(&settings))
+            };
+            match choice {
+                control::WindowChoice::Wizard => {
+                    windows::open_wizard(&handle)?;
+                }
+                control::WindowChoice::Console => {
+                    windows::open_console(&handle)?;
+                }
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -164,6 +181,7 @@ pub fn run() {
             tauri::RunEvent::Reopen { .. } => {
                 let window = app
                     .get_webview_window("main")
+                    .or_else(|| app.get_webview_window("wizard"))
                     .or_else(|| app.get_webview_window("console"));
                 if let Some(w) = window {
                     windows::raise(&w);

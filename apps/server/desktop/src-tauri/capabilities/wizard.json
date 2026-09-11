@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "wizard",
+  "description": "The first-run setup window. It may walk a machine from virgin to ready - probe, run the setup chain, install tmux and agent CLIs, pick a server binary, read the tmux docs, and open the dashboard or the console - and nothing else: no service verbs, no bare init (setup is the chain), no logs, no config-path reveals, no tray settings. Pinned equal to what wizard.ts actually invokes by ui/src/__tests__/ipc-acl.test.ts; the console keeps the full set because the console is the repair surface.",
+  "local": true,
+  "windows": [
+    "wizard"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "allow-desktop-probe",
+    "allow-desktop-setup",
+    "allow-desktop-install-tmux",
+    "allow-desktop-install-agent",
+    "allow-desktop-set-server-bin",
+    "allow-desktop-open-tmux-docs",
+    "allow-desktop-open-main",
+    "allow-desktop-open-console"
+  ]
+}

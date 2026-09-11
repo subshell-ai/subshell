@@ -197,6 +197,13 @@ export const setServerBin = (path: string | null): Promise<void> => invoke<void>
 
 export const openMain = (): Promise<void> => invoke<void>("desktop_open_main");
 
+/**
+ * Raise the console window. Only the WIZARD's Done screen calls it ("Go to
+ * status page"); the console itself is refused this command (the page that IS
+ * the console does not need to open it, and `main` holds the third grant).
+ */
+export const openConsole = (): Promise<void> => invoke<void>("desktop_open_console");
+
 export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("desktop_open_path", { target });
 
 export const openControlPlane = (): Promise<void> => invoke<void>("desktop_open_control_plane");

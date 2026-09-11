@@ -297,13 +297,10 @@ pub fn machine_hostname() -> String {
     static HOSTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HOSTNAME
         .get_or_init(|| {
-            run(
-                &vec!["hostname".to_string()],
-                std::time::Duration::from_secs(5),
-            )
-            .stdout
-            .trim()
-            .to_string()
+            run(&["hostname".to_string()], std::time::Duration::from_secs(5))
+                .stdout
+                .trim()
+                .to_string()
         })
         .clone()
 }
@@ -1030,7 +1027,19 @@ pub fn open_main_now(app: &AppHandle) -> Result<(), String> {
     let origin = probe
         .origin()
         .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
-    crate::windows::open_main(app, &origin)
+    crate::windows::open_main(app, &origin)?;
+    // The wizard's job ends at the dashboard - by either door. The Done press
+    // lives in the wizard page, which has no window-close permission (and
+    // should not: a page that can close its own window can close it at the
+    // wrong moment); the shell that just opened the dashboard closes the
+    // guide instead, one direction of data, same closed-intent shape as the
+    // reveal enum below. The tray/menu dashboard opens pass through here too,
+    // which is also correct: a wizard left behind an open dashboard is the
+    // second manage surface this app decided not to have.
+    if let Some(w) = app.get_webview_window("wizard") {
+        let _ = w.close();
+    }
+    Ok(())
 }
 
 /// The files and directories the console may ask to reveal.
@@ -1201,10 +1210,12 @@ pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(),
         .map_err(|e| format!("could not show a notification: {e}"))
 }
 
-/// Open (or focus) the server console. Called from the SPA's own footer.
+/// Open (or focus) the window that MANAGES this machine, whichever that is:
+/// the console after a completed setup, the wizard before one. Called from
+/// the SPA's own footer pill.
 #[tauri::command(async)]
 pub fn desktop_open_console(app: AppHandle) -> Result<(), String> {
-    crate::windows::open_console(&app).map(|_| ())
+    crate::windows::open_manage_window(&app).map(|_| ())
 }
 
 /// The SPA has rendered its desktop chrome and the window can lose its title bar.
@@ -1652,20 +1663,26 @@ mod tests {
         // stores onboarded:false, and the FIRST probe is what corrects it.
         // Boot branches on the probe's answer, so a ready (post-mark) probe
         // names Console no matter what the field carried a moment ago.
-        let mut ready = Probe::default();
-        ready.next = ProbeStep::Ready;
-        ready.onboarded = true; // as mark_onboarded leaves it before boot_window runs
+        let ready = Probe {
+            next: ProbeStep::Ready,
+            onboarded: true, // as mark_onboarded leaves it before boot_window runs
+            ..Probe::default()
+        };
         assert_eq!(boot_window(&ready), WindowChoice::Console);
-        let mut virgin = Probe::default();
-        virgin.next = ProbeStep::Setup;
+        let virgin = Probe {
+            next: ProbeStep::Setup,
+            ..Probe::default()
+        };
         assert_eq!(boot_window(&virgin), WindowChoice::Wizard);
     }
 
     #[test]
     fn probe_serializes_onboarded_and_hostname_for_the_page() {
-        let mut p = Probe::default();
-        p.onboarded = true;
-        p.hostname = "devbox".into();
+        let p = Probe {
+            onboarded: true,
+            hostname: "devbox".into(),
+            ..Probe::default()
+        };
         let v: serde_json::Value = serde_json::to_value(&p).unwrap();
         assert_eq!(v["onboarded"], serde_json::json!(true));
         assert_eq!(v["hostname"], serde_json::json!("devbox"));
@@ -1692,11 +1709,15 @@ mod tests {
         let args = init_args("4100", "0.0.0.0", "http://x:4100", Some("http://lan"));
         assert!(args.contains(&"--port".to_string()) && args.contains(&"4100".to_string()));
         let empty = init_args("", "", "", None);
-        assert!(!empty.iter().any(|a| a.starts_with("--port")), "omitted flags fall back to derived defaults");
+        assert!(
+            !empty.iter().any(|a| a.starts_with("--port")),
+            "omitted flags fall back to derived defaults"
+        );
     }
 
     #[test]
-    fn probe_steps_serialize_as_kebab_case_for_the_console() {        assert_eq!(
+    fn probe_steps_serialize_as_kebab_case_for_the_console() {
+        assert_eq!(
             serde_json::to_string(&ProbeStep::InstallService).unwrap(),
             "\"install-service\""
         );

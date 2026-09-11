@@ -111,6 +111,21 @@ describe("the build wiring", () => {
     expect(config.build.frontendDist).toBe("../ui/dist");
   });
 
+  it("builds the wizard page beside the console, CSP-clean by the same rules", () => {
+    // Two bundled pages, two windows. A missing rollup input does not fail the
+    // build - it ships a bundle in which `WebviewUrl::App("wizard.html")`
+    // resolves to nothing, which a release build only discovers on someone's
+    // machine, so the pairing is pinned at the config text like the CSP half.
+    expect(viteConfig).toContain('wizard: path.resolve(dirname, "ui/wizard.html")');
+    expect(existsSync(join(import.meta.dir, "../../wizard.html"))).toBe(true);
+    const wizard = readFileSync(join(import.meta.dir, "../../wizard.html"), "utf8");
+    // script-src 'self' / style-src 'self': module script with a src, nothing
+    // inline - the same rules index.html lives by.
+    expect(wizard).not.toMatch(/<script(?![^>]*\bsrc=)/);
+    expect(wizard).not.toMatch(/style=/);
+    expect(wizard).toContain('src="/src/wizard.ts"');
+  });
+
   it("drives the app's own scripts", () => {
     expect(config.build.beforeDevCommand).toBe("bun run dev:ui");
     expect(config.build.beforeBuildCommand).toBe("bun run build");

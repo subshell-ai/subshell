@@ -135,14 +135,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 /// Route a menu selection.
 pub fn on_event(app: &AppHandle, id: &str) {
     if id == "console" {
-        let _ = crate::windows::open_console(app);
+        let _ = crate::windows::open_manage_window(app);
         return;
     }
     if let Some(action) = DesktopAction::from_id(id) {
         // A menu item that needs the page is a no-op without it; open the
         // window first so ⌘1 from a cold start does something.
         if app.get_webview_window("main").is_none() {
-            let _ = crate::windows::open_console(app);
+            let _ = crate::windows::open_manage_window(app);
             return;
         }
         dispatch(app, action);
