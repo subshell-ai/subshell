@@ -55,6 +55,11 @@ description = "Wipe this machine's Subshell instance: stop and uninstall the ser
 commands.allow = ["desktop_reset"]
 
 [[permission]]
+identifier = "allow-desktop-arm-reset"
+description = "Read this machine now and stash the reset's delete plan, so the console can raise its own reset screen. Console-only: the server-origin page still names a SCREEN and nothing else, and the wizard has no reset at all."
+commands.allow = ["desktop_arm_reset"]
+
+[[permission]]
 identifier = "allow-desktop-set-server-bin"
 description = "Remember an explicitly chosen server binary. The path is executed on every launch."
 commands.allow = ["desktop_set_server_bin"]

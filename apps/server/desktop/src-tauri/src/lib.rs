@@ -105,6 +105,7 @@ pub fn run() {
             control::desktop_open_main,
             control::desktop_open_console,
             reset::desktop_reset,
+            reset::desktop_arm_reset,
             control::desktop_open_path,
             control::desktop_open_control_plane,
             control::desktop_open_tmux_docs,

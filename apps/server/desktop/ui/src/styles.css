@@ -161,6 +161,29 @@
     max-height: 220px;
     overflow: auto;
   }
+  /* The one destructive control in the console. Closed on every render (see
+     main.ts): a danger section that remembers being open is one someone
+     scrolls past without reading. */
+  .danger-zone {
+    margin-top: 14px;
+  }
+  .danger-zone > summary {
+    cursor: pointer;
+    color: var(--color-muted);
+    font-size: 14px;
+  }
+  .danger-zone > summary:hover {
+    color: var(--color-fg);
+  }
+  .danger-zone button {
+    margin-top: 8px;
+    border-color: var(--color-bad);
+    color: var(--color-bad);
+  }
+  .danger-zone button:hover:not(:disabled) {
+    border-color: var(--color-bad);
+    background: color-mix(in oklch, var(--color-bad) 12%, transparent);
+  }
   /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
      window: a centered 560px column, and a 72px bar pinned to the bottom. */
   body.assistant {

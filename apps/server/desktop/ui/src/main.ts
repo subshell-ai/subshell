@@ -85,6 +85,7 @@ function show(result: ActionResult | null): void {
   // `show(null)` at the start of every action clears the old text but must
   // NOT steal the tab, or the pane would flick to an empty box and back.
   if (parts.length > 0) showPane("output");
+  syncPaneTabs();
 }
 
 /** Which pane is in front. The log unless a command has just spoken. */
@@ -105,6 +106,22 @@ function showPane(next: "log" | "output"): void {
     tab.setAttribute("aria-selected", String(id === pane));
   }
   el("pane-source").textContent = pane === "log" ? logSource : "";
+}
+
+/**
+ * Offer the command-output tab only once a command has said something.
+ *
+ * The log is true all the time; a command's output is not, and until one has
+ * run there is nothing behind that tab. `.pane-pre:empty` already collapses
+ * the box, so the tab led to a bordered void with no explanation of what it
+ * was for. A tab that can only disappoint is worse than no tab: the region
+ * is two tabs when there are two things to read, and one otherwise.
+ */
+function syncPaneTabs(): void {
+  const hasOutput = el("output").textContent !== "";
+  el("tab-output").hidden = !hasOutput;
+  // Never strand the selection on a tab that just went away.
+  if (!hasOutput && pane === "output") showPane("log");
 }
 
 /** Where the log came from, captioned beside the tabs. */
@@ -706,6 +723,9 @@ function render(): void {
   renderFacts();
   el("problem").textContent = problem;
   renderStep();
+  // Closed on every render: a danger section that remembers being open is
+  // one someone scrolls past without reading.
+  (el("danger-zone") as HTMLDetailsElement).open = false;
   // The reset view coexists with the busy state; buttons re-arm themselves
   // from the probe, so every re-render keeps the screen honest about it.
   if (view === "reset") renderReset();
@@ -1076,18 +1096,33 @@ for (const id of ["log", "output"] as const) {
 // ---------------------------------------------------------------------------
 
 /**
- * The console's second view. Entered ONLY by the desktop-screen event from
- * the dashboard's danger card (no console-side entry: § 7.1 says so); it
- * renders the captured-plan truth from the live probe and compares the typed
- * hostname the same way Rust will (displayed value wins nowhere: both sides
- * read the probe's single memo, R15).
+ * The console's second view. Entered by the desktop-screen event from the
+ * dashboard's danger card, or by the console's own Danger zone disclosure
+ * (spec § 4 of the 2026-09-11 design — `#reset-open` arms the plan itself
+ * before raising this view); it renders the captured-plan truth from the
+ * live probe and compares the typed hostname the same way Rust will
+ * (displayed value wins nowhere: both sides read the probe's single memo,
+ * R15).
  */
 let view: "status" | "reset" = "status";
+
+/**
+ * Why the last arming attempt did not stage a plan, or null when it did.
+ *
+ * The screen must never present an armed-looking box over an empty stash.
+ * That combination produced the one bug this screen has actually shipped: a
+ * `tauri dev` session hot-reloads this page but NOT the Rust side, so a page
+ * calling a command the running binary does not carry had its invoke
+ * rejected, opened anyway, and answered a correctly typed hostname with
+ * "no reset plan is staged". The arming outcome is a fact about the screen,
+ * so the screen holds it.
+ */
+let armingProblem: string | null = null;
 
 function renderReset(): void {
   const st = probe?.status;
   const host = probe?.hostname ?? "";
-  const why = refusal(st);
+  const why = armingProblem ?? refusal(st);
   // One sentence names one cause. A paths block that is complete but a name
   // that could not be read still leaves the button disabled (armed() refuses
   // an empty hostname) - and no control is disabled without its reason named
@@ -1119,6 +1154,38 @@ function showReset(): void {
   el("status-view").hidden = true;
   el("reset-view").hidden = false;
   renderReset();
+}
+
+/**
+ * The console's own entry into the reset screen (spec § 4 of the
+ * 2026-09-11 design): arm the plan from a fresh probe, then show the screen
+ * regardless of whether arming succeeded. `.finally`, not `.then` — a
+ * refused or failed arming must still raise the screen, because the screen
+ * is what explains the refusal (`renderReset`'s `why`).
+ */
+el("reset-open").addEventListener("click", () => {
+  void (async () => {
+    armingProblem = await armReset();
+    showReset();
+  })();
+});
+
+/**
+ * Stage the plan, and answer why not when it could not be staged.
+ *
+ * Three outcomes, and the screen has to tell them apart: staged (null), the
+ * CLI would not report its paths (the refusal `renderReset` already has
+ * words for, so defer to it), and the command itself was refused — which in
+ * practice means a `tauri dev` session whose Rust half predates this
+ * command, and which must never look like a screen that is ready to run.
+ */
+async function armReset(): Promise<string | null> {
+  try {
+    if (await ipc.armReset()) return null;
+    return refusal(probe?.status) ?? "This server did not report its data locations, so there is nothing to stage.";
+  } catch (err) {
+    return `The reset could not be staged: ${errText(err)}. If this app is running from a dev build, restart it so its Rust half matches this page.`;
+  }
 }
 
 el("reset-confirm").addEventListener("input", renderReset);
@@ -1155,6 +1222,24 @@ el("reset-run").addEventListener("click", () => {
     showResetResult("", false);
     render();
     try {
+      // Re-arm on EVERY press, not just when the screen opens. The plan is
+      // one-shot by design - a finished chain spends it - so a second press
+      // used to answer "no reset plan is staged; the reset screen must be
+      // opened again", which is a dead end telling the human to do by hand
+      // exactly what this button should do. Arming is idempotent: one probe,
+      // one stash, no mutation of the machine.
+      //
+      // A false answer means the CLI would not report its paths, so there is
+      // nothing this screen can promise to delete. Say that in the words the
+      // screen already uses for it rather than running into the Rust-side
+      // refusal, which phrases the same fact as a staging accident.
+      armingProblem = await armReset();
+      if (armingProblem !== null) {
+        showResetResult(armingProblem, true);
+        busy = false;
+        render();
+        return;
+      }
       const result = await ipc.reset(typed);
       const parts: string[] = [];
       if (result?.stdout?.trim()) parts.push(result.stdout.trim());
@@ -1187,6 +1272,8 @@ document.addEventListener("visibilitychange", () => {
 });
 
 showPane("log");
+// At boot no command has run, so the output tab is not offered yet.
+syncPaneTabs();
 render();
 void retry();
 void loadPrefs();

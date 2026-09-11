@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT};
 use subshell_desktop_core::reset_guards::{consent_granted, delete_guard_ok, is_subshell_socket, path_rules_ok};
@@ -340,6 +340,21 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         stdout: log,
         stderr: String::new(),
     })
+}
+
+/// Arm the reset screen from the console itself: the arming half of
+/// `arm_and_raise`, without the window half, because this window is already
+/// up. Every property of the SPA path is kept — the plan is stashed from a
+/// probe taken at press time (R18), and the page still supplies only a
+/// hostname. Answers whether a plan parsed; `false` means the screen renders
+/// its own refusal, which is the useful information.
+#[tauri::command(async)]
+pub fn desktop_arm_reset(app: AppHandle, settings: State<'_, SettingsState>) -> bool {
+    let p = crate::control::probe_now(settings.get().binary_path.as_deref());
+    let plan = p.status.as_ref().and_then(parse_delete_plan);
+    let armed = plan.is_some();
+    *app.state::<Stash>().plan.lock().unwrap() = plan;
+    armed
 }
 
 /// Append one verb's verbatim words; return `Some(stderr)` when it failed.

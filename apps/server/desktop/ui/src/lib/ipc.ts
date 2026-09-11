@@ -190,6 +190,14 @@ export const setup = (payload?: InitPayload): Promise<ActionResult> =>
 /** The one destructive verb. Typed hostname in, machine state wiped out; the paths are Rust's plan, never this side's. */
 export const reset = (typed: string): Promise<ActionResult> => invoke<ActionResult>("desktop_reset", { typed });
 
+/**
+ * Arm the reset screen from the console itself: reads the machine now and
+ * stashes the delete plan, exactly as `arm_and_raise` does for the SPA's
+ * deep link. Answers whether a plan parsed; the screen renders its own
+ * refusal either way, so the caller always proceeds to `showReset()`.
+ */
+export const armReset = (): Promise<boolean> => invoke<boolean>("desktop_arm_reset");
+
 export const installServer = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_server");
 
 export const installTmux = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_tmux");

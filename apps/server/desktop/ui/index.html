@@ -57,6 +57,20 @@
       <pre class="pane-pre" id="log" aria-live="polite"></pre>
       <pre class="pane-pre" id="output" aria-live="polite" hidden></pre>
     </div>
+
+    <!-- The console's own entry into the reset screen (spec § 4.3): a
+         collapsed disclosure so a destructive section is not something
+         someone scrolls past without reading. Closed on every render, see
+         main.ts. -->
+    <details class="danger-zone" id="danger-zone">
+      <summary>Danger zone</summary>
+      <p class="hint">
+        Reset this machine's Subshell instance: stop the server, delete its
+        database, logs and settings, and return to setup. The installed server
+        binary stays.
+      </p>
+      <button type="button" id="reset-open">Reset this machine…</button>
+    </details>
     </div>
 
     <!-- The second view (spec § 7.1). The hostname is DISPLAYED by this page

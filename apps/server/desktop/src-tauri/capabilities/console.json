@@ -18,6 +18,7 @@
     "allow-desktop-init",
     "allow-desktop-service",
     "allow-desktop-reset",
+    "allow-desktop-arm-reset",
     "allow-desktop-set-server-bin",
     "allow-desktop-open-main",
     "allow-desktop-open-path",
