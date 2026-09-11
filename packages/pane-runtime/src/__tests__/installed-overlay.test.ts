@@ -29,7 +29,7 @@ import type { ProfileDefinition } from "../types.js";
  * built-in-only without any code in it saying so).
  */
 
-const BUILT_IN_IDS = ["claude-code", "codex", "hermes", "opencode", "pi"];
+const BUILT_IN_IDS = ["claude-code", "codex", "hermes", "opencode", "pi", "terminal"];
 
 /** Minimal complete profile for `buildCommand` calls in these tests. */
 const PROFILE: ProfileDefinition = { name: "p", env: {}, flags: [], settings: null, configIsolation: false };
@@ -107,7 +107,7 @@ describe("the installed overlay", () => {
     resetRegistryForTests();
   });
 
-  it("resolves an installed plugin once refreshed, alongside the five built-ins", async () => {
+  it("resolves an installed plugin once refreshed, alongside the six built-ins", async () => {
     const dir = tempDataDir();
     await writePlugin(dir, "acme", { detect: true });
 
@@ -218,7 +218,7 @@ describe("the installed overlay", () => {
   it("the instance's own seeded built-in copies refresh silently", async () => {
     // The ordinary state: the server seeds `pi` into its store, with no
     // install record (that sidecar is what a REGISTRY install writes). No
-    // shadow, so no warning — a boot that warned about five seeded
+    // shadow, so no warning — a boot that warned about six seeded
     // directories would train everyone to ignore the warning that matters.
     const dir = tempDataDir();
     await writePlugin(dir, "pi", { pkgName: "pi-is-me" }); // embedded shape: no install.json

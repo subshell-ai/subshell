@@ -30,7 +30,8 @@
     "@subshell-ai/plugin-codex": "workspace:*",
     "@subshell-ai/plugin-hermes": "workspace:*",
     "@subshell-ai/plugin-opencode": "workspace:*",
-    "@subshell-ai/plugin-pi": "workspace:*"
+    "@subshell-ai/plugin-pi": "workspace:*",
+    "@subshell-ai/plugin-terminal": "workspace:*"
   },
   "devDependencies": {
     "@internal/tsconfig": "workspace:*",

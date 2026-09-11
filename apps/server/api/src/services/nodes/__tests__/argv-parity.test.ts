@@ -67,6 +67,11 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   opencode: { model: "anthropic/claude-sonnet-4-5", agent: "plan", auto: true },
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
+  // Terminal has no settings keys its profile editor can store, so its
+  // "settings set" row is the empty object on purpose — the parity claim is
+  // that the matrix holds for inputs the plugin ignores, and a shell ignores
+  // all of them.
+  terminal: {},
 };
 
 /**
@@ -234,11 +239,11 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the five, and the
+ * Sanity: every built-in under test really is one of the six, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all five built-ins through the production registry", () => {
+test("argv parity: the matrix covers all six built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
-  expect(new Set(registryIds)).toEqual(new Set(["claude-code", "codex", "opencode", "hermes", "pi"]));
+  expect(new Set(registryIds)).toEqual(new Set(["claude-code", "codex", "opencode", "hermes", "pi", "terminal"]));
 });

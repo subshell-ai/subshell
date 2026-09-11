@@ -5,6 +5,7 @@ import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-cod
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
+import terminalFactory, { manifest as terminalManifest } from "@subshell-ai/plugin-terminal";
 import { adaptPlugin } from "./plugin-adapter.js";
 import { createPluginHost } from "./plugin-host.js";
 import { createInProcessRuntime } from "./plugin-runtime.js";
@@ -22,7 +23,7 @@ import type { HarnessPlugin } from "./types.js";
  *
  * **Construction is lazy and contained**, per `.claude/rules/code-style.md`
  * ("Construct lazily, never at import"). Building the list at module scope
- * would run five factories during the evaluation of anything that imports
+ * would run six factories during the evaluation of anything that imports
  * this, so one plugin throwing would take `subshell-server` and `subshell`
  * down at boot rather than being reported and skipped. That is the same fault
  * boundary the disk loader gives, and there is no reason a built-in should
@@ -47,6 +48,7 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: hermesManifest, factory: hermesFactory },
   { manifest: piManifest, factory: piFactory },
   { manifest: codexManifest, factory: codexFactory },
+  { manifest: terminalManifest, factory: terminalFactory },
 ];
 
 /** Ids compiled into this build. The shadowing rule keys off exactly this set. */

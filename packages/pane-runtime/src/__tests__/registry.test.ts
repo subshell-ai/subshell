@@ -21,7 +21,7 @@ describe("the built-in registry", () => {
       allHarnesses()
         .map((h) => h.id)
         .sort(),
-    ).toEqual(["claude-code", "codex", "hermes", "opencode", "pi"]);
+    ).toEqual(["claude-code", "codex", "hermes", "opencode", "pi", "terminal"]);
   });
 
   it("ships with nothing broken", () => {

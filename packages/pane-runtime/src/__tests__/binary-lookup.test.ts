@@ -223,3 +223,36 @@ describe("loginPathEntries", () => {
     expect(second).toBe(first); // the same array identity, not a re-probe
   });
 });
+
+describe("a plugin whose override is SHELL", () => {
+  it("resolves the login shell at rung 1", async () => {
+    // What makes the terminal plugin work with nothing installed: the
+    // override rung answers before any PATH scan happens.
+    const found = await detectBinaryWithOptions("bash", "SHELL", [], {
+      env: { SHELL: "/bin/sh" },
+      pathEntries: [],
+    });
+
+    expect(found).toEqual({ path: "/bin/sh" });
+  });
+
+  it("falls through to bash on PATH when SHELL is unset", async () => {
+    const found = await detectBinaryWithOptions("bash", "SHELL", [], {
+      env: {},
+      pathEntries: ["/bin", "/usr/bin"],
+    });
+
+    expect(found.path).toMatch(/bash$/);
+  });
+
+  it("reports override-invalid rather than searching past a broken SHELL", async () => {
+    // An override that does not resolve is an answer, not a hint. The UI
+    // names the variable (see Task 4), so this reason has to survive.
+    const found = await detectBinaryWithOptions("bash", "SHELL", [], {
+      env: { SHELL: "/nonexistent/shell" },
+      pathEntries: ["/bin", "/usr/bin"],
+    });
+
+    expect(found).toEqual({ path: null, reason: "override-invalid" });
+  });
+});
