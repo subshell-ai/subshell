@@ -1,16 +1,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { HarnessRow } from "@/components/harness-row";
+import {
+  canSubmit,
+  emptyNewSubshellForm,
+  NewSubshellForm,
+  type NewSubshellFormValue,
+} from "@/components/subshell-picker/new-subshell-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnessToggles } from "@/hooks/use-harness-toggles";
 import { useHarnesses, useRecheckHarnesses } from "@/hooks/use-harnesses";
 import { apiFetch } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/setup")({
@@ -46,8 +54,25 @@ function SetupPage() {
   const recheck = useRecheckHarnesses();
   const { toggle: toggleHarness, errors: harnessErrors, pending: togglePending } = useHarnessToggles();
 
+  // Launch step. The form defaults itself (node `local`, the first launchable
+  // profile, the node's home directory), so this is one click unless the user
+  // wants it to be more.
+  const [launchForm, setLaunchForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm);
+  const create = useCreateSubshell();
+  // Set by `launch` BEFORE the cache retirement. Retiring setup-status is what
+  // bounces a visitor to "/" via the effect below — a visitor. A user who just
+  // LAUNCHED is going to their subshell, and the bounce effect must not arm
+  // underneath that navigation: completeSetup() re-renders this component with
+  // needsSetup:false, and if the target route is still loading at that moment
+  // (it does not in tests, where every route resolves synchronously — the
+  // guard is NOT pinned by a red-first test because the race does not
+  // reproduce here), the effect's navigate("/") is a second navigation
+  // competing with the first. Skipping this ref means a launch could land on
+  // the dashboard; it means the launch NEVER bounces.
+  const launchedRef = useRef(false);
+
   useEffect(() => {
-    if (status?.needsSetup === false) {
+    if (status?.needsSetup === false && !launchedRef.current) {
       navigate({ to: "/" });
     }
   }, [status, navigate]);
@@ -75,13 +100,35 @@ function SetupPage() {
     }
   }
 
-  function _finish() {
-    // The shared ["setup-status"] cache still says needsSetup:true for its
-    // staleTime window (10 s). The Subshells page reads it on its first
-    // render and bounces straight back to /setup — a wizard finished in
-    // under 10 s would be trapped there — so retire it before navigating.
+  /**
+   * Retires the shared setup-status cache.
+   *
+   * It still says needsSetup:true for its staleTime window (10 s), and the
+   * Subshells page reads it on its first render and bounces straight back to
+   * /setup, so a wizard finished in under 10 s would be trapped there. Both
+   * exits from the last step go through this.
+   */
+  function completeSetup() {
     queryClient.setQueryData(["setup-status"], { needsSetup: false });
+  }
+
+  function finish() {
+    completeSetup();
     navigate({ to: "/" });
+  }
+
+  /** Launches the first subshell and lands the user in it. */
+  async function launch() {
+    try {
+      const created = await create.mutateAsync(launchForm);
+      launchedRef.current = true;
+      completeSetup();
+      void navigate({ to: "/subshells/$id", params: { id: created.id } });
+    } catch {
+      // The mutation keeps the error; it renders below the form. Setup is
+      // deliberately NOT completed here: the user is still on the step and
+      // can retry or skip, and skipping is what finishes.
+    }
   }
 
   return (
@@ -196,6 +243,48 @@ function SetupPage() {
               )}
               <Button className="w-full" disabled={busy} onClick={() => setStep(2)}>
                 Continue
+              </Button>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <p className="font-medium">Start your first subshell</p>
+                <p className="text-muted-foreground text-sm">
+                  Everything below is already filled in. Change anything you like, or just start it.
+                </p>
+              </div>
+
+              <NewSubshellForm
+                value={launchForm}
+                onChange={setLaunchForm}
+                ids={{
+                  profile: "setup-profile",
+                  workingDir: "setup-working-dir",
+                  name: "setup-subshell-name",
+                  node: "setup-node",
+                }}
+              />
+
+              {create.error && (
+                <p className="text-destructive text-sm">
+                  {createSubshellErrorMessage(create.error, "Failed to start the subshell")}
+                </p>
+              )}
+
+              <Button
+                className="w-full"
+                disabled={create.isPending || !canSubmit(launchForm)}
+                onClick={() => void launch()}
+              >
+                {create.isPending ? "Starting…" : "Start my first subshell"}
+              </Button>
+
+              {/* Never a dead end: a machine that cannot launch anything must
+                  still be able to leave the wizard and reach the app. */}
+              <Button variant="link" className="w-full" disabled={create.isPending} onClick={finish}>
+                Skip for now
               </Button>
             </div>
           )}

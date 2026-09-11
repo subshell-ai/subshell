@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -22,14 +22,19 @@ import type { HarnessInfo } from "@/types/harness";
 // The fetch stub must exist BEFORE the app modules load: better-auth's client
 // binds `fetch` at creation (module evaluation of @/lib/auth-client), so a
 // mock swapped in after the import is invisible to it — the sign-up then hits
-// the real network and the wizard shows "Network error". This delegating stub
-// IS the global fetch for the file; per-test handlers just repoint `handler`.
-// (Measured, 2026-09-10 — the first version of this file swapped
-// globalThis.fetch per test, exactly like the other web suites do, and every
-// registration in it failed.)
-let handler: (input: unknown, init?: RequestInit) => Promise<Response> = () =>
-  Promise.resolve(new Response(JSON.stringify({})));
-const _originalFetch = globalThis.fetch;
+// the real network and the wizard shows "Network error". (Measured,
+// 2026-09-10 — the first version of this file swapped globalThis.fetch per
+// test, exactly like the other web suites do, and every registration failed.)
+// But `bun test` runs a package's files in ONE process, so a stub that answers
+// everything leaks into the next file — it turned launch-subshell-dialog's
+// deliberate "fetch fails, failures land as empty lists" into successful
+// nonsense. The stub therefore PASSES THROUGH to the real fetch whenever this
+// file has no handler installed (default + every afterEach), and the global is
+// restored whole in afterAll.
+const originalFetch = globalThis.fetch;
+const passThrough = (input: unknown, init?: RequestInit) =>
+  originalFetch(input as RequestInfo, init) as Promise<Response>;
+let handler: (input: unknown, init?: RequestInit) => Promise<Response> = passThrough;
 globalThis.fetch = ((input: unknown, init?: RequestInit) => handler(input, init)) as typeof fetch;
 
 const { Route } = await import("@/routes/setup");
@@ -45,17 +50,6 @@ const CLAUDE_ABSENT: HarnessInfo = {
   reason: "not-on-path",
   installedHere: true,
   install: { command: "see the vendor's install docs", docsUrl: "https://code.claude.com/docs/en/setup" },
-};
-
-const _TERMINAL_USABLE: HarnessInfo = {
-  id: "terminal",
-  name: "Terminal",
-  binary: "bash",
-  envOverride: "SHELL",
-  description: "A plain shell",
-  installed: true,
-  installedHere: true,
-  install: { command: "", docsUrl: "" },
 };
 
 interface SetupMocks {
@@ -106,7 +100,7 @@ async function settle(): Promise<void> {
 }
 
 /** A node/profile pair the launch step's form can default onto. */
-const _LAUNCH_NODE = {
+const LAUNCH_NODE = {
   id: "local",
   name: "Server",
   kind: "local",
@@ -127,7 +121,7 @@ const _LAUNCH_NODE = {
   inventoryStale: false,
 };
 
-const _LAUNCH_PROFILE = {
+const LAUNCH_PROFILE = {
   id: "p-term",
   harnessId: "terminal",
   name: "Default",
@@ -188,7 +182,14 @@ async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2) {
   return { client, history };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  handler = passThrough;
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
 
 describe("setup wizard: the agent step is optional", () => {
   it("presents the agent step as optional and says what happens if you skip it", async () => {
@@ -202,5 +203,66 @@ describe("setup wizard: the agent step is optional", () => {
   it("keeps the node escape hatch for a machine with nothing usable", async () => {
     await renderSetup({ harnesses: [CLAUDE_ABSENT] }, 1);
     expect(await screen.findByText(/register a Node/)).toBeTruthy();
+  });
+});
+
+describe("setup wizard: the launch step", () => {
+  /** The mocks a step-2 render needs: one node, one launchable profile, a home. */
+  const LAUNCH_MOCKS: SetupMocks = {
+    nodes: [LAUNCH_NODE],
+    profiles: [LAUNCH_PROFILE],
+    recent: { paths: [], home: "/home/ada" },
+  };
+
+  it("arrives filled in: Task 6's defaults make it submittable without input", async () => {
+    await renderSetup(LAUNCH_MOCKS, 2);
+    const start = screen.getByRole("button", { name: "Start my first subshell" }) as HTMLButtonElement;
+    // Not just "eventually enabled" — the settle inside the walk means the
+    // defaults have already composed; a regression in them fails HERE rather
+    // than as a click that silently launches with blanks.
+    expect(start.disabled).toBe(false);
+    expect((screen.getByLabelText("Working directory") as HTMLInputElement).value).toBe("/home/ada");
+  });
+
+  it("launches a subshell and lands on it", async () => {
+    const { history } = await renderSetup(LAUNCH_MOCKS, 2);
+    fireEvent.click(screen.getByRole("button", { name: "Start my first subshell" }));
+    // The final ROUTER LOCATION, not just a navigate call: the redirect
+    // effect on this page fires when the setup-status cache flips, and an
+    // effect-bounce to "/" after the launch would pass a call spy while
+    // leaving the user on the dashboard.
+    await waitFor(() => expect(history.location.pathname).toBe("/subshells/sub-1"));
+  });
+
+  it("retires the setup-status cache on launch, so the shell does not bounce back", async () => {
+    const { client } = await renderSetup(LAUNCH_MOCKS, 2);
+    fireEvent.click(screen.getByRole("button", { name: "Start my first subshell" }));
+    await waitFor(() =>
+      expect(client.getQueryData<{ needsSetup: boolean }>(["setup-status"])).toEqual({ needsSetup: false }),
+    );
+  });
+
+  it("lets a user leave without launching, and still finishes setup", async () => {
+    const { client, history } = await renderSetup(LAUNCH_MOCKS, 2);
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(client.getQueryData<{ needsSetup: boolean }>(["setup-status"])).toEqual({ needsSetup: false });
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+  });
+
+  it("reports a create failure without trapping the user", async () => {
+    const { history } = await renderSetup(
+      {
+        ...LAUNCH_MOCKS,
+        create: {
+          status: 409,
+          body: { errId: "e1", code: "NODE_OFFLINE", message: "The node is offline", statusCode: 409 },
+        },
+      },
+      2,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start my first subshell" }));
+    await waitFor(() => expect(screen.getByText(/offline/i)).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(history.location.pathname).toBe("/setup");
   });
 });
