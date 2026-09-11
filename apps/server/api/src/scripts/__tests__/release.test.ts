@@ -17,6 +17,7 @@ import {
   buildTargets,
   resolveArtifactsDir,
   runEmbed,
+  runEmbedPlugins,
   runRelease,
   SERVER_RELEASE_TRIPLES_ENV,
 } from "../release.js";
@@ -174,7 +175,26 @@ describe("runEmbed (preflight + generator, Task E)", () => {
   });
 });
 
-describe("runRelease (embed → build → publish, ALWAYS restore)", () => {
+describe("runEmbedPlugins (pane-runtime generator)", () => {
+  test("exit 0 passes", async () => {
+    let calls = 0;
+    await runEmbedPlugins({
+      runGenerator: async () => {
+        calls++;
+        return 0;
+      },
+    });
+    expect(calls).toBe(1);
+  });
+
+  test("a failing generator aborts the release with the turbo-build guidance", async () => {
+    await expect(runEmbedPlugins({ runGenerator: async () => 1 })).rejects.toThrow(
+      /embedding the built-in plugins failed.*turbo build/s,
+    );
+  });
+});
+
+describe("runRelease (embeds → build → publish, ALWAYS restore)", () => {
   let workDir = "";
 
   beforeAll(async () => {
@@ -182,16 +202,25 @@ describe("runRelease (embed → build → publish, ALWAYS restore)", () => {
   });
 
   /** Full pipeline seams: real file-writing build stub + counted embed/publish/restore. */
-  function pipelineDeps(outDir: string, opts: { failTriple?: string; distOk?: boolean } = {}) {
+  function pipelineDeps(
+    outDir: string,
+    opts: { failTriple?: string; distOk?: boolean; pluginEmbedFails?: boolean } = {},
+  ) {
     const calls: string[][] = [];
     const published: Map<string, BuiltArtifact>[] = [];
-    const counts = { restores: 0, embeds: 0 };
+    const counts = { restores: 0, embeds: 0, pluginEmbeds: 0 };
     const deps = {
       embed: {
         distIndexExists: () => opts.distOk ?? true,
         runGenerator: async () => {
           counts.embeds++;
           return 0;
+        },
+      },
+      embedPlugins: {
+        runGenerator: async () => {
+          counts.pluginEmbeds++;
+          return opts.pluginEmbedFails ? 1 : 0;
         },
       },
       build: {
@@ -217,7 +246,7 @@ describe("runRelease (embed → build → publish, ALWAYS restore)", () => {
     return { deps, calls, published, counts };
   }
 
-  test("success: embed → all builds → publish, restore ALWAYS runs", async () => {
+  test("success: embeds → all builds → publish, restore ALWAYS runs", async () => {
     const { deps, calls, published, counts } = pipelineDeps(join(workDir, "pipe-ok"));
     const result = await runRelease(deps, null);
     if (!result.ok) throw new Error(`expected ok, got failure on ${result.failed}`);
@@ -225,6 +254,19 @@ describe("runRelease (embed → build → publish, ALWAYS restore)", () => {
     expect(published).toHaveLength(1);
     expect(published[0]?.size).toBe(SERVER_TARGETS.length);
     expect(counts.embeds).toBe(1);
+    // The compiled server is the one that OWNS the plugin store: without
+    // this step it ships the empty stub and seeds nothing on a real host.
+    expect(counts.pluginEmbeds).toBe(1);
+    expect(counts.restores).toBe(1);
+  });
+
+  test("plugin-embed failure: no builds, no publish, restore STILL ran", async () => {
+    const { deps, calls, published, counts } = pipelineDeps(join(workDir, "pipe-plugin-embed-fail"), {
+      pluginEmbedFails: true,
+    });
+    await expect(runRelease(deps, null)).rejects.toThrow(/embedding the built-in plugins failed/s);
+    expect(calls).toHaveLength(0);
+    expect(published).toHaveLength(0);
     expect(counts.restores).toBe(1);
   });
 
