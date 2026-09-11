@@ -238,6 +238,25 @@ Either move them to a "the screen refuses to arm" line, or say that
 `desktop_reset` re-validates the plan and can still answer `Err` for them.
 Both are defensible; leaving the list describing the pre-capture chain is not.
 
+## Review disposition, round 3 (2026-09-11)
+
+Three findings (R18-R20, full text in git history at `a99b5d4`); all held,
+and R18 named a hole the R14 fix had actually left open rather than a
+misreading.
+
+- **R18** (plan holder unstated): the plan lives in Rust app state, stashed
+  by the `desktop_open_console({screen: "reset"})` handler that performs the
+  screen-open read (§ 6, § 7.2 step 1). `desktop_reset`'s argument list is
+  exactly the typed hostname, refused on an empty stash; § 11 pins the
+  signature so "the page passes paths" is unrepresentable, which is what
+  § 7.1's own sentence had been claiming all along.
+- **R19** (closing paragraph argued for the pre-capture chain): rewritten to
+  what actually converges retries, captured plan plus absence-is-success,
+  with the fresh-screen-open re-read justified by config.env's last-death.
+- **R20** (Err list named the wrong moments): § 10 now splits command-time
+  refusals from screen-time ones, with the empty stash as the mechanism that
+  makes an unarmed screen unactionable from either side.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
@@ -489,12 +508,14 @@ argument is the entire boundary change, chosen to stay small:
   true and the ACL file gains no permission for `main`.
 - Rust parses `screen` as a closed enum. Absent and unknown values both mean
   the plain console screen; the enum parse is tested.
-- Delivery: Rust stashes the requested screen in app state, raises (or
-  creates) the console, and emits a `desktop-screen` event at the window when
-  its page is ready (on page load for a fresh window, immediately for a live
-  one). The console page already has `core:default`, so listening is covered.
-  The event switches the console page to its second view, the reset screen;
-  there is no URL or path involved.
+- Delivery: Rust stashes the requested screen in app state and, for
+  `reset`, also performs the § 7.2 step-1 read and stashes the validated
+  delete plan (R18); it then raises (or creates) the console and emits a
+  `desktop-screen` event at the window when its page is ready (on page load
+  for a fresh window, immediately for a live one). The console page already
+  has `core:default`, so listening is covered. The event switches the
+  console page to its second view, the reset screen; there is no URL or path
+  involved, and no path crosses back out of Rust.
 
 The honest worst case of the new reach, recorded in `docs/security.md`: an XSS
 in a control plane's SPA can now raise this app's window **to a confirmation
@@ -597,10 +618,21 @@ and **retry converges** because every step tolerates having half-happened.
    must not mean "delete a subset and report success", which is R1's quiet
    under-delete wearing a different hat. What the read resolves is both the
    confirmation screen's list and the **delete plan** the chain executes,
-   held for the screen's life; Retry re-runs the captured plan rather than
-   re-deriving from a machine that may no longer be able to answer (R14).
-   Nothing is deleted from a machine whose state cannot be read, and the
-   machine is only read while it still can be.
+   and the plan lives in **Rust app state**, not the webview (R18): the
+   `desktop_open_console({screen: "reset"})` handler that already decides
+   which screen to raise performs this read and stashes the validated plan,
+   the same way § 6 stashes the screen itself. The page renders its path
+   list from the probe's forwarded status body; it supplies paths to nothing
+   ever, and `desktop_reset` takes exactly one argument, the typed hostname.
+   Called with no plan stashed, it refuses: that means the screen was never
+   opened, or the app restarted since, and the confirmation belongs to a
+   machine state nobody has just read. The stash exists only when the read
+   validated, so the two screen-refusal conditions below ("cannot be read",
+   "block malformed") double as command refusals with no extra machinery.
+   Retry re-runs the stashed plan rather than re-deriving from a machine
+   that may no longer be able to answer (R14). Nothing is deleted from a
+   machine whose state cannot be read, and the machine is only read while
+   it still can be.
 2. **Stop.** `service stop`. "Not installed" and "not running" are tolerable
    answers, taken from the CLI's own exit behavior, not re-litigated here.
 3. **Close orphan panes.** Each pane is its own tmux server on a socket named
@@ -673,11 +705,14 @@ and **retry converges** because every step tolerates having half-happened.
    wizard at Welcome. The chain's final result log is shown by the wizard's
    ordinary first probe, not smuggled anywhere.
 
-A failure mid-chain leaves the reset screen up with verbatim output and Retry.
-The half-deleted machine is exactly the state Retry walks out of: step 1 still
-answers (deleting data does not silence `status`; `configEnv.exists` and the
-`paths` block still resolve to their configured locations), and delete steps
-tolerate absence.
+A failure mid-chain leaves the reset screen up with verbatim output and
+Retry. What makes Retry converge is that the plan was captured while the
+machine could still be read and is re-run without re-deriving anything: a
+planned path already gone is success, not a refusal (step 5). The only
+re-read that ever happens is a fresh screen-open, and that stays safe
+because `config.env`, the file every derived path hangs off, is the chain's
+last deletion: an interrupted-and-restarted flow re-derives the same plan
+right up until the moment there is nothing left to derive.
 
 ## 8. The one server-side addition
 
@@ -715,7 +750,7 @@ consulted. No `PERMITTED_CROSSINGS` entry is needed either way.)
 | `desktop_probe` | marks onboarded on first Ready; `Probe.onboarded` and `Probe.hostname` | behavior + fields |
 | `desktop_setup` | optional `InitPayload` argument (four fields, serde-default) | additive argument |
 | `desktop_open_console` | optional `screen` argument, closed enum | additive argument |
-| `desktop_reset` | new, console-only; executes the plan captured when the screen opened | new command + permission |
+| `desktop_reset` | new, console-only; takes only the typed hostname and executes the delete plan stashed in Rust app state when the screen opened | new command + permission |
 | `status --json` | `paths: { dataDir, database, logsDir, nodeArtifacts }` | additive field |
 | `desktop-core` `Settings::save` | temp-file + rename (was one `fs::write`) | bugfix, pinned |
 | `pane-runtime` `cleanSocket` | resolve via `tmuxSocketPath`, not `TMPDIR ?? /tmp` | bugfix, pinned |
@@ -735,9 +770,12 @@ consulted. No `PERMITTED_CROSSINGS` entry is needed either way.)
   `guard()`'s settle is today, which is why "skip while in flight" cannot
   strangle it.
 - `desktop_reset` is `Result<ActionResult, String>`: an `Err` is a refusal to
-  start (hostname mismatch, unreadable status, missing `paths` block, refused
-  deletion guard), never a half-run; a half-run is `ok: false` with the log
-  showing where it stopped.
+  start (hostname mismatch, no plan stashed, refused deletion guard), never
+  a half-run; a half-run is `ok: false` with the log showing where it
+  stopped. Unreadable status and a malformed `paths` block fail a moment
+  earlier: they leave nothing stashed and the confirmation screen unarming
+  (R20), which `desktop_reset` then also refuses on the empty stash, so the
+  page cannot walk past them either.
 
 ## 11. Testing
 
@@ -778,6 +816,9 @@ across the boundary they drift across.
 - plan capture (R14): Retry deletes the captured set after the machine has
   changed underneath, and a planned path that is absent at execution time
   converges as success rather than refusing.
+- plan ownership (R18): `desktop_reset` is refused with nothing stashed, and
+  its argument list is pinned to exactly the typed hostname, so "the page
+  passes paths" is unrepresentable rather than merely discouraged.
 - `paths` block validation (R17): absent, present-but-missing-a-field,
   empty, and relative each produce the § 7.1 refusal; only four absolute
   paths arm the screen.
