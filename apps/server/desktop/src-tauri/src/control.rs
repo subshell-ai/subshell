@@ -14,6 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -75,6 +76,21 @@ pub struct Probe {
     /// on a clean machine the console reaches those steps with `status` still
     /// null. Learning about it at the refusal is learning too late.
     pub tmux: Option<String>,
+    /// The OS in the names the console branches on: "linux", "darwin", …
+    ///
+    /// The console's install offers branch on the machine; the webview's own
+    /// UA sniff (`navigator.userAgent`) was the old source, and a UA string is
+    /// a guess where this is the fact `tmux_install_argv` will act on.
+    /// Normalized through [`console_platform`] because the two sides speak
+    /// different dialects, and a "macos" here silently drops every Mac user
+    /// into the no-button fallback.
+    pub platform: String,
+    /// Whether `brew` resolves on the login PATH.
+    ///
+    /// Asked where `tmux` is, for the same reason: a Mac without Homebrew gets
+    /// the MacPorts instructions rather than a button that cannot work, and
+    /// the webview has no way to look.
+    pub has_brew: bool,
 }
 
 impl Default for Probe {
@@ -89,6 +105,8 @@ impl Default for Probe {
             next: ProbeStep::NoServer,
             error: None,
             tmux: None,
+            platform: String::new(),
+            has_brew: false,
         }
     }
 }
@@ -257,6 +275,8 @@ fn probe_now(configured: Option<&str>) -> Probe {
         server,
         managed,
         tmux: subshell_desktop_core::shell_env::which("tmux"),
+        platform: console_platform().to_string(),
+        has_brew: subshell_desktop_core::shell_env::which("brew").is_some(),
         ..Default::default()
     };
 
@@ -423,6 +443,60 @@ impl SetupStep {
             SetupStep::Start => Ok(service_now(settings, ServiceCommand::Start, false)),
         }
     }
+}
+
+/// A package install is not a probe. `ACTION_TIMEOUT` is sized for a CLI
+/// answering a question; fetching and unpacking a package over a slow link
+/// routinely takes minutes, and timing that out mid-write is worse than
+/// waiting.
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// The OS name the console understands: the web convention `installers.js`
+/// branches on ("darwin"), not `std::env::consts::OS`'s "macos". The Linux
+/// and every other spelling already agrees.
+fn console_platform() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    }
+}
+
+/// Install tmux with the platform's own package manager.
+///
+/// Never bundled: see `ui/installers.js` for the accounting. This runs what a
+/// user would have run in a terminal, with their own privileges, and reports
+/// the manager's own output verbatim — including the fallback to `detail()`
+/// when the spawn itself is what failed, so a refused or timed-out install
+/// never reads back as an empty success.
+#[tauri::command(async)]
+pub fn desktop_install_tmux() -> Result<ActionResult, String> {
+    let argv = tmux_install_argv().ok_or("no package manager this app can drive")?;
+    Ok(run(&argv, INSTALL_TIMEOUT).into())
+}
+
+/// The argv that installs tmux here, or None when no manager we can drive is
+/// present.
+///
+/// Mirrors `tmuxInstallPlan` in `ui/installers.js`, which owns the same
+/// decision for the rendering side. Two copies because one runs in a webview
+/// with no process access and one runs where `which` works; they are pinned
+/// against each other by the console test and this module's test.
+fn tmux_install_argv() -> Option<Vec<String>> {
+    let argv = match std::env::consts::OS {
+        // No package manager we can drive without installing one first, and
+        // Homebrew is too large a thing to install on someone's behalf from a
+        // setup screen. The console shows the MacPorts line instead.
+        "macos" => {
+            subshell_desktop_core::shell_env::which("brew")?;
+            vec!["brew", "install", "tmux"]
+        }
+        // pkexec so the user gets their desktop's own password prompt. A bare
+        // sudo spawned from a GUI has no terminal to read a password from and
+        // hangs until the timeout.
+        "linux" => vec!["pkexec", "apt-get", "install", "-y", "tmux"],
+        _ => return None,
+    };
+    Some(argv.into_iter().map(String::from).collect())
 }
 
 /// The `init --yes` argv for one set of console answers.
@@ -1033,6 +1107,30 @@ mod tests {
         let mut p = Probe::default();
         p.decide();
         assert_eq!(p.next, ProbeStep::NoServer);
+    }
+
+    #[test]
+    fn the_probe_names_the_platform_the_way_the_console_branches_on_it() {
+        // `installers.js` speaks the web convention ("darwin"); Rust's own
+        // `consts::OS` says "macos". A host that ships the wrong spelling
+        // shows Mac users the no-button fallback on their commonest path,
+        // with no error anywhere — the classic cross-language drift.
+        let expected = if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            std::env::consts::OS
+        };
+        assert_eq!(console_platform(), expected);
+    }
+
+    #[test]
+    fn tmux_install_never_runs_a_bare_sudo() {
+        // A GUI-spawned sudo has no tty to read a password from: it hangs until
+        // the timeout rather than failing, which reads to the user as a frozen
+        // app. Elevation on Linux goes through pkexec or not at all.
+        if let Some(argv) = tmux_install_argv() {
+            assert_ne!(argv[0], "sudo");
+        }
     }
 
     #[test]

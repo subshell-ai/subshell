@@ -22,6 +22,7 @@ import {
   explicitFields,
   fieldProblems,
 } from "./config-form.js";
+import { tmuxInstallPlan } from "./installers.js";
 
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 const dialog = () => window.__TAURI__.dialog;
@@ -424,6 +425,11 @@ function renderStep() {
   }
   const tmuxMissing = probe !== null && !probe.tmux;
   tmuxWarn.hidden = !tmuxMissing;
+  // Re-read every render, not rebuilt with the step: installing tmux or brew
+  // does not change which step you are on, and a plan decided once would
+  // outlive its own premise. `platform` comes from the probe (a Rust fact)
+  // rather than the UA string this used to sniff.
+  if (tmuxMissing) tmuxWarn.applyPlan(tmuxInstallPlan(probe.platform, probe.hasBrew));
   for (const b of actions.querySelectorAll("button")) {
     if (b.dataset.always === "1") continue;
     b.disabled = busy || (tmuxMissing && b.dataset.tmux === "1");
@@ -445,13 +451,18 @@ function button(label, handler, primary, needsTmux) {
 }
 
 /**
- * tmux advice per platform. The CLI's own interactive preflight offers to run
- * the installer; this is the non-interactive twin for the disabled buttons —
- * the same commands `commands/tmux-install.ts` uses.
+ * The tmux warning: the reason the buttons are gated, and the way out.
+ *
+ * Built ONCE and moved between step rebuilds, so nothing here may read the
+ * probe — it does not exist yet at this moment. Everything plan-dependent
+ * goes through `applyPlan`, which `renderStep` re-runs every render for the
+ * same reason `hidden` is recomputed every render: whatever was decided once
+ * here would survive its own fix (tmux appearing, `brew` appearing).
+ *
+ * The plan is `tmuxInstallPlan` — the platform's own installer, never a
+ * bundled binary. The CLI's interactive preflight offers to run the same
+ * installer; this is the non-interactive twin for the disabled buttons.
  */
-const IS_MAC = /Macintosh|Mac OS X/.test(navigator.userAgent);
-const TMUX_INSTALL_CMD = IS_MAC ? "brew install tmux" : "sudo apt-get install tmux";
-
 function buildTmuxWarning() {
   const wrap = document.createElement("div");
   wrap.className = "tmux-warning";
@@ -461,9 +472,19 @@ function buildTmuxWarning() {
     "tmux was not found on the login PATH. The server launches every pane through it, so installing, " +
     "configuring and starting are disabled until tmux is installed.";
   const row = document.createElement("div");
-  row.className = "row";
+  // Ahead of the command it acts on, when the plan says we can run it at
+  // all: a user who downloaded a GUI should not be sent to a terminal for
+  // the fix a button can perform.
+  const install = document.createElement("button");
+  install.type = "button";
+  install.className = "primary";
+  install.hidden = true;
+  // Wrapped, not passed by name: this function runs at module load, before
+  // the `const doInstallTmux` below exists (a bare name here is a TDZ
+  // ReferenceError and a blank console). A click happens long after
+  // evaluation, when the guard is bound.
+  install.addEventListener("click", () => doInstallTmux());
   const code = document.createElement("code");
-  code.textContent = TMUX_INSTALL_CMD;
   const copy = document.createElement("button");
   copy.type = "button";
   copy.textContent = "Copy";
@@ -472,8 +493,10 @@ function buildTmuxWarning() {
   // while a re-probe is in flight is the worst possible timing.
   copy.dataset.always = "1";
   copy.addEventListener("click", () => {
+    // Copies what is SHOWN: the code line and the clipboard cannot then
+    // disagree, whatever `applyPlan` last wrote there.
     navigator.clipboard
-      .writeText(TMUX_INSTALL_CMD)
+      .writeText(code.textContent)
       .then(() => {
         copy.textContent = "Copied";
       })
@@ -486,8 +509,17 @@ function buildTmuxWarning() {
         }, 1600);
       });
   });
-  row.append(code, copy);
+  row.append(install, code, copy);
   wrap.append(p, row);
+  wrap.applyPlan = (plan) => {
+    install.hidden = plan.kind !== "run";
+    install.textContent = plan.label;
+    // The command line follows the plan rather than a UA guess: on a Mac
+    // without Homebrew there is no button, so this line IS the fix, and the
+    // plan's MacPorts alternative is the honest thing to show — a brew line
+    // would advise installing a tool we just checked is absent.
+    code.textContent = plan.command.join(" ");
+  };
   return wrap;
 }
 
@@ -706,6 +738,14 @@ const doSetup = guard(async () => {
   if (probe?.next === "ready") await invoke("desktop_open_main");
   return result;
 }, true);
+
+/**
+ * Run the platform's own tmux installer. No settle: tmux appearing changes
+ * nothing about the server — the guard's ordinary re-probe lifts the warning,
+ * enables every gated button, and the package manager's own output goes to
+ * the pane verbatim. The user then presses what they were going to press.
+ */
+const doInstallTmux = guard(() => invoke("desktop_install_tmux"));
 
 /**
  * Replacing the installed server stops it first, which ends every running

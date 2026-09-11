@@ -327,7 +327,11 @@ describe("the console's own asset root and stylesheet", () => {
     };
 
     for (const label of [
-      "Install server",
+      // "Set up and start" is the one press that runs the whole chain, so it
+      // inherits the "Install server" gate it replaced: the chain ends in
+      // `init` and `service install`, both of which the CLI refuses without
+      // tmux.
+      "Set up and start",
       "Save and start",
       "Install and start as a service",
       "Start",

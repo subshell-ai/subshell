@@ -30,6 +30,11 @@ description = "Install the bundled subshell-server to ~/.local/bin, stopping the
 commands.allow = ["desktop_install_server"]
 
 [[permission]]
+identifier = "allow-desktop-install-tmux"
+description = "Install tmux with the platform's own package manager (brew on macOS where present, pkexec apt-get on Linux). Runs the same command the user would run in a terminal, with their own privileges."
+commands.allow = ["desktop_install_tmux"]
+
+[[permission]]
 identifier = "allow-desktop-setup"
 description = "The whole first-run chain in one call: install the bundled server, write config.env with the CLI's defaults, register the login service, start it. Stops at the first failure. Console-only: the server-origin page gets no part of the CLI."
 commands.allow = ["desktop_setup"]
