@@ -43,6 +43,28 @@ describe("buildHarnessCommand", () => {
       ),
     ).toThrow(/Invalid harness env var name/);
   });
+  it("forwards the reporter to the plugin, so hooks name a binary the PANE has", () => {
+    // The pane's machine is only guaranteed to have the subshell binary — see
+    // `ReporterSpec`. A launch that dropped this on the floor is how the hooks
+    // came to say `bun`, which most machines do not have.
+    const claude = getHarness("claude-code");
+    if (!claude) throw new Error("claude-code plugin missing");
+    const cmd = buildHarnessCommand(
+      claude,
+      "/usr/bin/claude",
+      "/home/u/proj",
+      { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
+      "sess1",
+      {},
+      undefined,
+      undefined,
+      { command: "/usr/local/bin/subshell-server", args: ["report"] },
+    );
+    expect(cmd).toContain("/usr/local/bin/subshell-server");
+    expect(cmd).toContain("attention");
+    expect(cmd).not.toContain("bun -e");
+  });
+
   it("keeps ENV_KEY_RE canonical", () => {
     expect(ENV_KEY_RE.test("SUBSHELL_API_KEY")).toBe(true);
     expect(ENV_KEY_RE.test("1BAD")).toBe(false);

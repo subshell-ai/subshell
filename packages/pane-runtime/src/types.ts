@@ -26,6 +26,7 @@ export {
   type ProfileDefinition,
   type ProfileValidationIssue,
   type ProfileValidationResult,
+  type ReporterSpec,
   type SettingsField,
 } from "@subshell-ai/plugin-api";
 

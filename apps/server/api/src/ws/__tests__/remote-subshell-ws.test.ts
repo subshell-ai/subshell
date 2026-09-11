@@ -110,7 +110,7 @@ function makeNodeSim() {
     capabilities: ["mcp"],
     hostname: "box",
     agentVersion: "0.2.0",
-    mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
+    selfInvoke: { command: "/usr/bin/subshell", args: [] },
   };
 
   return {

@@ -38,9 +38,48 @@ const BLANK: ProfileDefinition = {
   configIsolation: false,
 };
 
+/**
+ * The reporter every claude-code case carries. The legacy class predates the
+ * field and ignores it; the extracted plugin needs one to emit hooks at all,
+ * so without it the two would differ by the whole `--settings` argument
+ * instead of by the one thing that deliberately changed.
+ */
+const REPORTER = { command: "/bin/subshell-server", args: ["report"] };
+
 /** The fields every case shares; a case overrides only what it is testing. */
 function input(over: Partial<BuildCommandInput>): BuildCommandInput {
-  return { binary: "/bin/claude", cwd: "/tmp/work", profile: BLANK, subshellName: "", ...over };
+  return {
+    binary: "/bin/claude",
+    cwd: "/tmp/work",
+    profile: BLANK,
+    subshellName: "",
+    reporter: REPORTER,
+    ...over,
+  };
+}
+
+/**
+ * The argv with each hook COMMAND replaced by a marker — the one deliberate
+ * post-extraction divergence, normalized so the rest of the comparison keeps
+ * working.
+ *
+ * The legacy class runs `bun -e '<inlined JS>'`, which assumed a bun on the
+ * pane's PATH; the extracted plugin re-enters the subshell binary instead,
+ * because most machines have no bun and every session opened on
+ * `bun: command not found`. Everything else about the hooks — which events
+ * carry one, their shape, that profile settings merge underneath — still
+ * compares exactly, and so does every other argv element.
+ */
+function normalizeHookCommands(argv: string[]): string[] {
+  const idx = argv.indexOf("--settings");
+  if (idx === -1) return argv;
+  const settings = JSON.parse(argv[idx + 1]) as { hooks?: Record<string, { hooks: { command: string }[] }[]> };
+  for (const entries of Object.values(settings.hooks ?? {})) {
+    for (const entry of entries) {
+      for (const hook of entry.hooks) hook.command = "<reporter invocation>";
+    }
+  }
+  return argv.map((a, i) => (i === idx + 1 ? JSON.stringify(settings) : a));
 }
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
@@ -92,7 +131,7 @@ describe("claude-code parity", () => {
     it(`builds the same argv: ${c.name}`, async () => {
       const legacy = new ClaudeCodePlugin().buildCommand(c.input);
       const loaded = await loadExtracted();
-      expect(loaded.buildCommand(c.input)).toEqual(legacy);
+      expect(normalizeHookCommands(loaded.buildCommand(c.input))).toEqual(normalizeHookCommands(legacy));
     });
   }
 

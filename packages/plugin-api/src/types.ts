@@ -95,6 +95,40 @@ export interface BuildCommandInput {
    * pointed at a file the host found there).
    */
   harnessSession?: { id: string; mode: "start" | "resume" };
+  /**
+   * How a harness hook re-enters the subshell binary on the PANE's machine, as
+   * the host resolved it for that machine: `{ command, args }` with the
+   * reporting subcommand already appended, so a plugin adds only its own verb
+   * words. Splice it into whatever hook mechanism the harness has.
+   *
+   * A hook runs where the pane runs, and the only program guaranteed to exist
+   * there is the binary that launched the pane — which is why this arrives
+   * from the host rather than being a command a plugin writes for itself. The
+   * hooks here were once `bun -e '<inlined JS>'`, and every machine without a
+   * bun on its PATH (i.e. most of them) opened its harness on
+   * `bun: command not found`.
+   *
+   * Undefined means the host could not resolve one. OMIT the hooks then: a
+   * command the pane cannot run costs the same signal and adds an error to
+   * every session.
+   */
+  reporter?: ReporterSpec;
+}
+
+/**
+ * A command prefix that re-enters the subshell binary on a pane's machine,
+ * ready for a plugin's own verb words to be appended.
+ *
+ * Shaped like {@link McpLaunchSpec} and resolved from the same host question
+ * ("am I a compiled binary, or is `bun` running my entry script?"), but kept
+ * separate because they carry different subcommands and the MCP one is
+ * operator-overridable while this one is not.
+ */
+export interface ReporterSpec {
+  /** Executable to run (the binary itself, or the interpreter running it). */
+  command: string;
+  /** Everything before the plugin's verb words (any entry script, then the subcommand). */
+  args: string[];
 }
 
 /**

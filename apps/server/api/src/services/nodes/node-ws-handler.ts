@@ -274,7 +274,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           capabilities: event.capabilities,
           hostname: event.hostname,
           agentVersion: event.agentVersion,
-          ...(event.mcpLaunch ? { mcpLaunch: event.mcpLaunch } : {}),
+          ...(event.selfInvoke ? { selfInvoke: event.selfInvoke } : {}),
           // Spec 2026-09-10 §5: the resume-path home. Conditional spread,
           // never bare `homeDir: event.homeDir` — an unreported field must
           // stay ABSENT on the facts (that is the state `canResume` reads as

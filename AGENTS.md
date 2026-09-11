@@ -149,6 +149,15 @@ Three facts about the shape, each measured rather than assumed:
   binary read JSON only, and a machine can be probed for `claude` without
   plugin code ever loading there — the `detect` block ships to the node as
   data (spec 2026-09-10 §4).
+- **A plugin names no program of its own on a pane's machine.** Anything it
+  needs to RUN there — a harness hook's command line, say — arrives as a
+  resolved `{ command, args }` from the host (`BuildCommandInput.reporter`),
+  because the only program guaranteed to exist beside a pane is the subshell
+  binary that launched it, and which binary that is differs between the
+  control-plane host and every node. A plugin handed none omits the feature
+  rather than guessing. This was learned the hard way: claude-code's hooks
+  were `bun -e '<inlined JS>'`, which was true of the container image and
+  false of every desktop install.
 - **Built-ins are imported STATICALLY; only runtime-installed plugins use the
   loader.** Built-ins live inside the binary, so `bun build --compile` has to
   see them and a first run needs no network. `plugin-runtime.ts` holds the

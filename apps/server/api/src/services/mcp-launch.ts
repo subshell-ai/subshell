@@ -60,6 +60,24 @@ export function subshellMcpConfigPath(subshellId: string): string {
 }
 
 /**
+ * Appends a subcommand to a node's reported self-invocation prefix.
+ *
+ * The agent reports HOW to re-enter its binary once (`selfInvoke`, from its
+ * own `selfInvokePrefix`) and the plane appends the verb it needs — `mcp` for
+ * a pane's MCP registration, `report` for the harness hooks. A node that
+ * reported none falls back to the binary's installed name on PATH, which is
+ * what every enrolled machine has.
+ * @param facts - the node's live facts (only `selfInvoke` is read)
+ * @param subcommand - the verb to append
+ */
+export function nodeSelfInvoke(facts: Pick<NodeAgentFacts, "selfInvoke">, subcommand: string): McpLaunchSpec {
+  const prefix = facts.selfInvoke;
+  return prefix
+    ? { command: prefix.command, args: [...prefix.args, subcommand] }
+    : { command: "subshell", args: [subcommand] };
+}
+
+/**
  * The PURE (no-disk-write) mirror of {@link registerSubshellMcp} for AGENT
  * nodes (spec §6.4): computes the same harness dialect but against the
  * node's own filesystem. The spawn command is the AGENT'S OWN
@@ -89,11 +107,9 @@ export function subshellMcpConfigPath(subshellId: string): string {
 export function planRemoteSubshellMcp(
   harness: HarnessPlugin,
   subshellId: string,
-  facts: Pick<NodeAgentFacts, "dataDir" | "mcpLaunch">,
+  facts: Pick<NodeAgentFacts, "dataDir" | "selfInvoke">,
 ): { reg: McpRegistration; configPath: string } | undefined {
-  const launch: McpLaunchSpec = facts.mcpLaunch
-    ? { command: facts.mcpLaunch.command, args: [...facts.mcpLaunch.args] }
-    : { command: "subshell", args: ["mcp"] };
+  const launch = nodeSelfInvoke(facts, "mcp");
   const configPath = `${facts.dataDir}/mcp/${subshellId}.json`;
   const reg = harness.mcpRegistration?.(launch, configPath);
   if (!reg) return undefined;

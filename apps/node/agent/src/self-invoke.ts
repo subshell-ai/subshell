@@ -63,9 +63,26 @@ function looksLikeEntryScript(argv1: string): boolean {
  *    compiled, which is what it is.
  */
 export function selfInvocation(subcommand: string, deps?: SelfInvokeDeps): SelfInvocation {
+  const prefix = selfInvokePrefix(deps);
+  return { command: prefix.command, args: [...prefix.args, subcommand] };
+}
+
+/**
+ * The same decision WITHOUT a subcommand — how to name this binary, full stop.
+ *
+ * This is what the `ready` frame reports, because the control plane re-enters
+ * the agent for more than one thing: `mcp` for a pane's MCP registration, and
+ * `report` for the harness hooks that tell it a turn finished or a
+ * conversation id changed. Reporting the prefix once and appending the verb
+ * there keeps that a single fact about the host; a field per verb would be the
+ * same answer stored twice, free to drift.
+ *
+ * @param deps - the running process's pieces (default: this process's own)
+ */
+export function selfInvokePrefix(deps?: SelfInvokeDeps): SelfInvocation {
   const execPath = deps?.execPath ?? process.execPath;
   const argv1 = deps?.argv1 ?? process.argv[1] ?? "";
-  if (basename(execPath).startsWith("subshell")) return { command: execPath, args: [subcommand] };
-  if (looksLikeEntryScript(argv1)) return { command: execPath, args: [resolve(argv1), subcommand] };
-  return { command: execPath, args: [subcommand] };
+  if (basename(execPath).startsWith("subshell")) return { command: execPath, args: [] };
+  if (looksLikeEntryScript(argv1)) return { command: execPath, args: [resolve(argv1)] };
+  return { command: execPath, args: [] };
 }

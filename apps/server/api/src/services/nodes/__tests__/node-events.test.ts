@@ -161,7 +161,7 @@ describe("subscribeOutput / dispatchOutput (spec §3.3)", () => {
 /* ------------------- agent facts on `ready` ---------------------- */
 
 describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
-  it("sets ws.data.nodeConn.agent EXACTLY from the frame when mcpLaunch is present", async () => {
+  it("sets ws.data.nodeConn.agent EXACTLY from the frame when selfInvoke is present", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     handleNodeOpen(ws);
@@ -173,7 +173,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       ws,
       JSON.stringify(
         readyFrame({
-          mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+          selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
           homeDir: "/home/u",
         }),
       ),
@@ -184,14 +184,14 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       capabilities: ["uploads"],
       hostname: "box",
       agentVersion: MIN_AGENT_VERSION,
-      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+      selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
       homeDir: "/home/u",
     });
   });
 
   it("a ready frame carries NO env: the resume-path values arrive on detect, and ready cannot stash them", async () => {
     // R14b: the field left the wire. A frame bearing `env` parses (unknown
-    // keys pass) but must NEVER reach the facts — and the mcpLaunch/homeDir
+    // keys pass) but must NEVER reach the facts — and the selfInvoke/homeDir
     // halves stay ABSENT when unreported, never undefined-valued keys a
     // later `in`-check would misread.
     const h = makeHarness();
@@ -208,7 +208,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       hostname: "box",
       agentVersion: MIN_AGENT_VERSION,
     });
-    for (const key of ["mcpLaunch", "homeDir", "env"] as const) {
+    for (const key of ["selfInvoke", "homeDir", "env"] as const) {
       expect(conn.agent && key in conn.agent).toBe(false);
     }
   });

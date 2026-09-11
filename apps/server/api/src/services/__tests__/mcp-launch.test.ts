@@ -29,14 +29,14 @@ describe("planRemoteSubshellMcp", () => {
   // The Critical chain (final review R14a): the node writes the registration
   // fileContent VERBATIM (launch.ts, no recompute), so the command+args
   // composed HERE are the only thing the pane will ever spawn. An agent's
-  // `mcpLaunch` (ready frame, `selfInvocation`) is the sole authority on what
+  // `selfInvoke` (ready frame, `selfInvocation`) is the sole authority on what
   // starts `subshell mcp` on that machine — a bare `process.execPath` gave
   // every dev-run agent's panes a `bun mcp` that cannot start.
 
-  it("composes from the agent's mcpLaunch verbatim, interpreter shape included", () => {
+  it("composes from the agent's selfInvoke verbatim, interpreter shape included", () => {
     const plan = planRemoteSubshellMcp(getHarness("claude-code")!, "sshp_interp", {
       dataDir: "/d",
-      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+      selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
     });
     expect(plan).toBeDefined();
     // The dialect embeds the command as one string (claude: `command` +
@@ -48,7 +48,7 @@ describe("planRemoteSubshellMcp", () => {
     expect(content.mcpServers.subshell.args).toEqual(["/opt/subshell/src/index.ts", "mcp"]);
   });
 
-  it("absent mcpLaunch falls back to `subshell` mcp on PATH, as before", () => {
+  it("absent selfInvoke falls back to `subshell` mcp on PATH, as before", () => {
     const plan = planRemoteSubshellMcp(getHarness("claude-code")!, "sshp_fallbk", { dataDir: "/d" });
     const content = JSON.parse(plan!.reg.fileContent) as {
       mcpServers: { subshell: { command: string; args: string[] } };
@@ -58,9 +58,9 @@ describe("planRemoteSubshellMcp", () => {
   });
 
   it("the composed args are a copy — later fact refreshes cannot mutate a shipped plan", () => {
-    const mcpLaunch = { command: "/usr/bin/subshell", args: ["mcp"] };
-    const plan = planRemoteSubshellMcp(getHarness("claude-code")!, "sshp_copy01", { dataDir: "/d", mcpLaunch });
-    mcpLaunch.args = ["poisoned"];
+    const selfInvoke = { command: "/usr/bin/subshell", args: [] as string[] };
+    const plan = planRemoteSubshellMcp(getHarness("claude-code")!, "sshp_copy01", { dataDir: "/d", selfInvoke });
+    selfInvoke.args = ["poisoned"];
     const content = JSON.parse(plan!.reg.fileContent) as { mcpServers: { subshell: { args: string[] } } };
     expect(content.mcpServers.subshell.args).toEqual(["mcp"]);
   });

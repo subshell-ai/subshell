@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { shellQuote } from "./shell.js";
-import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "./types.js";
+import type { HarnessPlugin, McpRegistration, ProfileDefinition, ReporterSpec } from "./types.js";
 
 /**
  * POSIX shell variable names: a leading letter/underscore then word chars.
@@ -36,8 +36,9 @@ export function buildHarnessCommand(
   subshellEnv: Record<string, string> = {},
   mcp?: McpRegistration,
   harnessSession?: { id: string; mode: "start" | "resume" },
+  reporter?: ReporterSpec,
 ): string {
-  const argv = harness.buildCommand({ binary, cwd, profile, subshellName, mcp, harnessSession });
+  const argv = harness.buildCommand({ binary, cwd, profile, subshellName, mcp, harnessSession, reporter });
   return assembleHarnessCommand(argv, profile, subshellEnv, mcp?.env);
 }
 

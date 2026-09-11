@@ -71,8 +71,11 @@ describe("service subtoken parsing", () => {
     expect(res.err).toInclude("install or uninstall");
   });
 
-  test("a second bare token is rejected like an unknown flag", () => {
-    expect(() => parseArgs(["service", "install", "extra"])).toThrow(/unknown flag 'extra'/);
+  test("a second bare token is rejected, naming the subtoken that takes none", () => {
+    // `report attention <kind>` introduced a second positional slot; every
+    // OTHER subtoken must still refuse one, and say so as itself rather than
+    // calling a bare word a flag.
+    expect(() => parseArgs(["service", "install", "extra"])).toThrow(/service install takes no argument/);
   });
 
   test("each subcommand takes only ITS OWN flags (--json is the view's, --force is restart's)", () => {
@@ -429,6 +432,6 @@ describe("plugin is gone from the CLI (inversion §6)", () => {
     // removal must not turn `service status extra` or `status extra` into
     // accepted no-ops.
     expect(() => parseArgs(["status", "extra"])).toThrow(/unknown flag 'extra'/);
-    expect(() => parseArgs(["service", "install", "extra"])).toThrow(/unknown flag 'extra'/);
+    expect(() => parseArgs(["service", "install", "extra"])).toThrow(/service install takes no argument/);
   });
 });

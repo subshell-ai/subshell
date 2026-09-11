@@ -1,6 +1,6 @@
 import { readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
-import { runSubshellMcp } from "@internal/mcp-core";
+import { runReport, runSubshellMcp } from "@internal/mcp-core";
 import { licenseNotice } from "@internal/subshell-protocol";
 import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { runInit } from "@/commands/init.js";
@@ -97,6 +97,12 @@ export interface CliDeps {
    * dispatch wiring without opening a real stdio loop.
    */
   mcpRun?: () => Promise<void>;
+  /**
+   * Harness-hook reporter for the `report` subcommand (default: `runReport`
+   * from `@internal/mcp-core`). Injectable so tests pin the dispatch wiring
+   * without a transport.
+   */
+  reportRun?: (argv: string[]) => Promise<void>;
   /** Interactive-TTY signal for the command flows (default: `process.stdin.isTTY`). */
   isTTY?: boolean;
   /** Runtime platform for `service`/`status` (default: `process.platform`). */
@@ -137,6 +143,8 @@ usage:
   subshell-server service stop       stop it (the definition stays installed)
   subshell-server service restart    restart it (--force to override the live-pane refusal)
   subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
+  subshell-server report attention turn_complete|needs_attention
+  subshell-server report session     report a pane's state (run by harness hooks, not by hand)
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
                       --trusted-origins <origin,origin>   other addresses browsers will
@@ -214,6 +222,20 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       exit(0);
       return true;
     }
+    // Out-of-band reporting from a harness hook (`report attention <kind>`,
+    // `report session`). Spawned by hooks, never typed by humans — which is
+    // why it can only ever exit 0: a hook's exit code and stderr land in the
+    // user's session, and the reports themselves are fire-and-forget (a lost
+    // one costs a notification, never a turn). `runReport` swallows its own
+    // failures; the catch here is for anything an injected runner throws.
+    case "report":
+      try {
+        await (deps.reportRun ?? runReport)(argv.slice(1));
+      } catch {
+        // Deliberately silent — see above.
+      }
+      exit(0);
+      return true;
     // The pane-spawned MCP stdio server (spec 2026-09-03): the ONLY
     // long-running command — legal because the graph evaluates IO-free (lazy
     // getAuth) and `isCliEngaged()` (set above, synchronously) keeps the boot

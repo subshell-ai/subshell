@@ -74,7 +74,7 @@ export interface NodeAgentFacts {
    * is not a command). Absent = the agent sent none; the registration then
    * falls back to `subshell mcp` on PATH.
    */
-  mcpLaunch?: { command: string; args: string[] };
+  selfInvoke?: { command: string; args: string[] };
   /**
    * The node's home directory, reported at `ready` (spec 2026-09-10 §5) —
    * the fallback root for resume paths the control plane computes. Absent

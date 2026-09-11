@@ -5,6 +5,12 @@ import createPlugin, { manifest } from "../index.js";
 
 const plugin = createPlugin(createTestHost());
 
+/**
+ * The reporter a control plane resolves for the pane's own machine — present
+ * on every real launch, so the argv-shape cases below carry it too.
+ */
+const reporter = { command: "/usr/local/bin/subshell-server", args: ["report"] };
+
 describe("ClaudeCodePlugin.exitStatus", () => {
   const p = createPlugin(createTestHost());
   it("maps known codes", () => {
@@ -42,6 +48,7 @@ describe("ClaudeCodePlugin", () => {
       cwd: "/tmp/ws",
       subshellName: "",
       profile: emptyProfile(),
+      reporter,
     });
     expect(cmd).toEqual(["/usr/bin/claude", "--settings", expect.any(String)]);
     expect(JSON.parse(cmd[2]).hooks).toBeDefined();
@@ -59,6 +66,7 @@ describe("ClaudeCodePlugin", () => {
         settings: { permissionMode: "plan", model: "sonnet" },
         configIsolation: false,
       },
+      reporter,
     });
     expect(cmd[0]).toBe("/usr/bin/claude");
     expect(cmd).toContain("--settings");
@@ -87,6 +95,7 @@ describe("ClaudeCodePlugin", () => {
         settings: null,
         configIsolation: false,
       },
+      reporter,
     });
     expect(cmd).toEqual(["/usr/bin/claude", "--settings", expect.any(String), "--append-system-prompt", "be nice"]);
   });
@@ -152,6 +161,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
       profile: emptyProfile(),
       subshellName: "",
       harnessSession: { id: "11111111-1111-4111-8111-111111111111", mode: "start" },
+      reporter,
     });
     expect(cmd).toEqual([
       "/usr/bin/claude",
@@ -169,6 +179,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
       profile: emptyProfile(),
       subshellName: "x",
       harnessSession: { id: "11111111-1111-4111-8111-111111111111", mode: "resume" },
+      reporter,
     });
     expect(cmd).toEqual([
       "/usr/bin/claude",
@@ -251,26 +262,86 @@ describe("ClaudeCodePlugin attention hooks", () => {
     expect(plugin.supportsAttentionHooks).toBe(true);
   });
 
-  it("always emits --settings carrying Stop and Notification hooks", () => {
+  /** Pulls the hooks object out of a built command's --settings JSON. */
+  function hooksOf(cmd: string[]): Record<string, [{ hooks: [{ command: string }] }] | undefined> {
+    const idx = cmd.indexOf("--settings");
+    expect(idx).toBeGreaterThan(-1);
+    const settings = JSON.parse(cmd[idx + 1]) as {
+      hooks?: Record<string, [{ hooks: [{ command: string }] }]>;
+    };
+    return settings.hooks ?? {};
+  }
+
+  it("emits Stop and Notification hooks that re-enter the reporter binary", () => {
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        profile: emptyProfile(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+
+    expect(hooks.Stop?.[0].hooks[0].command).toBe(
+      "'/usr/local/bin/subshell-server' 'report' 'attention' 'turn_complete'",
+    );
+    expect(hooks.Notification?.[0].hooks[0].command).toBe(
+      "'/usr/local/bin/subshell-server' 'report' 'attention' 'needs_attention'",
+    );
+  });
+
+  /**
+   * The regression this whole path exists for: the hooks used to be
+   * `bun -e '<inlined JS>'`, which assumed a bun on the pane PATH. True of the
+   * container image the assumption was written for, false of every desktop
+   * install — where Claude Code opened with `/bin/sh: bun: command not found`
+   * and neither notifications nor conversation identity ever worked.
+   */
+  it("names NO interpreter: a pane's machine is only guaranteed to have this binary", () => {
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        profile: emptyProfile(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+
+    for (const event of Object.keys(hooks)) {
+      const command = hooks[event]?.[0].hooks[0].command ?? "";
+      expect(command.startsWith("'/usr/local/bin/subshell-server' 'report' ")).toBe(true);
+      expect(command).not.toContain("bun");
+      expect(command).not.toContain("fetch(");
+    }
+  });
+
+  it("carries an interpreted reporter's entry script through, quoted", () => {
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        profile: emptyProfile(),
+        subshellName: "",
+        reporter: { command: "/usr/local/bin/bun", args: ["/opt/my subshell/index.ts", "report"] },
+      }),
+    );
+
+    expect(hooks.Stop?.[0].hooks[0].command).toBe(
+      "'/usr/local/bin/bun' '/opt/my subshell/index.ts' 'report' 'attention' 'turn_complete'",
+    );
+  });
+
+  it("omits the hooks entirely when no reporter resolved — never a command the pane cannot run", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       profile: emptyProfile(),
       subshellName: "",
     });
-    const idx = cmd.indexOf("--settings");
-    expect(idx).toBeGreaterThan(-1);
-    const settings = JSON.parse(cmd[idx + 1]) as {
-      hooks: { Stop?: unknown[]; Notification?: unknown[] };
-    };
-    expect(settings.hooks.Stop).toBeDefined();
-    expect(settings.hooks.Notification).toBeDefined();
-    const stopCmd = (settings.hooks.Stop as [{ hooks: [{ command: string }] }])[0].hooks[0].command;
-    expect(stopCmd).toContain("bun -e");
-    expect(stopCmd).toContain("/attention");
-    expect(stopCmd).toContain("turn_complete");
-    const notifCmd = (settings.hooks.Notification as [{ hooks: [{ command: string }] }])[0].hooks[0].command;
-    expect(notifCmd).toContain("needs_attention");
+
+    expect(cmd).not.toContain("--settings");
   });
 
   it("profile settings survive the merge (hooks added alongside, not replacing)", () => {
@@ -279,37 +350,39 @@ describe("ClaudeCodePlugin attention hooks", () => {
       cwd: "/tmp/ws",
       profile: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
       subshellName: "",
+      reporter,
     });
     const settings = JSON.parse(cmd[cmd.indexOf("--settings") + 1]) as Record<string, unknown>;
     expect(settings.model).toBe("sonnet");
     expect(settings.hooks).toBeDefined();
   });
 
-  it("SessionStart reports the pane's current session id to /harness-session", () => {
+  it("keeps a profile's own settings when no reporter resolved, minus the hooks", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: emptyProfile(),
+      profile: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
       subshellName: "",
     });
-    const idx = cmd.indexOf("--settings");
-    const settings = JSON.parse(cmd[idx + 1]) as {
-      hooks: { SessionStart?: [{ hooks: [{ command: string }] }] };
-    };
-    const ss = settings.hooks.SessionStart;
-    expect(ss).toBeDefined();
-    const ssCmd = ss?.[0].hooks[0].command ?? "";
-    expect(ssCmd).toContain("bun -e");
-    expect(ssCmd).toContain("/harness-session");
-    // The hook forwards ONLY the payload's session_id — the id is what
-    // restart-resume needs, nothing else from stdin may leave the pane.
-    expect(ssCmd).toContain("session_id");
-    expect(ssCmd).not.toContain("transcript_path");
-    expect(ssCmd).not.toContain("last_assistant_message");
-    // Both awaits are bounded: a self-kill timer caps the whole hook (a
-    // SessionStart hook blocks the pane start until it exits), and a short
-    // fetch timeout caps the POST.
-    expect(ssCmd).toContain("setTimeout(()=>process.exit(0),4000)");
-    expect(ssCmd).toContain("AbortSignal.timeout(2000)");
+    const settings = JSON.parse(cmd[cmd.indexOf("--settings") + 1]) as Record<string, unknown>;
+    expect(settings.model).toBe("sonnet");
+    expect(settings.hooks).toBeUndefined();
+  });
+
+  it("SessionStart reports the pane's current conversation id through the reporter", () => {
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        profile: emptyProfile(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+
+    // The verb alone — WHICH field of the stdin payload is forwarded, and the
+    // bounds on reading it, are the reporter's contract now (mcp-core's
+    // `report.ts`), not something re-decided per plugin in an inlined script.
+    expect(hooks.SessionStart?.[0].hooks[0].command).toBe("'/usr/local/bin/subshell-server' 'report' 'session'");
   });
 });

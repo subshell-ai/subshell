@@ -110,6 +110,36 @@ describe("dispatchCli — version", () => {
   });
 });
 
+describe("dispatchCli — report", () => {
+  test("report forwards its verb words to the runner and exits 0", async () => {
+    const seen: string[][] = [];
+    const { deps, err, exits } = collectingDeps({
+      reportRun: async (argv: string[]) => {
+        seen.push(argv);
+      },
+    });
+
+    expect(await dispatchCli(["report", "attention", "turn_complete"], deps)).toBe(true);
+    expect(seen).toEqual([["attention", "turn_complete"]]);
+    expect(err).toEqual([]);
+    // Harness hooks read this exit code: a non-zero one prints into the
+    // user's session, which is the whole failure mode `report` exists to end.
+    expect(exits).toEqual([0]);
+  });
+
+  test("report exits 0 even when the runner rejects — a hook never prints", async () => {
+    const { deps, err, exits } = collectingDeps({
+      reportRun: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    });
+
+    expect(await dispatchCli(["report", "session"], deps)).toBe(true);
+    expect(err).toEqual([]);
+    expect(exits).toEqual([0]);
+  });
+});
+
 describe("dispatchCli — mcp", () => {
   test("mcp runs the injected stdio server, then PARKS — nothing exits on attach (T18)", async () => {
     let calls = 0;

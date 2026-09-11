@@ -15,5 +15,6 @@ export * from "./crypto.js";
 export * from "./env.js";
 export * from "./identity-store.js";
 export * from "./pin-store.js";
+export * from "./report.js";
 export * from "./server.js";
 export * from "./tools.js";

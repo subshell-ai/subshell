@@ -231,9 +231,9 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(ws.closed).toHaveLength(0);
   });
 
-  it("ready stashes homeDir and mcpLaunch on the live facts; env is NOT a ready field", async () => {
+  it("ready stashes homeDir and selfInvoke on the live facts; env is NOT a ready field", async () => {
     // Spec 2026-09-10 §5 as amended by the final review: `ready` reports the
-    // home (resume defaults hang off it) and the agent's `mcpLaunch`
+    // home (resume defaults hang off it) and the agent's `selfInvoke`
     // self-invocation; the env VALUES answer on the `detect` round trip,
     // whose driver stashes them (inventory.ts). The "no env yet" branch is
     // the ordinary state between a connect and the first detect, and
@@ -246,14 +246,14 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       ws,
       readyFrame({
         homeDir: "/home/n",
-        mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
+        selfInvoke: { command: "/usr/bin/subshell", args: [] },
         // A frame still bearing the dead field must not resurrect it on the
         // facts: the handler reads named fields, not the raw object.
         env: { CLAUDE_CONFIG_DIR: "/custom" },
       } as never),
     );
     const f = getLive("n1")?.agent;
-    expect(f).toMatchObject({ homeDir: "/home/n", mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] } });
+    expect(f).toMatchObject({ homeDir: "/home/n", selfInvoke: { command: "/usr/bin/subshell", args: [] } });
     expect(f).not.toHaveProperty("env");
 
     const h2 = makeHarness();
@@ -263,7 +263,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const plain = getLive("n2")?.agent;
     expect(plain).toMatchObject({ hostname: "box" });
     expect(plain).not.toHaveProperty("homeDir");
-    expect(plain).not.toHaveProperty("mcpLaunch");
+    expect(plain).not.toHaveProperty("selfInvoke");
     expect(plain).not.toHaveProperty("env");
   });
 

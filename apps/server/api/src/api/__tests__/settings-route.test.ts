@@ -155,21 +155,30 @@ describe("settings routes (admin cookie only)", () => {
   });
 
   it("PATCH of the instance name audits a real change with from/to", async () => {
+    // Identify this PATCH's event by what was there BEFORE it, never by
+    // "newest": `createdAt` is a millisecond ISO string with no tiebreaker, so
+    // the preceding test's clear-to-hostname PATCH can land in the same
+    // millisecond and win an `ORDER BY createdAt DESC`. That made this case
+    // fail intermittently with the HOSTNAME as the audited `to`.
+    const idsBefore = new Set(
+      (await db.selectFrom("auditEvents").select("id").where("targetId", "=", "instance_name").execute()).map(
+        (e) => e.id,
+      ),
+    );
+
     await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
         body: JSON.stringify({ instanceName: "Audited plane" }),
       }),
     );
-    const events = await db
-      .selectFrom("auditEvents")
-      .selectAll()
-      .where("targetId", "=", "instance_name")
-      .orderBy("createdAt", "desc")
-      .execute();
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0]?.actorUserId).toBe(adminId);
-    expect(JSON.parse(String(events[0]?.metadataJson)).to).toBe("Audited plane");
+
+    const added = (
+      await db.selectFrom("auditEvents").selectAll().where("targetId", "=", "instance_name").execute()
+    ).filter((e) => !idsBefore.has(e.id));
+    expect(added).toHaveLength(1);
+    expect(added[0]?.actorUserId).toBe(adminId);
+    expect(JSON.parse(String(added[0]?.metadataJson)).to).toBe("Audited plane");
 
     await app.fetch(
       authedRequest("/api/settings", adminCookie, { method: "PATCH", body: JSON.stringify({ instanceName: "" }) }),

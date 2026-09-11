@@ -44,7 +44,7 @@ import type { JsonValue } from "./json.js";
  * first BREAKING bump of the restarted numbering: a v2 agent is refused by
  * the exact-match gate, which is the point — the pair ships together.
  */
-export const NODE_PROTOCOL_VERSION = 3;
+export const NODE_PROTOCOL_VERSION = 4;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -442,21 +442,23 @@ export type NodeEvent =
       dataDir: string;
       capabilities: string[];
       /**
-       * The agent's FULL self-invocation of its `mcp` subcommand: the
-       * `{ command, args }` that starts `subshell mcp` on this machine,
-       * whatever "this machine's subshell" turns out to be — a compiled
-       * binary answers `{ command: <self>, args: ["mcp"] }`, a
-       * bun-interpreted run answers `{ command: <bun>, args: [<entry>,
-       * "mcp"] }` (the agent's `selfInvocation` makes that call, and the
-       * pane's MCP config is spawned in the subshell's cwd, so the entry is
-       * absolute). The control plane composes the registration from it
-       * verbatim — it cannot derive this from any single path, because
-       * `process.execPath` is `bun` under an interpreter run and `bun mcp`
-       * is not a command. Only meaningful when `capabilities` includes
-       * `"mcp"`, which is the only agent that sends one; absent means the
-       * control plane falls back to `subshell mcp` on PATH.
+       * How to re-enter this agent's binary — the `{ command, args }` PREFIX
+       * a subcommand is appended to, whatever "this machine's subshell" turns
+       * out to be: a compiled binary answers `{ command: <self>, args: [] }`,
+       * a bun-interpreted run answers `{ command: <bun>, args: [<entry>] }`
+       * (the agent's `selfInvokePrefix` makes that call, and the entry is
+       * ABSOLUTE because both consumers spawn in the subshell's cwd). The
+       * control plane cannot derive this from any single path, because
+       * `process.execPath` is `bun` under an interpreter run and `bun mcp` is
+       * not a command.
+       *
+       * It is subcommand-LESS because the plane re-enters the agent for two
+       * unrelated things — `mcp` for a pane's MCP registration and `report`
+       * for its harness hooks — and one reported fact serving both is what
+       * keeps them from drifting. Absent means the plane falls back to
+       * `subshell` on PATH.
        */
-      mcpLaunch?: { command: string; args: string[] };
+      selfInvoke?: { command: string; args: string[] };
       /**
        * The node's home directory (spec 2026-09-10 §5). Plugin resume paths
        * fall back to `<homeDir>/.claude` style defaults, and the control
@@ -719,8 +721,8 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         isStr(value.hostname) &&
         isStr(value.dataDir) &&
         isStrArray(value.capabilities) &&
-        (!("mcpLaunch" in value) ||
-          (isRecord(value.mcpLaunch) && isStr(value.mcpLaunch.command) && isStrArray(value.mcpLaunch.args))) &&
+        (!("selfInvoke" in value) ||
+          (isRecord(value.selfInvoke) && isStr(value.selfInvoke.command) && isStrArray(value.selfInvoke.args))) &&
         (!("homeDir" in value) || isStr(value.homeDir))
         ? (value as unknown as NodeEvent)
         : null;

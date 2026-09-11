@@ -130,6 +130,49 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     }
   });
 
+  it("plans the reporter from the node's own selfInvoke, so hooks name the NODE's binary", async () => {
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      profiles: profilesRepo,
+      launcher: fake,
+      tokens,
+      audit: async () => {},
+    });
+    const nodeId = "rmgr-node-reporter";
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp", nodeId });
+      // The node reported a PREFIX; the plane appends its own verb. The
+      // control plane's own binary path would be meaningless on that machine.
+      expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
+      await subshellsRepo.delete(created.id);
+    } finally {
+      off();
+    }
+  });
+
+  it("plans a reporter even for an agent advertising no mcp: hooks are not an MCP feature", async () => {
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      profiles: profilesRepo,
+      launcher: fake,
+      tokens,
+      audit: async () => {},
+    });
+    const nodeId = "rmgr-node-reporter-nomcp";
+    const off = nodeOnline(nodeId, []);
+    try {
+      const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp", nodeId });
+      expect(fake.plans[0].mcp).toBeUndefined();
+      expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
+      await subshellsRepo.delete(created.id);
+    } finally {
+      off();
+    }
+  });
+
   it('an agent without the "mcp" capability launches with NO registration at all', async () => {
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({

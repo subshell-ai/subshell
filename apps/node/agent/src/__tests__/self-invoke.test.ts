@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { selfInvocation } from "../self-invoke.js";
+import { selfInvocation, selfInvokePrefix } from "../self-invoke.js";
 
 /**
  * Two callers re-enter this agent — the service unit's `ExecStart` (`run`) and
@@ -60,6 +60,43 @@ describe("selfInvocation", () => {
     ]) {
       for (const sub of ["run", "mcp"]) {
         expect(selfInvocation(sub, deps).args.at(-1)).toBe(sub);
+      }
+    }
+  });
+});
+
+/**
+ * The subcommand-LESS prefix, which is what the `ready` frame reports: the
+ * control plane appends `mcp` for a pane's MCP registration and `report` for
+ * its harness hooks, so one reported fact serves both rather than one field
+ * per verb drifting apart.
+ */
+describe("selfInvokePrefix", () => {
+  test("a compiled agent is its own prefix, with an empty argv", () => {
+    expect(selfInvokePrefix({ execPath: "/opt/bin/subshell", argv1: "/ignored/main.ts" })).toEqual({
+      command: "/opt/bin/subshell",
+      args: [],
+    });
+  });
+
+  test("an interpreter launch carries the entry script and nothing else", () => {
+    expect(selfInvokePrefix({ execPath: "/usr/local/bin/bun", argv1: "src/main.ts" })).toEqual({
+      command: "/usr/local/bin/bun",
+      args: [resolve("src/main.ts")],
+    });
+  });
+
+  // The property the control plane depends on: it appends a verb to the
+  // reported prefix and must get exactly what this agent would have built.
+  test("appending a subcommand to the prefix reproduces selfInvocation", () => {
+    for (const deps of [
+      { execPath: "/opt/bin/subshell", argv1: "/$bunfs/root/main" },
+      { execPath: "/usr/local/bin/bun", argv1: "src/main.ts" },
+      { execPath: "/opt/bin/agent", argv1: "" },
+    ]) {
+      for (const sub of ["run", "mcp", "report"]) {
+        const prefix = selfInvokePrefix(deps);
+        expect({ command: prefix.command, args: [...prefix.args, sub] }).toEqual(selfInvocation(sub, deps));
       }
     }
   });

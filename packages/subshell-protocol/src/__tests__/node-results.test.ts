@@ -112,7 +112,7 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
     expect(parseNodeCommandBody({ ...launchCmd })).not.toBeNull(); // absent ⇒ today's behavior
   });
 
-  it("ready.mcpLaunch is an optional { command, args }", () => {
+  it("ready.selfInvoke is an optional { command, args }", () => {
     const ready = {
       type: "ready",
       agentVersion: "0.2.0",
@@ -123,13 +123,11 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
       dataDir: "/home/u/.local/share/subshell",
       capabilities: [],
     };
-    expect(parseNodeEvent({ ...ready, mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] } })?.type).toBe(
-      "ready",
-    );
+    expect(parseNodeEvent({ ...ready, selfInvoke: { command: "/usr/bin/subshell", args: [] } })?.type).toBe("ready");
     expect(parseNodeEvent(ready)?.type).toBe("ready"); // a non-mcp agent omits it; the plane falls back
-    expect(parseNodeEvent({ ...ready, mcpLaunch: "/usr/bin/subshell mcp" })).toBeNull();
-    expect(parseNodeEvent({ ...ready, mcpLaunch: { command: "/usr/bin/subshell" } })).toBeNull(); // args required
-    expect(parseNodeEvent({ ...ready, mcpLaunch: { args: ["mcp"] } })).toBeNull(); // command required
+    expect(parseNodeEvent({ ...ready, selfInvoke: "/usr/bin/subshell mcp" })).toBeNull();
+    expect(parseNodeEvent({ ...ready, selfInvoke: { command: "/usr/bin/subshell" } })).toBeNull(); // args required
+    expect(parseNodeEvent({ ...ready, selfInvoke: { args: [] } })).toBeNull(); // command required
   });
 });
 

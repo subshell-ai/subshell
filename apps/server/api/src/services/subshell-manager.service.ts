@@ -7,6 +7,7 @@ import {
   type HarnessPlugin,
   type McpRegistration,
   type ProfileDefinition,
+  type ReporterSpec,
   type TmuxRunner,
   tmuxSocketFor,
 } from "@internal/pane-runtime";
@@ -20,11 +21,13 @@ import { getRequestlessContext } from "@/lib/context.js";
 import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import {
+  nodeSelfInvoke,
   planRemoteSubshellMcp,
   registerSubshellMcp,
   subshellMcpConfigPath,
   subshellMcpEnv,
 } from "@/services/mcp-launch.js";
+import { probeReporterLaunch } from "@/services/mcp-resolve.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
@@ -234,6 +237,26 @@ export class SubshellManagerService {
   }
 
   /**
+   * How a harness hook re-enters the subshell binary ON THE TARGET MACHINE.
+   *
+   * Resolved per target and never once for the process: `local` panes run
+   * beside this binary, an agent's panes run beside the node's own — so the
+   * plane's `execPath` is the right answer for exactly one of them, and the
+   * wrong one everywhere else. Deliberately NOT gated on the `mcp` capability
+   * that {@link #planMcp} checks: hooks report attention and conversation
+   * identity, neither of which is an MCP feature, and an agent that
+   * advertises no mcp still has the binary the plane is naming.
+   *
+   * Undefined means nothing resolved (an exotic local deployment, or a node
+   * that reported no `selfInvoke`); the plugin then omits its hooks rather
+   * than baking a command the pane cannot run.
+   */
+  #planReporter(nodeId: string, facts?: NodeAgentFacts): ReporterSpec | undefined {
+    if (nodeId === LOCAL_NODE_ID) return probeReporterLaunch().spec ?? undefined;
+    return facts ? nodeSelfInvoke(facts, "report") : undefined;
+  }
+
+  /**
    * Creates a new subshell: validates the profile + working directory, records
    * the DB row, mints the subshell's MCP token, then spawns the harness under
    * tmux with a curated env (including the injected SUBSHELL_* credentials). When
@@ -351,6 +374,7 @@ export class SubshellManagerService {
       // command to the node's own path). INSIDE the try: an agent that
       // dropped offline between resolution and here must roll back too.
       const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, id, targetNode);
+      const reporter = this.#planReporter(targetNode, facts);
       const subshellEnv = subshellMcpEnv(apiKey, id, subshellName);
       if (facts) {
         // subshellMcpEnv bakes the BACKEND's SUBSHELL_SERVER_DATA_DIR — a path that
@@ -372,6 +396,7 @@ export class SubshellManagerService {
         mcp,
         mcpConfigPath,
         harnessSession,
+        reporter,
       });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
@@ -878,6 +903,7 @@ export class SubshellManagerService {
     await this.#revokeTokenOrUnlink(row.id);
     const apiKey = await this.#tokens.issue(row.id, row.userId);
     const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, row.id, row.nodeId);
+    const reporter = this.#planReporter(row.nodeId, facts);
     const subshellEnv = subshellMcpEnv(apiKey, row.id, row.name);
     if (facts) {
       // subshellMcpEnv bakes the BACKEND's SUBSHELL_SERVER_DATA_DIR — a path that
@@ -917,6 +943,7 @@ export class SubshellManagerService {
       mcp,
       mcpConfigPath,
       harnessSession,
+      reporter,
       bestEffortLog: true,
     });
     // Conditional revival: a terminate that landed after the pre-spawn

@@ -23,7 +23,7 @@ import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
-import { selfInvocation } from "./self-invoke.js";
+import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -237,15 +237,20 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     // (HAS_MCP, shipped in Task 13) is what lets the control plane register
     // `subshell mcp` for subshells launched here.
     capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
-    // The FULL self-invocation of the mcp subcommand, not `process.execPath`:
-    // under an interpreter run execPath is `bun`, and `bun mcp` is not a
-    // command — every pane launched by a source-run agent would get an MCP
-    // registration that cannot start. `selfInvocation` answers the
+    // How to re-enter this binary, not `process.execPath`: under an
+    // interpreter run execPath is `bun`, and `bun mcp` is not a command —
+    // every pane launched by a source-run agent would get an MCP registration
+    // that cannot start. `selfInvokePrefix` answers the
     // compiled-versus-interpreted question (its header records the original
-    // bug), and the control plane composes the registration from the result
-    // verbatim — the node writes what the plane sends, it recomputes nothing
-    // (launch.ts, inversion §5). Sent only when the capability is advertised.
-    ...(HAS_MCP ? { mcpLaunch: selfInvocation("mcp") } : {}),
+    // bug), and the control plane appends the verb it needs — `mcp` for a
+    // pane's MCP registration, `report` for its harness hooks — composing
+    // each from the result verbatim; the node writes what the plane sends, it
+    // recomputes nothing (launch.ts, inversion §5).
+    //
+    // UNCONDITIONAL, unlike the `mcp` capability beside it: this is a fact
+    // about the binary rather than a feature of it, and the hooks need it on
+    // an agent that advertises no mcp at all.
+    selfInvoke: selfInvokePrefix(),
     // Spec 2026-09-10 §5: the fallback root for resume paths the control
     // plane computes. The env VALUES a resume path may need are no longer
     // reported here — the node holds no manifests to know the names (§6);
@@ -529,7 +534,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
         // `ready` is built SYNCHRONOUSLY: nothing it reports needs a read
-        // (identity is config + OS facts, `mcpLaunch` is `selfInvocation`,
+        // (identity is config + OS facts, `selfInvoke` is `selfInvokePrefix`,
         // and the env VALUES the resume paths need answer on the plane's
         // `detect` round trip, not here). So the send lands in the same
         // turn the open event fires — a socket cannot die mid-build because

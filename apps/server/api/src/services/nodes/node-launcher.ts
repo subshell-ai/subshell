@@ -1,4 +1,4 @@
-import type { HarnessPlugin, McpRegistration, ProfileDefinition } from "@internal/pane-runtime";
+import type { HarnessPlugin, McpRegistration, ProfileDefinition, ReporterSpec } from "@internal/pane-runtime";
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {
@@ -29,6 +29,17 @@ export interface LaunchPlan {
   mcpConfigPath?: string;
   /** Resume pin */
   harnessSession?: { id: string; mode: "start" | "resume" };
+  /**
+   * How a harness hook re-enters the subshell binary ON THE TARGET MACHINE
+   * (`<self> report …`), resolved by the control plane: from its own binary
+   * for `local`, from the node's reported `selfInvoke` for an agent. A pane's
+   * machine is only guaranteed to have that binary, which is why the plane
+   * resolves this per target rather than a plugin naming a program.
+   *
+   * Undefined = nothing resolved; plugins then omit their hooks rather than
+   * baking a command the pane cannot run.
+   */
+  reporter?: ReporterSpec;
   /**
    * A log-attach failure (log-dir mkdir or pipe-pane) is logged and ignored
    * instead of failing the launch. Used by revive, where a live pane must

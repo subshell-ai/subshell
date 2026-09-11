@@ -54,7 +54,7 @@ const NODE_FACTS = {
   dataDir: "/home/node-user/.local/share/subshell",
   // The compiled-agent shape of the ready-reported self-invocation; the
   // parity claim is about the ARGV, and any faithful command serves it.
-  mcpLaunch: { command: "/home/node-user/.local/bin/subshell", args: ["mcp"] },
+  selfInvoke: { command: "/home/node-user/.local/bin/subshell", args: [] },
 };
 
 /** The subshell id the MCP config path is composed from (both sides, same input). */

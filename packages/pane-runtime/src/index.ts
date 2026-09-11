@@ -83,6 +83,7 @@ export type {
   ProfileDefinition,
   ProfileValidationIssue,
   ProfileValidationResult,
+  ReporterSpec,
   SettingsField,
 } from "./types.js";
 export { MCP_SERVER_NAME } from "./types.js";

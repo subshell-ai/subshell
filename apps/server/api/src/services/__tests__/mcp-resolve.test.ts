@@ -4,6 +4,7 @@ import {
   MCP_LAUNCH_PLACEHOLDER,
   type McpProbeOutcome,
   probeMcpLaunch,
+  probeReporterLaunch,
   resolveMcpLaunch,
 } from "@/services/mcp-resolve.js";
 
@@ -152,5 +153,49 @@ describe("resolveMcpLaunchForDisplay / placeholder", () => {
     // here and would have poisoned every operator's manual registration.
     expect(resolveMcpLaunch({})).toBeDefined();
     expect(MCP_LAUNCH_PLACEHOLDER).toEqual({ command: "subshell-server", args: ["mcp"] });
+  });
+});
+
+/**
+ * The REPORTER launch — how a harness hook re-enters this binary on the pane's
+ * machine (`<self> report …`). It shares the autodetect rungs with the MCP
+ * launch (same binary, different subcommand) and deliberately does NOT share
+ * the env override: SUBSHELL_MCP_COMMAND names an MCP *server*, which may be a
+ * wrapper with no `report` verb at all.
+ */
+describe("probeReporterLaunch", () => {
+  it("self (compiled): the server binary re-invokes itself with report", () => {
+    const probe = probeReporterLaunch({ which: () => null, execPath: "/usr/local/bin/subshell-server", argv1: "" });
+    expect(probe).toEqual({ spec: { command: "/usr/local/bin/subshell-server", args: ["report"] }, source: "self" });
+  });
+
+  it("self (bun-interpreted): absolute entry + report argv — safe from any pane cwd", () => {
+    const probe = probeReporterLaunch({
+      which: () => null,
+      execPath: "/usr/local/bin/bun",
+      argv1: "apps/server/api/src/index.ts",
+    });
+    expect(probe.spec).toEqual({
+      command: "/usr/local/bin/bun",
+      args: [join(process.cwd(), "apps/server/api/src/index.ts"), "report"],
+    });
+  });
+
+  it("agent-on-PATH remains the last rung", () => {
+    const probe = probeReporterLaunch({ which: () => "/usr/bin/subshell", execPath: "/usr/local/bin/bun", argv1: "" });
+    expect(probe).toEqual({ spec: { command: "/usr/bin/subshell", args: ["report"] }, source: "agent-on-path" });
+  });
+
+  it("diverges from the MCP launch under an override: a wrapper serves mcp, never report", () => {
+    const io = { which: () => null, execPath: "/usr/local/bin/subshell-server", argv1: "" };
+    const env = { SUBSHELL_MCP_COMMAND: "/opt/custom/mcp", SUBSHELL_MCP_ARGS: '["a","b"]' };
+
+    expect(probeMcpLaunch(env, io).spec).toEqual({ command: "/opt/custom/mcp", args: ["a", "b"] });
+    expect(probeReporterLaunch(io).spec).toEqual({ command: "/usr/local/bin/subshell-server", args: ["report"] });
+  });
+
+  it("nothing resolves: no reporter, so a caller can omit hooks instead of baking a broken one", () => {
+    const probe = probeReporterLaunch(NOTHING);
+    expect(probe.spec).toBeNull();
   });
 });

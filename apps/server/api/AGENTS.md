@@ -341,6 +341,7 @@ it, so never make a bare invocation mean anything else.
 | `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
 | `service start\|stop\|restart` | drive an already-installed service. Never installs one — `start` must not become a way to background a server whose config was never checked |
 | `mcp` | serve the pane-spawned stdio MCP server (the self rung of MCP resolution below); the one long-running command — spawned by harnesses, not typed by humans |
+| `report attention turn_complete\|needs_attention`, `report session` | out-of-band reporting from a harness HOOK: attention signals, and the pane's current conversation id (read from the SessionStart payload on stdin — only `session_id` is forwarded). Run by generated hook command lines, never typed. ALWAYS exits 0 and prints nothing, even on an unreachable server or an incomplete pane env — a hook's stderr and exit code land in the user's session, and a lost report costs one notification, never a turn |
 
 An unknown word exits 1 with usage. **Sync-exit design** (house style for
 the quick commands, no longer the safety mechanism): a handled command
@@ -553,7 +554,25 @@ safety net for installs whose server predates the self rung) → throw with the
 `SUBSHELL_MCP_COMMAND` hint. A deployment matching NONE of these 500s on
 create — `subshell-server status` prints the resolved command and its rung
 (`mcp entrypoint = … (via …)`, or `UNRESOLVED`) so the gap shows up before a
-user hits it. (`subshell-server mcp` became possible once the entry graph was
+user hits it.
+
+**The harness-hook reporter shares that ladder, minus the override.**
+`probeReporterLaunch` answers the same host question for `<self> report …`,
+the command a harness hook runs to report attention and conversation identity.
+It skips the `SUBSHELL_MCP_COMMAND` rung on purpose: that variable names an MCP
+*server*, which an operator may point at a wrapper with no `report` verb, and
+honouring it would turn a working MCP override into broken hooks in every pane.
+Unresolved is a real answer here rather than a throw — the plugin omits its
+hooks instead of baking a command the pane cannot run. For a subshell on an
+agent node the reporter is composed from that node's own reported
+`selfInvoke` prefix instead (`nodeSelfInvoke`), because a hook runs where the
+pane runs and the control plane's own path means nothing there. The hooks used
+to be `bun -e '<inlined JS>'`, which assumed a bun on the pane PATH — true of
+the container image, false of every desktop install, where Claude Code opened
+each session on `bun: command not found` and neither notifications nor
+restart-resume identity ever worked.
+
+(`subshell-server mcp` became possible once the entry graph was
 IO-free at import — lazy `getAuth()`, purity-tested — so a long-running
 subcommand can no longer drag the boot graph into side effects; the 1.3.x
 companion-binary era that made a separate tiny entry necessary is retired.)

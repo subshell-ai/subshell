@@ -1,4 +1,4 @@
-import { readMcpEnv } from "@internal/mcp-core";
+import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
 import { licenseNotice, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type AgentConfig, configPath, loadConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
@@ -54,12 +54,14 @@ usage:
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane, internal)
+  subshell report attention turn_complete|needs_attention
+  subshell report session (a pane's state, run by harness hooks — not by hand)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["configure", "enroll", "license", "mcp", "run", "service", "status", "version"]);
+const COMMANDS = new Set(["configure", "enroll", "license", "mcp", "report", "run", "service", "status", "version"]);
 /**
  * Bare flags accepted IN THE COMMAND SLOT. argv[0] is the command here, so
  * `subshell --version` would otherwise die as `unknown command '--version'`
@@ -79,6 +81,23 @@ const COMMAND_ALIASES: Record<string, string> = {
  */
 const SUBCOMMANDS: Record<string, string[]> = {
   service: ["install", "uninstall", "status", ...SERVICE_VERBS],
+  // Spread from mcp-core so the CLI cannot accept a verb the reporter does not
+  // implement — or refuse one it does.
+  report: [...REPORT_VERBS],
+};
+/**
+ * Command → subtoken → the values its SECOND positional accepts. A subtoken
+ * absent from its command's entry takes no argument at all, and one present
+ * requires exactly one: both are usage errors, because a hook that typed the
+ * wrong word must fail loudly here rather than report the wrong thing.
+ *
+ * Only `report attention <kind>` needs the slot today. It exists as a table
+ * rather than a special case so the next two-word verb is data, and it stays
+ * ONE extra slot deliberately — a general grammar for a CLI with one such
+ * command would be more machinery than the CLI.
+ */
+const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[]>> = {
+  report: { attention: ATTENTION_KINDS },
 };
 /**
  * Command → subtoken → the flags THAT subtoken accepts. `--json` is a VIEW's
@@ -112,6 +131,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   license: [],
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
+  report: [], // same pane-env contract; a hook's command line is built by the control plane, never typed
   run: [],
   // Derived, never hand-listed: the command-level check is the union and the
   // per-subtoken check below is what actually decides.
@@ -128,6 +148,8 @@ export interface ParsedArgs {
   command: string;
   /** Bare first positional, validated against the command's {@link SUBCOMMANDS} list. */
   sub?: string;
+  /** Bare second positional, validated against {@link SUBCOMMAND_ARGS} for that subtoken. */
+  arg?: string;
   /** Flag map (camelCased key, `"1"` for booleans). */
   flags: Record<string, string>;
 }
@@ -149,6 +171,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
   // node's plugin concept, inversion spec 2026-09-10 §6.)
   const subcommands = SUBCOMMANDS[command];
   let sub: string | undefined;
+  // The SECOND bare token, for the `<command> <sub> <arg>` shapes in
+  // {@link SUBCOMMAND_ARGS}. Anything beyond it still falls through to the
+  // flag arm and dies as `unknown flag`.
+  let arg: string | undefined;
   // Raw tokens as typed (`flags` is camelCased and lossy) — the per-subtoken
   // check below reports the flag the way the operator wrote it.
   const used: string[] = [];
@@ -160,6 +186,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
         );
       }
       sub = rest[i];
+      continue;
+    }
+    if (sub !== undefined && arg === undefined && !rest[i].startsWith("--")) {
+      const args = SUBCOMMAND_ARGS[command]?.[sub];
+      if (!args) throw new UsageError(`${command} ${sub} takes no argument (got '${rest[i]}')`);
+      if (!args.includes(rest[i])) {
+        throw new UsageError(`unknown ${command} ${sub} argument '${rest[i]}': requires ${args.join(" or ")}`);
+      }
+      arg = rest[i];
       continue;
     }
     // `--flag=value` is accepted alongside `--flag value` (split on the FIRST
@@ -189,7 +224,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
     throw new UsageError(`${command} requires ${subcommands.join(" or ")}`);
   }
   if (sub !== undefined) assertSubcommandFlags(command, sub, used);
-  return { command, sub, flags };
+  // A subtoken that declares an argument list must have been given one: the
+  // caller is a generated hook command line, so a missing word is a bug on
+  // this side, not something to guess a default for.
+  const argValues = sub === undefined ? undefined : SUBCOMMAND_ARGS[command]?.[sub];
+  if (argValues && arg === undefined) {
+    throw new UsageError(`${command} ${sub} requires ${argValues.join(" or ")}`);
+  }
+  return { command, sub, ...(arg === undefined ? {} : { arg }), flags };
 }
 
 /**
@@ -261,6 +303,16 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // still live. keepAlive is the contract that stops the entry from
         // exiting (main.ts) — exiting here killed the transport pre-T18-fix.
         return { code: 0, out: "", err: "", keepAlive: true };
+      }
+      case "report": {
+        // Out-of-band reporting from a harness hook (spec: mcp-core's
+        // `report.ts`). Unlike `mcp` above, a missing pane env is NOT a usage
+        // error here: nobody typed this, a hook did, and its exit code and
+        // stderr land in the user's session. `runReport` swallows everything
+        // and this returns 0 either way — a lost report costs one
+        // notification, never a turn.
+        await runReport(parsed.sub ? [parsed.sub, ...(parsed.arg ? [parsed.arg] : [])] : []);
+        return { code: 0, out: "", err: "" };
       }
       case "run": {
         // The daemon is a foreground process that owns its own lifetime: it

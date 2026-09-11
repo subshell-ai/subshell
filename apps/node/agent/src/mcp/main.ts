@@ -29,10 +29,10 @@ import { readMcpEnv, runSubshellMcp } from "@internal/mcp-core";
  *
  * No plugin change: `mcpRegistration` composes the launch spec's command
  * STRING and args from the `McpLaunchSpec` (`planRemoteSubshellMcp` bakes the
- * agent's ready-reported `mcpLaunch` — its full `selfInvocation("mcp")`, or
- * the `subshell` mcp fallback), which is right for a compiled binary AND for
- * a bun-interpreted run, because the agent answered the shape, not a bare
- * execPath.
+ * agent's ready-reported `selfInvoke` prefix — its `selfInvokePrefix()`, with
+ * `mcp` appended plane-side — or the `subshell` mcp fallback), which is right
+ * for a compiled binary AND for a bun-interpreted run, because the agent
+ * answered the shape, not a bare execPath.
  */
 export async function runAgentMcp(): Promise<void> {
   // Fail fast on an incomplete pane env BEFORE touching stdio: the throw's

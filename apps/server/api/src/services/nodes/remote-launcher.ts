@@ -240,7 +240,7 @@ export class RemoteLauncher implements NodeLauncher {
    *   node-side recompute and its drift rule are gone with the node's plugin
    *   concept. The caller composes `path` from the node's `ready.dataDir`,
    *   and the registration's spawn command is the agent's own reported
-   *   `mcpLaunch` (spec 2026-09-10 §5; `planRemoteSubshellMcp`).
+   *   `selfInvoke` (spec 2026-09-10 §5; `planRemoteSubshellMcp`).
    * A `binary missing` failure means our cached path was stale: kick the
    * detection pass (unawaited, {@link #kickDetect}) before rethrowing
    * (spec §6.2, detection-shaped by Task 7).
@@ -269,6 +269,7 @@ export class RemoteLauncher implements NodeLauncher {
       subshellName: plan.subshellName,
       mcp: plan.mcp,
       harnessSession: plan.harnessSession,
+      reporter: plan.reporter,
     });
     const cmd: NodeCommandBody = {
       type: "launch",

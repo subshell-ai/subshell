@@ -361,22 +361,23 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
   expect(h.plane.unparsed).toEqual([]); // every frame so far satisfies the backend's parser
 });
 
-test("ready's mcpLaunch is the branched self-invocation, not a bare execPath", async () => {
-  // The Critical chain (final review R14a): the plane writes the pane's MCP
-  // registration from this field VERBATIM (launch.ts consumes no plugin), and
-  // under an interpreter run `process.execPath` is `bun` — `bun mcp` is not a
-  // command, so the bare path poisoned every pane a dev-run agent launched.
+test("ready's selfInvoke is the branched self-invocation PREFIX, not a bare execPath", async () => {
+  // The Critical chain (final review R14a): the plane composes the pane's MCP
+  // registration and its harness hooks from this field, and under an
+  // interpreter run `process.execPath` is `bun` — `bun mcp` is not a command,
+  // so the bare path poisoned every pane a dev-run agent launched.
   // `bun test` IS an interpreter run, so this frame is exactly the case: the
-  // command is the interpreter and the args lead with the entry script.
+  // command is the interpreter and the args are the entry script alone.
   const h = await startDaemon();
   const ready = (await waitForReady(h)) as Extract<NodeEvent, { type: "ready" }>;
-  expect(ready.mcpLaunch).toBeDefined();
-  expect(ready.mcpLaunch?.command).toBe(process.execPath);
-  expect(ready.mcpLaunch?.args.at(-1)).toBe("mcp");
-  expect(ready.mcpLaunch?.args.length).toBe(2); // [<entry script>, "mcp"]
-  // ABSOLUTE, the pane-config spawn cwd rule from `selfInvocation`: the entry
+  expect(ready.selfInvoke).toBeDefined();
+  expect(ready.selfInvoke?.command).toBe(process.execPath);
+  // NO subcommand: the plane appends `mcp` or `report` to this prefix, which
+  // is what keeps one reported fact serving both.
+  expect(ready.selfInvoke?.args.length).toBe(1); // [<entry script>]
+  // ABSOLUTE, the pane-config spawn cwd rule from `selfInvokePrefix`: the entry
   // is resolved, never shipped as the relative argv[1] it may arrive as.
-  expect(ready.mcpLaunch?.args[0]).toBe(resolve(process.argv[1] ?? ""));
+  expect(ready.selfInvoke?.args[0]).toBe(resolve(process.argv[1] ?? ""));
 });
 
 test("valid ping (test-local EC keypair pinned in config) → result ok with matching ref", async () => {

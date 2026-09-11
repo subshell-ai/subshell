@@ -108,7 +108,7 @@ const testFacts: NodeAgentFacts = {
   capabilities: ["mcp", "uploads"],
   hostname: "box",
   agentVersion: "0.2.0",
-  mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
+  selfInvoke: { command: "/usr/bin/subshell", args: [] },
   // Spec 2026-09-10 §5. `env` is deliberately absent on the default: the
   // "no detect answer yet" case is the DEFAULT case in these tests, and the
   // canResume describe overrides it per case.

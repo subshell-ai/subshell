@@ -129,8 +129,11 @@ describe("parseNodeCommandBody", () => {
     // numbering restarted at 1 on 2026-09-09 with no deployed instances.
     // 3 is the inversion's (spec 2026-09-10 §7): plugins left the wire —
     // `plugin_install`/`plugin_uninstall` are gone, the inventory event no
-    // longer carries a plugin set, and `launch` requires `argv` + `resolve`.)
-    expect(NODE_PROTOCOL_VERSION).toBe(3);
+    // longer carries a plugin set, and `launch` requires `argv` + `resolve`.
+    // 4 replaced `ready.mcpLaunch` with `ready.selfInvoke`: the same
+    // self-invocation WITHOUT its subcommand, so the plane can append `report`
+    // for harness hooks as well as `mcp` for a pane's registration.)
+    expect(NODE_PROTOCOL_VERSION).toBe(4);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -191,7 +194,7 @@ describe("parseNodeEvent", () => {
       // The agent's self-invocation of `subshell mcp` (the interpreter-run
       // branch: command is the interpreter, args lead with the entry script).
       // Optional — a non-mcp agent omits it and the plane falls back.
-      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+      selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
       // Spec 2026-09-10 §5: the resume-path home. Optional — absent means the
       // node reported none and the control plane computes the default anyway.
       homeDir: "/Users/u",
@@ -199,10 +202,10 @@ describe("parseNodeEvent", () => {
     expect(ev?.type).toBe("ready");
     expect(ev).toMatchObject({
       homeDir: "/Users/u",
-      mcpLaunch: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts", "mcp"] },
+      selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
     });
     expect(parseNodeEvent({ type: "ready", agentVersion: "0.1.0" })).toBeNull(); // malformed base fields still refuse
-    // A non-string homeDir, a mis-shaped mcpLaunch, or a non-string arg in it
+    // A non-string homeDir, a mis-shaped selfInvoke, or a non-string arg in it
     // is a malformed frame, not a partial one: the parse is all-or-nothing
     // like every other event here.
     expect(
@@ -229,7 +232,7 @@ describe("parseNodeEvent", () => {
           hostname: "h",
           dataDir: "/d",
           capabilities: [],
-          mcpLaunch: bad,
+          selfInvoke: bad,
         }),
       ).toBeNull();
     }

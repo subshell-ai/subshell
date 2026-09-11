@@ -107,6 +107,14 @@ subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane an
                                      # newest-wins KICKS a running agent — warned loudly
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
                                      # configured purely by the SUBSHELL_* pane env)
+subshell report attention turn_complete|needs_attention
+subshell report session            # out-of-band reporting from a harness HOOK, which
+                                     # runs on THIS machine — where the only program
+                                     # guaranteed to exist is this binary. Same pane-env
+                                     # contract as `mcp`, but an incomplete env is a
+                                     # silent exit 0 rather than a usage error: nobody
+                                     # typed this, and a hook's stderr and exit code land
+                                     # in the user's own session. See mcp-core report.ts
 subshell version                   # also `--version` / `-v` — aliased in the
                                      # COMMAND slot only, since argv[0] IS the
                                      # command here (`status --version` stays an

@@ -53,6 +53,7 @@ export class LocalLauncher implements NodeLauncher {
       plan.subshellEnv,
       plan.mcp,
       plan.harnessSession,
+      plan.reporter,
     );
     this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd);
     // Stream all pane output to a per-subshell log file for attach replay.

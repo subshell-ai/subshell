@@ -135,7 +135,7 @@ export function nodeOnline(
     capabilities,
     hostname: "rmgr",
     agentVersion: "1.0.0",
-    mcpLaunch: { command: "/usr/bin/subshell", args: ["mcp"] },
+    selfInvoke: { command: "/usr/bin/subshell", args: [] },
     ...over,
   };
   return () => detachConnection(nodeId, ws);

@@ -11,6 +11,7 @@ import {
   type PluginHost,
   type ProfileDefinition,
   type ProfileValidationResult,
+  type ReporterSpec,
   type SettingsField,
   type SubshellPlugin,
   validateGenericProfile,
@@ -98,58 +99,47 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
 // and is covered by the login-PATH rung in `binary-lookup.ts` instead.
 
 /**
- * Fire-and-forget attention reporting. Each hook runs `bun -e` (bun is on the
- * pane PATH — the image ships it, and no curl exists there) and POSTs the
- * subshell's own bearer to the attention endpoint; the server gates delivery
- * on the subshell's bell and derives the "waiting for you" state. The env
- * vars are baked into the pane by the backend (`subshellMcpEnv`), and every
- * failure path is swallowed: a missing hook event costs one notification,
- * never a broken subshell turn. SUBSHELL_BASE_URL must be reachable from inside
- * the pane's network — in the container that means the published port, which
- * compose already passes via APP_BASE_URL.
+ * One hook command line: the host-resolved reporter, then this hook's verb
+ * words, every element POSIX-quoted.
+ *
+ * A hook runs on the PANE's machine, so the command has to name something that
+ * exists there. It used to be `bun -e '<inlined JS>'` — bun was on the pane
+ * PATH because the container image shipped it, and no curl was there to use
+ * instead. That assumption did not survive leaving the container: on a desktop
+ * install the machine has the subshell binary and nothing else, and Claude Code
+ * opened every session with `/bin/sh: bun: command not found` while
+ * notifications and conversation identity silently never worked.
+ *
+ * So the reporting moved INTO the binary (`<self> report …`), and what the
+ * plugin composes is an argv rather than a program. Bounds, credentials and
+ * which fields travel are that subcommand's contract now, which is also why
+ * this function no longer needs to know the pane env exists.
  */
-const attentionPing = (kind: string): string =>
-  `bun -e '` +
-  `fetch(process.env.SUBSHELL_BASE_URL+"/api/subshells/"+process.env.SUBSHELL_ID+"/attention",` +
-  `{method:"POST",headers:{authorization:"Bearer "+process.env.SUBSHELL_API_KEY,"content-type":"application/json"},` +
-  `body:JSON.stringify({kind:${JSON.stringify(kind)}}),signal:AbortSignal.timeout(5000)})` +
-  `.catch(()=>{}).finally(()=>process.exit(0))'`;
+const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[]): string =>
+  [reporter.command, ...reporter.args, ...verb].map((word) => host.shellQuote(word)).join(" ");
 
 /**
- * Conversation-identity reporting. The restart-resume pin (`--session-id`
- * at launch) only survives while the pane keeps that ONE conversation — but
- * /clear, /resume <other>, and /fork start a DIFFERENT transcript id in-pane
- * and nothing else tells the server, so the next restart would resurrect a
- * stale conversation (observed 2026-09-03). The SessionStart hook fires on
- * every such transition (source: startup|resume|clear|compact|fork).
+ * The `--settings` hooks object for one launch.
  *
- * Unlike the attention pings, THIS command reads stdin — the deliberate,
- * documented exception to the no-stdin rule (whose rationale is that
- * Stop/Notification payloads carry conversation text): the SessionStart
- * payload is pure metadata ({session_id, transcript_path, cwd, source,…})
- * and ONLY `session_id` is forwarded; the response is fire-and-forget like
- * the pings — every failure path is swallowed.
- *
- * Both awaits are bounded: a self-kill timer caps the WHOLE hook (4 s — an
- * unclosed stdin must never stall the pane start, and a SessionStart hook
- * blocks the harness until it exits) and a 2 s fetch timeout caps the POST
- * (a lost report is harmless — the next transition re-reports).
+ * - `Stop` / `Notification` — fire-and-forget attention reporting. The server
+ *   gates delivery on the subshell's bell and derives the "waiting for you"
+ *   state; a missed event costs one notification, never a broken turn.
+ * - `SessionStart` — conversation identity. The restart-resume pin
+ *   (`--session-id` at launch) only survives while the pane keeps that ONE
+ *   conversation, but /clear, /resume <other> and /fork start a DIFFERENT
+ *   transcript id in-pane and nothing else tells the server, so the next
+ *   restart would resurrect a stale conversation (observed 2026-09-03). This
+ *   fires on every such transition (source: startup|resume|clear|compact|fork)
+ *   and is the one hook that reads stdin — the reporter forwards `session_id`
+ *   from that payload and nothing else.
  */
-const sessionReportPing = (): string =>
-  `bun -e '` +
-  `setTimeout(()=>process.exit(0),4000);` +
-  `try{const j=JSON.parse(await Bun.stdin.text());` +
-  `if(j.session_id)await fetch(process.env.SUBSHELL_BASE_URL+"/api/subshells/"+process.env.SUBSHELL_ID+"/harness-session",` +
-  `{method:"POST",headers:{authorization:"Bearer "+process.env.SUBSHELL_API_KEY,"content-type":"application/json"},` +
-  `body:JSON.stringify({sessionId:j.session_id}),signal:AbortSignal.timeout(2000)})}catch{}` +
-  `process.exit(0)'`;
-
-/** The `--settings` hooks object injected into every Claude Code launch. */
-export const ATTENTION_HOOKS = {
-  Stop: [{ hooks: [{ type: "command", command: attentionPing("turn_complete") }] }],
-  Notification: [{ hooks: [{ type: "command", command: attentionPing("needs_attention") }] }],
-  SessionStart: [{ hooks: [{ type: "command", command: sessionReportPing() }] }],
-} as const;
+const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
+  Stop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") }] }],
+  Notification: [
+    { hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "needs_attention") }] },
+  ],
+  SessionStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "session") }] }],
+});
 
 /** Claude's transcript folder name for a project dir: every non-alphanumeric → `-`. */
 function projectSlug(cwd: string): string {
@@ -173,7 +163,7 @@ function projectSlug(cwd: string): string {
  * version probe, shell quoting, a namespaced logger). See
  * `@subshell-ai/plugin-api`.
  */
-const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
+const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["mcp", "resume", "attention", "settings"],
 
   supportsAttentionHooks: true,
@@ -204,7 +194,7 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
   } satisfies HarnessResume,
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, subshellName, extraFlags, mcp, harnessSession } = input;
+    const { binary, profile, subshellName, extraFlags, mcp, harnessSession, reporter } = input;
 
     const args: string[] = [binary];
 
@@ -218,11 +208,25 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     }
 
     // Settings JSON is passed via --settings so profiles never touch the
-    // user's real ~/.claude files. The attention hooks ride along on EVERY
-    // launch (subshell's signal wins if a profile set its own `hooks` key, a
-    // documented limitation whose alternative is no notifications).
-    const settings = { ...(profile.settings ?? {}), hooks: ATTENTION_HOOKS };
-    args.push("--settings", JSON.stringify(settings));
+    // user's real ~/.claude files. The attention hooks ride along on every
+    // launch the host resolved a reporter for (subshell's signal wins if a
+    // profile set its own `hooks` key, a documented limitation whose
+    // alternative is no notifications).
+    //
+    // No reporter means no hooks AT ALL, rather than hooks naming something
+    // this machine may not have: an unrunnable command reports exactly as
+    // little as an absent one and puts an error in front of the user on every
+    // turn. `--settings` is then omitted entirely unless the profile brought
+    // settings of its own.
+    const settings: Record<string, unknown> = { ...(profile.settings ?? {}) };
+    if (reporter) {
+      settings.hooks = attentionHooks(host, reporter);
+    } else {
+      host.log.warn("no reporter resolved for this launch: attention and conversation-identity hooks are omitted");
+    }
+    if (Object.keys(settings).length > 0) {
+      args.push("--settings", JSON.stringify(settings));
+    }
 
     if (subshellName) {
       args.push("--name", subshellName);

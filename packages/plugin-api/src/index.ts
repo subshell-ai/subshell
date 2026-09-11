@@ -27,6 +27,7 @@ export {
   type ProfileDefinition,
   type ProfileValidationIssue,
   type ProfileValidationResult,
+  type ReporterSpec,
   type SettingsField,
   type SubshellPlugin,
   shellQuote,
