@@ -34,13 +34,19 @@ export function screensFor(probe: Probe): ScreenId[] {
 }
 
 /**
- * Dot semantics: three positions always, so a machine that skips the tmux
- * screen sees its dot already filled rather than a shorter row. The SPA
- * continues this row (spec § 4): six dots in the desktop shell, three filled.
+ * Dot semantics: six positions always, not three. The SPA's three /setup
+ * screens (Account, Agent, Launch) always follow the native ones on a
+ * desktop first run — the wizard only ever opens before setup completes, and
+ * a fresh instance always lands on `/setup` — so a three-dot row would grow
+ * to six the moment the SPA takes over, which is exactly the handoff this
+ * one shared frame exists to hide. Rendering six from the start means the
+ * row's WIDTH never changes at the swap, only which dots are filled. A
+ * machine that skips the tmux screen sees its dot already filled rather than
+ * a shorter row.
  */
-export function dots(_probe: Probe, current: ScreenId): { total: 3; done: number; current: number } {
+export function dots(_probe: Probe, current: ScreenId): { total: 6; done: number; current: number } {
   const index = ALL_SCREENS.indexOf(current);
-  return { total: 3, done: index, current: index };
+  return { total: 6, done: index, current: index };
 }
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";

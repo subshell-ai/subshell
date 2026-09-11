@@ -319,12 +319,23 @@ function next(): ScreenId {
   const list = screensFor(probe);
   return list[Math.min(list.length - 1, list.indexOf(screen) + 1)] ?? screen;
 }
-function go(to: ScreenId): void {
-  screen = to;
+/**
+ * Restarts the screen's entrance animation: `.enter`'s `animation` only fires
+ * on insertion, so a class already present needs a forced reflow between
+ * removing and re-adding it. The one place that does this — every screen
+ * change, manual or automatic, goes through it (see {@link go} and the
+ * automatic-advance branch in {@link render}) so the SPA's replay behaviour
+ * (spec § 5.2, § 3) has exactly one native counterpart to match.
+ */
+function replayEnter(): void {
   const s = el("screen");
   s.classList.remove("enter");
   void s.offsetWidth; // restart the animation
   s.classList.add("enter");
+}
+function go(to: ScreenId): void {
+  screen = to;
+  replayEnter();
   render();
 }
 
@@ -402,8 +413,14 @@ function render(): void {
     return;
   }
   // A machine that became ready while any screen was up goes to the dashboard;
-  // the tmux screen advances the moment the fact lands.
-  if (probe.next === "ready" || (screen === "tmux" && probe.tmux !== null)) screen = "setup";
+  // the tmux screen advances the moment the fact lands. These two are
+  // AUTOMATIC advances (no button press routes through `go()`), so the
+  // replay has to be triggered here explicitly or this transition would be
+  // the one screen change that never animates.
+  if (probe.next === "ready" || (screen === "tmux" && probe.tmux !== null)) {
+    screen = "setup";
+    replayEnter();
+  }
   const p = probe;
   const views: Record<ScreenId, () => void> = {
     welcome: renderWelcome,

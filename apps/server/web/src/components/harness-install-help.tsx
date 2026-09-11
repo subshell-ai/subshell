@@ -7,9 +7,7 @@ const denseLink = "h-auto p-0 text-xs text-muted-foreground underline hover:text
 
 /**
  * The "how do I get this harness" block shown under a not-installed card:
- * the official command (copy-to-clipboard) and a docs link. Also renders the
- * plain reason for a harness that is installed but disabled, so every
- * non-usable card says why.
+ * the official command (copy-to-clipboard) and a docs link.
  */
 export function HarnessInstallHelp({
   harness,
@@ -17,14 +15,6 @@ export function HarnessInstallHelp({
   /** The harness this block explains */
   harness: HarnessInfo;
 }) {
-  if (harness.installed) {
-    return (
-      <p className="text-muted-foreground text-xs">
-        Installed but disabled. Its profiles are hidden until you enable it.
-      </p>
-    );
-  }
-
   if (harness.reason === "no-binary") {
     // Not a failure. A plugin can legitimately drive no external CLI, and
     // offering an install command for one would be nonsense.

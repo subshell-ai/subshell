@@ -6,14 +6,20 @@
  * (`bg-card`, `text-muted`, `border-line`, `bg-ok`) ARE the palette. A future
  * revamp restates these tokens and everything above them follows; that is the
  * reason this file names colors instead of hard-coding them fourteen times.
+ * `--color-fg`, `--color-muted` and `--color-primary` are copied verbatim
+ * from `apps/server/web/src/styles.css`'s `--foreground`, `--muted-foreground`
+ * and `--primary` (the assistant frame's Continue button also copies that
+ * file's `button.tsx` gradient directly, below) so the setup assistant's
+ * native screens and the SPA's screens do not visibly change palette at the
+ * handoff between them.
  */
 @theme {
   --color-bg: oklch(0.224 0.035 296);
   --color-card: oklch(0.264 0.038 298);
   --color-line: oklch(0.34 0.04 300);
-  --color-fg: oklch(0.94 0.01 300);
-  --color-muted: oklch(0.68 0.03 300);
-  --color-primary: oklch(0.72 0.13 330);
+  --color-fg: oklch(0.92 0.03 312);
+  --color-muted: oklch(0.74 0.04 310);
+  --color-primary: oklch(0.75 0.17 322);
   --color-primary-fg: oklch(0.18 0.04 300);
   --color-ok: oklch(0.74 0.14 155);
   --color-warn: oklch(0.8 0.14 80);
@@ -32,6 +38,7 @@
     color: var(--color-fg);
     font-size: 15px;
     line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
   /* The window is a control panel, not a marketing page: every interactive
      element is a button or an input, so the two element defaults live here
@@ -69,11 +76,19 @@
 
 @layer components {
   /* Buttons, by what they DO. */
+  /* Copied verbatim from apps/server/web/src/components/ui/button.tsx's
+     `default` variant: a sunk plum gradient with frost text, deliberately
+     quieter than --color-primary (which stays bright for the dots/glyphs).
+     It cannot ride a theme token, so it is a fixed string on both sides. */
   .primary {
-    background: var(--color-primary);
-    color: var(--color-primary-fg);
+    background: linear-gradient(135deg, oklch(0.34 0.1 322), oklch(0.4 0.1 340));
+    color: oklch(0.9 0.05 320);
     border-color: transparent;
     font-weight: 600;
+  }
+  .primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, oklch(0.4 0.11 322), oklch(0.46 0.11 340));
+    border-color: transparent;
   }
   .mini {
     padding: 0 8px;
@@ -212,12 +227,6 @@
   .assistant-content:empty {
     display: none;
   }
-  .assistant-form {
-    width: 360px;
-    margin: 0 auto;
-    display: grid;
-    gap: 12px;
-  }
   .assistant-bar {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
@@ -242,13 +251,18 @@
   .assistant-bar button.primary {
     min-width: 120px;
   }
+  /* Matches the SPA's ghost `Button` variant: full-brightness text at rest
+     (it inherits --foreground there), a hover background rather than a
+     border. */
   .ghost {
     border-color: transparent;
-    color: var(--color-muted);
+    background: transparent;
+    color: var(--color-fg);
   }
   .ghost:hover:not(:disabled) {
     color: var(--color-fg);
-    border-color: var(--color-line);
+    border-color: transparent;
+    background: var(--color-card);
   }
   .linkish {
     border: none;

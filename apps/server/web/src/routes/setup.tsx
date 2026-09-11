@@ -152,7 +152,8 @@ function SetupPage() {
   if (step === 0) {
     return (
       <SetupAssistant
-        illustration={<KeyRound />}
+        key={step}
+        illustration={<KeyRound strokeWidth={1.5} />}
         title="Create Your Account"
         subtitle={
           isDesktop()
@@ -219,7 +220,8 @@ function SetupPage() {
   if (step === 1) {
     return (
       <SetupAssistant
-        illustration={<Bot />}
+        key={step}
+        illustration={<Bot strokeWidth={1.5} />}
         title="Add an Agent"
         subtitle="A plain terminal is always available with nothing to install. Add an agent CLI now, or later in Settings."
         dots={dotsFor(1)}
@@ -275,7 +277,8 @@ function SetupPage() {
 
   return (
     <SetupAssistant
-      illustration={<Rocket />}
+      key={step}
+      illustration={<Rocket strokeWidth={1.5} />}
       title="Start Your First Subshell"
       subtitle="Everything below is already filled in. Change anything you like."
       dots={dotsFor(2)}

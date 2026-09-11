@@ -24,6 +24,15 @@ describe("installBuiltInAgent", () => {
     expect(r.ok).toBe(false);
     expect(r.output).toContain("timed out");
   });
+  it("returns on the deadline even for a pipeline, whose children hold the pipe open", async () => {
+    const started = Date.now();
+    const r = await installBuiltInAgent("claude-code", deps("sleep 30 | cat", 300));
+    expect(r.ok).toBe(false);
+    expect(r.output).toContain("timed out");
+    // The point of the test: it must return on the deadline, not when the
+    // orphaned `sleep` finishes 30 seconds later.
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
   it("refuses an id with no install command as 400", async () => {
     await expect(installBuiltInAgent("terminal", deps(""))).rejects.toBeInstanceOf(AgentInstallRefused);
     await expect(installBuiltInAgent("terminal", deps(""))).rejects.toMatchObject({ status: 400 });

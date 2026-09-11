@@ -31,14 +31,15 @@ describe("screensFor", () => {
 });
 
 describe("dots", () => {
-  it("always has three positions", () => expect(dots(virgin(), "welcome").total).toBe(3));
+  it("always has six positions, so the row does not grow when the SPA takes over", () =>
+    expect(dots(virgin(), "welcome").total).toBe(6));
   it("counts a skipped tmux screen as done", () => {
-    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 3, done: 2, current: 2 });
-    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 3, done: 0, current: 0 });
+    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 6, done: 2, current: 2 });
+    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 6, done: 0, current: 0 });
   });
   it("walks the three when tmux is missing", () => {
-    expect(dots(virgin(), "tmux")).toEqual({ total: 3, done: 1, current: 1 });
-    expect(dots(virgin(), "setup")).toEqual({ total: 3, done: 2, current: 2 });
+    expect(dots(virgin(), "tmux")).toEqual({ total: 6, done: 1, current: 1 });
+    expect(dots(virgin(), "setup")).toEqual({ total: 6, done: 2, current: 2 });
   });
 });
 

@@ -1015,14 +1015,20 @@ target should serve it, and this makes that explicit rather than papered over.
 `POST /api/setup/agents/:id/install` makes the server spawn `sh -c <command>`
 where `<command>` is the `install.command` of a BUILT-IN plugin's manifest,
 compiled into this binary. What it costs: the control-plane process fetches
-and runs a vendor's install script. What it does not add: the script runs as
-the server's own OS user on the server's own host, with exactly the reach
-the server's children already have (tmux, every harness pane, the plugin
-loader), and it is the same command the desktop app used to run from the
-user's session as the same user — a different parent process, no new
-capability. The id is the only input; the route is admin-cookie-only, never
-public in the no-users window, single-flight per id, 10-minute bounded, and
-audited as `agent.install` without the output. Trusted-network posture,
+and runs a vendor's install script, as the server's own OS user on the
+server's own host. What it does not add: an admin already has arbitrary code
+execution on this host through `POST /api/plugins`, which loads third-party
+plugin code IN-PROCESS (§6, §11.9) — measured against that baseline, this
+route grants an admin no capability they did not already have. The id is the
+only input; the route is admin-cookie-only, never public in the no-users
+window, single-flight per id, 10-minute bounded, and audited as
+`agent.install` without the output. The output itself is not silent, though:
+it is returned over the wire to the admin's own browser and rendered there
+(the installer's stdout can legitimately carry a token or a path, which is
+why it is not also written to a log). The child's environment is an
+allowlist, not the server's own — `BETTER_AUTH_SECRET` and the database path
+are not among the variables an installer receives, so a compromised vendor
+script cannot read either off this process. Trusted-network posture,
 unchanged. A hardening pass for a wider deployment would add an operator
 switch to disable the route (§12).
 

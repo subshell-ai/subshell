@@ -13,7 +13,13 @@ export interface SetupAssistantProps {
   /** Ghost button left of the primary. */
   skip?: { label: string; onClick: () => void; disabled?: boolean };
   primary: { label: string; onClick: () => void; disabled?: boolean; pending?: boolean; pendingLabel?: string };
-  /** Muted text left of the primary (a disabled reason). */
+  /**
+   * Muted text left of the primary (a disabled reason). No `/setup` caller
+   * passes this today - it exists for parity with the native assistant's
+   * `.reason` span, which IS used there ("Waiting for tmux"). Keep it: the
+   * two frames are one specification, and a future SPA screen with its own
+   * disabled reason should have somewhere to put it without re-adding this.
+   */
   reason?: string;
   children?: ReactNode;
 }
@@ -57,9 +63,11 @@ export function SetupAssistant({
         >
           {illustration}
         </div>
-        <h1 className="text-center font-semibold text-[30px] tracking-[-0.01em]">{title}</h1>
+        <h1 aria-live="polite" className="text-center font-semibold text-[30px] tracking-[-0.01em]">
+          {title}
+        </h1>
         {subtitle && (
-          <p className="mt-2 max-w-[560px] text-center text-[15px] text-muted-foreground leading-relaxed">{subtitle}</p>
+          <p className="mt-2 max-w-[560px] text-center text-[15px] text-muted-foreground leading-[1.55]">{subtitle}</p>
         )}
         {children && <section className="mt-9 w-full max-w-[560px]">{children}</section>}
       </main>
@@ -72,7 +80,7 @@ export function SetupAssistant({
           )}
         </div>
         <StepDots {...dots} />
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex items-center justify-end gap-2">
           {reason && primaryDisabled && <span className="text-[13px] text-muted-foreground">{reason}</span>}
           {skip && (
             <Button variant="ghost" onClick={skip.onClick} disabled={skip.disabled}>
