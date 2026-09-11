@@ -707,6 +707,20 @@ which is why they share their own smoke, parameterized by app id.
   server-only or agent-only fix does not reach desktop users until the matching
   desktop cut, which is why a security-relevant release should be dispatched as
   `app=all`.
+- **Never write a changeset for an `ignore`d package — it is inert and it
+  wedges the version PR.** `.changeset/config.json` ignores ten workspaces,
+  `@internal/server-web` among them, because they are not independently
+  released: the SPA ships EMBEDDED in the server binary, so a version on it
+  would name nothing a user can install. A changeset naming one of them can
+  never be consumed — changesets will not version an ignored package, so the
+  file stays on main forever and the action opens a "chore: release
+  package(s)" PR whose `# Releases` section is empty, on every later push.
+  That happened on 2026-09-11 (PR #39, from a `"@internal/server-web": minor`
+  changeset) and it reads as a broken release pipeline rather than as a
+  misfiled note. **Describe a change to one of those workspaces in the
+  changeset of the APP THAT SHIPS IT** — SPA work belongs to
+  `@internal/server`, pane-runtime or subshell-protocol work belongs to
+  whichever of the four apps a user sees it through.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
   changes to any of the four releasable apps → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
