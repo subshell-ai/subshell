@@ -120,7 +120,7 @@ afterAll(async () => {
 });
 
 describe("an installed plugin resolves on the plane's side of a launch", () => {
-  it("detectSpecs ships acme's lookup rule to nodes, beside the five built-ins", () => {
+  it("detectSpecs ships acme's lookup rule to nodes, beside the six built-ins", () => {
     const specs = detectSpecs();
     expect(specs.find((s) => s.id === "acme")).toEqual({
       id: "acme",
@@ -128,8 +128,10 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
       envOverride: "ACME_CLI_PATH",
       knownPaths: [],
     });
-    // The built-ins did not move (the shadow/merge rule costs nothing).
-    for (const id of ["claude-code", "codex", "hermes", "opencode", "pi"]) {
+    // The built-ins did not move (the shadow/merge rule costs nothing), and
+    // the sixth is here too — terminal's SHELL rule reaching every node is
+    // what makes a clean machine launchable there.
+    for (const id of ["claude-code", "codex", "hermes", "opencode", "pi", "terminal"]) {
       expect(specs.some((s) => s.id === id)).toBe(true);
     }
   });

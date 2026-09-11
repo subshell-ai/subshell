@@ -45,9 +45,12 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, profile, extraFlags } = input;
-    // No `--name` equivalent: a shell has no notion of a session title to be
-    // told, so the subshell's display name stays a control-plane concept and
-    // the reconcile sweep never adopts a title from this pane.
+    // No `--name` equivalent: the launch never TELLS the shell its display
+    // name, because a shell has no session-title notion. The pane's title is
+    // whatever the shell itself sets (a default `.bashrc` sets `user@host:
+    // dir`), and the reconcile sweep adopts such titles exactly as it does a
+    // harness's — so an unnamed terminal subshell renames with the prompt
+    // until the user names it, which locks it.
     // Each stored flag is one complete argv token, as in every other plugin.
     return [binary, ...profile.flags, ...(extraFlags ?? [])];
   },

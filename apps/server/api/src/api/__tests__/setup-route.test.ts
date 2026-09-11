@@ -119,6 +119,7 @@ describe("/api/setup/harnesses conditional auth", () => {
         checkedAt?: string;
         reason?: string;
         version?: string;
+        envOverride?: string;
       }[];
       expect(body.length).toBeGreaterThan(0);
       for (const h of body) {
@@ -126,6 +127,11 @@ describe("/api/setup/harnesses conditional auth", () => {
         // the difference between the live local probe and an agent's cache.
         expect(typeof h.checkedAt).toBe("string");
         expect(Number.isFinite(Date.parse(h.checkedAt ?? ""))).toBe(true);
+        // The override NAME rides the wire rather than being derived in the
+        // browser: terminal's is `SHELL`, and a `<BINARY>_PATH` derivation
+        // would tell its users to fix a variable they never set.
+        expect(typeof h.envOverride).toBe("string");
+        if (h.id === "terminal") expect(h.envOverride).toBe("SHELL");
         if (h.installed) {
           expect(h.reason).toBeUndefined();
         } else {
