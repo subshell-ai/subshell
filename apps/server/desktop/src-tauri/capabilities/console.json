@@ -9,7 +9,7 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "dialog:allow-message",
+    "dialog:allow-ask",
     "allow-desktop-probe",
     "allow-desktop-logs",
     "allow-desktop-install-server",
@@ -20,7 +20,6 @@
     "allow-desktop-service",
     "allow-desktop-set-server-bin",
     "allow-desktop-open-main",
-    "allow-desktop-open-console",
     "allow-desktop-open-path",
     "allow-desktop-open-control-plane",
     "allow-desktop-open-tmux-docs",

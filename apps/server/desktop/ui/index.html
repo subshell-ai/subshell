@@ -4,54 +4,55 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Subshell Server</title>
-    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <h1>Subshell Server</h1>
-    <p class="sub">Install, configure and run a Subshell control plane on this machine.</p>
+    <h1 class="m-0 mb-0.5 text-[17px] font-semibold tracking-[0.01em]">Subshell Server</h1>
+    <p class="mb-[18px] text-sm text-muted">Install, configure and run a Subshell control plane on this machine.</p>
 
-    <div class="card">
+    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5">
       <!-- No Refresh button: the console re-probes itself every few seconds
-           (POLL_MS in main.js), so a button would only ever save the user the
+           (POLL_MS in main.ts), so a button would only ever save the user the
            remainder of one interval — while being the one control that implies
            the rest of the panel might be stale. -->
-      <div class="row">
-        <span class="chip"><span class="dot" id="dot"></span><span id="state">Checking…</span></span>
+      <div class="flex items-center justify-between gap-2.5">
+        <span class="inline-flex items-center gap-1.5 text-sm text-muted">
+          <span class="size-2 shrink-0 rounded-full bg-muted" id="dot"></span><span id="state">Checking…</span>
+        </span>
       </div>
       <dl class="facts" id="facts"></dl>
     </div>
 
-    <div class="card">
-      <p class="problem" id="problem"></p>
+    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5">
+      <p class="mb-2.5 text-sm text-warn empty:hidden" id="problem"></p>
       <div id="step-body"></div>
-      <div class="actions" id="step-actions"></div>
+      <div class="mt-3 flex flex-wrap gap-2" id="step-actions"></div>
       <div class="hint" id="step-hint"></div>
     </div>
 
-    <div class="card" id="prefs-card" hidden>
+    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5" id="prefs-card" hidden>
       <label class="switch">
         <input type="checkbox" id="close-to-tray" />
         <span>Keep running in the menu bar or system tray when the window is closed</span>
       </label>
-      <div class="row" id="tray-missing" hidden>
+      <div class="flex items-start justify-between gap-2.5" id="tray-missing" hidden>
         <p class="hint" id="tray-reason"></p>
-        <button type="button" id="tray-recheck">Check again</button>
+        <button type="button" id="tray-recheck" class="shrink-0">Check again</button>
       </div>
     </div>
 
     <!-- One region, two tabs. The server's log is what the pane shows by
          default, because it is true all the time; a command's output takes
          over when there is one, because it is what you just asked for. -->
-    <div class="card pane">
-      <div class="row pane-tabs" role="tablist">
+    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 pb-3.5 pt-2.5">
+      <div class="pane-tabs mb-2 flex items-center gap-1.5" role="tablist">
         <button type="button" id="tab-log" role="tab" data-pane="log">Server log</button>
         <button type="button" id="tab-output" role="tab" data-pane="output">Command output</button>
-        <span class="pane-source" id="pane-source"></span>
+        <span class="ml-auto max-w-[55%] truncate text-xs text-muted" id="pane-source"></span>
       </div>
-      <pre id="log" aria-live="polite"></pre>
-      <pre id="output" aria-live="polite" hidden></pre>
+      <pre class="pane-pre" id="log" aria-live="polite"></pre>
+      <pre class="pane-pre" id="output" aria-live="polite" hidden></pre>
     </div>
 
-    <script type="module" src="./main.js"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

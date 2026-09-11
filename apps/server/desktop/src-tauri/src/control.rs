@@ -461,7 +461,7 @@ impl SetupStep {
 /// waiting.
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// The OS name the console understands: the web convention `installers.js`
+/// The OS name the console understands: the web convention `installers.ts`
 /// branches on ("darwin"), not `std::env::consts::OS`'s "macos". The Linux
 /// and every other spelling already agrees.
 fn console_platform() -> &'static str {
@@ -473,7 +473,7 @@ fn console_platform() -> &'static str {
 
 /// Install tmux with the platform's own package manager.
 ///
-/// Never bundled: see `ui/installers.js` for the accounting. This runs what a
+/// Never bundled: see `ui/src/lib/installers.ts` for the accounting. This runs what a
 /// user would have run in a terminal, with their own privileges, and reports
 /// the manager's own output verbatim — including the fallback to `detail()`
 /// when the spawn itself is what failed, so a refused or timed-out install
@@ -487,14 +487,14 @@ pub fn desktop_install_tmux() -> Result<ActionResult, String> {
 /// The argv that installs tmux here, or None when no manager we can drive is
 /// present.
 ///
-/// Mirrors `tmuxInstallPlan` in `ui/installers.js`, which owns the same
+/// Mirrors `tmuxInstallPlan` in `ui/src/lib/installers.ts`, which owns the same
 /// decision for the rendering side. Two copies because one runs in a webview
 /// with no process access and one runs where `which` works, and
-/// `the_js_install_table_and_the_rust_one_agree` fails the build when a token
-/// this runs is removed or changed in the JS copy (containment, as that test
+/// `the_console_install_table_and_the_rust_one_agree` fails the build when a token
+/// this runs is removed or changed in the console copy (containment, as that test
 /// documents). `apt-get` is hardcoded because the only Linux artifact this app
 /// ships is the `.deb`, so every machine this reaches is Debian-family; the
-/// note in `installers.js` carries the lever if that changes.
+/// note in `installers.ts` carries the lever if that changes.
 fn tmux_install_argv() -> Option<Vec<String>> {
     let argv = match std::env::consts::OS {
         // No package manager we can drive without installing one first, and
@@ -518,10 +518,10 @@ fn tmux_install_argv() -> Option<Vec<String>> {
 /// **The webview sends an ID, never a command.** A command that runs what it
 /// is handed is a different security property from one that runs what it
 /// ships, and this process is the one that can write to the user's PATH. The
-/// list is duplicated from `ui/installers.js` for the same reason it exists
+/// list is duplicated from `ui/src/lib/installers.ts` for the same reason it exists
 /// there: what this app may EXECUTE has to be changeable only by editing this
 /// file, never by anything it reads at runtime. This is the copy that
-/// ENFORCES; the JS copy renders, and `the_js_install_table_and_the_rust_one_agree`
+/// ENFORCES; the console copy renders, and `the_console_install_table_and_the_rust_one_agree`
 /// keeps them in step as far as revocation goes — an id or script REMOVED or
 /// CHANGED on either side fails that test. A JS-only ADDition passes it and
 /// runs nothing, because only this list executes.
@@ -1038,8 +1038,8 @@ pub fn desktop_open_control_plane(app: AppHandle, settings: State<'_, SettingsSt
 
 /// The tmux formula page — spec §6.1's reading for the plan the console
 /// cannot run itself (a Mac without Homebrew). The same string
-/// `ui/installers.js` carries as its plans' `docsUrl`, pinned equal to it by
-/// `the_js_install_table_and_the_rust_one_agree`.
+/// `ui/src/lib/installers.ts` carries as its plans' `docsUrl`, pinned equal to it by
+/// `the_console_install_table_and_the_rust_one_agree`.
 const TMUX_DOCS_URL: &str = "https://formulae.brew.sh/formula/tmux";
 
 /// Open the tmux formula page in the system browser.
@@ -1185,7 +1185,7 @@ mod tests {
 
     #[test]
     fn the_probe_names_the_platform_the_way_the_console_branches_on_it() {
-        // `installers.js` speaks the web convention ("darwin"); Rust's own
+        // `installers.ts` speaks the web convention ("darwin"); Rust's own
         // `consts::OS` says "macos". A host that ships the wrong spelling
         // shows Mac users the no-button fallback on their commonest path,
         // with no error anywhere — the classic cross-language drift.
@@ -1205,11 +1205,11 @@ mod tests {
     }
 
     /// The two halves of the install contract speak different languages and
-    /// each comment claims the other: `ui/installers.js` decides what the
+    /// each comment claims the other: `ui/src/lib/installers.ts` decides what the
     /// console SHOWS, `tmux_install_argv` and `AGENT_INSTALLS` here decide
     /// what gets RUN. Nothing else fails if they drift — the warning would
     /// display one command while its own button ran another, on CI that is
-    /// green. Text-matching rather than a shared data file: the JS copy is
+    /// green. Text-matching rather than a shared data file: the console copy is
     /// prose-shaped on purpose (readable, hand-edited), and this is the
     /// price of that shape.
     ///
@@ -1221,35 +1221,35 @@ mod tests {
     /// tmux tokens are compared only where they run, since `tmux_install_argv`
     /// answers for the current OS only.
     #[test]
-    fn the_js_install_table_and_the_rust_one_agree() {
-        let js = include_str!("../../ui/installers.js");
+    fn the_console_install_table_and_the_rust_one_agree() {
+        let ts = include_str!("../../ui/src/lib/installers.ts");
         if let Some(argv) = tmux_install_argv() {
             for token in &argv {
                 assert!(
-                    js.contains(token.as_str()),
-                    "installers.js lost the tmux token {token:?}"
+                    ts.contains(token.as_str()),
+                    "installers.ts lost the tmux token {token:?}"
                 );
             }
         }
         for (id, script) in AGENT_INSTALLS {
-            assert!(js.contains(id), "installers.js lost the agent id {id:?}");
+            assert!(ts.contains(id), "installers.ts lost the agent id {id:?}");
             // The script is the load-bearing half: a drifted URL or shell
             // there is a different install, whatever the id still says.
-            assert!(js.contains(script), "installers.js lost the install script for {id:?}");
+            assert!(ts.contains(script), "installers.ts lost the install script for {id:?}");
         }
         // The docs button opens Rust's constant; the JS plans carry the same
         // URL for readers of the table.
         assert!(
-            js.contains(TMUX_DOCS_URL),
-            "installers.js and the docs command name different pages"
+            ts.contains(TMUX_DOCS_URL),
+            "installers.ts and the docs command name different pages"
         );
         // And the dialect pair holds on EVERY host, not only where
         // `console_platform`'s mac arm runs: the JS must branch on "darwin",
         // and must not have learned Rust's "macos" spelling.
-        assert!(js.contains("\"darwin\""), "installers.js does not branch on darwin");
+        assert!(ts.contains("\"darwin\""), "installers.ts does not branch on darwin");
         assert!(
-            !js.contains("\"macos\""),
-            "installers.js must not branch on the Rust consts::OS spelling"
+            !ts.contains("\"macos\""),
+            "installers.ts must not branch on the Rust consts::OS spelling"
         );
     }
 

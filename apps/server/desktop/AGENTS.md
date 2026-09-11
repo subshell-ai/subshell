@@ -8,7 +8,7 @@ machine, so a user never has to touch a CLI binary.
 
 | Window | Page | Why |
 | --- | --- | --- |
-| `console` | `ui/index.html`, bundled, `tauri://` | Must render with the server **down**, and is the only surface allowed to drive the CLI. |
+| `console` | `ui/dist` (Vite output; sources in `ui/src/`), bundled, `tauri://` | Must render with the server **down**, and is the only surface allowed to drive the CLI. |
 | `main` | the SERVER's own SPA over `http://127.0.0.1:<port>` | `apps/server/web` is hard same-origin. |
 
 **`main` never loads a bundled copy of the SPA.** `src/lib/api.ts` fetches
@@ -67,9 +67,14 @@ dpkg -l libxdo-dev >/dev/null 2>&1 && echo "OK      libxdo-dev" || echo "MISSING
 ## Commands
 
 ```bash
-bun run dev:app             # tauri dev (needs a staged sidecar — see below)
+bun run dev:app             # tauri dev (needs a staged sidecar — see below);
+                            # runs `dev:ui` for you via beforeDevCommand
+bun run dev:ui              # just the Vite dev server, on :5178
+bun run build               # vite build -> ui/dist   (pure JS; safe in CI)
 bun run compile             # tauri build --debug
-bun run test                # bun test src test  (the release script + the console's pure half)
+bun run test                # bun test src ui/src  (the release script + the console,
+                            # whose pure decisions are tested without a webview)
+bun run verify-types        # both tsconfigs: src/ (bun) and ui/ (webview)
 cd src-tauri && cargo test  # the Rust half — the ladder, the parsers, the policy
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
@@ -123,12 +128,18 @@ wrote, digests and publishes into `dist-rel/`. CI drives it per shard from
 `.github/workflows/release.yml`; the root `AGENTS.md` carries the
 operator-facing version.
 
-**There is deliberately no `build` script.** `bun run build` runs on hosted
-`ubuntu-latest` in both `test.yml` and `lint.yml`, where there is no Rust
-toolchain, so cargo must stay structurally out of the turbo `build` graph —
-the same discipline `apps/client/mobile` uses to keep Xcode out. There is also **no
+**The `build` script is the UI and nothing else: `vite build`, pure JS.**
+What must stay out of the turbo `build` graph is CARGO — `bun run build` runs
+on hosted `ubuntu-latest` in both `test.yml` and `lint.yml`, where there is no
+Rust toolchain, so the Rust half stays reachable only through `compile`,
+`compile:release` and `rust:check`, the same discipline
+`apps/client/mobile` uses to keep Xcode out. There is also **no
 `dev` script**: root `bun run start` is `turbo watch dev`, which would
-otherwise launch a Tauri window for everyone.
+otherwise launch a Tauri window for everyone. The console's Vite port is
+**5178** and `strictPort`: 5174 (`apps/server/web`) WALKS UPWARD when busy and
+lands on 5175/5176, and 5177 is the client's, so this is the first port that
+cannot collide — and `devUrl` is a fixed string, which only works when the
+port is one.
 
 ## The staged sidecar
 
@@ -228,6 +239,27 @@ src-tauri/src/
 └── tray.rs        # the tray icon and its menu
 ```
 
+The console page (TypeScript on Vite with Tailwind since 2026-09-10; the
+plain-JS original had no build step, which the section on the CSP explains):
+
+```
+ui/
+├── index.html          # static shell; every id the page binds is in it
+├── src/
+│   ├── main.ts         # render loop, poll, guards — all DOM lives here
+│   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
+│   ├── lib/
+│   │   ├── ipc.ts      # one typed function per `desktop_*` command
+│   │   ├── config-form.ts   # the pure form contract (see below)
+│   │   └── installers.ts    # the pure install plans (see below)
+│   └── __tests__/      # pure pins: config-form, installers, ipc-acl, tauri-config
+└── dist/               # `frontendDist` — built, gitignored, never hand-edited
+```
+
+The split rule the plain-JS version established still decides WHERE logic
+lives: anything with a contract rather than a rendering goes in `lib/`, where
+it is testable without a webview. `ui/src/main.ts` holds only the DOM.
+
 Everything that is NOT `tauri`-typed lives outside the app, in
 `crates/desktop-core` (`subshell-desktop-core`), shared with
 `apps/client/desktop`:
@@ -279,6 +311,18 @@ exists, drop this app's own title bar, and display one notification with a
 fixed shape. Nothing that touches the CLI, the config, the service or the
 filesystem is reachable from a page the server serves.
 
+**The three-way contract is pinned, because nothing else catches it.** A
+command name lives in `ui/src/lib/ipc.ts`, in `permissions/desktop.toml` and
+in a capability file; missing from any one is a runtime permission refusal,
+not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts the set
+`ipc.ts` invokes equals the set `console.json` grants, that no capability
+names an undefined permission, that no defined permission goes ungranted, and
+that `main` still holds exactly its three commands plus window dragging —
+"three" is a number worth a test, because "a few harmless ones" is how a
+boundary erodes. It caught one stray on the day it was written:
+`allow-desktop-open-console` sat in `console.json` although no console code
+path invokes it (the command belongs to `main`); the grant is gone.
+
 **The opener surface is the same rule with paths.** `desktop_open_path` takes
 a CLOSED enum (`config-env | server-dir | service-definition | logs`), never a
 path — the page names an intent and the Rust side re-reads the path from its
@@ -300,21 +344,36 @@ scoped to loopback, and `open_main` additionally refuses a non-loopback origin
 and pins `on_navigation` to the origin it was opened with — three independent
 gates, because the window holds privileged globals.
 
-The console has a real CSP (`script-src 'self'`), which is why its logic lives
-in `ui/main.js` rather than inline — and why `ui/config-form.js` is a sibling
-ES module rather than anything bundled.
+The console has a real CSP (`script-src 'self'`), which is why its logic is a
+module rather than an inline script. The page is TypeScript built by Vite into
+`ui/dist` (2026-09-10), and the build step moved INSIDE the promise the
+plain-JS version made — `tauri dev` and `tauri build` run `dev:ui`/`build` as
+their own before-hooks, so there is no way to launch or bundle the app that
+skips it. `app.security.devCsp` relaxes the policy for `tauri dev` ONLY
+(Vite's HMR injects an inline script and a style tag and needs its `ws://`
+socket — production ships untouched). The build keeps its half of the
+pairing — `modulePreload: { polyfill: false }`, `assetsInlineLimit: 0`,
+`base: "./"` — because the production CSP would silently block an inline
+polyfill or a `data:` asset, and `ui/src/__tests__/tauri-config.test.ts`
+pins both halves against each other: a "cleanup" that re-enables either
+breaks the console with no error anywhere.
 
 **What the configure form SENDS is a contract, not a rendering.** A save is a
 non-interactive `init --yes`, and `configure` resolves every key it was given no
 flag for to that key's STORED value, so what the form sends decides whether a
 save preserves config.env or rewrites it, and both ways of getting it wrong are
-silent. `ui/config-form.js` holds the pure halves (`effectiveForm`,
+silent. `ui/src/lib/config-form.ts` holds the pure halves (`effectiveForm`,
 `explicitFields`, `derivedBaseUrl`, `configPayload`, `fieldProblems`) and
-`test/config-form.test.js` covers them, OUTSIDE `ui/`, because `frontendDist`
-is `../ui` and that whole directory is copied into the shipped bundle, so a
-`ui/__tests__/` would put a file importing `bun:test` inside the installed app.
-`package.json`'s `test` runs `bun test src test`, and a guard in that same file
-fails if any test source reappears under the asset root.
+`ui/src/__tests__/config-form.test.ts` covers them beside the source. (They
+lived OUTSIDE `ui/` while `frontendDist` was `../ui`, because that whole
+directory was copied into the shipped bundle and a test importing `bun:test`
+would have shipped inside the installed app. The asset root is a Vite output
+now, so source-beside-source is the layout again, and what keeps the old
+failure mode from returning is `tauri-config.test.ts` pinning
+`frontendDist === "../ui/dist"` — the shipped directory is generated, and a
+test file cannot hide inside a build's output.) `package.json`'s `test` runs
+`bun test src ui/src`; that same file also pins the wiring in `main.ts` at the
+source, because the render path imports Tauri and cannot be loaded here.
 
 The fields are PREFILLED with the effective configuration (2026-09-09), which
 moved that contract rather than removing it:
@@ -376,13 +435,17 @@ against a server that answers.
 Missing tmux gets `desktop_install_tmux` (brew where it exists, pkexec apt-get
 on Linux — never a bare sudo, which has no tty from a GUI and hangs to the
 timeout), and setup and `ready` offer `desktop_install_agent` for Claude Code.
-Both decisions are pure JS in `ui/installers.js` (tested in `test/`, never
-under `ui/`) and are MIRRORED in `control.rs` (`tmux_install_argv`,
-`AGENT_INSTALLS`), because the webview cannot look at the machine and the
-Rust side is what decides what may be EXECUTED: the page sends an agent id and
-an unknown id is refused before any spawn. `console_platform` normalizes Rust's
-"macos" to the "darwin" the JS branches on — a wrong spelling there strands
-every Mac in the no-button fallback silently, so both sides carry a pin.
+Both decisions are pure TypeScript in `ui/src/lib/installers.ts` and are
+MIRRORED in `control.rs` (`tmux_install_argv`, `AGENT_INSTALLS`), because the
+webview cannot look at the machine and the Rust side is what decides what may
+be EXECUTED: the page sends an agent id and an unknown id is refused before
+any spawn. The copies are two languages on purpose — the console's decides
+what the user SEES, Rust's decides what runs — and they are pinned to each
+other by `the_console_install_table_and_the_rust_one_agree`, an `include_str!`
+containment test so a token removed on either side fails the Rust build.
+`console_platform` normalizes Rust's "macos" to the "darwin" the console
+branches on — a wrong spelling there strands every Mac in the no-button
+fallback silently, so both sides carry a pin.
 
 ## The console's own panes
 

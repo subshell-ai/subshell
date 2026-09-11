@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { agentInstallPlan, tmuxInstallPlan } from "../ui/installers.js";
+import { agentInstallPlan, tmuxInstallPlan } from "../lib/installers";
 
 describe("tmuxInstallPlan", () => {
   it("uses Homebrew on macOS when it is there", () => {
@@ -45,6 +45,12 @@ describe("agentInstallPlan", () => {
     // stays copy-to-clipboard: the console runs in the user's desktop session
     // rather than the plugin host, and a second execution path with different
     // trust properties is not worth it for a case nobody has asked for.
+    // (The ENFORCEMENT copy is `AGENT_INSTALLS` in control.rs; the Rust test
+    // `the_console_install_table_and_the_rust_one_agree` holds this map to contain
+    // that one, so half-revocation fails CI.)
     expect(agentInstallPlan("acme-harness")).toBeNull();
+    // And the inherited-object ids are no loophole.
+    expect(agentInstallPlan("constructor")).toBeNull();
+    expect(agentInstallPlan("toString")).toBeNull();
   });
 });

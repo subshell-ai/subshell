@@ -172,8 +172,9 @@ apps/client/desktop/src-tauri/binaries/*
 !apps/client/desktop/src-tauri/binaries/.gitkeep
 apps/client/desktop/src-tauri/target/
 apps/client/desktop/src-tauri/gen/
-# The Vite build of apps/client/desktop's window (its `frontendDist`). Spelled
-# out even though the blanket `dist` rule above already covers it, so deleting
-# that rule does not silently start committing a build output.
+# The Vite build of the two desktop apps' windows (their `frontendDist`s).
+# Spelled out even though the blanket `dist` rule above already covers them,
+# so deleting that rule does not silently start committing a build output.
 apps/client/desktop/ui/dist/
+apps/server/desktop/ui/dist/
 crates/desktop-core/target/

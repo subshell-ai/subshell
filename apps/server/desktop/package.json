@@ -1,27 +1,34 @@
 {
   "name": "@internal/desktop-server",
-  "description": "Subshell Server \u2014 a Tauri shell that installs, runs and manages a local subshell-server",
+  "description": "Subshell Server — a Tauri shell that installs, runs and manages a local subshell-server",
   "version": "0.1.2",
   "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
   "scripts": {
-    "clean": "rm -rf src-tauri/target src-tauri/binaries/subshell-server-bundled-*",
+    "build": "vite build",
+    "clean": "rm -rf src-tauri/target src-tauri/binaries/subshell-server-bundled-* ui/dist",
     "compile": "tauri build --debug",
     "dev:app": "tauri dev",
+    "dev:ui": "vite",
     "icons": "tauri icon src-tauri/icons/app-icon.png && rm -rf src-tauri/icons/android src-tauri/icons/ios src-tauri/icons/icon.ico src-tauri/icons/Square*Logo.png src-tauri/icons/StoreLogo.png",
-    "lint": "biome check --write --unsafe src ui test",
-    "lint:check": "biome check src ui test",
-    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src ui test",
-    "test": "bun test src test",
-    "verify-types": "tsc --project tsconfig.json --noEmit",
+    "lint": "biome check --write --unsafe src ui",
+    "lint:check": "biome check src ui",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src ui",
+    "test": "bun test src ui/src",
+    "verify-types": "tsc --project tsconfig.json --noEmit && tsc --project ui/tsconfig.json --noEmit",
     "compile:release": "bun run src/scripts/release.ts"
   },
   "dependencies": {
-    "@internal/subshell-protocol": "workspace:*"
+    "@internal/subshell-protocol": "workspace:*",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.3"
   },
   "devDependencies": {
     "@internal/tsconfig": "workspace:*",
-    "@tauri-apps/cli": "2.11.4"
+    "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "2.11.4",
+    "tailwindcss": "4.3.3",
+    "vite": "8.2.1"
   }
 }

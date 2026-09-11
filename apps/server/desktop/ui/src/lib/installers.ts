@@ -1,7 +1,7 @@
 /**
  * Which installer the console offers, as a pure function of the platform.
  *
- * Separate from `main.js` for the same reason `config-form.js` is: this is the
+ * Separate from `main.ts` for the same reason `config-form.ts` is: this is the
  * part with a contract rather than a rendering, and it is the part worth
  * testing without a webview.
  *
@@ -16,14 +16,25 @@
 const TMUX_DOCS = "https://formulae.brew.sh/formula/tmux";
 
 /**
- * How to install tmux here.
- * @param {string} platform - "darwin", "linux", or anything else
- * @param {boolean} hasBrew - whether `brew` resolves on the login PATH
- * @returns {{kind: "run"|"manual", label: string, command: string[], docsUrl: string}}
- *   `run` means the console may offer a button; `manual` means it must show
- *   the command and let the user run it.
+ * How the console surfaces one install decision.
+ * `kind: "run"` means it may offer a button; `"manual"` means it must show
+ * the command (when there is one) and let the user run it.
  */
-export function tmuxInstallPlan(platform, hasBrew) {
+export interface InstallPlan {
+  kind: "run" | "manual";
+  label: string;
+  /** The argv, as words for the reader — empty when the platform has nothing installable. */
+  command: string[];
+  /** Reading for the case the app cannot handle. An empty string means none. */
+  docsUrl: string;
+}
+
+/**
+ * How to install tmux here.
+ * @param platform "darwin", "linux", or anything else
+ * @param hasBrew whether `brew` resolves on the login PATH
+ */
+export function tmuxInstallPlan(platform: string, hasBrew: boolean): InstallPlan {
   if (platform === "darwin") {
     if (hasBrew) {
       return { kind: "run", label: "Install tmux", command: ["brew", "install", "tmux"], docsUrl: TMUX_DOCS };
@@ -51,7 +62,7 @@ export function tmuxInstallPlan(platform, hasBrew) {
     // wider, resolve the manager in RUST (where `which` works) and pass the
     // answer in as this function does with `hasBrew` — never guess here, and
     // change BOTH copies together (the Rust `tmux_install_argv` mirrors this
-    // decision; `the_js_install_table_and_the_rust_one_agree` fails the build
+    // decision; `the_console_install_table_and_the_rust_one_agree` fails the build
     // when a token either side runs is removed or changed in the other).
     return {
       kind: "run",
@@ -76,7 +87,7 @@ export function tmuxInstallPlan(platform, hasBrew) {
  * is `AGENT_INSTALLS` in `control.rs`, because that is the side the webview
  * talks to and it never runs a string the page handed it, only its own. The
  * two are pinned to agree by the Rust test
- * `the_js_install_table_and_the_rust_one_agree`, which holds this copy to
+ * `the_console_install_table_and_the_rust_one_agree`, which holds this copy to
  * contain that one: removing or changing an id or script on EITHER side is a
  * CI failure pointing at the copy that must change with it. Adding an id here
  * alone fails nothing, deliberately — no button would name it, and only the
@@ -84,7 +95,7 @@ export function tmuxInstallPlan(platform, hasBrew) {
  *
  * All five are user-space installers that need no elevation.
  */
-const AGENT_INSTALLS = {
+const AGENT_INSTALLS: Record<string, string> = {
   "claude-code": "curl -fsSL https://claude.ai/install.sh | bash",
   codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
   hermes: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
@@ -97,11 +108,9 @@ const AGENT_INSTALLS = {
  * `command` is shown to nobody and run by nothing from this side — the Rust
  * command holds its own copy and the cross-check test keeps them equal; the
  * plan exists here so the allowlist is readable next to the tmux plans and
- * pinned in `test/installers.test.js`.
- * @param {string} id - plugin id
- * @returns {{kind: "run", command: string[]}|null}
+ * pinned in `__tests__/installers.test.ts`.
  */
-export function agentInstallPlan(id) {
+export function agentInstallPlan(id: string): { kind: "run"; command: string[] } | null {
   const script = Object.hasOwn(AGENT_INSTALLS, id) ? AGENT_INSTALLS[id] : undefined;
   if (!script) return null;
   return { kind: "run", command: ["sh", "-c", script] };

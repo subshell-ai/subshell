@@ -2,34 +2,49 @@
  * The server console — the one surface that must render with the server DOWN,
  * and the only one allowed to drive the `subshell-server` CLI.
  *
- * Deliberately framework-free and dependency-free: a second copy of React,
- * Tailwind and the design system to draw a status panel and six buttons would
- * be a build step between the user and the thing that fixes their broken
- * install. It is a module rather than an inline script so a real CSP can apply
- * (`script-src 'self'`) and so biome lints it as code.
+ * TypeScript on Vite with Tailwind (2026-09-10). The page stayed plain JS for
+ * as long as its argument was "no build step between the user and the thing
+ * that fixes their broken install"; the build moved INSIDE that promise rather
+ * than in front of it — `tauri dev` and `tauri build` run `vite build` as
+ * their own before-hook, so there is no way to launch or bundle the app that
+ * skips it, and the CSP-clean output rules (inline preload polyfill off, no
+ * inlined assets) live in `vite.config.ts` against the policy in
+ * `tauri.conf.json`. It is still a module rather than an inline script
+ * because `script-src 'self'` applies, and the pure decisions still live in
+ * `lib/` where they can be tested without a webview.
  *
  * The CLI owns every operator-facing message — the `loginctl enable-linger`
  * hint, the tmux refusal, the live-pane warning — so its stdout and stderr are
  * shown VERBATIM and never re-worded here. Two surfaces that phrase the same
  * refusal differently are two surfaces that drift.
  */
-
+import { ask as askDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   CONFIG_FIELDS,
   configPayload,
   derivedBaseUrl,
+  type ExplicitMap,
   effectiveForm,
   explicitFields,
+  type FormValues,
   fieldProblems,
-} from "./config-form.js";
-import { tmuxInstallPlan } from "./installers.js";
+} from "./lib/config-form";
+import { type InstallPlan, tmuxInstallPlan } from "./lib/installers";
+import type { ActionResult, OpenTarget, Probe, ProbeStep } from "./lib/ipc";
+import * as ipc from "./lib/ipc";
+import "./styles.css";
 
-const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
-const dialog = () => window.__TAURI__.dialog;
-const el = (id) => document.getElementById(id);
+const el = (id: string): HTMLElement => {
+  const node = document.getElementById(id);
+  if (node === null) throw new Error(`the console page is missing #${id}`);
+  return node;
+};
+
+/** A rejected command's words, for the problem line. */
+const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /** Latest probe, or null before the first one lands. */
-let probe = null;
+let probe: Probe | null = null;
 /** True while a command is in flight; every button is disabled meanwhile. */
 let busy = false;
 /** Why the last action or probe failed, in the CLI's words. */
@@ -42,7 +57,7 @@ let problem = "";
  * and submitted whatever the fresh inputs happened to hold. The typed value is
  * the state; the input is a view of it.
  */
-let form = effectiveForm(undefined);
+let form: FormValues = effectiveForm(undefined);
 /**
  * Which fields to send: chosen before this form opened, or typed into since.
  *
@@ -52,13 +67,13 @@ let form = effectiveForm(undefined);
  * keep deriving it, and a field already in config.env starts in here so that
  * saving without touching it cannot wipe it: see `explicitFields`.
  */
-let explicit = Object.create(null);
+let explicit: ExplicitMap = {};
 /** Which step the action area currently shows, so focus survives a re-render. */
-let renderedStep = null;
+let renderedStep: string | null = null;
 
 /** Show a result's own words. `ok:false` is styled as a failure, not as output. */
-function show(result) {
-  const parts = [];
+function show(result: ActionResult | null): void {
+  const parts: string[] = [];
   if (result?.stdout?.trim()) parts.push(result.stdout.trim());
   if (result?.stderr?.trim()) parts.push(result.stderr.trim());
   const out = el("output");
@@ -71,7 +86,7 @@ function show(result) {
 }
 
 /** Which pane is in front. The log unless a command has just spoken. */
-let pane = "log";
+let pane: "log" | "output" = "log";
 
 /**
  * Bring one pane forward.
@@ -80,7 +95,7 @@ let pane = "log";
  * is 620px by default and a second always-on block pushed the step actions off
  * the bottom on a machine with several facts to report.
  */
-function showPane(next) {
+function showPane(next: "log" | "output"): void {
   pane = next;
   for (const id of ["log", "output"]) {
     el(id).hidden = id !== pane;
@@ -105,8 +120,8 @@ let logSource = "";
  *   text rather than as an error, because during setup it is the ordinary
  *   answer and an error banner would teach the user to ignore the pane.
  */
-async function refreshLog() {
-  const tail = await invoke("desktop_logs");
+async function refreshLog(): Promise<void> {
+  const tail = await ipc.logs();
   const box = el("log");
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
   box.textContent = tail.text || tail.note || "";
@@ -116,6 +131,12 @@ async function refreshLog() {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
+/** A small action riding on a facts row. It names an INTENT; paths stay in Rust. */
+interface FactAction {
+  label: string;
+  run: () => void;
+}
+
 /**
  * One facts row, optionally carrying an action — a path to reveal in the
  * file manager, the control plane to open in a browser.
@@ -123,7 +144,7 @@ async function refreshLog() {
  * The action names an intent, never a path: the Rust side re-reads the path
  * from its own probe, so a row can only ever reveal the fact it is showing.
  */
-function fact(dl, key, value, cls, action) {
+function fact(dl: HTMLElement, key: string, value: string, cls: string | null, action: FactAction | null = null): void {
   const dt = document.createElement("dt");
   dt.textContent = key;
   const dd = document.createElement("dd");
@@ -141,18 +162,18 @@ function fact(dl, key, value, cls, action) {
 }
 
 /** Reveal one of the CLI's own paths. Success is visible in the file manager, so only the failure needs surfacing. */
-function reveal(target) {
-  invoke("desktop_open_path", { target }).catch((err) => {
-    problem = String(err?.message ?? err);
+function reveal(target: OpenTarget): void {
+  ipc.openPath(target).catch((err: unknown) => {
+    problem = errText(err);
     render();
   });
 }
-const revealAction = (target, label = "Reveal") => ({ label, run: () => reveal(target) });
+const revealAction = (target: OpenTarget, label = "Reveal"): FactAction => ({ label, run: () => reveal(target) });
 
 /** Open the control plane's URL in the SYSTEM browser — the address row shows, not a URL from this side. */
-function openControlPlane() {
-  invoke("desktop_open_control_plane").catch((err) => {
-    problem = String(err?.message ?? err);
+function openControlPlane(): void {
+  ipc.openControlPlane().catch((err: unknown) => {
+    problem = errText(err);
     render();
   });
 }
@@ -163,18 +184,20 @@ function openControlPlane() {
  * `probe.server.source` is the wire form of `ServerSource` — `local-bin`,
  * `well-known` — which is right for a protocol and unreadable in a fact list
  * a first-time user is looking at. Falls back to the raw value, so a rung
- * added to a newer Rust half still renders something rather than nothing.
+ * added to a newer Rust half still renders something rather than nothing;
+ * the map is `Partial` so that fallback is the type-checked answer, not a
+ * type-system blind spot.
  */
-const SOURCE_LABELS = Object.assign(Object.create(null), {
+const SOURCE_LABELS: Partial<Record<ipc.ServerSource, string>> = {
   env: "named by SUBSHELL_SERVER_BIN",
   configured: "you chose this path",
   service: "named by the installed service",
   "local-bin": "installed by this app",
   path: "on your login PATH",
   "well-known": "in a standard install directory",
-});
+};
 
-function renderFacts() {
+function renderFacts(): void {
   const dl = el("facts");
   dl.textContent = "";
   const svc = probe?.service ?? null;
@@ -183,7 +206,7 @@ function renderFacts() {
     // Two rows, each holding what its label promises: WHAT it is, then WHERE
     // it came from. "server version" used to carry the path as well, and the
     // rung sat in a third row answering the same question the path did.
-    fact(dl, "server cli", probe.server.version ?? "unknown version");
+    fact(dl, "server cli", probe.server.version ?? "unknown version", null);
     const how = SOURCE_LABELS[probe.server.source] ?? probe.server.source;
     fact(dl, "found at", `${probe.server.argv.join(" ")} (${how})`, null, revealAction("server-dir"));
   }
@@ -223,7 +246,7 @@ function renderFacts() {
   // in the system browser, where a LAN host or TLS cert is the user's own
   // browser problem, not something to point the privileged window at.
   if (st?.settings?.APP_BASE_URL) {
-    fact(dl, "control plane URL", st.settings.APP_BASE_URL.value, null, {
+    fact(dl, "control plane URL", st.settings.APP_BASE_URL.value ?? "", null, {
       label: "Open in browser",
       run: openControlPlane,
     });
@@ -248,13 +271,13 @@ function renderFacts() {
     fact(dl, "port", `something is already listening on ${st.listen.portRaw}`, "warn-text");
   }
   if (svc?.installed) {
-    fact(dl, "service", svc.definitionPath, null, revealAction("service-definition"));
+    fact(dl, "service", svc.definitionPath ?? "", null, revealAction("service-definition"));
     // `detail` carries what the manager said verbatim — `launchd: spawn
     // scheduled` is the crash-throttle state, and "stopped" alone hides it.
     fact(
       dl,
       "manager",
-      svc.state + (svc.pid ? ` (pid ${svc.pid})` : "") + (svc.detail ? `, ${svc.detail}` : ""),
+      (svc.state ?? "unknown") + (svc.pid ? ` (pid ${svc.pid})` : "") + (svc.detail ? `, ${svc.detail}` : ""),
       svc.state === "unknown" ? "bad-text" : null,
     );
     // The one fact neither systemctl nor launchctl will tell them.
@@ -274,8 +297,20 @@ function renderFacts() {
   if (svc && typeof svc.logPath === "string") {
     fact(dl, "logs", svc.logPath, null, revealAction("logs"));
   } else if (svc && svc.logPath === null) {
-    fact(dl, "logs", "the systemd journal: journalctl --user -u subshell-server.service -f");
+    fact(dl, "logs", "the systemd journal: journalctl --user -u subshell-server.service -f", null);
   }
+}
+
+/** One entry of the actions row: label, handler, and the two rendering flags. */
+type StepAction = [label: string, handler: () => unknown, primary?: boolean, needsTmux?: boolean];
+
+/** One entry of the STEPS table. */
+interface Step {
+  body: string;
+  hint?: string;
+  /** Whether the init/configure form is part of this step. */
+  form?: boolean;
+  actions: () => StepAction[];
 }
 
 /**
@@ -284,7 +319,7 @@ function renderFacts() {
  * `Object.create(null)` so a step named `constructor` or `toString` cannot
  * resolve to something inherited and crash the render loop.
  */
-const STEPS = Object.assign(Object.create(null), {
+const STEPS: Partial<Record<ProbeStep | "configure", Step>> = Object.assign(Object.create(null), {
   "no-server": {
     body: "No subshell-server was found, and this build does not ship one.",
     hint: "Point the app at a server binary you already have.",
@@ -318,7 +353,7 @@ const STEPS = Object.assign(Object.create(null), {
     body: "A subshell-server was found, but it did not answer.",
     hint: "Nothing has been changed. Retry, or choose a different binary; this app will not rewrite a configuration it cannot read. If the answer you expect is a different port or address, edit it here.",
     actions: () => [
-      ["Retry", act(null), true],
+      ["Retry", retry, true],
       ["Choose a different one…", pickBinary],
       ["Change addresses…", showConfigure],
     ],
@@ -382,27 +417,27 @@ const STEPS = Object.assign(Object.create(null), {
       ["Cancel", cancelConfigure],
     ],
   },
-});
+} satisfies Partial<Record<ProbeStep | "configure", Step>>);
 
 /**
  * `configure` is a step the USER chooses, so it cannot come from the probe —
  * which reports what the machine implies. Held beside `probe.next` and cleared
  * whenever the flow moves on.
  */
-let override = null;
+let override: "configure" | null = null;
 
 /** What to show before the first probe lands, or for a step this build predates. */
-function fallbackStep() {
+function fallbackStep(): Step {
   return probe === null
     ? { body: "Checking this machine…", actions: () => [] }
     : {
         body: `This app does not know what to do about "${probe.next}".`,
         hint: "That usually means the app is older than the server it is managing.",
-        actions: () => [["Retry", act(null), true]],
+        actions: () => [["Retry", retry, true]],
       };
 }
 
-function renderStep() {
+function renderStep(): void {
   const key = override ?? probe?.next ?? null;
   const step = (key !== null && STEPS[key]) || fallbackStep();
   const actions = el("step-actions");
@@ -440,8 +475,10 @@ function renderStep() {
   // Re-read every render, not rebuilt with the step: installing tmux or brew
   // does not change which step you are on, and a plan decided once would
   // outlive its own premise. `platform` comes from the probe (a Rust fact)
-  // rather than the UA string this used to sniff.
-  if (tmuxMissing) tmuxWarn.applyPlan(tmuxInstallPlan(probe.platform, probe.hasBrew));
+  // rather than the UA string this used to sniff. (The `probe !== null` test
+  // is the same fact `tmuxMissing` encodes — restated because TS cannot see
+  // through the boolean to narrow `probe`.)
+  if (probe !== null && tmuxMissing) tmuxWarn.applyPlan(tmuxInstallPlan(probe.platform, probe.hasBrew));
   for (const b of actions.querySelectorAll("button")) {
     if (b.dataset.always === "1") continue;
     b.disabled = busy || (tmuxMissing && b.dataset.tmux === "1");
@@ -449,7 +486,7 @@ function renderStep() {
   for (const i of actions.querySelectorAll("input")) i.disabled = busy;
 }
 
-function button(label, handler, primary, needsTmux) {
+function button(label: string, handler: () => unknown, primary?: boolean, needsTmux?: boolean): HTMLButtonElement {
   const b = document.createElement("button");
   b.type = "button";
   b.textContent = label;
@@ -475,7 +512,9 @@ function button(label, handler, primary, needsTmux) {
  * bundled binary. The CLI's interactive preflight offers to run the same
  * installer; this is the non-interactive twin for the disabled buttons.
  */
-function buildTmuxWarning() {
+type TmuxWarning = HTMLElement & { applyPlan: (plan: InstallPlan) => void };
+
+function buildTmuxWarning(): TmuxWarning {
   const wrap = document.createElement("div");
   wrap.className = "tmux-warning";
   wrap.hidden = true;
@@ -512,7 +551,7 @@ function buildTmuxWarning() {
     // Copies what is SHOWN: the code line and the clipboard cannot then
     // disagree, whatever `applyPlan` last wrote there.
     navigator.clipboard
-      .writeText(code.textContent)
+      .writeText(code.textContent ?? "")
       .then(() => {
         copy.textContent = "Copied";
       })
@@ -535,32 +574,35 @@ function buildTmuxWarning() {
   docs.textContent = "Read the docs";
   docs.dataset.always = "1";
   docs.addEventListener("click", () => {
-    invoke("desktop_open_tmux_docs").catch((err) => {
-      problem = String(err?.message ?? err);
+    ipc.openTmuxDocs().catch((err: unknown) => {
+      problem = errText(err);
       render();
     });
   });
   row.append(install, code, copy, docs);
   wrap.append(p, row);
-  wrap.applyPlan = (plan) => {
-    install.hidden = plan.kind !== "run";
-    install.textContent = plan.label;
-    // The command line follows the plan rather than a UA guess: on a Mac
-    // without Homebrew there is no button, so this line IS the fix, and the
-    // plan's MacPorts alternative is the honest thing to show — a brew line
-    // would advise installing a tool we just checked is absent. An empty
-    // command (a platform with nothing installable) hides the code and its
-    // Copy rather than showing "tmux" as a fix it is not.
-    code.textContent = plan.command.join(" ");
-    code.hidden = plan.command.length === 0;
-    copy.hidden = plan.command.length === 0;
-    docs.hidden = !plan.docsUrl;
-  };
-  return wrap;
+  // Object.assign rather than a cast: the intersection is what this actually
+  // builds (a div carrying a method), and the compiler can see it.
+  return Object.assign(wrap, {
+    applyPlan: (plan: InstallPlan) => {
+      install.hidden = plan.kind !== "run";
+      install.textContent = plan.label;
+      // The command line follows the plan rather than a UA guess: on a Mac
+      // without Homebrew there is no button, so this line IS the fix, and the
+      // plan's MacPorts alternative is the honest thing to show — a brew line
+      // would advise installing a tool we just checked is absent. An empty
+      // command (a platform with nothing installable) hides the code and its
+      // Copy rather than showing "tmux" as a fix it is not.
+      code.textContent = plan.command.join(" ");
+      code.hidden = plan.command.length === 0;
+      copy.hidden = plan.command.length === 0;
+      docs.hidden = !plan.docsUrl;
+    },
+  });
 }
 
 /** Built once and MOVED between action rebuilds; `hidden` is recomputed every render. */
-const tmuxWarn = buildTmuxWarning();
+const tmuxWarn: TmuxWarning = buildTmuxWarning();
 
 /**
  * The init/configure form, seeded from what the server itself reports rather
@@ -571,23 +613,22 @@ const tmuxWarn = buildTmuxWarning();
  * action ends with a re-probe, so re-seeding here would overwrite what someone
  * is in the middle of typing.
  */
-function buildForm() {
+function buildForm(): HTMLElement {
   const seeded = effectiveForm(probe?.status?.settings);
   for (const { name } of CONFIG_FIELDS) form[name] = form[name] || seeded[name];
   // Additive, and needed because the `init` step is reached without going
   // through `showConfigure`: a value already chosen (an env var, on a machine
   // with no config.env yet) must still be sent back rather than dropped.
-  for (const [name, on] of Object.entries(explicitFields(probe?.status?.settings))) {
+  for (const [name, on] of Object.entries(explicitFields(probe?.status?.settings)) as [keyof ExplicitMap, boolean][]) {
     if (on) explicit[name] = true;
   }
   const wrap = document.createElement("div");
-  wrap.className = "grid2";
-  wrap.style.width = "100%";
+  wrap.className = "grid w-full grid-cols-2 gap-2.5";
   for (const field of CONFIG_FIELDS) {
     const { name, label, placeholder, numeric, wide, hint } = field;
     const cell = document.createElement("div");
     // A URL and a comma-separated list do not fit half a two-column grid.
-    if (wide) cell.className = "span2";
+    if (wide) cell.className = "col-span-2";
     const l = document.createElement("label");
     l.htmlFor = `field-${name}`;
     l.textContent = label;
@@ -607,7 +648,7 @@ function buildForm() {
       // port became 4000 looks exactly like the value about to be written.
       if (name === "port" && explicit.baseUrl !== true) {
         form.baseUrl = derivedBaseUrl(input.value);
-        const mirror = document.getElementById("field-baseUrl");
+        const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
         if (mirror) mirror.value = form.baseUrl;
       }
     });
@@ -630,10 +671,10 @@ function buildForm() {
     // a problem about the value on disk is still true while someone types a
     // replacement, so there is nothing to hide. It clears on save, when the
     // re-probe reports the new value.
-    for (const problem of fieldProblems(probe?.status?.settings, name)) {
+    for (const problemEntry of fieldProblems(probe?.status?.settings, name)) {
       const warn = document.createElement("p");
       warn.className = "hint warn-text";
-      warn.textContent = problem.reason;
+      warn.textContent = problemEntry.reason;
       cell.append(warn);
     }
     wrap.append(cell);
@@ -641,11 +682,11 @@ function buildForm() {
   return wrap;
 }
 
-function renderChip() {
+function renderChip(): void {
   const svc = probe?.service;
   const running = svc?.state === "running";
   const dot = el("dot");
-  dot.className = `dot ${running ? "ok" : svc?.installed ? "warn" : ""}`.trim();
+  dot.className = `size-2 shrink-0 rounded-full ${running ? "bg-ok" : svc?.installed ? "bg-warn" : "bg-muted"}`;
   el("state").textContent = busy
     ? "Working…"
     : probe === null
@@ -659,15 +700,15 @@ function renderChip() {
             : "No server found";
 }
 
-function render() {
+function render(): void {
   renderChip();
   renderFacts();
   el("problem").textContent = problem;
   renderStep();
 }
 
-async function refresh() {
-  probe = await invoke("desktop_probe");
+async function refresh(): Promise<void> {
+  probe = await ipc.probe();
   // The Rust side reports the CLI's own failure text rather than letting a
   // failed `status` masquerade as an unconfigured server.
   problem = probe.error ?? "";
@@ -682,7 +723,7 @@ async function refresh() {
  */
 const SETTLE_ATTEMPTS = 2;
 const SETTLE_DELAY_MS = 1500;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Wrap an action so two cannot run at once, the UI always re-renders, and a
@@ -693,20 +734,27 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * on `ready` rather than mid-transition. Stop and uninstall never pass it —
  * waiting for a `ready` that must not arrive is polling with extra steps.
  */
-function guard(fn, settle = false) {
+function guard(fn: () => Promise<ActionResult | null>, settle = false): () => Promise<void> {
   return async () => {
     if (busy) return;
     busy = true;
     problem = "";
     show(null);
     render();
+    // The action's own failure line is applied AFTER the re-probe, not inside
+    // the try: `refresh` rewrites `problem` from `probe.error`, and setting it
+    // here meant an `ok:false` result erased its own message before the render
+    // that was supposed to show it (measured pre-migration too; the red output
+    // pane is why nobody noticed). The press the user just made outranks the
+    // background state — the CLI's own words are in the pane either way.
+    let failure: string | null = null;
     try {
       const result = await fn();
       if (result) show(result);
-      if (result && result.ok === false) problem = "That did not work. See the output below.";
+      if (result && result.ok === false) failure = "That did not work. See the output below.";
     } catch (err) {
       // A command that rejects (or a Rust `Err`) must not strand the console.
-      problem = String(err?.message ?? err);
+      failure = errText(err);
     }
     try {
       await refresh();
@@ -715,15 +763,16 @@ function guard(fn, settle = false) {
         await refresh();
       }
     } catch (err) {
-      problem = problem || `Could not read this machine's state: ${String(err?.message ?? err)}`;
+      problem = problem || `Could not read this machine's state: ${errText(err)}`;
     }
+    if (failure !== null) problem = failure;
     busy = false;
     render();
   };
 }
 
-const act = (cmd, args) => guard(() => (cmd ? invoke(cmd, args) : null));
-const service = (verb, settle) => guard(() => invoke("desktop_service", { verb, force: false }), settle);
+const retry = guard(async (): Promise<ActionResult | null> => null);
+const service = (verb: ipc.ServiceVerb, settle = false) => guard(() => ipc.service(verb, false), settle);
 
 /**
  * First-run configure: write config.env, then install and start the service.
@@ -739,12 +788,12 @@ const service = (verb, settle) => guard(() => invoke("desktop_service", { verb, 
  * than acting on a configuration that is not there.
  */
 const doInit = guard(async () => {
-  const written = await invoke("desktop_init", configPayload(form, explicit));
+  const written = await ipc.init(configPayload(form, explicit));
   if (!written.ok) return written;
-  const installed = await invoke("desktop_service", { verb: "install", force: false });
+  const installed = await ipc.service("install", false);
   return installed.ok ? installed : { ...installed, stdout: `${written.stdout}\n${installed.stdout}` };
 }, true);
-const openMain = guard(() => invoke("desktop_open_main"));
+const openMain = guard(() => ipc.openMain().then(() => null));
 
 /**
  * The whole first-run chain, one press.
@@ -759,20 +808,20 @@ const openMain = guard(() => invoke("desktop_open_main"));
  * tray item have always opened it against a running server, and `service
  * start` returns when the manager has spawned the process, not when the port
  * is bound. So the settle runs here, before the open, rather than only after
- * the return. A chain that installed everything and never settled stays on
+ * the return. A chain that installed everything and never settles stays on
  * screen as the step that names the remainder, with the CLI's own words in
  * the pane below; a window pointed at a dead port is the one outcome this
  * press exists to remove.
  */
 const doSetup = guard(async () => {
-  const result = await invoke("desktop_setup");
+  const result = await ipc.setup();
   if (!result.ok) return result;
   for (let i = 0; i < SETTLE_ATTEMPTS && probe?.next !== "ready"; i += 1) {
     await sleep(SETTLE_DELAY_MS);
     await refresh();
   }
   if (probe?.next === "ready") {
-    await invoke("desktop_open_main");
+    await ipc.openMain();
     return result;
   }
   // The settle ran out, not the setup: the chain installed and started a
@@ -795,7 +844,7 @@ const doSetup = guard(async () => {
  * enables every gated button, and the package manager's own output goes to
  * the pane verbatim. The user then presses what they were going to press.
  */
-const doInstallTmux = guard(() => invoke("desktop_install_tmux"));
+const doInstallTmux = guard(() => ipc.installTmux());
 
 /**
  * Install one agent CLI, by built-in id.
@@ -806,7 +855,7 @@ const doInstallTmux = guard(() => invoke("desktop_install_tmux"));
  * regression to ship here. `guard()` wraps a zero-arg function (a button's
  * click event must not reach it as a value), so the id is bound per call.
  */
-const doInstallAgent = (id) => guard(() => invoke("desktop_install_agent", { id }))();
+const doInstallAgent = (id: string) => guard(() => ipc.installAgent(id))();
 
 /**
  * Replacing the installed server stops it first, which ends every running
@@ -818,11 +867,11 @@ const doUpdateServer = guard(async () => {
   const warning = kills
     ? "\n\nThe installed service definition does not spare live panes, so every running subshell will be killed."
     : "";
-  const proceed = await dialog().ask(
-    `Replace the installed server with ${probe.bundledVersion}? The service will be stopped and restarted.${warning}`,
+  const proceed = await askDialog(
+    `Replace the installed server with ${probe?.bundledVersion}? The service will be stopped and restarted.${warning}`,
     { title: "Update the server", kind: kills ? "warning" : "info", okLabel: "Update" },
   );
-  return proceed ? invoke("desktop_install_server") : null;
+  return proceed ? await ipc.installServer() : null;
 }, true);
 
 /**
@@ -832,33 +881,30 @@ const doUpdateServer = guard(async () => {
  * render and the click.
  */
 const doRestart = guard(async () => {
-  const first = await invoke("desktop_service", { verb: "restart", force: false });
+  const first = await ipc.service("restart", false);
   // The CLI's refusal is the only thing that means "refused". Treating any
   // failure on a `kills` host as the pane refusal offered "restart anyway" for
   // a masked unit, a dead D-Bus, or a permission error — none of which --force
   // can help, and all of which then failed a second time.
   const refused = !first.ok && first.stderr.includes("refusing to restart");
   if (first.ok || !refused) return first;
-  const proceed = await dialog().ask(`${first.stderr.trim()}\n\nRestart anyway and lose those sessions?`, {
+  const proceed = await askDialog(`${first.stderr.trim()}\n\nRestart anyway and lose those sessions?`, {
     title: "This will kill running subshells",
     kind: "warning",
     okLabel: "Restart anyway",
   });
-  return proceed ? invoke("desktop_service", { verb: "restart", force: true }) : first;
+  return proceed ? await ipc.service("restart", true) : first;
 }, true);
 
 /** Stop warns rather than refusing, so the warning is the thing to surface. */
-const doStop = guard(async () => {
-  const result = await invoke("desktop_service", { verb: "stop", force: false });
-  return result;
-});
+const doStop = guard(() => ipc.service("stop", false));
 
 /**
  * Open the configure form, RESEEDED from what the server currently reports —
  * an edit starts from the stored configuration, not from whatever a previous
  * visit to the form left behind.
  */
-function showConfigure() {
+function showConfigure(): void {
   form = effectiveForm(probe?.status?.settings);
   explicit = explicitFields(probe?.status?.settings);
   override = "configure";
@@ -866,7 +912,7 @@ function showConfigure() {
   render();
 }
 
-function cancelConfigure() {
+function cancelConfigure(): void {
   override = null;
   renderedStep = null;
   render();
@@ -880,7 +926,7 @@ function cancelConfigure() {
  * Doing both here is what makes the button mean what it says.
  */
 const doConfigure = guard(async () => {
-  const written = await invoke("desktop_init", configPayload(form, explicit));
+  const written = await ipc.init(configPayload(form, explicit));
   if (!written.ok) return written;
   override = null;
   // No service yet: the file IS the whole action, and there is nothing to
@@ -892,16 +938,16 @@ const doConfigure = guard(async () => {
       stdout: `${written.stdout}\nSaved. It takes effect when the service is installed and started.`,
     };
   }
-  const restarted = await invoke("desktop_service", { verb: "restart", force: false });
+  const restarted = await ipc.service("restart", false);
   return restarted.ok ? restarted : { ...restarted, stdout: `${written.stdout}\n${restarted.stdout}` };
 }, true);
 
 /** The Rust side validates the chosen file and returns an Err for anything that is not a server. */
 const pickBinary = guard(async () => {
-  const chosen = await dialog().open({ multiple: false, directory: false, title: "Choose subshell-server" });
-  if (!chosen) return null;
-  await invoke("desktop_set_server_bin", { path: chosen });
-  return { ok: true, stdout: `Using ${chosen}` };
+  const chosen = await openDialog({ multiple: false, directory: false, title: "Choose subshell-server" });
+  if (typeof chosen !== "string") return null;
+  await ipc.setServerBin(chosen);
+  return { ok: true, stdout: `Using ${chosen}`, stderr: "" };
 });
 
 /**
@@ -931,19 +977,19 @@ const TRAY_NOT_DETECTED =
  *   and installing it flips the answer without restarting the app.
  * - `unsupported` — no tray on this platform at all, so the card is not drawn.
  */
-async function loadPrefs() {
+async function loadPrefs(): Promise<void> {
   let prefs;
   try {
-    prefs = await invoke("desktop_settings");
+    prefs = await ipc.settings();
   } catch (err) {
     // Never leaves the card mid-state or the rejection unhandled: this is also
     // the re-check button's path, and a refused command there must say so.
-    problem = String(err?.message ?? err);
+    problem = errText(err);
     render();
     return;
   }
   el("prefs-card").hidden = prefs.trayStatus === "unsupported";
-  const box = el("close-to-tray");
+  const box = el("close-to-tray") as HTMLInputElement;
   box.checked = prefs.closeToTray;
   box.disabled = !prefs.traySupported;
   el("tray-missing").hidden = prefs.traySupported;
@@ -959,10 +1005,10 @@ async function loadPrefs() {
  */
 el("close-to-tray").addEventListener("change", async () => {
   try {
-    await invoke("desktop_set_close_to_tray", { enabled: el("close-to-tray").checked });
+    await ipc.setCloseToTray((el("close-to-tray") as HTMLInputElement).checked);
     problem = "";
   } catch (err) {
-    problem = String(err?.message ?? err);
+    problem = errText(err);
   }
   await loadPrefs();
   render();
@@ -1008,7 +1054,7 @@ const POLL_MS = 5000;
  * own words in `problem`, and a transient failure nobody asked about must not
  * become an unhandled rejection.
  */
-async function poll() {
+async function poll(): Promise<void> {
   if (busy || document.hidden) return;
   try {
     await refresh();
@@ -1025,7 +1071,7 @@ async function poll() {
   }
 }
 
-for (const id of ["log", "output"]) {
+for (const id of ["log", "output"] as const) {
   el(`tab-${id}`).addEventListener("click", () => showPane(id));
 }
 
@@ -1038,6 +1084,6 @@ document.addEventListener("visibilitychange", () => {
 
 showPane("log");
 render();
-void act(null)();
+void retry();
 void loadPrefs();
 void refreshLog().catch(() => {});

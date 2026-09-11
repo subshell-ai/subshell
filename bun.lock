@@ -167,10 +167,15 @@
       "version": "0.1.2",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
+        "@tauri-apps/api": "2.11.1",
+        "@tauri-apps/plugin-dialog": "2.7.3",
       },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
+        "@tailwindcss/vite": "4.3.3",
         "@tauri-apps/cli": "2.11.4",
+        "tailwindcss": "4.3.3",
+        "vite": "8.2.1",
       },
     },
     "apps/server/web": {

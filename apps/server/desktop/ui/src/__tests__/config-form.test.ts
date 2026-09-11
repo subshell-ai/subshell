@@ -1,15 +1,3 @@
-import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import {
-  CONFIG_FIELDS,
-  configPayload,
-  derivedBaseUrl,
-  effectiveForm,
-  explicitFields,
-  fieldProblems,
-} from "../ui/config-form.js";
-
 /**
  * The console's configure form is the only place these four keys are typed
  * together, and it is a NON-INTERACTIVE `init --yes` under the hood — so
@@ -18,16 +6,25 @@ import {
  * seed is a field the form sends back wrong, and the two failure modes are
  * silent (a repointed database, an origin list quietly dropped).
  *
- * These are the pure halves of `main.js` — no DOM, no Tauri.
- *
- * OUTSIDE `ui/` on purpose. `tauri.conf.json` sets `frontendDist: "../ui"`, so
- * that directory is copied verbatim into the shipped bundle — a `ui/__tests__/`
- * would put a file importing `bun:test` inside the installed app. Nothing would
- * load it, but the asset root is the app, and test sources are not part of it.
+ * These are the pure halves of the console — no DOM, no Tauri.
  */
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  CONFIG_FIELDS,
+  configPayload,
+  derivedBaseUrl,
+  effectiveForm,
+  explicitFields,
+  fieldProblems,
+} from "../lib/config-form";
+import type { SettingEntry } from "../lib/ipc";
+
+const ROOT = join(import.meta.dir, "../../..");
 
 /** A `status --json` settings map, one entry per key given. */
-const settings = (entries) =>
+const settings = (entries: Record<string, [string, string]>): Record<string, SettingEntry> =>
   Object.fromEntries(Object.entries(entries).map(([key, [value, source]]) => [key, { value, source }]));
 
 describe("effectiveForm", () => {
@@ -141,7 +138,10 @@ describe("configPayload", () => {
 
 describe("CONFIG_FIELDS", () => {
   test("declares one row per form key, and every key effectiveForm fills", () => {
-    expect(CONFIG_FIELDS.map((f) => f.name).sort()).toEqual(Object.keys(effectiveForm({})).sort());
+    // Keys-first so the assertion compares string[] to string[]: bun's
+    // `toEqual` binds the expected type to the actual's, and `FormName[]` is
+    // assignable to `string[]` but not the reverse.
+    expect(Object.keys(effectiveForm({})).sort()).toEqual(CONFIG_FIELDS.map((f) => f.name).sort());
   });
 
   test("every field names the status key it seeds from", () => {
@@ -151,7 +151,7 @@ describe("CONFIG_FIELDS", () => {
   });
 });
 
-describe("configPayload", () => {
+describe("configPayload with the explicit map", () => {
   const filled = {
     port: "3080",
     host: "0.0.0.0",
@@ -226,11 +226,6 @@ describe("fieldProblems", () => {
     expect(fieldProblems(s, "port")).toEqual([]);
   });
 
-  /**
-   * A problem is about the STORED value, so it must not be shown beside a
-   * field the user has since edited — that would report a complaint about a
-   * value no longer on screen.
-   */
   test("every CONFIG_FIELDS entry can be asked, so the render never has a gap", () => {
     for (const field of CONFIG_FIELDS) {
       expect(fieldProblems({}, field.name)).toEqual([]);
@@ -238,79 +233,62 @@ describe("fieldProblems", () => {
   });
 });
 
-describe("the console's own asset root and stylesheet", () => {
-  const ROOT = join(import.meta.dir, "..");
+describe("the console's wiring, pinned at the source", () => {
+  // These read the render path because the tests here run without a DOM: the
+  // contract lives in code these files cannot execute.
+  const main = readFileSync(join(ROOT, "ui/src/main.ts"), "utf8");
 
-  /**
-   * `frontendDist: "../ui"` copies that directory into the bundle as-is, so
-   * anything left there ships inside the installed app. This is why these
-   * tests live in `test/` — and the guard is here because the failure is
-   * invisible: the app builds, runs, and simply carries dead files.
-   */
-  test("ui/ contains no test sources, since the whole directory is the bundle", () => {
-    const stray = readdirSync(join(ROOT, "ui"), { recursive: true })
-      .map(String)
-      .filter((f) => /(^|[/\\])__tests__([/\\]|$)|\.test\.[jt]sx?$/.test(f));
-    expect(stray).toEqual([]);
-  });
-
-  /**
-   * `.warn-text` and `.hint` are both single-class selectors, so for an element
-   * carrying BOTH the later declaration wins. The problem lines `main.js`
-   * builds are `class="hint warn-text"` and rendered amber deliberately — with
-   * `.warn-text` declared first they came out muted grey, indistinguishable
-   * from the ordinary field hint directly above them. No test can see a
-   * computed colour here, so the ORDER is what gets pinned.
-   */
-  /**
-   * `renderStep` disables buttons flagged `data-tmux` while the probe finds no
-   * tmux, and the flag is the 4th argument to `button()`. Every step that
-   * ADVANCES setup must carry it: the CLI refuses `init`, `configure` and
-   * `service install` without tmux, so an enabled button there only produces
-   * the refusal.
-   *
-   * "Install server" was the one that did not. Installing the binary does not
-   * itself need tmux — which is why it looked correct — but the step
-   * immediately after it is `Create configuration`, which refuses. So the
-   * console walked the user to a wall it already knew about. Pinned at the
-   * source, since the flag lives in a DOM path these tests do not run.
-   */
   /**
    * The form is prefilled, so `configPayload` decides what to send from an
    * `explicit` map rather than from blankness. That map MUST be seeded from
    * `explicitFields` when the configure form opens: keyed on editing alone,
    * opening Configure and saving without touching the addresses field sends an
    * empty `trustedOrigins`, which means "no extra addresses" and wipes a
-   * stored list. Pinned at the source because this wiring lives in `main.js`,
+   * stored list. Pinned at the source because this wiring lives in `main.ts`,
    * which imports Tauri and cannot be loaded here.
    */
   test("the configure form seeds `explicit` from explicitFields, not from editing alone", () => {
-    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
-    const fn = js.slice(js.indexOf("function showConfigure()"));
+    const fn = main.slice(main.indexOf("function showConfigure()"));
     const body = fn.slice(0, fn.indexOf("\n}"));
     expect(body).toContain("explicitFields(");
     // And every send goes through the map.
-    for (const call of js.match(/configPayload\([^)]*\)/g) ?? []) {
+    for (const call of main.match(/configPayload\([^)]*\)/g) ?? []) {
       expect(call).toBe("configPayload(form, explicit)");
     }
   });
 
-  test("every setup-advancing console action is tmux-gated", () => {
-    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
+  /**
+   * `refresh` rewrites `problem` from `probe.error`, so the guard must apply
+   * an action's own failure line AFTER its settle loop, not inside the try.
+   * It did not, until 2026-09-10: every successful re-probe erased "That did
+   * not work. See the output below." before the render that showed it, and
+   * only the red output pane survived to say anything. Measured with the
+   * built page under a stubbed bridge — a refusal rendered, the line never
+   * did.
+   */
+  test("an action's failure line is applied after the guard's re-probe", () => {
+    const fn = main.slice(main.indexOf("function guard("), main.indexOf("const retry = guard"));
+    const apply = fn.indexOf("if (failure !== null) problem = failure;");
+    const reprobe = fn.lastIndexOf("await refresh();");
+    expect(apply).toBeGreaterThan(-1);
+    expect(reprobe).toBeGreaterThan(-1);
+    expect(apply, "the failure line must be set after the last refresh()").toBeGreaterThan(reprobe);
+  });
 
+  test("every setup-advancing console action is tmux-gated", () => {
     /** The `[...]` starting at `from`, found by bracket depth rather than by regex. */
-    const entryAt = (from) => {
+    const entryAt = (from: number): string => {
       let depth = 0;
-      for (let i = from; i < js.length; i++) {
-        if (js[i] === "[") depth++;
-        else if (js[i] === "]" && --depth === 0) return js.slice(from + 1, i);
+      for (let i = from; i < main.length; i++) {
+        if (main[i] === "[") depth++;
+        else if (main[i] === "]" && --depth === 0) return main.slice(from + 1, i);
       }
       throw new Error("unbalanced action entry");
     };
 
     /** Split on TOP-LEVEL commas: a handler like `service("install", true)` has its own. */
-    const args = (entry) => {
-      const out = [];
+    const args = (entry: string): string[] => {
+      const out: string[] = [];
       let depth = 0;
       let start = 0;
       for (let i = 0; i < entry.length; i++) {
@@ -326,12 +304,21 @@ describe("the console's own asset root and stylesheet", () => {
       return out;
     };
 
+    // `renderStep` disables buttons flagged `data-tmux` while the probe finds
+    // no tmux, and the flag is the 4th argument to `button()`. Every step that
+    // ADVANCES setup must carry it: the CLI refuses `init`, `configure` and
+    // `service install` without tmux, so an enabled button there only produces
+    // the refusal.
+    //
+    // "Install server" was the one that did not. Installing the binary does
+    // not itself need tmux — which is why it looked correct — but the step
+    // immediately after it is `Create configuration`, which refuses. So the
+    // console walked the user to a wall it already knew about.
+    //
+    // "Set up and start" inherits that gate as the chain it replaced; the two
+    // agent buttons carry the flag as POLICY (no pane to run an agent in
+    // without tmux), pinned here so the policy cannot rot.
     for (const label of [
-      // "Set up and start" is the one press that runs the whole chain, so it
-      // inherits the "Install server" gate it replaced: the chain ends in
-      // `init` and `service install`, both of which the CLI refuses without
-      // tmux. The agent buttons carry the flag as POLICY (no pane to run an
-      // agent in without tmux), pinned here so the policy cannot rot.
       "Set up and start",
       "Also install Claude Code",
       "Install Claude Code",
@@ -340,7 +327,7 @@ describe("the console's own asset root and stylesheet", () => {
       "Start",
       "Save and restart",
     ]) {
-      const at = js.indexOf(`["${label}",`);
+      const at = main.indexOf(`["${label}",`);
       expect(at, `no action entry found for "${label}"`).toBeGreaterThan(-1);
       expect(args(entryAt(at))[3], `"${label}" is not tmux-gated`).toBe("true");
     }
@@ -354,31 +341,46 @@ describe("the console's own asset root and stylesheet", () => {
     // save could only ever fail, and the next "Set up and start" discarded
     // what was typed without a word. The form is reachable the moment a
     // server exists, which is every screen after this one.
-    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
-    const at = js.indexOf("  setup: {");
+    const at = main.indexOf("  setup: {");
     expect(at).toBeGreaterThan(-1);
-    const entry = js.slice(at, js.indexOf("\n  },", at));
+    const entry = main.slice(at, main.indexOf("\n  },", at));
     expect(entry).not.toContain("showConfigure");
     expect(entry).not.toContain("doInit");
   });
 
   test("the tmux warning links out to the docs", () => {
     // Spec §6.1 requires the no-Homebrew screen to LINK to the tmux formula
-    // page, not just show a command. The link is a button calling a Rust
-    // command that holds the URL as its own constant (the page sends no URL
-    // anywhere, the same rule `desktop_open_control_plane` follows), and
-    // `applyPlan` decides visibility from the plan's `docsUrl`.
-    const js = readFileSync(join(ROOT, "ui/main.js"), "utf8");
-    expect(js).toContain("desktop_open_tmux_docs");
-    expect(js).toContain("docsUrl");
+    // page, not just show a command. The link is a button calling the fixed-URL
+    // command (`openTmuxDocs` in lib/ipc.ts — the page sends no URL anywhere,
+    // the same rule `desktop_open_control_plane` follows; the command name
+    // itself is pinned by ipc-acl.test.ts), and `applyPlan` decides its
+    // visibility from the plan's `docsUrl`.
+    expect(main).toContain("openTmuxDocs");
+    expect(main).toContain("docsUrl");
   });
+});
 
-  test("`.warn-text` is declared after `.hint`, or a combined class renders muted", () => {
-    const css = readFileSync(join(ROOT, "ui/style.css"), "utf8");
+describe("the console's stylesheet", () => {
+  /**
+   * `.warn-text` and `.hint` are both single-class selectors, so for an element
+   * carrying BOTH the later declaration wins. The problem lines `main.ts`
+   * builds are `class="hint warn-text"` and rendered amber deliberately — with
+   * `.warn-text` declared first they came out muted grey, indistinguishable
+   * from the ordinary field hint directly above them. Same cascade LAYER is
+   * part of the contract: moved into different layers, layer order would beat
+   * source order and the fix would silently invert. No test can see a computed
+   * colour here, so the ORDER is what gets pinned.
+   */
+  test("`.warn-text` is declared after `.hint` in the same layer, or a combined class renders muted", () => {
+    const css = readFileSync(join(ROOT, "ui/src/styles.css"), "utf8");
     const hint = css.indexOf(".hint {");
     const warn = css.indexOf(".warn-text {");
     expect(hint).toBeGreaterThan(-1);
-    expect(warn).toBeGreaterThan(-1);
     expect(warn).toBeGreaterThan(hint);
+    // Same cascade LAYER: a `@layer` opening between the two would move one
+    // of them, and layer precedence would silently beat declaration order —
+    // the exact failure this pin exists to catch, arriving by refactor
+    // rather than by reordering.
+    expect(css.slice(hint, warn)).not.toContain("@layer");
   });
 });

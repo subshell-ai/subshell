@@ -1,0 +1,209 @@
+@import "tailwindcss";
+
+/*
+ * Dreamframe (Castorice) — the same ground and accents apps/server/web
+ * paints, declared as Tailwind v4 theme tokens so the generated utilities
+ * (`bg-card`, `text-muted`, `border-line`, `bg-ok`) ARE the palette. A future
+ * revamp restates these tokens and everything above them follows; that is the
+ * reason this file names colors instead of hard-coding them fourteen times.
+ */
+@theme {
+  --color-bg: oklch(0.224 0.035 296);
+  --color-card: oklch(0.264 0.038 298);
+  --color-line: oklch(0.34 0.04 300);
+  --color-fg: oklch(0.94 0.01 300);
+  --color-muted: oklch(0.68 0.03 300);
+  --color-primary: oklch(0.72 0.13 330);
+  --color-primary-fg: oklch(0.18 0.04 300);
+  --color-ok: oklch(0.74 0.14 155);
+  --color-warn: oklch(0.8 0.14 80);
+  --color-bad: oklch(0.68 0.19 20);
+  --default-font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    padding: 22px 24px 28px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  /* The window is a control panel, not a marketing page: every interactive
+     element is a button or an input, so the two element defaults live here
+     and the variants (.primary, .mini) below carry only their deltas. */
+  button {
+    border-radius: 7px;
+    border: 1px solid var(--color-line);
+    background: transparent;
+    color: var(--color-fg);
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    border-color: var(--color-primary);
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  input {
+    width: 100%;
+    padding: 6px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--color-line);
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+  label {
+    display: block;
+    font-size: 14px;
+    color: var(--color-muted);
+    margin-bottom: 4px;
+  }
+}
+
+@layer components {
+  /* Buttons, by what they DO. */
+  .primary {
+    background: var(--color-primary);
+    color: var(--color-primary-fg);
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .mini {
+    padding: 0 8px;
+    font-size: 13px;
+    flex: none;
+    color: var(--color-muted);
+  }
+  /* A facts list reads as a table, not a stack: the label column hugs its
+     content, the value column wraps, and a row's action button sits on the
+     value's baseline rather than floating in its own line box. */
+  .facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  .facts dt {
+    color: var(--color-muted);
+  }
+  .facts dd {
+    margin: 0;
+    word-break: break-all;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+  }
+  .hint {
+    color: var(--color-muted);
+    font-size: 14px;
+    margin-top: 8px;
+  }
+  /*
+   * AFTER `.hint`, deliberately, and in the SAME layer. Both are single-class
+   * selectors, so on an element carrying both — which `main.ts` builds for
+   * the `status` diagnostics, `class="hint warn-text"`, to get hint sizing in
+   * the warning colour — the later declaration wins. Declared first, those
+   * lines rendered muted grey and were indistinguishable from the ordinary
+   * field hint above them; moved to different cascade LAYERS the guarantee
+   * silently inverts (utilities beat components regardless of source order).
+   * Pinned by `__tests__/config-form.test.ts`, since no test can read a
+   * computed colour here.
+   */
+  .warn-text {
+    color: var(--color-warn);
+  }
+  .bad-text {
+    color: var(--color-bad);
+  }
+  /* A pane showing why it is empty rather than log lines. */
+  .muted-text {
+    color: var(--color-muted);
+  }
+  /* The log / command-output boxes. Colours and metrics together in a
+     component (not utilities) because `.output-bad` must override the border
+     colour — same layer, later declaration, a guarantee utilities-on-border
+     would leave to Tailwind's internal sort. */
+  .pane-pre {
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 220px;
+    overflow: auto;
+  }
+  .output-bad {
+    border-color: var(--color-bad);
+  }
+  /* The tray switch: the control stays visible when DISABLED because the
+     reason beside it is the actionable part. */
+  .switch {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 14.5px;
+    cursor: pointer;
+  }
+  .switch input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--color-primary);
+  }
+  .switch input:disabled {
+    cursor: default;
+  }
+  .switch:has(input:disabled) {
+    color: var(--color-muted);
+    cursor: default;
+  }
+  /* The tmux hard-stop notice: same amber as the facts warnings, full width
+     of the action area because it explains why parts of it are disabled. */
+  .tmux-warning {
+    width: 100%;
+    border: 1px solid var(--color-warn);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .tmux-warning p {
+    margin: 0 0 8px;
+    color: var(--color-warn);
+  }
+  .tmux-warning code {
+    background: var(--color-bg);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13.5px;
+    overflow-wrap: anywhere;
+  }
+  /* The pane's two tabs. Selected tab gets the inset look of a raised tab;
+     unselected ones are quiet until hovered. */
+  .pane-tabs button {
+    font-size: 13px;
+    padding: 3px 9px;
+    color: var(--color-muted);
+    background: transparent;
+    border-color: transparent;
+  }
+  .pane-tabs button[aria-selected="true"] {
+    color: var(--color-fg);
+    background: var(--color-bg);
+    border-color: var(--color-line);
+  }
+}
