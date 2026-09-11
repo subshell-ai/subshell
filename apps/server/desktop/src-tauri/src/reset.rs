@@ -472,13 +472,27 @@ fn socket_kill_outcome(r: &Run, name: &str) -> SocketOutcome {
     if r.ok() {
         return SocketOutcome::Closed;
     }
-    // A kill answered by "error connecting" met a dead server: the socket
-    // file is litter, not a pane. Anything else that failed is a pane that
-    // survived, which is a reset that lied — including a spawn that never
-    // started, because "no tmux on this machine" is the pre-loop `which`'s
-    // fact to know, not this function's to infer.
+    // A kill that met a dead server found litter, not a pane. tmux has TWO
+    // spellings for that and this used to know only the first, which is the
+    // difference between a reset that finishes and one that cannot run at
+    // all. Both measured against tmux 3.7c rather than assumed:
+    //
+    //   error connecting to <path> (No such file or directory)  — no socket file
+    //   error connecting to <path> (Socket operation on non-socket) — not a socket
+    //   no server running on <path>                             — a real socket, dead server
+    //
+    // The third is the one a crashed or killed tmux leaves behind, so it is
+    // the common case on any machine that has run this product's tests: the
+    // socket inode survives its server. Reading it as a failure stopped the
+    // chain on the first such file, and a developer box accumulates them in
+    // the thousands.
+    //
+    // Anything else that failed is a pane that SURVIVED, which is a reset
+    // that lied — including a spawn that never started, because "no tmux on
+    // this machine" is the pre-loop `which`'s fact to know, not this
+    // function's to infer.
     let combined = format!("{}{}", r.stdout, r.stderr);
-    if combined.contains("error connecting") {
+    if combined.contains("error connecting") || combined.contains("no server running on") {
         return SocketOutcome::Stale;
     }
     SocketOutcome::Failed(format!("could not close the pane server {name}: {}", r.detail()))
@@ -661,6 +675,21 @@ mod tests {
         };
         assert!(matches!(
             socket_kill_outcome(&dead_server, "subshell-abc"),
+            SocketOutcome::Stale
+        ));
+        // tmux's OTHER spelling for a dead server, and the one that actually
+        // happens: the socket inode outlives its server, so tmux connects and
+        // finds nobody. Measured against tmux 3.7c on a real leftover socket.
+        // Reading it as a failure stopped the chain on the first such file,
+        // and a box that has run this product's tests holds thousands.
+        let dead_but_present = Run {
+            code: Some(1),
+            stdout: String::new(),
+            stderr: "no server running on /private/tmp/tmux-501/subshell-abc".into(),
+            timed_out: false,
+        };
+        assert!(matches!(
+            socket_kill_outcome(&dead_but_present, "subshell-abc"),
             SocketOutcome::Stale
         ));
         let refused = Run {
