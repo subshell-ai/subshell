@@ -301,6 +301,10 @@ const STEPS = Object.assign(Object.create(null), {
       // local pane launches through it), so an enabled button here would just
       // walk the press into that wall.
       ["Set up and start", doSetup, true, true],
+      // An agent is worth having before the dashboard, but the button is
+      // secondary (setup never waits on it) and tmux-gated like the chain:
+      // with no tmux there is no pane to run an agent in yet.
+      ["Also install Claude Code", () => doInstallAgent("claude-code"), false, true],
       ["Change addresses…", showConfigure],
       ["Choose an existing server…", pickBinary],
     ],
@@ -348,6 +352,9 @@ const STEPS = Object.assign(Object.create(null), {
     actions: () => [
       // The tray's item for this same window says "Open Dashboard".
       ["Open Dashboard", openMain, true],
+      // Still reachable after setup, for the user who sets the server up
+      // first and thinks about agents second.
+      ["Install Claude Code", () => doInstallAgent("claude-code"), false, true],
       ["Restart", doRestart, false, true],
       ["Stop", doStop],
       ["Change addresses…", showConfigure],
@@ -746,6 +753,17 @@ const doSetup = guard(async () => {
  * the pane verbatim. The user then presses what they were going to press.
  */
 const doInstallTmux = guard(() => invoke("desktop_install_tmux"));
+
+/**
+ * Install one agent CLI, by built-in id.
+ *
+ * Non-fatal by construction: it is offered during setup but never gates it,
+ * because Terminal is launchable whether this succeeds or not. A setup run
+ * that failed because an unrelated download 404'd would be the worst kind of
+ * regression to ship here. `guard()` wraps a zero-arg function (a button's
+ * click event must not reach it as a value), so the id is bound per call.
+ */
+const doInstallAgent = (id) => guard(() => invoke("desktop_install_agent", { id }))();
 
 /**
  * Replacing the installed server stops it first, which ends every running

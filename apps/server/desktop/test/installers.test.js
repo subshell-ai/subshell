@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { tmuxInstallPlan } from "../ui/installers.js";
+import { agentInstallPlan, tmuxInstallPlan } from "../ui/installers.js";
 
 describe("tmuxInstallPlan", () => {
   it("uses Homebrew on macOS when it is there", () => {
@@ -19,5 +19,21 @@ describe("tmuxInstallPlan", () => {
   it("elevates through pkexec on Linux, so the desktop prompts for a password", () => {
     expect(tmuxInstallPlan("linux", false)).toMatchObject({ kind: "run" });
     expect(tmuxInstallPlan("linux", false).command[0]).toBe("pkexec");
+  });
+});
+
+describe("agentInstallPlan", () => {
+  it("offers Claude Code as the default agent", () => {
+    expect(agentInstallPlan("claude-code")).toMatchObject({
+      command: ["sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+    });
+  });
+
+  it("refuses an id it does not ship, rather than running a string it was handed", () => {
+    // Only built-ins may be auto-run. A third-party plugin's install command
+    // stays copy-to-clipboard: the console runs in the user's desktop session
+    // rather than the plugin host, and a second execution path with different
+    // trust properties is not worth it for a case nobody has asked for.
+    expect(agentInstallPlan("acme-harness")).toBeNull();
   });
 });

@@ -51,3 +51,33 @@ export function tmuxInstallPlan(platform, hasBrew) {
   }
   return { kind: "manual", label: "Install tmux", command: ["tmux"], docsUrl: TMUX_DOCS };
 }
+
+/**
+ * The install commands for the agents this app may run on a user's behalf.
+ *
+ * BUILT-INS ONLY, and the ids and strings are duplicated here rather than read
+ * from a manifest on purpose: this list is what the console is allowed to
+ * EXECUTE, so it must be readable in one place and changeable only by editing
+ * this file. A registry-driven version of this would let an installed plugin
+ * choose what the desktop app runs.
+ *
+ * All five are user-space installers that need no elevation.
+ */
+const AGENT_INSTALLS = {
+  "claude-code": "curl -fsSL https://claude.ai/install.sh | bash",
+  codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+  hermes: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+  opencode: "curl -fsSL https://opencode.ai/install | bash",
+  pi: "curl -fsSL https://pi.dev/install.sh | sh",
+};
+
+/**
+ * How to install one built-in agent CLI, or null when this app will not.
+ * @param {string} id - plugin id
+ * @returns {{kind: "run", label: string, command: string[]}|null}
+ */
+export function agentInstallPlan(id) {
+  const script = Object.hasOwn(AGENT_INSTALLS, id) ? AGENT_INSTALLS[id] : undefined;
+  if (!script) return null;
+  return { kind: "run", label: `Install ${id}`, command: ["sh", "-c", script] };
+}

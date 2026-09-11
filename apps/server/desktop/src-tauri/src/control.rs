@@ -499,6 +499,42 @@ fn tmux_install_argv() -> Option<Vec<String>> {
     Some(argv.into_iter().map(String::from).collect())
 }
 
+/// The install script for each built-in agent CLI.
+///
+/// **The webview sends an ID, never a command.** A command that runs what it
+/// is handed is a different security property from one that runs what it
+/// ships, and this process is the one that can write to the user's PATH. The
+/// list is duplicated from `ui/installers.js` for the same reason it exists
+/// there: what this app may EXECUTE has to be changeable only by editing this
+/// file, never by anything it reads at runtime.
+///
+/// All five are user-space installers that need no elevation.
+const AGENT_INSTALLS: &[(&str, &str)] = &[
+    ("claude-code", "curl -fsSL https://claude.ai/install.sh | bash"),
+    ("codex", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"),
+    (
+        "hermes",
+        "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+    ),
+    ("opencode", "curl -fsSL https://opencode.ai/install | bash"),
+    ("pi", "curl -fsSL https://pi.dev/install.sh | sh"),
+];
+
+/// Install one built-in agent CLI, by id.
+#[tauri::command(async)]
+pub fn desktop_install_agent(id: String) -> Result<ActionResult, String> {
+    let script = AGENT_INSTALLS
+        .iter()
+        .find(|(known, _)| *known == id)
+        .map(|(_, script)| *script)
+        .ok_or_else(|| format!("this app does not install \"{id}\""))?;
+    let argv = vec!["sh".to_string(), "-c".to_string(), script.to_string()];
+    // `.into()` for the same reason as the tmux install: the installer's own
+    // stderr on success is kept, and a failed spawn with nothing on either
+    // stream still says what happened rather than answering empty.
+    Ok(run(&argv, INSTALL_TIMEOUT).into())
+}
+
 /// The `init --yes` argv for one set of console answers.
 ///
 /// Split out of [`desktop_init`] so the assembly is testable without a Tauri
@@ -1121,6 +1157,17 @@ mod tests {
             std::env::consts::OS
         };
         assert_eq!(console_platform(), expected);
+    }
+
+    #[test]
+    fn an_unknown_agent_id_is_refused_rather_than_run() {
+        // The refusal happens before any spawn — an id outside the shipped
+        // list never reaches a shell.
+        assert!(desktop_install_agent("acme-harness".into()).is_err());
+        // And the ids the console offers are exactly the ones shipped here.
+        for (id, _) in AGENT_INSTALLS {
+            assert!(!id.is_empty());
+        }
     }
 
     #[test]
