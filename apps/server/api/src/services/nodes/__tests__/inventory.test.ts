@@ -52,7 +52,15 @@ describe("services/nodes/inventory", () => {
     await nodes.create({
       id,
       ownerUserId: OWNER,
-      name: `inv-${id.slice(0, 8)}`,
+      // The WHOLE id, never a slice of it. `nodes` carries a UNIQUE index on
+      // (owner_user_id, name) and every node here shares OWNER, so the name
+      // has to be as unique as the id is. `id.slice(0, 8)` was not: a local
+      // id is `local-` plus 8 hex, so its first 8 characters are `local-`
+      // plus TWO hex digits — 256 possible names for the five local nodes
+      // this file creates, which is a ~4% chance per run of an insert that
+      // dies on the unique index. Measured at 1 failure in 30 local runs,
+      // and it is what CI kept hitting (run 34586285401 and before).
+      name: `inv-${id}`,
       kind,
       status: "offline",
       ...(inv ? { inventoryJson: JSON.stringify(inv.json), inventoryAt: inv.at } : {}),
