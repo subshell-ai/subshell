@@ -87,6 +87,13 @@
         <button type="button" id="reset-run" class="primary" disabled>Reset everything</button>
         <button type="button" id="reset-cancel">Cancel</button>
       </div>
+      <!-- The same refusal as #reset-refusal, repeated BESIDE the control it
+           disables. The rule this console keeps is that no disabled control
+           lacks its reason next to it, and the copy above the fold does not
+           satisfy it: the disclosures are long, the window is 620px, and a
+           reader who has scrolled to the button cannot see a sentence at the
+           top of the view. Empty (and collapsed) whenever the button is live. -->
+      <p class="hint warn-text empty:hidden" id="reset-why"></p>
       <!-- The half-run record lands HERE, not in #output: the status view is
            hidden while this one is up, so a chain log rendered there would be
            invisible - which is M1's whole promise unkept by the page. -->

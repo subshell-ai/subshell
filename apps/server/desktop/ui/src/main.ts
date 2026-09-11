@@ -1147,6 +1147,11 @@ function renderReset(): void {
   const typed = (el("reset-confirm") as HTMLInputElement).value;
   (el("reset-run") as HTMLButtonElement).disabled = !(why === null && armed(typed, host));
   el("reset-run").dataset.armed = String(armed(typed, host));
+  // The reason, beside the control it disables. Only for a REFUSAL: "you
+  // have not typed the hostname yet" is what the label above the box already
+  // says, and repeating it under the button would nag through every
+  // keystroke of a correct answer.
+  el("reset-why").textContent = why ?? "";
 }
 
 function showReset(): void {
