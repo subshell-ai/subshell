@@ -2035,6 +2035,109 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
+## Review notes (2026-09-11), to address before execution
+
+The plan is accurate where I checked it against the code. Task 1's claims about
+`settings.rs` all hold (struct at 51, `save` at 107, the hand-written `Default`,
+`load`'s `unwrap_or_default()` swallowing parse failures into a reset file),
+`desktopInvoke` exists at `apps/server/web/src/lib/desktop.ts:152`, tauri is
+2.11.5 on Rust 2021, and Task 7's R13 test pinning the default layout as
+*passing* beside the ancestor case as failing is exactly the shape that finding
+asked for. Task-to-task interfaces are consistent; there are no placeholders.
+
+Six findings. P1 is an open question the plan asks the executor to answer, and
+it can be answered here instead. P2 and P3 are real gaps. The rest are small.
+
+**P1. Task 7 step 3's open conditional resolves to "yes, it fails". Decide it
+in the plan rather than at the keyboard.** The step says: "if that check counts
+a permission granted nowhere as a failure, move this toml addition into Task 8
+where the grant arrives... the test file you are in is the arbiter, not this
+sentence." The arbiter has been consulted.
+`apps/server/desktop/ui/src/__tests__/ipc-acl.test.ts` carries:
+
+```ts
+it("defines no app permission neither capability grants", () => {
+  const granted = new Set([...capabilityPermissions("console.json"), ...capabilityPermissions("main.json")]);
+  for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
+});
+```
+
+Every id in `desktop.toml` must be granted by some capability file. A
+`allow-desktop-reset` entry landing a task before its `console.json` grant fails
+this immediately. **Move the toml entry into Task 8**, or add the console grant
+in Task 7 so the pair lands together. Either is fine; leaving it as a branch is
+what to avoid, because the executor discovers it as a red test in a task whose
+other steps all passed.
+
+While in that file: Task 6 adds `wizard.json`, and **two** of its assertions
+read the capability set as a union of exactly `console.json` and `main.json`
+(the one above, and "names no permission the manifest does not define"). Both
+need `wizard.json` added to their union, or the wizard's own grants fail them.
+Task 6's step 4 says the pin test is "reworked"; make it explicit that the
+rework is those two unions plus the new wizard assertion, since missing one
+produces a failure that reads as a permissions bug rather than a test that was
+never widened.
+
+**P2. Task 2 changes a shared signature and verifies only the package it
+changed.** `cleanSocket` goes from returning `void` to returning
+`Promise<void>`, and its call sites are not in `pane-runtime`:
+
+```
+apps/server/api/src/services/nodes/__tests__/local-launcher.test.ts:21,84,117,141,149
+apps/node/agent/src/__tests__/commands-launch.test.ts:1129
+```
+
+Step 4 runs only `cd packages/pane-runtime && bun test`, so nothing in this task
+sees those six. They still compile, as the task says, but two things change for
+them: each becomes a floating promise, and each stops being guaranteed to finish
+before the test that calls it returns. `local-launcher.test.ts:20-22` makes the
+inconsistency visible in three lines, calling `tmux.cleanSocket(socket)` bare and
+then `void Bun.file(...).unlink().catch(...)` directly beneath it, the same
+pattern with the `void` the file's own style applies.
+
+Add to Task 2: update those six call sites (`await` inside the async hooks,
+`void` elsewhere, matching each file's local style), and end the task with the
+repo-root trio rather than the package suite. Global Constraints already says
+the trio runs "from the repo root when touching TS"; this task's steps contradict
+it, and an executor follows the steps.
+
+**P3. `delete_guard_ok` is a prefix comparison, and the plan does not say the
+paths reaching it are canonical.** `pub fn delete_guard_ok(dir: &Path, keep:
+&Path) -> bool` with "dir contains-or-equals keep" is right, and the tests cover
+the literal cases. But a prefix test between a symlinked path and a real one
+passes while the delete still reaches the binary: if `~/.local/bin` is a symlink,
+or the data dir is reached through one, `/home/u/.config/subshell-server` and the
+binary's real location compare as unrelated strings. The spec's shape guard
+("final component not a symlink") covers the deleted directory's own last
+component, not the ancestors of either side.
+
+Two lines to add to Task 7: both arguments are canonicalized before the
+comparison (or the caller passes canonical paths and the signature says so), and
+a `keep` that cannot be resolved is a **refusal**, not a skipped check.
+`sidecar::install_path` returns an `Option`, so "no path to protect" is
+reachable, and the safe reading of it is to stop rather than to delete with the
+guard disabled.
+
+**P4. "the `ipc-acl` main.ts set" is ambiguous in the one place ambiguity is
+expensive.** Task 8 step 5: "The `ipc-acl` main.ts set now includes
+`desktop_reset` and matches console.json exactly." This is correct, and it is one
+character from describing the exact thing the design forbids. In this app
+`main.ts` is the console page's entry module, `main.json` is the remote window's
+capability file, and `main` is the window that must never hold the reset command.
+Spell it out: "the set of commands invoked from `ui/src/main.ts` (the console
+page)".
+
+**P5. Tech Stack says Vite 7; the app is on 8.2.1.** (`apps/server/desktop/package.json`.)
+Minor, but Task 6 adds a second Vite input and an executor consulting
+version-specific docs for `rollupOptions.input` would be reading the wrong major.
+
+**P6. Confirm the commit attribution line.** Global Constraints and all ten task
+commit blocks end with `Co-Authored-By: Claude Code <noreply@anthropic.com>`.
+The attribution in force for this repo's current sessions is
+`Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`. If the
+executing agent carries its own attribution, it should use that and the plan
+should say so rather than hardcoding a third value in ten places.
+
 ## Self-review notes (author, post-write)
 
 - Spec coverage: § 3 windows/boot (Task 6), § 4 flag + save (Tasks 1, 4), § 5 wizard (Tasks 5, 6), § 6 deep link + card + R21 wording (Tasks 7, 9, 10), § 7 reset screen/chain (Tasks 7, 8), § 8 paths block (Task 3), § 9 contracts (all), § 10 error handling (embedded in each chain step), § 11 tests (each task's step 1), § 12 docs/changesets (Task 10), § 13 non-goals (nothing scheduled touches them).
