@@ -743,11 +743,21 @@ jobs:
               ;;
           esac
 
+      # These artifacts are a HANDOFF, not a record: the publish job downloads
+      # them minutes later and attaches them to the GitHub Release, which is
+      # where they live from then on. At the default 90-day retention they are
+      # instead a slow leak — one `app=all` cut uploads ~2.4 GB across ten
+      # shards, and on 2026-09-11 the accumulated 2.48 GB from superseded cuts
+      # hit the account's artifact quota and failed every shard of a release
+      # with "Artifact storage quota has been hit", which reads as a build
+      # break and is not one. One day is generous for a same-run handoff and
+      # makes the store self-limiting rather than something to purge by hand.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.app }}-${{ matrix.triple }}
           path: dist-rel/*
           if-no-files-found: error
+          retention-days: 1
 
       # A container writes as root onto a PERSISTENT self-hosted workspace, so
       # without this the next job on this runner fails on files it cannot touch.
