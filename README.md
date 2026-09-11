@@ -52,9 +52,13 @@ for 24 hours) and it enrols, installs the agent as a background service and
 shows you its state. A client you only watch subshells from never opens that
 half.
 
-**Install `tmux` first.** Every subshell runs in a tmux pane, so the app cannot
-get past its setup screen without it — `brew install tmux` on macOS,
-`apt install tmux` on Debian/Ubuntu.
+**tmux is required, but you no longer need a terminal for it.** Every subshell
+runs in a tmux pane, so nothing launches without one. When it is missing the
+setup screen says so and installs it with your platform's own package manager:
+`brew install tmux` on a Mac that has Homebrew, `pkexec apt-get install tmux`
+on Debian/Ubuntu (your desktop prompts for the password). A Mac without
+Homebrew gets the MacPorts command to run instead, not a button that could not
+work.
 
 | App | macOS (Apple silicon) | Linux (x86_64) |
 | --- | --- | --- |
@@ -65,10 +69,15 @@ macOS builds are signed and notarized and need macOS 13+; the `.deb`s need
 Ubuntu 24.04+ / Debian 13+ (glibc 2.39).
 
 Each app ships the binary it manages inside it — nothing is downloaded on first
-run. Subshell Server offers to install `subshell-server` to `~/.local/bin`,
-write a `config.env`, register it as a service (a systemd user unit on Linux, a
-launchd agent on macOS) and start it. Subshell Client does the same for the
-`subshell` agent, from a second window reached from its tray ("This machine…").
+run. On a machine with nothing installed, Subshell Server is one screen and one
+button: "Set up and start" installs the bundled `subshell-server` to
+`~/.local/bin`, writes a `config.env` with the CLI's defaults, registers it as
+a service (a systemd user unit on Linux, a launchd agent on macOS), starts it
+and opens the dashboard, stopping at the first failure and saying so. The hint
+on the button lists every path that press writes to; the addresses are offered
+as a second step for anyone who wants different ones. Subshell Client does the
+same for the `subshell` agent, from a second window reached from its tray
+("This machine…").
 
 Both apps show the plane's UI in a window loading it from the server's own
 address, because that is where the session cookie lives. The window is a plain

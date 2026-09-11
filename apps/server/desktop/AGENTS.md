@@ -352,12 +352,37 @@ its built-ins frozen into the file.
 
 **First-run configure also installs and starts the service.** "Save and start"
 writes config.env and then installs the service, because there is no reason to
-configure a server on this machine and not run it. That takes a fresh machine
-to two clicks and a form. It is not one click, and that is deliberate: the
-form's prefilled values come from asking the INSTALLED server for its own
-settings, so merging the install step would show an empty form on exactly the
-run where prefill helps. The `install-service` step remains for the case that
-means something, a config that already exists with no service.
+configure a server on this machine and not run it. The `install-service` step
+remains for the case that means something, a config that already exists with
+no service.
+
+**A FRESH machine gets one press, not a form (2026-09-10).** Where no server
+exists and one is bundled, `ProbeStep::Setup` shows a single "Set up and
+start", and `desktop_setup` runs install → init → service install → start,
+each step calling the same extracted body (`install_server_now`, `init_now`,
+`service_now`) its own command uses, stopping at the first failure so the
+ordinary probe names the remainder. This reverses the rule above it, and the
+distinction is what makes both true: the two-click floor protected the PREFILL,
+which comes from asking the installed server for its settings — a machine with
+no server has nothing to prefill, so the form was four clicks executing a plan
+`decide()` had already made. Disclosure moved from the form to the step's hint,
+which names every path the press writes to. The press also waits for the
+re-probe to say READY before opening the dashboard: `service start` returns
+when the manager has spawned the process, not when the port is bound, and
+every existing opener of the window (the `ready` button, the tray) opens only
+against a server that answers.
+
+**The install offers mirror a Rust list; the page never sends a command.**
+Missing tmux gets `desktop_install_tmux` (brew where it exists, pkexec apt-get
+on Linux — never a bare sudo, which has no tty from a GUI and hangs to the
+timeout), and setup and `ready` offer `desktop_install_agent` for Claude Code.
+Both decisions are pure JS in `ui/installers.js` (tested in `test/`, never
+under `ui/`) and are MIRRORED in `control.rs` (`tmux_install_argv`,
+`AGENT_INSTALLS`), because the webview cannot look at the machine and the
+Rust side is what decides what may be EXECUTED: the page sends an agent id and
+an unknown id is refused before any spawn. `console_platform` normalizes Rust's
+"macos" to the "darwin" the JS branches on — a wrong spelling there strands
+every Mac in the no-button fallback silently, so both sides carry a pin.
 
 ## The console's own panes
 
