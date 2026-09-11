@@ -30,7 +30,7 @@ use std::sync::Mutex;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
-use subshell_desktop_core::proc::{run, ACTION_TIMEOUT};
+use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT};
 use subshell_desktop_core::settings::SettingsState;
 use subshell_desktop_core::sidecar;
 
@@ -477,6 +477,33 @@ fn delete_except(dir: &Path, keep_out: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// What one `kill-server` answered, over data only — the per-socket decision
+/// extracted pure (PR review round 2) the way `delete_outcome` was, so all
+/// three arms are pinnable without a tmux server AND the sweep cannot fall
+/// out early as success: "abandon the remaining sockets" is absent from the
+/// return type, so reintroducing it would take writing it, not forgetting it.
+enum SocketOutcome {
+    Closed,
+    Stale,
+    Failed(String),
+}
+
+fn socket_kill_outcome(r: &Run, name: &str) -> SocketOutcome {
+    if r.ok() {
+        return SocketOutcome::Closed;
+    }
+    // A kill answered by "error connecting" met a dead server: the socket
+    // file is litter, not a pane. Anything else that failed is a pane that
+    // survived, which is a reset that lied — including a spawn that never
+    // started, because "no tmux on this machine" is the pre-loop `which`'s
+    // fact to know, not this function's to infer.
+    let combined = format!("{}{}", r.stdout, r.stderr);
+    if combined.contains("error connecting") {
+        return SocketOutcome::Stale;
+    }
+    SocketOutcome::Failed(format!("could not close the pane server {name}: {}", r.detail()))
+}
+
 /// Kill the tmux servers this product created and nobody is watching anymore.
 ///
 /// Each pane owns a tmux server on a `subshell-<hash>` socket named by
@@ -533,16 +560,14 @@ fn close_subshell_tmux(log: &mut String) -> Option<String> {
             ],
             ACTION_TIMEOUT,
         );
-        if !r.ok() {
-            let combined = format!("{}{}", r.stdout, r.stderr);
-            if combined.contains("error connecting") {
+        match socket_kill_outcome(&r, &name) {
+            SocketOutcome::Closed => log.push_str(&format!("closed pane server {name}\n")),
+            SocketOutcome::Stale => {
                 let _ = std::fs::remove_file(dir.join(&name));
                 log.push_str(&format!("stale socket {name} removed\n"));
-                continue;
             }
-            return Some(format!("could not close the pane server {name}: {}", r.detail()));
+            SocketOutcome::Failed(detail) => return Some(detail),
         }
-        log.push_str(&format!("closed pane server {name}\n"));
     }
     None
 }
@@ -667,6 +692,58 @@ mod tests {
             !refused.stderr.contains("not installed"),
             "the phrase the code used to carry matches nothing the CLI emits"
         );
+    }
+
+    #[test]
+    fn every_kill_answer_lands_in_exactly_one_arm() {
+        // PR review round 2's follow-up: the sweep's per-socket decision,
+        // pinned so an early exit-as-success from the loop has to be
+        // rewritten into the loop to exist again.
+        let killed = Run {
+            code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: false,
+        };
+        assert!(matches!(
+            socket_kill_outcome(&killed, "subshell-abc"),
+            SocketOutcome::Closed
+        ));
+        let dead_server = Run {
+            code: Some(1),
+            stdout: String::new(),
+            stderr: "error connecting to /tmp/tmux-1000/subshell-abc (No such file or directory)".into(),
+            timed_out: false,
+        };
+        assert!(matches!(
+            socket_kill_outcome(&dead_server, "subshell-abc"),
+            SocketOutcome::Stale
+        ));
+        let refused = Run {
+            code: Some(1),
+            stdout: String::new(),
+            stderr: "can't lock socket".into(),
+            timed_out: false,
+        };
+        match socket_kill_outcome(&refused, "subshell-abc") {
+            SocketOutcome::Failed(d) => {
+                assert!(d.contains("subshell-abc") && d.contains("can't lock socket"));
+            }
+            _ => panic!("a refusal names the server that survived"),
+        }
+        // The exact shape this finding started from: a spawn that never
+        // started is no longer the "no tmux" case. That fact belongs to the
+        // pre-loop which(); here it is a pane that may have survived.
+        let unspawned = Run {
+            code: None,
+            stdout: String::new(),
+            stderr: "spawn failed: Resource temporarily unavailable".into(),
+            timed_out: false,
+        };
+        assert!(matches!(
+            socket_kill_outcome(&unspawned, "subshell-abc"),
+            SocketOutcome::Failed(_)
+        ));
     }
 
     #[test]
