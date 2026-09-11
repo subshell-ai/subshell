@@ -18,7 +18,7 @@ bun run build              # tsc + tsc-alias -> dist/ (plain JS, what `turbo bui
 bun run compile            # bun build --compile host dev binary (dist/subshell-server; serves its own `mcp` subcommand)
 bun run compile:release    # release pipeline — embedded SPA + SERVER triples (see "Standalone binary & CLI")
 bun run prod               # Run ./dist/index.js
-bun run test               # bun test src (see Testing below)
+bun run test               # bun test --timeout 30000 src (see Testing below)
 bun run verify-types       # tsc --noEmit
 ```
 
@@ -612,6 +612,20 @@ that DB, so suites must not assume it starts empty. Tests never touch
 `data/`. (It used to be the URI string `file::memory:?cache=shared`, but
 Bun treats URI strings as file names — every suite was sharing one literal
 CWD file.)
+
+**The `--timeout 30000` in the `test` script is measured, not caution.**
+This package's suites set up against that shared DB through migrations and
+better-auth table creation, and bun's 5000 ms per-test/hook default blew
+three times in three CI runs, each time in a different file — which is the
+signature of load, not of a bug: the auth-registration `beforeAll` at
+8830 ms (run 34581907693), the heaviest `default-profiles` case at 5508 ms
+with siblings at 242-298 ms (run 34583881882), the `passkey-plugin`
+`beforeAll` at 5428 ms (run 34584698469). Every one PASSED on an idle
+machine and failed with "timed out", never an assertion. Per-file budgets
+were tried first and abandoned as whack-a-mole: the unit that is actually
+slow is this package's setup, so the fix is the package's script. A
+genuinely hung test still fails — at 30 s, with a named duration, rather
+than at a number chosen by the runner's defaults.
 
 Route tests live in `__tests__/` next to the route and share
 `src/api/__tests__/helpers/auth-tables.ts`:

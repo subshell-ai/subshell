@@ -79,23 +79,15 @@ function scratchDb(): Kysely<Database> {
   return scratch as unknown as Kysely<Database>;
 }
 
-beforeAll(
-  async () => {
-    await runMigrations();
-    await runAuthMigrations();
-    setAuthPolicyDb(db);
-    // The seeding hook gives a new user one Default per harness this host
-    // OFFERS, which since phase 2b is the plugins installed on it. A host with
-    // none offers none, so without this the hook correctly seeds nothing.
-    await seedLocalPluginsForTests();
-  },
-  // Explicit budget: the hook applies the full migration set to the shared
-  // test DB and blew bun's 5000ms default once on a loaded fleet runner
-  // (CI run 34581907693, 8830ms - the failure was the timeout itself, the
-  // suite passes in seconds on an idle machine). Same reason local-launcher
-  // carries its 30s.
-  30_000,
-);
+beforeAll(async () => {
+  await runMigrations();
+  await runAuthMigrations();
+  setAuthPolicyDb(db);
+  // The seeding hook gives a new user one Default per harness this host
+  // OFFERS, which since phase 2b is the plugins installed on it. A host with
+  // none offers none, so without this the hook correctly seeds nothing.
+  await seedLocalPluginsForTests();
+});
 
 afterAll(async () => {
   await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
