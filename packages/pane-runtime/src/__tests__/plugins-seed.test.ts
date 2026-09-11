@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listInstalled, pluginsDir, uninstallPlugin } from "../plugins-dir.js";
@@ -154,6 +154,56 @@ describe("seeding a store that has already been seeded", () => {
     const raw = readFileSync(join(pluginsDir(dir), ".seeded"), "utf8");
 
     expect(JSON.parse(raw)).toEqual(["claude-code"]);
+  });
+
+  it("touches NOTHING on the ordinary boot of a fully seeded store", async () => {
+    // The steady state is every existing instance's every boot. The
+    // pre-record code returned early there and so must this one: a store on
+    // read-only or root-owned media keeps booting on what it has, where an
+    // unconditional mkdir/chmod/write pair would warn every boot and bury the
+    // warnings that matter.
+    const dir = tempDataDir();
+    await seedBuiltIns(dir, ["claude-code", "codex"]);
+    const before = statSync(join(pluginsDir(dir), ".seeded")).mtimeMs;
+
+    expect(await seedBuiltIns(dir, ["claude-code", "codex"])).toEqual([]);
+
+    expect(statSync(join(pluginsDir(dir), ".seeded")).mtimeMs).toBe(before);
+  });
+});
+
+describe("a seed marker this code cannot read", () => {
+  function corruptMarker(dir: string, content: string): string {
+    const root = pluginsDir(dir);
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    const marker = join(root, ".seeded");
+    writeFileSync(marker, content, { mode: 0o600 });
+    return marker;
+  }
+
+  it("stops the pass on an empty marker and leaves the file untouched", async () => {
+    // Empty is not the legacy shape (the pre-record code always wrote a
+    // timestamp); it is a torn write or an operator clearing the file.
+    // Guessing either way would PERSIST the guess as the durable record —
+    // including resurrecting an uninstalled built-in permanently.
+    const dir = tempDataDir();
+    const marker = corruptMarker(dir, "");
+
+    expect(await seedBuiltIns(dir, ["claude-code", "terminal"])).toEqual([]);
+
+    expect(readFileSync(marker, "utf8")).toBe("");
+    expect(await listInstalled(dir)).toEqual([]);
+  });
+
+  it("stops the pass on content no version of this code wrote", async () => {
+    // Neither JSON ids nor a leading-date timestamp: tampering or a shape
+    // from some other tool. Same rule: no write over what cannot be read.
+    const dir = tempDataDir();
+    const marker = corruptMarker(dir, "who-knows-what-this-is\n");
+
+    expect(await seedBuiltIns(dir, ["claude-code"])).toEqual([]);
+
+    expect(readFileSync(marker, "utf8")).toBe("who-knows-what-this-is\n");
   });
 });
 

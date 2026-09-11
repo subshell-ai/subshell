@@ -56,22 +56,50 @@ const SEEDED_MARKER = ".seeded";
  */
 const PRE_RECORD_BUILT_INS = ["claude-code", "codex", "hermes", "opencode", "pi"] as const;
 
+/** What {@link readSeededRecord} found; `null` means the marker must not be trusted. */
+interface SeededRecord {
+  /** Ids already seeded (absent marker = none, so a virgin store seeds everything) */
+  already: Set<string>;
+  /** Whether the marker file existed (drives the no-op steady-state pass) */
+  existed: boolean;
+}
+
 /**
- * Which built-ins this store has already seeded.
+ * Read the seed record, refusing to guess.
  *
- * Absent marker = none, so a virgin store seeds everything. A marker that is
- * not a JSON array of strings was written by the pre-record implementation
- * and means {@link PRE_RECORD_BUILT_INS}.
+ * Three honest shapes and one dead end: no file (virgin, seed everything); a
+ * JSON array of ids (the record); a leading-date line (exactly what the
+ * pre-record implementation wrote — an ISO timestamp — which can only mean
+ * {@link PRE_RECORD_BUILT_INS}). Anything else — empty, truncated, valid JSON
+ * of the wrong shape, unparseable garbage — is either a torn write or
+ * tampering, and GUESSING it would persist the guess: the union write below
+ * turns whatever was read into the durable record. An operator who
+ * uninstalled `terminal` and then lost the marker to a corrupt write must not
+ * wake to it resurrected and permanently recorded, so a marker this code
+ * cannot read stops the pass with a warning. The pre-record code needed no
+ * such gate (its marker was a boolean); a CONTENTS-based record does.
  */
-async function seededIds(marker: string): Promise<Set<string>> {
-  if (!existsSync(marker)) return new Set();
+async function readSeededRecord(marker: string): Promise<SeededRecord | null> {
+  if (!existsSync(marker)) return { already: new Set(), existed: false };
+  let raw: string;
   try {
-    const parsed: unknown = JSON.parse(await readFile(marker, "utf8"));
-    if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) return new Set(parsed);
+    raw = await readFile(marker, "utf8");
   } catch {
-    // Fall through: unreadable or not JSON is the legacy shape.
+    return null;
   }
-  return new Set(PRE_RECORD_BUILT_INS);
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
+      return { already: new Set(parsed as string[]), existed: true };
+    }
+    return null;
+  } catch {
+    // Not JSON. The legacy marker was ONE known thing; match it exactly.
+    if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) return { already: new Set(PRE_RECORD_BUILT_INS), existed: true };
+    return null;
+  }
 }
 
 /**
@@ -89,9 +117,24 @@ async function seededIds(marker: string): Promise<Set<string>> {
 export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<string[]> {
   const root = pluginsDir(dataDir);
   const marker = join(root, SEEDED_MARKER);
-  const already = await seededIds(marker);
+  const record = await readSeededRecord(marker);
+  if (!record) {
+    pluginLog().warn(
+      `the seed marker at ${marker} is empty, truncated, or not a shape any version of this code wrote; ` +
+        "refusing to seed rather than write a guess over it",
+    );
+    return [];
+  }
   const wanted = ids ?? (await builtInIds());
-  const todo = wanted.filter((id) => !already.has(id));
+  const todo = wanted.filter((id) => !record.already.has(id));
+
+  // Steady state (the ordinary boot of every existing instance): the record
+  // exists and holds everything wanted. Touch nothing. The pre-record code
+  // returned early here too, and for a reason that survives: a store on
+  // read-only or root-owned media must keep booting on its existing set,
+  // where an unconditional mkdir/chmod/write pair would throw every boot and
+  // train the operator to ignore the warning.
+  if (record.existed && todo.length === 0) return [];
 
   await mkdir(root, { recursive: true, mode: 0o700 });
   await enforceMode(root, 0o700);
@@ -116,16 +159,15 @@ export async function seedBuiltIns(dataDir: string, ids?: string[]): Promise<str
   //
   // Temp + rename, never in place: the marker's CONTENTS are the record now,
   // and a torn write (killed mid-`writeFile`) would leave empty or truncated
-  // JSON — which reads as the legacy shape, i.e. "the five pre-record ids",
-  // and would resurrect a built-in the operator uninstalled in exactly the
-  // window the record exists to close. A leftover `.tmp-<pid>` file costs
-  // nothing: `listInstalled` skips files.
+  // JSON — which {@link readSeededRecord} now refuses rather than guessing
+  // past, so an unbreakable write matters even more than the gate. A leftover
+  // `.tmp-<pid>` file costs nothing: `listInstalled` skips files.
   //
   // The union, not `seeded`: everything previously recorded stays recorded,
   // including the five a legacy marker stood for, or an upgrade would offer
   // to re-seed what an operator had removed.
   const tmp = `${marker}.tmp-${process.pid}`;
-  await writeFile(tmp, JSON.stringify([...already, ...seeded].sort()), { mode: 0o600 });
+  await writeFile(tmp, JSON.stringify([...record.already, ...seeded].sort()), { mode: 0o600 });
   await rename(tmp, marker);
   if (seeded.length > 0) {
     pluginLog().info(`seeded ${seeded.length} built-in plugin(s) into ${root}: ${seeded.join(", ")}`);
