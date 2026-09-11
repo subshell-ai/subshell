@@ -1,10 +1,10 @@
 //! Per-user desktop settings, in one small JSON file.
 //!
-//! Deliberately not `tauri-plugin-store`: there are three fields, the console
-//! page reaches them through commands anyway, and a plugin that hands the
-//! WEBVIEW a general read/write store is a wider surface than three scalars
-//! need — the window showing a server's page comes from that server, not from
-//! us.
+//! Deliberately not `tauri-plugin-store`: the field list is short and typed,
+//! the console page reaches it through commands anyway, and a plugin that
+//! hands the WEBVIEW a general read/write store is a wider surface than a few
+//! scalars need — the window showing a server's page comes from that server,
+//! not from us.
 //!
 //! The one thing that is NOT shared between the two desktop apps is where the
 //! file lives. That is carried in [`SettingsPaths`] rather than baked in,
@@ -13,7 +13,7 @@
 //! preference they ever set, with nothing to explain it.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::shell_env::home_dir;
@@ -77,6 +77,14 @@ pub struct Settings {
     /// two apps share the file FORMAT, not the file — each keys its own
     /// directory off its own [`SettingsPaths`].
     pub plane_url: Option<String>,
+    /// Set once this app has watched a server on this machine reach `ready`.
+    /// Decides whether boot opens the wizard or the status console (spec
+    /// 2026-09-10 § 4); only `desktop_probe`'s marking writes it true and
+    /// only reset writes it false. The struct-level `#[serde(default)]`
+    /// gives an absent field the false that pre-wizard files need: an
+    /// upgrade without a completed setup re-enters the wizard, which is the
+    /// correct direction to fail.
+    pub onboarded: bool,
 }
 
 /// Hand-written because exactly one field is not a zero value: `close_to_tray`
@@ -89,6 +97,7 @@ impl Default for Settings {
             close_to_tray: true,
             open_at_login: false,
             plane_url: None,
+            onboarded: false,
         }
     }
 }
@@ -108,10 +117,31 @@ impl Settings {
         let path = paths
             .file()
             .ok_or_else(|| "no HOME to save settings into".to_string())?;
+        self.save_to(&path)
+    }
+
+    /// The write half, separated so its atomicity is testable against a
+    /// temp path without relocating HOME (a process-wide variable the whole
+    /// test binary shares).
+    fn save_to(&self, path: &Path) -> Result<(), String> {
         let dir = path.parent().ok_or_else(|| "settings path has no parent".to_string())?;
+        let name = path
+            .file_name()
+            .ok_or_else(|| "settings path has no file name".to_string())?;
         std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(&path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
+        // Temp + rename, not fs::write: this file became the record (the
+        // onboarded flag decides which window opens), and a crash between a
+        // truncate and the last byte would leave JSON that `load`'s forgiving
+        // parse reads as "no settings" - silently losing the picked binary.
+        // The dot prefix keeps the in-flight name out of any listing globbing
+        // for settings.json.
+        let tmp = dir.join(format!(".{}.tmp-{}", name.to_string_lossy(), std::process::id()));
+        std::fs::write(&tmp, &text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("could not move settings into {}: {e}", path.display())
+        })
     }
 }
 
@@ -177,11 +207,13 @@ mod tests {
             close_to_tray: true,
             open_at_login: false,
             plane_url: Some("https://subshell.example.com".into()),
+            onboarded: true,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);
         assert_eq!(back.plane_url.as_deref(), Some("https://subshell.example.com"));
+        assert!(back.onboarded);
     }
 
     // Unknown keys from a newer build must not wipe the file.
@@ -220,5 +252,50 @@ mod tests {
             return;
         };
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn onboarded_defaults_false_and_reads_old_files() {
+        // A settings file written before this field existed must read as
+        // false: failing toward the wizard is the correct direction.
+        let s: Settings = serde_json::from_str(r#"{"closeToTray":true,"binaryPath":"/x/subshell-server"}"#).unwrap();
+        assert!(!s.onboarded);
+        assert!(!Settings::default().onboarded);
+    }
+
+    #[test]
+    fn onboarded_round_trips() {
+        let s = Settings {
+            onboarded: true,
+            ..Settings::default()
+        };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.onboarded);
+    }
+
+    #[test]
+    fn save_to_is_atomic_by_shape_and_leaves_no_litter() {
+        // The rename guarantee, exercised on a temp path through the seam
+        // save() delegates to - never by mutating HOME, which other tests in
+        // this same binary would read racily. After a save the directory
+        // holds exactly settings.json: no .tmp a later observer would find.
+        let dir = std::env::temp_dir().join(format!("subshell-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        let s = Settings {
+            onboarded: true,
+            ..Settings::default()
+        };
+        s.save_to(&file).expect("save");
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, vec!["settings.json".to_string()]);
+        let back: Settings = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert!(back.onboarded);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

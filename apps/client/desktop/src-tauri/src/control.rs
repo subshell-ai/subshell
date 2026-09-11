@@ -2342,6 +2342,9 @@ mod path_tests {
             close_to_tray,
             open_at_login: false,
             plane_url: None,
+            // The server app's wizard flag. Client ignores it; it shares the
+            // struct, not the semantics.
+            onboarded: false,
         }
     }
 
