@@ -44,6 +44,113 @@ the shape. Where each landed:
 - **R12** (no exit from a gated Prerequisites step): § 5 step 2 states that
   the gate stops forward motion only; close, quit, and menu stay live.
 
+## Review notes, round 2 (2026-09-10), to address before implementation
+
+R1 through R12 are properly addressed; the measured Tauri behaviour in § 6, the
+`cleanSocket` twin fix, and the `Settings::save` durability finding are all
+better than what was asked for. I verified the four factual claims the
+disposition makes and they hold: `main` really does carry
+`allow-desktop-open-console` (`capabilities/main.json`), `libc` really is not a
+direct dependency of either crate, `tmuxSocketPath`'s rule is as quoted, and
+`apps/server/desktop` really is inside `AGPL_PREFIX`.
+
+Five new findings, two of them blocking. **Both blockers are consequences of
+the R3 and R4 fixes**, which is the ordinary hazard of a containment guard: it
+protects a promise, and promises interact with defaults.
+
+### Blocking
+
+**R13. The containment guard refuses every default install, so reset would be
+impossible on exactly the machines this design targets.** § 7.2 step 5 refuses
+a directory that "contains, or equals, the resolved server binary path **or the
+directory holding `config.env`**". On a default install those are the same
+directory as the data dir:
+
+- `configure.ts:423` writes `DATABASE_PATH` defaulting to
+  `join(deps.configDir, "subshell.db")`, and `configDir` is by definition where
+  `config.env` lives (`configure.ts:17,310`).
+- `defaultSubshellServerDataDir` (`packages/subshell-protocol/src/paths.ts:325-329`)
+  derives the data dir by stripping the filename off `DATABASE_PATH`.
+- `config-env.ts:28` puts `configDir` at `~/.config/subshell-server`.
+
+So `dataDir` **equals** the directory holding `config.env` on every machine the
+desktop app sets up, the guard fires, and the chain refuses before touching
+anything.
+
+The fix is to drop `config.env`'s directory from the keep set entirely. It was
+never something reset promises to keep: step 5 deletes `config.env` on purpose,
+and § 7.1 lists it in the blast radius. The only thing the screen promises to
+keep is the installed server binary, so that is the only path the containment
+check needs. Keep the check, narrow it to one comparison, and say in the text
+that `config.env`'s own directory is deliberately not protected because it is a
+deletion target.
+
+**R14. "config.env last" cannot hold in the default layout, because
+`config.env` lives inside the directory that gets recursively deleted.** Same
+three facts as R13. Step 5's order is database, logs, node-artifacts, data
+directory recursively, then `config.env`. On a default install the recursive
+delete of `~/.config/subshell-server` **takes `config.env` with it**, so by the
+time the chain reaches its final step the file is already gone and R4's
+ordering rule has been silently inverted on the common machine rather than the
+exotic one.
+
+That matters exactly where R4 said it does. If the recursive delete partially
+fails (one locked file, one permission), the chain stops with `config.env`
+already destroyed. A Retry then runs step 1 against a machine with no config,
+`DATABASE_PATH` falls back to `DEFAULT_DATABASE_PATH` (`"./data/subshell.db"`,
+`paths.ts:308`), the data dir resolves to a relative `./data`, and the shape
+guard refuses it for not being absolute. The user is left with a half-deleted
+instance and a Retry that can never converge, which is the precise failure R4
+was written to prevent.
+
+Two ways out, and the spec should pick one and say why:
+
+- **Exclude `config.env` from the recursive delete**, then delete it, then
+  remove the now-empty directory. Keeps the ordering rule literally true in
+  both layouts, and costs one filter.
+- **Capture the plan once and reuse it across retries.** Step 1 already reads
+  `status --json`; hold the resolved path set for the life of the reset screen
+  and have Retry re-run the captured plan rather than re-deriving it from a
+  machine that may no longer be able to answer. Strictly more robust, and it
+  also covers a retry after the database is gone.
+
+The first is smaller. The second is the one that makes "retry converges" true
+rather than nearly true, and the nesting in R13 is a good argument that
+re-deriving from a half-deleted machine is not a safe primitive.
+
+### Settle in the text
+
+**R15. The hostname memoization and the Rust re-read can now disagree, and the
+refusal is silent when they do.** § 7.1 memoizes the probe's hostname behind a
+`OnceLock` ("a running machine does not rename itself") while `desktop_reset`
+"re-reads the hostname itself and refuses unless the typed argument equals it".
+A user who renames their machine while the app is running (System Settings on
+macOS, `hostnamectl` on Linux) then sees the stale name on screen, types it
+exactly as instructed, and gets a refusal that names no cause. The
+double-check is right and should stay; what needs deciding is which value is
+authoritative. Either both sides read the same memoized value, or the refusal
+message says the machine's name changed since the screen was drawn and to
+reopen it. Silent disagreement between a displayed value and a checked value
+is the one outcome to rule out.
+
+**R16. The marking rule is now in two places, which is what § 4 says it is
+deliberately not.** § 4: "Marking rule, deliberately in one place:
+`desktop_probe` sets the flag the first time it computes `next == Ready`" and
+"the write lives in the command wrapper". § 3's R6 fix then has boot call
+`probe_now` "(with the § 4 marking on its result)", which is a second site.
+Nothing is wrong with the behaviour; the claim about it has just stopped being
+true. Extract `mark_onboarded(&Probe, &SettingsState)`, have the command
+wrapper and boot both call it, and let § 4's "one place" go on meaning one
+function rather than one caller.
+
+**R17. § 8 does not say whether a partial `paths` block is a refusal.** § 7.1
+refuses a server that "does not report its data paths", which covers an absent
+block. It does not cover a block that is present with a field missing, empty,
+or relative. As written, § 7.2 step 5's "only paths the `paths` block reported"
+would then delete a subset and report a successful reset, which is the same
+class of quiet under-delete as R1. State that the block is all-or-nothing: four
+absolute paths or the same refusal as no block at all.
+
 ## 1. The problem
 
 The Subshell Server desktop app's first-run surface is the console: one page
