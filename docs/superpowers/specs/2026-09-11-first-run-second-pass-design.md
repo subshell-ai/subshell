@@ -140,6 +140,15 @@ machine" in a browser).
 
 ## 5. The native screens
 
+**Verified 2026-09-11 (plan Task 0): server-side detection was never the
+problem.** `detectBinaryWithOptions("claude", "CLAUDE_PATH", knownPaths)` run
+against a stock service environment (`PATH=/usr/bin:/bin:/usr/sbin:/sbin`, no
+`SHELL`, no `CLAUDE_PATH`) resolves `~/.local/bin/claude` on rung 3, the
+`knownPaths`-against-`HOME` rung. The non-detection the operator saw was
+entirely the native Agents step's, which carries no detection at all. No
+`binary-lookup.ts` fix is needed.
+
+
 Page: `wizard.html` + `ui/src/wizard.ts` (rewritten), decisions in
 `ui/src/lib/wizard-state.ts` (rewritten). The `desktop_setup` chain, the
 probe, the poll (1500ms) and the `onboarded` rule are unchanged.
