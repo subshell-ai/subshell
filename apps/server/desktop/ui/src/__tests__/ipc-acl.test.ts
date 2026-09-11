@@ -102,8 +102,12 @@ describe("the console's IPC contract", () => {
     const manifest = manifestPermissions();
     // `core:*`, `dialog:*` and `opener:*` come from Tauri and its plugins; only
     // this app's own `allow-desktop-*` identifiers have to exist in desktop.toml.
-    const own = capabilityPermissions("console.json").filter((id) => !id.includes(":"));
-    for (const id of own) expect(manifest.has(id)).toBe(true);
+    // BOTH capability files: an undefined id in main.json would contribute
+    // nothing to the "exactly three" expansion and slip past it otherwise.
+    const own = [...capabilityPermissions("console.json"), ...capabilityPermissions("main.json")].filter(
+      (id) => !id.includes(":"),
+    );
+    for (const id of own) expect(manifest.has(id), `${id} is granted but not defined`).toBe(true);
   });
 
   it("defines no app permission neither capability grants", () => {

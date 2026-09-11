@@ -128,12 +128,15 @@ wrote, digests and publishes into `dist-rel/`. CI drives it per shard from
 `.github/workflows/release.yml`; the root `AGENTS.md` carries the
 operator-facing version.
 
-**The `build` script is the UI and nothing else: `vite build`, pure JS.**
-What must stay out of the turbo `build` graph is CARGO — `bun run build` runs
-on hosted `ubuntu-latest` in both `test.yml` and `lint.yml`, where there is no
-Rust toolchain, so the Rust half stays reachable only through `compile`,
+**The `build` script is the UI and nothing else: `vite build`, no Rust.**
+What must stay out of the turbo `build` graph is CARGO. `lint.yml` runs BARE
+on the fleet — bun and JS actions need no system libraries, and no fleet
+runner is guaranteed a Rust toolchain — and it runs `bun run build` across
+the workspace, so the Rust half stays reachable only through `compile`,
 `compile:release` and `rust:check`, the same discipline
-`apps/client/mobile` uses to keep Xcode out. There is also **no
+`apps/client/mobile` uses to keep Xcode out. (This paragraph used to name
+hosted `ubuntu-latest` as the reason — stale since the fleet migration; the
+constraint outlived the machine it named.) There is also **no
 `dev` script**: root `bun run start` is `turbo watch dev`, which would
 otherwise launch a Tauri window for everyone. The console's Vite port is
 **5178** and `strictPort`: 5174 (`apps/server/web`) WALKS UPWARD when busy and
@@ -310,6 +313,16 @@ With it, the split is enforced:
 exists, drop this app's own title bar, and display one notification with a
 fixed shape. Nothing that touches the CLI, the config, the service or the
 filesystem is reachable from a page the server serves.
+
+**`withGlobalTauri` is load-bearing for `main`, not for the console.** The
+SPA's desktop bridge (`apps/server/web/src/lib/desktop.ts`) reads
+`window.__TAURI__` — it imports nothing — and it takes its desktop branch
+because `windows.rs` marks `main`'s user agent `SubshellDesktop/…`. Turning
+the global off while the marker ships kills the title-bar handshake, the
+"Manage server" pill, native notifications and window dragging, and kills
+them SILENTLY: the bridge never throws and the ACL stays green. Subshell
+Client ships `false` precisely because it strips the marker. The pair, not
+either half, is what `tauri-config.test.ts` pins.
 
 **The three-way contract is pinned, because nothing else catches it.** A
 command name lives in `ui/src/lib/ipc.ts`, in `permissions/desktop.toml` and

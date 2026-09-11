@@ -251,8 +251,13 @@ describe("the console's wiring, pinned at the source", () => {
     const fn = main.slice(main.indexOf("function showConfigure()"));
     const body = fn.slice(0, fn.indexOf("\n}"));
     expect(body).toContain("explicitFields(");
-    // And every send goes through the map.
-    for (const call of main.match(/configPayload\([^)]*\)/g) ?? []) {
+    // And every send goes through the map. The floor is load-bearing: with
+    // zero matches the loop passes vacuously, so renaming both call sites
+    // would silently erase this pin. Today there are exactly two (init,
+    // configure).
+    const sends = main.match(/configPayload\([^)]*\)/g) ?? [];
+    expect(sends.length).toBeGreaterThanOrEqual(2);
+    for (const call of sends) {
       expect(call).toBe("configPayload(form, explicit)");
     }
   });

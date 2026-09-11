@@ -188,14 +188,17 @@ function openControlPlane(): void {
  * the map is `Partial` so that fallback is the type-checked answer, not a
  * type-system blind spot.
  */
-const SOURCE_LABELS: Partial<Record<ipc.ServerSource, string>> = {
+// `Object.create(null)` like STEPS: a rung named e.g. `constructor` would
+// otherwise find `Object.prototype`'s member instead of falling back to the
+// raw value the line above promises.
+const SOURCE_LABELS: Partial<Record<ipc.ServerSource, string>> = Object.assign(Object.create(null), {
   env: "named by SUBSHELL_SERVER_BIN",
   configured: "you chose this path",
   service: "named by the installed service",
   "local-bin": "installed by this app",
   path: "on your login PATH",
   "well-known": "in a standard install directory",
-};
+});
 
 function renderFacts(): void {
   const dl = el("facts");
@@ -945,7 +948,10 @@ const doConfigure = guard(async () => {
 /** The Rust side validates the chosen file and returns an Err for anything that is not a server. */
 const pickBinary = guard(async () => {
   const chosen = await openDialog({ multiple: false, directory: false, title: "Choose subshell-server" });
-  if (typeof chosen !== "string") return null;
+  // Falsy, not "not a string": an empty string reaching `setServerBin` would
+  // CLEAR the configured choice (Rust maps it to None) — silence where a
+  // cancel is the only reading that fits.
+  if (!chosen) return null;
   await ipc.setServerBin(chosen);
   return { ok: true, stdout: `Using ${chosen}`, stderr: "" };
 });

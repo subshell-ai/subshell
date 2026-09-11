@@ -22,8 +22,10 @@
  *    render path stays open.
  *
  * `invoke` is imported from `@tauri-apps/api/core` rather than read off
- * `window.__TAURI__`: `withGlobalTauri` is `false` in `tauri.conf.json`, so
- * that global does not exist and the webview carries one fewer ambient handle.
+ * `window.__TAURI__`. The global still EXISTS — `withGlobalTauri` is `true`
+ * because the `main` window's SPA bridge reads it (`desktop.ts`, pinned by
+ * `tauri-config.test.ts` against the UA marker) — but the console takes the
+ * typed path and never touches it.
  */
 import { invoke } from "@tauri-apps/api/core";
 

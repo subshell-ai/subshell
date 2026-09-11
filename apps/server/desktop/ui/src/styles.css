@@ -146,6 +146,13 @@
     max-height: 220px;
     overflow: auto;
   }
+  /* An empty pane shows nothing, box and all — the old page's `pre:empty`.
+     It matters twice: at boot before the first log tail lands, and during a
+     long action, whose `show(null)` empties a visible pane for tens of
+     seconds. A bordered void reads as a crash. */
+  .pane-pre:empty {
+    display: none;
+  }
   .output-bad {
     border-color: var(--color-bad);
   }

@@ -61,6 +61,7 @@ describe("the dev CSP relaxes dev and only dev", () => {
   // relaxing it here does not widen a single shipped bundle.
   it("permits Vite's style injection and its HMR socket", () => {
     const dev = config.app.security.devCsp;
+    expect(dev).toContain("script-src 'self' 'unsafe-inline'");
     expect(dev).toContain("style-src 'self' 'unsafe-inline'");
     const port = /const DEV_PORT = (\d+);/.exec(viteConfig)?.[1];
     expect(port).toBeDefined();
@@ -85,11 +86,23 @@ describe("the dev CSP relaxes dev and only dev", () => {
 });
 
 describe("the window's ambient surface", () => {
-  // `window.__TAURI__` existed only for the old vanilla page, which read
-  // `invoke` off it. `lib/ipc.ts` imports it from `@tauri-apps/api/core`
-  // instead, so the global is one fewer handle in the webview.
-  it("exposes no global Tauri object", () => {
-    expect(config.app.withGlobalTauri).toBe(false);
+  /**
+   * `lib/ipc.ts` imports `invoke` from `@tauri-apps/api/core`, so the CONSOLE
+   * needs no global. The `main` window's page does: the SPA's desktop bridge
+   * (`apps/server/web/src/lib/desktop.ts`) reads `window.__TAURI__` rather
+   * than importing anything, and it takes its desktop branch because THIS
+   * app's `windows.rs` marks `main`'s user agent with `SubshellDesktop/…`.
+   * Subshell Client ships `false` precisely because it strips that marker —
+   * so the invariant is the PAIR, not either half: as long as the marker is
+   * set here, the global must exist, or every `main` command silently no-ops
+   * through the SPA's never-throws bridge (measured 2026-09-10 when the
+   * migration copied the client's config: handshake, "Manage server",
+   * notifications and dragging all went dead with the ACL untouched).
+   */
+  it("ships the global the SPA's bridge reads, for as long as the marker ships", () => {
+    const windows = readFileSync(join(import.meta.dir, "../../../src-tauri/src/windows.rs"), "utf8");
+    expect(windows).toContain("SubshellDesktop");
+    expect(config.app.withGlobalTauri).toBe(true);
   });
 });
 
