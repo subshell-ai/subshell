@@ -5,142 +5,44 @@ Status: approved design (brainstorm 2026-09-10); this document revises
 `2026-09-10-onboarding-to-first-subshell-design.md` §2/§5 as recorded in § 2
 below, and changes nothing else that spec decided.
 
-## Review notes (2026-09-10), to address before implementation
+## Review disposition (2026-09-10)
 
-Eleven findings against the code as it stands. Three block, four should be
-settled in the text, four are one line each. Nothing here disputes the design's
-shape; §§ 1 to 6 read as sound and the reset chain's "stop at the first
-failure, retry converges" discipline is the right one.
+Twelve findings landed the same day the draft was written (R1-R12, full text
+in git history at `bb52f43`); all are addressed in the body, none disputed
+the shape. Where each landed:
 
-### Blocking
-
-**R1. § 7.2 step 3 names the wrong environment variable, and the failure is
-silent on every Mac.** The step says sockets live under `<TMPDIR ?? /tmp>/
-tmux-<uid>/`. tmux does not consult `TMPDIR`. This repo's own authority says
-so: `tmuxSocketPath` (`packages/pane-runtime/src/tmux-runner.ts:382-385`)
-resolves `$TMUX_TMPDIR || "/tmp"`, and its docblock states the rule. macOS sets
-`TMPDIR` for every process (to a per-user `/var/folders/.../T/`), so as written
-reset would enumerate a directory holding no tmux sockets at all, find nothing,
-and, because "a failure to enumerate is ignored, matching nothing to kill",
-**report success while every pane on the machine keeps running.** A reset
-disclosed as "close this instance's local panes" that silently closes none is
-the worst shape this bug could take.
-
-Two attached details:
-
-- `tmuxSocketPath` wraps the base in `resolveExisting()` because on macOS
-  `/tmp` is a symlink to `/private/tmp` and the kernel binds the resolved path.
-  The Rust enumeration needs the same resolution or it misses on macOS a second
-  independent way.
-- **`cleanSocket` already has this exact bug**
-  (`tmux-runner.ts:353` uses `process.env.TMPDIR ?? "/tmp"`). It is best-effort
-  and swallows its own failure, which is why nobody has noticed. Fix it in the
-  same pass, or at minimum do not cite it as the precedent to copy: the spec
-  appears to have copied the broken one rather than `tmuxSocketPath`.
-
-The socket **prefix** claim is correct: `tmuxSocketFor` returns
-`subshell-<12 hex>` (`tmux-runner.ts:361-364`).
-
-**R2. § 3 and § 5 contradict each other about the wizard's grants.** § 3 lists
-the wizard's capability set as probe, setup, install-tmux, install-agent,
-set-server-bin, open-tmux-docs, open-main, `dialog:allow-open`, `core:default`.
-§ 5's Done step offers "Secondary: Go to status page (opens `console`
-instead)", which needs `desktop_open_console`. Either add it to the grant list
-in § 3 and to § 9's contracts table, or drop the secondary button. § 11's
-`ipc-acl.test.ts` extension ("wizard's invoke set == wizard's grant set") would
-catch this at implementation time, which is good, but the two sections should
-not ship disagreeing.
-
-**R3. § 7.2 step 5's guards are shape-based only, so § 7.1's promise that "the
-installed server binary itself stays" is not enforced.** The listed refusals
-(absolute, exists, not `/`, not the user's home itself, final component not a
-symlink) are all about the path's own shape. None of them stops a configured
-`SUBSHELL_SERVER_DATA_DIR` from being an **ancestor** of something the screen
-promised to keep. A data dir of `$HOME/.local` passes every guard and takes
-`~/.local/bin/subshell-server` with it on the recursive delete.
-
-The existing guards are right, and the reasoning behind them ("an
-operator-configured `/data` is legitimately theirs to lose, so the guard is
-shape-based, not location-based") is right too. This is the one containment
-check that reasoning does not cover, because it protects a promise the UI
-makes rather than a location: **refuse when a directory to be deleted contains,
-or equals, the resolved server binary path or the `configEnv.path` directory.**
-One comparison against paths the probe already carries.
-
-### Settle in the text
-
-**R4. § 7.2 step 5 buries an ordering rule that is load-bearing.** `config.env`
-is what tells `status --json` where overridden paths are, so it must be deleted
-**last**. As written it appears as a trailing sentence after the numbered
-order, reading as an aside. If it ever moves ahead of the directory deletions,
-a Retry after a partial failure re-reads a machine with no config, resolves
-every path to its DEFAULT location, deletes nothing that exists, and reports
-success while the operator's real data dir survives untouched. State it as a
-rule with that reason, the way step 3's prefix rule is stated.
-
-**R5. § 4 does not say whether the flag write is safe under concurrent
-probes.** `desktop_probe` is polled by the console at 5 s and by the wizard at
-~1 s during a Run, and § 3 allows both windows to exist. The first-Ready write
-is therefore a read-modify-write on `settings.json` that can overlap itself,
-and it shares that file with `binary_path`. Say whether `desktop-core`'s
-settings write is atomic (temp plus rename) and whether an overlapping write
-can drop a concurrent `binary_path` change. `plugins-seed.ts` has just been
-through exactly this: its marker moved to temp-plus-rename precisely because
-the contents became the record.
-
-**R6. § 3 and § 4 leave the boot ordering ambiguous, and it decides which
-window a CLI-provisioned machine opens.** § 3 says boot "branches on
-`onboarded`"; § 4 says the probe sets that flag on first Ready. A machine set
-up entirely from the CLI has `onboarded: false` stored until some probe runs.
-If boot reads the stored flag and then probes, that user gets the wizard on
-first launch, which § 4 explicitly calls incorrect ("they never see a wizard,
-which is correct"). § 4's "the probe at boot is the same one the page will
-poll" implies probe-then-branch, but it is implied rather than stated. Say it,
-and add the case to § 11: the fixtures list "ready-at-boot" for the page's step
-state, not for the window choice.
-
-**R7. § 7.1's blast radius omits a node agent on this same machine.** Both
-disclosures concern *remote* nodes. The root `README.md` says the machine
-running the control plane is usually also one you want to launch agents on, and
-both desktop apps are expected to coexist there. After a reset that machine can
-still be running a `subshell` agent daemon, enrolled to a plane whose database
-and signing key have just been deleted, retrying a connection forever. Either
-name it in the list (it is the honest scope of "back to virgin machine") or add
-it to § 13 as an explicit non-goal. Silence is the one option that leaves a
-user surprised.
-
-**R8. § 6's version-skew argument rests on an asserted Tauri behaviour.**
-"Tauri ignores undeclared extras" carries the whole "degrades to a raised
-window, never to a partial action" conclusion. Everywhere else this repo
-measures a claim like that and says so (`better-auth 1.7.1 derives the rpID
-from the static baseURL`, `measured on bun 1.4.2`). Either pin it with a test
-or record the measurement inline.
-
-### One line each
-
-**R9. § 7.1's hostname.** Spawning `hostname(1)` works, but `libc::gethostname`
-answers without a process, and libc is already in the dependency graph. More
-usefully: on macOS `hostname` and `hostname -s` differ (FQDN versus short), and
-the user has to type the value back **exactly**. Say which form is displayed.
-
-**R10. § 8's licence note reasons from the wrong premise.** It argues the line
-is unaffected because "the console consumes it as opaque JSON". The actual
-reason is simpler and stronger: `apps/server/desktop` is itself inside
-`AGPL_PREFIX` (`scripts/license-fields.ts:49`), so `@internal/desktop-server`
-is AGPL and a type import from `@internal/server` is AGPL to AGPL, not a
-crossing at all. No `PERMITTED_CROSSINGS` entry is needed. The conclusion is
-correct; the stated reason would stop holding the moment someone moved the
-console out of `apps/server/`, which is exactly when it would be consulted.
-
-**R11. § 11 has no test for R3, R4 or R6.** Add: the ancestor guard rejects a
-data dir containing the server binary; the chain's delete order puts
-`config.env` last; boot probes before choosing a window.
-
-**R12. § 5 step 2 has no exit for a machine that cannot get tmux.** Continue is
-gated until tmux answers, and the Mac-without-brew branch has no button, only a
-command to copy and a poll. That is correct (nothing works without tmux), but
-confirm the user can still close the window and quit the app from that step
-rather than being held there, since it is the one step with no forward path.
+- **R1** (wrong temp-dir variable, silent-success on every Mac): § 7.2 step 3
+  rewritten to `$TMUX_TMPDIR ?? /tmp` with symlink resolution, fail-the-chain
+  semantics for a live kill failure, and the `cleanSocket` twin fixed in the
+  same pass (§ 9, § 11).
+- **R2** (Done's secondary button had no grant): § 3's wizard set now includes
+  `allow-desktop-open-console`, with the note on why the console itself stays
+  refused it.
+- **R3** (shape guards could delete the promised-to-keep binary): § 7.2
+  step 5 gained the containment layer (`delete_guard`) and § 11 its test.
+- **R4** (config.env deletion order is load-bearing): step 5 restated as an
+  order rule with the retry-inversion reason, config.env last, plus § 11's
+  order test.
+- **R5** (flag write durability): § 4 now states the mutex already prevents
+  field loss, and that `Settings::save` moves to temp-plus-rename because
+  one `fs::write` was not safe against truncation.
+- **R6** (boot ordering ambiguity): § 3 now says boot probes first and
+  branches on the fresh probe via a pure `boot_window`; § 11 gained the
+  ready-at-boot fixture.
+- **R7** (a local node agent survives the "virgin machine" claim): § 7.1's
+  disclosure list grew to three, and § 13 records it as a non-goal.
+- **R8** (asserted Tauri behaviour): measured against tauri 2.11.5's
+  `ipc/command.rs` and quoted in § 6 (`v.get(self.key)` per declared
+  argument; `deserialize_option` answers missing with `visit_none`).
+- **R9** (hostname form): § 7.1 pins the exact-`hostname`-output form and
+  records that `libc::gethostname` was considered and declined, with the
+  check: libc is not a direct dependency of either crate.
+- **R10** (licence argument rested on the wrong premise): § 8 now rests it on
+  `AGPL_PREFIX` covering `apps/server/desktop`, and keeps the refuted
+  premise visible as a parenthetical.
+- **R11** (no tests for R3/R4/R6): § 11 gained all three, named per finding.
+- **R12** (no exit from a gated Prerequisites step): § 5 step 2 states that
+  the gate stops forward motion only; close, quit, and menu stay live.
 
 ## 1. The problem
 
@@ -206,7 +108,7 @@ pages, `main` holds exactly what it holds today.
 
 | window | page | grants |
 | --- | --- | --- |
-| `wizard` | bundled `wizard.html` (new Vite input beside `index.html`) | the commands its page invokes: probe, setup, install-tmux, install-agent, set-server-bin, open-tmux-docs, open-main, `dialog:allow-open`, `core:default` |
+| `wizard` | bundled `wizard.html` (new Vite input beside `index.html`) | the commands its page invokes: probe, setup, install-tmux, install-agent, set-server-bin, open-tmux-docs, open-main, open-console (the Done step's "Go to status page" is what calls it; the permission exists today and is granted to `main`; `console` is still refused it, which stays true now that a real caller exists), `dialog:allow-open`, `core:default` |
 | `console` | bundled `index.html` (the status/settings page) | everything it has today, plus new `allow-desktop-reset` |
 | `main` | the server's SPA over loopback | its same three commands plus window dragging, unchanged |
 
@@ -216,10 +118,14 @@ Mechanics:
   `WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html"))`,
   which resolves against the Vite dev server in dev and the bundle in prod
   with no config change beyond `rollupOptions.input` gaining the second page.
-- Boot (`lib.rs` setup) branches on `onboarded`: un-onboarded opens the
-  **wizard** and does not create the console; onboarded behaves exactly as
-  today (console first). The probe at boot is the same one the page will poll,
-  so the branch costs nothing extra.
+- Boot (`lib.rs` setup) **probes first, then branches on the probe's answer,
+  never on the stored flag**: `probe_now` runs (with the § 4 marking on its
+  result), and only the resulting `onboarded` value chooses the window. A
+  machine set up entirely from the CLI therefore has `onboarded: true` by the
+  time the branch runs and opens the console, which is § 4's "they never see a
+  wizard" made structurally true rather than hoped for. The choice is a pure
+  function, `boot_window(&Probe) -> Wizard | Console`, so the fixture test
+  pins it directly.
 - Anything that raises the "manage" window (menu item, tray,
   `desktop_open_console`) routes to whichever of the two applies to the
   machine's state: `onboarded` false means the wizard is the manage window.
@@ -255,6 +161,20 @@ the machine. `Probe` grows `onboarded: boolean` so the page reads the answer
 from the round trip it already makes. The write lives in the command wrapper,
 not in `probe_now`, keeping the pure probe pure and testable.
 
+**Write safety, stated rather than assumed (R5).** Two windows may poll at
+once (console at 5 s, wizard at ~1 s during a Run), so the first-Ready write
+is a read-modify-write racing `binary_path` writes on the same file. Field
+loss is already impossible: `SettingsState` is a `Mutex<Settings>` and
+`update` locks, mutates, and saves as one act, so two writes serialize rather
+than interleave. What is *not* safe today is durability: `Settings::save` is
+one `std::fs::write`, and a crash between truncate and rename leaves a
+truncated file that `load`'s `from_str().ok().unwrap_or_default()` reads as
+"no settings", silently losing the user's picked binary along with the new
+flag. This design therefore also changes `save` to temp-file-plus-rename in
+the same directory, the same fix `plugins-seed.ts` made when its contents
+became the record, pinned by a Rust test that a kill mid-save cannot corrupt
+the previous file.
+
 The wart, written down rather than discovered later: this ends the root docs'
 claim that "both apps have the same two-window shape" (`.claude/rules/
 security-context.md`). The server app now has three windows and the client
@@ -286,7 +206,10 @@ without a plan (Mac-without-brew: the MacPorts line, copy-to-clipboard, "Read
 the docs", and the poll that self-clears when tmux appears). If this build
 ships no bundled server (`serverChoice: no-bundled`, a dev build), "Choose an
 existing server…" sits here (the `pickBinary` / `setServerBin` pair). Continue
-is gated until tmux answers.
+is gated until tmux answers. The gate stops forward motion only: the window is
+a normal window, so close, quit, and the menu stay live on every step (R12);
+the prerequisite that cannot be met is a state to leave the app in, never a
+cell.
 
 **3. Addresses.** The four configuration fields with the console's prefill
 contract moved over whole: `effectiveForm` prefill, `explicitFields` semantics
@@ -385,12 +308,15 @@ dialog, with nothing behind it a remote page can advance, is the widened
 ceiling.
 
 Version skew, accepted rather than papered over: the SPA ships inside the
-server binary, so a newer SPA running on an adopted older desktop app passes an
-argument the old Rust ignores (Tauri ignores undeclared extras), which lands
-as "console raised, no reset screen". That combination requires the user to
-have adopted a newer installed server while keeping an older app, which the
-app itself nags about; it degrades to a raised window, never to a partial
-action.
+server binary, so the two directions of skew both resolve to "console raised,
+no reset screen". Measured against tauri 2.11.5's `ipc/command.rs` rather than
+asserted: the router derives every declared argument by looking up its own key
+in the payload (`v.get(self.key)`), so an undeclared extra is structurally
+never read (old Rust + new SPA), and `deserialize_option` answers a missing
+key with `visit_none()` (new Rust `screen: Option<…>` + old SPA). The
+combination itself requires adopting a newer installed server while keeping an
+older app, which the app already nags about, and it degrades to a raised
+window, never to a partial action.
 
 ## 7. Reset
 
@@ -415,12 +341,19 @@ path:
   starts over;
 - the installed server binary itself stays, and re-running setup reuses it.
 
-Two disclosures that must not be buried, verbatim on the screen:
+Three disclosures that must not be buried, verbatim on the screen:
 
 1. **Enrolled remote nodes are not reached.** Their agents, and any panes
    running there, survive with keys to a control plane that no longer exists.
    Re-setup means re-enrolling them.
-2. A server that **does not report its data paths** (an old CLI predating the
+2. **A `subshell` node agent on this very machine is not reached either**
+   (R7), and this is the common machine: the root README says the control-plane
+   host is usually also a node. Its daemon keeps running, holding its own
+   config and key, dialing a plane whose database was just deleted, retrying
+   forever; stopping it belongs to that app (Subshell Client, or
+   `subshell service stop`), and § 13 keeps it a non-goal for reset to reach.
+   "Back to virgin machine" means this app's machine, and the screen says so.
+3. A server that **does not report its data paths** (an old CLI predating the
    `paths` block) gets a refusal with a plain explanation, not a guess. Reset
    never deletes a location it could not read from the machine's own
    authority. This is the `Unreachable`-is-never-`Init` rule taken one rung
@@ -430,7 +363,15 @@ Confirmation is GitHub-style: type this machine's **hostname**, exact match,
 to arm the button. The hostname shown (and therefore typed) comes from the
 probe: `Probe` grows `hostname: string`, which Rust reads once by spawning
 `hostname` and trimming (the webview has no way to ask the machine, same rule
-as `platform`). The arming check exists twice on purpose and only once counts:
+as `platform`; memoized behind a `OnceLock` like the login-PATH probe, since a
+running machine does not rename itself). `libc::gethostname` was considered
+and declined: libc is not a direct dependency of either crate today (checked),
+and one spawn through the `proc` discipline that governs every other
+subprocess is cheaper than a new edge in the dependency graph. The **form**
+is pinned because macOS makes `hostname` and `hostname -s` differ (R9): the
+screen displays the exact string `hostname` printed, the comparison is that
+same string, byte for byte, no short-form or case-folding leniency in either
+direction, and the screen says "exactly as shown". The arming check exists twice on purpose and only once counts:
 the page disables the button on a string compare against the probe's value
 (UX), and `desktop_reset` re-reads the hostname itself and refuses unless the
 typed argument equals it. The page names intent; Rust re-checks. That is
@@ -450,29 +391,60 @@ and **retry converges** because every step tolerates having half-happened.
 2. **Stop.** `service stop`. "Not installed" and "not running" are tolerable
    answers, taken from the CLI's own exit behavior, not re-litigated here.
 3. **Close orphan panes.** Each pane is its own tmux server on a socket named
-   `subshell-<hash>` (`tmuxSocketFor`, `packages/pane-runtime/src/tmux-runner.ts`)
-   under `<TMPDIR ?? /tmp>/tmux-<uid>/` (the uid by spawning `id -u`, since
-   Rust's std has no `getuid`; a failure to enumerate is ignored, matching
-   "nothing to kill"). Rust enumerates that directory and runs
-   `tmux -L <entry> kill-server` for every entry starting with `subshell-`.
-   The prefix keeps a user's own tmux sessions untouched; the per-uid
-   directory keeps other users' untouched (and tmux itself would refuse to
-   connect across users); stale socket files fail and are ignored; no tmux
-   (impossible past setup, but true on a weird machine) means nothing to
-   kill. The prefix and directory rules mirror pane-runtime and are pinned
-   against it the way the installer table is (`include_str!` containment).
+   `subshell-<hash>` (`tmuxSocketFor`, `packages/pane-runtime/src/tmux-runner.ts`).
+   The directory, precisely (R1): tmux resolves `-L <name>` to
+   **`$TMUX_TMPDIR ?? /tmp`, NOT `TMPDIR`**, and the base is symlink-resolved
+   (`tmuxSocketPath`'s `resolveExisting`, because macOS `/tmp` is a symlink to
+   `/private/tmp` and the kernel binds the resolved path); inside it,
+   `tmux-<uid>/` (the uid by spawning `id -u`, Rust std having no `getuid`).
+   Getting this wrong does not fail, it finds an empty or absent directory and
+   reports a successful reset with every pane on the machine still running,
+   which is exactly why the rule is written out instead of approximated. An
+   absent `tmux-<uid>` directory genuinely means nothing to kill; a present
+   one is enumerated and every `subshell-*` entry gets
+   `tmux -L <entry> kill-server`. The prefix keeps a user's own sessions
+   untouched; the per-uid directory keeps other users' untouched (tmux itself
+   would refuse the cross-user connect anyway). A kill that answers "error
+   connecting" means the server is already dead: unlink the stale socket file
+   and continue. Any **other** kill failure fails the chain there, because a
+   pane that survived is a reset that lied. No tmux at all (impossible past
+   setup, true on a weird machine) means nothing to kill. The prefix and
+   directory rules mirror `tmuxSocketPath` and are pinned against it the way
+   the installer table is (`include_str!` containment), so a rule change in
+   pane-runtime fails this crate's build.
+   **Same pass, same bug's other home**: `cleanSocket` (line 353) resolves
+   `process.env.TMPDIR ?? "/tmp"`, which is wrong for exactly this reason and
+   has been silently failing best-effort forever; it moves to
+   `tmuxSocketPath` (which already encodes the correct rule) and gains a test
+   that a socket under `TMUX_TMPDIR` is the file it unlinks.
 4. **Uninstall the service** (`service uninstall`), while the binary and
    config it names are still on disk and the CLI is still the authority on the
    unit file.
-5. **Delete**, in this order: the database file, the logs directory, the
-   node-artifacts directory, then the data directory recursively (the default
-   layout nests all of these inside it, so the recursive delete is the same
-   bytes; overridden paths stand alone). Only
-   paths the `paths` block reported, each under hard refusals: absolute,
-   exists, not `/`, not the user's home itself, final component not a symlink.
-   An operator-configured `/data` is legitimately theirs to lose, so the guard
-   is shape-based, not location-based. `config.env` is deleted from the
-   `configEnv.path` the status body already reports.
+5. **Delete**, in this order and no other: the database file, the logs
+   directory, the node-artifacts directory, the data directory recursively
+   (the default layout nests those three inside it, so the recursive delete is
+   the same bytes; overridden paths stand alone), and **`config.env` last,
+   the file, not a side sentence** (R4). The order is load-bearing:
+   `config.env` is what tells `status --json` where the overridden paths are,
+   so if it went first, a Retry after a partial failure would re-read a
+   machine with no config, resolve every path to its *default*, delete nothing
+   that exists, and report success with the operator's real data directory
+   untouched. Deletion of it is therefore the chain's point of no return and
+   runs only once every directory it points at is gone.
+
+   Only paths the `paths` block reported, each under two layers of refusals.
+   **Shape** (as before): absolute, exists, not `/`, not the user's home
+   itself, final component not a symlink. An operator-configured `/data` is
+   legitimately theirs to lose, so the guard stays shape-based rather than
+   location-based. **Containment** (R3), which protects the promise on the
+   screen rather than a location: a directory to be deleted is refused if it
+   contains, or equals, the resolved server binary path or the directory
+   holding `config.env`. Without it, a data dir configured as `$HOME/.local`
+   passes every shape guard and takes `~/.local/bin/subshell-server` down with
+   it, while the confirmation screen promised the binary stays. The compared
+   paths are ones the probe already carries; the check is a pure
+   `delete_guard(dir, keep) -> Result`, and it refuses before anything in the
+   chain has touched the disk.
 6. **Clear app settings:** `binary_path` to none, `onboarded` to false.
 7. **Windows:** close `main` (its port is dead), close the console, open the
    wizard at Welcome. The chain's final result log is shown by the wizard's
@@ -502,8 +474,15 @@ These are that process's own resolved constants, which makes the CLI the
 authority on where its data lives, exactly as it already is for `config.env`
 and the log file the plist names. It is types-only-visible to the console via
 the forwarded `StatusBody`, optional there (an older server lacks it, and §
-7.1's refusal owns that case). The AGPL/Apache line is unaffected: the field
-is server behavior, and the console consumes it as opaque JSON.
+7.1's refusal owns that case). The AGPL/Apache line is unaffected for the
+structural reason, not a behavioral one: `apps/server/desktop` is itself
+inside `AGPL_PREFIX` (`scripts/license-fields.ts`, `"apps/server/"`), so
+`@internal/desktop-server` is AGPL and anything it imports from
+`@internal/server` is AGPL-to-AGPL, not a crossing at all. (This paragraph
+first argued "the console consumes it as opaque JSON", which is true but the
+wrong premise: it would stop being load-bearing the moment the console moved
+out of `apps/server/`, which is exactly when this note would next be
+consulted. No `PERMITTED_CROSSINGS` entry is needed either way.)
 
 ## 9. Contracts, complete
 
@@ -515,6 +494,8 @@ is server behavior, and the console consumes it as opaque JSON.
 | `desktop_open_console` | optional `screen` argument, closed enum | additive argument |
 | `desktop_reset` | new, console-only | new command + permission |
 | `status --json` | `paths: { dataDir, database, logsDir, nodeArtifacts }` | additive field |
+| `desktop-core` `Settings::save` | temp-file + rename (was one `fs::write`) | bugfix, pinned |
+| `pane-runtime` `cleanSocket` | resolve via `tmuxSocketPath`, not `TMPDIR ?? /tmp` | bugfix, pinned |
 | `capabilities/wizard.json` | new capability file, exact-invoke set | new file |
 | `ui/` | `wizard.html`, `ui/src/wizard.ts`, `lib/wizard-state.ts`, console second view, Vite multi-input | new page + views |
 | `apps/server/web` Settings | danger card, admin + desktop marker, calls `openConsole({ screen: "reset" })` | new UI |
@@ -559,19 +540,30 @@ across the boundary they drift across.
 - `onboarded` serde round-trip, default false, old file reads.
 - mark-on-first-Ready in the command wrapper (`probe_now` stays pure).
 - `open_console` screen enum: absent, unknown, `reset`.
-- reset hostname compare and the deletion shape guards (rejects relative,
+- `boot_window`: ready-at-boot with a stored `onboarded: false` picks
+  **Console** (the CLI-provisioned fixture from R6), virgin picks Wizard.
+- reset hostname compare and the deletion **shape** guards (rejects relative,
   `/`, home itself, symlink final component; accepts an absolute `/data`).
-- chain argv assembly extracted pure (the `init_args` precedent), so the order
-  is a test, not a comment.
-- tmux socket prefix/directory mirror pin against pane-runtime, containment
-  test as the installer table uses.
+- reset deletion **containment** guard (R3's test): a data dir of
+  `$HOME/.local` containing the resolved server binary is refused outright,
+  and so is one equal to the config directory.
+- chain order (R4's test): the pure plan assembly puts `config.env` after
+  every directory deletion, asserted as order, not inferred from layout.
+- `Settings::save` writes via temp + rename in the same directory and leaves
+  no temp file behind (R5's fix, pinned per behavior).
+- tmux socket prefix **and directory** mirror pin against pane-runtime
+  containment test as the installer table uses; it covers `TMUX_TMPDIR`,
+  `tmux-<uid>`, and the resolve-the-symlink rule.
 - `bun run rust:check` (fmt + clippy -D warnings + tests, all crates, with the
   stub-sidecar staging the script already does).
 
-**Server:** `status --json` gains a pin for the three new fields' values
-against the constants module (the same test style that keeps `configEnv.path`
-honest). e2e: the danger card is invisible in bare Chromium (no marker),
-asserted where the suite next visits Settings.
+**Server and shared packages:** `status --json` gains a pin for the new
+`paths` fields' values against the constants module (the same test style that
+keeps `configEnv.path` honest). `pane-runtime` gains the `cleanSocket` test: a
+socket under `TMUX_TMPDIR` is the file it unlinks (today's `TMPDIR`-based
+resolution would miss it, which is how R1 was found). e2e: the danger card is
+invisible in bare Chromium (no marker), asserted where the suite next visits
+Settings.
 
 **Verification gate for the whole change:** `bun run verify-types &&
 bun run lint:check && bun run test`, plus `bun run rust:check`, plus
@@ -593,15 +585,20 @@ even though no consumer needs the new field yet).
   update the rules file summarizes.
 - `apps/server/desktop/README.md`: first-run description becomes the wizard.
 - Changesets: minor `@internal/desktop-server`, minor `@internal/server-web`,
-  patch `@internal/server` (additive `status --json` field), minor
-  `subshell-desktop-core` (a new public field on its `Settings` is an API
-  addition, not a fix).
+  patch `@internal/server` (additive `status --json` field).
+  `crates/desktop-core` and `packages/pane-runtime` are not changesets
+  packages (one is a path-dep Rust crate, one is private); their changes ride
+  inside the app cuts that bundle them, which is why the pane-runtime
+  `cleanSocket` fix reaches users via the next `server`/`desktop-server`
+  release rather than needing its own bump.
 
 ## 13. Non-goals
 
 - A search/filter box over the built-in agent table (§ 5's argument; the live
   registry list in the dashboard is where search will belong).
-- Reset reaching remote nodes, re-enrolling them, or any per-node reset.
+- Reset reaching remote nodes, re-enrolling them, or any per-node reset, and
+  reset stopping or removing a `subshell` node agent on the same machine
+  (§ 7.1's third disclosure: that daemon belongs to Subshell Client).
 - Any reset entry on this machine's CLI, in Subshell Client, or in a plain
   browser (the command and the card both have exactly one home).
 - Changing the SPA wizard, the probe state machine, the `no-bundled` dev-build
