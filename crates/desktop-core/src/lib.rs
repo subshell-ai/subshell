@@ -59,6 +59,7 @@
 
 pub mod legal;
 pub mod proc;
+pub mod reset_guards;
 pub mod settings;
 pub mod shell_env;
 pub mod sidecar;
