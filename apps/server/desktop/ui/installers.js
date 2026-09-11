@@ -51,8 +51,8 @@ export function tmuxInstallPlan(platform, hasBrew) {
     // wider, resolve the manager in RUST (where `which` works) and pass the
     // answer in as this function does with `hasBrew` — never guess here, and
     // change BOTH copies together (the Rust `tmux_install_argv` mirrors this
-    // decision; `the_js_install_table_and_the_rust_one_agree` fails if they
-    // drift).
+    // decision; `the_js_install_table_and_the_rust_one_agree` fails the build
+    // when a token either side runs is removed or changed in the other).
     return {
       kind: "run",
       label: "Install tmux",
@@ -75,10 +75,12 @@ export function tmuxInstallPlan(platform, hasBrew) {
  * RENDERING mirror and the readable list; the table ENFORCING what executes
  * is `AGENT_INSTALLS` in `control.rs`, because that is the side the webview
  * talks to and it never runs a string the page handed it, only its own. The
- * two are held identical by the Rust test
- * `the_js_install_table_and_the_rust_one_agree`, so removing an id here is a
- * CI failure pointing at the copy that must change with it, not a silent
- * half-revocation.
+ * two are pinned to agree by the Rust test
+ * `the_js_install_table_and_the_rust_one_agree`, which holds this copy to
+ * contain that one: removing or changing an id or script on EITHER side is a
+ * CI failure pointing at the copy that must change with it. Adding an id here
+ * alone fails nothing, deliberately — no button would name it, and only the
+ * Rust table executes.
  *
  * All five are user-space installers that need no elevation.
  */

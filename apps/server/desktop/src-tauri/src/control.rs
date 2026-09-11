@@ -395,19 +395,23 @@ pub fn desktop_setup(settings: State<'_, SettingsState>) -> Result<ActionResult,
     ] {
         let result = step.run(&settings)?;
         log.push_str(&result.stdout);
-        // The chain's contract is "the CLI's own words, verbatim", and a
-        // substep that warns on stderr while exiting 0 must not warn on the
-        // single-button path and go silent on the one-press one.
-        if !result.stderr.is_empty() {
-            log.push_str(&result.stderr);
-        }
         log.push('\n');
         if !result.ok {
+            // The failure's stderr leaves on the failure channel, not also
+            // into the log: the console renders both halves, and the refusal
+            // a user most needs to read must appear exactly once.
             return Ok(ActionResult {
                 ok: false,
                 stdout: log,
                 stderr: result.stderr,
             });
+        }
+        // A success that warned on stderr must not warn on the single-button
+        // path and go silent on the one-press one — the chain's contract is
+        // the CLI's own words, verbatim.
+        if !result.stderr.is_empty() {
+            log.push_str(&result.stderr);
+            log.push('\n');
         }
     }
     Ok(ActionResult {
@@ -486,8 +490,9 @@ pub fn desktop_install_tmux() -> Result<ActionResult, String> {
 /// Mirrors `tmuxInstallPlan` in `ui/installers.js`, which owns the same
 /// decision for the rendering side. Two copies because one runs in a webview
 /// with no process access and one runs where `which` works, and
-/// `the_js_install_table_and_the_rust_one_agree` fails the build when the two
-/// drift. `apt-get` is hardcoded because the only Linux artifact this app
+/// `the_js_install_table_and_the_rust_one_agree` fails the build when a token
+/// this runs is removed or changed in the JS copy (containment, as that test
+/// documents). `apt-get` is hardcoded because the only Linux artifact this app
 /// ships is the `.deb`, so every machine this reaches is Debian-family; the
 /// note in `installers.js` carries the lever if that changes.
 fn tmux_install_argv() -> Option<Vec<String>> {
@@ -517,7 +522,9 @@ fn tmux_install_argv() -> Option<Vec<String>> {
 /// there: what this app may EXECUTE has to be changeable only by editing this
 /// file, never by anything it reads at runtime. This is the copy that
 /// ENFORCES; the JS copy renders, and `the_js_install_table_and_the_rust_one_agree`
-/// holds them identical so revoking in one file cannot silently half-happen.
+/// keeps them in step as far as revocation goes — an id or script REMOVED or
+/// CHANGED on either side fails that test. A JS-only ADDition passes it and
+/// runs nothing, because only this list executes.
 ///
 /// All five are user-space installers that need no elevation.
 const AGENT_INSTALLS: &[(&str, &str)] = &[
@@ -1205,6 +1212,14 @@ mod tests {
     /// green. Text-matching rather than a shared data file: the JS copy is
     /// prose-shaped on purpose (readable, hand-edited), and this is the
     /// price of that shape.
+    ///
+    /// The pin is CONTAINMENT, Rust into JS, and it is worth being exact
+    /// about what that catches: anything either side relies on being REMOVED
+    /// or CHANGED in the other fails here (the drift that actually bit), on
+    /// the host that ships. An id added JS-side alone is out of scope by
+    /// construction — no button names it and Rust refuses it — and the mac
+    /// tmux tokens are compared only where they run, since `tmux_install_argv`
+    /// answers for the current OS only.
     #[test]
     fn the_js_install_table_and_the_rust_one_agree() {
         let js = include_str!("../../ui/installers.js");

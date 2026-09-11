@@ -784,8 +784,8 @@ const doSetup = guard(async () => {
   return {
     ...result,
     stdout:
-      `${result.stdout}\nThe server is set up and still starting. The console keeps checking, and ` +
-      "the dashboard opens the moment it answers.\n",
+      `${result.stdout}\nThe server is set up and still starting. The console keeps checking, and the ` +
+      '"Open Dashboard" button appears the moment it answers.\n',
   };
 }, true);
 
