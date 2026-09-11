@@ -18,7 +18,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 afterAll(() => {
   tmux.killSubshell(socket, id);
-  tmux.cleanSocket(socket);
+  void tmux.cleanSocket(socket);
   void Bun.file(subshellLogPath(id))
     .unlink()
     .catch(() => {});
@@ -81,7 +81,7 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     await sleep(TAIL_BACKSTOP_MS + 500);
     expect(total()).toBe(before);
     tmux.killSubshell(lsock, lid);
-    tmux.cleanSocket(lsock);
+    void tmux.cleanSocket(lsock);
     await launcher.removeArtifacts([subshellLogPath(lid)]);
     expect((await launcher.readLogTail(lid)).lines).toEqual([]); // missing log = empty
   });
@@ -114,7 +114,7 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
       expect(sizeAfter).toBe(sizeBefore); // and NOTHING reflowed
     } finally {
       tmux.killSubshell(wsock, wid);
-      tmux.cleanSocket(wsock);
+      void tmux.cleanSocket(wsock);
     }
     // No pane, no signal — the caller must fall back to the resize nudge.
     expect(await launcher.signalPaneWinch(wsock, wid)).toBe(false);
@@ -138,7 +138,7 @@ describe("LocalLauncher.deliverPrompt (real panes)", () => {
     await sleep(400); // the pane's shell needs a beat to run the echo
     expect(await launcher.capture(psock, pid)).toContain("delivered-marker");
     tmux.killSubshell(psock, pid);
-    tmux.cleanSocket(psock);
+    void tmux.cleanSocket(psock);
 
     // A plain `sleep` pane never prints → capture stays blank → give up false.
     const bid = `${id}-blank`;
@@ -146,7 +146,7 @@ describe("LocalLauncher.deliverPrompt (real panes)", () => {
     tmux.newSubshell(bsock, bid, tmpdir(), "sleep 30");
     expect(await launcher.deliverPrompt(bsock, bid, "echo never", 250, 50)).toBe(false);
     tmux.killSubshell(bsock, bid);
-    tmux.cleanSocket(bsock);
+    void tmux.cleanSocket(bsock);
   }, 30_000);
 });
 

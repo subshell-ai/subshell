@@ -348,10 +348,15 @@ export class TmuxRunner {
     }
   }
 
-  /** Deletes the socket file for a dead subshell (best-effort). */
-  cleanSocket(socket: string): void {
-    const socketPath = join(process.env.TMPDIR ?? "/tmp", `tmux-${process.getuid?.() ?? ""}`, socket);
-    Bun.file(socketPath)
+  /**
+   * Deletes the socket file for a dead subshell (best-effort, but awaited:
+   * the path rule is `tmuxSocketPath`'s, and the test needs the unlink to
+   * have happened before it asserts). TMPDIR is NOT the variable tmux
+   * consults - TMUX_TMPDIR is; reading TMPDIR silently missed every socket
+   * on macOS, where TMPDIR is a per-user /var/folders path.
+   */
+  cleanSocket(socket: string): Promise<void> {
+    return Bun.file(tmuxSocketPath(socket))
       .unlink()
       .catch(() => {});
   }

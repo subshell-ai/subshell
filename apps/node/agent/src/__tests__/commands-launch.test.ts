@@ -1126,7 +1126,7 @@ it.skipIf(!HAS_TMUX)(
       // socket file — a failed assertion must not leak a tmux daemon.
       runner.killSubshell(socket, subshellId);
       spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
-      runner.cleanSocket(socket);
+      void runner.cleanSocket(socket);
       for (const id of [...ctx.watchers.keys()]) stopWatcher(ctx, id); // drains the set + stops the shared loop
     }
   },
