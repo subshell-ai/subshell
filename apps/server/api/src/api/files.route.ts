@@ -14,6 +14,7 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { loadNodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
 import { exploreNodeDirectory } from "@/services/files-remote-browse.service.js";
+import { getLive } from "@/services/nodes/node-registry.js";
 import { expandTilde } from "@/utils/path.js";
 
 interface DirEntry {
@@ -57,6 +58,12 @@ const RecentResponseSchema = t.Object({
       label: t.Union([t.String(), t.Null()], { description: "Optional display label" }),
     }),
     { description: "Recently used working directories, newest first" },
+  ),
+  home: t.Nullable(
+    t.String({
+      description:
+        "Home directory on the node this list is scoped to, for pre-filling a working directory when there are no recents; null when the node has not reported one",
+    }),
   ),
 });
 
@@ -252,7 +259,13 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         }
       }
       const paths = (await recentPaths(user.id, nodeId)).map(({ path, label }) => ({ path, label }));
-      return { paths } as const;
+      // The pre-fill fallback: a fresh instance has no recents at all, so
+      // without this the new-subshell form opens on an empty absolute-path
+      // box at exactly the moment the user knows least. For an agent node
+      // this is what it reported on `ready`; the plane cannot see its disk,
+      // and an offline node has no facts, which is why this is nullable.
+      const home = nodeId === LOCAL_NODE_ID ? homedir() : (getLive(nodeId)?.agent?.homeDir ?? null);
+      return { paths, home } as const;
     },
     {
       query: t.Object({

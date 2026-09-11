@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
 import { filesRoutes } from "@/api/files.route.js";
@@ -183,6 +183,13 @@ describe("files route (folder explorer)", () => {
       await db.deleteFrom("recentPaths").where("userId", "=", userId).execute();
     });
 
+    it("reports the control-plane host's home directory", async () => {
+      const res = await recent({ cookieToken: cookie });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { home: string | null };
+      expect(body.home).toBe(homedir());
+    });
+
     it("unauthenticated -> 401", async () => {
       expect((await recent()).status).toBe(401);
     });
@@ -261,6 +268,14 @@ describe("files route (folder explorer)", () => {
         };
         expect(explicit.paths).toEqual(omitted.paths);
         expect(new Set(omitted.paths.map((p) => p.path))).toEqual(new Set(["/tmp/local-a", "/tmp/local-b"]));
+      });
+
+      it("an agent node that has not reported answers null — the plane cannot see its disk", async () => {
+        // The offline `ownNodeId` above never connected, so the registry has
+        // no `ready` facts for it. Null, not homedir(): the PLANE's home would
+        // be a wrong absolute path on the launch target.
+        const onX = (await (await recentScoped(ownNodeId)).json()) as { home: string | null };
+        expect(onX.home).toBeNull();
       });
 
       it("the same path on two nodes is TWO entries — the (user, node, path) upsert keeps them apart", async () => {
