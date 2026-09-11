@@ -37,10 +37,15 @@ export function HarnessInstallHelp({
     return <p className="text-muted-foreground text-xs">This plugin needs no separate program installed.</p>;
   }
 
-  if (harness.reason === "override-invalid") {
+  if (harness.reason === "override-invalid" && harness.envOverride) {
     // Offering an install command here is actively wrong advice: the binary
     // may well be installed, and the operator has simply pointed the override
     // at the wrong place. Nothing they install will change that.
+    //
+    // Gated on the NAME existing: a message naming an empty variable is
+    // worse than the generic branch, and the field CAN be absent — a
+    // cached bundle talking to a server predating it. If we cannot name the
+    // variable we do not write a sentence about it.
     return (
       <div className="space-y-2">
         <p className="text-muted-foreground text-xs">
@@ -62,7 +67,11 @@ export function HarnessInstallHelp({
   // install) gets the reason and a Re-check only. An empty copy box and an
   // "Install docs" link to the current page are not fallbacks, they are
   // affordances that lead nowhere.
-  const installable = harness.install.command !== "";
+  const installable = harness.install.command.trim() !== "";
+  // The docs link gates on its OWN field, not on the command's: a plugin
+  // can honestly ship one without the other, and `href=""` is a link that
+  // silently reloads the page it sits on.
+  const hasDocs = harness.install.docsUrl.trim() !== "";
   return (
     <div className="space-y-2">
       <p className="text-muted-foreground text-xs">
@@ -76,7 +85,7 @@ export function HarnessInstallHelp({
         <Button type="button" variant="link" size="sm" className={denseLink} onClick={onRecheck} disabled={rechecking}>
           {rechecking ? "Checking…" : "Re-check"}
         </Button>
-        {installable && (
+        {hasDocs && (
           <Button
             variant="link"
             size="sm"

@@ -45,17 +45,20 @@ describe("adaptPlugin: identity comes from the manifest", () => {
     expect(a.description).toBe("a stub");
     expect(a.icon).toBe("S");
     expect(a.binaryName).toBe("stubtool");
-    // Carried verbatim, not derived: the UI names THIS string when an
-    // override is broken, and the terminal plugin's `SHELL` is the shape a
-    // `<BINARY>_PATH` derivation would have gotten wrong.
-    expect(a.envOverride).toBe("STUBTOOL_PATH");
+    // The override NAME rides in detectSpec and nowhere else: this is what
+    // the UI names when an override is broken (terminal's `SHELL` is the
+    // shape a `<BINARY>_PATH` derivation would have gotten wrong), and it
+    // must be the SAME object shipped to nodes as the lookup rule.
+    expect(a.detectSpec).toEqual({ binaryName: "stubtool", envOverride: "STUBTOOL_PATH", knownPaths: [] });
     expect(a.installHint).toEqual({ command: "install stubtool", docsUrl: "https://example.invalid" });
   });
 
   it("falls back to the id when the manifest declares no binary", () => {
     const { detect: _drop, ...noDetect } = MANIFEST;
     expect(adaptPlugin(noDetect, minimal()).binaryName).toBe("stub");
-    expect(adaptPlugin(noDetect, minimal()).envOverride).toBe("");
+    // No detect block, no spec — and therefore no override NAME to show:
+    // the wire maps this to "" rather than inventing one.
+    expect(adaptPlugin(noDetect, minimal()).detectSpec).toBeUndefined();
   });
 
   it("a plugin with no detect block reports no-binary, not a missing one", async () => {

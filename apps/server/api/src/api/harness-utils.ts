@@ -59,7 +59,10 @@ export async function harnessInfo(id: string, installedHere: boolean): Promise<S
     id: h.id,
     name: h.name,
     binary: h.binaryName,
-    envOverride: h.envOverride,
+    // Read off the SAME detectSpec the nodes are shipped as the lookup rule,
+    // so the UI-named variable can never drift from the one that is honoured
+    // (and never derived: terminal's override is SHELL, not BASH_PATH).
+    envOverride: h.detectSpec?.envOverride ?? "",
     description: h.description,
     icon: h.icon,
     installed: entry.installed,
