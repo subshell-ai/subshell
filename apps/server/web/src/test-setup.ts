@@ -8,6 +8,37 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 GlobalRegistrator.register({ url: "http://localhost/" });
 
+/**
+ * A DELEGATING global fetch, installed before any test or app module loads.
+ *
+ * Why the preload and not the test file: better-auth's client binds `fetch`
+ * at CREATION (module evaluation of `lib/auth-client`), and whichever test
+ * file first imports a component touching it freezes whatever
+ * `globalThis.fetch` is at that moment — a mock installed later by the
+ * wizard's own file is invisible to it (measured: every registration hit the
+ * real network and failed as "Network error", and which file "won" depended
+ * on suite ordering). A delegator installed HERE is what every load-time
+ * binder captures, and it reads the live handler per call.
+ *
+ * The established per-file pattern (swap `globalThis.fetch` inside a test)
+ * still works unchanged — it simply outranks the delegator on the global.
+ * A test needs this instead only when the code under test binds fetch at
+ * import: it calls `setFetchRouter` for the duration and clears it after.
+ */
+type FetchRouter = ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null;
+let fetchRouter: FetchRouter = null;
+const underlyingFetch = globalThis.fetch.bind(globalThis) as (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+  (fetchRouter ?? underlyingFetch)(input, init)) as typeof globalThis.fetch;
+
+/** Routes (or, with null, un-routes) the global fetch used by import-time binders. */
+export function setFetchRouter(router: FetchRouter): void {
+  fetchRouter = router;
+}
+
 const globals = globalThis as Record<string, unknown>;
 // Tells React 19's act() machinery that the test environment supports it,
 // silencing the "not wrapped in act" noise around RTL renders.

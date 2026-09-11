@@ -61,14 +61,14 @@ function SetupPage() {
   const create = useCreateSubshell();
   // Set by `launch` BEFORE the cache retirement. Retiring setup-status is what
   // bounces a visitor to "/" via the effect below — a visitor. A user who just
-  // LAUNCHED is going to their subshell, and the bounce effect must not arm
-  // underneath that navigation: completeSetup() re-renders this component with
-  // needsSetup:false, and if the target route is still loading at that moment
-  // (it does not in tests, where every route resolves synchronously — the
-  // guard is NOT pinned by a red-first test because the race does not
-  // reproduce here), the effect's navigate("/") is a second navigation
-  // competing with the first. Skipping this ref means a launch could land on
-  // the dashboard; it means the launch NEVER bounces.
+  // LAUNCHED is going to their subshell, and while the cache says setup is
+  // done the bounce effect is armed underneath that navigation: if the target
+  // route is still loading when the write's re-render commits, the effect
+  // fires a second navigate that competes with the first and could land the
+  // user on the dashboard instead. In tests it never reproduces (routes
+  // resolve synchronously), so this guard is named as such rather than
+  // red-pinned; what it guarantees is that the bounce can never arm for a
+  // launch.
   const launchedRef = useRef(false);
 
   useEffect(() => {

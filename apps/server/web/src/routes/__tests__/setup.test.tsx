@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -8,6 +8,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { setFetchRouter } from "@/test-setup";
 import type { HarnessInfo } from "@/types/harness";
 
 /**
@@ -19,24 +20,16 @@ import type { HarnessInfo } from "@/types/harness";
  * against a memory router with a stub `/subshells/$id` leaf.
  */
 
-// The fetch stub must exist BEFORE the app modules load: better-auth's client
-// binds `fetch` at creation (module evaluation of @/lib/auth-client), so a
-// mock swapped in after the import is invisible to it — the sign-up then hits
-// the real network and the wizard shows "Network error". (Measured,
-// 2026-09-10 — the first version of this file swapped globalThis.fetch per
-// test, exactly like the other web suites do, and every registration failed.)
-// But `bun test` runs a package's files in ONE process, so a stub that answers
-// everything leaks into the next file — it turned launch-subshell-dialog's
-// deliberate "fetch fails, failures land as empty lists" into successful
-// nonsense. The stub therefore PASSES THROUGH to the real fetch whenever this
-// file has no handler installed (default + every afterEach), and the global is
-// restored whole in afterAll.
-const originalFetch = globalThis.fetch;
-const passThrough = (input: unknown, init?: RequestInit) =>
-  originalFetch(input as RequestInfo, init) as Promise<Response>;
-let handler: (input: unknown, init?: RequestInit) => Promise<Response> = passThrough;
-globalThis.fetch = ((input: unknown, init?: RequestInit) => handler(input, init)) as typeof fetch;
-
+// better-auth's client binds `fetch` at CREATION (module evaluation of
+// @/lib/auth-client), so a mock swapped in after the import is invisible to
+// it — measured, 2026-09-10: a per-test `globalThis.fetch` swap made every
+// registration hit the real network ("Network error"), AND which file saw
+// that depended on which test file imported the client first, because
+// `bun test` runs a package's files in ONE process. The delegating stub
+// therefore lives in the test PRELOAD (see `setFetchRouter` there); this
+// file routes it per test and clears it in afterEach — clearing matters just
+// as much: launch-subshell-dialog's fixture deliberately lets fetch FAIL,
+// and a stub that outlives this file turns that into passing-on-nonsense.
 const { Route } = await import("@/routes/setup");
 
 /** One not-installed harness row — what a clean machine actually lists. */
@@ -66,7 +59,7 @@ interface SetupMocks {
 }
 
 function routeFetch(opts: SetupMocks): void {
-  handler = (input, init) => {
+  setFetchRouter((input, init) => {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
     const method = init?.method ?? "GET";
@@ -87,7 +80,7 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
     }
     return Promise.resolve(new Response(JSON.stringify({})));
-  };
+  });
 }
 
 /** Flush pending query/mutation/effect updates inside act() (50 ms is
@@ -99,7 +92,13 @@ async function settle(): Promise<void> {
   });
 }
 
-/** A node/profile pair the launch step's form can default onto. */
+/**
+ * The node list the launch step fetches: `local` plus one online agent,
+ * mirroring a real registry — the wizard's default pick must survive
+ * `pickNodeDefault` with alternatives on the list, not just in a lonely
+ * `[local]`. (With the single-node list these tests still passed; this is
+ * fixture realism, not a bug fix.)
+ */
 const LAUNCH_NODE = {
   id: "local",
   name: "Server",
@@ -114,12 +113,11 @@ const LAUNCH_NODE = {
   access: "owner",
   canManage: true,
   capabilities: [],
-  harnesses: [
-    { harnessId: "terminal", name: "Terminal", enabled: true, installed: true },
-    { harnessId: "claude-code", name: "Claude Code", enabled: false, installed: false },
-  ],
+  harnesses: [{ harnessId: "terminal", name: "Terminal", enabled: true, installed: true }],
   inventoryStale: false,
 };
+
+const LAUNCH_AGENT = { ...LAUNCH_NODE, id: "agent-1", name: "Mac Studio", kind: "agent", harnesses: [] };
 
 const LAUNCH_PROFILE = {
   id: "p-term",
@@ -184,11 +182,7 @@ async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2) {
 
 afterEach(() => {
   cleanup();
-  handler = passThrough;
-});
-
-afterAll(() => {
-  globalThis.fetch = originalFetch;
+  setFetchRouter(null);
 });
 
 describe("setup wizard: the agent step is optional", () => {
@@ -207,9 +201,9 @@ describe("setup wizard: the agent step is optional", () => {
 });
 
 describe("setup wizard: the launch step", () => {
-  /** The mocks a step-2 render needs: one node, one launchable profile, a home. */
+  /** The mocks a step-2 render needs: a real-shaped node list, one launchable profile, a home. */
   const LAUNCH_MOCKS: SetupMocks = {
-    nodes: [LAUNCH_NODE],
+    nodes: [LAUNCH_NODE, LAUNCH_AGENT],
     profiles: [LAUNCH_PROFILE],
     recent: { paths: [], home: "/home/ada" },
   };

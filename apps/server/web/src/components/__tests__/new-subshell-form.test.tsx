@@ -75,10 +75,13 @@ function profile(p: { nodeId?: string | null; name?: string; id?: string; harnes
 /** Pathname+search of the most recent /api/profiles request — the wire pin. */
 let lastProfilesUrl: string | null = null;
 
+/** The `/api/files/recent` answer, or a function of the requested node scope. */
+type RecentStub = { paths: { path: string; label: string | null }[]; home: string | null };
+
 function mockFetch(
   nodes: Node[],
   profiles: unknown[] = [],
-  recent: { paths: { path: string; label: string | null }[]; home: string | null } = { paths: [], home: null },
+  recent: RecentStub | ((node: string | null) => RecentStub) = { paths: [], home: null },
 ) {
   lastProfilesUrl = null;
   const original = globalThis.fetch;
@@ -90,7 +93,11 @@ function mockFetch(
       lastProfilesUrl = path + url.search;
       return Promise.resolve(new Response(JSON.stringify(profiles)));
     }
-    if (path === "/api/files/recent") return Promise.resolve(new Response(JSON.stringify(recent)));
+    if (path === "/api/files/recent") {
+      const scope = url.searchParams.get("node");
+      const body = typeof recent === "function" ? recent(scope) : recent;
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
@@ -374,6 +381,44 @@ describe("NewSubshellForm pairing + defaults", () => {
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().profileId).toBe("p-term"));
+    } finally {
+      restore();
+    }
+  });
+
+  // The review finding this pair pins: `selectedNode` derives from `value`,
+  // but pickNodeDefault can move the pick WITHIN the same effect pass (local
+  // vanished at mount → sole agent becomes the pick). Reading the disabled
+  // set off the stale row left the form parked on a profile the NEW node
+  // cannot run — the exact 409 the auto-select promises to avoid — and
+  // prefilled the directory from the node being left.
+  it("re-homes the pick at mount before deciding the profile default", async () => {
+    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
+    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
+    const restore = mockFetch(
+      [AGENT_ONLY],
+      [profile({ id: "p-claude" }), profile({ id: "p-term", harnessId: "terminal" })],
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().nodeId).toBe("a1"));
+      await waitFor(() => expect(latest().profileId).toBe("p-term"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("takes the directory default from the node the pick ends up on", async () => {
+    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
+    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
+    const restore = mockFetch([AGENT_ONLY], [], (n) => ({
+      paths: [],
+      home: n === "a1" ? "/home/on-a1" : "/home/left-behind",
+    }));
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().workingDir).toBe("/home/on-a1"));
+      expect(latest().nodeId).toBe("a1");
     } finally {
       restore();
     }

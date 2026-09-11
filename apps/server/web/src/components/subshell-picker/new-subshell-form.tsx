@@ -179,25 +179,19 @@ export function NewSubshellForm({
   // by `suggestDecision` when the suggestion stops being earned.
   const anchoredRef = useRef<string | null>(null);
 
-  // ONE effect for all automatic corrections (pre-fill + suggestion + vanish
-  // re-home): composing the final value once makes the old cross-effect
+  // ONE effect for all automatic corrections (node pick + pre-fill + profile
+  // default): composing the final value once makes the old cross-effect
   // clobbering impossible. Runs only after the node list actually loads;
   // while it loads the default "local" stands (the server accepts it).
+  //
+  // The node pick resolves FIRST and the node-scoped defaults read the node
+  // this pass HOLDS, never the render's `selectedNode` — which derives from
+  // `value` and can be one pass stale: at mount for a viewer whose `local`
+  // vanished, this same effect moves the pick to an agent, and defaults read
+  // against the left-behind row (or null, which greys nothing) would park the
+  // form on a profile that node cannot run and a directory it does not have.
   useEffect(() => {
     let next = value;
-    if (!prefillDoneRef.current) {
-      // Most recent path, else the node's home. A fresh instance has no
-      // recents at all, and an empty absolute-path box is the highest-friction
-      // field in the product at the moment the user knows least about it.
-      // Gate on the QUERY having answered, not on a value being present:
-      // keying off `first` alone left the flag unset forever on a node with no
-      // recents, so a later unrelated render could still fire the pre-fill.
-      const fallback = recent?.paths[0]?.path ?? recent?.home ?? "";
-      if (recent !== undefined) {
-        prefillDoneRef.current = true;
-        if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
-      }
-    }
     if (nodes) {
       const d = suggestDecision({
         suggestion,
@@ -215,17 +209,37 @@ export function NewSubshellForm({
       const pick = pickNodeDefault(nodes, next.nodeId);
       if (pick !== next.nodeId) next = { ...next, nodeId: pick };
     }
+    // True while THIS pass moved the pick: the node-scoped `recent` query is
+    // still the previous node's, so the directory default waits for the pass
+    // that holds the final node (its query re-keys, lands, and fires here).
+    const reHomed = next.nodeId !== value.nodeId;
+    if (!prefillDoneRef.current && !reHomed) {
+      // Most recent path, else the node's home. A fresh instance has no
+      // recents at all, and an empty absolute-path box is the highest-friction
+      // field in the product at the moment the user knows least about it.
+      // Gate on the query having ANSWERED, not on a value being present:
+      // keying off a path alone left the flag unset forever on a node with no
+      // recents, so a later unrelated render could still fire the pre-fill.
+      // (An errored query has not answered — the flag stays unarmed and a
+      // later retry of the query can still pre-fill, which is the point.)
+      const fallback = recent?.paths[0]?.path ?? recent?.home ?? "";
+      if (recent !== undefined) {
+        prefillDoneRef.current = true;
+        if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
+      }
+    }
     // First launchable profile, when the user has not chosen one. Reads the
-    // same disabled set the dropdown renders (`buildProfileOptions` computes
-    // it against the chosen node), so this can never select a pairing the
+    // same disabled set the dropdown renders — computed against the row this
+    // pass holds, so even a same-pass re-home cannot select a pairing the
     // server would refuse. Only ever fills a blank: a cleared profile is not
     // a state this form offers, so there is nothing to fight.
     if (next.profileId === "" && profiles !== undefined && nodes !== null) {
-      const firstUsable = buildProfileOptions(profiles, selectedNode).find((o) => !o.disabled);
+      const heldNode = nodes.find((n) => n.id === next.nodeId) ?? null;
+      const firstUsable = buildProfileOptions(profiles, heldNode).find((o) => !o.disabled);
       if (firstUsable) next = { ...next, profileId: firstUsable.value };
     }
     if (next !== value) onChange(next);
-  }, [recent, nodes, profiles, suggestion, value, onChange, selectedNode]);
+  }, [recent, nodes, profiles, suggestion, value, onChange]);
 
   const nodeOptions = buildNodeOptions(nodes ?? [], selectedProfile ?? null, suggestion?.id ?? null);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already
