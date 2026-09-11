@@ -4,15 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { NODE_TARGETS, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { digestFile } from "@internal/subshell-protocol/release-artifacts";
-import {
-  type BuildAllResult,
-  buildAll,
-  buildArgs,
-  buildTargets,
-  parseScope,
-  resolveArtifactsDir,
-  runEmbedPlugins,
-} from "../release.js";
+import { type BuildAllResult, buildAll, buildArgs, buildTargets, parseScope, resolveArtifactsDir } from "../release.js";
 
 describe("buildArgs (always-bytecode, spec 2026-09-03 §5)", () => {
   test("every triple compiles with --bytecode AND an explicit --target", () => {
@@ -204,46 +196,17 @@ describe("buildAll — signing hook (sign between build and digest)", () => {
   });
 });
 
-describe("runEmbedPlugins (the step whose absence ships an unusable binary)", () => {
-  test("aborts the release when the generator fails", async () => {
-    // The generator reads each plugin's built dist, so a missing `turbo build`
-    // is the common cause. Publishing anyway would produce an agent that seeds
-    // nothing and refuses every launch.
-    await expect(runEmbedPlugins({ runGenerator: async () => 1 })).rejects.toThrow(/embedding the built-in plugins/);
-  });
-
-  test("passes when the generator succeeds", async () => {
-    await expect(runEmbedPlugins({ runGenerator: async () => 0 })).resolves.toBeUndefined();
-  });
-
-  test("is actually CALLED by the release pipeline, before the build", async () => {
-    // The defect this guards: the generator existed and nothing invoked it, so
-    // every compiled binary carried an empty embedded set. A unit test of the
-    // step alone would have stayed green through that.
+describe("the agent binary carries no plugin store bytes", () => {
+  test("the release embeds NO plugins, because the agent reads none", async () => {
+    // Inversion spec 2026-09-10 §6 moved the plugin store to the control plane
+    // and deleted the agent's `subshell plugin` verbs. The agent's pane-runtime
+    // surface is `enforceMode`, `TmuxRunner`, `detectBinary`/`findBinary`,
+    // `assembleHarnessCommand` and the launch path — none of which read
+    // `EMBEDDED_PLUGINS`; only the store writers (server seed/install) do. The
+    // pre-inversion era embedded ~84 KB into the agent for a store the agent
+    // no longer owns, so the pipeline must not do it again.
     const src = await Bun.file(new URL("../release.ts", import.meta.url)).text();
-    const embedAt = src.indexOf("await runEmbedPlugins(");
-    const buildAt = src.indexOf("await buildAll(");
-    expect(embedAt).toBeGreaterThan(-1);
-    expect(buildAt).toBeGreaterThan(-1);
-    expect(embedAt).toBeLessThan(buildAt);
-    // And the stub is restored whatever the build does. `toContain` cannot
-    // check that: the function's own declaration contains its name followed
-    // by "()", so the assertion passed with the whole try/finally deleted.
-    // The CALL is the one after the declaration, and it has to be in a
-    // `finally` that opens before the build.
-    const DECL = "async function restoreEmbedStub()";
-    const declaredAt = src.indexOf(DECL);
-    // Past the declaration, not one character into it: the declaration itself
-    // contains the name followed by "()", which is exactly why `toContain`
-    // could not tell a call from a definition.
-    const restoreCallAt = src.indexOf("restoreEmbedStub()", declaredAt + DECL.length);
-    const finallyAt = src.indexOf("} finally {", buildAt);
-    expect(declaredAt).toBeGreaterThan(-1);
-    expect(restoreCallAt).toBeGreaterThan(-1);
-    expect(finallyAt).toBeGreaterThan(-1);
-    expect(restoreCallAt).toBeGreaterThan(finallyAt);
-    // The embed is inside that try too, so a generator that writes the file
-    // and then throws still gets the stub back.
-    expect(src.lastIndexOf("try {", embedAt)).toBeGreaterThan(-1);
+    expect(src).not.toContain("await runEmbedPlugins(");
+    expect(src).not.toContain('"embed-plugins.ts"');
   });
 });
