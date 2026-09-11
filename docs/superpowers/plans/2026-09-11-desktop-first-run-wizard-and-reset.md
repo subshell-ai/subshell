@@ -1446,6 +1446,21 @@ Spec § 7, §§ R13/R14/R17/R18 dispositions. The screen argument, the stashes, 
     }
 
     #[test]
+    fn an_unremovable_target_is_a_half_run_never_a_success() {
+        // K2, decided over the pure half so a root-run CI (where chmod is a
+        // suggestion) pins it anyway: absence converges, a refusal stops.
+        let p = std::path::Path::new("/data/subshell.db");
+        assert!(delete_outcome(Ok(()), p).is_none());
+        assert!(
+            delete_outcome(Err(std::io::Error::from_raw_os_error(2)), p).is_none(),
+            "already-deleted is the step succeeding, so Retry converges"
+        );
+        let survived = delete_outcome(Err(std::io::Error::from_raw_os_error(13)), p)
+            .expect("a refusal must surface, never a silent ok:true");
+        assert!(survived.contains("/data/subshell.db"), "the message names the path that survived");
+    }
+
+    #[test]
     fn socket_prefix_selects_only_this_products_servers() {
         // Mirrors tmuxSocketFor (`subshell-<hash>`) in pane-runtime; the
         // containment test below pins the pair like the installer table does.
@@ -1571,15 +1586,31 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
     if let Some(stderr) = push_step(&mut log, &un, &["not installed"]) {
         return Ok(ActionResult { ok: false, stdout: log, stderr });
     }
-    // 5. Delete in the order the screen drew, absence = done, config.env last.
-    delete_consent(&plan.database, &mut log);
-    delete_tree(&plan.logs_dir, &mut log);
-    delete_tree(&plan.artifacts_dir, &mut log);
+    // 5. Delete in the order the screen drew, absence = done, config.env
+    // last. Every deletion's failure ends the chain (K2): a surviving
+    // signing key announced as a completed wipe is worse than the R1 and
+    // R17 cases this document already refused twice, because the hostname
+    // was typed against the promise that THESE bytes are gone.
+    if let Some(detail) = remove_if_exists(&plan.database, &mut log) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
+    }
+    if let Some(detail) = delete_tree(&plan.logs_dir, &mut log) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
+    }
+    if let Some(detail) = delete_tree(&plan.artifacts_dir, &mut log) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
+    }
     if let Some(detail) = delete_tree_but(&plan.data_dir, &plan.config_env, &mut log) {
         return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
     }
-    remove_if_exists(&plan.config_env, &mut log);
-    let _ = std::fs::remove_dir(plan.config_env.parent().unwrap()); // empty-dir tidy, tolerated
+    if let Some(detail) = remove_if_exists(&plan.config_env, &mut log) {
+        return Ok(ActionResult { ok: false, stdout: log, stderr: detail });
+    }
+    // Remove-if-empty tidies, after the last consented byte is gone. These
+    // two stay fire-and-forget: every file the human confirmed IS deleted at
+    // this point, and failing to remove a now-empty (or still-populated-by-
+    // someone-else's) directory afterward changes no consent.
+    let _ = std::fs::remove_dir(plan.config_env.parent().unwrap());
     let _ = std::fs::remove_dir(&plan.data_dir);
     // 6. This app's own choices, which are the machine state this screen owns.
     let _ = settings.update(|s| {
@@ -1622,7 +1653,7 @@ pub fn desktop_reset(app: tauri::AppHandle, typed: String) -> Result<ActionResul
 
 Channel discipline (M1, the correction round 3 earned): an in-chain failure is a **return value the caller puts into `Ok(ActionResult { ok: false, stdout: log, stderr })`**, never a `?` into `Err`. `Err` belongs only to the refusals that fire before the first mutation (hostname, no plan, guard, shape, unresolvable keep) exactly as spec § 10 enumerates. The precedent is `desktop_setup` in the same crate (`control.rs:399-408`): a step that ran and refused answers `ok: false` carrying the accumulated verbatim log; `?` there means "could not even be attempted". The half-run paths also deliberately fall BEFORE `*stash.plan.lock().unwrap() = None`, so a Retry still holds the consent that produced the partial run.
 
-Implement the named helpers in this same file with these exact contracts, each one or two sentences of doc: `push_step(log: &mut String, r: &ActionResult, tolerated: &[&str]) -> Option<String>` (append stdout, and on success any non-empty stderr, the chain's verbatim rule; `None` when ok or when stderr contains a tolerated phrase; otherwise `Some(r.stderr)` verbatim, there being no separate `push_step_tolerant`); `remove_if_exists` (`NotFound` is success); `delete_tree(log)` / `delete_tree_but(root, keep_out, log) -> Option<String>` (`remove_dir_all` / manual walk skipping exactly `keep_out`; a missing root is success; any other error returns `Some(message)` for the caller's half-run); `close_subshell_tmux`:
+Implement the named helpers in this same file with these exact contracts, each one or two sentences of doc: `push_step(log: &mut String, r: &ActionResult, tolerated: &[&str]) -> Option<String>` (append stdout, and on success any non-empty stderr, the chain's verbatim rule; `None` when ok or when stderr contains a tolerated phrase; otherwise `Some(r.stderr)` verbatim, there being no separate `push_step_tolerant`); `delete_outcome(res: std::io::Result<()>, path: &Path) -> Option<String>` - the pure decision every deletion shares, and the pure half exists so K2 is testable where CI runs as root (permission bits are a lie there; constructed `io::Error`s are not): `Ok` ⇒ `None`, `NotFound` ⇒ `None` (absent is the step succeeding), anything else ⇒ `Some` naming the path that survived; `remove_if_exists(path, log) -> Option<String>` and `delete_tree(root, log) -> Option<String>` / `delete_tree_but(root, keep_out, log) -> Option<String>` (thin: call the fs op, append a progress line, return `delete_outcome(...)`; `delete_tree_but` walks manually, skipping exactly `keep_out`); `close_subshell_tmux`:
 
 ```rust
 /// Kill the tmux servers this product created and nobody is watching anymore.
@@ -2421,7 +2452,10 @@ Nothing else changed on re-read. The N1 guard loop now type-checks (three
 has, and `plan.config_env.parent().unwrap()` cannot panic because
 `path_rules_ok` has already rejected `/` for that path.
 
-## Re-review (2026-09-11), round 4
+## Re-review (2026-09-11), round 4 - RESOLVED (K1: the undefined helper is
+## gone, the database delete calls `remove_if_exists`; K2: every deletion now
+## returns `Option<String>` through a shared pure `delete_outcome`, with a test;
+## see the self-review notes at the end of this plan)
 
 M1 and M2 both landed, and two parts of the fix are better than the finding
 asked for: collapsing `push_step_tolerant` into `push_step(log, r, tolerated:
@@ -2499,4 +2533,5 @@ never `ok: true`.
 - Plan-review round (P1-P6, this section's author round): P1 resolved in the plan (reset's toml entry + grant both moved to Task 8; Task 6 names the two ipc-acl unions it widens); P2 resolved (six test call sites enumerated with the file's own `void`/`await` convention, and Task 2 now ends on the repo-root trio); P3 resolved (both guard sides canonicalized, unresolvable-present is a refusal, absent keep passes honestly); P4 resolved (Task 8 step 5 spells "the set invoked from ui/src/main.ts, the CONSOLE page's entry module"); P5 fixed (Vite 8.2.1); P6 partially: the attribution is now declared inherited from the executing session's guidance, but the reviewer's stated current value conflicts with this session's guidance ("replaces any earlier attribution guidance", naming Claude Code) - the plan defers to whichever session executes, which is the fix the finding's structure wanted.
 - Plan re-review round 2 (N1-N3, all verified against the code before adopting): N1 adopted with its better reason (the fourth guard element protected a directory the chain never deletes, so it could only mis-refuse; and the mixed `&PathBuf`/`&&Path` array indeed does not compile, E0308 measured by the reviewer); N2 adopted IN THE CODE'S ORDER with spec § 7.2 step 7 amended to match, because the zero-window moment the comment-vs-code mismatch hid is a real quit-mid-reset path (lib.rs's ExitRequested guard requires a `main` window); N3 adopted as a comment correction only, the behavior was already the fail-closed one, now stated truthfully.
 - Plan re-review round 3 (M1-M2, both verified against spec § 10 and `control.rs:399-408` before adopting): M1 adopted across five call sites plus every helper contract (`push_step` gained the tolerance list, `close_subshell_tmux` and `delete_tree_but` return `Option<String>`); the failure paths fall before the stash clearing so a Retry still holds its consent; and M1's page-side consequence - the half-run log rendering into the HIDDEN status view's `#output` - got its own fix: `#reset-log` renders the record where the human still is. M2 adopted as given: the wizard-open failure after a completed wipe logs the truth, keeps ok:true, and leaves the console open deliberately (the one arm where closing it would recreate N2's zero-window moment with no wizard to replace it). No spec change: § 10 already said the right thing; the plan had drifted from it.
+- Plan re-review round 4 (K1-K2, both confirmed against the plan's own text before adopting; K1 was quoted verbatim from the reviewer's self-correction because the error had already propagated once through a citation): K1 adopted as the rename it wants - `delete_consent` never existed, the database line calls `remove_if_exists`, and the "one failure mode the writing-plans rules name explicitly" is now gone from the plan's only undefined symbol. K2 adopted with one addition of its own: the three deletions that M1's rewrite had left return-less now answer `Option<String>` through a shared pure `delete_outcome(io::Result, path)`, pure specifically so the refusal case is pinned on the root-run CI where chmod-based tests silently pass; the post-consent remove-if-empty tidies stay fire-and-forget, with the reason at the call site (every confirmed byte is gone by then; an empty-directory leftover changes no consent).
 - Remaining intentional softness: a few comments defer to the file on disk ("match the file's existing style", "read `proc.rs` for the result field names") - those point at named sources of truth rather than at nothing.
