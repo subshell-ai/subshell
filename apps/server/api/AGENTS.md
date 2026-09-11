@@ -590,7 +590,7 @@ binary, not the desktop app that wraps it; an install renames it to
 host self-resolves its MCP entrypoint — each with `--bytecode` (bun ≥
 1.4.0 asserted; `SUBSHELL_SERVER_RELEASE_TRIPLES` scopes a subset for CI),
 darwin targets are signed + notarized first when `SUBSHELL_RELEASE_SIGN_CMD`
-is set (CI sets it to `scripts/macos-sign-notarize.sh` on mac-builder — see
+is set (CI sets it to `scripts/macos-sign-notarize.sh` on the darwin shards — see
 root `AGENTS.md`; unset locally, so plain release runs skip the hook),
 and publishes atomically (tmp + rename + `.sha256` sidecar) to
 `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — an

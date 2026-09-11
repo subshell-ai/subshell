@@ -12,13 +12,13 @@
 #                 them (privatePackages.tag is false; create-github-releases
 #                 is off). `.changeset/config.json` ignores the other ten
 #                 workspaces.
-#   npm-publish — publishes those six and pushes their version tags, and it is
-#                 the ONE hosted job here: npm's OIDC trusted publishing does
-#                 not support self-hosted runners. It runs only when the job
-#                 above found something unpublished AND the repo variable
-#                 NPM_PUBLISH_ENABLED is "true", so ordinary pushes to main
-#                 spend no hosted minutes and the fleet rule holds everywhere
-#                 a choice was actually available.
+#   npm-publish — publishes those six and pushes their version tags, gated on
+#                 the job above finding something unpublished AND the repo
+#                 variable NPM_PUBLISH_ENABLED being "true". It is hosted by
+#                 necessity rather than by the policy that moved the rest of
+#                 this file: npm's OIDC trusted publishing does not support
+#                 self-hosted runners, so this job never had the choice the
+#                 others lost on 2026-09-11.
 #   plan        — push events emit an EMPTY matrix (the merge of a version PR
 #                 does NOT auto-cut; the first-cut path is an explicit
 #                 workflow_dispatch — simpler and honest). A dispatch computes
@@ -27,9 +27,11 @@
 #                 whose tag already exists, and PUSHES the missing tags before
 #                 any build starts (spec §7.2: no tag race downstream).
 #   build       — matrix over app×triple, pinned to hardware per triple:
-#                 linux-* → self-hosted Linux X64 (linux-arm64 is CROSS-BUILT,
-#                 no native arm64 Linux runner exists; bytecode cross is
-#                 proven on bun 1.4.0), darwin-* → mac-builder (macOS ARM64).
+#                 linux-* → ubuntu-24.04 (pinned for the glibc-2.39 floor;
+#                 linux-arm64 is CROSS-BUILT — no native arm64 Linux runner
+#                 is available to public repos, hosted included; bytecode
+#                 cross is proven on bun 1.4.0), darwin-* → macos-14
+#                 (GitHub-hosted Apple Silicon, native arm64).
 #                 Each shard runs the app's OWN release script scoped to its
 #                 one triple (SUBSHELL_(SERVER_)RELEASE_TRIPLES + the release
 #                 dir env pointed at dist-rel/), then SMOKE-tests: native
@@ -40,8 +42,10 @@
 #                 (degrading to the magic check). Uploads binary + .sha256.
 #   publish     — per tagged app: draft release with every artifact, then a
 #                 second softprops invocation flips the draft live. Any build
-#                 failure ⇒ no release. softprops/action-gh-release because
-#                 the Linux self-hosted runners have NO gh CLI (measured).
+#                 failure ⇒ no release. softprops/action-gh-release for the
+#                 draft-then-publish pair; it predates the hosted move (the
+#                 fleet's runners had no gh CLI) and stays because the two-
+#                 invocation shape is what the no-half-release rule rides on.
 #
 # An app has TWO names, and confusing them is the failure mode this workflow is
 # now shaped around:
@@ -106,7 +110,7 @@ concurrency:
 jobs:
   changesets:
     name: Version PR (changesets)
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -174,13 +178,13 @@ jobs:
       - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
         with:
           # This job VERSIONS ONLY. Publishing to npm lives in `npm-publish`
-          # below, on a GitHub-hosted runner, because npm's OIDC trusted
-          # publishing supports hosted runners only (docs.npmjs.com, checked
-          # 2026-09-09: "Self-hosted runners are not currently supported").
-          # Keeping the two apart is what lets the fleet rule in AGENTS.md
-          # survive the exception: this job stays self-hosted and runs on every
-          # push, and the hosted one bills minutes only when a release actually
-          # needs publishing.
+          # below, because npm's OIDC trusted publishing supports hosted
+          # runners only (docs.npmjs.com, checked 2026-09-09: "Self-hosted
+          # runners are not currently supported") — so even while the rest of
+          # this repo ran on the fleet, that half could not follow it. The
+          # split still pays: versioning runs on every push, and the publish
+          # attempt fires only when a release actually has something
+          # unpublished.
           #
           # No `publish-script` and no `push-git-tags` here on purpose: with
           # neither, a release-merge push leaves this action with nothing to do
@@ -192,14 +196,13 @@ jobs:
           create-github-releases: false
 
 
-  # THE ONE GITHUB-HOSTED JOB IN THIS REPO, and the reason is external: npm's
-  # OIDC trusted publishing does not support self-hosted runners ("not
-  # currently supported but are planned for future releases",
-  # docs.npmjs.com/trusted-publishers, checked 2026-09-09). Tokenless
-  # publishing and the fleet rule cannot both hold on one runner, so the split
-  # above buys both: versioning stays on the fleet where every push lands, and
-  # only a release that genuinely has something unpublished spends hosted
-  # minutes. Revert this job to self-hosted the day npm supports it.
+  # Hosted by necessity rather than by policy: npm's OIDC trusted publishing
+  # does not support self-hosted runners ("not currently supported but are
+  # planned for future releases", docs.npmjs.com/trusted-publishers, checked
+  # 2026-09-09), so this is the one job here that could not have stayed on the
+  # fleet when everything else was there — and it has no choice to revisit
+  # now. The gating is what keeps it honest: needs_publish AND
+  # NPM_PUBLISH_ENABLED, so an ordinary push never attempts a publish.
   #
   # Nothing here may reach for a token. `id-token: write` plus a scrubbed
   # ~/.npmrc is the whole credential story, and the blanked NPM_TOKEN /
@@ -212,7 +215,10 @@ jobs:
       github.event_name == 'push' &&
       vars.NPM_PUBLISH_ENABLED == 'true' &&
       needs.changesets.outputs.needs_publish == 'true'
-    runs-on: ubuntu-latest
+    # Pinned like every job here now that the exception is gone: nothing this
+    # job ships is glibc-sensitive, but a floating alias is the one label
+    # choice the repo has already agreed to stop making.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       id-token: write   # the OIDC token npm exchanges for publish rights
@@ -256,7 +262,7 @@ jobs:
   plan:
     name: Plan the cut
     needs: changesets
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -320,8 +326,8 @@ jobs:
               *) echo "::error::no apps/ directory mapped for app id '$1'" >&2; return 1 ;;
             esac
           }
-          LINUX='["self-hosted","Linux","X64"]'
-          MAC='["self-hosted","macOS","ARM64"]'
+          LINUX='"ubuntu-24.04"'
+          MAC='"macos-14"'
           entries=""
           appsjson=""
           for app in $apps; do
@@ -352,15 +358,17 @@ jobs:
               # Tag BEFORE any build starts (spec §7.2): a failed build then
               # leaves tag-without-release, which is the retry state above.
               #
-              # `-f` because the self-hosted runners REUSE their workspace, so
-              # a tag created by an earlier cut is still in the local clone
-              # even after it is deleted from the remote — and the guard above
-              # asks the REMOTE. Without it, re-cutting a deleted version dies
-              # on `fatal: tag '<tag>' already exists`, which made the
-              # documented "delete the release+tag to re-cut" path impossible.
-              # Forcing is safe precisely because the remote check just proved
-              # the tag is absent there; the push below is still non-forced, so
-              # a tag that DOES exist upstream is never clobbered.
+              # `-f` because a self-hosted runner REUSES its workspace: a tag
+              # created by an earlier cut stays in the local clone even after
+              # it is deleted from the remote — and the guard above asks the
+              # REMOTE. Hosted runners start clean, where `-f` is a no-op; the
+              # flag stays so the org fleet can still run this workflow, and
+              # because without it re-cutting a deleted version died on
+              # `fatal: tag '<tag>' already exists`, which made the documented
+              # "delete the release+tag to re-cut" path impossible. Forcing is
+              # safe precisely because the remote check just proved the tag is
+              # absent there; the push below is still non-forced, so a tag that
+              # DOES exist upstream is never clobbered.
               git tag -f "$tag" "$GITHUB_SHA"
               git push origin "$tag"
             fi
@@ -454,17 +462,18 @@ jobs:
         if: matrix.container != ''
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # Deterministic floor: mac-builder carries bun 1.3.14 (measured) — BELOW
-      # the 1.4.0 bytecode floor both release scripts assert — so setup-bun is
-      # load-bearing here, not decorative.
+      # Deterministic floor: the release scripts assert a 1.4.0 bytecode floor
+      # and no runner image — hosted or fleet — is guaranteed to carry a
+      # matching bun (mac-builder measured 1.3.14; hosted macOS carries none),
+      # so setup-bun is load-bearing here, not decorative.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
 
       # tsdown/rolldown bins carry a `#!/usr/bin/env node` shebang and need
-      # node >= 20.12 (util.styleText); the Linux runners ship node 18 (macOS
-      # ships 22 — an asymmetry that used to show up only here, and now bites
-      # test.yml/lint.yml too since they moved onto the same fleet).
+      # node >= 20.12 (util.styleText) — never trust whatever node a runner
+      # image happens to ship, which is a lesson this repo learned on the
+      # fleet (node 18 there) and which applies verbatim to hosted images.
       # Version tracks the root package.json's `engines.node`.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -541,10 +550,12 @@ jobs:
             *) echo "::error::no bare-binary pipeline for app '$APP'"; exit 1 ;;
           esac
 
-      # The mac-builder carries no Rust, and asking an operator to keep a
-      # toolchain installed on a fleet by hand is the kind of state that is
-      # only ever wrong at 2am. The Linux shard skips this: its container
-      # already ships a pinned toolchain.
+      # macOS builds pin their toolchain rather than trusting the image's:
+      # the fleet's mac carried none at all, hosted macOS carries one whose
+      # version floats with every image refresh, and a release binary built by
+      # an unknowable rustc is the kind of state that is only ever wrong at
+      # 2am. The Linux shard skips this: its container ships a pinned
+      # toolchain.
       - name: Use Rust
         if: startsWith(matrix.app, 'desktop-') && startsWith(matrix.triple, 'darwin')
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -759,8 +770,11 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      # A container writes as root onto a PERSISTENT self-hosted workspace, so
-      # without this the next job on this runner fails on files it cannot touch.
+      # Fleet-era hygiene, kept because the org fleet can still pick this
+      # workflow up: a container writes as root onto a runner's PERSISTENT
+      # workspace, so without this the next job there fails on files it cannot
+      # touch — the failure `reset-linux-runner-workspace.yml` exists to
+      # repair. Hosted runners are ephemeral, and there it simply no-ops.
       #
       # This step runs INSIDE the container, as root — so `id -u` is 0 and
       # chowning to it is a no-op. The host's uid/gid is readable from
@@ -778,7 +792,7 @@ jobs:
     name: Release ${{ matrix.app }}
     needs: [plan, build]
     if: needs.plan.outputs.apps != '[]'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write

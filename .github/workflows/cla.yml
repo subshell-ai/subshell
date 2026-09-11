@@ -44,7 +44,7 @@ jobs:
     name: CLA signature
     # A JS action and nothing else — the runner supplies its own node, so this
     # needs no container and no toolchain.
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check or record the CLA signature

@@ -570,85 +570,99 @@ tauri-typed window/tray/menu layer, because the two window models genuinely
 differ and an abstraction over one real consumer and one guess is worse than
 the duplication.
 
-### Almost everything runs on the self-hosted fleet
+### Everything runs on GitHub-hosted runners
 
-**Exactly one job uses a GitHub-hosted runner, and it is forced.** Everything
-else targets `[self-hosted, Linux, X64]`, plus `mac-builder` `[self-hosted,
-macOS, ARM64]` for the darwin release shards. The repo is private, so hosted
-minutes are metered and CI was spending roughly 12 per push — that cost, not a
-technical preference, is why everything moved. Runners are added and removed
-over time, so nothing here should depend on how many there are.
+**Moved wholesale on 2026-09-11.** Every Linux job targets `ubuntu-24.04` —
+pinned, never `ubuntu-latest` — because the runner image now sets the glibc
+floor for every Linux artifact this repo ships: the desktop apps by design
+(the builder image is 24.04 too), and the CLI binaries by inheritance (a
+`bun build --compile` output links against the build host's glibc, and the
+server/node Linux shards build bare on that runner). That floor is **glibc
+2.39** for all of it, which excludes Ubuntu 22.04 and Debian 12 from running
+anything, not just the GUIs. The darwin release shards run on `macos-14`:
+GitHub-hosted Apple Silicon, native arm64.
 
-The exception is `release.yml`'s **`npm-publish`** job, and the reason is
-external to this repo: npm's OIDC trusted publishing "does not support
-self-hosted runners" (docs.npmjs.com/trusted-publishers, checked 2026-09-09),
-so tokenless publishing and the fleet rule cannot both hold on one runner. The
-choice made was to keep the rule everywhere a choice existed: versioning stays
-self-hosted and runs on every push, while the hosted job runs ONLY when a
-publishable version is actually missing from the registry (the `changesets`
-job's `needs_publish` output asks npm) and only while the repo variable
-`NPM_PUBLISH_ENABLED` is `true`. So hosted minutes are spent per RELEASE, not
-per push, and the alternative — an `NPM_TOKEN` on the fleet — was rejected
-rather than quietly adopted. Move the job back to `[self-hosted, Linux, X64]`
-the day npm supports it.
+The reason was operability, and the cost is the accepted trade: the repo is
+private, so hosted minutes are metered, and a push now bills what used to be
+free fleet time. What the fleet bought in persistence it lost in
+visibility — its runners are org-registered, so the repo page shows none of
+them, which is how a CI outage starts looking like a missing fleet — and
+keeping machines cut-ready is standing human attention that stopped being
+paid. A hosted runner is disposable and identical; a fleet runner that has
+drifted is invisible until a job dies on it.
+
+The org fleet still exists, and every workflow is written so it could pick
+them up UNCHANGED — the un-root steps, the `git tag -f`, and the
+`safe.directory` fixes each stay for exactly that reason. But no job names
+its labels any more. `runner-maintenance.yml` and
+`reset-linux-runner-workspace.yml` stay as fleet ops; with no jobs selecting
+the fleet, they simply find nothing to do.
+
+The one job that was hosted BEFORE the move, `release.yml`'s
+**`npm-publish`**, stays hosted for the reason it always had: npm's OIDC
+trusted publishing does not support self-hosted runners
+(docs.npmjs.com/trusted-publishers, checked 2026-09-09), so it never had the
+choice the others lost. Its gating survives intact: it runs only when the
+`changesets` job's `needs_publish` output says npm is missing a version AND
+the repo variable `NPM_PUBLISH_ENABLED` is `true`, so ordinary pushes never
+attempt a publish. The alternative it displaced — an `NPM_TOKEN` checked
+into repo secrets — remains rejected rather than quietly adopted.
 
 `test.yml`'s four jobs run **inside the repo's own builder image**
 (`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
-image as well as the release one). It already carried bun (1.4.2, pinned to
-the root `packageManager` so CI runs what developers run), rustup stable
-and Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
-CI's sake. That is what let `setup-bun`, `dtolnay/rust-toolchain` and every
-`sudo apt-get` disappear from the workflow — **nothing on the fleet assumes
-passwordless root**, which is a property release.yml has always had and this
-change keeps. Inside a container we simply ARE root, which is also what makes
-Playwright's `install-deps` possible.
+image as well as the release one). It already carries bun (1.4.2, pinned to
+the root `packageManager` so CI runs what developers run), rustup stable and
+Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
+CI's sake. That is what lets `setup-bun`, `dtolnay/rust-toolchain` and every
+`sudo apt-get` stay out of the workflow. The image is PRIVATE (it inherits
+the repo's visibility), and a container job pulls a same-repo ghcr image
+with the job token — the `packages: read` permission is what authenticates
+it; a PAT is not needed and none is used. Inside a container we simply ARE
+root, which is also what makes Playwright's `install-deps` possible.
 
-`lint.yml` and `cla.yml` run BARE on the fleet — bun and a JS action need no
-system libraries, and staying out of a container means they never root-own the
-shared workspace.
+`lint.yml` and `cla.yml` run BARE — bun and a JS action need no system
+libraries, and the builder image would buy nothing there.
 
 Four things this arrangement makes load-bearing:
 
-- **Every container job must end in the un-root step**, `if: always()`, copied
-  from release.yml. A container writes as root onto a PERSISTENT workspace, so
-  without it the next job on that runner dies inside `actions/checkout` with
-  `EACCES` — which reads like a checkout bug rather than a leftover, and is the
-  failure `reset-linux-runner-workspace.yml` exists to repair.
-- **Every job needs `timeout-minutes`.** The fleet is finite, so one hung job
-  starves every other workflow, releases included. The GitHub default of 360
-  minutes is not a timeout, it is an outage.
-- **The workspace persists between runs.** That is the defect class behind
-  `git tag -f` in the release plan job: a tag deleted upstream survived in the
-  runner's clone, so re-cutting a release was impossible. Anything that reads
-  git state, rather than just the checked-out tree, has to prune first.
-- **Disk is the standing cost, and none of it is self-limiting.** Every change
-  to `docker/desktop-builder.Dockerfile` moves the image tag and strands the
-  previous ~2 GB layer set forever, on every runner that pulled it. A full
-  runner does not fail politely: it dies in `actions/checkout` or a cargo link
-  step on whichever machine took the job, which reads as flake.
-  `runner-maintenance.yml` prunes docker daily and REPORTS usage, failing past
-  85% so a filling machine is named rather than discovered. It leaves the
-  workspaces alone on purpose — `target/`, `node_modules` and the turbo cache
-  surviving between runs is why CI is faster here than on hosted runners, and
-  they plateau. Fleet-wide coverage without being able to address a runner
-  comes from a matrix: `runs-on` selects by LABEL, so it fans out over 7 legs
-  and leans on a runner taking ONE job at a time, which puts N concurrent legs
-  on N distinct machines.
+- **Toolchains come from the workflow, never from the runner image.** The
+  fleet-era lesson (its node 18 broke rolldown's `styleText` floor) applies
+  verbatim to hosted images, which float their own versions: `setup-bun`
+  pins 1.4.0 where a job runs bare, `setup-node` pins 24 (the root
+  `package.json`'s `engines.node`), and `actions/setup-node` is not
+  optional just because the runner "already has node".
+- **Every job needs `timeout-minutes`.** Minutes are now metered, so a hung
+  job costs money instead of just fleet time — and the GitHub default of
+  360 minutes is not a timeout, it is an outage either way.
+- **Nothing persists between runs.** Hosted workspaces start clean; warmth
+  comes only from the `actions/cache` steps (bun install cache, turbo,
+  cargo, Playwright browsers), and correctness comes from not assuming a
+  warm state. The fleet-era defect class — `git tag -f` in the plan job,
+  because a tag deleted upstream survived in the runner's clone — cannot
+  recur here; the flag stays so the fleet still works if it ever returns.
+- **The un-root steps closing the container jobs are vestigial, kept on
+  purpose.** A hosted runner is ephemeral, so chowning the workspace back
+  changes nothing. They stay because the org fleet can still run these
+  workflows, and there, skipping them poisons the next checkout with
+  `EACCES` — the failure `reset-linux-runner-workspace.yml` exists to
+  repair.
 
-**Not done deliberately: running the containers as a non-root user.** It
-would restore the one test skipped under root
-(`uploads-route.test.ts`, which chmods a directory to 0500 — root ignores
-permission bits) and let both the Chromium `--no-sandbox` workaround and all
-four un-root steps go. It needs `container.options: --user 1000`, and that
-HARDCODES a uid the un-root step currently discovers at runtime with `stat`,
-which is why the un-root step is correct on every runner. On a fleet being
-actively grown, a hardcoded uid fails nondeterministically on whichever
-machine was provisioned differently — a bad trade for one test.
+**Not done: running the containers as a non-root user.** It would restore
+the one test skipped under root (`uploads-route.test.ts`, which chmods a
+directory to 0500 — root ignores permission bits) and let both the Chromium
+`--no-sandbox` workaround and the un-root steps go. It needs
+`container.options: --user 1000`; on the fleet that hardcoded a uid the
+un-root step discovers at runtime with `stat`, and a differently-provisioned
+machine made it fail nondeterministically. Hosted runners remove that
+variance, so the trade is better than it was — but it still buys one test
+and re-opens every container step to a CI round trip of proving, while the
+un-root steps have to stay for the fleet's sake regardless.
 
-One thing that did NOT materialise: the expected slowdown. Queueing was
-supposed to make PR feedback worse than hosted CI, and every job came in
-faster instead — persistent caches and better hardware more than covered the
-lost parallelism.
+The wall-clock cost the fleet-era write-up predicted but did not see did
+materialise after the move. The persisted `target/` and `node_modules` made
+fleet jobs faster — desktop Rust legs measured ~1m10s there against ~2m
+hosted — and hosted CI pays a cache-restore for warmth instead, with every
+one of those minutes metered. That is the trade as made, knowingly.
 
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
@@ -772,11 +786,10 @@ which is why they share their own smoke, parameterized by app id.
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
   The plan job pushes the missing tag(s) FIRST, then one build shard per
-  app×triple on the self-hosted fleet (linux on `[self-hosted, Linux,
-  X64]` — linux-arm64 cross-built there, `file` magic check only, never
-  exec'd; darwin on mac-builder `[self-hosted, macOS, ARM64]`, natively —
-  nothing is cross-arch smoked now that Intel Macs are not a target, so the
-  Rosetta smoke mode is gone). Native shards exec `version`; server shards also
+  app×triple on GitHub-hosted runners (linux on `ubuntu-24.04` —
+  linux-arm64 cross-built there, `file` magic check only, never exec'd;
+  darwin on `macos-14`, natively — nothing is cross-arch smoked now that
+  Intel Macs are not a target, so the Rosetta smoke mode is gone). Native shards exec `version`; server shards also
   BOOT on a temp DB with `apps/server/web/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.

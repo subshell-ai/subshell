@@ -17,7 +17,7 @@ on:
       - .github/workflows/desktop-builder-image.yml
 
 # Two concurrent builds push the SAME tag, so the loser's work is discarded —
-# cancel the superseded one instead of paying for it twice on the fleet.
+# cancel the superseded one instead of paying for it twice.
 concurrency:
   group: desktop-builder-image
   cancel-in-progress: true
@@ -29,7 +29,7 @@ permissions:
 jobs:
   build:
     name: Build and push
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout Repository

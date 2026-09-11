@@ -9,11 +9,11 @@ on:
 permissions:
   contents: read
 
-# The fleet serves every workflow now, so a superseded push must not
-# keep them busy: pushing three times to a PR used to queue three full sets of
-# jobs, all but the last of them already irrelevant. release.yml deliberately
-# does the OPPOSITE (`cancel-in-progress: false`) — cancelling a release
-# mid-flight leaves a tag without a release — but CI has nothing to protect.
+# A superseded push must not keep CI busy: pushing three times to a PR used to
+# queue three full sets of jobs, all but the last of them already irrelevant.
+# release.yml deliberately does the OPPOSITE (`cancel-in-progress: false`) —
+# cancelling a release mid-flight leaves a tag without a release — but CI has
+# nothing to protect.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,10 +21,10 @@ concurrency:
 jobs:
   lint:
     name: Linting
-    # Bare on the fleet rather than in the builder image: this job needs only
-    # bun, and staying out of a container means it never root-owns the shared
-    # workspace, so there is nothing to un-root afterwards.
-    runs-on: [self-hosted, Linux, X64]
+    # Bare on the runner rather than in the builder image: this job needs only
+    # bun (via setup-bun below) and node, and a container would buy nothing —
+    # nothing root-owns the workspace, so there is nothing to un-root.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout Repository
@@ -38,12 +38,13 @@ jobs:
       # tsdown/rolldown run under NODE, not bun — their bin shebang is
       # `#!/usr/bin/env node` — so the repo has always had a Node requirement
       # it never declared, and CI silently inherited whatever the host had.
-      # ubuntu-latest shipped 20+; the fleet has 18.19, and rolldown needs
+      # the fleet once shipped node 18.19 while ubuntu-latest shipped 20+; rolldown needs
       # `styleText` from `node:util` (20.12+), so the build broke on the move.
       #
       # Pinned to the `engines.node` the root package.json now declares, NOT
-      # to rolldown's floor — Ubuntu 24.04's apt node is 18, so the image
-      # cannot supply this and setup-node is the only route.
+      # to rolldown's floor. A hosted runner image ships a node and floats it
+      # with each image refresh; the pinned version is the contract, so it
+      # comes from the workflow rather than from the image.
       - name: Use Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

@@ -1,27 +1,30 @@
 name: Test
 
-# EVERY job here runs on the self-hosted fleet, inside the repo's own builder
-# image — GitHub-hosted minutes are metered on a private repo and this is the
-# workflow that spends them (roughly 9 of the ~12 per push).
+# EVERY job here runs on GitHub-hosted ubuntu-24.04 runners (pinned, not
+# `ubuntu-latest`: the desktop artifacts' minimum glibc is 2.39, which is what
+# 24.04 IS, and an alias may one day move under it) inside the repo's own
+# builder image. Moved off the self-hosted fleet on 2026-09-11 — hosted
+# minutes are metered on a private repo and that cost is now the accepted
+# trade; the fleet's runners are org-registered and the repo page shows none
+# of them, which is how a CI outage starts looking like a missing fleet.
 #
-# The image (docker/desktop-builder.Dockerfile) already carries bun 1.4.0,
+# The image (docker/desktop-builder.Dockerfile) already carries bun 1.4.2,
 # rustup stable and Tauri's system dependencies, which is why the jobs below
-# no longer install any of that: `setup-bun`, `dtolnay/rust-toolchain` and
-# every `sudo apt-get` are gone. Nothing on the fleet is assumed — note that
-# release.yml, which has always run there, never invokes sudo either, so
-# passwordless root on the host is NOT something this repo relies on. Inside a
-# container we simply ARE root, which is also what makes Playwright's
+# install none of that: `setup-bun`, `dtolnay/rust-toolchain` and every
+# `sudo apt-get` stay gone. The image is a PRIVATE package; the pull
+# authenticates with the job token via the `packages: read` permission below.
+# Inside a container we simply ARE root, which is also what makes Playwright's
 # `install-deps` possible.
 #
-# THE COST OF THE CONTAINER is that it writes as root onto a PERSISTENT
-# workspace, so every job ends with an un-root step (`if: always()`) copied
-# from release.yml. Without it the next job on that runner dies in
-# `actions/checkout` with `EACCES`, which reads like a checkout bug rather than
-# a leftover — the failure `reset-linux-runner-workspace.yml` exists to repair.
+# The un-root steps closing each job are fleet-era artifacts: hosted runners
+# are ephemeral, so they no-op here. They stay because the org fleet can still
+# pick this workflow up unchanged — there, skipping them poisons the next
+# checkout with `EACCES`, the failure `reset-linux-runner-workspace.yml`
+# exists to repair.
 #
-# `timeout-minutes` on every job is not boilerplate: the fleet is finite, so a
-# hung job starves every other workflow, releases included. GitHub's 360-minute
-# default is an outage, not a timeout.
+# `timeout-minutes` on every job is still not boilerplate: minutes are now
+# metered, so a hung job costs money instead of just fleet time — and the
+# 360-minute GitHub default is an outage either way.
 
 on:
   pull_request:
@@ -37,11 +40,11 @@ permissions:
   # same trap release.yml documents.
   packages: read
 
-# The fleet serves every workflow now, so a superseded push must not keep it
-# busy: pushing three times to a PR used to queue three full sets of jobs, all
-# but the last of them already irrelevant. release.yml deliberately
-# does the OPPOSITE (`cancel-in-progress: false`) — cancelling a release
-# mid-flight leaves a tag without a release — but CI has nothing to protect.
+# A superseded push must not keep CI busy: pushing three times to a PR used to
+# queue three full sets of jobs, all but the last of them already irrelevant.
+# release.yml deliberately does the OPPOSITE (`cancel-in-progress: false`) —
+# cancelling a release mid-flight leaves a tag without a release — but CI has
+# nothing to protect.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -49,7 +52,7 @@ concurrency:
 jobs:
   test:
     name: Testing
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 30
     defaults:
@@ -86,7 +89,7 @@ jobs:
       # tsdown/rolldown run under NODE, not bun — their bin shebang is
       # `#!/usr/bin/env node` — so the repo has always had a Node requirement
       # it never declared, and CI silently inherited whatever the host had.
-      # ubuntu-latest shipped 20+; the fleet has 18.19, and rolldown needs
+      # the fleet once shipped node 18.19 while ubuntu-latest shipped 20+; rolldown needs
       # `styleText` from `node:util` (20.12+), so the build broke on the move.
       #
       # Pinned to the `engines.node` the root package.json now declares, NOT
@@ -163,7 +166,7 @@ jobs:
   # each re-run it.
   desktop-core-rust:
     name: Desktop core (Rust)
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 20
     defaults:
@@ -223,17 +226,16 @@ jobs:
   # so the old `sudo apt-get install libwebkit2gtk…` step is gone.
   desktop-rust:
     name: Desktop (Rust) — ${{ matrix.app }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 30
     defaults:
       run:
         shell: bash
     strategy:
-      # Both legs may queue rather than run side by side, depending on how much
-      # of the fleet is free — which is fine: measured on the fleet these are
-      # ~1m10s each against ~2m on GitHub-hosted, because the workspace (and so
-      # `target/`) persists between runs.
+      # Both legs run side by side, and neither finds a warm `target/` under
+      # it — hosted workspaces are ephemeral — so the cargo cache step above is
+      # the only persistence either leg gets.
       fail-fast: false
       matrix:
         # `app` is the component id (also the release tag prefix); `dir` is
@@ -312,7 +314,7 @@ jobs:
 
   e2e:
     name: End-to-end
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 30
     defaults:
@@ -345,7 +347,7 @@ jobs:
       # tsdown/rolldown run under NODE, not bun — their bin shebang is
       # `#!/usr/bin/env node` — so the repo has always had a Node requirement
       # it never declared, and CI silently inherited whatever the host had.
-      # ubuntu-latest shipped 20+; the fleet has 18.19, and rolldown needs
+      # the fleet once shipped node 18.19 while ubuntu-latest shipped 20+; rolldown needs
       # `styleText` from `node:util` (20.12+), so the build broke on the move.
       #
       # Pinned to the `engines.node` the root package.json now declares, NOT
