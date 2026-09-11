@@ -1,4 +1,2 @@
 [test]
-# Order matters: test-setup.ts registers happy-dom's globals FIRST; see its
-# top comment for why test-setup-matchers.ts must load second.
-preload = ["./src/test-setup.ts", "./src/test-setup-matchers.ts"]
+preload = ["./src/test-setup.ts"]

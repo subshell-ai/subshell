@@ -34,7 +34,10 @@ describe("SetupAssistant", () => {
     );
     expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+    // Cast-and-read, this repo's convention for asserting disabled (see
+    // actions-menu.test.tsx) rather than a jest-dom matcher this project
+    // doesn't depend on.
+    expect((screen.getByRole("button", { name: "Starting…" }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("Enter activates an enabled primary, not a disabled one", () => {
     const onClick = mock(() => {});
