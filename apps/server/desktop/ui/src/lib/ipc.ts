@@ -66,6 +66,8 @@ export interface SettingEntry {
 /** `status --json`, forwarded by the Rust side as an opaque `serde_json::Value`. */
 export interface StatusBody {
   configEnv?: { path: string; exists: boolean };
+  /** `status --json`'s data locations (spec § 8); absent on an older server, which arms nothing. */
+  paths?: { dataDir?: string; database?: string; logsDir?: string; nodeArtifacts?: string };
   settings?: Record<string, SettingEntry>;
   listen?: { portValid?: boolean; port?: number; portRaw?: string; listening?: boolean };
   /** Absent/null means the entrypoint did not resolve, which 500s every create. */
@@ -184,6 +186,9 @@ export const service = (verb: ServiceVerb, force: boolean): Promise<ActionResult
  */
 export const setup = (payload?: InitPayload): Promise<ActionResult> =>
   invoke<ActionResult>("desktop_setup", payload ?? {});
+
+/** The one destructive verb. Typed hostname in, machine state wiped out; the paths are Rust's plan, never this side's. */
+export const reset = (typed: string): Promise<ActionResult> => invoke<ActionResult>("desktop_reset", { typed });
 
 export const installServer = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_server");
 

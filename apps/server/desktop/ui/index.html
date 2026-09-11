@@ -9,6 +9,11 @@
     <h1 class="m-0 mb-0.5 text-[17px] font-semibold tracking-[0.01em]">Subshell Server</h1>
     <p class="mb-[18px] text-sm text-muted">Install, configure and run a Subshell control plane on this machine.</p>
 
+    <!-- Two views, one window (spec § 7.1): the status page is what the console
+         has always been; the reset view is entered ONLY by the desktop-screen
+         event from the dashboard's danger card, never by a console-side
+         control. The script and the h1 sit outside both. -->
+    <div id="status-view">
     <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5">
       <!-- No Refresh button: the console re-probes itself every few seconds
            (POLL_MS in main.ts), so a button would only ever save the user the
@@ -51,6 +56,27 @@
       </div>
       <pre class="pane-pre" id="log" aria-live="polite"></pre>
       <pre class="pane-pre" id="output" aria-live="polite" hidden></pre>
+    </div>
+    </div>
+
+    <!-- The second view (spec § 7.1). The hostname is DISPLAYED by this page
+         and compared by Rust against the same memoized probe value (R15): the
+         typed string is the only thing the page sends back, never a path. -->
+    <div id="reset-view" hidden>
+      <p class="mb-1 font-medium text-[15px]">Reset this machine's Subshell instance</p>
+      <p class="hint mb-2.5" id="reset-refusal"></p>
+      <ul class="wizard-copy list-disc pl-5" id="reset-rows"></ul>
+      <div class="wizard-copy text-sm text-muted mb-2.5" id="reset-disclosures"></div>
+      <label class="mb-1 block text-sm" for="reset-confirm">Type this machine's hostname to confirm, exactly as shown: <code id="reset-hostname"></code></label>
+      <div class="flex gap-2">
+        <input id="reset-confirm" class="min-w-0 flex-1" spellcheck="false" autocapitalize="off" />
+        <button type="button" id="reset-run" class="primary" disabled>Reset everything</button>
+        <button type="button" id="reset-cancel">Cancel</button>
+      </div>
+      <!-- The half-run record lands HERE, not in #output: the status view is
+           hidden while this one is up, so a chain log rendered there would be
+           invisible - which is M1's whole promise unkept by the page. -->
+      <pre class="pane-pre mt-3" id="reset-log" aria-live="polite" hidden></pre>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
