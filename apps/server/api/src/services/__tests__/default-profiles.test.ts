@@ -121,7 +121,12 @@ describe("ensureDefaultProfilesForUser", () => {
     // Other enabled harnesses still got their Default.
     const expected = new Set(await enabledIds());
     expect(await harnessesWithProfile(userId)).toEqual(expected);
-  });
+    // Explicit budget: this is the file's heaviest case (create, seed, then
+    // both reads) and it timed out at bun's 5000ms default once on a loaded
+    // fleet runner (CI run 34583881882; siblings took 242-298ms, the whole
+    // file passes locally in under a second). The timeout was the failure;
+    // 20s is the margin, not a change in what is asserted.
+  }, 20_000);
 
   it("does not seed a harness this host does not have installed", async () => {
     const userId = await freshUser();
