@@ -4,7 +4,7 @@ import { type AgentConfig, configPath, loadConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
-import { clearLock, isPidAlive, readLock } from "./lock.js";
+import { clearLock, isPidAlive, lockPath, readLock } from "./lock.js";
 import { runAgentMcp } from "./mcp/main.js";
 import {
   controlService,
@@ -465,6 +465,10 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             agentVersion: AGENT_VERSION,
             ...(daemonAgeMs !== undefined ? { daemonAgeMs } : {}),
             ...(probe !== undefined ? { probe } : {}),
+            // What a reset deletes, named by the CLI rather than guessed by a caller
+            // (the server-reset rule, spec §5.1) — a property of the loaded config,
+            // not of liveness, so it is present here whether `online` is true or not.
+            paths: { configFile: configPath(), lockFile: lockPath(), dataDir: cfg.dataDir },
           };
           return { code: online ? 0 : 1, out: `${JSON.stringify(body, null, 2)}\n`, err: errOut };
         }

@@ -1,12 +1,13 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type CliResult, run } from "../cli.js";
 import { configPath, loadConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
+import { lockPath } from "../lock.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
 
@@ -408,6 +409,29 @@ test("status --json without a config: JSON still prints (online:false + reason),
   expect(parsed.nodeId).toBeNull();
   expect(typeof parsed.reason).toBe("string");
   expect(parsed.agentVersion).toBe(AGENT_VERSION);
+  // Nothing to name a reset's targets against — no cfg, no dataDir.
+  expect("paths" in parsed).toBe(false);
+});
+
+// The desktop reset takes its deletion set from exactly this block, never from
+// a guessed path (the server-reset rule, spec §5.1) — so it must be present
+// and absolute whether the node is online or not, and it must never carry the
+// node key alongside it.
+test("status --json names the paths a reset would delete, even while offline", async () => {
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  expect((await run(enrollArgv(url))).code).toBe(0);
+
+  const res = await run(["status", "--json"]);
+  expect(res.code).toBe(1); // offline: the fake plane never upgrades to a socket
+  const parsed = JSON.parse(res.out) as Record<string, unknown>;
+  const cfg = await loadConfig();
+
+  expect(parsed.paths).toEqual({ configFile: configPath(), lockFile: lockPath(), dataDir: cfg.dataDir });
+  const paths = parsed.paths as Record<string, string>;
+  expect(isAbsolute(paths.configFile)).toBe(true);
+  expect(isAbsolute(paths.lockFile)).toBe(true);
+  expect(isAbsolute(paths.dataDir)).toBe(true);
+  expect(JSON.stringify(parsed)).not.toInclude(CANNED.nodeKey);
 });
 
 test("status without a config → code 1 pointing at enroll", async () => {

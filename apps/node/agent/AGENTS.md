@@ -121,6 +121,17 @@ subshell version                   # also `--version` / `-v` — aliased in the
                                      # unknown flag, because it is a typo)
 ```
 
+`status --json` also carries a `paths` block — `{ configFile, lockFile,
+dataDir }`, all absolute — beside the fields above, present whether the node
+is online or offline (it names the loaded config, not liveness). It exists so
+the client desktop app's reset deletes exactly what THIS CLI names, never a
+path the app derived itself — the same rule `subshell-server status --json`
+follows for its own reset (design: `docs/superpowers/specs/2026-09-11-native-reset-both-desktop-apps-design.md`
+§5.1). The block is absent when no config loaded (the not-enrolled branch):
+there is no `dataDir` to name, and a reset with nothing enrolled has nothing to
+delete. As with every other field here, the node key is never included,
+`--json` or not.
+
 ## Logging
 
 `src/log.ts` is the agent's only log surface: **LogLayer** with the core
