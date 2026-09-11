@@ -33,8 +33,8 @@ use crate::server_bin::{self, decide_server, parse_server_version, ServerBinary,
 pub enum ProbeStep {
     /// No server, and this build ships none.
     NoServer,
-    /// No server, but one is bundled.
-    InstallServer,
+    /// No server, but one is bundled: the whole setup chain, behind one press.
+    Setup,
     /// A server exists but did not answer. NOT the same as "unconfigured".
     Unreachable,
     /// A server with no `config.env`.
@@ -122,7 +122,7 @@ impl Probe {
 
         self.next = if self.server.is_none() {
             if self.bundled_version.is_some() {
-                ProbeStep::InstallServer
+                ProbeStep::Setup
             } else {
                 ProbeStep::NoServer
             }
@@ -308,6 +308,16 @@ impl From<Run> for ActionResult {
 /// Materialise the bundled server at `~/.local/bin/subshell-server`.
 #[tauri::command(async)]
 pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+    install_server_now(&settings)
+}
+
+/// `desktop_install_server`'s body, reachable without a command context.
+///
+/// `desktop_setup` runs this same act as the first step of the chain, and the
+/// chain calls the plain function rather than another command's wrapper: the
+/// command layer stays argument-poor routing, and the one-press path can
+/// never drift from the button that runs the act alone.
+fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref());
@@ -338,6 +348,79 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
                 stdout: format!("Installed subshell-server to {where_}"),
                 stderr: String::new(),
             })
+        }
+    }
+}
+
+/// The whole first-run chain, behind one consented press.
+///
+/// Install, configure, register as a service, start. Every one of these has a
+/// correct default and asks the user nothing they can answer on day one, so
+/// the console used to spend four clicks and four form fields executing a plan
+/// it had already made.
+///
+/// **Stops at the first failure.** A half-run leaves the machine in a state
+/// the ordinary probe describes, so the console falls back to the step that
+/// names it and the user is never worse off than the four-step flow left them.
+/// The CLI's own words are returned verbatim; two surfaces that phrase the
+/// same refusal differently are two surfaces that drift.
+#[tauri::command(async)]
+pub fn desktop_setup(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+    let mut log = String::new();
+    for step in [
+        SetupStep::InstallServer,
+        SetupStep::Init,
+        SetupStep::ServiceInstall,
+        SetupStep::Start,
+    ] {
+        let result = step.run(&settings)?;
+        log.push_str(&result.stdout);
+        log.push('\n');
+        if !result.ok {
+            return Ok(ActionResult {
+                ok: false,
+                stdout: log,
+                stderr: result.stderr,
+            });
+        }
+    }
+    Ok(ActionResult {
+        ok: true,
+        stdout: log,
+        stderr: String::new(),
+    })
+}
+
+/// The acts `desktop_setup` runs, in order.
+///
+/// Private: the console drives the individual commands when a machine is
+/// already part-way through, and only the fresh run is one press. `run`
+/// delegates to each command's extracted body, never to a
+/// `#[tauri::command]` wrapper.
+enum SetupStep {
+    InstallServer,
+    Init,
+    ServiceInstall,
+    Start,
+}
+
+impl SetupStep {
+    fn run(self, settings: &SettingsState) -> Result<ActionResult, String> {
+        match self {
+            SetupStep::InstallServer => install_server_now(settings),
+            // Derived defaults, not a form payload: empty address fields omit
+            // their flags, so `init --yes` falls back to the CLI's own answers
+            // (port 3080, all interfaces, base URL derived from the port), and
+            // a `None` trusted-origins says nothing rather than clearing the
+            // list. This is what the four-step flow wrote on a fresh install
+            // where the operator typed nothing.
+            SetupStep::Init => Ok(init_now(settings, "", "", "", None)),
+            SetupStep::ServiceInstall => Ok(service_now(settings, ServiceCommand::Install, false)),
+            // `service install` already starts the server, and `start` on a
+            // running service answers "already running" with exit 0
+            // (service.ts), so the chain is a straight line rather than a
+            // branch that has to know which verb already ran.
+            SetupStep::Start => Ok(service_now(settings, ServiceCommand::Start, false)),
         }
     }
 }
@@ -382,8 +465,22 @@ pub fn desktop_init(
     base_url: String,
     trusted_origins: Option<String>,
 ) -> ActionResult {
+    init_now(&settings, &port, &host, &base_url, trusted_origins.as_deref())
+}
+
+/// `desktop_init`'s body, reachable without a command context.
+///
+/// See [`install_server_now`] for why the body lives below its wrapper;
+/// `desktop_setup` calls this with the derived defaults.
+fn init_now(
+    settings: &SettingsState,
+    port: &str,
+    host: &str,
+    base_url: &str,
+    trusted_origins: Option<&str>,
+) -> ActionResult {
     let server = server_bin::resolve(settings.get().binary_path.as_deref());
-    let args = init_args(&port, &host, &base_url, trusted_origins.as_deref());
+    let args = init_args(port, host, base_url, trusted_origins);
     let Some(cmd) = server_cmd(&server, &args.iter().map(String::as_str).collect::<Vec<_>>()) else {
         return ActionResult {
             ok: false,
@@ -423,6 +520,14 @@ impl ServiceCommand {
 /// One `service` verb, straight through. The server decides whether to refuse.
 #[tauri::command(async)]
 pub fn desktop_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
+    service_now(&settings, verb, force)
+}
+
+/// `desktop_service`'s body, reachable without a command context.
+///
+/// See [`install_server_now`] for why the body lives below its wrapper;
+/// `desktop_setup` calls this for the install and start steps.
+fn service_now(settings: &SettingsState, verb: ServiceCommand, force: bool) -> ActionResult {
     let server = server_bin::resolve(settings.get().binary_path.as_deref());
     let Some(mut cmd) = server_cmd(&server, &["service", verb.as_str()]) else {
         return ActionResult {
@@ -919,8 +1024,8 @@ mod tests {
     }
 
     #[test]
-    fn with_no_server_the_first_step_is_installing_the_bundled_one() {
-        assert_eq!(probe_with(None, None, false).next, ProbeStep::InstallServer);
+    fn with_no_server_the_first_step_is_the_setup_chain() {
+        assert_eq!(probe_with(None, None, false).next, ProbeStep::Setup);
     }
 
     #[test]
@@ -928,6 +1033,14 @@ mod tests {
         let mut p = Probe::default();
         p.decide();
         assert_eq!(p.next, ProbeStep::NoServer);
+    }
+
+    #[test]
+    fn setup_is_the_entry_step_when_nothing_is_installed() {
+        // `install-server` named one act in a four-act chain the console already
+        // knew how to compute. The chain is now one consented press, so the step
+        // that used to start it is the step that runs it.
+        assert_eq!(serde_json::to_string(&ProbeStep::Setup).unwrap(), "\"setup\"");
     }
 
     // The dangerous one: a binary that runs `version` but whose `status`

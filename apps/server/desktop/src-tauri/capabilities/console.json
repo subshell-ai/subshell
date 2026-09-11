@@ -13,6 +13,7 @@
     "allow-desktop-probe",
     "allow-desktop-logs",
     "allow-desktop-install-server",
+    "allow-desktop-setup",
     "allow-desktop-init",
     "allow-desktop-service",
     "allow-desktop-set-server-bin",

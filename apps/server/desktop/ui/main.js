@@ -289,18 +289,19 @@ const STEPS = Object.assign(Object.create(null), {
     hint: "Point the app at a server binary you already have.",
     actions: () => [["Choose subshell-server…", pickBinary, true]],
   },
-  "install-server": {
-    // States the machine, like every other step, rather than the app's own
-    // readiness — which the tmux gate can make false while this is on screen.
-    body: "No server is installed. This app ships one.",
-    hint: "Installing copies it to ~/.local/bin. Nothing is downloaded.",
+  setup: {
+    body: "Set up Subshell on this machine.",
+    hint:
+      "Installs the bundled server to ~/.local/bin, writes ~/.config/subshell-server/config.env (port 3080, all " +
+      "interfaces), registers it to start at login, starts it, and opens the dashboard. Nothing is downloaded.",
     actions: () => [
-      // tmux-gated like every other step that advances setup: installing the
-      // binary does not itself need tmux, but the step immediately after it
-      // (Create configuration) refuses without one — so an enabled button here
-      // just walks the user into that wall.
-      ["Install server", act("desktop_install_server"), true, true],
-      ["Choose an existing one…", pickBinary],
+      // tmux-gated like every step that advances setup: the chain ends in
+      // `init` and `service install`, both of which refuse without tmux (every
+      // local pane launches through it), so an enabled button here would just
+      // walk the press into that wall.
+      ["Set up and start", doSetup, true, true],
+      ["Change addresses…", showConfigure],
+      ["Choose an existing server…", pickBinary],
     ],
   },
   unreachable: {
@@ -676,6 +677,35 @@ const doInit = guard(async () => {
   return installed.ok ? installed : { ...installed, stdout: `${written.stdout}\n${installed.stdout}` };
 }, true);
 const openMain = guard(() => invoke("desktop_open_main"));
+
+/**
+ * The whole first-run chain, one press.
+ *
+ * Disclosed rather than silent: installing a binary and registering a
+ * background service is not something to do unasked, so this is one INFORMED
+ * click instead of four uninformed ones. The step's hint is the disclosure,
+ * and it is what makes collapsing the four steps honest.
+ *
+ * Opening the dashboard is part of the press, but the press waits for the
+ * server to ANSWER before pointing a window at it: the `ready` button and the
+ * tray item have always opened it against a running server, and `service
+ * start` returns when the manager has spawned the process, not when the port
+ * is bound. So the settle runs here, before the open, rather than only after
+ * the return. A chain that installed everything and never settled stays on
+ * screen as the step that names the remainder, with the CLI's own words in
+ * the pane below; a window pointed at a dead port is the one outcome this
+ * press exists to remove.
+ */
+const doSetup = guard(async () => {
+  const result = await invoke("desktop_setup");
+  if (!result.ok) return result;
+  for (let i = 0; i < SETTLE_ATTEMPTS && probe?.next !== "ready"; i += 1) {
+    await sleep(SETTLE_DELAY_MS);
+    await refresh();
+  }
+  if (probe?.next === "ready") await invoke("desktop_open_main");
+  return result;
+}, true);
 
 /**
  * Replacing the installed server stops it first, which ends every running
