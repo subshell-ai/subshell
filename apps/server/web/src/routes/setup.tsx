@@ -17,7 +17,7 @@ export const Route = createFileRoute("/setup")({
   component: SetupPage,
 });
 
-const STEPS = ["Account", "Harness"] as const;
+const STEPS = ["Account", "Agent", "Launch"] as const;
 
 function SetupPage() {
   const navigate = useNavigate();
@@ -75,7 +75,7 @@ function SetupPage() {
     }
   }
 
-  function finish() {
+  function _finish() {
     // The shared ["setup-status"] cache still says needsSetup:true for its
     // staleTime window (10 s). The Subshells page reads it on its first
     // render and bounces straight back to /setup — a wizard finished in
@@ -146,10 +146,13 @@ function SetupPage() {
 
           {step === 1 && (
             <div className="space-y-3">
-              <p className="text-muted-foreground text-sm">
-                Install a coding-agent CLI and switch it on to run real subshells. You can change this later in
-                Settings, and a blank default profile is already set up for every harness.
-              </p>
+              <div className="space-y-1">
+                <p className="font-medium">Add an agent (optional)</p>
+                <p className="text-muted-foreground text-sm">
+                  Install a coding-agent CLI and switch it on to run agent subshells. You can skip this: a subshell can
+                  run a plain terminal, and you can add an agent any time from Settings.
+                </p>
+              </div>
               {/* First-run dead-end fix: while the registry is in flight the
                   step used to show nothing, and an error left it blank forever. */}
               {harnessesLoading && <p className="text-muted-foreground text-sm">Loading harnesses…</p>}
@@ -191,8 +194,8 @@ function SetupPage() {
                   </Link>
                 </p>
               )}
-              <Button className="w-full" disabled={busy} onClick={finish}>
-                Finish setup
+              <Button className="w-full" disabled={busy} onClick={() => setStep(2)}>
+                Continue
               </Button>
             </div>
           )}
