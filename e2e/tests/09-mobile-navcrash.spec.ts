@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, renameSubshell } from "./helpers";
+import { ADMIN_STATE, pickProfile, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 test.setTimeout(180_000);
@@ -31,8 +31,7 @@ test.fixme("drawer navigation between live subshells never hits the error screen
   const names = [`probe-a-${stamp}`, `probe-b-${stamp}`];
   for (const name of names) {
     await page.goto("/new");
-    await page.getByPlaceholder("Choose a profile").click();
-    await page.getByRole("option", { name: "Default (pi)" }).click();
+    await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
     await page.fill("#working-dir", "/tmp");
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Start subshell" }).click();

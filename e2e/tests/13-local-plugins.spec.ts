@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, openProfilePicker, pickProfile } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -76,7 +76,7 @@ test.describe("instance plugins", () => {
       // binary is `lib/subshell-compat`'s unit-tested matrix; an instance
       // uninstall cannot reproduce it — it drops every node at once.)
       await page.goto("/new");
-      await page.getByPlaceholder("Choose a profile").click();
+      await openProfilePicker(page.getByPlaceholder("Choose a profile"));
       const piOption = page.getByRole("option", { name: /Default \(pi\)/ });
       await expect(piOption).toHaveCount(1);
       // No `exact` name: a greyed option's accessible name carries its
@@ -99,8 +99,7 @@ test.describe("instance plugins", () => {
       // "Keep" really meant keep: the Default profile is selectable again with
       // no re-seeding, and the Server node is a clean option.
       await page.goto("/new");
-      await page.getByPlaceholder("Choose a profile").click();
-      await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
+      await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
       await page.getByPlaceholder("Choose a node").click();
       const serverOption = page.getByRole("option", { name: "Server" });
       await expect(serverOption).toHaveCount(1);

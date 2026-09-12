@@ -115,7 +115,7 @@ export function fieldCopy(firstRun: boolean): {
   if (!firstRun) return { node: { label: "Node", hint: null }, profile: { label: "Profile", hint: null } };
   return {
     node: { label: "Machine", hint: "Where this subshell runs. You can add other machines as nodes later." },
-    profile: { label: "Agent", hint: "The agent CLI it launches, with its saved settings \u2014 a profile." },
+    profile: { label: "Agent", hint: "The agent CLI it launches, with its saved settings — a profile." },
   };
 }
 

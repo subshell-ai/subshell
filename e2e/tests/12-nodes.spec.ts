@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { type RunningAgent, startAgent } from "../stub/client";
-import { ADMIN_STATE, renameSubshell } from "./helpers";
+import { ADMIN_STATE, openProfilePicker, pickProfile, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -275,7 +275,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     expect(disabled.ok(), await disabled.text()).toBe(true);
 
     await page.goto("/new"); // fresh load — the client refetches the node views
-    await page.getByPlaceholder("Choose a profile").click();
+    await openProfilePicker(page.getByPlaceholder("Choose a profile"));
     const piOption = page.getByRole("option", { name: /Default \(pi\)/ });
     await expect(piOption).toHaveCount(1); // greyed ≠ gone
     await expect(piOption).toBeDisabled(); // aria-disabled row (Base UI item)
@@ -291,8 +291,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // swallow the real pick).
     const nodeOption = page.getByRole("option", { name: nodeName }); // substring: survives the " · linux/x64" suffix
     await page.goto("/new");
-    await page.getByPlaceholder("Choose a profile").click();
-    await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
+    await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
     await page.getByPlaceholder("Choose a node").click();
     await nodeOption.click();
     await page.fill("#working-dir", workingDir);

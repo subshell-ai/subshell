@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, renameSubshell } from "./helpers";
+import { ADMIN_STATE, pickProfile, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -29,8 +29,7 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // <input>, so it is found by its placeholder attribute.
   // Options render as "{name} ({harnessId})".
   await page.goto("/new");
-  await page.getByPlaceholder("Choose a profile").click();
-  await page.getByRole("option", { name: "Default (pi)" }).click();
+  await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
   await page.fill("#working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over the fields/button below it, dismissing only on an outside

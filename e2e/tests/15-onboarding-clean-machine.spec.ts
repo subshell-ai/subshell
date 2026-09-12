@@ -172,6 +172,14 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   // regression in the defaults fails here rather than as a disabled button.
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
   await expect(page.getByPlaceholder("Choose a profile")).toHaveValue(/terminal/);
+  // First-run copy (design §6.3): the pickers lead with a plain word here, so
+  // the first screen after "Add an Agent" never says "Node" or "Profile" to an
+  // account ninety seconds old. Every other launch surface keeps the nouns —
+  // `fieldCopy` pins that half.
+  await expect(page.getByLabel("Machine")).toBeVisible();
+  await expect(page.getByLabel("Agent")).toBeVisible();
+  // And it asks for no name: the server names it, renaming is its own act.
+  await expect(page.getByLabel(/name/i)).toHaveCount(0);
   const start = page.getByRole("button", { name: "Start" });
   await expect(start).toBeEnabled();
 

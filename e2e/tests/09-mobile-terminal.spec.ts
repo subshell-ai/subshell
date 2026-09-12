@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, pickProfile } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -15,8 +15,7 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   test.setTimeout(120_000);
 
   await page.goto("/new");
-  await page.getByPlaceholder("Choose a profile").click();
-  await page.getByRole("option", { name: "Default (pi)" }).click();
+  await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
   await page.fill("#working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over the fields/button below it, dismissing only on an outside

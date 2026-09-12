@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, newestSubshellName } from "./helpers";
+import { ADMIN_STATE, newSubshellName, pickProfile, subshellIds } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -29,12 +29,11 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   await page.getByRole("button", { name: "New subshell" }).click();
   // Stable id from NewSubshellForm; the only other control group in the dialog
   // (direction) is buttons, not comboboxes, but the id survives either way.
-  await page.locator("#picker-profile").click();
   // Profile options render as "{name} ({harnessId})". Registration seeded a
   // "Default" for every harness this host declares, and GET /api/profiles keeps the ones
   // whose CLI is installed — a host with several CLIs shows several Defaults,
   // so pick pi's exactly (the stub pi is the only binary the e2e stack owns).
-  await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
+  await pickProfile(page.locator("#picker-profile"), "Default (pi)");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over "Start subshell" below it; it dismisses
@@ -44,13 +43,17 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // picker root (panel closes). Env-dependent: only bites when /tmp has
   // directory entries to populate the panel (CI's own playwright-artifacts-*).
   await page.getByRole("heading", { name: "Add a subshell" }).click();
+  // Sampled BEFORE the launch: the pane's title is the name the server gives
+  // the new subshell, and the only way to know which row is new is to know
+  // which rows are not.
+  const before = await subshellIds(page);
   await page.getByRole("button", { name: "Start subshell" }).click();
 
   // The pane appears carrying the subshell's name as its panel title. The
   // launch form asks for no name, so that is the server's date/time default —
-  // read it back rather than choosing it. Generous timeout: the POST creates
-  // a tmux session before the panel is added.
-  const paneName = await newestSubshellName(page);
+  // read it back rather than choosing it. Generous timeouts either side: the
+  // POST creates a tmux session before the row exists or the panel is added.
+  const paneName = await newSubshellName(page, before);
   await expect(page.getByText(paneName).first()).toBeVisible({ timeout: PANE_TIMEOUT });
 
   // Layout persists: reload re-reads the dock state from the API.

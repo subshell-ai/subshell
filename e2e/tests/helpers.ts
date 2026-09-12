@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * The single admin account the wizard creates; later specs reuse its session.
@@ -23,43 +23,98 @@ export const ADMIN = {
  */
 export const ADMIN_STATE = new URL("../.auth/admin.json", import.meta.url).pathname;
 
-/**
- * The name the server gave the subshell created most recently.
- *
- * The launch form stopped asking for a name (2026-09-11): the server names a
- * subshell after its start time and renaming is its own act, so a spec that
- * needs to address a row by its accessible name ("Actions for <name>") asks
- * what the name IS rather than choosing it up front.
- *
- * "Most recently" is unambiguous here because `playwright.config.ts` pins
- * `workers: 1` and `fullyParallel: false` — one spec touches the instance at a
- * time — and `GET /api/subshells` returns `createdAt` descending.
- */
-export async function newestSubshellName(page: Page): Promise<string> {
+/** Every subshell id the signed-in user can see right now. */
+export async function subshellIds(page: Page): Promise<string[]> {
   const res = await page.request.get("/api/subshells");
   expect(res.ok()).toBe(true);
   // The route answers a BARE array (`t.Array(SubshellSchema)`), not an envelope.
-  const subshells = (await res.json()) as { name: string }[];
-  expect(subshells.length).toBeGreaterThan(0);
-  return subshells[0].name;
+  return ((await res.json()) as { id: string }[]).map((s) => s.id);
 }
 
 /**
- * Renames the subshell whose detail page is open, through the header's
- * in-place editor — the affordance that became the ONLY way to name a
- * subshell when the launch form stopped asking (2026-09-11).
+ * The name the server gave the subshell that appeared since `before` was
+ * sampled — waiting for it, because a launch returns after a real tmux spawn.
  *
- * Specs use it for the reason they used to type a name into the form: a
- * unique, self-chosen label to address the row by. The default the server
- * applies is minute-granular, so two attempts of the same test can otherwise
- * share a name and make every `Actions for <name>` locator ambiguous.
+ * The launch form stopped asking for a name (2026-09-11): the server names a
+ * subshell after its start time. A spec with a detail page in front of it
+ * should call {@link renameSubshell} instead and keep addressing the row by a
+ * name it chose; this is for the one path that never opens one.
+ */
+export async function newSubshellName(page: Page, before: string[], timeout = 30_000): Promise<string> {
+  let name = "";
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get("/api/subshells");
+        if (!res.ok()) return 0;
+        const fresh = ((await res.json()) as { id: string; name: string }[]).filter((s) => !before.includes(s.id));
+        name = fresh[0]?.name ?? "";
+        return fresh.length;
+      },
+      { timeout },
+    )
+    .toBeGreaterThan(0);
+  return name;
+}
+
+/**
+ * Renames the subshell whose detail page is open, to a name the caller chose.
+ *
+ * Specs use it for the reason they used to type a name into the launch form,
+ * which stopped asking (2026-09-11): a unique, self-chosen label to address
+ * the row by. The server's own default is minute-granular, so two attempts of
+ * the same test can otherwise share a name and make every `Actions for <name>`
+ * locator ambiguous.
+ *
+ * Both layouts are covered because the product has two: wide, the header
+ * title edits in place; below the tiling breakpoint it is display-only text
+ * and the rename is the actions menu's "Edit title" dialog.
  */
 export async function renameSubshell(page: Page, name: string): Promise<void> {
-  const title = page.getByRole("button", { name: "Rename subshell" });
-  await title.click();
-  // Button and input carry the same aria-label; only one of them is mounted.
-  const input = page.getByRole("textbox", { name: "Rename subshell" });
-  await input.fill(name);
-  await input.press("Enter");
-  await expect(title).toHaveText(name);
+  // Present in both layouts — waiting on it means the header has rendered, so
+  // the inline editor's absence below is a layout fact rather than a race.
+  const actions = page.getByRole("button", { name: /^Actions for / }).first();
+  await actions.waitFor();
+  const inline = page.getByRole("button", { name: "Rename subshell" });
+  if (await inline.isVisible()) {
+    await inline.click();
+    // Button and input carry the same aria-label; only one is ever mounted.
+    const field = page.getByRole("textbox", { name: "Rename subshell" });
+    await field.fill(name);
+    await field.press("Enter");
+    await expect(inline).toHaveText(name);
+    return;
+  }
+  await actions.click();
+  await page.getByRole("menuitem", { name: "Edit title" }).click();
+  await page.getByRole("textbox", { name: "New subshell title" }).fill(name);
+  await page.getByRole("button", { name: "Save title" }).click();
+  await expect(page.getByText(name).first()).toBeVisible();
+}
+
+/**
+ * Opens the launch form's profile picker, after waiting for the form to finish
+ * filling ITSELF in.
+ *
+ * The form auto-selects the first launchable profile and pre-fills the working
+ * directory from the node's recents, each when its own query lands. Opening
+ * the picker before that arrives means the selection changes while the popup
+ * is open: Base UI syncs the input's text to the new selection, that text is
+ * also the filter query, and every other option detaches from the DOM — so a
+ * click retries against an element that never comes back, until the test times
+ * out. It fires exactly when the machine is FAST, which is why CI liked it and
+ * a laptop did not.
+ *
+ * Waiting for the auto-selected value settles it: with the form at rest, the
+ * open list is the full one and stays that way.
+ */
+export async function openProfilePicker(input: Locator): Promise<void> {
+  await expect(input).not.toHaveValue("");
+  await input.click();
+}
+
+/** {@link openProfilePicker}, then choose one by its exact label. */
+export async function pickProfile(input: Locator, label: string): Promise<void> {
+  await openProfilePicker(input);
+  await input.page().getByRole("option", { name: label, exact: true }).click();
 }

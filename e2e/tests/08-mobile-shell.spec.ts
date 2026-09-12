@@ -102,9 +102,16 @@ test("launch dialog survives the profile dropdown's scroll shift", async ({ page
   const scroller = page.locator("[data-slot='dialog-content'] > div").first();
   await expect(scroller).toBeVisible();
 
-  await scroller.evaluate((el) => {
-    el.scrollTop = 25;
+  // Scroll DOWN by whatever this dialog can actually travel, rather than by a
+  // fixed 25px: the form's field count decides the overflow, so a hardcoded
+  // offset silently clamps (and the assertion then compares two clamped
+  // values) the day a field is added or removed. A zero here would mean the
+  // dialog no longer overflows at this height and the test proves nothing.
+  const parked = await scroller.evaluate((el) => {
+    el.scrollTop = Math.min(25, el.scrollHeight - el.clientHeight);
+    return el.scrollTop;
   });
+  expect(parked).toBeGreaterThan(0);
   const combo = await page.getByRole("combobox", { name: "Profile" }).boundingBox();
   expect(combo).toBeTruthy();
   await page.touchscreen.tap(combo!.x + combo!.width / 2, combo!.y + combo!.height / 2);
@@ -120,7 +127,7 @@ test("launch dialog survives the profile dropdown's scroll shift", async ({ page
   await page.touchscreen.tap(dbox!.x + 40, dbox!.y + dbox!.height - 8);
   await page.waitForTimeout(400);
   await expect(dialog).toBeVisible(); // the dialog itself survived
-  expect(await scroller.evaluate((el) => el.scrollTop)).toBe(25);
+  expect(await scroller.evaluate((el) => el.scrollTop)).toBe(parked);
 });
 
 test("add-subshell dialog fits and scrolls on small screens", async ({ page }, testInfo) => {
