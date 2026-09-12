@@ -170,7 +170,12 @@ protocol constant `DESKTOP_CLIENT_BUNDLE_ID`, which is also Subshell Client's
 own bundle id (the app's tests pin it; `LAUNCHD_LABEL` is that same constant).
 `service status` also reports `logPath` (that file on macOS, `null` on Linux —
 the unit redirects nothing and the journal holds the output), so a GUI reveals
-what the plist names instead of re-deriving a platform path. Other platforms:
+what the plist names instead of re-deriving a platform path. `AGENT_LOG_HINT`
+is the other half of that pair: the `journalctl --user -u subshell.service -f`
+line to run where there is no file to name. It lives here rather than in a
+consumer because Subshell Client used to hold its own copy, and a hint about
+THIS unit that is spelled somewhere else is one that drifts when the unit name
+moves. Other platforms:
 explicit refusal pointing at `subshell run` inside tmux/screen.
 The unit/plist bake the installing shell's `PATH` (`Environment=PATH=` /
 `EnvironmentVariables`) so a Homebrew/Nix tmux that passed the enroll preflight
@@ -205,6 +210,49 @@ stale definition on disk — so `restart` REFUSES without `--force`, `stop` warn
 and proceeds (refusing would only push the operator to `systemctl`, which warns
 about nothing), and both fail CLOSED on an unreadable definition. `service
 status` reports it as `teardown keeps panes`.
+
+## What `ready` reports about this process (`src/runtime.ts`)
+
+`ready.runtime` (spec 2026-09-12 §6.1) answers "how is this agent running" —
+supervised or not, the manager's view of the unit, the config and log paths,
+tmux, and the binary this process re-enters. `collectRuntime` builds it ONCE,
+before the connect loop, from one `service status` spawn.
+
+**Once, and then frozen: the same object is resent on every reconnect.** That
+is what lets the control plane compare `startedAt` for EQUALITY rather than
+against a tolerance, and the SPA's restart waiter has no other signal — a node
+that goes offline and comes back is only distinguishable from a flapping socket
+by that field changing. Re-deriving the report per connection would make a
+reconnect look like a restart, and the wait would end early with nothing
+naming the cause. Collecting per process is also honest on its own terms:
+nothing in the report can change while the pid does not.
+
+A failed read degrades to no `runtime` at all rather than a null-filled one —
+the field is optional on the wire, and the plane shows no card. `parseNodeEvent`
+drops a malformed one and keeps the `ready`, so a wrong report costs the card
+and never the connection.
+
+## `restart` (`src/commands/restart.ts`)
+
+The plane-sent `{ type: "restart" }` exits 0 so the service manager respawns the
+agent. Three things about it are load-bearing:
+
+- **The `result` frame goes out FIRST, and the exit is 250 ms later.** The
+  daemon is the only sender of `result`, so an executor that exited itself
+  would reach the plane as a TIMEOUT rather than a success — the restart would
+  have worked and the UI would say it failed. The executor therefore returns
+  `{ ok: true }` and asks the daemon to exit (`CommandContext.requestRestart`).
+- **It refuses when `runtime.supervised` is false**, which means the manager did
+  not start this pid: exiting would be a stop, not a restart. A foreground
+  `subshell run` is the common case.
+- **`paneSafety: "unknown"` refuses with `"kills"`, not with `"keeps"`.** Same
+  fail-closed rule the CLI's own destructive verbs use — an unreadable
+  definition is not evidence of safety — and `force: true` is the only way past
+  either.
+
+The exit takes the SIGINT/SIGTERM path verbatim (set `shuttingDown`, close the
+socket 1000, let the loop's `stop(0)` run), so `daemon.lock` is cleared by the
+one exit path that has ever cleared it.
 
 ## Exit watch
 
