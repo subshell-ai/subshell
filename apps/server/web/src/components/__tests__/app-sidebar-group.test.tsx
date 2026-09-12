@@ -69,7 +69,13 @@ function renderRail(initialPath: string) {
   // Every path the rail links to must exist, or clicking a child throws.
   const paths = ["/", "/workspaces", "/nodes", "/profiles", "/settings", "/users"];
   const children = paths.map((path) => createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
-  for (const path of ["/settings/api-keys", "/settings/plugins", "/settings/status", "/settings/audit"]) {
+  for (const path of [
+    "/settings/api-keys",
+    "/settings/plugins",
+    "/settings/service",
+    "/settings/status",
+    "/settings/audit",
+  ]) {
     children.push(createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
   }
   const router = createRouter({

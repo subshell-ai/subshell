@@ -1,12 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { groupOpen, isNavGroup, visibleNavEntries, visibleNavItems } from "@/components/app-sidebar";
 
-/** The six pages that live inside the admin group (spec 2026-09-11 §2.1). */
+/**
+ * The pages that live inside the admin group (spec 2026-09-11 §2.1, plus the
+ * Service page of spec 2026-09-12 §4.1).
+ */
 const GROUP_PAGES = [
   "/settings",
   "/users",
   "/settings/api-keys",
   "/settings/plugins",
+  "/settings/service",
   "/settings/status",
   "/settings/audit",
 ];

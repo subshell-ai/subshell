@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Plus,
+  Power,
   Puzzle,
   ScrollText,
   Server,
@@ -95,6 +96,10 @@ const NAV_ENTRIES: NavEntry[] = [
       { to: "/users", label: "Users", icon: Users, short: "Users" },
       { to: "/settings/api-keys", label: "API keys", icon: KeyRound, short: "Keys" },
       { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
+      // "Service", not "Server": the control-plane host's own node row is
+      // named Server by default, and every card on this page is about the
+      // running process — where it listens, who supervises it, what it logged.
+      { to: "/settings/service", label: "Service", icon: Power, short: "Svc" },
       { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
       { to: "/settings/audit", label: "Audit log", icon: ScrollText, short: "Audit" },
     ],
