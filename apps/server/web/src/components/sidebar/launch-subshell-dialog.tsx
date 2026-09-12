@@ -19,11 +19,11 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 
 /**
- * The sidebar's quick-launch dialog (spec 2026-09-03 sidebar-quickadd §4a).
- * `/new` and this dialog are two entry points over ONE contract: the shared
- * `NewSubshellForm` owns the fields, `useCreateSubshell` owns the POST, and a
- * success lands on the subshell page — the same thing `/new` does. The page
- * stays (deep links + e2e pin its field ids).
+ * The rail's quick-launch dialog (spec 2026-09-03 sidebar-quickadd §4a), and
+ * since 2026-09-11 the ONLY new-subshell surface: `/new` used to render a
+ * second copy of this form as a full-page card and now simply raises this
+ * dialog over the list. The shared `NewSubshellForm` owns the fields,
+ * `useCreateSubshell` owns the POST, and a success lands on the subshell page.
  */
 export function LaunchSubshellDialog({
   open,

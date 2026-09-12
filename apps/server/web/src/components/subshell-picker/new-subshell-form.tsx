@@ -120,9 +120,11 @@ export function fieldCopy(firstRun: boolean): {
 }
 
 /**
- * Element ids of the form fields, for `htmlFor`/`id` association. The ids
- * now anchor the searchable inputs; both sets are e2e-pinned (tests/05 for
- * the dialog's, tests/06 for the page's).
+ * Element ids of the form fields, for `htmlFor`/`id` association; they anchor
+ * the searchable inputs. Two sets exist and both are e2e-pinned: the default
+ * `picker-*` (every launch dialog, including the one `/new` now raises) and
+ * the setup assistant's `setup-*`, which is a different form on screen at a
+ * different moment rather than a second spelling of this one.
  */
 export interface NewSubshellFormIds {
   /** Profile combobox input */

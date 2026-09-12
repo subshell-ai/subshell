@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, pickProfile } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickProfile } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -16,13 +16,13 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
 
   await page.goto("/new");
   await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
-  await page.fill("#working-dir", "/tmp");
+  await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over the fields/button below it, dismissing only on an outside
   // click or Escape (blur/fill don't close it). No modal on this page, so
   // Escape is the clean dismissal. Env-dependent: only bites when /tmp has
   // directory entries to populate the panel (CI's own playwright-artifacts-*).
-  await page.keyboard.press("Escape");
+  await dismissDirectoryPanel(page);
 
   const tokenRes = page.waitForResponse((r) => r.url().includes("/api/auth/ws-token") && r.status() === 200, {
     timeout: SPAWN_TIMEOUT,

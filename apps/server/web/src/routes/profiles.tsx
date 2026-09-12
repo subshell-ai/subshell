@@ -7,7 +7,14 @@ import { PageHeader } from "@/components/page-header";
 import { ProfileFields } from "@/components/profile-fields";
 import { ProfileListRow } from "@/components/profile-list-row";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useInvalidateProfiles, useProfiles } from "@/hooks/use-profiles";
 import { apiFetch, errMessage } from "@/lib/api";
@@ -26,12 +33,17 @@ function ProfilesPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<ProfileFormValue>(emptyProfileForm());
-  const [error, setError] = useState<string | null>(null);
+  // Two error slots, because they have two homes: a create failure belongs in
+  // the dialog the person is still looking at, a delete failure belongs on the
+  // page (with the dialog closed, the old single slot rendered a failed delete
+  // nowhere at all).
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function createProfile() {
     setBusy(true);
-    setError(null);
+    setCreateError(null);
     try {
       if (!form.harnessId) throw new Error("Choose a harness first");
       await apiFetch("/api/profiles", { method: "POST", body: JSON.stringify(toProfilePayload(form)) });
@@ -39,7 +51,7 @@ function ProfilesPage() {
       setForm(emptyProfileForm());
       await invalidate();
     } catch (err) {
-      setError(errMessage(err, "Failed"));
+      setCreateError(errMessage(err, "Failed"));
     } finally {
       setBusy(false);
     }
@@ -53,10 +65,11 @@ function ProfilesPage() {
     });
     if (!ok) return;
     try {
+      setListError(null);
       await apiFetch(`/api/profiles/${id}`, { method: "DELETE" });
       await invalidate();
     } catch (err) {
-      setError(errMessage(err, "Failed to delete profile"));
+      setListError(errMessage(err, "Failed to delete profile"));
     }
   }
 
@@ -66,46 +79,53 @@ function ProfilesPage() {
         title="Profiles"
         subtitle="Per-harness launch configurations"
         action={
-          <Button onClick={() => setShowCreate((v) => !v)}>
+          <Button onClick={() => setShowCreate(true)}>
             <Plus /> New profile
           </Button>
         }
       />
 
-      {showCreate && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Create profile</CardTitle>
-            <CardDescription>A profile bundles env, flags and restart policy for one harness.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <ProfileFields value={form} onChange={setForm} />
-            {error && <p className="text-destructive text-sm">{error}</p>}
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  setShowCreate(false);
-                  setForm(emptyProfileForm());
-                  setError(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={() => void createProfile()} disabled={busy || !form.harnessId}>
-                {busy ? "Creating…" : "Create"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {listError && <p className="text-destructive text-sm">{listError}</p>}
+
+      {/* A dialog rather than a card that pushes the list down the page
+          (user report 2026-09-11): creating a profile is a decision with an
+          end, and the list behind it is the thing being added to. Same shape
+          as every other "new X" in the app — the launch dialog, the workspace
+          dialog, Add a node. */}
+      <Dialog
+        open={showCreate}
+        onOpenChange={(next) => {
+          setShowCreate(next);
+          if (!next) {
+            setForm(emptyProfileForm());
+            setCreateError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create profile</DialogTitle>
+            <DialogDescription>A profile bundles env, flags and restart policy for one harness.</DialogDescription>
+          </DialogHeader>
+          <ProfileFields value={form} onChange={setForm} />
+          {createError && <p className="text-destructive text-sm">{createError}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setShowCreate(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void createProfile()} disabled={busy || !form.harnessId}>
+              {busy ? "Creating…" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
 
       {/* A failed list load is not an empty account: say so, and offer the
-          retry the old silent blank denied. (Local create/delete errors keep
-          their own inline line in the card above.) */}
+          retry the old silent blank denied. (A create failure lines up inside
+          the dialog and a delete failure above this banner — different
+          failures, different homes.) */}
       {isError && (
         <ErrorBanner
           message="Couldn't load profiles."

@@ -118,3 +118,23 @@ export async function pickProfile(input: Locator, label: string): Promise<void> 
   await openProfilePicker(input);
   await input.page().getByRole("option", { name: label, exact: true }).click();
 }
+
+/**
+ * Dismiss the working-directory PANEL inside a dialog, without closing the
+ * dialog itself.
+ *
+ * Measured on the launch dialog, 2026-09-11, because both plausible gestures
+ * are wrong for one of the two overlays this form can raise:
+ *
+ * | overlay | Escape | click the dialog heading |
+ * |---|---|---|
+ * | combobox popup (profile, node) | closes the popup, dialog survives | never lands — the popup's dismiss layer covers the heading, so the click retries until the test times out |
+ * | directory panel | closes the POPUP AND THE DIALOG — the panel's own key handler does not stop propagation | lands, dialog survives, typed path intact |
+ *
+ * So: Escape for a combobox, this for the directory panel. Getting it backwards
+ * does not fail fast — it hangs a spec for its whole timeout, or leaves the
+ * form reset with the submit button disabled and no dialog to speak of.
+ */
+export async function dismissDirectoryPanel(page: Page, heading = "New subshell"): Promise<void> {
+  await page.getByRole("heading", { name: heading }).click();
+}

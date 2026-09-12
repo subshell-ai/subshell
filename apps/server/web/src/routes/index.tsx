@@ -4,6 +4,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { LiveStatus } from "@/components/live-status";
+import { useQuickAdd } from "@/components/quick-add";
 import { SubshellCard } from "@/components/subshell-card";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import { SubshellSearch } from "@/components/subshell-search";
@@ -41,6 +42,9 @@ export const Route = createFileRoute("/")({
  */
 function SubshellsPage() {
   const navigate = useNavigate();
+  // Both "New subshell" affordances raise the rail's launch dialog — the one
+  // the sidebar, the phone drawer and `/new` all share.
+  const { openLaunch } = useQuickAdd();
   const { view = "tiled" } = Route.useSearch();
   const { subshells, connected, isLoading, isError, refetch } = useLiveSubshells();
   const [query, setQuery] = useState("");
@@ -69,7 +73,7 @@ function SubshellsPage() {
           <h1 className="font-bold text-2xl">Subshells</h1>
           <p className="text-muted-foreground text-sm">Agent harness subshells</p>
         </div>
-        <Button onClick={() => navigate({ to: "/new" })}>
+        <Button onClick={openLaunch}>
           <Plus /> New subshell
         </Button>
       </header>
@@ -120,7 +124,7 @@ function SubshellsPage() {
           title="No subshells yet"
           description="Start an agent harness subshell to get going."
           actionLabel="Create your first subshell"
-          onAction={() => void navigate({ to: "/new" })}
+          onAction={openLaunch}
         />
       )}
 

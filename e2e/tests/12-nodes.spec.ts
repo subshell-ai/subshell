@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { type RunningAgent, startAgent } from "../stub/client";
-import { ADMIN_STATE, openProfilePicker, pickProfile, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, openProfilePicker, pickProfile, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -294,10 +294,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
     await page.getByPlaceholder("Choose a node").click();
     await nodeOption.click();
-    await page.fill("#working-dir", workingDir);
+    await page.fill("#picker-working-dir", workingDir);
     // The directory-picker panel opens on focus and covers the fields below;
-    // Escape is the dismissal that works outside a modal (spec 06's note).
-    await page.keyboard.press("Escape");
+    // a click on the dialog's heading is what closes it without closing the
+    // dialog (spec 06's note). The Escape above is right for the COMBOBOX
+    // popup, which is a different overlay with the opposite answer.
+    await dismissDirectoryPanel(page);
 
     const tokenRes = page.waitForResponse((r) => r.url().includes("/api/auth/ws-token") && r.status() === 200, {
       timeout: SPAWN_TIMEOUT,

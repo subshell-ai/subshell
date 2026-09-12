@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, pickProfile, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickProfile, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -25,18 +25,19 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // for a name, so the subshell is renamed once it exists.
   const name = `e2e-lifecycle-${test.info().retry}`;
 
-  // Create from the /new page. The searchable picker's closed state is an
-  // <input>, so it is found by its placeholder attribute.
+  // Create from `/new`, which opens the launch DIALOG over the list. The
+  // searchable picker's closed state is an <input>, so it is found by its
+  // placeholder attribute.
   // Options render as "{name} ({harnessId})".
   await page.goto("/new");
   await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
-  await page.fill("#working-dir", "/tmp");
+  await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
-  // panel drops over the fields/button below it, dismissing only on an outside
-  // click or Escape (blur/fill don't close it). No modal on this page, so
-  // Escape is the clean dismissal. Env-dependent: only bites when /tmp has
+  // panel drops over the fields/button below it; neither blur nor fill closes
+  // it, and Escape takes the whole dialog with it (see the table on
+  // `dismissDirectoryPanel`). Env-dependent: only bites when /tmp has
   // directory entries to populate the panel (CI's own playwright-artifacts-*).
-  await page.keyboard.press("Escape");
+  await dismissDirectoryPanel(page);
 
   // The detail page mints a one-shot WS token (POST /api/auth/ws-token), then
   // opens /ws?subshell=… — both listeners must be armed BEFORE the click.
