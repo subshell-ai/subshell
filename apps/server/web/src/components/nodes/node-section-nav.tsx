@@ -17,7 +17,7 @@ import type { NodeDetail } from "@/types/node";
  * (its own surface is Server Settings → Service) and 403 for a `view` grantee.
  * Rendering links that answer 403 would teach a person that the app is broken.
  */
-export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element {
+export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element | null {
   // `access` is the server's own word for this viewer, so the nav and the
   // routes cannot disagree about who sees what.
   const canConfigure = node.access === "owner" || node.access === "edit";
@@ -34,7 +34,9 @@ export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element {
       : []),
   ];
 
-  if (items.length === 1) return <></>;
+  // One section is not a nav. `local` and a `view` grantee see only Overview,
+  // and a single tab above it would look like a control that does nothing.
+  if (items.length === 1) return null;
 
   return (
     <nav aria-label="Node sections" className="-mb-px flex gap-1 border-b">
