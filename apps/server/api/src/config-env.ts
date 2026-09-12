@@ -125,6 +125,25 @@ export function resolveConfig(): ResolvedConfigEnv {
   };
 }
 
+/** Keys this process's {@link loadConfigEnv} copied into `process.env` (one process, one boot). */
+const appliedKeys = new Set<string>();
+
+/**
+ * Which `process.env` keys came from config.env at boot, as opposed to the
+ * real environment.
+ *
+ * The running server needs this to attribute a setting's source honestly:
+ * after boot, `process.env` holds the file's values too, so comparing the two
+ * — what the `status` command does, correctly, in a fresh CLI process that
+ * never applied the layer — would call every key the file set "process env"
+ * inside the server. A key the loader DID NOT apply while the file names it is
+ * a key the environment overrode, and that is exactly the one a config write
+ * cannot change.
+ */
+export function configEnvAppliedKeys(): ReadonlySet<string> {
+  return appliedKeys;
+}
+
 /**
  * Applies the config.env layer to `process.env` with SETDEFAULT semantics —
  * a key already present (real environment, incl. anything `.env`-via-dotenvx
@@ -145,6 +164,7 @@ export function loadConfigEnv(): boolean {
   for (const [key, value] of Object.entries(values)) {
     if (process.env[key] === undefined) {
       process.env[key] = value;
+      appliedKeys.add(key);
     }
   }
   return true;
