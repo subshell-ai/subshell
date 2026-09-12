@@ -36,6 +36,12 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
     linux_dir: "subshell-desktop-server",
 };
 
+/// Windows whose geometry the window-state plugin must not save or restore.
+///
+/// One name, and it is the assistant's. Kept as a constant so the plugin's
+/// configuration and the test that pins it read the same string.
+const DENYLIST: &[&str] = &["wizard"];
+
 /// Build and run the app.
 ///
 /// Boot opens ONE window, chosen from a fresh probe: the dashboard when the
@@ -66,6 +72,22 @@ pub fn run() {
             }))
             .plugin(
                 tauri_plugin_window_state::Builder::default()
+                    // The ASSISTANT is not tracked at all. It is a FIXED,
+                    // non-resizable, centred 1024x720 frame (spec 2026-09-11
+                    // § 4), so there is no user choice to remember — and a
+                    // restored size is actively wrong twice over: the frame
+                    // is drawn to that arithmetic, and `open_main` INHERITS
+                    // this window's geometry so the dashboard appears in its
+                    // place, which would carry a stale size straight into a
+                    // window whose floor is 1024.
+                    //
+                    // Measured on 2026-09-12, and only reachable once the
+                    // assistant started opening on every not-ready boot
+                    // rather than on first run alone: a state file left by an
+                    // older build restored 757x706, and the assistant came up
+                    // at that size on a machine whose server was merely
+                    // stopped.
+                    .with_denylist(DENYLIST)
                     // NOT VISIBLE: `main` is created hidden on purpose and shown
                     // only by the title-bar handshake. Restoring saved
                     // visibility would show it decorated before the page can
@@ -73,11 +95,10 @@ pub fn run() {
                     // exists to avoid.
                     //
                     // NOT MAXIMIZED or FULLSCREEN either: size and position are
-                    // worth remembering, but a window that was maximized once
-                    // then reopens maximized forever, and a compositor that
-                    // maximized it on the user's behalf is enough to latch it.
-                    // Both windows deliberately have a size they are meant to
-                    // open at.
+                    // worth remembering for the dashboard, but a window that
+                    // was maximized once then reopens maximized forever, and a
+                    // compositor that maximized it on the user's behalf is
+                    // enough to latch it.
                     .with_state_flags(
                         tauri_plugin_window_state::StateFlags::all()
                             - tauri_plugin_window_state::StateFlags::VISIBLE
@@ -214,9 +235,22 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// The ASSISTANT's geometry is never restored.
+    ///
+    /// It is a fixed, non-resizable, centred frame, so there is nothing a
+    /// person could have chosen — and `open_main` inherits its position and
+    /// size, so a restored one would reach the dashboard too. Pinned against
+    /// the window label rather than trusted to the comment beside it, because
+    /// the symptom is a window that opens at the wrong size and nothing else:
+    /// no error, no failing build.
+    #[test]
+    fn the_assistant_is_not_tracked_by_the_window_state_plugin() {
+        assert_eq!(DENYLIST, ["wizard"]);
+    }
+
     /// The window-state plugin must not restore MAXIMIZED or FULLSCREEN.
     ///
-    /// Both windows have a size they are meant to open at. A window maximized
+    /// The dashboard has a size it is meant to open at. A window maximized
     /// once otherwise reopens maximized forever, and on Linux a compositor
     /// maximizing it on the user's behalf is enough to latch that. Written as
     /// `all() - VISIBLE` it read like a single deliberate exclusion, which is
