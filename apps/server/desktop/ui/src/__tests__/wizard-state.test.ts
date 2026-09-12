@@ -1,6 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import type { ActionResult, Probe } from "../lib/ipc";
-import { canSetup, dots, failureLine, prereqState, screensFor, setupRows } from "../lib/wizard-state";
+import {
+  canSetup,
+  dots,
+  failureLine,
+  prereqState,
+  recoveryAction,
+  recoveryTitle,
+  screensFor,
+  setupRows,
+} from "../lib/wizard-state";
 
 function virgin(over: Partial<Probe> = {}): Probe {
   return {
@@ -25,8 +34,61 @@ const WITH_TMUX = { tmux: "/opt/homebrew/bin/tmux" };
 
 describe("screensFor", () => {
   it("shows the tmux screen only while tmux is missing", () => {
-    expect(screensFor(virgin())).toEqual(["welcome", "tmux", "setup"]);
-    expect(screensFor(virgin(WITH_TMUX))).toEqual(["welcome", "setup"]);
+    expect(screensFor(virgin(), false)).toEqual(["welcome", "tmux", "setup"]);
+    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["welcome", "setup"]);
+  });
+});
+
+describe("screensFor with onboarded", () => {
+  it("shows exactly the recovery screen once onboarded and not ready", () => {
+    for (const step of ["no-server", "unreachable", "init", "install-service", "start"] as const) {
+      expect(screensFor(virgin({ ...WITH_TMUX, next: step }), true)).toEqual(["recovery"]);
+    }
+  });
+
+  it("shows nothing when ready, whichever family the machine is in", () => {
+    // The page opens the dashboard and this window goes; a screen list with
+    // anything in it would render behind that.
+    expect(screensFor(virgin({ ...WITH_TMUX, next: "ready" }), true)).toEqual([]);
+    expect(screensFor(virgin({ ...WITH_TMUX, next: "ready" }), false)).toEqual([]);
+  });
+
+  it("never lists update or reset: they are entered by request", () => {
+    for (const onboarded of [true, false]) {
+      for (const step of ["setup", "start", "ready"] as const) {
+        const screens = screensFor(virgin({ next: step }), onboarded);
+        expect(screens).not.toContain("update");
+        expect(screens).not.toContain("reset");
+      }
+    }
+  });
+});
+
+describe("recoveryTitle / recoveryAction", () => {
+  it("names the step in the assistant's voice", () => {
+    expect(recoveryTitle("no-server", "darwin")).toBe("No Server Found");
+    expect(recoveryTitle("unreachable", "darwin")).toBe("Your Server Isn't Responding");
+    expect(recoveryTitle("init", "linux")).toBe("Your Server Needs Its Configuration");
+    expect(recoveryTitle("install-service", "linux")).toBe("Your Server Isn't Installed as a Service");
+    expect(recoveryTitle("start", "darwin")).toBe("Your Server Is Stopped");
+  });
+
+  it("says this Mac on darwin and this machine everywhere else", () => {
+    expect(recoveryTitle("setup", "darwin")).toBe("Set Up Subshell on this Mac");
+    expect(recoveryTitle("setup", "linux")).toBe("Set Up Subshell on this machine");
+  });
+
+  it("offers one primary action per step", () => {
+    expect(recoveryAction("start")).toEqual({ label: "Start", kind: "start" });
+    expect(recoveryAction("install-service")).toEqual({ label: "Install and Start", kind: "install-service" });
+    expect(recoveryAction("init")).toEqual({ label: "Set Up", kind: "setup" });
+    expect(recoveryAction("unreachable")).toEqual({ label: "Retry", kind: "retry" });
+    expect(recoveryAction("no-server")).toEqual({ label: "Choose subshell-server…", kind: "choose-binary" });
+    expect(recoveryAction("setup")).toEqual({ label: "Set Up", kind: "setup" });
+  });
+
+  it("offers nothing on ready — the screen is already leaving", () => {
+    expect(recoveryAction("ready")).toBeNull();
   });
 });
 
@@ -40,6 +102,14 @@ describe("dots", () => {
   it("walks the three when tmux is missing", () => {
     expect(dots(virgin(), "tmux")).toEqual({ total: 6, done: 1, current: 1 });
     expect(dots(virgin(), "setup")).toEqual({ total: 6, done: 2, current: 2 });
+  });
+  it("has no position at all for the screens outside the first run", () => {
+    // Recovery, Update and Reset are not steps on a journey, so the row is
+    // hidden rather than shown with nothing filled. A negative `current` is
+    // what the renderer hides on.
+    for (const screen of ["recovery", "update", "reset"] as const) {
+      expect(dots(virgin(), screen)).toEqual({ total: 6, done: -1, current: -1 });
+    }
   });
 });
 

@@ -5,6 +5,7 @@ import { AddressesCard } from "@/components/service/addresses-card";
 import { LocationsCard } from "@/components/service/locations-card";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
+import { UpdateCard } from "@/components/service/update-card";
 import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -71,6 +72,10 @@ function ServicePage() {
             />
           )}
           {isLoading && !view && <p className="text-muted-foreground text-sm">Loading…</p>}
+          {/* First, and outside the `view` branch: an update is worth
+              offering even if the deployment read failed, and it renders
+              nothing at all in a browser. */}
+          <UpdateCard serverVersion={publicSettings?.serverVersion} />
           {view && (
             <>
               <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />

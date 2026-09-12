@@ -71,3 +71,26 @@ describe("parseDesktopUA", () => {
     expect(parseDesktopUA(asRustFormats("1.0.0", "linux"))).toMatchObject({ version: "1.0.0", platform: "linux" });
   });
 });
+
+/**
+ * The bundled-server group (spec 2026-09-12 § 5.4) is OPTIONAL, and the
+ * absence of it is the case that has to keep working: every shell built
+ * before that spec sends the three-field marker, and a regex that demanded
+ * the fourth would read those as "not desktop" and render web chrome in a
+ * desktop window.
+ */
+describe("parseDesktopUA: the bundled server version", () => {
+  test("reads the optional bundled-server group and tolerates its absence", () => {
+    expect(parseDesktopUA("X SubshellDesktop/0.2.0 (macos; p=1; b=0.3.0)")).toEqual({
+      version: "0.2.0",
+      platform: "macos",
+      protocol: 1,
+      bundledServer: "0.3.0",
+    });
+    expect(parseDesktopUA("X SubshellDesktop/0.2.0 (linux; p=1)")).toEqual({
+      version: "0.2.0",
+      platform: "linux",
+      protocol: 1,
+    });
+  });
+});

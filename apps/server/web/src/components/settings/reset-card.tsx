@@ -9,9 +9,9 @@ import { desktopInvoke } from "@/lib/desktop";
  * Both halves are required: an admin, and this page running under the SERVER
  * desktop app's UA marker. `undefined` counts as not-admin (unknown ≠ open,
  * the same rule the route's own gate uses). Visibility is UX, not security -
- * the security gate is the console-only ACL behind the button - but the
+ * the security gate is the bundled-page-only ACL behind the button - but the
  * desktop half is honesty: the reset verb lives in the Subshell Server
- * console, and Subshell Client strips the marker, so an entry point rendered
+ * assistant, and Subshell Client strips the marker, so an entry point rendered
  * anywhere else would be a button that lies.
  */
 export function resetCardVisible(opts: { viewerIsAdmin?: boolean; desktop: boolean }): boolean {
@@ -20,7 +20,7 @@ export function resetCardVisible(opts: { viewerIsAdmin?: boolean; desktop: boole
 
 /**
  * The dashboard's entry into the machine reset: a button that raises the
- * Subshell Server console at its reset screen. The card itself confirms
+ * Subshell Server assistant at its reset screen. The card itself confirms
  * nothing and destroys nothing - the whole chain runs in that window.
  */
 export function ResetServerCard(): JSX.Element {
@@ -37,9 +37,10 @@ export function ResetServerCard(): JSX.Element {
       </CardHeader>
       <CardContent>
         {/* The confirmation and the whole chain run in the Subshell Server window: it is the only surface
-            that may drive the CLI. This button raises it at the reset screen. Older desktop builds ignore
-            the screen argument, so the worst skew is a plain console appearing. */}
-        <Button variant="destructive" onClick={() => void desktopInvoke("desktop_open_console", { screen: "reset" })}>
+            that may drive the CLI. This button raises the assistant at its reset screen. An older desktop
+            build knows no such command and `desktopInvoke` resolves null rather than throwing, so the worst
+            skew is a press that does nothing visible. */}
+        <Button variant="destructive" onClick={() => void desktopInvoke("desktop_open_assistant", { screen: "reset" })}>
           Reset server...
         </Button>
       </CardContent>

@@ -118,6 +118,15 @@ function renderDots(): void {
 const here = (): string => (probe?.platform === "darwin" ? "this Mac" : "this machine");
 
 // ---------------------------------------------------------------------------
+/**
+ * Which family of screens this page renders, as `screensFor`'s `onboarded`
+ * argument. It is fixed `false` because the only screens built here are the
+ * first run's; the recovery screen an onboarded machine is owed arrives with
+ * the rest of the assistant's own screens, and asking the probe for the flag
+ * before then would select a screen nothing draws.
+ */
+const FIRST_RUN_FAMILY = false;
+
 // Screens. Each fills #content and the bar; ordering comes from screensFor.
 // ---------------------------------------------------------------------------
 function renderWelcome(): void {
@@ -188,7 +197,7 @@ function renderSetup(p: Probe): void {
   content.append(links);
   if (customizeOpen) content.append(addressForm(p));
   const gate = canSetup(p, busy);
-  const list = screensFor(p);
+  const list = screensFor(p, FIRST_RUN_FAMILY);
   const prev = list[Math.max(0, list.indexOf("setup") - 1)] ?? "welcome";
   el("bar-left").append(button("Back", () => go(prev), "ghost"));
   if (!gate.ok && gate.reason) el("bar-right").append(text("span", gate.reason, "reason"));
@@ -331,7 +340,7 @@ function resetForm(): void {
 // ---------------------------------------------------------------------------
 function next(): ScreenId {
   if (probe === null) return screen;
-  const list = screensFor(probe);
+  const list = screensFor(probe, FIRST_RUN_FAMILY);
   return list[Math.min(list.length - 1, list.indexOf(screen) + 1)] ?? screen;
 }
 /**
@@ -443,12 +452,19 @@ function render(): void {
     }
   }
   const p = probe;
-  const views: Record<ScreenId, () => void> = {
+  // PARTIAL because `ScreenId` now names the whole assistant — recovery,
+  // update and reset included — while this page still builds only the first
+  // run's three. Nothing can select one of the others here (`screen` is only
+  // ever set from `screensFor(probe, FIRST_RUN_FAMILY)`, and this page
+  // listens for no screen request), so the fallback is unreachable rather
+  // than a default; it exists so an unbuilt screen would be a Welcome screen
+  // instead of a blank window on a machine someone is repairing.
+  const views: Partial<Record<ScreenId, () => void>> = {
     welcome: renderWelcome,
     tmux: () => renderTmux(p),
     setup: () => renderSetup(p),
   };
-  views[screen]();
+  (views[screen] ?? renderWelcome)();
 }
 
 async function refresh(): Promise<void> {
@@ -476,7 +492,7 @@ document.addEventListener("keydown", (e) => {
 void (async () => {
   try {
     await refresh();
-    if (probe) screen = screensFor(probe)[0] ?? "welcome";
+    if (probe) screen = screensFor(probe, FIRST_RUN_FAMILY)[0] ?? "welcome";
   } catch (err) {
     problem = errText(err);
   }

@@ -1,20 +1,30 @@
 /**
- * The setup assistant's decisions, pure (spec 2026-09-11 § 5, § 8.1).
+ * The assistant's decisions, pure (spec 2026-09-11 § 5, § 8.1; spec
+ * 2026-09-12 § 5.3).
  *
  * Which screens exist for THIS machine, where the dots stand, which
- * checklist rows are ticked, whether Set Up may be pressed and why not, and
- * which of the CLI's words go under a failed row. Page state (the current
- * screen, running, the last result) stays in wizard.ts; only facts a probe
- * licenses live here, so a reopen after a quit or a CLI-driven half-setup
- * renders honestly.
+ * checklist rows are ticked, whether Set Up may be pressed and why not, which
+ * of the CLI's words go under a failed row, and — since the console window
+ * went — what the one recovery screen is called and what its single action
+ * does. Page state (the current screen, running, the last result) stays in
+ * wizard.ts; only facts a probe licenses live here, so a reopen after a quit
+ * or a CLI-driven half-setup renders honestly.
  */
-import type { ActionResult, Probe } from "./ipc";
+import type { ActionResult, Probe, ProbeStep } from "./ipc";
 
-/** The assistant's screens, in order. `tmux` exists only while tmux is missing. */
-export type ScreenId = "welcome" | "tmux" | "setup";
+/**
+ * Every screen this window can show.
+ *
+ * The first three are the first run, in order (`tmux` exists only while tmux
+ * is missing). The last three are not a journey: `recovery` is what a machine
+ * that has been set up sees while its server is not answering, and `update`
+ * and `reset` are entered by REQUEST — a `desktop-screen` event from the SPA,
+ * or the recovery footer — over whatever is showing.
+ */
+export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "update" | "reset";
 
-/** Every position a dot can take, whether or not the screen is shown. */
-const ALL_SCREENS: readonly ScreenId[] = ["welcome", "tmux", "setup"];
+/** The first-run trio, which is also every position a dot can take. */
+const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
 
 /** How the tmux screen presents itself when missing. */
 export type PrereqState = "found" | "install" | "manual";
@@ -28,9 +38,88 @@ export function prereqState(probe: Probe): PrereqState {
   return "install";
 }
 
-/** The screens this machine will actually see: a screen with nothing to ask does not appear. */
-export function screensFor(probe: Probe): ScreenId[] {
-  return ALL_SCREENS.filter((s) => s !== "tmux" || probe.tmux === null);
+/**
+ * The screens this machine will see (spec 2026-09-12 § 5.3).
+ *
+ * Before setup has ever completed: the first-run trio, minus any screen with
+ * nothing to ask (tmux, when there already is one). After: the ONE recovery
+ * screen while the server is not ready, and nothing at all when it is — the
+ * page opens the dashboard and this window steps back.
+ *
+ * A `ready` probe empties the list whichever family the machine is in,
+ * because that is the same moment in both: the dashboard is what comes next,
+ * and a screen list with anything in it would render behind it.
+ *
+ * `update` and `reset` are never in the list. They are entered by request,
+ * which is what lets them appear over a first run as readily as over a
+ * recovery without either family having to name them.
+ */
+export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
+  if (probe.next === "ready") return [];
+  if (!onboarded) return FIRST_RUN.filter((s) => s !== "tmux" || probe.tmux === null);
+  return ["recovery"];
+}
+
+/**
+ * The recovery screen's title, which is the STEP's title: one screen whose
+ * whole content is what this machine's server needs, so the heading is the
+ * diagnosis rather than a fixed word with the diagnosis beneath it.
+ *
+ * `platform` reaches only the two steps that name where you are. "this Mac"
+ * on darwin and "this machine" elsewhere is the house rule, and it is here
+ * rather than at the call site so both surfaces that render a title cannot
+ * disagree about it.
+ */
+export function recoveryTitle(step: ProbeStep, platform: string): string {
+  const here = platform === "darwin" ? "this Mac" : "this machine";
+  switch (step) {
+    case "no-server":
+      return "No Server Found";
+    case "unreachable":
+      return "Your Server Isn't Responding";
+    case "init":
+      return "Your Server Needs Its Configuration";
+    case "install-service":
+      return "Your Server Isn't Installed as a Service";
+    case "start":
+      return "Your Server Is Stopped";
+    case "setup":
+      return `Set Up Subshell on ${here}`;
+    case "ready":
+      return "Opening Your Dashboard…";
+  }
+}
+
+/** What the recovery screen's one button DOES, as a closed set the page branches on. */
+export type RecoveryActionKind = "choose-binary" | "retry" | "setup" | "install-service" | "start";
+
+/**
+ * The single primary action for a step, or `null` when there is nothing left
+ * to press.
+ *
+ * One per screen, deliberately: the console offered a row of them and the row
+ * was the reason a person had to decide which of three buttons matched their
+ * situation, on a screen that already knew. `init` and `setup` share an
+ * action because they share a chain — `desktop_setup` writes the
+ * configuration either way, and the install step is a no-op where a binary is
+ * already present.
+ */
+export function recoveryAction(step: ProbeStep): { label: string; kind: RecoveryActionKind } | null {
+  switch (step) {
+    case "no-server":
+      return { label: "Choose subshell-server…", kind: "choose-binary" };
+    case "unreachable":
+      return { label: "Retry", kind: "retry" };
+    case "init":
+    case "setup":
+      return { label: "Set Up", kind: "setup" };
+    case "install-service":
+      return { label: "Install and Start", kind: "install-service" };
+    case "start":
+      return { label: "Start", kind: "start" };
+    case "ready":
+      return null;
+  }
 }
 
 /**
@@ -48,9 +137,15 @@ export function screensFor(probe: Probe): ScreenId[] {
  * derive from `current`'s index alone. Kept for signature stability (call
  * sites, and parity with the other pure functions here that all take a
  * `Probe`) rather than dropped — deliberately, not an oversight.
+ *
+ * Recovery, Update and Reset are not on this journey, so they have no
+ * position: `indexOf` answers -1 for them and the renderer hides the row on a
+ * negative `current`. That falls out of the lookup rather than being a branch
+ * — there is one list of dot positions, and a screen is either on it or it is
+ * not.
  */
 export function dots(_probe: Probe, current: ScreenId): { total: 6; done: number; current: number } {
-  const index = ALL_SCREENS.indexOf(current);
+  const index = FIRST_RUN.indexOf(current);
   return { total: 6, done: index, current: index };
 }
 

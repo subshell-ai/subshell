@@ -29,6 +29,16 @@ export interface DesktopShell {
   platform: DesktopPlatform;
   /** Marker protocol version — see {@link DESKTOP_PROTOCOL}. */
   protocol: number;
+  /**
+   * The server version this shell BUNDLES (spec 2026-09-12 § 5.4), which is
+   * not the version of the server the page is talking to — the two differ
+   * exactly when an update is available.
+   *
+   * Absent from every shell built before that spec, and from Subshell Client,
+   * which ships no server. Optional rather than defaulted for that reason: a
+   * missing field means "this shell does not say", never "0".
+   */
+  bundledServer?: string;
 }
 
 /**
@@ -42,8 +52,13 @@ export interface DesktopShell {
  */
 export const DESKTOP_PROTOCOL = 1;
 
-/** `SubshellDesktop/1.2.3 (macos; p=1)` — built by `windows.rs::user_agent`. */
-const MARKER = /\bSubshellDesktop\/(\S+)\s+\((macos|linux);\s*p=(\d+)\)/;
+/**
+ * `SubshellDesktop/1.2.3 (macos; p=1)`, optionally `; b=0.3.0` — built by
+ * `windows.rs::user_agent`. The bundled-server group stays OPTIONAL because
+ * every shell released before spec 2026-09-12 omits it, and a required group
+ * would read those as browsers.
+ */
+const MARKER = /\bSubshellDesktop\/(\S+)\s+\((macos|linux);\s*p=(\d+)(?:;\s*b=([0-9A-Za-z.+-]+))?\)/;
 
 /**
  * Parse the desktop marker out of a User-Agent string.
@@ -60,7 +75,12 @@ export function parseDesktopUA(userAgent: string): DesktopShell | null {
   if (!m) return null;
   const protocol = Number.parseInt(m[3] as string, 10);
   if (!Number.isInteger(protocol) || protocol > DESKTOP_PROTOCOL) return null;
-  return { version: m[1] as string, platform: m[2] as DesktopPlatform, protocol };
+  return {
+    version: m[1] as string,
+    platform: m[2] as DesktopPlatform,
+    protocol,
+    ...(m[4] ? { bundledServer: m[4] } : {}),
+  };
 }
 
 let cached: DesktopShell | null | undefined;
