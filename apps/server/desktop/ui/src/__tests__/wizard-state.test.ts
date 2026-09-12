@@ -77,7 +77,7 @@ describe("RESET_LABEL", () => {
     // what this does; and a label ending on "Mac" reads as a truncated
     // "Machine", against a sibling string that really is "this machine" and
     // under the ellipsis a button that opens a screen carries.
-    expect(RESET_LABEL).toBe("Reset Subshell");
+    expect(RESET_LABEL).toBe("Reset this server");
     expect(RESET_LABEL.endsWith("Mac")).toBe(false);
     // No platform word on either side of the split: everything this app does
     // is on this machine, so saying so was only ever redundant. Subshell
@@ -219,8 +219,8 @@ describe("prereqState", () => {
 });
 
 /**
- * The bug this pins (2026-09-12): pressing "Reset this machine" on the
- * dashboard opened the assistant, which said "Opening your dashboard…" and
+ * The bug this pins (2026-09-12): pressing the dashboard's reset button
+ * opened the assistant, which said "Opening your dashboard…" and
  * closed itself again.
  *
  * `screensFor` empties on a READY machine in either family, and the page

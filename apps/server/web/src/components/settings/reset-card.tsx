@@ -27,7 +27,7 @@ export function ResetServerCard(): JSX.Element {
   return (
     <Card className="border-destructive/50">
       <CardHeader>
-        <CardTitle>Reset this machine</CardTitle>
+        <CardTitle>Reset this server</CardTitle>
         <CardDescription>
           Stops and uninstalls the Subshell Server service, closes this machine&apos;s panes, and deletes the instance
           data: accounts, sessions, API keys, signing keys, pane logs, plugins, and the server configuration. Enrolled
@@ -41,7 +41,7 @@ export function ResetServerCard(): JSX.Element {
             build knows no such command and `desktopInvoke` resolves null rather than throwing, so the worst
             skew is a press that does nothing visible. */}
         <Button variant="destructive" onClick={() => void desktopInvoke("desktop_open_assistant", { screen: "reset" })}>
-          Reset server...
+          Reset this server…
         </Button>
       </CardContent>
     </Card>

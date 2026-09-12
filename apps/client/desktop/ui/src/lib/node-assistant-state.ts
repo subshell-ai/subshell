@@ -123,10 +123,13 @@ export function screenTitle(screen: NodeScreenId, probe: Probe | undefined): str
       // there under the ellipsis a button that opens a screen carries. That
       // is how it was reported — as a layout bug.
       //
-      // Naming the product fixes both and needs no platform word: everything
-      // this app does is on this machine, so saying so was only ever
-      // redundant. Both desktop apps use this same string.
-      return "Reset Subshell";
+      // Naming WHAT IS RESET fixes both and needs no platform word:
+      // everything this app does is on this machine, so saying so was only
+      // ever redundant (operator's call, 2026-09-12). The two apps do NOT
+      // share a string — Subshell Server's twin reads "Reset this server",
+      // because the two resets destroy different things and one label over
+      // both is the overloading the vocabulary rule exists to prevent.
+      return "Reset this client";
     case "about":
       return "About Subshell Client";
   }

@@ -132,6 +132,7 @@ pub fn run() {
             control::desktop_open_assistant,
             reset::desktop_reset,
             reset::desktop_arm_reset,
+            reset::desktop_pending_screen,
             control::desktop_open_path,
             control::desktop_open_tmux_docs,
             control::desktop_about,

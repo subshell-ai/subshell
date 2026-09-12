@@ -172,17 +172,6 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
         .inner_size(width, height)
         .resizable(false)
         .center()
-        .on_page_load(|window, _| {
-            // An assistant created under a screen request delivers it once
-            // the page exists; a request while one was live is emitted
-            // directly by reset::arm_and_raise.
-            if let Some(stash) = window.app_handle().try_state::<crate::reset::Stash>() {
-                if let Some(screen) = stash.screen.lock().unwrap().take() {
-                    use tauri::Emitter;
-                    let _ = window.emit("desktop-screen", screen.as_str());
-                }
-            }
-        })
         .build()
         .map_err(|e| format!("could not open the assistant window: {e}"))
         .inspect(|w| {

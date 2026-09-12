@@ -879,19 +879,30 @@ async function tick(): Promise<void> {
  * implies", which is what a reset leaves behind and what the sidebar pill
  * asks for when it has no screen to name.
  */
-void listen<string>("desktop-screen", (event) => {
-  if (event.payload === "reset") {
+/**
+ * Apply a screen named from OUTSIDE this page, from either source.
+ *
+ * One function because there are two ways in and they must not drift: a LIVE
+ * window is told by `reset::arm_and_raise`, and a window that is still coming
+ * up ASKS on boot (`ipc.pendingScreen`). The asking is not a nicety — the
+ * push it replaced was emitted from Rust's `on_page_load`, which fires before
+ * this page's JavaScript exists.
+ */
+function applyScreen(payload: string): void {
+  if (payload === "reset") {
     void openReset();
     return;
   }
   resetView.hide();
-  screen = event.payload === "update" ? "update" : null;
+  screen = payload === "update" ? "update" : null;
   // A reset returns this page to a machine with nothing set up, so the
   // handoff guard has to be released or a later ready probe renders nothing.
   handedOff = false;
   replayEnter();
   render();
-});
+}
+
+void listen<string>("desktop-screen", (event) => applyScreen(event.payload));
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) return;
@@ -900,6 +911,18 @@ document.addEventListener("keydown", (e) => {
 });
 
 void (async () => {
+  // BEFORE the probe, and before the first render: this answers what the
+  // window was opened FOR, and a render that ran without it would take the
+  // ready handoff — open the dashboard, close this window — on exactly the
+  // machines a requested screen is asked for from. `openReset` raises its
+  // screen synchronously, so one call here is enough to hold the window.
+  try {
+    const requested = await ipc.pendingScreen();
+    if (requested) applyScreen(requested);
+  } catch {
+    // An older Rust half knows no such command. Nothing was requested that
+    // this page can honour, and the probe below still brings it up.
+  }
   try {
     await refresh();
   } catch (err) {

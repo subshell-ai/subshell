@@ -1,5 +1,5 @@
 /**
- * Reset Subshell — the one irreversible screen in this app.
+ * Reset this client — the one irreversible screen in this app.
  *
  * The shape is the server app's reset, and deliberately so: the page supplies
  * a HOSTNAME, never a path. The delete plan is read from the agent's own

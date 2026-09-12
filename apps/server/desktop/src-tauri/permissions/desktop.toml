@@ -57,6 +57,11 @@ description = "Read this machine now and stash the reset's delete plan, so the a
 commands.allow = ["desktop_arm_reset"]
 
 [[permission]]
+identifier = "allow-desktop-pending-screen"
+description = "Read (and clear) the screen this assistant window was opened for — reset, update, or whatever the probe implies. A pull, because a push emitted at page load reaches a window that is not listening yet. Answers one word from a closed set; names no path and changes nothing."
+commands.allow = ["desktop_pending_screen"]
+
+[[permission]]
 identifier = "allow-desktop-set-server-bin"
 description = "Remember an explicitly chosen server binary. The path is executed on every launch."
 commands.allow = ["desktop_set_server_bin"]

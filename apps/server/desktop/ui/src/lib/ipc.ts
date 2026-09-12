@@ -221,6 +221,17 @@ export const reset = (typed: string): Promise<ActionResult> => invoke<ActionResu
  */
 export const armReset = (): Promise<boolean> => invoke<boolean>("desktop_arm_reset");
 
+/**
+ * The screen this window was opened for, taken exactly once.
+ *
+ * Asked for on boot rather than waited for: the push it replaces was emitted
+ * from Rust's `on_page_load`, which fires before this page exists, so the
+ * event reached a window with nothing listening and the request was lost. A
+ * live window is still told directly — see `desktop_pending_screen` in
+ * `reset.rs`.
+ */
+export const pendingScreen = (): Promise<string | null> => invoke<string | null>("desktop_pending_screen");
+
 export const installServer = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_server");
 
 export const installTmux = (): Promise<ActionResult> => invoke<ActionResult>("desktop_install_tmux");

@@ -24,8 +24,8 @@ async function openReset(init: Parameters<typeof installFakeIpc>[0] = {}) {
   ipc = installFakeIpc(init);
   renderApp(<App />);
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-  fireEvent.click(screen.getByRole("button", { name: "Reset Subshell…" }));
-  await screen.findByRole("heading", { name: "Reset Subshell" });
+  fireEvent.click(screen.getByRole("button", { name: "Reset this client…" }));
+  await screen.findByRole("heading", { name: "Reset this client" });
   return ipc as FakeIpc;
 }
 
@@ -121,7 +121,7 @@ describe("the reset screen", () => {
     });
     renderApp(<App />);
     await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: "Reset Subshell…" }));
-    await screen.findByRole("heading", { name: "Reset Subshell" });
+    fireEvent.click(screen.getByRole("button", { name: "Reset this client…" }));
+    await screen.findByRole("heading", { name: "Reset this client" });
   });
 });

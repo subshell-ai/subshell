@@ -132,7 +132,7 @@ export function ServiceScreen(props: {
           onClick={onReset}
           disabled={busy}
         >
-          Reset Subshell…
+          Reset this client…
         </button>
       </p>
     </Frame>

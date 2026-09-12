@@ -56,13 +56,18 @@ const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
  * of different severity is exactly the overloading the project's vocabulary
  * rule exists to prevent.
  *
- * It names the PRODUCT rather than either machine (operator's call,
- * 2026-09-12), and no platform word appears: everything this app does is on
- * this machine, so saying so was only ever redundant. Subshell Client's reset
- * title is this same string, which is the point — one act, one name, in both
- * apps.
+ * So it names WHAT IS RESET (operator's call, 2026-09-12): this server. The
+ * two apps say different things because they destroy different things, and
+ * Subshell Client's twin reads "Reset this client" for the same reason.
+ *
+ * It briefly read "Reset Subshell" in both, which contradicted the paragraph
+ * above it: one label over two acts of different severity is the overloading
+ * the vocabulary rule exists to prevent, and the product name is the one word
+ * that cannot tell them apart. No platform word appears in either — everything
+ * either app does is on the machine it is running on, so saying so was only
+ * ever redundant, and "this Mac" was what made the old label read as truncated.
  */
-export const RESET_LABEL = "Reset Subshell";
+export const RESET_LABEL = "Reset this server";
 
 /**
  * The title of the Set Up screen, on BOTH paths to it: the first run, and a
@@ -117,7 +122,7 @@ export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset"];
  * server, and Reset is asked for from that server's own dashboard — so without
  * this the window closes itself the moment the probe answers.
  *
- * Measured on 2026-09-12: pressing "Reset this machine" opened the assistant,
+ * Measured on 2026-09-12: pressing the dashboard's reset button opened the assistant,
  * which said "Opening your dashboard…" and vanished. The page had this rule
  * for `update` alone, written at its one call site, so `reset` never got it.
  */

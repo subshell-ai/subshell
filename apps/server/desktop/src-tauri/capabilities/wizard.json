@@ -19,6 +19,7 @@
     "allow-desktop-logs",
     "allow-desktop-open-path",
     "allow-desktop-arm-reset",
+    "allow-desktop-pending-screen",
     "allow-desktop-reset",
     "allow-desktop-open-main",
     "allow-desktop-open-tmux-docs",

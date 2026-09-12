@@ -341,6 +341,36 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
 /// probe taken at press time (R18), and the page still supplies only a
 /// hostname. Answers whether a plan parsed; `false` means the screen renders
 /// its own refusal, which is the useful information.
+/// The screen this window was opened for, taken exactly once.
+///
+/// **A PULL, because the push could not be heard.** The assistant used to be
+/// told through a `desktop-screen` event emitted from `on_page_load` — which
+/// Tauri fires for `PageLoadEvent::Started` as well as `Finished`. The handler
+/// ignored which, so the stash was consumed on `Started`, before the page's
+/// JavaScript existed, and the event went to a window with nothing listening.
+/// By the time anything could hear it the stash was empty. Measured on
+/// 2026-09-12: pressing Reset on the dashboard opened the assistant, which
+/// showed the ready handoff and closed itself, because the request never
+/// arrived.
+///
+/// Emitting on `Finished` instead would have narrowed the window without
+/// closing it: `listen()` registers over IPC, and nothing orders that against
+/// a page-load callback. Asking cannot race — whenever the page is ready to
+/// act on an answer, it asks for one.
+///
+/// A live window is still TOLD directly by [`arm_and_raise`], which has no
+/// page load to wait for; the stash is taken once either way, so the two can
+/// never both deliver.
+#[tauri::command(async)]
+pub fn desktop_pending_screen(app: AppHandle) -> Option<String> {
+    app.state::<Stash>()
+        .screen
+        .lock()
+        .unwrap()
+        .take()
+        .map(|s| s.as_str().to_string())
+}
+
 #[tauri::command(async)]
 pub fn desktop_arm_reset(app: AppHandle, settings: State<'_, SettingsState>) -> bool {
     let p = crate::control::probe_now(settings.get().binary_path.as_deref());
@@ -573,6 +603,32 @@ mod tests {
         assert_eq!(parse_screen(Some("reset".into())), Screen::Reset);
         assert_eq!(parse_screen(Some("update".into())), Screen::Update);
         assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);
+    }
+
+    /// The word the PAGE branches on is `as_str`, and since the screen request
+    /// became a pull (`desktop_pending_screen` answers this string) it is the
+    /// whole contract between the two halves — a request the page cannot match
+    /// is a window that opens on the wrong screen, silently.
+    #[test]
+    fn every_screen_round_trips_through_its_wire_word() {
+        for screen in [Screen::Home, Screen::Reset, Screen::Update] {
+            assert_eq!(parse_screen(Some(screen.as_str().to_string())), screen);
+        }
+        assert_eq!(Screen::Reset.as_str(), "reset");
+        assert_eq!(Screen::Update.as_str(), "update");
+        assert_eq!(Screen::Home.as_str(), "home");
+    }
+
+    /// Taken ONCE. Two deliverers exist — a live window is told directly, a
+    /// booting one asks — and both call `take`, so a request can never be
+    /// applied twice (a second application would yank a person off the screen
+    /// they are reading).
+    #[test]
+    fn a_stashed_screen_is_taken_once() {
+        let stash = Stash::default();
+        *stash.screen.lock().unwrap() = Some(Screen::Reset);
+        assert_eq!(stash.screen.lock().unwrap().take(), Some(Screen::Reset));
+        assert_eq!(stash.screen.lock().unwrap().take(), None);
     }
 
     #[test]
