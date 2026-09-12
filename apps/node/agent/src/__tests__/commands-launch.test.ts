@@ -316,6 +316,61 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(await ctx.meta.get(S1)).toBeUndefined();
   });
 
+  /**
+   * A subshell's bearer token rides in the launch argv and in `subshellEnv`,
+   * and the agent's log is now SERVED — `GET /api/nodes/:id/logs` hands it to
+   * any owner-or-`edit` viewer of that node. So a line that interpolated the
+   * command would turn a log read into a credential read.
+   *
+   * `docs/security.md` states this as product fact ("it does not log argv")
+   * and the design spec claimed it was pinned by a test. It was not, until
+   * this one: the property held by inspection alone, and nothing stopped a
+   * later `log(`launch failed: ${JSON.stringify(cmd)}`)` from falsifying it
+   * silently.
+   *
+   * Driven through the two log paths a launch can actually take — a failing
+   * pipe-pane on a revive, and a failing resize — because those are the lines
+   * most likely to grow a "here is the command" detail later.
+   */
+  it("never writes argv or the pane env into the log, even when a launch step fails", async () => {
+    const dataDir = await freshDataDir("no-argv-in-log");
+    const TOKEN = "subshell_sk_SENTINEL_do_not_log_me";
+    const capture = captureLogs();
+    try {
+      const { ctx } = makeCtx(
+        dataDir,
+        {
+          newSubshell: () => {},
+          pipePane: () => {},
+          // Cosmetic by contract, and it logs — the one failure a live pane
+          // survives, which is why it is the easiest place for a detail to
+          // creep in.
+          resizeWindow: () => {
+            throw new Error("resize refused");
+          },
+        },
+        [],
+      );
+      const result = await dispatchCommand(
+        ctx,
+        launchCmd({
+          argv: [HARNESS_BINARY_PLACEHOLDER, "--api-key", TOKEN],
+          subshellEnv: { SUBSHELL_API_KEY: TOKEN },
+        }),
+      );
+      expect(result).toEqual({ ok: true });
+      // It logged SOMETHING (or this test proves nothing about logging).
+      expect(capture.lines.length).toBeGreaterThan(0);
+      for (const line of capture.lines) {
+        expect(line).not.toContain(TOKEN);
+        expect(line).not.toContain("--api-key");
+      }
+      stopWatcher(ctx, S1);
+    } finally {
+      capture.restore();
+    }
+  });
+
   it("a malformed subshell id is refused before ANY harness/tmux/meta work", async () => {
     const dataDir = await freshDataDir("bad-id");
     const { ctx, calls } = makeCtx(dataDir, {}, []);

@@ -23,6 +23,7 @@
     "allow-node-settings",
     "allow-node-open-plane",
     "allow-node-open-plane-url",
+    "allow-node-pending-screen",
     "allow-node-about",
     "allow-node-open-web"
   ]

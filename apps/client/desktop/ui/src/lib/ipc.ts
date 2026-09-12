@@ -424,6 +424,18 @@ export interface About {
 }
 
 /** Ownership, terms and this app's version. Read-only; no machine state. */
+/**
+ * The screen this window was opened for, taken exactly once.
+ *
+ * Asked for on mount rather than waited for: the tray's About raises this
+ * window and a window that is still loading has no listener yet, so the push
+ * it replaces reached nothing. A window that was ALREADY up is still told
+ * directly — see `windows::show_node_screen`.
+ */
+export function nodePendingScreen(): Promise<string | null> {
+  return invoke<string | null>("node_pending_screen");
+}
+
 export function nodeAbout(): Promise<About> {
   return invoke<About>("node_about");
 }

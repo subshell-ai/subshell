@@ -37,6 +37,29 @@ fn floor_at(level: f64) -> LogicalSize<f64> {
     LogicalSize::new(MIN_WIDTH * level, MIN_HEIGHT * level)
 }
 
+/// The floor, never larger than the display can show.
+///
+/// The scaled floor is what keeps the CSS-pixel breakpoint true, but it is
+/// also a size `refit` SETS — so on a 1366x768 panel at 200% the unclamped
+/// version would grow the window to 2048x1280 from its existing top-left and
+/// pin `min_inner_size` there, leaving a window bigger than the screen and no
+/// way back but dragging. The assistant frame has always clamped to the work
+/// area; this is the same clamp for the same reason.
+///
+/// Clamping means the phone drawer can appear at a large text size on a small
+/// display. That is the honest outcome: there genuinely is no 1024-CSS-pixel
+/// viewport available there, and a window off the edge of the screen is the
+/// worse of the two.
+fn clamped_floor(level: f64, work_area: Option<(f64, f64)>) -> LogicalSize<f64> {
+    let floor = floor_at(level);
+    match work_area {
+        Some((w, h)) if w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 => {
+            LogicalSize::new(floor.width.min(w), floor.height.min(h))
+        }
+        _ => floor,
+    }
+}
+
 /// The primary monitor's usable area in logical pixels, if one answers.
 fn work_area(app: &AppHandle) -> Option<(f64, f64)> {
     let monitor = app.primary_monitor().ok().flatten()?;
@@ -60,7 +83,7 @@ pub fn refit(app: &AppHandle, level: f64) {
         let _ = w.center();
     }
     if let Some(w) = app.get_webview_window("main") {
-        let floor = floor_at(level);
+        let floor = clamped_floor(level, work_area(app));
         let _ = w.set_min_size(Some(floor));
         if let (Ok(scale), Ok(size)) = (w.scale_factor(), w.inner_size()) {
             let size = size.to_logical::<f64>(scale);
@@ -215,7 +238,7 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     });
 
     let level = crate::zoom::level(app);
-    let floor = floor_at(level);
+    let floor = clamped_floor(level, work_area(app));
     let allowed = url.origin();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         // The page is the SERVER's, and this window holds Tauri globals. A
@@ -331,6 +354,8 @@ pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// The unscaled width the floor is built from, for the clamp test.
+    const FLOOR_W: f64 = super::MIN_WIDTH;
     #[test]
     fn user_agent_carries_the_bundled_server_version_when_there_is_one() {
         assert_eq!(
@@ -362,6 +387,22 @@ mod tests {
     // The floor exists to clear a CSS-pixel breakpoint, and zoom is what turns
     // physical pixels into CSS pixels: an unscaled floor would let a 1024px
     // window at 150% render the SPA's PHONE drawer.
+    /// The floor is a size `refit` SETS, so an unclamped one at a large text
+    /// size grows the window past the edges of a small display and pins
+    /// `min_inner_size` there — recoverable only by dragging. The assistant
+    /// frame has always clamped; this is the same clamp.
+    #[test]
+    fn the_floor_never_outgrows_the_display() {
+        // 1366x768 at 200%: the unclamped floor would be 2048x1280.
+        let clamped = super::clamped_floor(2.0, Some((1366.0, 768.0)));
+        assert_eq!((clamped.width, clamped.height), (1366.0, 768.0));
+        // A roomy display leaves the scaled floor exactly as it was.
+        let roomy = super::clamped_floor(1.5, Some((3000.0, 2000.0)));
+        assert_eq!(roomy.width, FLOOR_W * 1.5);
+        // No monitor answered: the scaled floor stands rather than a guess.
+        assert_eq!(super::clamped_floor(1.5, None).width, FLOOR_W * 1.5);
+    }
+
     #[test]
     fn the_floor_scales_with_the_text_size() {
         let floor = super::floor_at(1.5);

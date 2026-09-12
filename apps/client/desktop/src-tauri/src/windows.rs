@@ -88,6 +88,29 @@ fn floor_at(level: f64) -> LogicalSize<f64> {
     LogicalSize::new(PLANE_MIN_WIDTH * level, PLANE_MIN_HEIGHT * level)
 }
 
+/// The floor, never larger than the display can show.
+///
+/// The scaled floor is what keeps the CSS-pixel breakpoint true, but it is
+/// also a size `refit` SETS — so on a 1366x768 panel at 200% the unclamped
+/// version would grow the window to 2048x1280 from its existing top-left and
+/// pin `min_inner_size` there, leaving a window bigger than the screen and no
+/// way back but dragging. The assistant frame has always clamped to the work
+/// area; this is the same clamp for the same reason.
+///
+/// Clamping means the phone drawer can appear at a large text size on a small
+/// display. That is the honest outcome: there genuinely is no 1024-CSS-pixel
+/// viewport available there, and a window off the edge of the screen is the
+/// worse of the two.
+fn clamped_floor(level: f64, work_area: Option<(f64, f64)>) -> LogicalSize<f64> {
+    let floor = floor_at(level);
+    match work_area {
+        Some((w, h)) if w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 => {
+            LogicalSize::new(floor.width.min(w), floor.height.min(h))
+        }
+        _ => floor,
+    }
+}
+
 /// The primary monitor's usable area in logical pixels, if one answers.
 fn work_area(app: &AppHandle) -> Option<(f64, f64)> {
     let monitor = app.primary_monitor().ok().flatten()?;
@@ -111,7 +134,7 @@ pub fn refit(app: &AppHandle, level: f64) {
         let _ = w.center();
     }
     if let Some(w) = app.get_webview_window(PLANE_LABEL) {
-        let floor = floor_at(level);
+        let floor = clamped_floor(level, work_area(app));
         let _ = w.set_min_size(Some(floor));
         if let (Ok(scale), Ok(size)) = (w.scale_factor(), w.inner_size()) {
             let size = size.to_logical::<f64>(scale);
@@ -207,7 +230,7 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
     pin.set(&url);
     let allowed = pin.0.clone();
     let level = crate::zoom::level(app);
-    let floor = floor_at(level);
+    let floor = clamped_floor(level, work_area(app));
     WebviewWindowBuilder::new(app, PLANE_LABEL, WebviewUrl::External(url))
         .on_navigation(move |u| {
             allowed
@@ -326,10 +349,52 @@ pub fn open_at_startup(app: &AppHandle, plane: Option<&str>) -> Result<(), Strin
 /// would also reach the plane's page, which is remote content this app grants
 /// nothing and tells nothing.
 pub fn show_node_screen(app: &AppHandle, screen: &str) {
+    // STASH FIRST. `open_node` CREATES the window when it is absent, and an
+    // emit to a window that is still loading reaches nothing: the page's
+    // `listen()` registers over IPC after its module evaluates, Tauri queues
+    // no events for a window with no listener, and the request is simply lost.
+    //
+    // Measured in the sibling app on 2026-09-12 and written up in
+    // `apps/server/desktop/src-tauri/src/reset.rs` — pressing Reset on the
+    // dashboard opened the assistant on the wrong screen because the request
+    // was emitted before the page existed. This is the same shape, and here it
+    // would land on the tray's About item: on a tray-capable Linux desktop
+    // that is the ONLY route to About, so losing it loses the feature.
+    //
+    // A live window is told directly, because it has no page load to wait for.
+    // Whichever path gets there takes the stash, so a request is applied once.
+    *app.state::<PendingScreen>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(screen.to_string());
+    let existed = app.get_webview_window(NODE_LABEL).is_some();
     let Ok(window) = open_node(app) else { return };
     show(&window);
-    use tauri::Emitter;
-    let _ = window.emit("desktop-screen", screen);
+    if existed {
+        if let Some(pending) = take_pending_screen(app) {
+            use tauri::Emitter;
+            let _ = window.emit("desktop-screen", pending);
+        }
+    }
+}
+
+/// The screen a window that is still coming up was opened FOR.
+///
+/// Managed state rather than an argument, because the two deliverers are a
+/// menu click and a page boot and they do not meet: one writes it, the other
+/// asks for it (`node_pending_screen`).
+pub struct PendingScreen(pub std::sync::Mutex<Option<String>>);
+
+impl PendingScreen {
+    pub fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+}
+
+/// Take the pending screen, exactly once.
+pub fn take_pending_screen(app: &AppHandle) -> Option<String> {
+    app.state::<PendingScreen>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
 }
 
 fn show(window: &WebviewWindow) {
@@ -340,6 +405,8 @@ fn show(window: &WebviewWindow) {
 
 #[cfg(test)]
 mod tests {
+    /// The unscaled width the floor is built from, for the clamp test.
+    const FLOOR_W: f64 = super::PLANE_MIN_WIDTH;
     use super::*;
 
     // The label is what `capabilities/node.json` names. A window built under
@@ -406,6 +473,22 @@ mod tests {
     // The floor exists to clear a CSS-pixel breakpoint, and zoom is what turns
     // physical pixels into CSS pixels: an unscaled floor would let a 1024px
     // window at 150% render the SPA's PHONE drawer.
+    /// The floor is a size `refit` SETS, so an unclamped one at a large text
+    /// size grows the window past the edges of a small display and pins
+    /// `min_inner_size` there — recoverable only by dragging. The assistant
+    /// frame has always clamped; this is the same clamp.
+    #[test]
+    fn the_floor_never_outgrows_the_display() {
+        // 1366x768 at 200%: the unclamped floor would be 2048x1280.
+        let clamped = super::clamped_floor(2.0, Some((1366.0, 768.0)));
+        assert_eq!((clamped.width, clamped.height), (1366.0, 768.0));
+        // A roomy display leaves the scaled floor exactly as it was.
+        let roomy = super::clamped_floor(1.5, Some((3000.0, 2000.0)));
+        assert_eq!(roomy.width, FLOOR_W * 1.5);
+        // No monitor answered: the scaled floor stands rather than a guess.
+        assert_eq!(super::clamped_floor(1.5, None).width, FLOOR_W * 1.5);
+    }
+
     #[test]
     fn the_floor_scales_with_the_text_size() {
         let floor = floor_at(1.5);

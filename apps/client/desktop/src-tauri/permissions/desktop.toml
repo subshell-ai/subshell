@@ -79,6 +79,11 @@ description = "Open the control plane's address in the system browser. The URL i
 commands.allow = ["node_open_plane_url"]
 
 [[permission]]
+identifier = "allow-node-pending-screen"
+description = "Read (and clear) the screen this window was opened for — About, or nothing. A pull, because a push emitted while the window is still loading reaches a page that is not listening yet. Answers one word this app chose; names no path and changes nothing."
+commands.allow = ["node_pending_screen"]
+
+[[permission]]
 identifier = "allow-node-about"
 description = "Read who made this app, its version, and the licence terms — the strings the About footer renders. No machine state, nothing writable, no paths."
 commands.allow = ["node_about"]

@@ -147,6 +147,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::PlanePin::new())
+        .manage(windows::PendingScreen::new())
         .manage(reset::Stash::default())
         .invoke_handler(tauri::generate_handler![
             control::node_probe,
@@ -157,6 +158,7 @@ pub fn run() {
             control::node_set_agent_bin,
             control::node_about,
             control::node_open_web,
+            control::node_pending_screen,
             control::node_open_path,
             control::node_settings,
             control::node_open_plane,

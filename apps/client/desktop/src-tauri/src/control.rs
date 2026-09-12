@@ -1381,6 +1381,17 @@ pub fn node_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
         .map_err(|e| format!("could not open {url}: {e}"))
 }
 
+/// The screen this window was opened for, taken exactly once.
+///
+/// A PULL, for the reason `apps/server/desktop`'s twin documents: a push
+/// emitted while the window is still loading reaches a page whose `listen()`
+/// has not registered yet, and Tauri queues nothing. Asking cannot race —
+/// whenever the page is ready to act on an answer, it asks for one.
+#[tauri::command(async)]
+pub fn node_pending_screen(app: AppHandle) -> Option<String> {
+    crate::windows::take_pending_screen(&app)
+}
+
 /// Reveal one of a fixed set of the app's own directories or files.
 #[tauri::command(async)]
 pub fn node_open_path(app: AppHandle, target: OpenTarget) -> Result<(), String> {

@@ -102,8 +102,9 @@ export const NODE_RESULT_KILLS_PANES = "kills panes";
 
 /**
  * `result.error` from a `service` verb that needs a definition where none is
- * installed — `start`, `stop` and `uninstall` on a machine whose agent was
- * launched by hand.
+ * installed — `start` and `stop` on a machine whose agent was launched by
+ * hand. NOT `uninstall`: removing what is already gone is a no-op the CLI
+ * answers 0, and an idempotent teardown is what a caller wants.
  */
 export const NODE_RESULT_NO_SERVICE = "no service definition";
 

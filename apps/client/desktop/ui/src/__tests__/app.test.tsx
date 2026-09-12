@@ -644,6 +644,9 @@ describe("what the page never asks for", () => {
       "node_enroll",
       "node_set_agent_bin",
       "node_open_path",
+      // The tray's screen request, ASKED for on mount — a window the tray just
+      // created has no listener yet, so the event alone would be lost.
+      "node_pending_screen",
       // Tauri's own event plumbing, not a command this app defines: the page
       // subscribes for the tray's screen requests on mount. `node_about` is
       // NOT here any more — it is read by the About screen, which a person has

@@ -45,6 +45,7 @@ import { useEnrollForm } from "@/hooks/use-enroll-form";
 import { useNodeCommands } from "@/hooks/use-node-commands";
 import { useNodeState } from "@/hooks/use-node-state";
 import type { EnrolledNodeBody } from "@/lib/ipc";
+import * as ipc from "@/lib/ipc";
 import { type NodeUserScreen, screenFor, screenTitle } from "@/lib/node-assistant-state";
 
 export function App() {
@@ -59,6 +60,20 @@ export function App() {
   // build does not know is IGNORED rather than throwing — that is what lets a
   // menu item and this page ship independently.
   useEffect(() => {
+    // ASK first: this window may have just been created by the tray's About,
+    // in which case the emit below was never heard — the page's listener
+    // registers over IPC after the module evaluates, and Tauri queues nothing
+    // for a window that is not listening yet. A window that was already up is
+    // told directly, and whichever path gets there takes the request once.
+    void ipc
+      .nodePendingScreen()
+      .then((pending) => {
+        if (pending === "about") setOverride("about");
+      })
+      .catch(() => {
+        // An older Rust half knows no such command; nothing was requested that
+        // this page can honour.
+      });
     const unlisten = listen<string>("desktop-screen", (event) => {
       if (event.payload === "about") setOverride("about");
     });

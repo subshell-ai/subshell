@@ -9,6 +9,16 @@ import { controlService, DEFAULT_DEPS, installService, isServiceVerb, uninstallS
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
+ * The verbs that need a service definition to exist.
+ *
+ * `uninstall` is deliberately absent: removing what is already gone is a
+ * no-op, and the CLI answers it 0 — an idempotent teardown is what a caller
+ * wants, and the agent's own `service uninstall` keeps that property so a
+ * stranded unit can always come down.
+ */
+const NEEDS_DEFINITION: readonly NodeServiceVerb[] = ["start", "stop"];
+
+/**
  * `service`: drive this machine's service manager (spec 2026-09-12, node half).
  *
  * One executor for all five verbs because they are one manager and one set of
@@ -32,23 +42,54 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
 export async function execService(ctx: CommandContext, cmd: Cmd<"service">): Promise<CommandResult> {
   const runtime = ctx.runtime;
 
-  // Pane safety first, for every verb that can end a pane. The CLI's own
-  // destructive verbs fail CLOSED on `unknown` — the definition exists but
-  // could not be read — and so does this: telling someone their panes are safe
-  // when nobody could tell is the kind of certainty that gets ignored.
+  // SUPERVISION first, and only for `restart`, because it is the most
+  // specific truth available about that verb: exiting is a restart only when
+  // the manager started THIS pid, and on a foreground `subshell run` exiting
+  // is a STOP. Answering a pane warning there would diagnose the smaller
+  // problem — and with no report at all, "not supervised" is exactly what
+  // this agent cannot disprove.
+  if (cmd.verb === "restart" && !runtime?.supervised) {
+    return { ok: false, error: NODE_RESULT_NOT_SUPERVISED };
+  }
+
+  // NOTHING INSTALLED is its own answer, and it has to come first.
+  //
+  // A machine with no definition reports `paneSafety: "unknown"` (there is no
+  // definition to read), so the pane-safety branch below used to fire on it and
+  // answer "the definition could not be read" — about a machine that has none.
+  // On the hand-run agent this constant was written for, Stop therefore gave
+  // two wrong diagnoses in a row: a pane warning, and then, only after being
+  // forced, the truth.
+  //
+  // `install` is excluded because it is the remedy, and `restart` because it
+  // does not drive the manager at all — it exits, and the `supervised` check
+  // below is the honest refusal there.
+  if (runtime?.service.installed === false && NEEDS_DEFINITION.includes(cmd.verb)) {
+    return { ok: false, error: NODE_RESULT_NO_SERVICE };
+  }
+
+  // Pane safety, for every verb that can end a pane. The CLI's own destructive
+  // verbs fail CLOSED on `unknown` — the definition exists but could not be
+  // read — and so does this: telling someone their panes are safe when nobody
+  // could tell is the kind of certainty that gets ignored.
+  //
+  // NO REPORT AT ALL fails closed too, and that is the half this used to get
+  // backwards: `runtime &&` skipped the whole check when `collectRuntime`
+  // failed, so `stop` and `uninstall` went through unforced on exactly the
+  // machine that could say least about itself. `restart` was rescued by the
+  // `supervised` check below; the other two had nothing. A missing report is
+  // LESS evidence of safety than an unreadable definition, not more.
   if (NODE_SERVICE_DESTRUCTIVE.includes(cmd.verb) && cmd.force !== true) {
-    if (runtime && runtime.service.paneSafety !== "keeps") {
+    if (runtime?.service.paneSafety !== "keeps") {
       return { ok: false, error: NODE_RESULT_KILLS_PANES };
     }
   }
 
   if (cmd.verb === "restart") {
-    // Exiting is a restart only when the manager started THIS pid. Anything
-    // else — a foreground `subshell run`, a second daemon — would just stop.
-    if (!runtime?.supervised) return { ok: false, error: NODE_RESULT_NOT_SUPERVISED };
-    // `{ ok: true }` FIRST: the daemon sends the result frame and only then
-    // takes the socket down, so the plane learns the restart was accepted
-    // rather than inferring it from a disconnect.
+    // Supervision was checked above, before the pane gate. `{ ok: true }`
+    // FIRST: the daemon sends the result frame and only then takes the socket
+    // down, so the plane learns the restart was accepted rather than inferring
+    // it from a disconnect.
     ctx.requestRestart();
     return { ok: true };
   }
