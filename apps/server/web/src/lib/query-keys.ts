@@ -36,3 +36,9 @@ export const NODE_QUERY_KEY = ["node"] as const;
 
 /** Prefix of a node's sharing grants: `[...NODE_SHARES_QUERY_KEY, id]`. */
 export const NODE_SHARES_QUERY_KEY = ["node-shares"] as const;
+
+/** How this server is deployed (`GET /api/admin/server`); read via `useServerDeployment`. */
+export const SERVER_DEPLOYMENT_QUERY_KEY = ["server-deployment"] as const;
+
+/** Prefix of the server-log tail: `[...SERVER_LOGS_QUERY_KEY, lines]`. */
+export const SERVER_LOGS_QUERY_KEY = ["server-logs"] as const;
