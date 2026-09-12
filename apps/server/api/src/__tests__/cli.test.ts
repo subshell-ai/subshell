@@ -761,6 +761,42 @@ describe("dispatchCli — service verbs", () => {
     expect(err[0]).toContain("unexpected argument '--json'");
     expect(exits).toEqual([1]);
   });
+
+  test("enable and disable are dispatchable words, and take no flags", async () => {
+    // Nothing is installed here, so both refuse — the point is that they are
+    // RECOGNISED rather than a usage error, which is what a missing entry in
+    // SERVICE_COMMANDS would produce.
+    for (const verb of ["enable", "disable"]) {
+      const { deps, err, exits } = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+      expect(await dispatchCli(["service", verb], deps)).toBe(true);
+      expect(err.join("\n")).not.toContain("unknown service command");
+      expect(err.join("\n")).toContain("nothing installed");
+      expect(exits).toEqual([1]);
+    }
+
+    const flagged = collectingDeps();
+    expect(await dispatchCli(["service", "enable", "--json"], flagged.deps)).toBe(true);
+    expect(flagged.err[0]).toContain("unexpected argument '--json'");
+  });
+
+  test("install accepts --no-autostart, and only install does", async () => {
+    const { deps, err } = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+    await dispatchCli(["service", "install", "--no-autostart"], deps);
+    expect(err.join("\n")).not.toContain("unexpected argument");
+
+    const wrong = collectingDeps();
+    expect(await dispatchCli(["service", "restart", "--no-autostart"], wrong.deps)).toBe(true);
+    expect(wrong.err[0]).toContain("unexpected argument '--no-autostart'");
+  });
+
+  test("usage names the autostart verbs and the flag", async () => {
+    const { deps, err } = collectingDeps();
+    await dispatchCli(["service"], deps);
+    const usage = err.join("\n");
+    expect(usage).toContain("service enable");
+    expect(usage).toContain("service disable");
+    expect(usage).toContain("--no-autostart");
+  });
 });
 
 /**

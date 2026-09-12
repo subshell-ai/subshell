@@ -9,6 +9,7 @@ import {
   SERVICE_VERBS,
   type ServiceDeps,
   type ServiceRunState,
+  setAutostart,
   uninstallService,
 } from "../service.js";
 
@@ -1108,5 +1109,228 @@ describe("controlService", () => {
     expect(msgLine(r.err)).toContain("bootstrap broke");
     expect(msgLine(r.err)).toContain("kickstart broke");
     expect(msgLine(r.err)).toContain("launchctl enable");
+  });
+});
+
+/**
+ * "Starts at login" as a thing you can CHANGE (spec 2026-09-12
+ * server-supervision § 3).
+ *
+ * The contract every case here defends is the same one sentence: **toggling
+ * autostart must not touch the running process.** An operator saying "don't
+ * bring this back at login" has not asked for their server to go down now,
+ * and a surface that took it down would be worse than no surface.
+ */
+const SESSION_PLIST = join(CONFIG, "dev.subshell.server.plist");
+
+describe("service install --no-autostart", () => {
+  test("linux starts the unit WITHOUT enabling it", () => {
+    const s = stub();
+    const res = installService(s.deps, { autostart: false });
+    expect(res.code).toBe(0);
+    // `start`, never `enable --now`: the unit must be left disabled so
+    // UnitFileState reads `disabled` with nothing to undo later.
+    const manager = s.calls.filter((c) => c[0] === "systemctl").map((c) => c.slice(0, 3).join(" "));
+    expect(manager).toContain("systemctl --user start");
+    expect(manager).not.toContain("systemctl --user enable");
+    expect(res.out).toContain("not enabled at login");
+    expect(s.files.has(UNIT)).toBe(true);
+  });
+
+  test("linux default is unchanged: enable --now, and the old success line", () => {
+    const s = stub();
+    const res = installService(s.deps);
+    expect(s.calls.some((c) => c.join(" ") === "systemctl --user enable --now subshell-server.service")).toBe(true);
+    expect(res.out).toContain("enabled and running");
+  });
+
+  test("darwin writes the SESSION plist and leaves LaunchAgents empty", () => {
+    const s = stub({ platform: "darwin" });
+    const res = installService(s.deps, { autostart: false });
+    expect(res.code).toBe(0);
+    // The location IS the setting: launchd scans ~/Library/LaunchAgents at
+    // login and nothing else, so a definition kept elsewhere runs only when
+    // something bootstraps it.
+    expect(s.files.has(SESSION_PLIST)).toBe(true);
+    expect(s.files.has(PLIST)).toBe(false);
+    // ...and it is bootstrapped from where it actually is.
+    expect(s.calls.some((c) => c[0] === "launchctl" && c[1] === "bootstrap" && c[3] === SESSION_PLIST)).toBe(true);
+  });
+
+  test("darwin autostart writes the LaunchAgents plist and clears a stale session one", () => {
+    const s = stub({ platform: "darwin" });
+    s.files.set(SESSION_PLIST, "<plist>stale</plist>");
+    installService(s.deps);
+    expect(s.files.has(PLIST)).toBe(true);
+    // Exactly one definition after any install: a leftover in the login
+    // directory would re-arm autostart at the next reboot, silently.
+    expect(s.removed).toContain(SESSION_PLIST);
+    expect(s.files.has(SESSION_PLIST)).toBe(false);
+  });
+});
+
+describe("queryService reports autostart from where the definition lives", () => {
+  test("darwin: LaunchAgents = enabled, session dir = not enabled", () => {
+    const enabled = stub({
+      platform: "darwin",
+      respond: () => ({ code: 113, out: "", err: "Could not find service" }),
+    });
+    installService(enabled.deps);
+    expect(queryService(enabled.deps).enabled).toBe(true);
+    expect(queryService(enabled.deps).definitionPath).toBe(PLIST);
+
+    const disabled = stub({
+      platform: "darwin",
+      respond: () => ({ code: 113, out: "", err: "Could not find service" }),
+    });
+    installService(disabled.deps, { autostart: false });
+    const state = queryService(disabled.deps);
+    expect(state.enabled).toBe(false);
+    expect(state.installed).toBe(true);
+    expect(state.definitionPath).toBe(SESSION_PLIST);
+  });
+
+  test("darwin: nothing installed names the login path and answers enabled: null", () => {
+    const s = stub({ platform: "darwin" });
+    const state = queryService(s.deps);
+    expect(state.installed).toBe(false);
+    expect(state.enabled).toBe(null);
+    expect(state.definitionPath).toBe(PLIST);
+  });
+});
+
+describe("setAutostart", () => {
+  test("linux enables and disables WITHOUT --now", () => {
+    const s = stub();
+    installService(s.deps);
+    s.calls.length = 0;
+    expect(setAutostart(s.deps, false).code).toBe(0);
+    expect(s.calls).toEqual([
+      [
+        "systemctl",
+        "--user",
+        "show",
+        "subshell-server.service",
+        "--property=ActiveState,SubState,UnitFileState,MainPID,KillMode",
+      ],
+      ["systemctl", "--user", "disable", "subshell-server.service"],
+    ]);
+    // The absence of `--now` is the whole point: with it, this would have
+    // stopped a running server that nobody asked to stop.
+    expect(s.calls.some((c) => c.includes("--now"))).toBe(false);
+  });
+
+  test("linux says what happened, in the manager's absence of words", () => {
+    const s = stub();
+    installService(s.deps);
+    expect(setAutostart(s.deps, true).out).toContain("will start at login");
+    expect(setAutostart(s.deps, false).out).toContain("will no longer start at login");
+  });
+
+  test("darwin MOVES the plist and runs no manager command at all", () => {
+    const s = stub({ platform: "darwin", respond: () => ({ code: 113, out: "", err: "Could not find service" }) });
+    installService(s.deps);
+    const text = s.files.get(PLIST);
+    s.calls.length = 0;
+
+    expect(setAutostart(s.deps, false).code).toBe(0);
+    expect(s.files.get(SESSION_PLIST)).toBe(text); // same document, new home
+    expect(s.files.has(PLIST)).toBe(false);
+    // launchd holds the LOADED job, not the file, so moving it restarts
+    // nothing — and this asserts we never asked launchctl to. `print` is
+    // allowed through because it is `queryService`'s read of the current
+    // state; what must never appear is a verb that ACTS on the job.
+    const acted = s.calls.filter((c) => c[0] === "launchctl" && c[1] !== "print").map((c) => c[1]);
+    expect(acted).toEqual([]);
+
+    expect(setAutostart(s.deps, true).code).toBe(0);
+    expect(s.files.get(PLIST)).toBe(text);
+    expect(s.files.has(SESSION_PLIST)).toBe(false);
+  });
+
+  test("darwin writes the destination BEFORE removing the source", () => {
+    const order: string[] = [];
+    const s = stub({ platform: "darwin", respond: () => ({ code: 113, out: "", err: "Could not find service" }) });
+    installService(s.deps);
+    const realWrite = s.deps.writeFile;
+    const realRemove = s.deps.removeFile;
+    s.deps.writeFile = (p, t) => {
+      order.push(`write:${p}`);
+      realWrite(p, t);
+    };
+    s.deps.removeFile = (p) => {
+      order.push(`remove:${p}`);
+      realRemove(p);
+    };
+    setAutostart(s.deps, false);
+    // A failed write must leave the service as it was, never unregistered
+    // from both places — which is a machine with no definition at all.
+    expect(order).toEqual([`write:${SESSION_PLIST}`, `remove:${PLIST}`]);
+  });
+
+  test("refuses when nothing is installed, in controlService's own words", () => {
+    const s = stub();
+    const res = setAutostart(s.deps, true);
+    expect(res.code).toBe(1);
+    expect(res.err).toContain("nothing installed");
+    expect(res.err).toContain("service install");
+    // Nothing was written: this is not a back door to installing a service
+    // whose config was never checked.
+    expect(s.files.size).toBe(0);
+  });
+
+  test("a no-op is a success that changes nothing on disk", () => {
+    const s = stub({ platform: "darwin", respond: () => ({ code: 113, out: "", err: "Could not find service" }) });
+    installService(s.deps);
+    s.removed.length = 0;
+    expect(setAutostart(s.deps, true).code).toBe(0);
+    expect(s.removed).toEqual([]);
+    expect(s.files.has(PLIST)).toBe(true);
+  });
+
+  test("refuses on a platform with no service manager", () => {
+    const s = stub({ platform: "win32" });
+    expect(setAutostart(s.deps, true).code).toBe(1);
+  });
+});
+
+describe("uninstall removes every definition", () => {
+  test("darwin removes the session plist as well as the login one", () => {
+    const s = stub({ platform: "darwin" });
+    s.files.set(PLIST, "<plist>login</plist>");
+    s.files.set(SESSION_PLIST, "<plist>session</plist>");
+    const res = uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    // Both, always: a machine must never come out of uninstall with a
+    // definition still able to start a server the operator believes is gone.
+    expect(s.files.has(PLIST)).toBe(false);
+    expect(s.files.has(SESSION_PLIST)).toBe(false);
+  });
+
+  test("darwin uninstalls a --no-autostart install", () => {
+    const s = stub({ platform: "darwin" });
+    installService(s.deps, { autostart: false });
+    const res = uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Removed");
+    expect(s.files.has(SESSION_PLIST)).toBe(false);
+  });
+});
+
+describe("control verbs follow the definition's location", () => {
+  test("darwin start bootstraps the SESSION plist for a disabled install", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[1] === "print" ? { code: 113, out: "", err: "Could not find service" } : { code: 0, out: "", err: "" },
+    });
+    installService(s.deps, { autostart: false });
+    s.calls.length = 0;
+    const res = controlService(s.deps, "start");
+    expect(res.code).toBe(0);
+    // Re-deriving the login path here would answer "no such file" for a
+    // service that is installed and merely not armed for login.
+    const boot = s.calls.find((c) => c[1] === "bootstrap");
+    expect(boot?.[3]).toBe(SESSION_PLIST);
   });
 });

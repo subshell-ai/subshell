@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
 import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
@@ -211,7 +212,10 @@ export function collectStatus(deps: StatusDeps): StatusView {
   const portValid = String(portNum) === portRaw.trim() && portNum >= 1 && portNum <= 65535;
   const listening = portValid ? ((deps.probePort ?? syncPortListening)(dialHost, portNum) ?? false) : false;
 
-  const svc = serviceArtifactPath(deps.platform ?? process.platform, deps.home ?? homedir());
+  // The config dir is passed so a darwin service installed with
+  // `--no-autostart` — whose plist lives there rather than in
+  // `~/Library/LaunchAgents` — is reported as installed rather than absent.
+  const svc = serviceArtifactPath(deps.platform ?? process.platform, deps.home ?? homedir(), dirname(cfg.path));
 
   return {
     version: SERVER_VERSION,

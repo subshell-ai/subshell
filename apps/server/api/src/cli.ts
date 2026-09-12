@@ -12,6 +12,7 @@ import {
   installService,
   queryService,
   SERVICE_VERBS,
+  setAutostart,
   uninstallService,
 } from "@/service.js";
 import type { McpResolveIo } from "@/services/mcp-resolve.js";
@@ -136,8 +137,11 @@ usage:
   subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env
   subshell-server configure      (re)write config.env; interactive unless --yes
-  subshell-server service install    background the server (systemd user unit / launchd agent)
+  subshell-server service install    background the server (systemd user unit / launchd agent);
+                                     --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
+  subshell-server service enable     start it at login (does not touch the running process)
+  subshell-server service disable    stop starting it at login (does not touch the running process)
   subshell-server service status     what the service manager reports (--json for machine output)
   subshell-server service start      start the installed service
   subshell-server service stop       stop it (the definition stays installed)
@@ -362,10 +366,12 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       // silent fall into controlService.
       const result =
         verb === "install"
-          ? installService(sdeps)
+          ? installService(sdeps, { autostart: !flags.includes("--no-autostart") })
           : verb === "uninstall"
             ? uninstallService(sdeps)
-            : controlService(sdeps, verb, { force: flags.includes("--force") });
+            : verb === "enable" || verb === "disable"
+              ? setAutostart(sdeps, verb === "enable")
+              : controlService(sdeps, verb, { force: flags.includes("--force") });
       // out/err arrive pre-newline-terminated; log/error append their own.
       if (result.out !== "") log(result.out.replace(/\n+$/, ""));
       if (result.err !== "") error(result.err.replace(/\n+$/, ""));
@@ -382,10 +388,10 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
 
 /**
  * Every word `service` accepts: the two authoring verbs, the read-only view,
- * and the control verbs — the last spread from `service.ts` so a new verb
+ * the two autostart verbs, and the control verbs — the last spread from `service.ts` so a new verb
  * there cannot be silently unreachable here.
  */
-const SERVICE_COMMANDS = ["install", "uninstall", "status", ...SERVICE_VERBS] as const;
+const SERVICE_COMMANDS = ["install", "uninstall", "status", "enable", "disable", ...SERVICE_VERBS] as const;
 type ServiceCommand = (typeof SERVICE_COMMANDS)[number];
 const isServiceCommand = (word: string): word is ServiceCommand =>
   (SERVICE_COMMANDS as readonly string[]).includes(word);
@@ -394,6 +400,7 @@ const isServiceCommand = (word: string): word is ServiceCommand =>
 const SERVICE_FLAGS: Partial<Record<ServiceCommand, ReadonlySet<string>>> = {
   status: new Set(["--json"]),
   restart: new Set(["--force"]),
+  install: new Set(["--no-autostart"]),
 };
 
 /** Shared empty allowlist for the verbs that take no flags at all. */
