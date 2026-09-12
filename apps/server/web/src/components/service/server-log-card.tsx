@@ -78,6 +78,12 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
               <Label htmlFor="server-debug-logging">Debug logging</Label>
               <Switch
                 id="server-debug-logging"
+                // Base UI's Switch Root is a `<span role="switch">`, and
+                // `htmlFor` names form controls only — so the Label beside it
+                // gives this control NO accessible name on its own. Every
+                // other Switch in this app carries an explicit one for the
+                // same reason; an e2e spec found this one missing.
+                aria-label="Debug logging"
                 checked={view.logging.debug}
                 disabled={setDebug.isPending}
                 onCheckedChange={(checked: boolean) => setDebug.mutate(checked)}

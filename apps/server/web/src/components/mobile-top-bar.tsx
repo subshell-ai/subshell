@@ -36,7 +36,11 @@ export function MobileNav() {
         <SheetTitle className="sr-only">Navigation</SheetTitle>
         <AppSidebar
           forceExpanded
-          className="w-full border-r-0"
+          // `h-full min-h-0`: the panel is `fixed inset-y-0`, but a column
+          // flex child is not stretched vertically, so without this the rail
+          // is content-height and its footer (the account menu) falls off the
+          // bottom of a phone once the nav is long enough.
+          className="h-full min-h-0 w-full border-r-0"
           // The close control rides in the brand row (where the desktop rail
           // keeps its collapse chevron) — floating it at the panel's top-right
           // put it over a nav row's quick-add + on phones (2026-09-04).

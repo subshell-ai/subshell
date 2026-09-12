@@ -438,7 +438,12 @@ export function AppSidebar({
       )}
       {collapsed && <div className="pb-3" />}
 
-      <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
+      {/* `min-h-0` is load-bearing, not tidying: a flex item's automatic minimum
+          size is its CONTENT, so `flex-1` + `overflow-y-auto` alone still grows
+          past the container and pushes the footer below the fold instead of
+          scrolling. Invisible on a tall desktop rail; on the phone drawer it
+          took one extra nav item to surface (e2e 08, 2026-09-12). */}
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
         {visibleNavEntries(publicSettings?.viewerIsAdmin).map((entry) => {
           if (isNavGroup(entry)) {
             // Collapsed rail: the children ARE the rail, with no header above
